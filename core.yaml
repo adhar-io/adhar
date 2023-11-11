@@ -1,0 +1,456 @@
+# NOTE: This file is merged with other values in ./helmfile.d/snippets/env.gotmpl
+k8s:
+  namespaces:
+    - name: argocd
+      app: argocd
+    - name: cert-manager
+      disableIstioInjection: true
+    - name: cnpg-system
+      app: cnpg
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: default
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: drone
+    - name: drone-pipelines
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: external-dns
+      disableIstioInjection: true
+    - name: external-secrets
+      disableIstioInjection: true
+    - name: falco
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: harbor
+      app: harbor
+    - name: gatekeeper-system
+      app: gatekeeper
+      disableIstioInjection: true
+    - name: gitea
+    - name: grafana
+      app: grafana
+    - name: istio-system
+      disableIstioInjection: true
+    - name: istio-operator
+      istio-operator-managed: Reconcile
+      istio-injection: disabled
+    - name: httpbin
+      app: httpbin
+    - name: ingress
+      # disabling istio sidecar as it does not preserve client ip (yet)
+      # TODO: enable once it does
+      disableIstioInjection: true
+    - name: jaeger
+      app: jaeger
+    - name: jaeger-operator
+      app: jaeger
+      disableIstioInjection: true
+    - name: keycloak
+    - name: kiali
+      app: kiali
+    - name: kiali-operator
+      app: kiali
+      disableIstioInjection: true
+    - name: knative-serving
+      app: knative
+      disablePolicyChecks: true
+      disableIstioInjection: true
+    - name: kubeapps
+      app: kubeapps
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: kured
+      app: kured
+      disableIstioInjection: true
+    - name: tekton-pipelines
+      app: tekton
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: tekton-triggers
+      app: tekton
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: otel
+      app: otel
+      disableIstioInjection: true
+    - name: tempo
+      app: tempo
+      disableIstioInjection: true
+    - name: maintenance
+      disableIstioInjection: true
+    - name: minio
+      app: minio
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: monitoring
+      disableIstioInjection: true
+    - name: olm
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: opa-exporter
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: operators
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: opencost
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: otomi
+    - name: otomi-operator
+      disableIstioInjection: true
+    - name: cluster-overprovisioner
+      app: cluster-overprovisioner
+      disableIstioInjection: true
+    - name: redis
+      app: prometheus
+      disableIstioInjection: true
+    - name: team-admin
+    - name: trivy-operator
+      app: trivy
+      disableIstioInjection: true
+      disablePolicyChecks: true
+    - name: vault
+      app: vault
+    - name: velero
+      app: velero
+
+adminApps:
+  - name: alertmanager
+    tags: [alerting, observability]
+    deps: [prometheus]
+    ownHost: true
+    ingress:
+      - svc: po-alertmanager
+        namespace: monitoring
+        # namespace: alertmanager
+        port: 9093
+        type: public
+        auth: true
+  - name: argocd
+    tags: [cicd, gitops]
+    isShared: true
+    ownHost: true
+    ingress:
+      - svc: argocd-server
+        namespace: argocd
+        type: public
+        auth: true
+        # removeRequestHeaders:
+        #   - authorization
+  - name: cert-manager
+    tags: [ingress, security, tls]
+  - name: cnpg
+    tags: [database]
+  - name: drone
+    tags: [cicd, deployment, pipeline]
+    isShared: true
+    ownHost: true
+    ingress:
+      - svc: drone
+        namespace: drone
+        type: public
+        auth: true
+        removeRequestHeaders:
+          - authorization
+      - svc: drone
+        namespace: drone
+        type: public
+        paths: [/hook, /api/user, /api/repo]
+        forwardPath: true
+        removeRequestHeaders:
+          - authorization
+  - name: tty
+    tags: [tty]
+    isShared: true
+    ownHost: true
+    ingress:
+      - svc: tty
+        # virtual service is not going to be used.
+        namespace: ingress
+        type: public
+        auth: true
+  - name: external-dns
+    tags: [ingress, security, tls]
+  - name: external-secrets
+    tags: [secrets, security, tls]
+  - name: falco
+    tags: [security]
+    deps: [prometheus]
+    ownHost: true
+    ingress:
+      - namespace: falco
+        svc: falco-falcosidekick-ui
+        port: 2802
+        type: public
+        auth: true
+  - name: gatekeeper
+    tags: [security, policies, observability]
+  - name: gitea
+    tags: [git]
+    isShared: true
+    ownHost: true
+    ingress:
+      - namespace: gitea
+        svc: gitea-http
+        port: 3000
+        type: public
+  - name: grafana
+    tags: [tracing, telemetry, observability]
+    deps: [prometheus]
+    path: /dashboards
+    ownHost: true
+    ingress:
+      - svc: po-grafana
+        namespace: grafana
+        removeRequestHeaders:
+          - authorization
+        type: public
+        auth: true
+    shortcuts:
+      - title: NGINX
+        description: NGINX ingress controller metrics
+        path: /d/nginx/nginx-ingress-controller?orgId=1&refresh=5s
+  - name: harbor
+    tags: [security]
+    isShared: true
+    ownHost: true
+    ingress:
+      - svc: harbor-portal
+        namespace: harbor
+        type: public
+        auth: true
+      - svc: harbor-core
+        namespace: harbor
+        paths: [/api/, /c/]
+        forwardPath: true
+        type: public
+        auth: true
+      - svc: harbor-core
+        namespace: harbor
+        paths: [/chartrepo/, /service/, /v1/, /v2/]
+        forwardPath: true
+        type: public
+        hasOwnIngress: true
+  - name: hello
+    hide: true
+    tags: [demo]
+  - name: httpbin
+    tags: [dev, testing, debugging]
+    isShared: true
+    ownHost: true
+    ingress:
+      - namespace: httpbin
+        svc: httpbin
+        type: public
+        auth: true
+  - name: ingress-nginx
+    tags: [ingress, auth]
+  - name: istio
+    tags: [ingress, egress, routing, security, tls, observability, policies]
+  - name: jaeger
+    tags: [ingress, telemetry, observability]
+    deps: [istio]
+    ingress:
+      - svc: jaeger-operator-jaeger-query
+        port: 16686
+        forwardPath: true
+        namespace: jaeger
+        type: public
+        auth: true
+  - name: keycloak
+    tags: [auth, sso]
+    # isShared: true
+    ownHost: true
+    ingress:
+      - namespace: keycloak
+        svc: keycloak-service
+        type: public
+        port: 8080
+    shortcuts:
+      - title: Account
+        description: Edit your account settings.
+        path: /realms/otomi/account/
+  - name: kiali
+    tags: [tracing, telemetry, observability]
+    deps: [istio, prometheus]
+    path: /api/auth/openid_redirect
+    ingress:
+      - svc: kiali
+        forwardPath: true
+        removeRequestHeaders:
+          - authorization
+        port: 20001
+        namespace: kiali
+        type: public
+        auth: true
+  - name: knative
+    tags: [serverless, functions]
+    deps: [istio]
+  - name: kubeapps
+    tags: [dev, apps]
+    deps: [operator-lifecycle-manager]
+    isShared: true
+    ownHost: true
+    ingress:
+      - svc: kubeapps
+        namespace: kubeapps
+        type: public
+        # auth: true
+  - name: kured
+    tags: [security]
+  - name: tekton
+    tags: [buildpacks, ci, pipelines]
+    ownHost: true
+    ingress:
+      - svc: tekton-dashboard
+        namespace: tekton-pipelines
+        port: 9097
+        type: public
+        auth: true
+        removeRequestHeaders:
+          - authorization
+  - name: loki
+    tags: [logging, telemetry, observability]
+    deps: [grafana, prometheus, minio]
+    useHost: grafana
+    path: /explore?orgId=1&left=%5B"now-1h","now","Loki",%7B%7D,%7B"mode":"Logs"%7D,%7B"ui":%5Btrue,true,true,"none"%5D%7D%5D
+    shortcuts:
+      - title: Ingress logs
+        description: All logs generated in the "ingress" namespace
+        path: /explore?orgId=1&left=%5B"now-1h","now","Loki",%7B"expr":"%7Bnamespace%3D%5C"ingress%5C"%7D","refId":"A"%7D%5D
+      - title: OWASP violations
+        description: All OWASP rule violations
+        path: /explore?orgId=1&left=%5B"now-1h","now","Loki",%7B"expr":"%7Bnamespace%3D%5C"ingress%5C"%7D%20%7C%3D%5C"ModSecurity:%20%5C""%7D%5D
+      - title: Gatekeeper violations
+        description: Kube API violations logged by OPA gatekepeer
+        path: /explore?orgId=1&left=%5B"now-1h","now","Loki",%7B"expr":"%7Bnamespace%3D%5C"gatekeeper-system%5C"%7D%20%7C%3D%5C"Policy:%20%5C""%7D%5D
+  - name: minio
+    tags: [storage, backup]
+    ownHost: true
+    ingress:
+      - svc: minio
+        port: 9001
+        namespace: minio
+        type: public
+        auth: true
+        removeRequestHeaders:
+          - authorization
+  - name: opencost
+    tags: [finops]
+    ownHost: true
+    ingress:
+      - svc: opencost
+        port: 9090
+        namespace: opencost
+        type: public
+        auth: true
+  - name: otomi
+    hide: true
+    isShared: true
+    ownHost: true
+    ingress:
+      - svc: otomi-api
+        namespace: otomi
+        paths: [/api/]
+        type: public
+        auth: true
+      - svc: otomi-console
+        namespace: otomi
+        type: public
+        auth: true
+  - name: prometheus
+    tags: [metrics, observability]
+    ownHost: true
+    ingress:
+      - svc: po-prometheus
+        port: 9090
+        namespace: monitoring
+        # namespace: prometheus
+        type: public
+        auth: true
+  - name: tempo
+    tags: [tracing]
+    deps: [prometheus, grafana, minio]
+    useHost: grafana
+    path: /explore?orgId=1&left=%7B"datasource":"tempo","queries":%5B%7B"refId":"A","datasource":%7B"type":"tempo","uid":"tempo"%7D,"queryType":"clear","limit":20%7D%5D,"range":%7B"from":"now-1h","to":"now"%7D%7D
+  - name: otel
+    tags: [tracing]
+  - name: thanos
+    tags: [metrics, observability]
+    ownHost: true
+    deps: [prometheus, grafana, minio]
+    ingress:
+      - svc: thanos-query-frontend
+        port: 9090
+        namespace: monitoring
+        forwardPath: true
+        type: public
+        auth: true
+      - svc: thanos-receive
+        port: 19291
+        namespace: monitoring
+        paths: [/api]
+        forwardPath: true
+        type: public
+  - name: trivy
+    tags: [security]
+    deps: [prometheus, grafana]
+  - name: vault
+    tags: [secrets, security, observability]
+    deps: [external-secrets]
+    isShared: true
+    ownHost: true
+    path: /ui/vault/auth?redirect_to=%2Fvault%2Fsecrets%2Fsecret%2Flist%2Fteams%2F#NS#%2F&with=oidc
+    ingress:
+      - namespace: vault
+        svc: vault
+        port: 8200
+        type: public
+        auth: true
+  - name: velero
+    tags: [backup]
+
+teamApps:
+  - name: alertmanager
+    ownHost: true
+    ingress:
+      - svc: po-alertmanager
+        hasPrefix: true
+        port: 9093
+        type: public
+        auth: true
+  - name: grafana
+    ownHost: true
+    path: /dashboards
+    ingress:
+      - svc: po-grafana
+        hasPrefix: true
+        forwardPath: true
+        removeRequestHeaders:
+          - authorization
+        type: public
+        auth: true
+  - name: loki
+    useHost: grafana
+    path: /explore?orgId=1&left=%7B"datasource":"loki","queries":%5B%7B"refId":"A","expr":"","queryType":"range","datasource":%7B"type":"loki","uid":"loki"%7D%7D%5D,"range":%7B"from":"now-1h","to":"now"%7D%7D
+  - name: prometheus
+    ownHost: true
+    ingress:
+      - svc: po-prometheus
+        hasPrefix: true
+        port: 9090
+        type: public
+        auth: true
+  - name: tekton
+    ownHost: true
+    ingress:
+      - svc: tekton-dashboard
+        hasPrefix: true
+        port: 9097
+        type: public
+        auth: true
+        removeRequestHeaders:
+          - authorization
