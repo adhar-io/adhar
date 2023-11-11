@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/imgs/Adhar.io Logo-01.png" width="824px"/><br/>
+  <img src="docs/imgs/adhar-logo.svg"  width="100%"/><br/>
   ADHAR.IO - Open Foundation for Modern Businesses
 </h1>
 
@@ -16,9 +16,7 @@
   <a href="https://www.facebook.com/groups/otomiusers"><img src="https://img.shields.io/static/v1?label=Facebook&message=Join group&color=1877F2" alt="Join Facebook group"></a>
 </p>
 
-<p align="center"><img src="https://github.com/redkubes/otomi-core/blob/main/docs/img/otomi-console.png/?raw=true" width="100%" align="center" alt="Otomi integrated applications"></p>
-
-<h4 align="center">
+<p>
 Adhar aims to revolutionise the software development process by providing a comprehensive and integrated 
 IDP(Internal Development Platform)  that  seamlessly  integrates  the  latest  open-source  frameworks  and  libraries,  embraces 
 cutting-edge  cloud-native  practices,  utilises  containerization  technology,  leverages  cloud 
@@ -27,7 +25,7 @@ offers low-code application development capabilities, powers rapid application c
 AI, and oversees holistic application lifecycle management. ADHAR empowers developers and 
 businesses with an all-encompassing ecosystem to innovate, collaborate, and deliver software 
 solutions of unparalleled quality and efficiency.
-</h4>
+</p>
 
 ## How Adhar helps
 
@@ -122,7 +120,7 @@ helm install adhar adhar/adhar \
 
 ## Platform architecture
 
-<p align="center"><img src="docs/imgs/adhar-platform.drawio.svg" width="100%" align="center" alt="Otomi platform"></p>
+<p align="center"><img src="docs/imgs/adhar-platform.drawio.svg" width="100%" align="center" alt="Adhar platform"></p>
 
 ### Self-service portal and CLI
 
