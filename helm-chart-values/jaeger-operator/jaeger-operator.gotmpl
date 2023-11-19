@@ -1,0 +1,82 @@
+{{- $v := .Values }}
+{{- $version := "1.29" }}
+jaeger:
+  create: true
+  namespace: jaeger
+  spec:
+    allInOne:
+      image: jaegertracing/all-in-one:{{ $version }}
+      options:
+        query:
+          base-path: /jaeger
+    agent:
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 10m
+          memory: 32Mi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      sidecarSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+    annotations:
+      sidecar.istio.io/inject: "true"
+    collector:
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 10m
+          memory: 32Mi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+    ingester:
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 10m
+          memory: 32Mi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+    ingress:
+      enabled: false
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 10m
+        memory: 32Mi
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+    strategy: allInOne
+
+rbac:
+  clusterRole: true
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 32Mi
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+{{- with $v.otomi | get "globalPullSecret" nil }}
+imagePullSecrets:
+  - name: otomi-pullsecret-global
+{{- end }}

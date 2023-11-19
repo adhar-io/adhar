@@ -1,0 +1,246 @@
+{{- $v := .Values }}
+{{- $o := $v | get "oidc" dict }}
+{{- $g := $v.apps.gitea }}
+{{- $k := $v.apps.keycloak }}
+{{- $giteaDomain := printf "gitea.%s" $v.cluster.domainSuffix }}
+{{- $cm := $v.apps | get "cert-manager" }}
+{{- $teamData := dict }}
+{{- $teams := keys $v.teamConfig }}
+# string builder that creates the map claimed groups to organization teams 
+# example: {"/team-demo1":{"otomi":["otomi-viewer", "team-demo1"]}, "/team-demo2":{"otomi":["otomi-viewer", "team-demo2"]}}
+{{- $teamData = merge $teamData (dict "admin" (dict "otomi" (list "otomi-viewer" "team-admin"))) }}
+{{- if gt (len $teams) 0 }}
+  {{- range $team := $teams }}
+  {{- if ne $team "admin" }}
+    {{- $teamName := printf "team-%s" $team }}
+
+    {{- $teamData = merge $teamData (dict $teamName (dict "otomi" (list "otomi-viewer" $teamName))) }}
+  {{- end }}
+  {{- end }}
+{{ end }}
+nameOverride: gitea
+fullnameOverride: gitea
+
+resources:
+  {{ with $g | get "resources.gitea" nil }}
+    {{- toYaml . | nindent 2 }}
+  {{- else }}
+  limits:
+    cpu: 1
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  {{- end }}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  privileged: false
+  readOnlyRootFilesystem: true
+  runAsGroup: 1000
+  runAsNonRoot: true
+  runAsUser: 1000
+
+image:
+  {{- with $v.otomi | get "globalPullSecret" nil }}
+  imagePullSecrets:
+    - name: otomi-pullsecret-global
+  {{- end }}
+  tag: {{ $g | get "image.gitea.tag" "1.19.1" }}
+  pullPolicy: {{ $g | get "image.gitea.pullPolicy" "IfNotPresent" }}
+  rootless: true
+
+gitea:
+  podAnnotations:
+    policy.otomi.io/ignore.init: psp-allowed-users
+    policy.otomi.io/ignore.init-ca-finish: psp-allowed-users
+  admin:
+    username: {{ $g.adminUsername }}
+    password: {{ $g.adminPassword }}
+  config:
+    admin:
+      DISABLE_REGULAR_ORG_CREATION: false
+    log:
+      LEVEL: trace
+    {{ with $v | get "smtp" nil }}
+    mailer:
+      enabled: true
+      HELO_HOSTNAME: {{ .hello }}
+      FROM: {{ .from }}
+      USER: {{ .auth_username }}
+      PASSWD: {{ .auth_password }}
+      MAILER_TYPE: smtp
+      IS_TLS_ENABLED: true
+      SUBJECT_PREFIX: 'Otomi[Gitea]: '
+    {{- end }}
+    openid:
+      ENABLE_OPENID_SIGNIN: true
+      ENABLE_OPENID_SIGNUP: true
+    oauth2_client:
+      OPENID_CONNECT_SCOPES: openid email profile
+      ENABLE_AUTO_REGISTRATION: true
+      ACCOUNT_LINKING: auto
+      USERNAME: email
+    repository:
+      DEFAULT_BRANCH: main
+    service:
+      ALLOW_ONLY_EXTERNAL_REGISTRATION: true
+      DEFAULT_ALLOW_CREATE_ORGANIZATION: false
+      DEFAULT_ORG_MEMBER_VISIBLE: {{ not $v.otomi.isMultitenant }}
+      DEFAULT_USER_IS_RESTRICTED: {{ $v.otomi.isMultitenant }}
+      # basic auth can't be turned off because it nukes otomi commit
+      # TODO: create token on initial deploy and store in values
+      # ENABLE_BASIC_AUTHENTICATION: false
+      SHOW_REGISTRATION_BUTTON: false
+      REQUIRE_SIGNIN_VIEW: false
+    service.explore:
+      REQUIRE_SIGNIN_VIEW: true
+    session:
+      COOKIE_SECURE: true
+      DOMAIN: {{ $giteaDomain }}
+    webhook:
+      ALLOWED_HOST_LIST: "*"
+    server:
+      DOMAIN: {{ $giteaDomain }}
+      ROOT_URL: "https://{{ $giteaDomain }}/"
+      DISABLE_SSH: true
+    
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        prometheus: system
+  oauth:
+    - name: {{ $k.idp.alias }}
+      provider: openidConnect
+      key: {{ $k.idp.clientID  }}
+      secret: {{ $k.idp.clientSecret }}
+      autoDiscoverUrl: {{ $v._derived.oidcWellKnownUrl }}
+      # autoDiscoverUrlBackchannel: {{ $v._derived.oidcWellKnownUrlBackchannel }}
+      autoDiscoverUrlBackchannel: {{ $v._derived.oidcWellKnownUrl }}
+      adminGroup: team-admin
+      groupClaimName: groups
+      groupTeamMap: {{ toJson $teamData | quote }}
+
+init:
+  resources:
+    limits:
+      cpu: 400m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+memcached:
+  # @TODO:
+  image:
+    tag: {{ $g | get "image.memcached.tag" "1.6.12" }}
+    pullPolicy:  {{ $g | get "image.memcached.pullPolicy" "IfNotPresent" }}
+  resources:
+    {{ with $g | get "resources.memcached" nil }}
+      {{- toYaml . | nindent 4 }}
+    {{- else }}
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    {{- end }}
+  metrics:
+    enabled: true
+    resources:
+      limits:
+        cpu: 200m
+        memory: 128M
+      requests:
+        cpu: 50m
+        memory: 64M
+    securityContext:
+      enabled: true
+    serviceMonitor:
+      enabled: true
+      selector:
+        prometheus: system
+
+
+persistence:
+  {{- if eq $v.cluster.provider "vultr" }}
+  size: 10Gi
+  {{- else }}
+  size: 1Gi
+  {{- end }}
+
+postgresql:
+  # @TODO:
+  image:
+    tag: {{ $g | get "image.postgresql.tag" "13.5.0" }}
+    pullPolicy:  {{ $g | get "image.postgresql.pullPolicy" "IfNotPresent" }}
+  metrics:
+    image:
+      tag: 0.10.0
+  persistence:
+    {{- if eq $v.cluster.provider "vultr" }}
+    size: 10Gi
+    {{- else }}
+    size: 1Gi
+    {{- end }}
+  global:
+    postgresql:
+      postgresqlPassword: {{ $g | get "postgresqlPassword" }}
+      postgresqlPostgresPassword: {{ $g | get "postgresqlPassword" }}
+  resources:
+    {{ with $g | get "resources.postgresql" nil }}
+      {{- toYaml . | nindent 4 }}
+    {{- else }}
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    {{- end }}
+  metrics:
+    enabled: true
+    resources:
+      limits:
+        cpu: 200m
+        memory: 128M
+      requests:
+        cpu: 50m
+        memory: 64M
+    securityContext:
+      enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        prometheus: system
+
+{{- if $v._derived.untrustedCA }}
+extraVolumeMounts:
+  - name: custom-ca
+    mountPath: /etc/ssl/certs/ca-certificates.crt
+    subPath: ca-certificates.crt
+extraVolumes:
+  - name: custom-ca
+    secret:
+      secretName: custom-ca
+{{- end }}
+
+podSecurityContext:
+  fsGroup: 1000
+
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+{{- with .Values.otomi | get "globalPullSecret" nil }}
+global:
+  imagePullSecrets:
+    - otomi-pullsecret-global
+{{- end }}

@@ -1,0 +1,5 @@
+apps:
+    cert-manager:
+        issuer: letsencrypt
+        email: test@test.local
+        stage: staging

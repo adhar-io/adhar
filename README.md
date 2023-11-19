@@ -1,35 +1,35 @@
 <h1 align="center">
-  <img src="docs/imgs/adhar-logo.svg"  width="100%"/><br/>
+  <img src="docs/imgs/adhar-logo-black.svg"  width="100%"/><br/>
   ADHAR.IO - Open Foundation for Modern Businesses
 </h1>
 
 <p align="center">
-  <a href="https://github.com/redkubes/otomi-core/releases/"><img alt="Releases" src="https://img.shields.io/github/release-date/redkubes/otomi-core?label=latest%20release" /></a>
-  <a href="https://hub.docker.com/r/otomi/core"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/otomi/core" /></a>
-  <a href="https://img.shields.io/github//redkubes/otomi-core/actions/workflows/main.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/redkubes/otomi-core/main.yml" /></a>
-  <a href="https://img.shields.io/github/last-commit/redkubes/otomi-core"><img alt="Last commit" src="https://img.shields.io/github/last-commit/redkubes/otomi-core" /></a>
+  <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
+  <a href="https://github.com/adhar-io/adhar/releases/"><img alt="Releases" src="https://img.shields.io/github/release-date/adhar-io/adhar?label=latest%20release" /></a>
+  <a href="https://hub.docker.com/r/adhar-io/adhar"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/adhar-io/adhar" /></a>
+  <a href="https://img.shields.io/github/adhar-io/adhar/actions/workflows/main.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/adhar-io/adhar/main.yml" /></a>
+  <a href="https://img.shields.io/github/last-commit/adhar-io/adhar"><img alt="Last commit" src="https://img.shields.io/github/last-commit/adhar-io/adhar" /></a>
   <a href="https://img.shields.io/crates/l/ap"><img alt="License" src="https://img.shields.io/crates/l/ap" /></a>
-  <a href="https://img.shields.io/badge/contributions-welcome-orange.svg"><img alt="Contributions" src="https://img.shields.io/badge/contributions-welcome-orange.svg" /></a>
-  <a href="http://otomi.io/"><img src="https://img.shields.io/website-up-down-green-red/http/shields.io.svg" alt="Website otomi.io"></a>
-  <a href="https://join.slack.com/t/otomi/shared_invite/zt-1axa4vima-E~LHN36nbLR~ay5r5pGq9A"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
-  <a href="https://twitter.com/RedKubes"><img src="https://img.shields.io/static/v1?label=Twitter&message=Follow&color=1DA1F2" alt="Follow us on Twitter"></a>
-  <a href="https://www.facebook.com/groups/otomiusers"><img src="https://img.shields.io/static/v1?label=Facebook&message=Join group&color=1877F2" alt="Join Facebook group"></a>
+  <a href="https://adhar.io/"><img src="https://img.shields.io/website-up-down-green-red/http/shields.io.svg" alt="Website adhar.io"></a>
 </p>
 
-<p>
-Adhar aims to revolutionise the software development process by providing a comprehensive and integrated 
-IDP(Internal Development Platform)  that  seamlessly  integrates  the  latest  open-source  frameworks  and  libraries,  embraces 
-cutting-edge  cloud-native  practices,  utilises  containerization  technology,  leverages  cloud 
-infrastructure, strengthens identity and access management, ensures robust API governance, 
-offers low-code application development capabilities, powers rapid application creation with 
-AI, and oversees holistic application lifecycle management. ADHAR empowers developers and 
-businesses with an all-encompassing ecosystem to innovate, collaborate, and deliver software 
-solutions of unparalleled quality and efficiency.
-</p>
+> :bulb: Adhar aims to revolutionise the software development by providing a comprehensive and integrated IDP(Internal Development Platform) that seamlessly integrates the leading open-source frameworks and libraries, embraces cutting-edge cloud-native practices, utilises containerization technology, leverages cloud infrastructure, strengthens identity and access management, ensures robust API governance, offers low-code application development capabilities, powers rapid application creation with Artificial Inteligence(AI), and oversees holistic application lifecycle management. ADHAR empowers developers and businesses with an all-encompassing ecosystem to innovate, collaborate, and deliver software solutions of unparalleled quality and efficiency.
 
-## How Adhar helps
+## Adhar Platform Goals :rocket:
 
-**Design Team** - With easy self-service to let them focus on their apps only
+- All-in-One integrated platform supporting from application inception to post production lifecycle (Define -> Design -> Develop -> Deliver -> Discover)
+- Great Developer Experience & Efficiency
+- Well defined responsibility segregation betwwen Application team and Platform team
+- Holistic and transparent governance
+- Platform-as-a-product concept, so every company doesn't have to build one
+- Evolve platform as per modern technology trends and industry best practices
+- Integrate all leading opensource projects in best possible way to build the platform
+- Apply GitOps principles as standard for infrastructure as well as application
+- Fully Open source and always :sparkling_heart: other opensource tools and libraries
+
+## How Adhar Platform Helps :dart:
+
+**Design Team** - AI powered design assistance and realistic content generation along with easy design to code conversion.
 
 - Build OCI compliant images from application code
 - Deploy containerized workloads the GitOps way using build-in or BYO golden path templates
@@ -41,7 +41,7 @@ solutions of unparalleled quality and efficiency.
 - Manage secrets
 - Create private Git repositories and custom CI/CD pipelines
 
-**Business Team** - With easy self-service to let them focus on their apps only
+**Business Team** - Invole in transparent collaboration with Tech team by providing wireframes and prototypes and observing real progress from application perspective.
 
 - Build OCI compliant images from application code
 - Deploy containerized workloads the GitOps way using build-in or BYO golden path templates
@@ -77,23 +77,21 @@ solutions of unparalleled quality and efficiency.
 - Prevent cloud provider lock-in
 - Implement full observability
 
-**Management Team** - To setup a Kubernetes-based platform for developers and provide a paved road to production
+**Management Team** - Access all the insights and reports to make the best possible business or technical decission based on actual datapoints
 
-- Create your platform profile and deploy to any K8s
-- Onboard development teams in a comprehensive multi-tenant setup and make them self-serving
-- Get all the required capabilities in an integrated and automated way
-- Ensure governance with security policies
-- Implement zero-trust networking
-- Change the desired state of the platform based on Configuration-as-Code
-- Support multi- and hybrid cloud scenarios
-- Prevent cloud provider lock-in
-- Implement full observability
+- Fully integrated analytics platform
+- AI powered automated insights and recomendations
+- Various reports showcasing different aspects of the application
+- Realtime insights with zero filter
+- Usage statistics and projection
+- Easy Technology and Risk goverance
+- Visibility of end to end process
 
 ## Getting started
 
 ### Helm
 
-To install Adhar, make sure to have a kubernetes cluster running with at least:
+To install Adhar platform, make sure to have a kubernetes cluster running with at least:
 
 - Version `1.25`, `1.26` or `1.27`
 - A node pool with at least **8 vCPU** and **16GB+ RAM** (more resources might be required based on the activated capabilities)
@@ -101,7 +99,7 @@ To install Adhar, make sure to have a kubernetes cluster running with at least:
 - A default storage class configured
 - When using the `custom` provider, make sure the K8s LoadBalancer Service created by `Otomi` can obtain an external IP (using a cloud load balancer or MetalLB)
 
-> **_NOTE:_**  Install Adhar with DNS to unlock it's full potential. Check [adhar.io](https://adhar.io) for more info.
+> **_NOTE:_** Install Adhar with DNS to unlock it's full potential. Check [adhar.io](https://adhar.io) for more info.
 
 Add the Helm repository:
 
@@ -118,7 +116,8 @@ helm install adhar adhar/adhar \
 --set cluster.provider=$PROVIDER # use 'azure', 'aws', 'google', 'digitalocean', 'civo', or 'custom' for any other cloud or onprem K8s
 ```
 
-## Documentations
+## Documentations :book:
+
 Learn about integrating, deploying and managing your apps on Adhar platform.
 
 - [Architecture overview](./docs/architecture.md)
@@ -133,21 +132,21 @@ Learn about integrating, deploying and managing your apps on Adhar platform.
 
 <p align="center"><img src="docs/imgs/adhar-platform.svg" width="100%" alt="Adhar platform"></p>
 
-### Self-service portal and CLI
+### Self-service Portal and CLI
 
-The self-service portal (Otomi Console) offers seamless user experience for developers and platform administrators. Platform administrators can use Otomi Console to enable and configure platform capabilities and onboard development teams. Developers can use Otomi Console to build images, deploy applications, expose services, configure CNAMEs, configure network policies and manage secrets. Otomi Console also provided direct and context aware access to platform capabilities like code repositories, registries, logs, metrics, traces, dashboards, etc. Next to the web based self-service, both developers and admins can start a Cloud Shell and run cli commands.
+The self-service portal (Adhar Console) offers seamless user experience for developers and platform administrators. Platform administrators can use Otomi Console to enable and configure platform capabilities and onboard development teams. Developers can use Otomi Console to build images, deploy applications, expose services, configure CNAMEs, configure network policies and manage secrets. Otomi Console also provided direct and context aware access to platform capabilities like code repositories, registries, logs, metrics, traces, dashboards, etc. Next to the web based self-service, both developers and admins can start a Cloud Shell and run cli commands.
 
 ### Desired state store
 
-When Otomi is installed, the desired state of the platform is stored in the Desired State Store (the `otomi/values` repo in the local Git repository). Changes made through the Console will be reflected in the repo.
+When Adhar is installed, the desired state of the platform is stored in the Desired State Store (the `adhar/helm-chart-values` repo in the local Git repository). Changes made through the Console will be reflected in the repo.
 
 ### Golden templates catalog
 
-The `otomi/charts` Git repo includes a set of build-in Helm charts that are used to create workloads in the Console. You can also add your own charts and offer them to the users of the platform.
+The `adhar/helm-charts` Git repo includes a set of build-in Helm charts that are used to create workloads in the Console. You can also add your own charts and offer them to the users of the platform.
 
 ### Control plane
 
-All changes made through the Console are validated by the control plane (`otomi-api`) and then committed in the state store. This will automatically trigger the platform to synchronize the desired state to the actual state of the platform.
+All changes made through the Console are validated by the control plane (`api-server`) and then committed in the state store. This will automatically trigger the platform to synchronize the desired state to the actual state of the platform.
 
 ### Automation
 
@@ -164,7 +163,7 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Cert Manager](https://github.com/cert-manager/cert-manager) - Bring your own wildcard certificate or request one from Let's Encrypt
 - [Nginx Ingress Controller](https://github.com/kubernetes/ingress-nginx): Ingress controller for Kubernetes
 - [External DNS](https://github.com/kubernetes-sigs/external-dns): Synchronize exposed ingresses with DNS providers
-- [Drone](https://github.com/harness/drone): Continuous integration platform built on Docker
+- [Argo CD](https://github.com/argoproj/argo-cd): Declarative continuous deployment
 - [Gitea](https://github.com/go-gitea/gitea): Self-hosted Git service
 
 **Optional Applications (that you can activate to compose your ideal platform):**
@@ -190,14 +189,13 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Tekton Triggers](https://github.com/tektoncd/triggers): Trigger pipelines from event payloads
 - [Tekton dashboard](https://github.com/tektoncd/dashboard): Web-based UI for Tekton Pipelines and Tekton Triggers
 - [Paketo build packs](https://github.com/paketo-buildpacks): Cloud Native Buildpack implementations for popular programming language ecosystems
-- [KubeClarity](https://github.com/openclarity/kubeclarity): Detect vulnerabilities of container images
 - [Cloudnative-pg](https://github.com/cloudnative-pg/cloudnative-pg): Open source operator designed to manage PostgreSQL workloads
 - [Grafana Tempo](https://github.com/grafana/tempo): High-scale distributed tracing backend
 - [OpenTelemetry](https://github.com/open-telemetry/opentelemetry-operator): Instrument, generate, collect, and export telemetry data to help you analyze your software’s performance and behavior
 
 ### Supported providers
 
-Otomi can be installed on any Kubernetes cluster. At this time, the following providers are supported:
+Adhar Platform can be installed on any Kubernetes cluster. At this time, the following providers are supported:
 
 - `aws` for [AWS Elastic Kubernetes Service](https://aws.amazon.com/eks/)
 - `azure` for [Azure Kubernetes Service](https://azure.microsoft.com/en-us/products/kubernetes-service)

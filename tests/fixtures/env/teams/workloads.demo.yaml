@@ -1,0 +1,35 @@
+teamConfig:
+    demo:
+        workloads:
+            - name: wd1
+              url: https://myrepo.local/mychart.git
+              path: ./
+              revision: main
+              autoUpdate:
+                  strategy:
+                      digest:
+                          tag: latest
+                      type: digest
+                  enabled: true
+                  imageRepository: harbor.try-otomi.net/team-orange/blue
+            - name: wd2
+              url: https://myrepo.local/mychart.git
+              path: ./
+              revision: main
+              autoUpdate:
+                  strategy:
+                      type: semver
+                      semver:
+                          versionConstraint: '1.12'
+                  enabled: true
+                  imageRepository: harbor.try-otomi.net/team-orange/green
+            - name: wd3
+              url: https://myrepo.local/mychart.git
+              path: ./
+              revision: main
+            - name: wd
+              url: https://myrepo.local/mychart.git
+              path: ./
+              revision: main
+              autoUpdate:
+                  enabled: false

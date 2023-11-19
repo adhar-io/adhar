@@ -1,0 +1,57 @@
+{{- $v := .Values }}
+{{- $cm := $v.apps | get "cert-manager" }}
+
+global:
+  {{- with $v.otomi | get "globalPullSecret" nil }}
+  imagePullSecrets:
+    - name: otomi-pullsecret-global
+  {{- end }}
+  priorityClassName: otomi-critical
+
+prometheus:
+  servicemonitor:
+    enabled: true
+    prometheusInstance: system
+
+podAnnotations:
+  sidecar.istio.io/inject: "false"  
+  policy.otomi.io/ignore: psp-allowed-users,psp-privileged,psp-host-security
+
+startupapicheck:
+  jobAnnotations:
+    sidecar.istio.io/inject: "false"  
+    policy.otomi.io/ignore: containerlimits
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 384Mi
+
+
+installCRDs: true
+
+resources: {{- toYaml $cm.resources | nindent 2 }}
+
+cainjector:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 384Mi
+  podAnnotations:
+    policy.otomi.io/ignore: psp-allowed-users,psp-privileged,psp-host-security
+webhook:
+  podAnnotations:
+    policy.otomi.io/ignore: psp-allowed-users
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 256Mi
+

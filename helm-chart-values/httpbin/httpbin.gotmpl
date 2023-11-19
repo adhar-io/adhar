@@ -1,0 +1,19 @@
+{{- $v := .Values }}
+
+nameOverride: httpbin
+fullnameOverride: httpbin
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 50m
+    memory: 64Mi
+podAnnotations:
+  policy.otomi.io/ignore: psp-allowed-users,banned-image-tags
+
+{{- with $v.otomi | get "globalPullSecret" nil }}
+imagePullSecrets:
+  - name: otomi-pullsecret-global
+{{- end }}

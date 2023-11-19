@@ -1,0 +1,13 @@
+tabWidth: 2
+semi: false
+trailingComma: all
+singleQuote: true
+printWidth: 120
+overrides:
+  - files:
+      - 'env/**/*.yaml'
+      - 'env/**/*.dec'
+      - 'tests/fixtures/**/*.yaml'
+    options:
+      tabWidth: 4
+      useTabs: true

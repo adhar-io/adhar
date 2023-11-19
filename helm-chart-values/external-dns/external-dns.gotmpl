@@ -1,0 +1,66 @@
+{{- $v := .Values }}
+{{- $externalDns := $v.apps | get "external-dns" }}
+{{- $dns := $v | get "dns" dict }}
+sources:
+- ingress
+- istio-gateway
+## - aws, azure, cloudflare, coredns, designate, digitalocoean, google, infoblox, rfc2136
+
+# @TODO:
+image:
+  tag: 0.13.4
+
+{{- range $provider, $config := $dns.provider }}
+{{- $providerConfigKey := $provider | replace "azure-private-dns" "azure" }}
+{{- if eq $provider "other" }}
+provider: {{ $config.name }}
+{{ $config.name }}: {{- $config | get "external-dns" | toYaml | nindent 2 }}
+{{- else }}
+provider: {{ $provider }}
+{{ $providerConfigKey }}: {{- $config | toYaml | nindent 2 }}
+{{- end }}
+{{- end }}
+domainFilters: {{ $dns | get "domainFilters" | toYaml | nindent 2 }}
+zoneIdFilters: {{ $dns | get "zoneIdFilters" list | toYaml | nindent 2 }}
+annotationFilter: "externaldns=true"
+logLevel: {{ $externalDns | get "logLevel" }}
+dryRun: false
+crd:
+  create: false
+  apiversion: ""
+  kind: ""
+
+rbac:
+  create: true
+  pspEnabled: false
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+podSecurityContext:
+  runAsUser: 1001
+
+priorityClassName: otomi-critical
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    memory: 64Mi
+    cpu: 10m
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      prometheus: system
+
+{{- with .Values.otomi | get "globalPullSecret" nil }}
+global:
+  imagePullSecrets:
+    - otomi-pullsecret-global
+{{- end }}

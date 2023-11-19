@@ -1,0 +1,25 @@
+{{- $v := .Values }}
+{{- $k := $v.apps | get "kured" }}
+
+# Using --lock-ttl=30m will allow other nodes to take over if TTL has expired and continue reboot process.
+configuration:
+  lockTtl: 30m 
+
+resources: {{- $k.resources.kuredDaemonSet | toYaml | nindent 4 }}
+
+metrics:
+  create: true
+  labels:
+    prometheus: system
+
+# the container's securityContext must have "privileged:true" thus we cannot set a non-root user for this chart
+podAnnotations: 
+  policy.otomi.io/ignore: psp-allowed-users,psp-privileged,psp-host-security,psp-host-networking-ports
+
+priorityClassName: otomi-critical
+
+{{- with .Values.otomi | get "globalPullSecret" nil }}
+image:
+  pullSecrets:
+    - name: otomi-pullsecret-global
+{{- end }}

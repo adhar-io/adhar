@@ -1,0 +1,26 @@
+FROM alpine:3.14
+
+RUN apk --update add --no-cache \
+  musl musl-utils musl-locales tzdata \
+  bash \
+  mysql-client \
+  postgresql-client \
+  aws-cli \
+  ca-certificates \
+  curl \
+  vim
+
+# https://github.com/golang-migrate/migrate/blob/master/README.md
+ENV MIGRATE_VERSION=4.15.2
+RUN curl -L https://github.com/golang-migrate/migrate/releases/download/v$MIGRATE_VERSION/migrate.linux-amd64.tar.gz | tar xvz && \
+  cp migrate /usr/local/bin/migrate
+
+# aws-cli - is used to store db backup in S3 like storage
+
+ENV LC_ALL=en_GB.UTF-8
+ENV LANG=en_GB.UTF-8
+ENV TZ="Europe/Amsterdam"
+
+USER nobody
+
+CMD "/bin/sh"

@@ -1,0 +1,30 @@
+teamConfig:
+    admin:
+        id: admin
+    demo:
+        alerts:
+            email: {}
+            receivers:
+                - email
+        monitoringStack:
+            enabled: true
+        billingAlertQuotas:
+            teamCpuMonthQuotaReached:
+                quota: 150
+            teamMemMonthQuotaReached:
+                quota: 200
+        id: demo
+        networkPolicy:
+            egressPublic: true
+            ingressPrivate: true
+        oidc:
+            groupMapping: somesecretvalue
+        resourceQuota:
+            services.loadbalancers: '1'
+        selfService:
+            apps: []
+            service:
+                - ingress
+                - networkPolicy
+            team:
+                - alerts

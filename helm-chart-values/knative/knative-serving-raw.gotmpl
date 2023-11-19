@@ -1,0 +1,10 @@
+{{- $v := .Values }}
+resources:
+  {{- if $v._derived.untrustedCA }}
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: certs
+    data:
+      ca-certificates.crt: {{ $v._derived.caCert | b64enc }}
+  {{- end }}

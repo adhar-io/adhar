@@ -1,0 +1,5 @@
+The Adhar installer was successfully deployed on the cluster.
+
+Please inspect the output of the installer job ({{ .Release.Namespace }}/{{ include "adhar.fullname" . }}) for any feedback or errors.
+
+Also visit https://adhar.io for further instructions and reference documentation.

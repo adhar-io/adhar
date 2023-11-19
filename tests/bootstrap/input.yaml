@@ -1,0 +1,17 @@
+# Minimal values file with defaults
+cluster:
+  name: 'dev'
+  provider: digitalocean
+  k8sContext: CONTEXT_PLACEHOLDER
+otomi:
+  version: 'main'
+  adminPassword: test
+apps:
+  harbor:
+    enabled: true
+license: testLicense
+
+databases:
+  keycloak:
+    size: '5Gi'
+    replicas: 1

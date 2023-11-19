@@ -1,0 +1,62 @@
+{
+  "[dotenv]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format"
+  },
+  "[docker]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format"
+  },
+  "[shellscript]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "cSpell.diagnosticLevel": "Hint",
+  "cSpell.enabled": true,
+  "editor.codeActionsOnSave": {
+    "source.addMissingImports": true,
+    "source.fixAll": true,
+    "source.organizeImports": true
+  },
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "eslint.format.enable": true,
+  "eslint.validate": ["javascript", "typescript"],
+  "files.associations": {
+    "*.gotmpl": "helm",
+    "*.tmpl": "nginx",
+    "*.tpl": "yaml",
+    "*.yml": "yaml",
+    ".secrets*": "shellscript",
+    "CODE_OF_CONDUCT": "markdown",
+    "CONTRIBUTING": "markdown",
+    "_*.tpl": "helm",
+    "aliases": "shellscript",
+    "bin/hooks/*": "shellscript",
+    "helmfile-*.yaml": "helm",
+    "helmfile.yaml": "helm",
+    "otomi": "shellscript"
+  },
+  "files.exclude": {
+    "**/.history": true
+  },
+  "opa.roots": ["${workspaceFolder}/policies"],
+  "prettier.enable": true,
+  "shellcheck.exclude": ["2016", "2046", "2086", "2148"],
+  "shellformat.flag": "-i 2 -ci",
+  "sops.enabled": false,
+  "todohighlight.include": ["**/*.ts", "**/*.tsx", "**/*.html", "**/*.css", "**/*.scss", "**/*.gotmpl", "**/*.yaml"],
+  "yaml.schemas": {
+    "./values-schema.yaml": "**/env/**/*.yaml",
+    "https://json-schema.org/draft-07/schema": "values-schema.yaml"
+  },
+  "[properties]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format"
+  },
+  "[dockerfile]": {
+    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
+  }
+}

@@ -1,0 +1,124 @@
+alerts:
+    email: {}
+    msteams: {}
+    receivers:
+        - msteams
+    slack: {}
+azure:
+    appgw:
+        isManaged: true
+    monitor:
+        clientId: somesecretvalue
+        subscriptionId: somesecretvalue
+        tenantId: somesecretvalue
+    resourceGroup: somevalue
+    subscriptionId: somevalue
+    tenantId: somevalue
+cloud:
+    skipStorageClasses:
+        - std
+        - std-immediate
+dns:
+    domainFilters:
+        - otomi.cloud
+    provider:
+        civo: {}
+e2e:
+    enabled: false
+home:
+    email: {}
+    receivers:
+        - slack
+    slack:
+        channel: mon-otomi
+        channelCrit: mon-otomi-crit
+ingress:
+    classes:
+        - className: private
+          entrypoint: ''
+          loadBalancerSubnet: subnet
+          network: private
+        - className: net-a
+          entrypoint: ''
+          loadBalancerIP: 11.0.0.1
+          loadBalancerRG: myrg
+          network: public
+          sourceIpAddressFiltering: 10.0.0.0/24
+    platformClass:
+        entrypoint: ''
+kms:
+    sops:
+        azure:
+            clientId: somesecretvalue
+            keys: somesecretvalue
+            tenantId: somesecretvalue
+oidc:
+    adminGroupID: someAdminGroupID
+    clientID: someClientID
+    issuer: https://login.microsoftonline.com/xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    subClaimMapper: oid
+    teamAdminGroupID: xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+otomi:
+    additionalClusters:
+        - domainSuffix: demo.eks.otomi.cloud
+          name: demo
+          provider: aws
+    globalPullSecret:
+        username: otomi
+    hasCloudLB: false
+    hasExternalDNS: true
+    hasExternalIDP: true
+    isHomeMonitored: false
+    nodeSelector:
+        otomi: otomi-sys
+    version: main
+platformBackups:
+    database:
+        harbor:
+            enabled: true
+            retentionPolicy: 7d
+            schedule: 0 0 0 * * *
+    persistentVolumes:
+        argo:
+            enabled: false
+        drone:
+            enabled: false
+        gitea:
+            enabled: false
+        harbor:
+            enabled: false
+        keycloak:
+            enabled: false
+        minio:
+            enabled: false
+        vault:
+            enabled: false
+smtp:
+    auth_username: no-reply@doma.in
+    from: no-reply@doma.in
+    hello: doma.in
+    smarthost: smtp-relay.gmail.com:587
+status:
+    helm:
+        drone/drone:
+            app_version: 1.6.1
+            chart: drone-3.0.0
+            name: drone
+            namespace: drone
+            revision: '1'
+            status: deployed
+            updated: 2023-05-31 09:54:32.168150254 +0000 UTC
+        harbor/harbor:
+            app_version: 1.6.1
+            chart: harbor-3.0.0
+            name: harbor
+            namespace: harbor
+            revision: '1'
+            status: deployed
+            updated: 2023-05-31 09:54:32.168150254 +0000 UTC
+    otomi:
+        deployingTag: main
+        deployingVersion: 0.21.0
+        status: deployed
+        version: 0.21.0
+version: 16
