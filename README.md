@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/imgs/adhar-logo-black.svg"  width="100%"/><br/>
+  <img src="docs/imgs/Adhar.io Logo-06.jpg"  width="100%"/><br/>
   ADHAR.IO - Open Foundation for Modern Businesses
 </h1>
 
@@ -22,6 +22,7 @@
 - Well defined responsibility segregation betwwen Application team and Platform team
 - Holistic and transparent governance
 - Platform-as-a-product concept, so every company doesn't have to build one
+- Polyglot technology stack, build using any language/framework and run in any cloud or even on onprem
 - Evolve platform as per modern technology trends and industry best practices
 - Integrate all leading opensource projects in best possible way to build the platform
 - Apply GitOps principles as standard for infrastructure as well as application
