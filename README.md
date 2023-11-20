@@ -118,7 +118,7 @@ helm install adhar adhar/adhar \
 --set cluster.provider=$PROVIDER # use 'azure', 'aws', 'google', 'digitalocean', 'civo', or 'custom' for any other cloud or onprem K8s
 ```
 
-## Documentations :book:
+## Contribution Guide :book:
 
 Learn about integrating, deploying and managing your apps on Adhar platform.
 
@@ -130,7 +130,7 @@ Learn about integrating, deploying and managing your apps on Adhar platform.
 - [Migrating values](./docs/migrating-values.md)
 - [Go templating](./docs/go-templating.md)
 
-## Platform architecture
+## Platform Architecture
 
 <p align="center"><img src="docs/imgs/adhar-platform.svg" width="100%" alt="Adhar platform"></p>
 
