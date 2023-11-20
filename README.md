@@ -30,29 +30,30 @@
 
 ## How Adhar Platform Helps :dart:
 
-**Design Team** - AI powered design assistance and realistic content generation along with easy design to code conversion.
+**Design Team** - AI powered design assistance and realistic content generation along with easy design -> code and code -> design sync.
 
-- Build OCI compliant images from application code
-- Deploy containerized workloads the GitOps way using build-in or BYO golden path templates
-- Automatically update container images of workloads
-- Publicly expose applications
-- Get instant access to logs, metrics and traces
-- Store charts and images in a private registry
-- Configure network policies, response headers and CNAMEs
-- Manage secrets
-- Create private Git repositories and custom CI/CD pipelines
+- Use the Figma design components to build the application design
+- AI can generate the initial DRAFT version of the design and export to Figma
+- Designers love Figma, use it with full freedom
+- Export all visual elements as design-tokens which developers consume directly
+- Keep the sync between the design and the actual application code
+- Immidiate feedback look, make the change in design, see it in actual application immidiately
+- Don't have to depend on Developers for any change, be involve with the proccess
+- Evolve your design as long as it doesn't break the contract
+- Easy Collaborate with business team, tech team on same platform
 
-**Business Team** - Invole in transparent collaboration with Tech team by providing wireframes and prototypes and observing real progress from application perspective.
+**Business Team** - Invole in transparent collaboration with Tech team by providing wireframes, prototypes and required business requirements directly in the system which tech team uses to build the application.
 
-- Build OCI compliant images from application code
-- Deploy containerized workloads the GitOps way using build-in or BYO golden path templates
-- Automatically update container images of workloads
-- Publicly expose applications
-- Get instant access to logs, metrics and traces
-- Store charts and images in a private registry
-- Configure network policies, response headers and CNAMEs
-- Manage secrets
-- Create private Git repositories and custom CI/CD pipelines
+- Create the prototypes which are part of real application, no through away effort after handing over to developers
+- Involve in improving the user journey through out the lifecycle
+- All the tools at your finger tip to create awesome journeys
+- Don't depend on developers to recreate the jourenies based on your input, you take the ownership
+- Developers will help to take it forward to next stages of the lifecycle
+- Always on top of the realistic status for various features, don't have to ask tech team
+- Improve UI/UX by providing feedback to design team in same system
+- Improve functionality and app performance by giving feedback to development team
+- All the analytics in same platform for making any business decission after delivery
+- Discover the insights and improve the product incrementaly
 
 **Application Team** - With easy self-service to let them focus on their apps only
 
