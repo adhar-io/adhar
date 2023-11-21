@@ -31,13 +31,15 @@
 
 7. **Continuous Evolution:** The platform remains perpetually evolving, incorporating modern technology trends and industry best practices. This commitment to continuous improvement ensures that the platform remains relevant and cutting-edge.
 
-8. **Optimal Open Source Integration:** The platform seamlessly integrates leading open-source technologies, leveraging their collective power and innovation. This open-source ethos promotes collaboration, reduces costs, and fosters a vibrant developer community.
+8. **Optimal Open Source Cloud-Native Integration:** The platform involves seamlessly combining open-source tools and technologies to build, deploy, and manage cloud-native applications. This integration enables organizations to leverage the flexibility, scalability, and cost-effectiveness of cloud computing while maintaining control over their infrastructure and data.
 
 9. **GitOps for Infrastructure and Applications:** The platform adheres to GitOps principles for managing both infrastructure and applications. This declarative approach ensures consistency, reproducibility, and simplified configuration management.
 
 10. **Self-Service Resource Provisioning:** The platform empowers users to provision resources on-demand, eliminating the need for manual intervention. This self-service model enhances agility and reduces administrative overhead.
 
-11. **Fully Open Source:** The platform embraces open-source principles, fostering transparency, collaboration, and continuous improvement. This open-source philosophy aligns with the values of the developer community and promotes innovation.
+11. **AI Powered Low-Code Platform:** Adhar's low-code application development capabilities can empower non-technical users to create simple applications without extensive coding knowledge, broadening the pool of contributors and accelerating application development. AI can automate repetitive tasks, provide code recommendations, and accelerate application testing, leading to faster and more efficient software development.
+
+12. **Fully Open Source:** The platform embraces open-source principles, fostering transparency, collaboration, and continuous improvement. This open-source philosophy aligns with the values of the developer community and promotes innovation.
 
 ## How Adhar Platform Helps :dart:
 
