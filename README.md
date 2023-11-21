@@ -17,20 +17,31 @@
 
 ## Adhar Platform Goals :rocket:
 
-- All-in-One integrated platform supporting from application inception to post production lifecycle (Define -> Design -> Develop -> Deliver -> Discover)
-- Great Developer Experience & Efficiency
-- Well defined responsibility segregation betwwen Application team and Platform team
-- Holistic and transparent governance
-- Platform-as-a-product concept, so every company doesn't have to build one
-- Polyglot technology stack, build using any language/framework and run in any cloud or even on onprem
-- Evolve platform as per modern technology trends and industry best practices
-- Integrate all leading opensource projects in best possible way to build the platform
-- Apply GitOps principles as standard for infrastructure as well as application
-- Fully Open source and always :sparkling_heart: other opensource tools and libraries
+1. **Comprehensive All-in-One Integrated Platform:** The platform encompasses the entire software development lifecycle, from defining requirements and designing solutions to developing, testing, and deploying applications. This unified approach eliminates the need for switching between disparate tools, improving efficiency and collaboration.
+
+2. **Enhanced Developer and Operator Experience:** The platform prioritizes developer and operator experience by providing intuitive interfaces, automated tasks, and streamlined workflows. This user-centric design reduces friction and empowers users to focus on their core responsibilities.
+
+3. **Clear Responsibility Segregation:** The platform establishes clear boundaries between application teams and platform teams, promoting a well-defined division of labor. This separation of concerns ensures that each team focuses on their respective areas of expertise, enhancing overall efficiency.
+
+4. **Holistic Governance and Compliance:** The platform incorporates robust governance and compliance mechanisms to ensure adherence to regulatory requirements and maintain data integrity. This built-in compliance framework minimizes risk and promotes transparency.
+
+5. **Platform-as-a-Product Approach:** The platform adopts a product-centric approach, eliminating the need for each organization to reinvent the wheel. This shared infrastructure model reduces development costs and promotes standardization across the industry.
+
+6. **Polyglot Technology Stack:** The platform embraces a polyglot approach, supporting a wide range of programming languages, frameworks, and cloud environments. This flexibility allows developers to choose the tools that best suit their needs, fostering innovation.
+
+7. **Continuous Evolution:** The platform remains perpetually evolving, incorporating modern technology trends and industry best practices. This commitment to continuous improvement ensures that the platform remains relevant and cutting-edge.
+
+8. **Optimal Open Source Integration:** The platform seamlessly integrates leading open-source technologies, leveraging their collective power and innovation. This open-source ethos promotes collaboration, reduces costs, and fosters a vibrant developer community.
+
+9. **GitOps for Infrastructure and Applications:** The platform adheres to GitOps principles for managing both infrastructure and applications. This declarative approach ensures consistency, reproducibility, and simplified configuration management.
+
+10. **Self-Service Resource Provisioning:** The platform empowers users to provision resources on-demand, eliminating the need for manual intervention. This self-service model enhances agility and reduces administrative overhead.
+
+11. **Fully Open Source:** The platform embraces open-source principles, fostering transparency, collaboration, and continuous improvement. This open-source philosophy aligns with the values of the developer community and promotes innovation.
 
 ## How Adhar Platform Helps :dart:
 
-**Design Team** - AI powered design assistance and realistic content generation along with easy design -> code and code -> design sync.
+**Design Team** - AI-powered design assistance and realistic content generation are rapidly transforming the creative process, making it easier and more efficient for designers and developers to create high-quality products. Additionally, easy design-to-code and code-to-design sync tools are helping to bridge the gap between design and development, ensuring that designs are implemented accurately and efficiently.
 
 - Use the Figma design components to build the application design
 - AI can generate the initial DRAFT version of the design and export to Figma
@@ -42,7 +53,7 @@
 - Evolve your design as long as it doesn't break the contract
 - Easy Collaborate with business team, tech team on same platform
 
-**Business Team** - Invole in transparent collaboration with Tech team by providing wireframes, prototypes and required business requirements directly in the system which tech team uses to build the application.
+**Business Team** - Business team involvement in transparent collaboration with the Tech team is crucial for designing and developing software products that align with business objectives and meet user needs. By providing wireframes, prototypes, and detailed business requirements directly in the system used by the Tech team, businesses can ensure seamless communication and alignment throughout the development process.
 
 - Create the prototypes which are part of real application, no through away effort after handing over to developers
 - Involve in improving the user journey through out the lifecycle
@@ -55,7 +66,7 @@
 - All the analytics in same platform for making any business decission after delivery
 - Discover the insights and improve the product incrementaly
 
-**Application Team** - With easy self-service to let them focus on their apps only
+**Application Team** - Easy self-service is a crucial aspect of enabling developers and operators to focus on their core responsibilities and reduce the burden of managing infrastructure and resources. By providing self-service capabilities, organizations can empower their technical teams.
 
 - Build OCI compliant images from application code
 - Deploy containerized workloads the GitOps way using build-in or BYO golden path templates
@@ -67,7 +78,7 @@
 - Manage secrets
 - Create private Git repositories and custom CI/CD pipelines
 
-**Platform Team** - To setup a Kubernetes-based platform for developers and provide a paved road to production
+**Platform Team** - Platform engineers play a critical role in enabling developers to build, deploy, and manage applications effectively. By building and managing a Kubernetes-based platform, platform engineers provide developers with a self-service platform that simplifies and streamlines the process of bringing applications to production.
 
 - Create your platform profile and deploy to any K8s
 - Onboard development teams in a comprehensive multi-tenant setup and make them self-serving
@@ -79,7 +90,7 @@
 - Prevent cloud provider lock-in
 - Implement full observability
 
-**Management Team** - Access all the insights and reports to make the best possible business or technical decission based on actual datapoints
+**Management Team** - It is important for the management team to have access to all the insights and reports to make the best possible business or technical decisions based on actual data points. This is because data can help to identify trends, patterns, and opportunities that would otherwise be invisible. It can also help to track progress, measure performance, and make informed decisions about resource allocation and strategy.
 
 - Fully integrated analytics platform
 - AI powered automated insights and recomendations
