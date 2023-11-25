@@ -70,8 +70,8 @@
 
 **Application Team** - Easy self-service is a crucial aspect of enabling developers and operators to focus on their core responsibilities and reduce the burden of managing infrastructure and resources. By providing self-service capabilities, organizations can empower their technical teams.
 
-- Build OCI compliant images from application code
-- Deploy containerized workloads the GitOps way using build-in or BYO golden path templates
+- Build OCI compliant images from application code and store them in a private registry
+- Deploy containerized workloads using a developer catalog with build-in or BYO golden path templates
 - Automatically update container images of workloads
 - Publicly expose applications
 - Get instant access to logs, metrics and traces
@@ -91,6 +91,7 @@
 - Support multi- and hybrid cloud scenarios
 - Prevent cloud provider lock-in
 - Implement full observability
+- Create Golden path templates and offer them to development teams through a developer catalog
 
 **Management Team** - It is important for the management team to have access to all the insights and reports to make the best possible business or technical decisions based on actual data points. This is because data can help to identify trends, patterns, and opportunities that would otherwise be invisible. It can also help to track progress, measure performance, and make informed decisions about resource allocation and strategy.
 
@@ -179,12 +180,14 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Nginx Ingress Controller](https://github.com/kubernetes/ingress-nginx): Ingress controller for Kubernetes
 - [External DNS](https://github.com/kubernetes-sigs/external-dns): Synchronize exposed ingresses with DNS providers
 - [Argo CD](https://github.com/argoproj/argo-cd): Declarative continuous deployment
+- [Tekton Pipeline](https://github.com/tektoncd/pipeline): K8s-style resources for declaring CI/CD pipelines
+- [Tekton Triggers](https://github.com/tektoncd/triggers): Trigger pipelines from event payloads
+- [Tekton dashboard](https://github.com/tektoncd/dashboard): Web-based UI for Tekton Pipelines and Tekton Triggers
 - [Gitea](https://github.com/go-gitea/gitea): Self-hosted Git service
 
 **Optional Applications (that you can activate to compose your ideal platform):**
 
 - [Velero](https://github.com/vmware-tanzu/velero): Back up and restore your Kubernetes cluster resources and persistent volumes
-- [Argo CD](https://github.com/argoproj/argo-cd): Declarative continuous deployment
 - [Knative](https://github.com/knative/serving): Deploy and manage serverless workloads
 - [Kaniko](https://github.com/GoogleContainerTools/kaniko): Build container images from a Dockerfile
 - [Prometheus](https://github.com/prometheus/prometheus): Collecting container application metrics
@@ -200,9 +203,6 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Thanos](https://github.com/thanos-io/thanos): HA Prometheus setup with long term storage capabilities
 - [Falco](https://github.com/falcosecurity/falco): Cloud Native Runtime Security
 - [Opencost](https://github.com/opencost/opencost): Cost monitoring for Kubernetes
-- [Tekton Pipeline](https://github.com/tektoncd/pipeline): K8s-style resources for declaring CI/CD pipelines
-- [Tekton Triggers](https://github.com/tektoncd/triggers): Trigger pipelines from event payloads
-- [Tekton dashboard](https://github.com/tektoncd/dashboard): Web-based UI for Tekton Pipelines and Tekton Triggers
 - [Paketo build packs](https://github.com/paketo-buildpacks): Cloud Native Buildpack implementations for popular programming language ecosystems
 - [Cloudnative-pg](https://github.com/cloudnative-pg/cloudnative-pg): Open source operator designed to manage PostgreSQL workloads
 - [Grafana Tempo](https://github.com/grafana/tempo): High-scale distributed tracing backend
