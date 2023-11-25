@@ -1,0 +1,350 @@
+#!/usr/bin/env bash
+#####################################################################################
+##
+## NOTE:
+## This is a command line tool to operate on otomi-core.
+## All commands are executed in docker container.
+## Keep this file as simple as possible:
+## - do not depend on any external files.
+## - do not use any non standard tooling.
+## - only Docker is needed to run otomi-core image
+## If you need to use any extra binaries then most probably you want to add them to the otomi/tools image.
+##
+#####################################################################################
+# shellcheck disable=SC2128
+[ "${BASH_VERSINFO:-0}" -lt 4 ] && echo "You are using $BASH_VERSINFO, while we only support Bash -ge than version 4. Please upgrade." && exit 1
+calling_args="$*"
+if [ "$NODE_ENV" == "test" ]; then
+  CI=1
+  ENV_DIR="$PWD/tests/fixtures"
+  NOPULL=1
+  OTOMI_TAG="main"
+elif [ -z "$ENV_DIR" ] && [ -n "$IN_DOCKER" ]; then
+  ENV_DIR="$PWD/env"
+elif [ -z "$IN_DOCKER" ] && [ -n "$ENV_DIR" ]; then
+  mkdir -p $ENV_DIR
+fi
+[[ "$ENV_DIR" == *"../"* ]] && echo "Don't provide an ENV_DIR that contains '../'!" && exit 1
+# treat CI and chart as non interactive
+if [[ $calling_args != 'bash'* ]] && [[ $calling_args != 'x '* ]] && { [ -n "$CI" ]; }; then
+  calling_args="$calling_args --non-interactive"
+fi
+if [[ $calling_args == 'x '* ]] && [[ $calling_args != 'x -- '* ]]; then
+  calling_args="x -- ${calling_args:2}"
+fi
+readonly calling_args
+silent() {
+  if { [[ $VERBOSITY -gt 0 ]] || [[ " $calling_args" == *' -v'* ]]; } && [ -t 1 ]; then
+    "$@"
+  else
+    "$@" &>/dev/null
+  fi
+}
+
+# shellcheck disable=SC2155
+readonly base_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+if [ -f "$PWD/package.json" ] && [ -d "$PWD/.git" ] && [ -z "$NOT_CORE" ]; then
+  in_core=1
+  core_path=$(pwd)
+fi
+
+function parse_yaml {
+  local prefix=$2
+  local s='[[:space:]]*' w='[a-zA-Z0-9_]*' fs=$(echo @ | tr @ '\034')
+  sed -ne "s|^\($s\):|\1|" \
+    -e "s|^\($s\)\($w\)$s:$s[\"']\(.*\)[\"']$s\$|\1$fs\2$fs\3|p" \
+    -e "s|^\($s\)\($w\)$s:$s\(.*\)$s\$|\1$fs\2$fs\3|p" $1 |
+    awk -F$fs '{
+      indent = length($1)/2;
+      vname[indent] = $2;
+      for (i in vname) {if (i > indent) {delete vname[i]}}
+      if (length($3) > 0) {
+         vn=""; for (i=0; i<indent; i++) {vn=(vn)(vname[i])("_")}
+         printf("%s%s%s=\"%s\"\n", "'$prefix'",vn, $2, $3);
+      }
+   }'
+}
+[ -z $ENV_DIR ] && [ -n "$in_core" ] && echo "No ENV_DIR set!" && exit 1
+[ -z $ENV_DIR ] && ENV_DIR="$PWD"
+# Parse yaml block without yq: https://stackoverflow.com/a/49190338/14982291
+fallback_otomi_version='latest'
+if [ -n "$in_core" ]; then
+  otomi_version='main'
+elif [ -f "${ENV_DIR}/env/settings.yaml" ]; then
+  otomi_version_rec=$(parse_yaml $ENV_DIR/env/settings.yaml | grep 'otomi__version=')
+  if [[ "$otomi_version_rec" =~ otomi__version=\"(.*)\" ]]; then
+    otomi_version=${BASH_REMATCH[1]}
+  else
+    # If the settings.yaml doesn't contain otomi.version, we fall back to latest
+    otomi_version=$fallback_otomi_version
+  fi
+else
+  otomi_version=$fallback_otomi_version
+fi
+otomi_branch_or_tag=${OTOMI_TAG:-$otomi_version}
+otomi_version_used=${OTOMI_TAG:-$otomi_version}
+readonly otomi_tools_image="otomi/core:${otomi_version_used}"
+
+script_full_path="$base_dir/${BASH_SOURCE[0]##*/}"
+if [[ ${BASH_SOURCE[0]} == '/'* ]]; then
+  script_full_path="${BASH_SOURCE[0]}"
+fi
+readonly script_full_path
+update_base="https://raw.githubusercontent.com/redkubes/otomi-core/${otomi_branch_or_tag}/binzx/otomi"
+
+function date_to_format() {
+  date=${1:-'1970-01-01T00:00:00Z'}
+  format=${2:-+%s}
+  which_date=$(which date)
+  if [[ $(uname -s) == "Darwin" ]] && [[ "$which_date" == "/bin/date" ]]; then
+    date -j -f "%Y-%m-%dT%H:%M:%SZ" $date $format
+    return $?
+  fi
+  date --date="$date" $format
+  return $?
+}
+
+universal_stat() {
+  file=$1
+  which_stat=$(which stat)
+  if [[ $(uname -s) == "Darwin" ]] && [[ "$which_stat" == "/usr/bin/stat" ]]; then
+    stat -f %A $file
+    return $?
+  fi
+  stat -c '%a' $file
+  return $?
+}
+
+run_self_update() {
+  echo "Performing self-update..."
+
+  # Download new version
+  echo -n "Downloading latest version..."
+  if ! wget --quiet --output-document="$0.tmp" $update_base; then
+    echo "Failed: Error while trying to wget new version!"
+    echo "File requested: $update_base"
+    exit 1
+  fi
+  echo "Done."
+
+  # Copy over modes from old version
+  OCTAL_MODE=$(universal_stat $script_full_path)
+  if ! chmod $OCTAL_MODE "$0.tmp"; then
+    echo "Failed: Error while trying to set mode on $0.tmp."
+    exit 1
+  fi
+
+  # Spawn update script
+  cat >update-otomi.sh <<EOF
+#!/bin/bash
+# Overwrite old file with new
+if mv "$0.tmp" "$0"; then
+  echo "Done. Update complete."
+  rm \$0
+  exec "$0" "$calling_args"
+else
+  echo "Failed!"
+fi
+EOF
+
+  echo -n "Inserting update process..."
+  exec /bin/bash update-otomi.sh
+}
+
+check_update() {
+  if [ -n "$in_core" ] ||
+    [[ $calling_args == *'-non-interactive'* ]] ||
+    [[ $calling_args == *'-ni'* ]]; then
+    return 0
+  fi
+  last_commit_date=$(curl -s "https://api.github.com/repos/redkubes/otomi-core/commits?sha=${otomi_branch_or_tag}&path=binzx%2Fotomi&page=1&per_page=1" | grep -A5 '"committer":' | grep '"date":' | awk -F': ' '{print $2}' | tr -d '"')
+  last_file_change=$(date -u -r $script_full_path '+%Y-%m-%dT%H:%M:%SZ')
+  last_commit_date_sec=$(date_to_format $last_commit_date)
+  last_file_change_sec=$(date_to_format $last_file_change)
+
+  if [ "$last_commit_date_sec" -ne "0" ] && [ "$last_commit_date_sec" -gt "$last_file_change_sec" ]; then
+    read -r -p "Newer version is available, do you want to update (yes/No)? " answer
+    case ${answer:0:1} in
+      y | Y)
+        run_self_update
+        ;;
+      *)
+        return 0
+        ;;
+    esac
+  fi
+}
+
+[ -z $DONT_CHECK_UPDATE ] && [ -z $IN_DOCKER ] && silent echo "Checking for updates" && check_update
+
+tmp_env=$(mktemp)
+
+# load local env for devs
+[ -f "$PWD/.env" ] && silent echo "Loading local .env" && cat "$PWD/.env" >>$tmp_env
+
+function dump_vars() {
+  for var in "$@"; do
+    val="${!var}"
+    [ -n "$val" ] && echo "$var=$val" >>$tmp_env
+  done
+}
+
+OTOMI_PORT=${OTOMI_PORT:-17771}
+OTOMI_IN_TERMINAL="false"
+if [ -t 1 ]; then
+  # shellcheck disable=SC2034
+  OTOMI_IN_TERMINAL="true"
+fi
+
+vars=(
+  AWS_ACCESS_KEY_ID
+  AWS_REGION
+  AWS_SECRET_ACCESS_KEY
+  AZURE_CLIENT_ID
+  AZURE_CLIENT_SECRET
+  AZURE_TENANT_ID
+  CI
+  DEBUG
+  DOCKER_RUN_AS
+  ENV_DIR
+  GCLOUD_SERVICE_KEY
+  KUBE_VERSION_OVERRIDE
+  NODE_ENV
+  NODE_TLS_REJECT_UNAUTHORIZED
+  OTOMI_DRY_RUN
+  OTOMI_IN_TERMINAL
+  OTOMI_PASSWORD
+  OTOMI_PORT
+  OTOMI_SERVER
+  OTOMI_TAG
+  OTOMI_USERNAME
+  PROFILE
+  STATIC_COLORS
+  SHELL
+  TEAM_IDS
+  TRACE
+  VERBOSITY
+  VALUES_INPUT
+  VAULT_TOKEN
+)
+dump_vars "${vars[@]}"
+
+cat >>$tmp_env <<EOF
+OTOMI_CALLER_COMMAND=${BASH_SOURCE[0]##*/}
+IN_DOCKER=1
+EOF
+
+helm_config="$HOME/.config/helm"
+if [[ $(uname -s) == "Darwin" ]]; then
+  helm_config="$HOME/Library/Preferences/helm"
+else
+  run_as="$(id -u):$(id -g)"
+  readonly linux_workaround="--user=${DOCKER_RUN_AS:-$run_as}"
+fi
+
+stack_dir='/home/app/stack'
+executable="node ${stack_dir}/dist/src/otomi.js --"
+
+stack_volume=""
+tmp_volume_dir=$(mktemp -d)
+tmp_volume=" -v $tmp_volume_dir:/tmp"
+if [ -n "$in_core" ]; then
+  stack_dir=$core_path
+
+  stack_volume="-v $stack_dir:$stack_dir"
+  tmp_volume="-v /tmp:/tmp"
+  export TS_NODE_PROJECT="$PWD/tsconfig.json"
+  if [ -z "$NODE_PATH" ]; then
+    # ts-node
+    executable="node --no-warnings --inspect=4320 -r ts-node/register -r tsconfig-paths/register ${stack_dir}/src/otomi.ts --"
+  else
+    # node compiled js
+    executable="node --no-warnings --inspect=4320 ${stack_dir}/dist/src/otomi.js --"
+  fi
+  echo "OTOMI_DEV=1" >>$tmp_env
+fi
+
+check_volume_path() {
+  source=$1
+  dest=$2
+  [ -z $source ] && [ -z $dest ] && echo "" && return 0
+  echo "-v $source:$dest"
+  return 0
+}
+
+cmd="${executable} $calling_args"
+# If command is "otomi bash"
+if [ "$1" = "bash" ] && [ "$#" = "1" ]; then
+  cmd="bash"
+fi
+
+if { { [ "$otomi_version_used" = 'latest' ] || [ "$otomi_version_used" = 'main' ]; } || [ -n "$FORCE_PULL" ]; } && [ -z $NOPULL ] && [ -z $IN_DOCKER ]; then
+  silent echo "Pulling latest version of the docker image, please wait"
+  silent docker pull $otomi_tools_image
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "Something went wrong when trying to pull '${otomi_tools_image}', is Docker running?"
+    exit $status
+  fi
+fi
+
+it='-it'
+if [[ $calling_args == *'-non-interactive'* ]] ||
+  [[ $calling_args == *'-ni'* ]]; then
+  it=''
+fi
+
+network=${CUSTOM_NETWORK:-'--network host'}
+if [[ $calling_args == 'server'* ]]; then
+  network="-p $OTOMI_PORT:$OTOMI_PORT"
+fi
+
+mkdir -p /tmp/otomi
+# Issue arises due to OSX not assuming UTF-8 format: https://unix.stackexchange.com/a/64905 need to set LC_ALL=C
+container_name="otomi-core-$(cat /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | fold -w 6 | head -n 1)"
+
+if [ -n "$IN_DOCKER" ]; then
+  silent echo $cmd
+  $cmd
+  status=$?
+elif [[ $calling_args == *'--get-yargs-completions'* ]]; then
+  docker run --name $container_name --rm -e SHELL=$SHELL "$otomi_tools_image" bash -c "$cmd"
+  status=$?
+else
+  # set -x
+  docker run --name $container_name --rm --init $it \
+    $linux_workaround \
+    $network \
+    $stack_volume \
+    $tmp_volume \
+    -v /tmp/otomi:/tmp/otomi \
+    $(check_volume_path $HOME/.kube "/home/app/.kube") \
+    $([ -n "$KUBECONFIG" ] && check_volume_path $KUBECONFIG "/home/app/.kube/config") \
+    $(check_volume_path $helm_config "/home/app/.config/helm") \
+    $(check_volume_path $HOME/.config/gcloud "/home/app/.config/gcloud") \
+    $(check_volume_path $HOME/.aws "/home/app/.aws") \
+    $(check_volume_path $HOME/.azure "/home/app/.azure") \
+    $(check_volume_path $HOME/.docker "/home/app/.docker") \
+    $(check_volume_path $HOME/.minikube "$HOME/.minikube") \
+    $(check_volume_path $ENV_DIR "$stack_dir/env") \
+    $(check_volume_path $ENV_DIR "$ENV_DIR") \
+    $(check_volume_path /var/run/docker.sock "/var/run/docker.sock") \
+    $DOCKER_EXTRA_ARGS \
+    --env-file "$tmp_env" \
+    -w "$stack_dir" \
+    "$otomi_tools_image" \
+    bash -c "$cmd"
+  status=$?
+  [ -n "$in_core" ] && rm -rf $PWD/env &>/dev/null
+fi
+
+if [[ $calling_args == *'-skip-cleanup'* ]] || [[ $calling_args == *'-s'* ]]; then
+  silent echo "keeping files"
+else
+  # Docker seems to be slow to release these files, needs to sleep to make sure that the file & volume are released and can be removed
+  sleep 0.1
+  rm -f "$tmp_env" &>/dev/null
+  rm -rf "$tmp_volume_dir" &>/dev/null
+fi
+exit $status

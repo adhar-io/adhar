@@ -2,7 +2,7 @@ apiVersion: v2
 name: adhar
 description: A Helm chart for installing adhar platform in Kubernetes
 home: https://adhar.io/
-icon: https://adhar.io/imgs/adhar-logo.svg
+icon: https://adhar.io/imgs/adhar-logo-light.svg
 type: application
 version: CHART_VERSION_PLACEHOLDER
 appVersion: APP_VERSION_PLACEHOLDER

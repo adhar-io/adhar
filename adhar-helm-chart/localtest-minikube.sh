@@ -5,7 +5,7 @@ set -e
 #####
 # recommended options to start minikube
 #####
-# minikube start --driver docker --network minikube --kubernetes-version=v1.19.0 --cpus=max --memory=max
+# minikube start --driver docker --network minikube --kubernetes-version=v1.28.0 --cpus=max --memory=max
 # docker network inspect minikube
 
 #####
@@ -20,6 +20,6 @@ export CUSTOM_NETWORK='--network minikube'
 #####
 # apply 
 #####
-binzx/otomi apply
+../platform/bin/otomi apply
 
 # minikube tunnel
