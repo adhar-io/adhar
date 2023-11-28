@@ -1,7 +1,4 @@
-<h1 align="center">
-  <img src="docs/imgs/Adhar.io Logo-06.jpg"  width="100%"/><br/>
-  ADHAR.IO - Open Foundation for Modern Businesses
-</h1>
+# ADHAR.IO - Open Foundation for Modern Businesses :tada: :confetti_ball: :balloon:
 
 <p align="center">
   <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
@@ -13,9 +10,12 @@
   <a href="https://adhar.io/"><img src="https://img.shields.io/website-up-down-green-red/http/shields.io.svg" alt="Website adhar.io"></a>
 </p>
 
+![Adhar Logo](docs/imgs/adhar-logo-white.svg#gh-dark-mode-only)
+![Adhar Logo](docs/imgs/adhar-logo-black.svg#gh-light-mode-only)
+
 > :bulb: Adhar aims to revolutionise the software development by providing a comprehensive and integrated IDP(Internal Development Platform) that seamlessly integrates the leading open-source frameworks and libraries, embraces cutting-edge cloud-native practices, utilises containerization technology, leverages cloud infrastructure, strengthens identity and access management, ensures robust API governance, offers low-code application development capabilities, powers rapid application creation with Artificial Inteligence(AI), and oversees holistic application lifecycle management. ADHAR empowers developers and businesses with an all-encompassing ecosystem to innovate, collaborate, and deliver software solutions of unparalleled quality and efficiency.
 
-## Adhar Platform Goals :rocket:
+## Adhar Platform Goals :dart:
 
 1. **Comprehensive All-in-One Integrated Platform:** The platform encompasses the entire software development lifecycle, from defining requirements and designing solutions to developing, testing, and deploying applications. This unified approach eliminates the need for switching between disparate tools, improving efficiency and collaboration.
 
@@ -41,9 +41,9 @@
 
 12. **Fully Open Source:** The platform embraces open-source principles, fostering transparency, collaboration, and continuous improvement. This open-source philosophy aligns with the values of the developer community and promotes innovation.
 
-## How Adhar Platform Helps :dart:
+## How Adhar Platform Helps :rocket:
 
-**Design Team** - AI-powered design assistance and realistic content generation are rapidly transforming the creative process, making it easier and more efficient for designers and developers to create high-quality products. Additionally, easy design-to-code and code-to-design sync tools are helping to bridge the gap between design and development, ensuring that designs are implemented accurately and efficiently.
+:nail_care:**Design Team** - AI-powered design assistance and realistic content generation are rapidly transforming the creative process, making it easier and more efficient for designers and developers to create high-quality products. Additionally, easy design-to-code and code-to-design sync tools are helping to bridge the gap between design and development, ensuring that designs are implemented accurately and efficiently.
 
 - Use the Figma design components to build the application design
 - AI can generate the initial DRAFT version of the design and export to Figma
@@ -55,7 +55,7 @@
 - Evolve your design as long as it doesn't break the contract
 - Easy Collaborate with business team, tech team on same platform
 
-**Business Team** - Business team involvement in transparent collaboration with the Tech team is crucial for designing and developing software products that align with business objectives and meet user needs. By providing wireframes, prototypes, and detailed business requirements directly in the system used by the Tech team, businesses can ensure seamless communication and alignment throughout the development process.
+:moneybag:**Business Team** - Business team involvement in transparent collaboration with the Tech team is crucial for designing and developing software products that align with business objectives and meet user needs. By providing wireframes, prototypes, and detailed business requirements directly in the system used by the Tech team, businesses can ensure seamless communication and alignment throughout the development process.
 
 - Create the prototypes which are part of real application, no through away effort after handing over to developers
 - Involve in improving the user journey through out the lifecycle
@@ -68,7 +68,7 @@
 - All the analytics in same platform for making any business decission after delivery
 - Discover the insights and improve the product incrementaly
 
-**Application Team** - Easy self-service is a crucial aspect of enabling developers and operators to focus on their core responsibilities and reduce the burden of managing infrastructure and resources. By providing self-service capabilities, organizations can empower their technical teams.
+:computer: **Application Team** - Easy self-service is a crucial aspect of enabling developers and operators to focus on their core responsibilities and reduce the burden of managing infrastructure and resources. By providing self-service capabilities, organizations can empower their technical teams.
 
 - Build OCI compliant images from application code and store them in a private registry
 - Deploy containerized workloads using a developer catalog with build-in or BYO golden path templates
@@ -80,7 +80,7 @@
 - Manage secrets
 - Create private Git repositories and custom CI/CD pipelines
 
-**Platform Team** - Platform engineers play a critical role in enabling developers to build, deploy, and manage applications effectively. By building and managing a Kubernetes-based platform, platform engineers provide developers with a self-service platform that simplifies and streamlines the process of bringing applications to production.
+:battery: **Platform Team** - Platform engineers play a critical role in enabling developers to build, deploy, and manage applications effectively. By building and managing a Kubernetes-based platform, platform engineers provide developers with a self-service platform that simplifies and streamlines the process of bringing applications to production.
 
 - Create your platform profile and deploy to any K8s
 - Onboard development teams in a comprehensive multi-tenant setup and make them self-serving
@@ -93,7 +93,7 @@
 - Implement full observability
 - Create Golden path templates and offer them to development teams through a developer catalog
 
-**Management Team** - It is important for the management team to have access to all the insights and reports to make the best possible business or technical decisions based on actual data points. This is because data can help to identify trends, patterns, and opportunities that would otherwise be invisible. It can also help to track progress, measure performance, and make informed decisions about resource allocation and strategy.
+:cop: **Management Team** - It is important for the management team to have access to all the insights and reports to make the best possible business or technical decisions based on actual data points. This is because data can help to identify trends, patterns, and opportunities that would otherwise be invisible. It can also help to track progress, measure performance, and make informed decisions about resource allocation and strategy.
 
 - Fully integrated analytics platform
 - AI powered automated insights and recomendations
@@ -103,9 +103,9 @@
 - Easy Technology and Risk goverance
 - Visibility of end to end process
 
-## Getting started
+## Getting started :sparkles:
 
-### Helm
+### Helm :boat:
 
 To install Adhar platform, make sure to have a kubernetes cluster running with at least:
 
@@ -132,7 +132,7 @@ helm install adhar adhar/adhar \
 --set cluster.provider=$PROVIDER # use 'azure', 'aws', 'google', 'digitalocean', 'civo', or 'custom' for any other cloud or onprem K8s
 ```
 
-## Contribution Guide :book:
+## Contribution Guide :mortar_board:
 
 Learn about integrating, deploying and managing your apps on Adhar platform.
 
@@ -144,7 +144,7 @@ Learn about integrating, deploying and managing your apps on Adhar platform.
 - [Migrating values](./docs/migrating-values.md)
 - [Go templating](./docs/go-templating.md)
 
-## Platform Architecture
+## Platform Architecture :crystal_ball:
 
 <p align="center"><img src="docs/imgs/adhar-platform.svg" width="100%" alt="Adhar platform"></p>
 
@@ -208,7 +208,7 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Grafana Tempo](https://github.com/grafana/tempo): High-scale distributed tracing backend
 - [OpenTelemetry](https://github.com/open-telemetry/opentelemetry-operator): Instrument, generate, collect, and export telemetry data to help you analyze your software’s performance and behavior
 
-### Supported providers
+### Supported providers :cloud:
 
 Adhar Platform can be installed on any Kubernetes cluster. At this time, the following providers are supported:
 
@@ -219,7 +219,7 @@ Adhar Platform can be installed on any Kubernetes cluster. At this time, the fol
 - `civo` for [Civo Cloud K3S](https://www.civo.com/)
 - `custom` for any other cloud/infrastructure
 
-## Adhar Features
+## Adhar Capabilities :fire:
 
 - Activate capabilities to compose your ideal platform
 - Generate resources for ArgoCD, Tekton, Istio and Ingress based on build-in golden templates
@@ -240,7 +240,7 @@ Adhar Platform can be installed on any Kubernetes cluster. At this time, the fol
 - Full observability (logs, metrics, traces, rules, alerts)
 - Cloud shell with integrated cli tools like velero and k9s
 
-## Contribution
+## Contribution :pray:
 
 If you wish to contribute please read our [Contributor Code of Conduct](https://adhar.io/community/code-of-conduct) and [Contribution Guidelines](https://adhar.io/community/get-involved).
 
@@ -255,6 +255,6 @@ This project exists thanks to all the people who have contributed
   <img src="https://contrib.rocks/image?repo=adhar-io/adhar" />
 </a>
 
-## License
+## License :snowflake:
 
 Adhar is licensed under the [Apache 2.0 License](https://github.com/adhar-io/adhar/blob/main/LICENSE).
