@@ -1,4 +1,4 @@
-# ADHAR.IO - Open Foundation for Modern Businesses :tada: :confetti_ball: :balloon:
+# ADHAR.IO - Open Foundation for Modern Businesses
 
 <p align="center">
   <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
