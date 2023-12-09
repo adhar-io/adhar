@@ -1,0 +1,6 @@
+cluster:
+  name: "adhar-cloud" # the name of your cluster
+  provider: "digitalocean" # choose between aws, azure, google, digitalocean, civo or custom
+
+otomi:
+  version: "v2.0.5"
