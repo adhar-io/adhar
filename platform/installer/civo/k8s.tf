@@ -19,7 +19,7 @@ resource "civo_kubernetes_cluster" "adhar_mgmt_k8s_cluster" {
     pools {
         label = "adhar-node-pool"
         size = var.machine_size
-        node_count = 3
+        node_count = 5
     }
 
     provisioner "local-exec" {

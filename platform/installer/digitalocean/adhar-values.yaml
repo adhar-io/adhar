@@ -3,4 +3,4 @@ cluster:
   provider: "digitalocean" # choose between aws, azure, google, digitalocean, civo or custom
 
 otomi:
-  version: "v2.0.5"
+  version: "v2.0.8"

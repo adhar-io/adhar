@@ -1,0 +1,34 @@
+{{- $v := .Values }}
+{{- $f:= $v.apps.falco }}
+
+falco:
+  syscall_event_drops:
+    actions:
+      - ignore
+  grpc:
+    enabled: true
+    bind_address: "unix:///run/falco/falco.sock"
+    threadiness: 0
+  grpc_output:
+    enabled: true
+podAnnotations: 
+  policy.otomi.io/ignore: psp-allowed-users,psp-privileged,psp-host-security,psp-host-filesystem
+resources: {{- $f.resources.falco | toYaml  | nindent 2 }}
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+falcoctl:
+  artifact:
+    install:
+      resources: {{- $f.resources.falcoCtlInstall | toYaml  | nindent 8 }}
+    follow:
+      resources: {{- $f.resources.falcoCtlFollow | toYaml  | nindent 8 }}
+driver:
+  kind: {{ $f | get "driver" "ebpf" }}
+  loader:
+    initContainer:
+      resources: {{- $f.resources.falcoDriverLoader| toYaml  | nindent 8 }}

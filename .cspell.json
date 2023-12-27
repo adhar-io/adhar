@@ -3,7 +3,7 @@
   "allowCompoundWords": true,
   "enableFiletypes": ["dockerfile", "md", "yaml"],
   "enabledLanguageIds": ["json", "jsonc", "markdown", "typescript", "typescriptreact", "yaml", "yml"],
-  "ignorePaths": ["/README.md", "*.json"],
+  "ignorePaths": ["/CHANGELOG.md", "*.json"],
   "ignoreRegExpList": ["/'s\\b/"],
   "ignoreWords": [
     "adrs",
@@ -30,6 +30,7 @@
     "CNAMEs",
     "encodedkey",
     "envs",
+    "ebpf",
     "gcpckms",
     "gotmpl",
     "groupsname",

@@ -1,0 +1,73 @@
+{{- $kms := .Values.kms | default dict }}
+{{- $version := .Values.otomi.version | default .Chart.AppVersion }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "otomi.fullname" . }}-pre-delete-job
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-delete-policy: hook-succeeded
+  labels: {{- include "otomi.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 100
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels: {{- include "otomi.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "otomi.fullname" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 3000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: destroy
+          image: otomi/core:{{ $version }}
+          imagePullPolicy: {{ ternary "IfNotPresent" "Always" (regexMatch "^v\\d" $version) }} 
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            runAsNonRoot: true
+          resources:
+            limits:
+              memory: 2Gi
+              cpu: '2'
+            requests:
+              memory: 1Gi
+              cpu: '1'
+          command: [bash, -c]
+          args:
+            - |
+              binzx/otomi bootstrap --destroy && binzx/otomi destroy && echo "Otomi has been uninstalled."
+          env:
+            - name: VERBOSITY
+              value: '1'
+            - name: ENV_DIR
+              value: /home/app/stack/env
+            - name: VALUES_INPUT
+              value: /secret/values.yaml
+          {{- if hasKey $kms "sops" }}
+          envFrom:
+            - secretRef:
+                name: {{ include "otomi.fullname" . }}-sops-secrets
+          {{- end }}
+          volumeMounts:
+            - name: otomi-values
+              mountPath: /home/app/stack/env
+            - name: values-secret
+              mountPath: /secret
+      volumes:
+        - name: values-secret
+          secret:
+            secretName: {{ .Release.Name }}-values
+        - name: otomi-values
+          emptyDir: {}
