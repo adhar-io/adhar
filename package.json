@@ -1,5 +1,17 @@
 {
-  "author": "Adhar",
+  "name": "adhar",
+  "version": "2.1.0",
+  "type": "commonjs",
+  "author": "Anitech Consulting Services Pvt Ltd",
+  "description": "Adhar platform is an opinionated stack of Kubernetes apps and configurations to run a production-ready platform on Kubernetes.",
+  "main": "src/otomi.ts",
+  "private": false,
+  "homepage": "https://github.com/adhar-io/adhar#readme",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adhar-io/adhar.git"
+  },
   "bugs": {
     "url": "https://github.com/adhar-io/adhar/issues"
   },
@@ -7,6 +19,51 @@
     "commitizen": {
       "path": "./node_modules/cz-conventional-changelog"
     }
+  },
+  "run-if-changed": {
+    "package-lock.json": "npm install --prefer-offline --no-audit",
+    "values-schema.yaml": "npm run gen:chart-schema"
+  },
+  "scripts": {
+    "app-versions:csv": "echo 'name,appVersion,chartVersion'; for f in $(find charts -name Chart.yaml -type f -maxdepth 2| sort); do yq eval -o=json $f | jq -rc '. | [.name, .appVersion, .version] | @csv' | tr -d '\"'; done",
+    "adr": "adr-log -d adr -i",
+    "check-policies": "NODE_ENV=test binzx/otomi check-policies",
+    "clean": "rm -rf dist >/dev/null",
+    "compile": "npm run clean && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json -v --dir dist && chmod +x ./dist/src/otomi.js",
+    "compile:watch": "npm run compile && tsc -w",
+    "cz": "git-cz",
+    "cz:retry": "git-cz -- --retry",
+    "eslint": "eslint --ext ts .",
+    "eslint:fix": "eslint --fix --ext ts .",
+    "format": "prettier --check \"**/*.{json,md,yml,yaml}\"",
+    "format:fix": "prettier --write \"**/*.{json,md,yml,yaml}\"",
+    "gen:chart-schema": "js-yaml values-schema.yaml > chart/otomi/values.schema.json",
+    "lint": "run-p spellcheck",
+    "lint-staged": "lint-staged",
+    "lint:fix": "prettier --write tests/**/*.yaml --write '.values/env/**/*.yaml' && npm run lint:ts:fix",
+    "lint:hf": "NODE_ENV=test binzx/otomi lint",
+    "lint:ts": "eslint --ext ts src",
+    "lint:ts:fix": "eslint --fix --ext ts src",
+    "lint:types": "tsc --noEmit",
+    "migrate-values": "ENV_DIR=$PWD/.values binzx/otomi migrate -ni && ENV_DIR=$PWD/tests/fixtures binzx/otomi migrate -ni",
+    "prepare": "husky install",
+    "release": "standard-version",
+    "release:github": "github-release-from-changelog",
+    "release:bump:minor": "standard-version --skip.changelog true --release-as minor",
+    "run-if-changed": "run-if-changed",
+    "score-templates": "binzx/otomi score-templates",
+    "server": "binzx/otomi server",
+    "spellcheck": "cspell '/docs/**/**.md' '/values-schema.yaml' '/*.md' '/.values/README.md'",
+    "tasks:copy-certs": "binzx/otomi task -n copyCerts",
+    "test": "run-s test:ts lint validate-values validate-templates check-policies",
+    "test:opa": "NODE_ENV=test binzx/otomi x opa test policies -v",
+    "test:ts": "NODE_ENV=test jest",
+    "test:ts-cov": "jest --coverage",
+    "validate-templates": "NODE_ENV=test binzx/otomi validate-templates",
+    "validate-templates:all": "set -e; i=25; while [ $i -le 27 ]; do NODE_ENV=test binzx/otomi validate-templates -k 1.$i; i=$(($i+1)); done",
+    "validate-values": "NODE_ENV=test binzx/otomi validate-values",
+    "bootstrap-dev": "rm -rf /tmp/otomi-bootstrap-dev; CI=1 VALUES_INPUT=$PWD/tests/bootstrap/input.yaml ENV_DIR=/tmp/otomi-bootstrap-dev binzx/otomi bootstrap",
+    "bootstrap-dev-with-repo": "CI=1 ENV_DIR=/tmp/otomi-bootstrap-dev binzx/otomi bootstrap"
   },
   "dependencies": {
     "@apidevtools/json-schema-ref-parser": "9.0.9",
@@ -34,7 +91,6 @@
     "yargs": "17.5.1",
     "zx": "4.3.0"
   },
-  "description": "Adhar platform is an opinionated stack of Kubernetes apps and configurations to run a production-ready platform on Kubernetes.",
   "devDependencies": {
     "@commitlint/cli": "11.0.0",
     "@commitlint/config-conventional": "11.0.0",
@@ -93,8 +149,6 @@
     "npm": ">=8.0.0 <10.2.0",
     "node": ">=16.0.0 <20.10.0"
   },
-  "homepage": "https://github.com/adhar-io/adhar#readme",
-  "license": "Apache-2.0",
   "lint-staged": {
     "*.{json,yml,yaml}": [
       "prettier --write"
@@ -103,63 +157,9 @@
       "eslint --fix"
     ]
   },
-  "main": "src/otomi.ts",
-  "name": "adhar",
-  "private": true,
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/adhar-io/adhar.git"
-  },
-  "run-if-changed": {
-    "package-lock.json": "npm install --prefer-offline --no-audit",
-    "values-schema.yaml": "npm run gen:chart-schema"
-  },
-  "scripts": {
-    "app-versions:csv": "echo 'name,appVersion,chartVersion'; for f in $(find charts -name Chart.yaml -type f -maxdepth 2| sort); do yq eval -o=json $f | jq -rc '. | [.name, .appVersion, .version] | @csv' | tr -d '\"'; done",
-    "adr": "adr-log -d adr -i",
-    "check-policies": "NODE_ENV=test binzx/otomi check-policies",
-    "clean": "rm -rf dist >/dev/null",
-    "compile": "npm run clean && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json -v --dir dist && chmod +x ./dist/src/otomi.js",
-    "compile:watch": "npm run compile && tsc -w",
-    "cz": "git-cz",
-    "cz:retry": "git-cz -- --retry",
-    "eslint": "eslint --ext ts .",
-    "eslint:fix": "eslint --fix --ext ts .",
-    "format": "prettier --check \"**/*.{json,md,yml,yaml}\"",
-    "format:fix": "prettier --write \"**/*.{json,md,yml,yaml}\"",
-    "gen:chart-schema": "js-yaml values-schema.yaml > chart/otomi/values.schema.json",
-    "lint": "run-p spellcheck lint:hf lint:ts lint:types",
-    "lint-staged": "lint-staged",
-    "lint:fix": "prettier --write tests/**/*.yaml --write '.values/env/**/*.yaml' && npm run lint:ts:fix",
-    "lint:hf": "NODE_ENV=test binzx/otomi lint",
-    "lint:ts": "eslint --ext ts src",
-    "lint:ts:fix": "eslint --fix --ext ts src",
-    "lint:types": "tsc --noEmit",
-    "migrate-values": "ENV_DIR=$PWD/.values binzx/otomi migrate -ni && ENV_DIR=$PWD/tests/fixtures binzx/otomi migrate -ni",
-    "prepare": "husky install",
-    "release": "standard-version",
-    "release:github": "github-release-from-changelog",
-    "release:bump:minor": "standard-version --skip.changelog true --release-as minor",
-    "run-if-changed": "run-if-changed",
-    "score-templates": "binzx/otomi score-templates",
-    "server": "binzx/otomi server",
-    "spellcheck": "cspell '/docs/**/**.md' '/values-schema.yaml' '/*.md' '/.values/README.md'",
-    "tasks:copy-certs": "binzx/otomi task -n copyCerts",
-    "test": "run-s test:ts lint validate-values validate-templates check-policies",
-    "test:opa": "NODE_ENV=test binzx/otomi x opa test policies -v",
-    "test:ts": "NODE_ENV=test jest",
-    "test:ts-cov": "jest --coverage",
-    "validate-templates": "NODE_ENV=test binzx/otomi validate-templates",
-    "validate-templates:all": "set -e; i=25; while [ $i -le 27 ]; do NODE_ENV=test binzx/otomi validate-templates -k 1.$i; i=$(($i+1)); done",
-    "validate-values": "NODE_ENV=test binzx/otomi validate-values",
-    "bootstrap-dev": "rm -rf /tmp/otomi-bootstrap-dev; CI=1 VALUES_INPUT=$PWD/tests/bootstrap/input.yaml ENV_DIR=/tmp/otomi-bootstrap-dev binzx/otomi bootstrap",
-    "bootstrap-dev-with-repo": "CI=1 ENV_DIR=/tmp/otomi-bootstrap-dev binzx/otomi bootstrap"
-  },
   "standard-version": {
     "skip": {
       "tag": true
     }
-  },
-  "type": "commonjs",
-  "version": "2.1.0"
+  }
 }
