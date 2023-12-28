@@ -1,61 +1,61 @@
-# Default values for Otomi.
+# Default values for Adhar Helm Chart.
 # This is a YAML-formatted file.
 # Declare variables to be passed into chart templates.
 
 cluster: {}
 
-  ## Needs to be set when hasExternalDNS is set to true
-  ##
-  # domainSuffix: ''
+## Needs to be set when hasExternalDNS is set to true
+##
+# domainSuffix: ''
 
-  ## Set the name of your cluster
-  ## 
-  # name: 'dev'
+## Set the name of your cluster
+## 
+# name: 'dev'
 
-  ## Set provider
-  ## Can be one of aws|azure|google|digitalocean|ovh|vultr|scaleway|civo|custom
-  ## Choose 'custom' for Minikube and any other K8s cluster.
-  ##
-  # provider: 'custom'
+## Set provider
+## Can be one of aws|azure|google|digitalocean|ovh|vultr|scaleway|civo|custom
+## Choose 'custom' for Minikube and any other K8s cluster.
+##
+# provider: 'custom'
 
-  ## Set the owner of the cluster
-  ## Can be the name of your organization. Will be set to 'otomi' if left empty
-  ##
-  # owner: ''
+## Set the owner of the cluster
+## Can be the name of your organization. Will be set to 'otomi' if left empty
+##
+# owner: ''
 
-otomi: {}
+adhar: {}
 
-  ## Set the admin password
-  ## Will be automatically generated if not filled-in
-  # adminPassword: ''
+## Set the admin password
+## Will be automatically generated if not filled-in
+# adminPassword: ''
 
-  ## Set hasExternalDNS to true when using an external DNS zone. 
-  ## Otherwise a '*.nip.io' domain will be created.
-  # hasExternalDNS: false
+## Set hasExternalDNS to true when using an external DNS zone. 
+## Otherwise a '*.nip.io' domain will be created.
+# hasExternalDNS: false
 
-  ## Set hasExternalIDP to true,when you bring your own IDP such as Azure AD. 
-  ## When set to false Keycloak will become the IDP.
-  ## When set to true, also fill in the 'oidc:' settings below.
-  # hasExternalIDP: false
+## Set hasExternalIDP to true,when you bring your own IDP such as Azure AD. 
+## When set to false Keycloak will become the IDP.
+## When set to true, also fill in the 'oidc:' settings below.
+# hasExternalIDP: false
 
-  ## Set the version of Otomi
-  ## By default the image tag is set to .Chart.AppVersion
-  # version: main
+## Set the version of Otomi
+## By default the image tag is set to .Chart.AppVersion
+# version: main
 
 ## Optional configuration
 # apps:
 #   cert-manager:
-    ## Set issuer 
-    ## Use a custom-ca (for BYO CA or auto-generated CA) or letsencrypt. 
-    ## When using letsencrypt, also fill in 'dns'.
-    # issuer: custom-ca
-    ## Set when using BYO CA. 
-    ## If not filled in, a CA will be auto generated
-    # customRootCA:
-    # customRootCAKey:
-    ## Set when issuer is letsencrypt
-    # email: ''
-    # stage: staging # defaults to 'production' when commented out
+## Set issuer 
+## Use a custom-ca (for BYO CA or auto-generated CA) or letsencrypt. 
+## When using letsencrypt, also fill in 'dns'.
+# issuer: custom-ca
+## Set when using BYO CA. 
+## If not filled in, a CA will be auto generated
+# customRootCA:
+# customRootCAKey:
+## Set when issuer is letsencrypt
+# email: ''
+# stage: staging # defaults to 'production' when commented out
 
 ## External dns zone configuration
 # dns:

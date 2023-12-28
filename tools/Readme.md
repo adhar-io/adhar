@@ -1,11 +1,11 @@
-# Building otomi/tools container image
+# Building adhar/tools container image
 
 ```
-docker build . -f Dockerfile -t otomi/tools:<TAG>
+docker build . -f Dockerfile -t adhario/tools:<TAG>
 ```
 
-# Building otomi/tools-db container image
+# Building adhar/tools-db container image
 
 ```
-docker build . -f Dockerfile-db -t otomi/tools-db:<TAG>
+docker build . -f Dockerfile-db -t adhario/tools-db:<TAG>
 ```

@@ -47,4 +47,3 @@ releases:
       pkg: external-secrets
       group: secrets
     <<: *raw
-

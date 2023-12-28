@@ -1,4 +1,4 @@
-# These values are intended for use to demo Otomi on a server/laptop.
+# These values are intended for use to demo Adhar platform on a server/laptop.
 # Minimal recommended specs: 32GB+ RAM, 12+ (v)CPU
 cluster:
   provider: local
