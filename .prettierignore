@@ -1,8 +1,0 @@
-.history/
-/helm-chart*/
-/adhar-helm-chart*/
-!^/helm-chart*/*.{yaml | md}
-!^/helm-charts/team-ns/*.{yaml | md}
-/helmfile*/
-*.sh
-CHANGELOG.md

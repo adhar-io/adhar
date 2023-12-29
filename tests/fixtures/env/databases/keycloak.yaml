@@ -1,4 +1,0 @@
-databases:
-    keycloak:
-        useOtomiDB: false
-        imported: false

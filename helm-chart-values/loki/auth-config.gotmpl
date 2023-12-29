@@ -1,9 +1,0 @@
-users:
-  - username: otomi-admin
-    password: {{ .adminPassword }}
-    orgid: admins
-  {{- range $id, $team := .teams }}
-  - username: {{ $id }}
-    password: {{ $team | get "password" "XXXX" }}
-    orgid: {{ $id }}
-  {{- end }}

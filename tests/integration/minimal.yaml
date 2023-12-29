@@ -1,6 +1,0 @@
-# Minimal values file with defaults
-cluster:
-  name: 'dev'
-  k8sContext: CONTEXT_PLACEHOLDER
-otomi:
-  version: 'OTOMI_VERSION_PLACEHOLDER'

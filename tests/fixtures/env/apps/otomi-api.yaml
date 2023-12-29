@@ -1,7 +1,0 @@
-apps:
-    otomi-api:
-        editorInactivityTimeout: 5
-        git:
-            email: some@secret.value
-            repoUrl: github.com/redkubes/otomi-values-demo.git
-            user: someuser
