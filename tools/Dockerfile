@@ -27,7 +27,7 @@ ARG CONFTEST_VERSION=0.39.2
 # https://github.com/plexsystems/konstraint/releases
 ARG KONSTRAINT_VERSION=0.26.0
 # https://nodejs.org/en/download/
-ARG NODE_VERSION=16
+ARG NODE_VERSION=18
 
 ARG HELM_FILE_NAME=helm-v${HELM_VERSION}-linux-amd64.tar.gz
 

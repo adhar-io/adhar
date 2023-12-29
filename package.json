@@ -26,7 +26,6 @@
   },
   "scripts": {
     "app-versions:csv": "echo 'name,appVersion,chartVersion'; for f in $(find charts -name Chart.yaml -type f -maxdepth 2| sort); do yq eval -o=json $f | jq -rc '. | [.name, .appVersion, .version] | @csv' | tr -d '\"'; done",
-    "adr": "adr-log -d adr -i",
     "check-policies": "NODE_ENV=test binzx/otomi check-policies",
     "clean": "rm -rf dist >/dev/null",
     "compile": "npm run clean && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json -v --dir dist && chmod +x ./dist/src/otomi.js",
@@ -146,8 +145,8 @@
     "typescript": "4.7.4"
   },
   "engines": {
-    "npm": ">=8.0.0 <10.0.0",
-    "node": ">=16.0.0 <20.0.0"
+    "npm": ">=8.0.0 <10.2.0",
+    "node": ">=16.0.0 <20.10.0"
   },
   "lint-staged": {
     "*.{json,yml,yaml}": [
