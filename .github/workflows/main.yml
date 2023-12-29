@@ -7,9 +7,9 @@ on:
       - '*'
 env:
   CACHE_REGISTRY: ghcr.io
-  CACHE_REPO: redkubes/otomi-core
-  REPO: otomi/core
-  GIT_USER: redkubesbot
+  CACHE_REPO: adhar-io/adhar
+  REPO: adhar-io/adhar
+  GIT_USER: adharbot
 
 jobs:
   build-test-cache:
@@ -124,7 +124,7 @@ jobs:
         id: prepare_chart
         run: |
           # Install and update helm repo
-          helm repo add otomi https://otomi.io/otomi-core
+          helm repo add adhar https://chart.adhar.io/adhar
           helm repo update
 
           # Retrieve the app version from package.json

@@ -1,4 +1,4 @@
-name: Deploy Otomi
+name: Deploy Adhar Platform
 on:
   workflow_call:
     inputs:
