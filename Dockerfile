@@ -1,4 +1,4 @@
-FROM adhario/tools:v0.1.1 as ci
+FROM adhario/tools:v0.1.2 as ci
 
 ENV APP_HOME=/home/app/stack
 
@@ -28,7 +28,7 @@ FROM ci as clean
 RUN npm prune --production
 
 #-----------------------------
-FROM adhario/tools:v0.1.1 as prod
+FROM adhario/tools:v0.1.2 as prod
 
 ENV APP_HOME=/home/app/stack
 ENV ENV_DIR=/home/app/stack/env
