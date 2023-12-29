@@ -4,7 +4,7 @@
 # Using ubuntu:latest base image
 FROM ubuntu:latest
 
-# Installing curl, vim, wget, tmux ttyd and bash-completion packages
+# Installing curl, vim, wget, tmux ttyd and bash-completion
 RUN apt update && apt upgrade -y && apt install -y ttyd jq curl vim wget less tmux bash-completion
 
 # Installing yq
