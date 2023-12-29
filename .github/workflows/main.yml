@@ -1,4 +1,4 @@
-name: Build and publish Docker
+name: Build and Publish Docker Images
 on:
   push:
     branches:
@@ -63,7 +63,7 @@ jobs:
           image="$CACHE_REGISTRY/$CACHE_REPO:$TAG"
           docker pull $image
           docker tag $image $REPO:$TAG
-          docker login -u otomi -p ${{ secrets.DOCKERHUB_OTOMI_TOKEN }}
+          docker login -u adhario -p ${{ secrets.DOCKERHUB_ADHAR_TOKEN }}
           docker push $REPO:$TAG
       - name: Show me the logic
         run: |
@@ -85,7 +85,7 @@ jobs:
         id: git_tag
         run: |
           TAG=${GITHUB_REF##*/}
-          docker login -u otomi -p ${{ secrets.DOCKERHUB_OTOMI_TOKEN }}
+          docker login -u adhario -p ${{ secrets.DOCKERHUB_ADHAR_TOKEN }}
           docker pull $REPO:$TAG
           docker tag $REPO:$TAG $REPO:latest
           docker push $REPO:latest
@@ -115,7 +115,7 @@ jobs:
     if: always() && contains(needs.release.result, 'success') && !github.event.act
     runs-on: ubuntu-latest
     container:
-      image: otomi/tools:v1.4.20
+      image: adhario/tools:v0.1.0
       options: --user 0
     steps:
       - name: Checkout
@@ -139,7 +139,7 @@ jobs:
           new_app_minor=$(echo "$app_version" | cut -d '.' -f 2)
 
           # Get existing helm charts in the registry
-          helm_output=$(helm search repo otomi -l -o json)
+          helm_output=$(helm search repo adhar -l -o json)
 
           # Use jq to parse the output and find the latest version for the given $new_app_major.$new_app_minor app version
           existing_version=$(echo "$helm_output" | jq -r --arg major "$new_app_major" --arg minor "$new_app_minor" '
@@ -161,25 +161,25 @@ jobs:
           fi
 
           # Update Chart.yaml and values.yaml with the new app version
-          sed -i "s/CHART_VERSION_PLACEHOLDER/$app_version/g" chart/otomi/Chart.yaml
-          sed -i "s/APP_VERSION_PLACEHOLDER/v$app_version/g" chart/otomi/Chart.yaml
+          sed -i "s/CHART_VERSION_PLACEHOLDER/$app_version/g" chart/adhar/Chart.yaml
+          sed -i "s/APP_VERSION_PLACEHOLDER/v$app_version/g" chart/adhar/Chart.yaml
 
           echo "Chart and values files updated successfully with version $app_version"
           echo "MARK_AS_LATEST is set to $MARK_AS_LATEST"
           echo "MARK_AS_LATEST=$MARK_AS_LATEST" >> "GITHUB_OUTPUT"
 
           # Copy readme from repo into the charts and add tpl/chart-values.md
-          cp README.md chart/otomi/
-          printf "\n\n" >>chart/otomi/README.md
-          cat tpl/chart-values.md >>chart/otomi/README.md
+          cp README.md chart/adhar/
+          printf "\n\n" >>chart/adhar/README.md
+          cat tpl/chart-values.md >>chart/adhar/README.md
 
           # Generate schema
-          npx js-yaml values-schema.yaml > chart/otomi/values.schema.json
+          npx js-yaml values-schema.yaml > chart/adhar/values.schema.json
 
           # Set the global id for git as it seems needed by the next step when a custom image is used
           git config --global user.email $GIT_USER@users.noreply.github.com
           git config --global user.name $GIT_USER
-      - name: Create and publish otomi chart release
+      - name: Create and publish adhar chart release
         id: chart_release
         uses: helm/chart-releaser-action@v1.6.0
         with:
@@ -202,21 +202,4 @@ jobs:
           SLACK_COLOR: ${{ job.status }}
           SLACK_ICON: https://github.com/redkubes.png?size=48
           SLACK_TITLE: CI run
-          SLACK_USERNAME: RedKubesBot
-
-  execute-aws-marketplace:
-    name: AWS Dispatch
-    needs: chart-release
-    if: always() && contains(needs.chart-release.result, 'success') && !github.event.act
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.ACTIONS_KEY }}
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: 'redkubes',
-              repo: 'aws-marketplace',
-              workflow_id: 'deploy_release.yaml',
-              ref: 'main'
-            })
+          SLACK_USERNAME: AdharBot

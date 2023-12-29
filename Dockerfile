@@ -1,4 +1,4 @@
-FROM otomi/tools:v1.6.0 as ci
+FROM adhario/tools:v0.1.0 as ci
 
 ENV APP_HOME=/home/app/stack
 
@@ -28,7 +28,7 @@ FROM ci as clean
 RUN npm prune --production
 
 #-----------------------------
-FROM otomi/tools:v1.6.0 as prod
+FROM adhario/tools:v0.1.0 as prod
 
 ENV APP_HOME=/home/app/stack
 ENV ENV_DIR=/home/app/stack/env
