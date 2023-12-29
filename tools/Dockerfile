@@ -126,7 +126,7 @@ RUN tar -zxvf /tmp/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz -C /tmp && m
 ADD https://github.com/plexsystems/konstraint/releases/download/v${KONSTRAINT_VERSION}/konstraint-linux-amd64 /tmp
 RUN mv /tmp/konstraint-linux-amd64 konstraint && chmod +x konstraint
 
-# node
+# nodejs
 # https://github.com/nodesource/distributions
 RUN set -uex && \
   mkdir -p /etc/apt/keyrings && \
