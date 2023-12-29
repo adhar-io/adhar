@@ -31,8 +31,8 @@ ADD --checksum=sha256:7af26831d802d2ec834f2c4ac8aac3a7b7b052a3d7a375240f2f8e5b94
 RUN tar zxvf /tmp/tkn_0.33.0_Linux_x86_64.tar.gz -C /usr/local/bin/ tkn && rm /tmp/tkn_0.33.0_Linux_x86_64.tar.gz
 
 # Installing kubectl-cnpg
-ADD --checksum=sha256:584dc993fb216c2907616588de0822461701e6bdb8301eb034dd1a697b1f4015 https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.21.1/kubectl-cnpg_1.21.1_linux_x86_64.deb /tmp/
-RUN dpkg -i /tmp/kubectl-cnpg_1.21.1_linux_x86_64.deb && rm /tmp/kubectl-cnpg_1.21.1_linux_x86_64.deb
+#ADD --checksum=sha256:584dc993fb216c2907616588de0822461701e6bdb8301eb034dd1a697b1f4015 https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.21.1/kubectl-cnpg_1.21.1_linux_x86_64.deb /tmp/
+#RUN dpkg -i /tmp/kubectl-cnpg_1.21.1_linux_x86_64.deb && rm /tmp/kubectl-cnpg_1.21.1_linux_x86_64.deb
 
 # Creating user named user
 RUN addgroup --gid 1000 user && adduser --uid 1000 --gid 1000 --disabled-password --gecos "" user
