@@ -10,7 +10,7 @@ env:
   REPO: tools
 
 jobs:
-  build-and-version:
+  build-and-release:
     runs-on: ubuntu-latest
 
     steps:
