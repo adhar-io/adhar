@@ -1,5 +1,5 @@
 {{- $kms := .Values.kms | default dict }}
-{{- $imageName := .Values.imageName | default "otomi/core" }}
+{{- $imageName := .Values.imageName | default "adhario/adhar" }}
 {{- $version := .Values.adhar.version | default .Chart.AppVersion }}
 apiVersion: batch/v1
 kind: Job
@@ -42,7 +42,7 @@ spec:
           command: [bash, -c]
           args:
             - |
-              kubectl create ns otomi &> /dev/null
+              kubectl create ns adhar-system &> /dev/null
               binzx/otomi validate-cluster && binzx/otomi bootstrap && binzx/otomi apply
           env:
             - name: VERBOSITY

@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: destroy
-          image: otomi/core:{{ $version }}
+          image: adhario/adhar:{{ $version }}
           imagePullPolicy: {{ ternary "IfNotPresent" "Always" (regexMatch "^v\\d" $version) }} 
           securityContext:
             allowPrivilegeEscalation: false
@@ -47,7 +47,7 @@ spec:
           command: [bash, -c]
           args:
             - |
-              binzx/otomi bootstrap --destroy && binzx/otomi destroy && echo "Otomi has been uninstalled."
+              binzx/otomi bootstrap --destroy && binzx/otomi destroy && echo "Adhar has been uninstalled."
           env:
             - name: VERBOSITY
               value: '1'

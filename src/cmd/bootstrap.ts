@@ -131,7 +131,7 @@ export const getStoredClusterSecrets = async (
   d.info(`Checking if ${secretId} already pathExists`)
   if (env.isDev && env.DISABLE_SYNC) return undefined
   // we might need to create the 'otomi' namespace if we are in CLI mode
-  if (isCli) await deps.nothrow(deps.$`kubectl create ns otomi &> /dev/null`)
+  if (isCli) await deps.nothrow(deps.$`kubectl create ns adhar-system &> /dev/null`)
   const kubeSecretObject = await deps.getK8sSecret(DEPLOYMENT_PASSWORDS_SECRET, 'otomi')
   if (kubeSecretObject) {
     d.info(`Found ${secretId} secrets on cluster, recovering`)
@@ -305,10 +305,10 @@ export const createCustomCA = (deps = { terminal, pki, writeValues }): Record<st
   cert.validity.notAfter = new Date()
   cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 10)
   const attrs = [
-    { name: 'countryName', value: 'NL' },
-    { shortName: 'ST', value: 'Utrecht' },
-    { name: 'localityName', value: 'Utrecht' },
-    { name: 'organizationName', value: 'Otomi' },
+    { name: 'countryName', value: 'SG' },
+    { shortName: 'ST', value: 'Singapore' },
+    { name: 'localityName', value: 'Singapore' },
+    { name: 'organizationName', value: 'Adhar.io' },
     { shortName: 'OU', value: 'Development' },
   ]
   cert.setSubject(attrs)
@@ -363,14 +363,14 @@ export const bootstrap = async (
   const { ENV_DIR } = env
   const hasOtomi = await deps.pathExists(`${ENV_DIR}/bin/otomi`)
 
-  const otomiImage = `otomi/core:${tag}`
+  const otomiImage = `adhario/adhar:${tag}`
   d.log(`Installing artifacts from ${otomiImage}`)
   await deps.copyBasicFiles()
   await deps.migrate()
   const originalValues = await deps.processValues()
   // exit early if `isCli` and `ENV_DIR` were empty, and let the user provide valid values first:
   if (!originalValues) {
-    d.log('A new values repo has been created. For next steps follow documentation at https://otomi.io')
+    d.log('A new values repo has been created. For next steps follow documentation at https://adhar.io')
     return
   }
   const finalValues = (await deps.hfValues()) as Record<string, any>
@@ -382,7 +382,7 @@ export const bootstrap = async (
   if (!k8sContext || !apiName || !owner) {
     const add: Record<string, any> = { cluster: {} }
     const engine = providerMap(provider as string)
-    const defaultOwner = 'otomi'
+    const defaultOwner = 'adhar'
     const defaultName = `${owner || defaultOwner}-${engine}-${name}`
     if (!apiName) {
       d.info(`No value for cluster.apiName found, providing default one: ${defaultName}`)
@@ -404,12 +404,12 @@ export const bootstrap = async (
   // so tell the user about it
   if (!originalValues?.otomi?.adminPassword) {
     d.log(
-      '`otomi.adminPassword` has been generated and is stored in the values repository in `env/secrets.settings.yaml`',
+      '`adhar.adminPassword` has been generated and is stored in the values repository in `env/secrets.settings.yaml`',
     )
   }
 
   if (!hasOtomi) {
-    d.log('You can now use the otomi CLI')
+    d.log('You can now use the adhar CLI')
   }
   d.log(`Done bootstrapping values`)
 }

@@ -13,13 +13,13 @@ cluster: {}
 # name: 'dev'
 
 ## Set provider
-## Can be one of aws|azure|google|digitalocean|ovh|vultr|scaleway|civo|custom
+## Can be one of aws|azure|google|digitalocean|civo|custom
 ## Choose 'custom' for Minikube and any other K8s cluster.
 ##
 # provider: 'custom'
 
 ## Set the owner of the cluster
-## Can be the name of your organization. Will be set to 'otomi' if left empty
+## Can be the name of your organization. Will be set to 'adhar' if left empty
 ##
 # owner: ''
 
@@ -38,7 +38,7 @@ adhar: {}
 ## When set to true, also fill in the 'oidc:' settings below.
 # hasExternalIDP: false
 
-## Set the version of Otomi
+## Set the version of Adhar Platform to install
 ## By default the image tag is set to .Chart.AppVersion
 # version: main
 
