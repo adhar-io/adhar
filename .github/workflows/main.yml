@@ -1,4 +1,4 @@
-name: Build and Publish Docker Images
+name: Build and Publish Docker Image and Helm Chart
 on:
   push:
     branches:
@@ -9,7 +9,7 @@ env:
   CACHE_REGISTRY: ghcr.io
   CACHE_REPO: adhar-io/adhar
   REPO: adhar-io/adhar
-  GIT_USER: adharbot
+  GIT_USER: adhar-io
 
 jobs:
   build-test-cache:
@@ -115,7 +115,7 @@ jobs:
     if: always() && contains(needs.release.result, 'success') && !github.event.act
     runs-on: ubuntu-latest
     container:
-      image: adhario/tools:v0.1.0
+      image: adhario/tools:latest
       options: --user 0
     steps:
       - name: Checkout
@@ -124,7 +124,7 @@ jobs:
         id: prepare_chart
         run: |
           # Install and update helm repo
-          helm repo add adhar https://chart.adhar.io/adhar
+          helm repo add adhar https://chart.adhar.io/adhar/
           helm repo update
 
           # Retrieve the app version from package.json

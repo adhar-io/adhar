@@ -81,3 +81,4 @@ jobs:
         if: ${{ env.NEW_VERSION != null }}
         run: |
           docker push ${{ env.NAMESPACE }}/${{ env.REPO }}:${{ env.NEW_VERSION }}
+          docker push ${{ env.NAMESPACE }}/${{ env.REPO }}:latest
