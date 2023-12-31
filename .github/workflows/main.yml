@@ -94,7 +94,7 @@ jobs:
           echo "Releasing $REPO:$release_tag"
           docker tag $REPO:$TAG $REPO:$release_tag
           docker push $REPO:$release_tag
-          docker login -u $GIT_USER -p '${{ secrets.NPM_TOKEN }}' ghcr.io
+          docker login -u $GIT_USER -p '${{ secrets.GIT_PASSWORD }}' ghcr.io
           docker tag $REPO:$TAG $CACHE_REGISTRY/$CACHE_REPO:$release_tag
           docker push $CACHE_REGISTRY/$CACHE_REPO:$release_tag
           echo "machine github.com login $GIT_USER password ${{ secrets.GIT_PASSWORD }}" > ~/.netrc
@@ -186,6 +186,6 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           SLACK_CHANNEL: github-ci
           SLACK_COLOR: ${{ job.status }}
-          SLACK_ICON: https://github.com/redkubes.png?size=48
+          SLACK_ICON: https://raw.githubusercontent.com/adhar-io/adhar-console/main/apps/console/src/assets/imgs/logo.svg?size=48
           SLACK_TITLE: CI run
           SLACK_USERNAME: AdharBot
