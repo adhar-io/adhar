@@ -167,6 +167,7 @@ jobs:
           npx js-yaml values-schema.yaml > chart/adhar/values.schema.json
 
           # Set the global id for git as it seems needed by the next step when a custom image is used
+          git config --global --add safe.directory '*'
           git config --global user.email $GIT_USER@users.noreply.github.com
           git config --global user.name $GIT_USER
       - name: Create and publish adhar chart release
