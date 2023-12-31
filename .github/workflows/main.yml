@@ -43,7 +43,7 @@ jobs:
         with:
           registry: ${{ env.CACHE_REGISTRY }}
           username: ${{ env.GIT_USER }}
-          password: '${{ secrets.NPM_TOKEN }}'
+          password: '${{ secrets.GIT_PASSWORD }}'
       - name: CI tests, image build and push tag for main or branch
         uses: docker/build-push-action@v3
         with:
