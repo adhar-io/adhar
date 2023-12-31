@@ -17,14 +17,14 @@ To install Adhar platform, make sure to have a kubernetes cluster running with a
 Add the Helm repository:
 
 ```bash
-helm repo add adhar https://chart.adhar.io/adhar/
+helm repo add adhar https://chart.adhar.io
 helm repo update
 ```
 
 and then install the Helm chart:
 
 ```bash
-helm install adhar adhar/adhar \
+helm install adhar adhar-io/adhar \
 --set cluster.name=$CLUSTERNAME \
 --set cluster.provider=$PROVIDER # use 'azure', 'aws', 'google', 'digitalocean', 'civo', or 'custom' for any other cloud or onprem K8s
 ```
