@@ -128,7 +128,7 @@ jobs:
         id: prepare_chart
         run: |
           # Install and update helm repo
-          helm repo add adhar https://chart.adhar.io/adhar/
+          helm repo add adhar https://chart.adhar.io
           helm repo update
 
           # Retrieve the app version from package.json

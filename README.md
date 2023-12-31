@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
   <a href="https://github.com/adhar-io/adhar/releases/"><img alt="Releases" src="https://img.shields.io/github/release-date/adhar-io/adhar?label=latest%20release" /></a>
-  <a href="https://hub.docker.com/r/adhario/adhar"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/adhar-io/adhar" /></a>
+  <a href="https://hub.docker.com/r/adhario/adhar"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/adhario/adhar" /></a>
   <a href="https://img.shields.io/github/adhar-io/adhar/actions/workflows/main.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/adhar-io/adhar/main.yml" /></a>
   <a href="https://img.shields.io/github/last-commit/adhar-io/adhar"><img alt="Last commit" src="https://img.shields.io/github/last-commit/adhar-io/adhar" /></a>
   <a href="https://img.shields.io/crates/l/ap"><img alt="License" src="https://img.shields.io/crates/l/ap" /></a>
@@ -120,14 +120,14 @@ To install Adhar platform, make sure to have a kubernetes cluster running with a
 Add the Helm repository:
 
 ```bash
-helm repo add adhar https://chart.adhar.io/adhar/
+helm repo add adhar https://chart.adhar.io
 helm repo update
 ```
 
 and then install the Helm chart:
 
 ```bash
-helm install adhar adhar/adhar \
+helm install adhar adhar-io/adhar \
 --set cluster.name=adhar-dev \
 --set cluster.provider=digitalocean # use 'azure', 'aws', 'google', 'digitalocean', 'civo', or 'custom' for any other cloud or onprem K8s
 ```
