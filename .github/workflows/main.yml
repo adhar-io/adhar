@@ -9,7 +9,7 @@ env:
   CACHE_REGISTRY: ghcr.io
   CACHE_REPO: adhar-io/adhar
   REPO: adhario/adhar
-  GIT_USER: tapas4java
+  GIT_USER: ${{ github.repository_owner }}
 
 jobs:
   build-test-cache:
@@ -59,7 +59,7 @@ jobs:
       - name: Push to docker hub
         run: |
           TAG=${GITHUB_REF##*/}
-          docker login -u $GIT_USER -p '${{ secrets.NPM_TOKEN }}' ghcr.io
+          docker login -u $GIT_USER -p '${{ secrets.GIT_PASSWORD }}' ghcr.io
           image="$CACHE_REGISTRY/$CACHE_REPO:$TAG"
           docker pull $image
           docker tag $image $REPO:$TAG
