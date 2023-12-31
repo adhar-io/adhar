@@ -8,7 +8,7 @@ on:
 env:
   CACHE_REGISTRY: ghcr.io
   CACHE_REPO: adhar-io/adhar
-  REPO: adhar-io/adhar
+  REPO: adhario/adhar
   GIT_USER: tapas4java
 
 jobs:
