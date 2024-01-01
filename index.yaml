@@ -2,6 +2,45 @@ apiVersion: v1
 entries:
   adhar:
   - apiVersion: v2
+    appVersion: v0.1.8
+    created: "2024-01-01T09:41:20.647570467Z"
+    description: A Helm chart for installing Adhar platform in Kubernetes
+    digest: 89f40dd2376edfb7d853102a811db571a05b625894865ce34389c3c4b4f324ee
+    home: https://adhar.io/
+    icon: https://adhar.io/imgs/adhar-logo-black.svg
+    keywords:
+    - adhar
+    - adhar.io
+    - paas
+    - Kubernetes
+    - microservices
+    - microfrontends
+    - application platform
+    - container-management
+    - automation
+    - devops
+    - cloud-native
+    - cicd
+    - gitops
+    - multi-tenancy
+    - internal developer platform
+    - platform engineering
+    - continuous-delivery
+    - continuous-deployment
+    - continuous-integration
+    - observability
+    - metrics
+    - tracing
+    - keycloak
+    - React
+    name: adhar
+    sources:
+    - https://github.com/adhar-io/adhar
+    type: application
+    urls:
+    - https://github.com/adhar-io/adhar/releases/download/adhar-0.1.8/adhar-0.1.8.tgz
+    version: 0.1.8
+  - apiVersion: v2
     appVersion: v0.1.7
     created: "2023-12-31T07:23:27.857231528Z"
     description: A Helm chart for installing Adhar platform in Kubernetes
@@ -79,4 +118,4 @@ entries:
     urls:
     - https://github.com/adhar-io/adhar/adhar-0.1.5.tgz
     version: 0.1.5
-generated: "2023-12-31T07:23:27.857245835Z"
+generated: "2024-01-01T09:41:20.64758825Z"
