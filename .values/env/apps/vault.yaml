@@ -1,3 +1,3 @@
 apps:
     vault:
-        enabled: false
+        enabled: true

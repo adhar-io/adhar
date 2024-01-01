@@ -1,7 +1,7 @@
-# Adhar values repo
+# Otomi values repo
 
-Part of Adhar Platform.
+Part of Otomi Container Platform.
 
-Repo that holds cluster configuration to be used by [adhar](https://github.com/adhar-io/adhar).
+Repo that holds cluster configuration to be used by [otomi-core](https://github.com/redkubes/otomi-core).
 
-Please read the online [Adhar documentation](https://adhar.io/) for instructions on how to work with the platform.
+Please read the online [otomi documentation](https://otomi.io/) for instructions on how to work with the platform.
