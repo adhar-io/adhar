@@ -3,4 +3,4 @@ cluster:
   provider: 'digitalocean' # choose between aws, azure, google, digitalocean, civo or custom
 
 adhar:
-  version: 'v0.1.7'
+  version: 'v0.1.9'
