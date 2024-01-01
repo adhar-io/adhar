@@ -10,8 +10,8 @@ node_modules/
 .vscode/values-schema.yaml
 *.env
 /.secrets
-chart/otomi/values.schema.json
-chart/otomi/README.md
+chart/adhar/values.schema.json
+chart/adhar/README.md
 workflow/
 *.new
 .envrc

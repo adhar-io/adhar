@@ -1,7 +1,7 @@
 data "digitalocean_kubernetes_cluster" "cluster_info" {
   name = "adhar-mgmt-k8s-cluster"
   depends_on = [
-    digitalocean_kubernetes_cluster.adhar_mgmt_k8s_cluster
+    kubernetes_namespace.adhar_system
   ]
 }
 
