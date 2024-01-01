@@ -2,7 +2,6 @@
 .git*
 .history
 .husky
-.vscode
 /adr
 /dist
 /docs
