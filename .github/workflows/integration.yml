@@ -5,13 +5,13 @@ on:
       cloud_provider:
         description: Provider where Otomi will be installed
         type: string
-        default: scaleway
+        default: digitalocean
       kubernetes_versions:
         description: "Kubernetes versions (JSON formatted list e.g.: ['1.27'])"
         type: string
         default: "['1.27']"
       install_profile:
-        description: Otomi installation profile
+        description: Adhar installation profile
         default: full
         type: string
       cluster_persistence:
@@ -45,12 +45,12 @@ on:
   workflow_dispatch:
     inputs:
       cloud_provider:
-        description: Provider where Otomi will be installed
+        description: Provider where Adhar will be installed
         type: choice
         options:
-          - scaleway
+          - civo
           - digitalocean
-        default: 'scaleway'
+        default: 'digitalocean'
       kubernetes_versions:
         description: 'Kubernetes version'
         type: choice
@@ -61,7 +61,7 @@ on:
           - "['1.27']"
         default: "['1.27']"
       install_profile:
-        description: Otomi installation profile
+        description: Adhar installation profile
         default: minimal-with-team
         type: choice
         options:
@@ -86,7 +86,7 @@ on:
         default: nip_io
       kms:
         type: choice
-        description: Should Otomi encrypt secrets in values repo (DNS or KMS is turned on)?
+        description: Should Adhar encrypt secrets in values repo (DNS or KMS is turned on)?
         options:
           - no_kms
           - az_kms
@@ -115,16 +115,16 @@ on:
         default: gen_custom_ca
       license:
         type: choice
-        description: Should a predefined Otomi license be injected?
+        description: Should a predefined Adhar license be injected?
         options:
           - 'yes'
           - 'no'
         default: 'yes'
 env:
   CACHE_REGISTRY: ghcr.io
-  CACHE_REPO: redkubes/otomi-core
-  REPO: otomi/core
-  GIT_USER: redkubesbot
+  CACHE_REPO: adhar-io/adhar
+  REPO: adhario/adhar
+  GIT_USER: ${{ github.repository_owner }}
   SCALEWAY_NODE_TYPE: PRO2-M
   SCALEWAY_NODE_POOL_MIN_SIZE: 3
   SCALEWAY_VPC_ID: e1019b0c-7c7d-49ef-86e4-b02f55b2e0d3
@@ -260,26 +260,26 @@ jobs:
             --docker-password='${{ secrets.NPM_TOKEN }}'
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Prepare Otomi chart
+      - name: Prepare Adhar chart
         run: |
           ref=${{ github.event.pull_request.head.ref || github.ref }}
           tag=${ref##*/}
-          sed --in-place "s/APP_VERSION_PLACEHOLDER/$tag/g" chart/otomi/Chart.yaml
-          sed --in-place "s/CHART_VERSION_PLACEHOLDER/1.0.0/g" chart/otomi/Chart.yaml
+          sed --in-place "s/APP_VERSION_PLACEHOLDER/$tag/g" chart/adhar/Chart.yaml
+          sed --in-place "s/CHART_VERSION_PLACEHOLDER/1.0.0/g" chart/adhar/Chart.yaml
           sed --in-place "s/CONTEXT_PLACEHOLDER/${{ env.SCALEWAY_CLUSTER_CONTEXT }}/g" tests/integration/${{ inputs.install_profile }}.yaml
           sed --in-place "s/OTOMI_VERSION_PLACEHOLDER/${GITHUB_REF##*/}/g" tests/integration/${{ inputs.install_profile }}.yaml
           touch values-container-registry.yaml
 
-          # If a pipeline installs Otomi from the semver tag then pull container image from DockerHub
+          # If a pipeline installs Adhar from the semver tag then pull container image from DockerHub
           [[ ${GITHUB_REF##*/} =~ ^v[0-9].+$ ]] && exit 0
 
           # Pull image from cache registry
           cat << EOF > values-container-registry.yaml
           imageName: "${{ env.CACHE_REGISTRY }}/${{ env.CACHE_REPO }}"
           imagePullSecretNames:
-            - reg-otomi-github
+            - reg-adhar-github
           EOF
-      - name: Otomi install
+      - name: Adhar install
         env:
           AZ_DNS: ${{ secrets.AZ_DNS }}
           AZ_KMS: ${{ secrets.AZ_KMS }}
@@ -297,7 +297,7 @@ jobs:
           [[ '${{ inputs.certificate }}' == 'letsencrypt_staging' ]] && echo "$LETSENCRYPT_STAGING" >> values.yaml
           [[ '${{ inputs.certificate }}' == 'letsencrypt_production' ]] && echo "$LETSENCRYPT_PRODUCTION" >> values.yaml
 
-          install_args="--wait --wait-for-jobs --timeout 90m0s otomi chart/otomi \
+          install_args="--wait --wait-for-jobs --timeout 90m0s adhar chart/adhar \
             --values tests/integration/${{ inputs.install_profile }}.yaml \
             --values values-container-registry.yaml
             --values values.yaml \
