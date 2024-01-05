@@ -180,6 +180,9 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Nginx Ingress Controller](https://github.com/kubernetes/ingress-nginx): Ingress controller for Kubernetes
 - [External DNS](https://github.com/kubernetes-sigs/external-dns): Synchronize exposed ingresses with DNS providers
 - [Argo CD](https://github.com/argoproj/argo-cd): Declarative continuous deployment
+- [Kaniko](https://github.com/GoogleContainerTools/kaniko): Build container images from a Dockerfile
+- [Paketo build packs](https://github.com/paketo-buildpacks): Cloud Native Buildpack implementations for popular programming language ecosystems
+- [Cloudnative-pg](https://github.com/cloudnative-pg/cloudnative-pg): Open source operator designed to manage PostgreSQL workloads
 - [Tekton Pipeline](https://github.com/tektoncd/pipeline): K8s-style resources for declaring CI/CD pipelines
 - [Tekton Triggers](https://github.com/tektoncd/triggers): Trigger pipelines from event payloads
 - [Tekton dashboard](https://github.com/tektoncd/dashboard): Web-based UI for Tekton Pipelines and Tekton Triggers
@@ -189,7 +192,6 @@ The platform offers a set of Kubernetes applications for all the required capabi
 
 - [Velero](https://github.com/vmware-tanzu/velero): Back up and restore your Kubernetes cluster resources and persistent volumes
 - [Knative](https://github.com/knative/serving): Deploy and manage serverless workloads
-- [Kaniko](https://github.com/GoogleContainerTools/kaniko): Build container images from a Dockerfile
 - [Prometheus](https://github.com/prometheus/prometheus): Collecting container application metrics
 - [Grafana](https://github.com/grafana/grafana): Visualize metrics, logs, and traces from multiple sources
 - [Grafana Loki](https://github.com/grafana/loki): Collecting container application logs
@@ -203,8 +205,6 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Thanos](https://github.com/thanos-io/thanos): HA Prometheus setup with long term storage capabilities
 - [Falco](https://github.com/falcosecurity/falco): Cloud Native Runtime Security
 - [Opencost](https://github.com/opencost/opencost): Cost monitoring for Kubernetes
-- [Paketo build packs](https://github.com/paketo-buildpacks): Cloud Native Buildpack implementations for popular programming language ecosystems
-- [Cloudnative-pg](https://github.com/cloudnative-pg/cloudnative-pg): Open source operator designed to manage PostgreSQL workloads
 - [Grafana Tempo](https://github.com/grafana/tempo): High-scale distributed tracing backend
 - [OpenTelemetry](https://github.com/open-telemetry/opentelemetry-operator): Instrument, generate, collect, and export telemetry data to help you analyze your software’s performance and behavior
 
@@ -218,27 +218,6 @@ Adhar Platform can be installed on any Kubernetes cluster. At this time, the fol
 - `digitalocean` for [DigitalOcean Kubernetes](https://www.digitalocean.com/)
 - `civo` for [Civo Cloud K3S](https://www.civo.com/)
 - `custom` for any other cloud/infrastructure
-
-## Adhar Capabilities :fire:
-
-- Activate capabilities to compose your ideal platform
-- Generate resources for ArgoCD, Tekton, Istio and Ingress based on build-in golden templates
-- BYO golden templates and deploy them the GitOps way using ArgoCD
-- Scan container images for vulnerabilities (at the gate and at runtime)
-- Apply security policies (at the gate and at runtime)
-- Advanced ingress architecture using Istio, Nginx and Oauth2
-- Configure network policies for internal ingress and external egress
-- Deploy workloads the GitOps way without writing any YAML
-- Create secrets and use them in workloads
-- Role-based access to all integrated applications
-- Comprehensive multi-tenant setup
-- Automation tasks for Harbor, Keycloak, ArgoCD, Vault, Velero, Gitea and Drone
-- Expose services on multiple (public/private) networks
-- Automated Istio resource configuration
-- SOPS/KMS for encryption of sensitive configuration values
-- BYO IdP, DNS and/or CA
-- Full observability (logs, metrics, traces, rules, alerts)
-- Cloud shell with integrated cli tools like velero and k9s
 
 ## Contribution :pray:
 
