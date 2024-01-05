@@ -1,3 +1,6 @@
+![Adhar Logo](docs/imgs/adhar-logo-white.svg#gh-dark-mode-only)
+![Adhar Logo](docs/imgs/adhar-logo-black.svg#gh-light-mode-only)
+
 # ADHAR.IO - Open Foundation for Modern Businesses
 
 <p align="center">
@@ -9,9 +12,6 @@
   <a href="https://img.shields.io/crates/l/ap"><img alt="License" src="https://img.shields.io/crates/l/ap" /></a>
   <a href="https://adhar.io/"><img src="https://img.shields.io/website-up-down-green-red/http/shields.io.svg" alt="Website adhar.io"></a>
 </p>
-
-![Adhar Logo](docs/imgs/adhar-logo-white.svg#gh-dark-mode-only)
-![Adhar Logo](docs/imgs/adhar-logo-black.svg#gh-light-mode-only)
 
 > :bulb: Adhar aims to revolutionise the software development by providing a comprehensive and integrated IDP(Internal Development Platform) that seamlessly integrates the leading open-source frameworks and libraries, embraces cutting-edge cloud-native practices, utilises containerization technology, leverages cloud infrastructure, strengthens identity and access management, ensures robust API governance, offers low-code application development capabilities, powers rapid application creation with Artificial Inteligence(AI), and oversees holistic application lifecycle management. ADHAR empowers developers and businesses with an all-encompassing ecosystem to innovate, collaborate, and deliver software solutions of unparalleled quality and efficiency.
 
