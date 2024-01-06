@@ -148,31 +148,48 @@ Learn about integrating, deploying and managing your apps on Adhar platform.
 
 <p align="center"><img src="docs/imgs/adhar-platform.svg" width="100%" alt="Adhar platform"></p>
 
-### Self-service Portal and CLI
+## Platform Components
 
-The self-service portal (Adhar Console) offers seamless user experience for developers and platform administrators. Platform administrators can use Otomi Console to enable and configure platform capabilities and onboard development teams. Developers can use Otomi Console to build images, deploy applications, expose services, configure CNAMEs, configure network policies and manage secrets. Otomi Console also provided direct and context aware access to platform capabilities like code repositories, registries, logs, metrics, traces, dashboards, etc. Next to the web based self-service, both developers and admins can start a Cloud Shell and run cli commands.
+### Adhar Console (Self Service Portal)
 
-### Desired state store
+Adhar Console stands as the centerpiece of our platform, offering a seamless user experience tailored for both developers and platform administrators. It serves as a one-stop solution for a multitude of tasks. Developers can leverage the Adhar Console to build images, deploy applications, expose services, configure CNAMEs, manage network policies, and handle secrets.
 
-When Adhar is installed, the desired state of the platform is stored in the Desired State Store (the `adhar/helm-chart-values` repo in the local Git repository). Changes made through the Console will be reflected in the repo.
+On the other hand, platform administrators can use it to enable and configure platform capabilities, as well as onboard development teams. The Adhar Console goes beyond just a web-based self-service portal, providing direct and context-aware access to platform capabilities like code repositories, registries, logs, metrics, traces, and dashboards.
 
-### Golden templates catalog
+Moreover, it includes a Cloud Shell feature, allowing both developers and admins to run CLI commands. In essence, the Adhar Console is a comprehensive tool designed to streamline and simplify the management of your platform.
 
-The `adhar/helm-charts` Git repo includes a set of build-in Helm charts that are used to create workloads in the Console. You can also add your own charts and offer them to the users of the platform.
+![Adhar Console](docs/imgs/adhar-console-dark.png#gh-dark-mode-only)
+![Adhar Console](docs/imgs/adhar-console-light.png#gh-light-mode-only)
 
-### Control plane
+### Command Line Interface (CLI)
 
-All changes made through the Console are validated by the control plane (`api-server`) and then committed in the state store. This will automatically trigger the platform to synchronize the desired state to the actual state of the platform.
+The Adhar Command Line Interface (CLI) provides a powerful tool for developers and administrators to interact with the Adhar platform, enabling them to manage resources, execute tasks, and automate workflows directly from the command line.
 
-### Automation
+### Controlplane (api-server)
 
-The automation is used to synchronize desired state with the state of applications like Keycloak, Harbor and Gitea.
+In the Adhar platform, the api-server plays a crucial role in enabling seamless integration. Every alteration made via the Console is first verified by the api-server within the control plane. Once validated, these changes are stored in the state store. This action initiates an automatic process where the platform aligns the actual state with the desired state, thereby ensuring smooth integration and consistency across the platform.
 
-### Capabilities
+### Adhar Assist (AI)
+
+Adhar Assist is an innovative feature of the Adhar platform that integrates AI assistance into your workflow. It leverages advanced machine learning algorithms to provide intelligent recommendations, automate routine tasks, and enhance decision-making processes. Whether you're configuring your platform, troubleshooting issues, or optimizing performance, Adhar Assist is there to guide you. It learns from your platform's data and usage patterns, continually improving its assistance over time. With Adhar Assist, you get a smart companion that helps you make the most of the Adhar platform. As a developer, you will enjoy the assistance provided by `Adhar Assist` during development.
+
+### Git Based Infrastructure
+
+Upon installation of Adhar, the desired state of the platform is captured and preserved in the Git repository, specifically within the `adhar/values` repository in the Gitea. This Git-based state store plays a pivotal role in infrastructure management, serving as a reliable and version-controlled source of truth. Any modifications made through the Console are promptly mirrored in this repository. This approach not only ensures consistency and traceability but also facilitates collaboration and rollback capabilities, underscoring the importance of a Git-based state store in modern infrastructure.
+
+### Golden Templates Catalog
+
+The `adhar/helm-charts` Git repository houses a collection of built-in Helm charts, which serve as the backbone for creating workloads within the Console. These charts are designed as golden templates, adhering to trending technology standards, ensuring optimal performance and compatibility. In addition to the built-in charts, the platform also offers the flexibility to add custom charts. This allows users to tailor their workloads to specific needs while maintaining the benefits of standardization. Thus, the `adhar/helm-charts` repository is not just a resource, but a gateway to efficient and standardized workload management on the Adhar platform.
+
+### Automation & Self Service
+
+Automation and self-service capabilities are crucial aspects of modern platforms like Aadhaar. Automation helps in maintaining consistency, reducing human error, and increasing efficiency by automating repetitive tasks. For instance, it can be used to synchronize the desired state with the actual state of applications, ensuring they are always in sync and reducing the need for manual intervention. On the other hand, self-service capabilities empower users by giving them direct control over their services. This not only improves user satisfaction by providing immediate access to services but also reduces the load on support teams. In the context of Aadhaar, a platform that serves over a billion users, these features are not just beneficial, they are essential for scalability and user satisfaction.
+
+## Platform Capabilities
 
 The platform offers a set of Kubernetes applications for all the required capabilities. Core applications are always installed, optional applications can be activated. When an application is activated, the application will be installed based on default configuration. Default configuration can be adjusted using the Console.
 
-**Core Applications (that are always installed):**
+**Integrated Applications:**
 
 - [Istio](https://github.com/istio/istio): The service mesh framework with end-to-end transit encryption
 - [Keycloak](https://github.com/keycloak/keycloak): Identity and access management for modern applications and services
@@ -187,9 +204,6 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Tekton Triggers](https://github.com/tektoncd/triggers): Trigger pipelines from event payloads
 - [Tekton dashboard](https://github.com/tektoncd/dashboard): Web-based UI for Tekton Pipelines and Tekton Triggers
 - [Gitea](https://github.com/go-gitea/gitea): Self-hosted Git service
-
-**Optional Applications (that you can activate to compose your ideal platform):**
-
 - [Velero](https://github.com/vmware-tanzu/velero): Back up and restore your Kubernetes cluster resources and persistent volumes
 - [Knative](https://github.com/knative/serving): Deploy and manage serverless workloads
 - [Prometheus](https://github.com/prometheus/prometheus): Collecting container application metrics

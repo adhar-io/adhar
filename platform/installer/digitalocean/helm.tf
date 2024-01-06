@@ -1,8 +1,7 @@
 data "digitalocean_kubernetes_cluster" "cluster_info" {
   name = "adhar-mgmt-k8s-cluster"
-  depends_on = [
-    kubernetes_namespace.adhar_system
-  ]
+
+  depends_on = [digitalocean_kubernetes_cluster.adhar_mgmt_k8s_cluster]
 }
 
 # Installs Adhar chart on cluster
@@ -19,6 +18,10 @@ resource "helm_release" "adhar" {
   values        = [file("adhar-values.yaml")]
   timeout       = 1800
   wait_for_jobs = true
+
+  depends_on = [
+    kubernetes_namespace.adhar_system
+  ]
 }
 
 resource "null_resource" "print_adhar_url" {
