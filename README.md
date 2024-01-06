@@ -183,7 +183,7 @@ The `adhar/helm-charts` Git repository houses a collection of built-in Helm char
 
 ### Automation & Self Service
 
-Automation and self-service capabilities are crucial aspects of modern platforms like Aadhaar. Automation helps in maintaining consistency, reducing human error, and increasing efficiency by automating repetitive tasks. For instance, it can be used to synchronize the desired state with the actual state of applications, ensuring they are always in sync and reducing the need for manual intervention. On the other hand, self-service capabilities empower users by giving them direct control over their services. This not only improves user satisfaction by providing immediate access to services but also reduces the load on support teams. In the context of Aadhaar, a platform that serves over a billion users, these features are not just beneficial, they are essential for scalability and user satisfaction.
+Automation and self-service capabilities are crucial aspects of modern platforms like Adhar. Automation helps in maintaining consistency, reducing human error, and increasing efficiency by automating repetitive tasks. For instance, it can be used to synchronize the desired state with the actual state of applications, ensuring they are always in sync and reducing the need for manual intervention. On the other hand, self-service capabilities empower users by giving them direct control over their services. This not only improves user satisfaction by providing immediate access to services but also reduces the load on support teams. In the context of Adhar, a platform that serves over a billion users, these features are not just beneficial, they are essential for scalability and user satisfaction.
 
 ## Platform Capabilities
 
