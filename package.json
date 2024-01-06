@@ -114,7 +114,7 @@
     "@typescript-eslint/parser": "^5.41.0",
     "@vercel/ncc": "0.34.0",
     "adr-log": "2.2.0",
-    "commitizen": "4.2.4",
+    "commitizen": "4.3.0",
     "cspell": "4.2.8",
     "cz-conventional-changelog": "3.3.0",
     "eslint": "^8.26.0",
