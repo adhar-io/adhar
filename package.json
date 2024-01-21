@@ -1,6 +1,6 @@
 {
   "name": "adhar",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "type": "commonjs",
   "author": "Anitech Consulting Services Pvt Ltd",
   "description": "Adhar platform is an opinionated stack of Kubernetes apps and configurations to run a production-ready platform on Kubernetes.",

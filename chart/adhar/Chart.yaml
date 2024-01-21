@@ -4,8 +4,8 @@ description: A Helm chart for installing Adhar platform in Kubernetes
 home: https://adhar.io/
 icon: https://adhar.io/imgs/adhar-logo-black.svg
 type: application
-version: v0.1.14
-appVersion: v0.1.14
+version: CHART_VERSION_PLACEHOLDER
+appVersion: APP_VERSION_PLACEHOLDER
 keywords:
 - adhar
 - adhar.io
