@@ -13,14 +13,13 @@ resource "helm_release" "adhar" {
 
   repository = "https://chart.adhar.io"
   chart      = "adhar"
-  namespace  = "adhar-system"
 
-  values        = [file("adhar-values.yaml")]
+  values        = [file("values.yaml")]
   timeout       = 1800
   wait_for_jobs = true
 
   depends_on = [
-    kubernetes_namespace.adhar_system
+    digitalocean_kubernetes_cluster.cluster_info
   ]
 }
 
@@ -29,6 +28,6 @@ resource "null_resource" "print_adhar_url" {
     helm_release.adhar
   ]
   provisioner "local-exec" {
-    command = "kubectl logs jobs/adhar -n adhar-system -f"
+    command = "kubectl logs jobs/adhar -n default -f"
   }
 }

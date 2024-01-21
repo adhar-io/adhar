@@ -123,7 +123,7 @@ environments:
               username: otomi-admin
           database:
             type: external
-            size: '2Gi'
+            size: '5Gi'
             name: harbor-otomi-db
             user: harbor
             coreDatabase: registry
@@ -397,6 +397,13 @@ environments:
           enabled: false
           collector:
             mode: deployment
+            attributes:
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.deployment.name
+            - k8s.namespace.name
+            - k8s.node.name
+            - k8s.pod.start_time
           operator:
             replicaCount: 1
           resources:
@@ -633,7 +640,7 @@ environments:
         keycloak:
           useOtomiDB: true
           imported: false
-          size: "1Gi"
+          size: "5Gi"
           replicas: 2
           resources:
             limits:

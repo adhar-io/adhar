@@ -1,3 +1,3 @@
 civo_token=""
-region="FRA1" #Germany
+region="LON1" #London
 machine_size="xlarge"

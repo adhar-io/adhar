@@ -10,10 +10,10 @@ data "civo_kubernetes_cluster" "cluster_info" {
 # Estimated time to finish for vanilla Otomi: 15 ~ 20min 
 # If it takes longer than 20 minutes you might want to check the kubernetes dashboard for status 
 resource "helm_release" "otomi" {
-  name = "otomi"
+  name = "adhar"
 
-  repository = "https://otomi.io/otomi-core"
-  chart      = "otomi"
+  repository = "https://chart.adhar.io"
+  chart      = "adhar"
 
   values        = [file("adhar-values.yaml")]
   timeout       = 1800

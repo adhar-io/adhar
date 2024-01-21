@@ -1,6 +1,0 @@
-cluster:
-  name: 'adhar-cloud' # the name of your cluster
-  provider: 'digitalocean' # choose between aws, azure, google, digitalocean, civo or custom
-
-adhar:
-  version: 'v0.1.7'
