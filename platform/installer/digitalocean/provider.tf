@@ -12,10 +12,12 @@ provider "digitalocean" {
   token = var.do_token
 }
 
+# Configure the Kubernetes Provider
 provider "kubernetes" {
   config_path = "~/.kube/config"
 }
 
+# Configure the Helm Provider
 provider "helm" {
   kubernetes {
     host                   = digitalocean_kubernetes_cluster.adhar_mgmt_k8s_cluster.endpoint

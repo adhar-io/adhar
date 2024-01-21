@@ -17,10 +17,6 @@ resource "helm_release" "adhar" {
   values        = [file("values.yaml")]
   timeout       = 1800
   wait_for_jobs = true
-
-  depends_on = [
-    digitalocean_kubernetes_cluster.cluster_info
-  ]
 }
 
 resource "null_resource" "print_adhar_url" {

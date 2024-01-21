@@ -3,7 +3,7 @@
 #       If you want your project to be managed (and also be destroyed!) by terraform 
 #       You can comment out the data and resource block and uncomment the playground block
 resource "digitalocean_project" "adhar_project_folder" {
-  name        = "Adhar"
+  name        = "adhar"
   description = "Adhar - Open Platform for Modern Businesses"
   purpose     = "Web Application"
   environment = "Development"
