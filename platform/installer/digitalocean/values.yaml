@@ -9,7 +9,7 @@ dns:
     - cloud.adhar.io
   provider:
     digitalocean:
-      apiToken: ''
+      apiToken: '<API_TOKEN>'
 apps:
   cert-manager:
     issuer: letsencrypt

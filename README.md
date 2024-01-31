@@ -107,24 +107,26 @@
 
 ### Terraform :zap:
 
-To create new kubernetes cluster and install Adhar platform, you can use provided terraform script based on your cloud provider. Before starting the process make sure you have a cloud account ready:
+To create new kubernetes cluster and install Adhar platform, you can use provided terraform script based on your cloud provider. Before starting the process make sure you have a cloud account and DNS zone for `cloud.example.com` is ready:
 
 > **_NOTE:_** This example showing `digitalocean` setup, you can follow same steps for other clouds as well.
 
 ```bash
+# Clone adhar repo
 git clone https://github.com/adhar-io/adhar.git
 cd platform/installer/digitalocean
-
-# Adhar configuration
-export DO_TOKEN="<YOUR-DO-TOKEN>"
 ```
 
 Adjust your config in `values.yaml` file, e.g `name`, `domainSuffix`, `domainFilters` etc.
 
 ```bash
+# Adhar configuration
+API_TOKEN="<YOUR-DO-TOKEN>"
+sed -i "" "s/<API_TOKEN>/$API_TOKEN/g" values.yaml
+
 # Run terraform
 terraform init
-do_token="<YOUR-DO-TOKEN>" terraform apply -auto-approve
+do_token=$API_TOKEN terraform apply -auto-approve
 ```
 
 ### Helm :boat:

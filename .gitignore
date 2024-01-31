@@ -16,3 +16,5 @@ workflow/
 *.new
 .envrc
 otomi.cpuprofile
+/platform/installer/**/*.tfstate
+/platform/installer/**/*.tfstate.backup
