@@ -1,7 +1,7 @@
 ![Adhar Logo](docs/imgs/adhar-logo-white.svg#gh-dark-mode-only)
 ![Adhar Logo](docs/imgs/adhar-logo-black.svg#gh-light-mode-only)
 
-# ADHAR IDP - Open Foundation for Modern Businesses
+# ADHAR - Open Foundation for Modern Businesses
 
 <p align="center">
   <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
@@ -115,10 +115,13 @@ To create new kubernetes cluster and install Adhar platform, you can use provide
 git clone https://github.com/adhar-io/adhar.git
 cd platform/installer/digitalocean
 
-# Update your Config
+# Adhar configuration
 export DO_TOKEN="<YOUR-DO-TOKEN>"
-Adjust your config in `values.yaml` file, e.g `name` `domainSuffix`, `domainFilters` etc.
+```
 
+Adjust your config in `values.yaml` file, e.g `name`, `domainSuffix`, `domainFilters` etc.
+
+```bash
 # Run terraform
 terraform init
 do_token="<YOUR-DO-TOKEN>" terraform apply -auto-approve
