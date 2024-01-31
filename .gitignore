@@ -18,3 +18,4 @@ workflow/
 otomi.cpuprofile
 /platform/installer/**/*.tfstate
 /platform/installer/**/*.tfstate.backup
+/platform/installer/**/*.terraform.tfstate.lock.info
