@@ -1,7 +1,7 @@
 ![Adhar Logo](docs/imgs/adhar-logo-white.svg#gh-dark-mode-only)
 ![Adhar Logo](docs/imgs/adhar-logo-black.svg#gh-light-mode-only)
 
-# ADHAR.IO - Open Foundation for Modern Businesses
+# ADHAR Platform - Open Foundation for Modern Businesses
 
 <p align="center">
   <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
@@ -105,15 +105,33 @@
 
 ## Getting started :sparkles:
 
+### Terraform :zap:
+
+To create new kubernetes cluster and install Adhar platform, you can use provided terraform script based on your cloud provider. Before starting the process make sure you have a cloud account ready:
+
+> **_NOTE:_** In this example showing `digitalocean` setup, you can follow same steps for other clouds as well.
+
+```bash
+git clone https://github.com/adhar-io/adhar.git
+cd platform/installer/digitalocean
+
+# Update your Cloud API Key
+export DO_TOKEN="<YOUR-DO-TOKEN>"
+
+# Run terraform
+terraform init
+do_token="<YOUR-DO-TOKEN>" terraform apply -auto-approve
+```
+
 ### Helm :boat:
 
 To install Adhar platform, make sure to have a kubernetes cluster running with at least:
 
-- Version `1.25`, `1.26` or `1.27`
-- A node pool with at least **8 vCPU** and **16GB+ RAM** (more resources might be required based on the activated capabilities)
+- Version `1.26`, `1.27` or `1.28`
+- A node pool with at least **16 vCPU** and **32GB+ RAM** (more resources might be required based on the additional capabilities)
 - Calico CNI installed (or any other CNI that supports K8s network policies)
 - A default storage class configured
-- When using the `custom` provider, make sure the K8s LoadBalancer Service created by `Otomi` can obtain an external IP (using a cloud load balancer or MetalLB)
+- When using the `custom` provider, make sure the K8s LoadBalancer Service created by `Adhar` can obtain an external IP (using a cloud load balancer or MetalLB)
 
 > **_NOTE:_** Install Adhar with DNS to unlock it's full potential. Check [adhar.io](https://adhar.io) for more info.
 
