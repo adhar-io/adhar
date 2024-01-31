@@ -338,12 +338,12 @@ adminApps:
     ownHost: true
     ingress:
       - svc: otomi-api
-        namespace: adhar-system
+        namespace: otomi
         paths: [/api/]
         type: public
         auth: true
       - svc: otomi-console
-        namespace: adhar-system
+        namespace: otomi
         type: public
         auth: true
   - name: prometheus
