@@ -1,7 +1,7 @@
 ![Adhar Logo](docs/imgs/adhar-logo-white.svg#gh-dark-mode-only)
 ![Adhar Logo](docs/imgs/adhar-logo-black.svg#gh-light-mode-only)
 
-# ADHAR Platform - Open Foundation for Modern Businesses
+# ADHAR IDP - Open Foundation for Modern Businesses
 
 <p align="center">
   <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
@@ -109,14 +109,15 @@
 
 To create new kubernetes cluster and install Adhar platform, you can use provided terraform script based on your cloud provider. Before starting the process make sure you have a cloud account ready:
 
-> **_NOTE:_** In this example showing `digitalocean` setup, you can follow same steps for other clouds as well.
+> **_NOTE:_** This example showing `digitalocean` setup, you can follow same steps for other clouds as well.
 
 ```bash
 git clone https://github.com/adhar-io/adhar.git
 cd platform/installer/digitalocean
 
-# Update your Cloud API Key
+# Update your Config
 export DO_TOKEN="<YOUR-DO-TOKEN>"
+Adjust your config in `values.yaml` file, e.g `name` `domainSuffix`, `domainFilters` etc.
 
 # Run terraform
 terraform init
@@ -125,7 +126,7 @@ do_token="<YOUR-DO-TOKEN>" terraform apply -auto-approve
 
 ### Helm :boat:
 
-To install Adhar platform, make sure to have a kubernetes cluster running with at least:
+To install Adhar platform on existing kubernetes cluster, make sure to have a kubernetes cluster running with at least:
 
 - Version `1.26`, `1.27` or `1.28`
 - A node pool with at least **16 vCPU** and **32GB+ RAM** (more resources might be required based on the additional capabilities)
