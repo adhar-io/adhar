@@ -80,7 +80,7 @@ releases:
   - <helmfile release>
 ```
 
-From the above code snippet, the `base` statements define loading and merging values from various sources. If we would execute `otomi apply|template -f helmfiled./999-helmfile.yaml` then the following data flow would take place:
+From the above code snippet, the `base` statements define loading and merging values from various sources. If we would execute `otomi apply|template -f helmfile.d/999-helmfile.yaml` then the following data flow would take place:
 
 ```mermaid
 flowchart LR
@@ -329,7 +329,7 @@ To create a values repository, follow the below steps:
 1. Indicate the path of the value repo, e.g.:
 
 ```
-export ENV_DIR=$HOME/otomi-values
+export ENV_DIR=$HOME/adhar-values
 ```
 
 2. Bootstrap the values repo:
@@ -344,8 +344,9 @@ otomi bootstrap
 ```
 cluster:
     name: 'dev'
-    k8sVersion: '1.24'
     provider: 'custom'
+    domainSuffix: '42.60.194.9.nip.io'
+    owner: 'adhar'
 ```
 
 5. Ensure that values from `$ENV_DIR` conform with the `values-schema.yaml` schema.

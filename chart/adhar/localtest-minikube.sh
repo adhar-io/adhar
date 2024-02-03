@@ -5,7 +5,7 @@ set -e
 #####
 # recommended options to start minikube
 #####
-# minikube start --driver docker --network minikube --kubernetes-version=v1.19.0 --cpus=max --memory=max
+# minikube start --driver docker --network minikube --kubernetes-version=v1.27.0 --cpus=max --memory=max
 # docker network inspect minikube
 
 #####
@@ -20,6 +20,6 @@ export CUSTOM_NETWORK='--network minikube'
 #####
 # apply
 #####
-binzx/otomi otomi apply-as-apps -f helmfile.tpl/helmfile-init.yaml
-binzx/otomi otomi apply-as-apps
+binzx/otomi apply-as-apps -f helmfile.tpl/helmfile-init.yaml
+binzx/otomi apply-as-apps
 # minikube tunnel

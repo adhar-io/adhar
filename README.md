@@ -152,8 +152,8 @@ and then install the Helm chart:
 
 ```bash
 helm install adhar adhar/adhar \
---set cluster.name=adhar-dev \
---set cluster.provider=digitalocean # use 'azure', 'aws', 'google', 'digitalocean', 'civo', or 'custom' for any other cloud or onprem K8s
+--set cluster.name=adhar-cloud \
+--set cluster.provider=digitalocean # use 'azure', 'aws', 'google', 'digitalocean', 'civo', or 'custom' for any other K8s
 ```
 
 ## Contribution Guide :mortar_board:
