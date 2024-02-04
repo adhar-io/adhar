@@ -131,7 +131,7 @@ export const getStoredClusterSecrets = async (
   d.info(`Checking if ${secretId} already pathExists`)
   if (env.isDev && env.DISABLE_SYNC) return undefined
   // we might need to create the 'otomi' namespace if we are in CLI mode
-  if (isCli) await deps.nothrow(deps.$`kubectl create ns adhar-system &> /dev/null`)
+  if (isCli) await deps.nothrow(deps.$`kubectl create ns otomi &> /dev/null`)
   const kubeSecretObject = await deps.getK8sSecret(DEPLOYMENT_PASSWORDS_SECRET, 'otomi')
   if (kubeSecretObject) {
     d.info(`Found ${secretId} secrets on cluster, recovering`)
@@ -363,7 +363,7 @@ export const bootstrap = async (
   const { ENV_DIR } = env
   const hasOtomi = await deps.pathExists(`${ENV_DIR}/bin/otomi`)
 
-  const otomiImage = `adhario/adhar:${tag}`
+  const otomiImage = `otomi/core:${tag}`
   d.log(`Installing artifacts from ${otomiImage}`)
   await deps.copyBasicFiles()
   await deps.migrate()

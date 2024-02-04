@@ -1,5 +1,7 @@
 .history
 .prettierrc.yml
+.vscode
+*.json
 *.yaml.dec
 .decrypted~*
 docker-compose*
