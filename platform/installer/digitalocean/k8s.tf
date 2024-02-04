@@ -15,10 +15,10 @@ resource "digitalocean_kubernetes_cluster" "adhar_mgmt_k8s_cluster" {
   node_pool {
     name       = "adhar-node-pool"
     size       = var.machine_size
-    node_count = 3
+    node_count = var.node_count
     auto_scale = true
-    min_nodes  = 3
-    max_nodes  = 6
+    min_nodes  = var.min_nodes
+    max_nodes  = var.max_nodes
   }
 
   provisioner "local-exec" {
