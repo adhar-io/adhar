@@ -84,7 +84,7 @@ else
 fi
 otomi_branch_or_tag=${OTOMI_TAG:-$otomi_version}
 otomi_version_used=${OTOMI_TAG:-$otomi_version}
-readonly otomi_tools_image="otomi/core:${otomi_version_used}"
+readonly otomi_tools_image="adhario/adhar:${otomi_version_used}"
 
 script_full_path="$base_dir/${BASH_SOURCE[0]##*/}"
 if [[ ${BASH_SOURCE[0]} == '/'* ]]; then
@@ -166,12 +166,12 @@ check_update() {
   if [ "$last_commit_date_sec" -ne "0" ] && [ "$last_commit_date_sec" -gt "$last_file_change_sec" ]; then
     read -r -p "Newer version is available, do you want to update (yes/No)? " answer
     case ${answer:0:1} in
-      y | Y)
-        run_self_update
-        ;;
-      *)
-        return 0
-        ;;
+    y | Y)
+      run_self_update
+      ;;
+    *)
+      return 0
+      ;;
     esac
   fi
 }

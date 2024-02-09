@@ -363,7 +363,7 @@ export const bootstrap = async (
   const { ENV_DIR } = env
   const hasOtomi = await deps.pathExists(`${ENV_DIR}/bin/otomi`)
 
-  const otomiImage = `otomi/core:${tag}`
+  const otomiImage = `adhario/adhar:${tag}`
   d.log(`Installing artifacts from ${otomiImage}`)
   await deps.copyBasicFiles()
   await deps.migrate()

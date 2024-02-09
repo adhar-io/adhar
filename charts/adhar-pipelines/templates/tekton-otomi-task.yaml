@@ -19,7 +19,7 @@ spec:
   stepTemplate:
     computeResources: {{- toYaml .Values.tektonTask.resources | nindent 6 }}
     imagePullPolicy: Always
-    image: otomi/core:$(params["OTOMI_VERSION"])
+    image: adhario/adhar:$(params["OTOMI_VERSION"])
     workingDir: /home/app/stack
 {{- if hasKey $kms "sops" }}
     envFrom:
