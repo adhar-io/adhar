@@ -42,7 +42,7 @@ spec:
           command: [bash, -c]
           args:
             - |
-              kubectl create ns adhar-system &> /dev/null
+              kubectl create ns otomi &> /dev/null
               binzx/otomi validate-cluster && binzx/otomi bootstrap && binzx/otomi apply
           env:
             - name: VERBOSITY

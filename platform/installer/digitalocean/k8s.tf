@@ -16,7 +16,7 @@ resource "digitalocean_kubernetes_cluster" "adhar_mgmt_k8s_cluster" {
     name       = "adhar-node-pool"
     size       = var.machine_size
     node_count = var.node_count
-    auto_scale = false
+    auto_scale = true
     min_nodes  = var.min_nodes
     max_nodes  = var.max_nodes
   }
