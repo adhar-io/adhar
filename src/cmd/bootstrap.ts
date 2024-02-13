@@ -308,8 +308,8 @@ export const createCustomCA = (deps = { terminal, pki, writeValues }): Record<st
     { name: 'countryName', value: 'SG' },
     { shortName: 'ST', value: 'Singapore' },
     { name: 'localityName', value: 'Singapore' },
-    { name: 'organizationName', value: 'Adhar.io' },
-    { shortName: 'OU', value: 'Development' },
+    { name: 'organizationName', value: 'Anitech Consulting Services Pvt Ltd.' },
+    { shortName: 'OU', value: 'Adhar Platform' },
   ]
   cert.setSubject(attrs)
   cert.setIssuer(attrs)
@@ -404,7 +404,7 @@ export const bootstrap = async (
   // so tell the user about it
   if (!originalValues?.otomi?.adminPassword) {
     d.log(
-      '`adhar.adminPassword` has been generated and is stored in the values repository in `env/secrets.settings.yaml`',
+      '`otomi.adminPassword` has been generated and is stored in the values repository in `env/secrets.settings.yaml`',
     )
   }
 

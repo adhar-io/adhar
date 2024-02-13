@@ -66,7 +66,7 @@ export const upgrade = async ({ dryRun = false, release, when }: Arguments): Pro
   const version = await getCurrentVersion()
   const prevVersion: string = deploymentState.version ?? version
   const values = (await hfValues()) as Record<string, any>
-  d.info(`Current version of otomi: ${prevVersion}`)
+  d.info(`Current version of adhar: ${prevVersion}`)
   const filteredUpgrades = filterUpgrades(prevVersion, upgrades)
   if (filteredUpgrades.length) {
     cd(rootDir)
