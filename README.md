@@ -70,6 +70,7 @@
 
 :computer: **Application Team** - Easy self-service is a crucial aspect of enabling developers and operators to focus on their core responsibilities and reduce the burden of managing infrastructure and resources. By providing self-service capabilities, organizations can empower their technical teams.
 
+- Scan source code for vulnerabilities
 - Build OCI compliant images from application code and store them in a private registry
 - Deploy containerized workloads using a developer catalog with build-in or BYO golden path templates
 - Automatically update container images of workloads
@@ -90,8 +91,8 @@
 - Change the desired state of the platform based on Configuration-as-Code
 - Support multi- and hybrid cloud scenarios
 - Prevent cloud provider lock-in
-- Implement full observability
-- Create Golden path templates and offer them to development teams through a developer catalog
+- Implement full observability (metrics, logs, traces, alerts)
+- Create Golden path templates and offer them to teams on the platform through a catalog
 
 :cop: **Management Team** - It is important for the management team to have access to all the insights and reports to make the best possible business or technical decisions based on actual data points. This is because data can help to identify trends, patterns, and opportunities that would otherwise be invisible. It can also help to track progress, measure performance, and make informed decisions about resource allocation and strategy.
 
@@ -107,7 +108,7 @@
 
 ### Terraform :zap:
 
-To create new kubernetes cluster and install Adhar platform, you can use provided terraform script based on your cloud provider. Before starting the process make sure you have a cloud account and DNS zone for `cloud.example.com` is ready:
+To create new kubernetes cluster and install Adhar platform, you can use provided terraform installer based on your cloud provider. Before starting the process make sure you have a cloud account and DNS zone for `cloud.example.com` is ready:
 
 > **_NOTE:_** This example showing `digitalocean` setup, you can follow same steps for other clouds as well.
 
@@ -174,6 +175,8 @@ Learn about integrating, deploying and managing your apps on Adhar platform.
 
 ## Platform Components
 
+Adhar consists of the following components:
+
 ### Adhar Console (Self Service Portal)
 
 Adhar Console stands as the centerpiece of our platform, offering a seamless user experience tailored for both developers and platform administrators. It serves as a one-stop solution for a multitude of tasks. Developers can leverage the Adhar Console to build images, deploy applications, expose services, configure CNAMEs, manage network policies, and handle secrets.
@@ -189,7 +192,7 @@ Moreover, it includes a Cloud Shell feature, allowing both developers and admins
 
 The Adhar Command Line Interface (CLI) provides a powerful tool for developers and administrators to interact with the Adhar platform, enabling them to manage resources, execute tasks, and automate workflows directly from the command line.
 
-### Controlplane (api-server)
+### Platform Control plane (api-server)
 
 In the Adhar platform, the api-server plays a crucial role in enabling seamless integration. Every alteration made via the Console is first verified by the api-server within the control plane. Once validated, these changes are stored in the state store. This action initiates an automatic process where the platform aligns the actual state with the desired state, thereby ensuring smooth integration and consistency across the platform.
 
