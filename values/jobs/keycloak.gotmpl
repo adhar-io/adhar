@@ -64,4 +64,4 @@ podDnsConfig:
   options:
     - name: ndots
       value: "1"
-{{- tpl (readFile "../../helmfile.d/snippets/job.gotmpl") (dict "item" "tasks" "v" $v "task" "keycloak") }}
+{{- tpl (readFile "../../helmfile.d/snippets/job.gotmpl") (dict "item" "otomi/tasks" "v" $v "task" "keycloak") }}
