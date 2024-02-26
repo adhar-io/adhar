@@ -1,4 +1,4 @@
-![Adhar Logo](docs/imgs/adhar-logo-white.svg#gh-dark-mode-only)
+!![Adhar Logo](docs/imgs/adhar-logo-white.svg)
 ![Adhar Logo](docs/imgs/adhar-logo-black.svg#gh-light-mode-only)
 
 # ADHAR - Open Foundation for Modern Businesses
