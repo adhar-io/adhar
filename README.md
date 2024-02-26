@@ -121,23 +121,25 @@ cd platform/installer/digitalocean
 Adjust your config in `values.yaml` file, e.g `name`, `domainSuffix`, `domainFilters` etc.
 
 ```bash
-# Adhar configuration
+# Token configuration
 API_TOKEN="<YOUR-DO-TOKEN>"
 sed -i "" "s/<API_TOKEN>/$API_TOKEN/g" values.yaml
+export TF_VAR_do_token=$API_TOKEN 
 
 # Run terraform
 terraform init
-do_token=$API_TOKEN terraform apply -auto-approve
+terraform apply --auto-approve
+
+# Destroy the setup
+terraform destroy --auto-approve
 ```
 
 ### Helm :boat:
 
 To install Adhar platform on existing kubernetes cluster, make sure to have a kubernetes cluster running with at least:
 
-- Version `1.26`, `1.27` or `1.28`
+- Version `1.25`, `1.26` or `1.27`
 - A node pool with at least **16 vCPU** and **32GB+ RAM** (more resources might be required based on the additional capabilities)
-- Calico CNI installed (or any other CNI that supports K8s network policies)
-- A default storage class configured
 - When using the `custom` provider, make sure the K8s LoadBalancer Service created by `Adhar` can obtain an external IP (using a cloud load balancer or MetalLB)
 
 > **_NOTE:_** Install Adhar with DNS to unlock it's full potential. Check [adhar.io](https://adhar.io) for more info.
