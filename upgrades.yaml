@@ -17,64 +17,6 @@
 # (don't forget to set it to the next release version before releasing!)
 
 operations:
-  - version: 0.16.7
+  - version: 0.1.30
     pre:
-      # release knative-init was renamed to knative-operator
-      - x=`mktemp` && helm -n default get manifest knative-init >$x &&
-        kubectl annotate -f $x --overwrite "meta.helm.sh/release-name"=knative-operator && rm -rf "$x" || true
-      # release overprovisioner moved to cluster-overprovisioner in new namespace, so uninstall (also ns)
-      - helm -n overprovisioner list | grep overprovisioner && helm -n uninstall overprovisioner && kubectl delete ns overprovisioner || true
-      # release ingress-nginx moved to ingress-nginx-platform
-      - x=`mktemp` && helm -n ingress get manifest ingress-nginx >$x &&
-        kubectl annotate -f $x --overwrite "meta.helm.sh/release-name"=ingress-nginx-platform && rm -rf "$x" || true
-  - version: 0.16.9
-    pre:
-      # release kubernetes-external-secrets moved to external-secrets and was upgraded (so we apply crds)
-      - x=`mktemp` && helm -n vault get manifest kubernetes-external-secrets >$x &&
-        kubectl annotate -f $x --overwrite "meta.helm.sh/release-name"=external-secrets && rm -rf "$x" &&
-        kubectl apply -f charts/kubernetes-external-secrets/crds || true
-  - version: 0.16.10
-    pre:
-      # release drone moved to its own namespace, so uninstall
-      - helm -n team-admin list | grep drone && helm -n team-admin uninstall drone || true
-      # we need to patch ownership of all podmonitors which are now published by team-ns-* instead of prometheus-*
-      - |
-        for id in {{ keys (omit .teamConfig "admin") | join " " }}; do 
-          for p in `kubectl -n "team-$id" get podmonitor | tail -n +2 | awk '{print $1}'`; do
-            kubectl -n "team-$id" annotate podmonitor/$p --overwrite "meta.helm.sh/release-name"=team-ns-$id
-          done
-        done
-  - version: 0.18.0
-    post:
-      # convert secrets to new format and apply
-      - vendor/kes-to-eso/migrate-post.sh || true
-  - version: 0.18.1
-    pre:
-      - upgrades/pre/upgrade-0-18-1.sh || true
-  - version: 0.20.0
-    pre:
-      - upgrades/pre/upgrade-0-20-0.sh || true
-  - version: 0.22.0
-    pre:
-      - upgrades/pre/upgrade-0-22-0.sh || true
-  - version: 0.23.0
-    pre:
-      - upgrades/pre/upgrade-0-23-0.sh || true
-  - version: 0.25.0
-    pre:
-      - upgrades/pre/upgrade-0-25-0.sh || true
-  - version: 0.26.0
-    pre:
-      - upgrades/pre/upgrade-0-26.0.sh || true
-  - version: 0.27.0
-    pre:
-      - upgrades/pre/upgrade-0-27.0.sh || true
-  - version: 1.2.0
-    pre:
-      - upgrades/pre/upgrade-1-2.0.sh || true
-  - version: 2.7.0
-    pre:
-      - upgrades/pre/upgrade-2-7-0.sh || true
-  - version: 2.8.0
-    pre:
-      - upgrades/pre/upgrade-2-8-0.sh || true
+      - upgrades/pre/upgrade-0-1-30.sh || true
