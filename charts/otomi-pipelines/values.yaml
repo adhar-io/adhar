@@ -10,7 +10,7 @@ podSecurityContext:
 
 eventListener:
   resources:
-    # Event Listener pod resouce limits and requests
+    # Event Listener pod resource limits and requests
     requests:
       memory: '64Mi'
       cpu: '250m'
@@ -20,7 +20,7 @@ eventListener:
 
 tektonTask:
   resources:
-    # Tekton Task pod resouce limits and requests
+    # Tekton Task pod resource limits and requests
     requests:
       cpu: '500m'
     limits:
