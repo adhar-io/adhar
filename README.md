@@ -124,7 +124,7 @@ Adjust your config in `values.yaml` file, e.g `name`, `domainSuffix`, `domainFil
 # Token configuration
 API_TOKEN="<YOUR-DO-TOKEN>"
 sed -i "" "s/<API_TOKEN>/$API_TOKEN/g" values.yaml
-export TF_VAR_do_token=$API_TOKEN 
+export TF_VAR_do_token=$API_TOKEN
 
 # Run terraform
 terraform init
@@ -138,7 +138,7 @@ terraform destroy --auto-approve
 
 To install Adhar platform on existing kubernetes cluster, make sure to have a kubernetes cluster running with at least:
 
-- Version `1.25`, `1.26` or `1.27`
+- Version `1.25`, `1.26`, `1.27` or `1.28`
 - A node pool with at least **16 vCPU** and **32GB+ RAM** (more resources might be required based on the additional capabilities)
 - When using the `custom` provider, make sure the K8s LoadBalancer Service created by `Adhar` can obtain an external IP (using a cloud load balancer or MetalLB)
 

@@ -1,9 +1,9 @@
 api: 2.6.0
 console: 2.5.0
 tasks: 2.4.0
-tools: 1.6.0
+tools: 1.6.4
 otomi/api: 2.6.0
 otomi/console: 2.5.0
 otomi/tasks: 2.4.0
-otomi/tools: 1.6.0
+otomi/tools: 1.6.4
 adhario/adhar: latest

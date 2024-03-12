@@ -1,15 +1,15 @@
 cluster:
   name: adhar
   provider: civo
-  domainSuffix: cloud.adhar.io
+  domainSuffix: platform.adhar.io
 otomi:
   hasExternalDNS: true
 dns:
   domainFilters:
-    - cloud.adhar.io
+    - platform.adhar.io
   provider:
     civo:
-      apiToken: 'ADD-YOUR-CIVO-API-TOKEN-HERE'
+      apiToken: '<API_TOKEN>'
 apps:
   cert-manager:
     issuer: letsencrypt

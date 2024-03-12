@@ -2,7 +2,7 @@
 data "civo_kubernetes_version" "k8s_version_slug" {
   filter {
     key    = "version"
-    values = ["1.27"]
+    values = ["1.28"]
   }
 }
 

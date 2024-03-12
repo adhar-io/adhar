@@ -1,6 +1,6 @@
 # Get latest minor version slug from DO 
 data "digitalocean_kubernetes_versions" "k8s_version_slug" {
-  version_prefix = "1.27."
+  version_prefix = "1.28."
 }
 
 # Provision k8s cluster
