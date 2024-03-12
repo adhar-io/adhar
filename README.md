@@ -187,8 +187,9 @@ On the other hand, platform administrators can use it to enable and configure pl
 
 Moreover, it includes a Cloud Shell feature, allowing both developers and admins to run CLI commands. In essence, the Adhar Console is a comprehensive tool designed to streamline and simplify the management of your platform.
 
-![Adhar Console](docs/imgs/adhar-console-dark.png#gh-dark-mode-only)
-![Adhar Console](docs/imgs/adhar-console-light.png#gh-light-mode-only)
+![Adhar Console](docs/imgs/adhar-console-light.png)
+
+![Adhar Console](docs/imgs/adhar-console-dark.png)
 
 ### Command Line Interface (CLI)
 
