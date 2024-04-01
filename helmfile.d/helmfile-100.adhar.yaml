@@ -1,0 +1,26 @@
+bases:
+  - snippets/defaults.yaml
+---
+bases:
+  - snippets/env.gotmpl
+---
+bases:
+  - snippets/derived.gotmpl
+---
+{{ readFile "snippets/templates.gotmpl" }}
+{{- $v := .Values }}
+{{- $a := $v.apps }}
+
+releases:
+  - name: adhar-api
+    installed: true
+    namespace: otomi
+    labels:
+      pkg: otomi
+    <<: *default
+  - name: adhar-console
+    installed: true
+    namespace: otomi
+    labels:
+      pkg: otomi
+    <<: *default
