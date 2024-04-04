@@ -123,6 +123,7 @@ k8s:
       app: tekton
       disableIstioInjection: true
       disablePolicyChecks: true
+    - name: adhar-system
 
 adminApps:
   - name: alertmanager
@@ -407,6 +408,20 @@ adminApps:
     tags: [backup]
   - name: rabbitmq
     tags: [messaging]
+  - name: adhar
+    hide: true
+    isShared: true
+    ownHost: true
+    ingress:
+      - svc: adhar-api
+        namespace: adhar-system
+        paths: [/api/]
+        type: public
+        auth: true
+      - svc: adhar-console
+        namespace: adhar-system
+        type: public
+        auth: true
 
 teamApps:
   - name: alertmanager

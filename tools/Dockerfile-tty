@@ -5,7 +5,7 @@
 FROM ubuntu:latest
 
 # Installing curl, vim, wget, tmux ttyd and bash-completion
-RUN apt update && apt upgrade -y && apt install -y ttyd jq curl vim wget less tmux bash-completion
+RUN apt update && apt upgrade -y && apt install -y ttyd jq curl vim wget less tmux bash-completion 
 
 # Installing yq
 ADD --chmod=755 --checksum=sha256:00d48a5240ab575c3e82fb1e4fab768c33ce3e87e75b673a45d41a1c4ed1e86c https://github.com/mikefarah/yq/releases/download/v4.40.2/yq_linux_amd64 /usr/local/bin/yq
