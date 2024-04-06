@@ -15,6 +15,7 @@ resource "helm_release" "adhar" {
 
   repository = "https://chart.adhar.io"
   chart      = "adhar"
+  namespace  = "adhar-system"
 
   values        = [file("values.yaml")]
   timeout       = 3600 # 1 hour

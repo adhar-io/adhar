@@ -14,13 +14,13 @@ bases:
 releases:
   - name: adhar-api
     installed: false
-    namespace: otomi
+    namespace: adhar-system
     labels:
-      pkg: otomi
+      pkg: adhar
     <<: *default
   - name: adhar-console
     installed: true
-    namespace: otomi
+    namespace: adhar-system
     labels:
-      pkg: otomi
+      pkg: adhar
     <<: *default

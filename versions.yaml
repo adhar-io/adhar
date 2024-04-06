@@ -1,9 +1,9 @@
-api: main
-console: main
+api: 2.8.0
+console: 2.7.0
 tasks: 2.4.0
 tools: 1.6.4
-otomi/api: main
-otomi/console: main
+otomi/api: 2.8.0
+otomi/console: 2.7.0
 otomi/tasks: 2.4.0
 otomi/tools: 1.6.4
 adhario/adhar: latest
