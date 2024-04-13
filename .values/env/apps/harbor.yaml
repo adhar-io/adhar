@@ -1,3 +1,7 @@
 apps:
     harbor:
         enabled: true
+        core: {}
+        jobservice: {}
+        registry:
+            credentials: {}

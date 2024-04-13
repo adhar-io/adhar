@@ -5,6 +5,7 @@ teamConfig:
             alertmanager: true
             grafana: true
             prometheus: true
+        resourceQuota: {}
         selfService:
             access:
                 - shell
