@@ -17,7 +17,7 @@ resource "helm_release" "adhar" {
   chart      = "adhar"
 
   values        = [file("values.yaml")]
-  timeout       = 3600 # 1 hour
+  timeout       = 5400 # 1.5  hours
   wait_for_jobs = true
 }
 
