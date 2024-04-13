@@ -9,7 +9,7 @@ dns:
     - platform.adhar.io
   provider:
     civo:
-      apiToken: '<API_TOKEN>'
+      apiToken: '9e4isNneDleF6h7j1K8bpC9RZR6CMDoMG7dXfqbjMPFEbOArqQ'
 apps:
   cert-manager:
     issuer: letsencrypt
