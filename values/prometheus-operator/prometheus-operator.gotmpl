@@ -135,6 +135,7 @@ prometheus:
     {{- range $m := (tpl (readFile "service-monitors.gotmpl") $v | fromYaml) | get "additionalServiceMonitors" }}
     - {{- toYaml $m | nindent 6 }}
     {{- end }}
+{{ if or (not $v.otomi.isMultitenant) (eq $v.cluster.provider "aws") }}
 additionalPrometheusRules:
   {{- if not $v.otomi.isMultitenant }}
   - name: blackbox
