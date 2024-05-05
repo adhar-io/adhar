@@ -35,7 +35,6 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             runAsNonRoot: false
-            privileged: true
             readOnlyRootFilesystem: false
             runAsGroup: 1337
             runAsUser: 1337
