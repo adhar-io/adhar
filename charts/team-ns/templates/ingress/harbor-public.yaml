@@ -27,7 +27,7 @@ metadata:
     {{- end }}
   labels: {{- include "team-ns.chart-labels" . | nindent 4 }}
   name: {{ $name }}
-  namespace: {{ $namespace }}
+  namespace: "istio-system"
 spec:
   ingressClassName: platform
   rules:

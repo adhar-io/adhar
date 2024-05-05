@@ -1,8 +1,8 @@
-#Set personal access token as found in Digital Ocean
+#Set personal access token as found in Civo
 variable "civo_token" {
   description = "personal access token for civo"
   type        = string
-  default     = "REPLACE THIS SENTENCE WITH YOUR DIGITAL OCEAN ACCESS TOKEN"
+  default     = "REPLACE THIS SENTENCE WITH YOUR CIVO ACCESS TOKEN"
 }
 
 variable "region" {

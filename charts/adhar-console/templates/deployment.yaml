@@ -34,8 +34,11 @@ spec:
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
+            runAsNonRoot: false
+            privileged: true
+            readOnlyRootFilesystem: false
+            runAsGroup: 1337
+            runAsUser: 1337
           {{- with .Values.env }}
           env:
             {{- range $key, $value := . }}

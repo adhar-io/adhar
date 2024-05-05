@@ -16,6 +16,9 @@ workflow/
 *.new
 .envrc
 otomi.cpuprofile
+/.idea/
+/.lsp/
+/.clj-kondo/
 /platform/installer/**/*.tfstate
 /platform/installer/**/*.tfstate.backup
 /platform/installer/**/*.terraform.tfstate.lock.info

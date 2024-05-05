@@ -1,20 +1,17 @@
 folders:
-  - argo
-  - azure
-  - cloudnative-pg
-  - falco
-  - falco-teams
-  - gatekeeper
-  - gatekeeper-teams
-  - istio-admin
-  - k8s-admin
-  - k8s-teams
-  - minio
-  - opencost
-  - thanos
-  - trivy
-  - trivy-teams
-  - velero
+- argo
+- cloudnative-pg
+- falco
+- falco-teams
+- gatekeeper
+- gatekeeper-teams
+- istio-admin
+- k8s-admin
+- k8s-teams
+- minio
+- trivy
+- trivy-teams
+- velero
 
 sidecar:
   dashboards:
