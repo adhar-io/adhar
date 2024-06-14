@@ -1,0 +1,25 @@
+---
+# Source: metrics-server/templates/svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-server
+  namespace: "kube-system"
+  labels:
+    app.kubernetes.io/instance: metrics-server
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: metrics-server
+    app.kubernetes.io/version: 0.6.4
+    helm.sh/chart: metrics-server-6.8.0
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: https
+      port: 443
+      protocol: TCP
+      targetPort: https
+      nodePort: null
+  selector:
+    app.kubernetes.io/instance: metrics-server
+    app.kubernetes.io/name: metrics-server

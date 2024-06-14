@@ -1,0 +1,19 @@
+---
+# Source: raw/templates/resources.yaml
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  annotations:
+    ingressclass.kubernetes.io/is-default-class: "true"
+  labels:
+    app: raw
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx-artifacts
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: raw
+    app.kubernetes.io/part-of: otomi
+    app.kubernetes.io/version: 0.2.3
+    helm.sh/chart: raw-0.2.3
+  name: platform
+spec:
+  controller: k8s.io/platform

@@ -1,0 +1,39 @@
+project_name: adhar
+
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -X github.com/adhar-io/adhar/pkg/cmd/version.idpbuilderVersion={{ .Version }}
+      - -X github.com/adhar-io/adhar/pkg/cmd/version.gitCommit={{ .FullCommit }}
+      - -X github.com/adhar-io/adhar/pkg/cmd/version.buildDate={{ .CommitDate }}
+      - -w
+      - -s
+    binary: adhar
+    ignore:
+      - goos: linux
+        goarch: '386'
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}-{{ .Os }}-{{ .Arch }}
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+

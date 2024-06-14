@@ -1,0 +1,53 @@
+---
+# Source: adhar-console/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-console
+  labels:
+    app.kubernetes.io/name: adhar-console
+    helm.sh/chart: adhar-console-0.1.0
+    app.kubernetes.io/instance: adhar-console
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-console
+      app.kubernetes.io/instance: adhar-console
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-console
+        app.kubernetes.io/instance: adhar-console
+    spec:
+      serviceAccountName: adhar-console
+      securityContext:
+        runAsGroup: 101
+        runAsUser: 100
+      containers:
+        - name: adhar-console
+          image: "docker.io/adhario/console:latest"
+          imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: false
+            readOnlyRootFilesystem: false
+            runAsGroup: 1337
+            runAsUser: 1337
+          env:
+            - name: API_BASE_URL
+              value: "/api"
+            - name: CONTEXT_PATH
+              value: ""
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 400m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi

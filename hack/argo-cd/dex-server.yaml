@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-dex-server
+spec:
+  replicas: 0
+  template:
+    spec:
+      containers:
+        - name: dex
+          imagePullPolicy: IfNotPresent
+      initContainers:
+        - name: copyutil
+          imagePullPolicy: IfNotPresent

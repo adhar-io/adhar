@@ -1,0 +1,17 @@
+cluster:
+  name: adhar
+  provider: digitalocean
+  domainSuffix: cloud.adhar.io
+otomi:
+  hasExternalDNS: true
+dns:
+  domainFilters:
+    - cloud.adhar.io
+  provider:
+    digitalocean:
+      apiToken: '<API_TOKEN>'
+apps:
+  cert-manager:
+    issuer: letsencrypt
+    stage: production
+    email: admin@adhar.io

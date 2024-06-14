@@ -1,0 +1,17 @@
+cluster:
+  name: adhar
+  provider: civo
+  domainSuffix: platform.adhar.io
+otomi:
+  hasExternalDNS: true
+dns:
+  domainFilters:
+    - platform.adhar.io
+  provider:
+    civo:
+      apiToken: '<API_TOKEN>'
+apps:
+  cert-manager:
+    issuer: letsencrypt
+    stage: production
+    email: admin@adhar.io

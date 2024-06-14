@@ -1,0 +1,16 @@
+adhar:
+cluster:
+  name: adhar
+  provider: digitalocean
+  domainSuffix: adhar.localtest.me
+dns:
+  domainFilters:
+    - adhar.localtest.me
+  provider:
+    digitalocean:
+      apiToken: '<API_TOKEN>'
+apps:
+  cert-manager:
+    issuer: letsencrypt
+    stage: production
+    email: admin@adhar.io
