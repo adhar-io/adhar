@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	IdpbuilderBinaryLocation = "../../../idpbuilder"
+	IdpbuilderBinaryLocation = "../../../adhar"
 	DefaultPort              = "8443"
 	DefaultBaseDomain        = "adhar.localtest.me"
 	ArgoCDSessionEndpoint    = "/api/v1/session"
