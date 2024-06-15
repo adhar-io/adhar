@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/pkg/util"
 	"sigs.k8s.io/kustomize/kyaml/kio"
 )
 

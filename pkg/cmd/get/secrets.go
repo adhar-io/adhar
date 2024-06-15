@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
-	"github.com/cnoe-io/idpbuilder/pkg/build"
-	"github.com/cnoe-io/idpbuilder/pkg/k8s"
+	"github.com/adhar-io/adhar/api/v1alpha1"
+	"github.com/adhar-io/adhar/pkg/build"
+	"github.com/adhar-io/adhar/pkg/k8s"
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"

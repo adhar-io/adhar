@@ -3,11 +3,11 @@ package controllers
 import (
 	"context"
 
-	"github.com/cnoe-io/idpbuilder/pkg/controllers/custompackage"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/pkg/controllers/custompackage"
+	"github.com/adhar-io/adhar/pkg/util"
 
-	"github.com/cnoe-io/idpbuilder/pkg/controllers/gitrepository"
-	"github.com/cnoe-io/idpbuilder/pkg/controllers/localbuild"
+	"github.com/adhar-io/adhar/pkg/controllers/gitrepository"
+	"github.com/adhar-io/adhar/pkg/controllers/localbuild"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )

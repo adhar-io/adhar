@@ -3,7 +3,7 @@ package v1alpha1
 import (
 	"fmt"
 
-	"github.com/cnoe-io/idpbuilder/globals"
+	"github.com/adhar-io/adhar/globals"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

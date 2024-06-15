@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"code.gitea.io/sdk/gitea"
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"

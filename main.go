@@ -1,6 +1,6 @@
 package main
 
-import "github.com/cnoe-io/idpbuilder/pkg/cmd"
+import "github.com/adhar-io/adhar/pkg/cmd"
 
 func main() {
 	cmd.Execute()

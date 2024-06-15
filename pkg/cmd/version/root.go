@@ -16,13 +16,13 @@ var (
 
 var VersionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print idpbuilder version and environment info",
-	Long:  "Print idpbulider version and environment info. This is useful in bug reports and CI.",
+	Short: "Print adhar version and environment info",
+	Long:  "Print adhar version and environment info. This is useful in bug reports and CI.",
 	RunE:  version,
 }
 
 func init() {
-	VersionCmd.Flags().StringVarP(&outputFormat, "output", "o", "", `Print the idpbuilder version information in a given output format. Accepts "wide", "json", and "yaml".`)
+	VersionCmd.Flags().StringVarP(&outputFormat, "output", "o", "", `Print the adhar version information in a given output format. Accepts "wide", "json", and "yaml".`)
 }
 
 var (
@@ -67,7 +67,7 @@ func version(cmd *cobra.Command, args []string) error {
 		}
 		cmd.Println(yamlInfo)
 	case "":
-		cmd.Println(fmt.Sprintf("idpbuilder %s %s %s/%s",
+		cmd.Println(fmt.Sprintf("adhar %s %s %s/%s",
 			idpbuilderVersion,
 			goVersion,
 			goOs,

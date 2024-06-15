@@ -4,8 +4,8 @@ import (
 	"context"
 	"embed"
 
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
-	"github.com/cnoe-io/idpbuilder/pkg/k8s"
+	"github.com/adhar-io/adhar/api/v1alpha1"
+	"github.com/adhar-io/adhar/pkg/k8s"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"

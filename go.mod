@@ -1,4 +1,4 @@
-module github.com/cnoe-io/idpbuilder
+module github.com/adhar-io/adhar
 
 go 1.21.3
 

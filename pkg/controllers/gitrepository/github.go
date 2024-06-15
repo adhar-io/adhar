@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/api/v1alpha1"
+	"github.com/adhar-io/adhar/pkg/util"
 	"github.com/google/go-github/v61/github"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"

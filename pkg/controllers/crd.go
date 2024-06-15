@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cnoe-io/idpbuilder/pkg/k8s"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/pkg/k8s"
+	"github.com/adhar-io/adhar/pkg/util"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"

@@ -4,17 +4,17 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cnoe-io/idpbuilder/pkg/cmd/create"
-	"github.com/cnoe-io/idpbuilder/pkg/cmd/get"
-	"github.com/cnoe-io/idpbuilder/pkg/cmd/helpers"
-	"github.com/cnoe-io/idpbuilder/pkg/cmd/version"
+	"github.com/adhar-io/adhar/pkg/cmd/create"
+	"github.com/adhar-io/adhar/pkg/cmd/get"
+	"github.com/adhar-io/adhar/pkg/cmd/helpers"
+	"github.com/adhar-io/adhar/pkg/cmd/version"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "idpbuilder",
-	Short: "Manage reference IDPs",
-	Long:  "",
+	Use:   "adhar",
+	Short: "Adhar Platform - Open Foundation For Modern Businesses!",
+	Long:  "Adhar Internal Developer Platform - Open Foundation for Modern Businesses!",
 }
 
 func init() {

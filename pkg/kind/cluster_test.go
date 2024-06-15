@@ -5,8 +5,8 @@ import (
 	"io"
 	"testing"
 
-	runtime "github.com/cnoe-io/idpbuilder/pkg/runtime"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	runtime "github.com/adhar-io/adhar/pkg/runtime"
+	"github.com/adhar-io/adhar/pkg/util"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"

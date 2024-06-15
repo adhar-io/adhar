@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

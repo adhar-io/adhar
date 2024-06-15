@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/pkg/util"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cnoe-io/idpbuilder/pkg/runtime"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/pkg/runtime"
+	"github.com/adhar-io/adhar/pkg/util"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/kind/pkg/cluster"
 	"sigs.k8s.io/kind/pkg/cluster/nodes"

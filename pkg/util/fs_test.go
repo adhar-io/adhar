@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/cnoe-io/idpbuilder/globals"
+	"github.com/adhar-io/adhar/globals"
 	"github.com/google/go-cmp/cmp"
 )
 

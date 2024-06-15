@@ -7,7 +7,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	v1 "k8s.io/api/core/v1"

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/google/go-github/v61/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"

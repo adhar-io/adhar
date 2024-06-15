@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"

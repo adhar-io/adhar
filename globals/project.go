@@ -2,7 +2,7 @@ package globals
 
 import "fmt"
 
-const ProjectName string = "idpbuilder"
+const ProjectName string = "adhar"
 const giteaResourceName string = "gitea"
 const gitServerResourceName string = "gitserver"
 

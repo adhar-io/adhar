@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 
 	"code.gitea.io/sdk/gitea"
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
-	"github.com/cnoe-io/idpbuilder/pkg/controllers/localbuild"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/api/v1alpha1"
+	"github.com/adhar-io/adhar/pkg/controllers/localbuild"
+	"github.com/adhar-io/adhar/pkg/util"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"

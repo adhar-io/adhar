@@ -3,8 +3,8 @@ package localbuild
 import (
 	"testing"
 
-	"github.com/cnoe-io/idpbuilder/pkg/k8s"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/pkg/k8s"
+	"github.com/adhar-io/adhar/pkg/util"
 )
 
 func TestGetRawInstallResources(t *testing.T) {

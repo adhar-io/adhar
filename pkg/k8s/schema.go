@@ -1,8 +1,8 @@
 package k8s
 
 import (
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
