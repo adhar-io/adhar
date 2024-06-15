@@ -196,7 +196,7 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 		return err
 	}
 
-	fmt.Print("########################### Adhar kind config ############################\n")
+	fmt.Print("########################### Our kind config ############################\n")
 	fmt.Printf("%s", rawConfig)
 	fmt.Print("\n#########################   config end    ############################\n")
 
