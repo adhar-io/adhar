@@ -1,7 +1,7 @@
 LD_FLAGS=-ldflags " \
-    -X github.com/cnoe-io/idpbuilder/pkg/cmd/version.idpbuilderVersion=$(shell git describe --always --tags --dirty --broken) \
-    -X github.com/cnoe-io/idpbuilder/pkg/cmd/version.gitCommit=$(shell git rev-parse HEAD) \
-    -X github.com/cnoe-io/idpbuilder/pkg/cmd/version.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \
+    -X github.com/adhar-io/adhar/pkg/cmd/version.idpbuilderVersion=$(shell git describe --always --tags --dirty --broken) \
+    -X github.com/adhar-io/adhar/pkg/cmd/version.gitCommit=$(shell git rev-parse HEAD) \
+    -X github.com/adhar-io/adhar/pkg/cmd/version.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \
     "
 
 # The name of the binary. Defaults to idpbuilder
