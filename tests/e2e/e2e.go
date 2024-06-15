@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"code.gitea.io/sdk/gitea"
+	"github.com/adhar-io/adhar/pkg/cmd/get"
+	"github.com/adhar-io/adhar/pkg/k8s"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
-	"github.com/cnoe-io/idpbuilder/pkg/cmd/get"
-	"github.com/cnoe-io/idpbuilder/pkg/k8s"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
