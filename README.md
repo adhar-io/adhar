@@ -165,6 +165,7 @@ Once adhar finishes provisioning cluster and packages, you can access GUIs by go
 * Argo-Workflows: https://adhar.localtest.me:8443/argo-workflows/
 * Backstage: https://adhar.localtest.me:8443/
 
+#### Secrets
 You can obtain credentials for them by running the following command:
 
 ```bash
@@ -201,10 +202,7 @@ Learn about integrating, deploying and managing your apps on Adhar platform.
 - [Architecture overview](./docs/architecture.md)
 - [Setting up your environment](./docs/setup.md)
 - [Development guide](./docs/development.md)
-- [Adhar's OPA Policies framework](./docs/policies.md)
-- [Schema validation](./docs/schema-validation.md)
-- [Migrating values](./docs/migrating-values.md)
-- [Go templating](./docs/go-templating.md)
+
 
 ## Platform Architecture :crystal_ball:
 
