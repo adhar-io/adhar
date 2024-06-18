@@ -25,7 +25,8 @@
     "cue@0.8.2",
     "go@1.22.3",
     "kind@0.23.0",
-    "awscli2@2.15.62"
+    "awscli2@2.15.62",
+    "hubble@0.13.5"
   ],
   "shell": {
     "init_hook": [
