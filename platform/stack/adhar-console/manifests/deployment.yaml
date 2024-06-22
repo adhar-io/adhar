@@ -22,19 +22,18 @@ spec:
         app.kubernetes.io/name: adhar-console
         app.kubernetes.io/instance: adhar-console
     spec:
-      serviceAccountName: adhar-console
+      serviceAccountName: adhar-console-sa
       securityContext:
         runAsGroup: 101
-        runAsUser: 100
+        runAsUser: 101
       containers:
         - name: adhar-console
           image: "docker.io/adhario/console:latest"
           imagePullPolicy: Always
           securityContext:
-            runAsNonRoot: false
-            readOnlyRootFilesystem: false
-            runAsGroup: 1337
-            runAsUser: 1337
+            runAsNonRoot: true
+            runAsGroup: 101
+            runAsUser: 101
           env:
             - name: API_BASE_URL
               value: "/api"
@@ -42,7 +41,7 @@ spec:
               value: ""
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: 80
               protocol: TCP
           resources:
             limits:

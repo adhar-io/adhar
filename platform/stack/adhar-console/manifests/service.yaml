@@ -1,15 +1,10 @@
----
-# Source: adhar-console/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: adhar-console
+  name: adhar-console-svc
   labels:
     app.kubernetes.io/name: adhar-console
-    helm.sh/chart: adhar-console-0.1.0
     app.kubernetes.io/instance: adhar-console
-    app.kubernetes.io/version: "0.1.0"
-    app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
   ports:
