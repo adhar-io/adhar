@@ -7,7 +7,7 @@ import (
 	"encoding/pem"
 	"testing"
 
-	"github.com/cnoe-io/idpbuilder/globals"
+	"github.com/adhar-io/adhar/globals"
 	"github.com/stretchr/testify/mock"
 	"gotest.tools/v3/assert"
 	corev1 "k8s.io/api/core/v1"

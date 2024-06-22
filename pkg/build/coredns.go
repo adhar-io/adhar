@@ -5,8 +5,8 @@ import (
 	"embed"
 	"fmt"
 
-	"github.com/cnoe-io/idpbuilder/pkg/k8s"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/pkg/k8s"
+	"github.com/adhar-io/adhar/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

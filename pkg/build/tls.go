@@ -14,9 +14,9 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/cnoe-io/idpbuilder/globals"
-	"github.com/cnoe-io/idpbuilder/pkg/k8s"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
+	"github.com/adhar-io/adhar/globals"
+	"github.com/adhar-io/adhar/pkg/k8s"
+	"github.com/adhar-io/adhar/pkg/util"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
