@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/adhar-io/adhar/api/v1alpha1"
+	"github.com/adhar-io/adhar/globals"
 	"github.com/adhar-io/adhar/pkg/build"
 	"github.com/adhar-io/adhar/pkg/cmd/helpers"
 	"github.com/adhar-io/adhar/pkg/k8s"
@@ -19,12 +20,14 @@ import (
 
 var (
 	// Flags
-	recreateCluster           bool
-	buildName                 string
-	kubeVersion               string
-	extraPortsMapping         string
-	kindConfigPath            string
+	recreateCluster   bool
+	buildName         string
+	kubeVersion       string
+	extraPortsMapping string
+	kindConfigPath    string
+	// TODO: Remove extraPackagesDirs after 0.6.0 release
 	extraPackagesDirs         []string
+	extraPackages             []string
 	packageCustomizationFiles []string
 	noExit                    bool
 	protocol                  string
@@ -51,12 +54,16 @@ func init() {
 	CreateCmd.PersistentFlags().StringVar(&kindConfigPath, "kind-config", "", "Path of the kind config file to be used instead of the default.")
 
 	// in-cluster resources related flags
-	CreateCmd.PersistentFlags().StringVar(&host, "host", "adhar.localtest.me", "Host name to access resources in this cluster.")
+	CreateCmd.PersistentFlags().StringVar(&host, "host", globals.DefaultHostName, "Host name to access resources in this cluster.")
 	CreateCmd.PersistentFlags().StringVar(&ingressHost, "ingress-host-name", "", "Host name used by ingresses. Useful when you have another proxy in front of ingress-nginx that idpbuilder provisions.")
 	CreateCmd.PersistentFlags().StringVar(&protocol, "protocol", "https", "Protocol to use to access web UIs. http or https.")
 	CreateCmd.PersistentFlags().StringVar(&port, "port", "8443", "Port number under which idpBuilder tools are accessible.")
 	CreateCmd.PersistentFlags().BoolVar(&pathRouting, "use-path-routing", true, "When set to true, web UIs are exposed under single domain name.")
 	CreateCmd.Flags().StringSliceVarP(&extraPackagesDirs, "package-dir", "p", []string{"./platform/stack"}, "Paths to directories containing custom packages")
+	// TODO: Remove package-dir and deprecation notice after 0.6.0 release
+	CreateCmd.Flags().StringSliceVar(&extraPackagesDirs, "package-dir", []string{}, "Paths to directories containing custom packages")
+	CreateCmd.Flags().MarkDeprecated("package-dir", "use --package instead")
+	CreateCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{}, "Paths to locations containing custom packages")
 	CreateCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "c", []string{}, "Name of the package and the path to file to customize the package with. e.g. argocd:/tmp/argocd.yaml")
 	// idpbuilder related flags
 	CreateCmd.Flags().BoolVarP(&noExit, "no-exit", "n", true, "When set, idpbuilder will not exit after all packages are synced. Useful for continuously syncing local directories.")
@@ -86,8 +93,18 @@ func create(cmd *cobra.Command, args []string) error {
 	var absDirPaths []string
 	var remotePaths []string
 
+	// TODO: Remove this block after deprecation
 	if len(extraPackagesDirs) > 0 {
 		r, l, pErr := helpers.ParsePackageStrings(extraPackagesDirs)
+		if pErr != nil {
+			return pErr
+		}
+		absDirPaths = l
+		remotePaths = r
+	}
+
+	if len(extraPackages) > 0 {
+		r, l, pErr := helpers.ParsePackageStrings(extraPackages)
 		if pErr != nil {
 			return pErr
 		}

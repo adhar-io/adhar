@@ -31,11 +31,8 @@ import (
 
 const (
 	defaultArgoCDProjectName string = "default"
-)
-
-var (
-	defaultRequeueTime = time.Second * 15
-	errRequeueTime     = time.Second * 5
+	defaultRequeueTime              = time.Second * 15
+	errRequeueTime                  = time.Second * 5
 )
 
 type LocalbuildReconciler struct {
@@ -116,7 +113,7 @@ func (r *LocalbuildReconciler) installCorePackages(ctx context.Context, req ctrl
 			defer wg.Done()
 			_, iErr := inst(ctx, req, resource)
 			if iErr != nil {
-				logger.V(1).Info("failed installing %s: %s", name, iErr)
+				logger.V(1).Info("failed installing", "name", name, "error", iErr)
 				errChan <- fmt.Errorf("failed installing %s: %w", name, iErr)
 			}
 		}()

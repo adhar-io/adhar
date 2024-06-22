@@ -5,14 +5,11 @@ import (
 	"embed"
 
 	"github.com/adhar-io/adhar/api/v1alpha1"
+	"github.com/adhar-io/adhar/globals"
 	"github.com/adhar-io/adhar/pkg/k8s"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
-)
-
-const (
-	nginxNamespace string = "ingress-nginx"
 )
 
 //go:embed resources/nginx/k8s/*
@@ -27,7 +24,7 @@ func (r *LocalbuildReconciler) ReconcileNginx(ctx context.Context, req ctrl.Requ
 		name:         "Nginx",
 		resourcePath: "resources/nginx/k8s",
 		resourceFS:   installNginxFS,
-		namespace:    nginxNamespace,
+		namespace:    globals.NginxNamespace,
 		monitoredResources: map[string]schema.GroupVersionKind{
 			"ingress-nginx-controller": {
 				Group:   "apps",
