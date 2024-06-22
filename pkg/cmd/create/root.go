@@ -59,14 +59,13 @@ func init() {
 	CreateCmd.PersistentFlags().StringVar(&protocol, "protocol", "https", "Protocol to use to access web UIs. http or https.")
 	CreateCmd.PersistentFlags().StringVar(&port, "port", "8443", "Port number under which idpBuilder tools are accessible.")
 	CreateCmd.PersistentFlags().BoolVar(&pathRouting, "use-path-routing", true, "When set to true, web UIs are exposed under single domain name.")
-	CreateCmd.Flags().StringSliceVarP(&extraPackagesDirs, "package-dir", "p", []string{"./platform/stack"}, "Paths to directories containing custom packages")
 	// TODO: Remove package-dir and deprecation notice after 0.6.0 release
 	CreateCmd.Flags().StringSliceVar(&extraPackagesDirs, "package-dir", []string{}, "Paths to directories containing custom packages")
 	CreateCmd.Flags().MarkDeprecated("package-dir", "use --package instead")
-	CreateCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{}, "Paths to locations containing custom packages")
+	CreateCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{"./platform/stack"}, "Paths to locations containing custom packages")
 	CreateCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "c", []string{}, "Name of the package and the path to file to customize the package with. e.g. argocd:/tmp/argocd.yaml")
 	// idpbuilder related flags
-	CreateCmd.Flags().BoolVarP(&noExit, "no-exit", "n", true, "When set, idpbuilder will not exit after all packages are synced. Useful for continuously syncing local directories.")
+	CreateCmd.Flags().BoolVarP(&noExit, "no-exit", "n", true, "When set, adhar will not exit after all packages are synced. Useful for continuously syncing local directories.")
 }
 
 func preCreateE(cmd *cobra.Command, args []string) error {
