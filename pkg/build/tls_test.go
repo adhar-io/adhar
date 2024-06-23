@@ -32,7 +32,7 @@ func (f *fakeKubeClient) Create(ctx context.Context, obj client.Object, opts ...
 }
 
 func TestCreateSelfSignedCertificate(t *testing.T) {
-	sans := []string{"cnoe.io", "*.cnoe.io"}
+	sans := []string{"adhar.io", "*.adhar.io"}
 	c, k, err := createSelfSignedCertificate(sans)
 	assert.NilError(t, err)
 	_, err = tls.X509KeyPair(c, k)
@@ -45,8 +45,8 @@ func TestCreateSelfSignedCertificate(t *testing.T) {
 
 	assert.Equal(t, 2, len(cert.DNSNames))
 	expected := map[string]struct{}{
-		"cnoe.io":   {},
-		"*.cnoe.io": {},
+		"adhar.io":   {},
+		"*.adhar.io": {},
 	}
 
 	for _, s := range cert.DNSNames {

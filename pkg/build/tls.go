@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	certificateOrgName = "cnoe.io"
+	certificateOrgName = "adhar.io"
 )
 
 var (

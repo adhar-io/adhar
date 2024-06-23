@@ -29,7 +29,7 @@ const (
 	DefaultBranchName    = "main"
 	requeueTime          = time.Second * 30
 	gitCommitAuthorName  = "git-reconciler"
-	gitCommitAuthorEmail = "idpbuilder-agent@cnoe.io"
+	gitCommitAuthorEmail = "admin@adhar.io"
 
 	gitTCPTimeout = 5 * time.Second
 	// timeout value for a git operation through http. clone, push, etc.
