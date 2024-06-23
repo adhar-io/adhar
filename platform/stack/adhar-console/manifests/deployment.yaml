@@ -1,15 +1,10 @@
----
-# Source: adhar-console/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: adhar-console
   labels:
     app.kubernetes.io/name: adhar-console
-    helm.sh/chart: adhar-console-0.1.0
     app.kubernetes.io/instance: adhar-console
-    app.kubernetes.io/version: "0.1.0"
-    app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
   selector:
@@ -34,11 +29,6 @@ spec:
             runAsNonRoot: true
             runAsGroup: 101
             runAsUser: 101
-          env:
-            - name: API_BASE_URL
-              value: "/api"
-            - name: CONTEXT_PATH
-              value: ""
           ports:
             - name: http
               containerPort: 80
