@@ -69,10 +69,10 @@ metadata:
 data:
   app-config.yaml: |
     app:
-      title: CNOE Backstage
+      title: Adhar Backstage
       baseUrl: https://adhar.localtest.me:8443
     organization:
-      name: CNOE
+      name: Adhar
     backend:
       # Used for enabling authentication, secret is shared by all backend plugins
       # See https://backstage.io/docs/tutorials/backend-to-backend-auth for
@@ -264,7 +264,7 @@ spec:
                 name: gitea-credentials
             - secretRef:
                 name: argocd-credentials
-          image: public.ecr.aws/cnoe-io/backstage:rc1
+          image: ghcr.io/cnoe-io/backstage-app:b8e4f08914af17a48ed6b8b83a3621a9f4b4181d
           name: backstage
           ports:
             - containerPort: 7007
