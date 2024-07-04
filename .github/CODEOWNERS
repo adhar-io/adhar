@@ -19,5 +19,5 @@
 # and will subsequently get requested as a reviewer for any PRs
 # that change matching files.
 
-/* @cnoe-io/idpbuilder-approvers
-/* @cnoe-io/idpbuilder-admin
+/* @adhar-io/adhar-approvers
+/* @adhar-io/adhar-admin

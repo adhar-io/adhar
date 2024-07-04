@@ -26,7 +26,8 @@
     "go@1.22.3",
     "kind@0.23.0",
     "awscli2@2.15.62",
-    "hubble@0.13.5"
+    "hubble@0.13.5",
+    "etcdctl@3.3.27"
   ],
   "shell": {
     "init_hook": [
