@@ -115,12 +115,11 @@ The following command can be used as a convenience for installing `adhar`, (be s
 curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/hack/install.sh | bash
 ```
 
-or download the latest release with the following commands:
+or download the latest stable release with the following commands:
 
 ```bash
-version=$(curl -Ls -o /dev/null -w %{url_effective} https://github.com/adhar-io/adhar/releases/latest)
-version=${version##*/}
-curl -L -o ./adhar.tar.gz "https://github.com/adhar-io/adhar/releases/download/${version}/adhar-$(uname | awk '{print tolower($0)}')-$(uname -m | sed 's/x86_64/amd64/').tar.gz"
+version=$(curl -s https://api.github.com/repos/adhar-io/adhar/releases | grep tag_name | grep -o -e '"v[0-9].[0-9].[0-9]"' | head -n1 | sed 's/"//g')
+curl -L --progress-bar -o ./adhar.tar.gz "https://github.com/adhar-io/adhar/releases/download/${version}/adhar-$(uname | awk '{print tolower($0)}')-$(uname -m | sed 's/x86_64/amd64/').tar.gz"
 tar xzf adhar.tar.gz
 
 ./adhar version

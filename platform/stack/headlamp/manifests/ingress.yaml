@@ -1,24 +1,30 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: headlamp-ingress
+  name: headlamp
   namespace: kube-system
   annotations:
     argocd.argoproj.io/sync-wave: "100"
 spec:
   ingressClassName: "nginx"
-  tls:
-  - secretName: headlamp
-    hosts:
-    - adhar.localtest.me
   rules:
-  - host: adhar.localtest.me
-    http:
-      paths:
-      - path: /headlamp
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: headlamp-svc
-            port:
-              number: 80
+    - host: localhost
+      http:
+        paths:
+          - path: /headlamp
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: headlamp
+                port:
+                  number: 80
+    - host: adhar.localtest.me
+      http:
+        paths:
+        - path: /headlamp
+          pathType: ImplementationSpecific
+          backend:
+            service:
+              name: headlamp
+              port:
+                number: 80
