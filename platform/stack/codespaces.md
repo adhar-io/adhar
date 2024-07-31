@@ -14,9 +14,9 @@ Build the idpbuilder binary.
 
 - Get the latest release:
   ```bash
-  version=$(curl -Ls -o /dev/null -w %{url_effective} https://github.com/cnoe-io/idpbuilder/releases/latest)
+  version=$(curl -Ls -o /dev/null -w %{url_effective} https://github.com/adhar-io/adhar/releases/latest)
   version=${version##*/}
-  wget https://github.com/cnoe-io/idpbuilder/releases/download/${version}/idpbuilder-linux-amd64.tar.gz
+  wget https://github.com/adhar-io/adhar/releases/download/${version}/idpbuilder-linux-amd64.tar.gz
   tar xzf idpbuilder-linux-amd64.tar.gz
   sudo mv ./idpbuilder /usr/local/bin/
   ```

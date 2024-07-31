@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/adhar-io/adhar/pkg/cmd/create"
+	"github.com/adhar-io/adhar/pkg/cmd/delete"
 	"github.com/adhar-io/adhar/pkg/cmd/get"
 	"github.com/adhar-io/adhar/pkg/cmd/helpers"
 	"github.com/adhar-io/adhar/pkg/cmd/version"
@@ -21,6 +22,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&helpers.LogLevel, "log-level", "l", "info", helpers.LogLevelMsg)
 	rootCmd.AddCommand(create.CreateCmd)
 	rootCmd.AddCommand(get.GetCmd)
+	rootCmd.AddCommand(delete.DeleteCmd)
 	rootCmd.AddCommand(version.VersionCmd)
 }
 

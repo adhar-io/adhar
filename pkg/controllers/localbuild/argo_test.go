@@ -8,8 +8,8 @@ import (
 	"github.com/adhar-io/adhar/pkg/k8s"
 	"github.com/adhar-io/adhar/pkg/util"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"gotest.tools/v3/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -152,7 +152,7 @@ func TestArgoCDAppAnnotation(t *testing.T) {
 		}
 		err := rec.requestArgoCDAppRefresh(ctx)
 		fClient.AssertExpectations(t)
-		assert.NilError(t, err)
+		assert.NoError(t, err)
 	}
 }
 

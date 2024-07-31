@@ -14,7 +14,7 @@ When implementing IDPs using open source projects, there is no one set of projec
 1. Past technology choices were made for specific needs of each organization. This results in organizationally unique technology inertia that may not be correctable in the near future.
 1. No industry consensus and standards for choosing specific IDP components.
 
-To fit the needs from different organizations, idpbuilder needs to be flexible in the what and how it can deploy different packages. Currently idpbuilder uses ArgoCD to install a [set of application](https://github.com/cnoe-io/idpbuilder/blob/56089e4ae3b27cf90641bfbff2a96c36dd5263e1/pkg/apps/resources.go#L20-L32), and they cannot be changed without modifying the source code.
+To fit the needs from different organizations, idpbuilder needs to be flexible in the what and how it can deploy different packages. Currently idpbuilder uses ArgoCD to install a [set of application](https://github.com/adhar-io/adhar/blob/56089e4ae3b27cf90641bfbff2a96c36dd5263e1/pkg/apps/resources.go#L20-L32), and they cannot be changed without modifying the source code.
 
 In addition, the git server uses Go's embed capability to serve contents to ArgoCD.  Because of this, to update package configurations in idpbuilder, it requires compiling the Go application. For Go developers this approach is straightforward to work with. For non-Go developers, this approach may be frustrating when needing to debug errors from an unfamiliar language while compiling the program.
 
@@ -68,7 +68,7 @@ ArgoCD supports resource hooks which allow users to define tasks to be run durin
 
 The primary purpose of the in-cluster git server is to sync local files to it, then make them available for ArgoCD to use.
 
-As documented in [this issue](https://github.com/cnoe-io/idpbuilder/issues/32), using `gitea` offers more configurable and user friendly experience. In short, using it enables:
+As documented in [this issue](https://github.com/adhar-io/adhar/issues/32), using `gitea` offers more configurable and user friendly experience. In short, using it enables:
 - Git UI and ssh access for end users.
 - More configurable git server.
 - Include the source control system as a core component for a developer platform.

@@ -11,7 +11,7 @@ To get started with the project on your machine, you need to install the followi
 2. Make. You can install it through a package manager on your system. E.g. Install `build-essential` for Ubuntu systems.
 3. Docker. Similar to Make, you can install it through your package manager or [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
-Once required tools are installed, clone this repository. `git clone https://github.com/cnoe-io/idpbuilder.git`.
+Once required tools are installed, clone this repository. `git clone https://github.com/adhar-io/adhar.git`.
 
 Then change your current working directory to the repository root. e.g. `cd idpbuilder`.
 
@@ -115,7 +115,7 @@ idpbuilder is made of two phases: CLI and Kubernetes controllers.
 
 When the idpbuilder binary is executed, it starts with the CLI phase.
 
-1. This is the phase where command flags are parsed and translated into relevant Go structs' fields. Most notably the [`LocalBuild`](https://github.com/cnoe-io/idpbuilder/blob/main/api/v1alpha1/localbuild_types.go) struct.
+1. This is the phase where command flags are parsed and translated into relevant Go structs' fields. Most notably the [`LocalBuild`](https://github.com/adhar-io/adhar/blob/main/api/v1alpha1/localbuild_types.go) struct.
 2. Create a Kind cluster, then update the kubeconfig file.
 3. Once the kind cluster is started and relevant fields are populated, Kubernetes controllers are started:
 *  `LocalbuildReconciler` responsible for bootstrapping the cluster with absolute necessary packages. Creates Custom Resources (CRs) and installs embedded manifests.
