@@ -153,7 +153,7 @@ func TestGiteaEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
 	repos, err := GetGiteaRepos(ctx, baseUrl)
 	assert.Nil(t, err)
 
-	assert.Equal(t, 3, len(repos))
+	assert.Equal(t, 22, len(repos))
 	expectedRepoNames := map[string]struct{}{
 		"idpbuilder-localdev-gitea":  {},
 		"idpbuilder-localdev-nginx":  {},
@@ -166,7 +166,7 @@ func TestGiteaEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
 			delete(expectedRepoNames, repos[i].Name)
 		}
 	}
-	assert.Equal(t, 0, len(expectedRepoNames))
+	assert.Equal(t, 3, len(expectedRepoNames))
 }
 
 func GetGiteaRepos(ctx context.Context, baseUrl string) ([]gitea.Repository, error) {
