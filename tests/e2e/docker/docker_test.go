@@ -22,7 +22,7 @@ func CleanUpDocker(t *testing.T) {
 	t.Log("cleaning up docker env")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	b, err := e2e.RunCommand(ctx, `docker ps -aqf name=localdev-control-plane`, 10*time.Second)
+	b, err := e2e.RunCommand(ctx, `docker ps -aqf name=adhar-control-plane`, 10*time.Second)
 	assert.NoError(t, err, fmt.Sprintf("error while listing docker containers: %s, %s", err, b))
 
 	conts := strings.TrimSpace(string(b))
@@ -66,8 +66,8 @@ func testCreate(t *testing.T) {
 
 	e2e.TestArgoCDApps(ctx, t, kubeClient, e2e.CorePackages)
 
-	argoBaseUrl := fmt.Sprintf("https://argocd.%s:%s", e2e.DefaultBaseDomain, e2e.DefaultPort)
-	giteaBaseUrl := fmt.Sprintf("https://gitea.%s:%s", e2e.DefaultBaseDomain, e2e.DefaultPort)
+	argoBaseUrl := fmt.Sprintf("https://%s:%s/argocd", e2e.DefaultBaseDomain, e2e.DefaultPort)
+	giteaBaseUrl := fmt.Sprintf("https://%s:%s/gitea", e2e.DefaultBaseDomain, e2e.DefaultPort)
 	e2e.TestCoreEndpoints(ctx, t, argoBaseUrl, giteaBaseUrl)
 }
 
@@ -108,8 +108,8 @@ func testCreatePort(t *testing.T) {
 
 	e2e.TestArgoCDApps(ctx, t, kubeClient, e2e.CorePackages)
 
-	argoBaseUrl := fmt.Sprintf("https://argocd.%s:%s", e2e.DefaultBaseDomain, port)
-	giteaBaseUrl := fmt.Sprintf("https://gitea.%s:%s", e2e.DefaultBaseDomain, port)
+	argoBaseUrl := fmt.Sprintf("https://%s:%s/argocd", e2e.DefaultBaseDomain, port)
+	giteaBaseUrl := fmt.Sprintf("https://%s:%s/gitea", e2e.DefaultBaseDomain, port)
 	e2e.TestCoreEndpoints(ctx, t, argoBaseUrl, giteaBaseUrl)
 }
 
@@ -134,7 +134,7 @@ func testCustomPkg(t *testing.T) {
 
 	e2e.TestArgoCDApps(ctx, t, kubeClient, e2e.CorePackages)
 
-	giteaBaseUrl := fmt.Sprintf("https://gitea.%s:%s", e2e.DefaultBaseDomain, e2e.DefaultPort)
+	giteaBaseUrl := fmt.Sprintf("https://%s:%s/gitea", e2e.DefaultBaseDomain, e2e.DefaultPort)
 
 	expectedApps := map[string]string{
 		"my-app":  "argocd",

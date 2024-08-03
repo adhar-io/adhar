@@ -34,7 +34,7 @@ func TestCloneRemoteRepoToDir(t *testing.T) {
 	assert.Nil(t, err)
 	ref, err := repo.Head()
 	assert.Nil(t, err)
-	assert.Equal(t, "18cf4c0dbd70d9ca1c1dabc7559c8432bb45228d", ref.Hash().String())
+	assert.Equal(t, "dd975dbead810b80c1221f62beb51f4cee729618", ref.Hash().String())
 
 	// existing
 	spec.Ref = "v0.4.0"
@@ -46,7 +46,7 @@ func TestCloneRemoteRepoToDir(t *testing.T) {
 	assert.Nil(t, err)
 	ref, err = repo.Head()
 	assert.Nil(t, err)
-	assert.Equal(t, "18cf4c0dbd70d9ca1c1dabc7559c8432bb45228d", ref.Hash().String())
+	assert.Equal(t, "dd975dbead810b80c1221f62beb51f4cee729618", ref.Hash().String())
 
 	assert.Nil(t, err)
 }
