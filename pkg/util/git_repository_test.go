@@ -20,7 +20,7 @@ func TestCloneRemoteRepoToDir(t *testing.T) {
 		CloneSubmodules: false,
 		Path:            "examples/basic",
 		Url:             "https://github.com/adhar-io/adhar",
-		Ref:             "v0.3.0",
+		Ref:             "v0.1.0",
 	}
 	dir, _ := os.MkdirTemp("", "TestCopyToDir")
 	defer os.RemoveAll(dir)
