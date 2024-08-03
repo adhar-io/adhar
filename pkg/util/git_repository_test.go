@@ -26,7 +26,7 @@ func TestCloneRemoteRepoToDir(t *testing.T) {
 	defer os.RemoveAll(dir)
 	// new clone
 	_, _, err := CloneRemoteRepoToDir(context.Background(), spec, 0, false, dir, "")
-	//assert.Nil(t, err)
+	assert.Nil(t, err)
 	testDir, _ := os.MkdirTemp("", "TestCopyToDir")
 	defer os.RemoveAll(testDir)
 
