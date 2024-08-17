@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/adhar-io/adhar/api/v1alpha1"
+	"github.com/adhar-io/adhar/globals"
 	"github.com/adhar-io/adhar/pkg/k8s"
 	"github.com/adhar-io/adhar/pkg/util"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
@@ -132,12 +133,61 @@ func TestArgoCDAppAnnotation(t *testing.T) {
 				},
 			},
 		},
+		{
+			err: nil,
+			listApps: []argov1alpha1.Application{
+				{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       argov1alpha1.ApplicationSchemaGroupVersionKind.Kind,
+						APIVersion: argov1alpha1.ApplicationSchemaGroupVersionKind.GroupVersion().String(),
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "owned-by-appset",
+						Namespace: "argocd",
+						Annotations: map[string]string{
+							"test": "value",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Kind: "ApplicationSet",
+							},
+						},
+					},
+				},
+			},
+			annotations: nil,
+		},
+		{
+			err: nil,
+			listApps: []argov1alpha1.Application{
+				{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       argov1alpha1.ApplicationSchemaGroupVersionKind.Kind,
+						APIVersion: argov1alpha1.ApplicationSchemaGroupVersionKind.GroupVersion().String(),
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "owned-by-non-appset",
+						Namespace: "argocd",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Kind: "Something",
+							},
+						},
+					},
+				},
+			},
+			annotations: []map[string]string{
+				{
+					argoCDApplicationAnnotationKeyRefresh: argoCDApplicationAnnotationValueRefreshNormal,
+				},
+			},
+		},
 	}
 
 	for i := range cases {
 		c := cases[i]
 		fClient := new(fakeKubeClient)
-		fClient.On("List", ctx, mock.Anything, []client.ListOption{client.InNamespace(argocdNamespace)}).
+		fClient.On("List", ctx, mock.Anything, []client.ListOption{client.InNamespace(globals.ArgoCDNamespace)}).
 			Run(func(args mock.Arguments) {
 				apps := args.Get(1).(*argov1alpha1.ApplicationList)
 				apps.Items = c.listApps

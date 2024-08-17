@@ -231,7 +231,7 @@ func (r *LocalbuildReconciler) reconcileEmbeddedApp(ctx context.Context, appName
 	app := &argov1alpha1.Application{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      appName,
-			Namespace: argocdNamespace,
+			Namespace: globals.ArgoCDNamespace,
 		},
 	}
 
@@ -543,13 +543,20 @@ func (r *LocalbuildReconciler) reconcileGitRepo(ctx context.Context, resource *v
 
 func (r *LocalbuildReconciler) requestArgoCDAppRefresh(ctx context.Context) error {
 	apps := &argov1alpha1.ApplicationList{}
-	err := r.Client.List(ctx, apps, client.InNamespace(argocdNamespace))
+	err := r.Client.List(ctx, apps, client.InNamespace(globals.ArgoCDNamespace))
 	if err != nil {
 		return fmt.Errorf("listing argocd apps for refresh: %w", err)
 	}
 
+apps:
 	for i := range apps.Items {
 		app := apps.Items[i]
+		for _, o := range app.OwnerReferences {
+			// if this app is owned by an ApplicationSet, we should let the ApplicationSet refresh.
+			if o.Kind == argocdapp.ApplicationSetKind {
+				continue apps
+			}
+		}
 		aErr := r.applyArgoCDAnnotation(ctx, &app, argocdapp.ApplicationKind, argoCDApplicationAnnotationKeyRefresh, argoCDApplicationAnnotationValueRefreshNormal)
 		if aErr != nil {
 			return aErr
@@ -560,7 +567,7 @@ func (r *LocalbuildReconciler) requestArgoCDAppRefresh(ctx context.Context) erro
 
 func (r *LocalbuildReconciler) requestArgoCDAppSetRefresh(ctx context.Context) error {
 	appsets := &argov1alpha1.ApplicationSetList{}
-	err := r.Client.List(ctx, appsets, client.InNamespace(argocdNamespace))
+	err := r.Client.List(ctx, appsets, client.InNamespace(globals.ArgoCDNamespace))
 	if err != nil {
 		return fmt.Errorf("listing argocd apps for refresh: %w", err)
 	}
