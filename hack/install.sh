@@ -5,11 +5,11 @@ set -e -o pipefail
 # GitHub API returns releases in chronological order so we take the first matching tag name.
 version=$(curl -s https://api.github.com/repos/adhar-io/adhar/releases | grep tag_name | grep -o -e '"v[0-9].[0-9].[0-9]"' | head -n1 | sed 's/"//g')
 
-echo "Downloading idpbuilder version ${version}"
-curl -L --progress-bar -o ./idpbuilder.tar.gz "https://github.com/adhar-io/adhar/releases/download/${version}/idpbuilder-$(uname | awk '{print tolower($0)}')-$(uname -m | sed 's/x86_64/amd64/').tar.gz"
-tar xzf idpbuilder.tar.gz
+echo "Downloading adhar version ${version}"
+curl -L --progress-bar -o ./adhar.tar.gz "https://github.com/adhar-io/adhar/releases/download/${version}/adhar-$(uname | awk '{print tolower($0)}')-$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/').tar.gz"
+tar xzf adhar.tar.gz
 
-echo "Moving idpbuilder binary to /usr/local/bin"
-sudo mv ./idpbuilder /usr/local/bin/
-idpbuilder version
-echo "Successfully installed idpbuilder"
+echo "Moving adhar binary to /usr/local/bin"
+sudo mv ./adhar /usr/local/bin/
+adhar version
+echo "Successfully installed adhar"

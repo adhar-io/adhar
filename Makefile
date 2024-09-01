@@ -28,7 +28,7 @@ TIMONI ?= $(LOCALBIN)/timoni
 CILIUM ?= $(LOCALBIN)/cilium
 
 ## Tool Versions
-CONTROLLER_TOOLS_VERSION ?= v0.14.0
+CONTROLLER_TOOLS_VERSION ?= v0.15.0
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.

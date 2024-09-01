@@ -3,6 +3,7 @@ package kind
 import (
 	"context"
 	"io"
+	"os"
 	"testing"
 
 	runtime "github.com/adhar-io/adhar/pkg/runtime"
@@ -36,12 +37,8 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
   image: "kindest/node:v1.26.3"
-  kubeadmConfigPatches:
-  - |
-    kind: InitConfiguration
-    nodeRegistration:
-      kubeletExtraArgs:
-        node-labels: "ingress-ready=true"
+  labels:
+    ingress-ready: "true"
   extraPortMappings:
   - containerPort: 443
     hostPort: 8443
@@ -76,12 +73,8 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
   image: "kindest/node:v1.26.3"
-  kubeadmConfigPatches:
-  - |
-    kind: InitConfiguration
-    nodeRegistration:
-      kubeletExtraArgs:
-        node-labels: "ingress-ready=true"
+  labels:
+    ingress-ready: "true"
   extraPortMappings:
   - containerPort: 443
     hostPort: 8443
@@ -97,6 +90,65 @@ containerdConfigPatches:
     insecure_skip_verify = true`
 
 	assert.YAMLEq(t, expectConfig, string(cfg))
+}
+
+func TestGetConfigCustom(t *testing.T) {
+
+	type testCase struct {
+		inputPath  string
+		outputPath string
+		hostPort   string
+		protocol   string
+		error      bool
+	}
+
+	cases := []testCase{
+		{
+			inputPath:  "testdata/no-port.yaml",
+			outputPath: "testdata/expected/no-port.yaml",
+			hostPort:   "8443",
+			protocol:   "https",
+		},
+		{
+			inputPath:  "testdata/port-only.yaml",
+			outputPath: "testdata/expected/port-only.yaml",
+			hostPort:   "80",
+			protocol:   "http",
+		},
+		{
+			inputPath:  "testdata/no-port-multi.yaml",
+			outputPath: "testdata/expected/no-port-multi.yaml",
+			hostPort:   "8443",
+			protocol:   "https",
+		},
+		{
+			inputPath:  "testdata/label-only.yaml",
+			outputPath: "testdata/expected/label-only.yaml",
+			hostPort:   "8443",
+			protocol:   "https",
+		},
+		{
+			inputPath: "testdata/no-node",
+			error:     true,
+		},
+	}
+
+	for _, v := range cases {
+		c, _ := NewCluster("testcase", "v1.26.3", "", v.inputPath, "", util.CorePackageTemplateConfig{
+			Host:     "cnoe.localtest.me",
+			Port:     v.hostPort,
+			Protocol: v.protocol,
+		})
+
+		b, err := c.getConfig()
+		if v.error {
+			assert.Error(t, err)
+			continue
+		}
+		assert.NoError(t, err)
+		expected, _ := os.ReadFile(v.outputPath)
+		assert.YAMLEq(t, string(expected), string(b))
+	}
 }
 
 // Mock provider for testing
