@@ -3,7 +3,7 @@
 
 <div align="center">
 
-# ADHAR - Open Foundation for Modern Businesses
+# ADHAR - The Open Foundation
 
 </div>
 
