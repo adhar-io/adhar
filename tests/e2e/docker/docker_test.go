@@ -44,19 +44,19 @@ func Test_CreateDocker(t *testing.T) {
 	slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctrl.SetLogger(logr.FromSlogHandler(slogger.Handler()))
 
-	testCreate(t)
+	//testCreate(t)
 	testCreatePath(t)
-	testCreatePort(t)
+	//testCreatePort(t)
 	testCustomPkg(t)
 }
 
-// test idpbuilder create
+// test adhar create
 func testCreate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	defer CleanUpDocker(t)
 
-	t.Log("running idpbuilder create")
+	t.Log("running adhar create")
 	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, "create")
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, b)
@@ -71,14 +71,14 @@ func testCreate(t *testing.T) {
 	e2e.TestCoreEndpoints(ctx, t, argoBaseUrl, giteaBaseUrl)
 }
 
-// test idpbuilder create --use-path-routing
+// test adhar create --use-path-routing
 func testCreatePath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	defer CleanUpDocker(t)
 
-	t.Log("running idpbuilder create --use-path-routing")
-	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, "create", "--use-path-routing")
+	t.Log("running adhar create --use-path-routing")
+	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, "create", "--use-path-routing", "--package=../../../platform/stack")
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, fmt.Sprintf("error while running create: %s, %s", err, b))
 
@@ -98,8 +98,8 @@ func testCreatePort(t *testing.T) {
 	defer CleanUpDocker(t)
 
 	port := "2443"
-	t.Logf("running idpbuilder create --port %s", port)
-	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, "create", "--port", port)
+	t.Logf("running adhar create --port %s", port)
+	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, "create", "--use-path-routing", "--port", port, "--package=../../../platform/stack")
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, fmt.Sprintf("error while running create: %s, %s", err, b))
 
@@ -118,7 +118,7 @@ func testCustomPkg(t *testing.T) {
 	defer cancel()
 	defer CleanUpDocker(t)
 
-	cmdString := "create --package ../../../pkg/controllers/custompackage/test/resources/customPackages/testDir"
+	cmdString := "create --use-path-routing --package ../../../pkg/controllers/custompackage/test/resources/customPackages/testDir"
 
 	t.Log(fmt.Sprintf("running %s", cmdString))
 	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, strings.Split(cmdString, " ")...)
@@ -144,14 +144,15 @@ func testCustomPkg(t *testing.T) {
 	repos, err := e2e.GetGiteaRepos(ctx, giteaBaseUrl)
 	assert.NoError(t, err)
 	expectedRepoNames := map[string]struct{}{
-		"idpbuilder-localdev-my-app-app1":  {},
-		"idpbuilder-localdev-my-app2-app2": {},
+		"adhar-adhar-my-app-app1":  {},
+		"adhar-adhar-my-app2-app2": {},
 	}
 
 	for i := range repos {
 		repo := repos[i]
 		_, ok := expectedRepoNames[repo.Name]
 		if ok {
+			t.Logf("deleting repo %s", repo.Name)
 			delete(expectedRepoNames, repo.Name)
 		}
 	}

@@ -14,13 +14,13 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "adhar",
-	Short: "Adhar Platform - Open Foundation For Modern Businesses!",
-	Long:  "Adhar Internal Developer Platform - Open Foundation for Modern Businesses!",
+	Short: "Adhar - The Open Foundation!",
+	Long:  "Adhar Internal Developer Platform - The Open Foundation!",
 }
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&helpers.LogLevel, "log-level", "l", "info", helpers.LogLevelMsg)
-	rootCmd.PersistentFlags().BoolVar(&helpers.ColoredOutput, "color", true, helpers.ColoredOutputMsg)
+	rootCmd.PersistentFlags().BoolVarP(&helpers.ColoredOutput, "color", "c", true, helpers.ColoredOutputMsg)
 	rootCmd.AddCommand(create.CreateCmd)
 	rootCmd.AddCommand(get.GetCmd)
 	rootCmd.AddCommand(delete.DeleteCmd)

@@ -8,7 +8,7 @@ import (
 
 var GetCmd = &cobra.Command{
 	Use:   "get",
-	Short: "get information from the cluster",
+	Short: "Get information from the cluster",
 	Long:  ``,
 	RunE:  exportE,
 }

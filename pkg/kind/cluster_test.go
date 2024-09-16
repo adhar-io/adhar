@@ -18,7 +18,7 @@ import (
 )
 
 func TestGetConfig(t *testing.T) {
-	cluster, err := NewCluster("testcase", "v1.26.3", "", "", "", util.CorePackageTemplateConfig{
+	cluster, err := NewCluster("testcase", "v1.30.0", "", "", "", util.CorePackageTemplateConfig{
 		Host: "adhar.localtest.me",
 		Port: "8443",
 	})
@@ -36,7 +36,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: "kindest/node:v1.26.3"
+  image: "kindest/node:v1.30.0"
   labels:
     ingress-ready: "true"
   extraPortMappings:
@@ -54,7 +54,7 @@ containerdConfigPatches:
 
 func TestExtraPortMappings(t *testing.T) {
 
-	cluster, err := NewCluster("testcase", "v1.26.3", "", "", "22:32222", util.CorePackageTemplateConfig{
+	cluster, err := NewCluster("testcase", "v1.30.0", "", "", "22:32222", util.CorePackageTemplateConfig{
 		Host: "adhar.localtest.me",
 		Port: "8443",
 	})
@@ -72,7 +72,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: "kindest/node:v1.26.3"
+  image: "kindest/node:v1.30.0"
   labels:
     ingress-ready: "true"
   extraPortMappings:
@@ -134,8 +134,8 @@ func TestGetConfigCustom(t *testing.T) {
 	}
 
 	for _, v := range cases {
-		c, _ := NewCluster("testcase", "v1.26.3", "", v.inputPath, "", util.CorePackageTemplateConfig{
-			Host:     "cnoe.localtest.me",
+		c, _ := NewCluster("testcase", "v1.30.0", "", v.inputPath, "", util.CorePackageTemplateConfig{
+			Host:     "adhar.localtest.me",
 			Port:     v.hostPort,
 			Protocol: v.protocol,
 		})

@@ -37,13 +37,16 @@ var (
 
 var CreateCmd = &cobra.Command{
 	Use:     "create",
-	Short:   "(Re)Create an IDP cluster",
+	Short:   "Create an Adhar IDP cluster",
 	Long:    ``,
 	RunE:    create,
 	PreRunE: preCreateE,
 }
 
 func init() {
+	// Add the alias here
+	CreateCmd.Aliases = []string{"up"}
+
 	// cluster related flags
 	CreateCmd.PersistentFlags().BoolVar(&recreateCluster, "recreate", false, "Delete cluster first if it already exists.")
 	CreateCmd.PersistentFlags().StringVar(&buildName, "build-name", "adhar", "Name for build (Prefix for kind cluster name, pod names, etc).")
@@ -53,12 +56,12 @@ func init() {
 
 	// in-cluster resources related flags
 	CreateCmd.PersistentFlags().StringVar(&host, "host", globals.DefaultHostName, "Host name to access resources in this cluster.")
-	CreateCmd.PersistentFlags().StringVar(&ingressHost, "ingress-host-name", "", "Host name used by ingresses. Useful when you have another proxy in front of ingress-nginx that idpbuilder provisions.")
+	CreateCmd.PersistentFlags().StringVar(&ingressHost, "ingress-host-name", "", "Host name used by ingresses. Useful when you have another proxy in front of ingress-nginx that adhar provisions.")
 	CreateCmd.PersistentFlags().StringVar(&protocol, "protocol", "https", "Protocol to use to access web UIs. http or https.")
 	CreateCmd.PersistentFlags().StringVar(&port, "port", "8443", "Port number under which idpBuilder tools are accessible.")
 	CreateCmd.PersistentFlags().BoolVar(&pathRouting, "use-path-routing", true, "When set to true, web UIs are exposed under single domain name.")
-	CreateCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{"./platform/stack"}, "Paths to locations containing custom packages")
-	CreateCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "c", []string{}, "Name of the package and the path to file to customize the package with. e.g. argocd:/tmp/argocd.yaml")
+	CreateCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{"platform/stack"}, "Paths to locations containing custom packages")
+	CreateCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, "Name of the package and the path to file to customize the package with. e.g. argocd:/tmp/argocd.yaml")
 	// idpbuilder related flags
 	CreateCmd.Flags().BoolVarP(&noExit, "no-exit", "n", true, "When set, adhar will not exit after all packages are synced. Useful for continuously syncing local directories.")
 }
