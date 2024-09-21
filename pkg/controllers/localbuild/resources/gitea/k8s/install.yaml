@@ -41,6 +41,9 @@ stringData:
   session: |-
     PROVIDER=memory
     PROVIDER_CONFIG=
+  webhook: |-
+    ALLOWED_HOST_LIST=private
+    SKIP_TLS_VERIFY=true
 ---
 # Source: gitea/templates/gitea/config.yaml
 apiVersion: v1
@@ -414,7 +417,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 9b7b5c7586d38c5c0feeb0c69191c8fbdb6bfac258ad125dd26b9a125ed67173
+        checksum/config: 94b0102e29e8bd17652180743c848722b184530813c36ad9fe0705edc22cc716
       labels:
         helm.sh/chart: gitea-10.1.4
         app: gitea
@@ -602,10 +605,74 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: my-gitea-path-oci-root
+  namespace: gitea
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 1024m
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ .IngressHost }}
+      http:
+        paths:
+          - backend:
+              service:
+                name: my-gitea-http
+                port:
+                  number: 3000
+            path: /v2
+            pathType: Prefix
+    - host: localhost
+      http:
+        paths:
+          - backend:
+              service:
+                name: my-gitea-http
+                port:
+                  number: 3000
+            path: /v2
+            pathType: Prefix
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-gitea-path-oci-repo
+  namespace: gitea
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 1024m
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /v2/$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ .IngressHost }}
+      http:
+        paths:
+          - backend:
+              service:
+                name: my-gitea-http
+                port:
+                  number: 3000
+            path: /v2/gitea(/|$)(.*)
+            pathType: ImplementationSpecific
+    - host: localhost
+      http:
+        paths:
+          - backend:
+              service:
+                name: my-gitea-http
+                port:
+                  number: 3000
+            path: /v2/gitea(/|$)(.*)
+            pathType: ImplementationSpecific
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
   name: my-gitea-path
   namespace: gitea
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: 512m
+    nginx.ingress.kubernetes.io/proxy-body-size: 1024m
     nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
@@ -639,7 +706,7 @@ metadata:
   name: my-gitea-custom
   namespace: gitea
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: 512m
+    nginx.ingress.kubernetes.io/proxy-body-size: 1024m
 spec:
   ingressClassName: nginx
   rules:
@@ -660,7 +727,7 @@ kind: Ingress
 metadata:
   name: my-gitea
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: 512m
+    nginx.ingress.kubernetes.io/proxy-body-size: 1024m
 spec:
   ingressClassName: nginx
   rules:
