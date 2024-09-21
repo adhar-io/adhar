@@ -12,4 +12,4 @@ tar xzf adhar.tar.gz
 echo "Moving adhar binary to /usr/local/bin"
 sudo mv ./adhar /usr/local/bin/
 adhar version
-echo "Successfully installed adhar"
+echo "Successfully installed Adhar CLI!"

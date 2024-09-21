@@ -111,19 +111,15 @@
 ## Getting Started :sparkles:
 
 The following command can be used as a convenience for installing `adhar`, (be sure to check the script first if you are concerned):
-```
-curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/hack/install.sh | bash
-```
-
-or download the latest stable release with the following commands:
 
 ```bash
-version=$(curl -s https://api.github.com/repos/adhar-io/adhar/releases | grep tag_name | grep -o -e '"v[0-9].[0-9].[0-9]"' | head -n1 | sed 's/"//g')
-curl -L --progress-bar -o ./adhar.tar.gz "https://github.com/adhar-io/adhar/releases/download/${version}/adhar-$(uname | awk '{print tolower($0)}')-$(uname -m | sed 's/x86_64/amd64/').tar.gz"
-tar xzf adhar.tar.gz
+# Install Adhar CLI
+curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/hack/install.sh | bash
 
-./adhar version
-# example output
+# Verify installation
+adhar version
+
+# Example output
 # adhar 0.4.1 go1.21.5 linux/amd64
 ```
 
@@ -132,7 +128,11 @@ Alternatively, you can download the latest binary from [the latest release page]
 Once you have `adhar` cli installed, the most basic command which creates a Kubernetes Cluster (Kind cluster) with the core packages installed.
 
 ```bash
-./adhar create
+./adhar up
+```
+To teardown whole cluster, can run:
+```bash
+./adhar down
 ```
 
 <details>
@@ -168,7 +168,7 @@ Once adhar finishes provisioning cluster and packages, you can access GUIs by go
 You can obtain credentials for them by running the following command:
 
 ```bash
-./adhar get secrets
+adhar get secrets
 ```
 
 <details>
@@ -189,7 +189,7 @@ You can obtain credentials for them by running the following command:
   In addition, secrets labeled with `cnoe.io/package-name` can be specified with the `-p` flag. For example, for Gitea:
 
   ```bash
-  ./adhar get secrets -p gitea
+  adhar get secrets -p gitea
   ```
 
 </details>
@@ -253,7 +253,8 @@ The platform offers a set of Kubernetes applications for all the required capabi
 
 **Integrated Applications:**
 
-- [Istio](https://github.com/istio/istio): The service mesh framework with end-to-end transit encryption
+- [Kubernetes](https://github.com/kubernetes/kubernetes): Production-Grade Container Scheduling and Management platform
+- [Cilium](https://github.com/cilium/cilium): eBPF-based Networking, Security, and Observability for Kubernetes
 - [Keycloak](https://github.com/keycloak/keycloak): Identity and access management for modern applications and services
 - [Cert Manager](https://github.com/cert-manager/cert-manager) - Bring your own wildcard certificate or request one from Let's Encrypt
 - [Nginx Ingress Controller](https://github.com/kubernetes/ingress-nginx): Ingress controller for Kubernetes
@@ -262,24 +263,25 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Kaniko](https://github.com/GoogleContainerTools/kaniko): Build container images from a Dockerfile
 - [Paketo build packs](https://github.com/paketo-buildpacks): Cloud Native Buildpack implementations for popular programming language ecosystems
 - [Cloudnative-pg](https://github.com/cloudnative-pg/cloudnative-pg): Open source operator designed to manage PostgreSQL workloads
-- [Tekton Pipeline](https://github.com/tektoncd/pipeline): K8s-style resources for declaring CI/CD pipelines
-- [Tekton Triggers](https://github.com/tektoncd/triggers): Trigger pipelines from event payloads
-- [Tekton dashboard](https://github.com/tektoncd/dashboard): Web-based UI for Tekton Pipelines and Tekton Triggers
+- [Argo Workflows](https://github.com/argoproj/argo-workflows): Open source container-native workflow engine for orchestrating parallel jobs on Kubernetes
+- [Argo Events](https://github.com/argoproj/argo-events): Argo Events is an event-driven workflow automation framework for Kubernetes
+- [Argo Rollouts](https://github.com/argoproj/argo-rollouts): Provide advanced deployment capabilities such as blue-green, canary, canary analysis, experimentation, and progressive delivery features to Kubernetes
 - [Gitea](https://github.com/go-gitea/gitea): Self-hosted Git service
 - [Velero](https://github.com/vmware-tanzu/velero): Back up and restore your Kubernetes cluster resources and persistent volumes
 - [Knative](https://github.com/knative/serving): Deploy and manage serverless workloads
 - [Prometheus](https://github.com/prometheus/prometheus): Collecting container application metrics
 - [Grafana](https://github.com/grafana/grafana): Visualize metrics, logs, and traces from multiple sources
 - [Grafana Loki](https://github.com/grafana/loki): Collecting container application logs
+- [Grafana Tempo](https://github.com/grafana/tempo): High-scale distributed tracing backend
 - [Harbor](https://github.com/goharbor/harbor): Container image registry with role-based access control, image scanning, and image signing
 - [HashiCorp Vault](https://github.com/hashicorp/vault): Manage Secrets and Protect Sensitive Data
-- [OPA/Gatekeeper](https://github.com/open-policy-agent/gatekeeper): Policy-based control for cloud-native environments
+- [Kyverno](https://github.com/kyverno/kyverno): Cloud Native Policy Management for Kubernetes
 - [Jaeger](https://github.com/jaegertracing/jaeger): End-to-end distributed tracing and monitor for complex distributed systems
-- [Kiali](https://github.com/kiali/kiali): Observe Istio service mesh relations and connections
+- [Backstage](https://github.com/backstage/backstage): Open source framework for building developer portals
 - [Minio](https://github.com/minio/minio): High performance Object Storage compatible with Amazon S3 cloud storage service
 - [Trivy](https://github.com/aquasecurity/trivy-operator): Kubernetes-native security toolkit
 - [Falco](https://github.com/falcosecurity/falco): Cloud Native Runtime Security
-- [Grafana Tempo](https://github.com/grafana/tempo): High-scale distributed tracing backend
+- [Crossplane](https://github.com/crossplane/crossplane): A framework for building cloud native control planes
 - [OpenTelemetry](https://github.com/open-telemetry/opentelemetry-operator): Instrument, generate, collect, and export telemetry data to help you analyze your software’s performance and behavior
 
 ### Supported providers :cloud:
