@@ -14,7 +14,7 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "adhar",
-	Short: "Adhar - The Open Foundation!",
+	Short: "Adhar CLI",
 	Long:  "Adhar Internal Developer Platform - The Open Foundation!",
 }
 

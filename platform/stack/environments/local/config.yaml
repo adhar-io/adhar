@@ -1,0 +1,23 @@
+environment: local
+type: nonprod
+packages:
+  - name: external-secrets
+    namespace: external-secrets
+    install: "true"
+    manifestPath: "security/external-secrets/manifests"
+    isChart: "false"
+  - name: keycloak
+    namespace: keycloak
+    install: "true"
+    manifestPath: "security/keycloak"
+    isChart: "true"
+  - name: argo-workflows
+    namespace: argo
+    install: "true"
+    manifestPath: "application/argo-workflows"
+    isChart: "true"
+  - name: backstage
+    namespace: backstage
+    install: "true"
+    manifestPath: "application/backstage"
+    isChart: "true"
