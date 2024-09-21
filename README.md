@@ -11,13 +11,13 @@
   <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
   <a href="https://github.com/adhar-io/adhar/releases/"><img alt="Releases" src="https://img.shields.io/github/release-date/adhar-io/adhar?label=latest%20release" /></a>
   <a href="https://hub.docker.com/r/adhario/adhar"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/adhario/adhar" /></a>
-  <a href="https://img.shields.io/github/adhar-io/adhar/actions/workflows/main.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/adhar-io/adhar/main.yml" /></a>
+  <a href="https://img.shields.io/github/adhar-io/adhar/actions/workflows/main.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/adhar-io/adhar/nightly.yaml" /></a>
   <a href="https://img.shields.io/github/last-commit/adhar-io/adhar"><img alt="Last commit" src="https://img.shields.io/github/last-commit/adhar-io/adhar" /></a>
   <a href="https://img.shields.io/crates/l/ap"><img alt="License" src="https://img.shields.io/crates/l/ap" /></a>
   <a href="https://adhar.io/"><img src="https://img.shields.io/website-up-down-green-red/http/shields.io.svg" alt="Website adhar.io"></a>
 </p>
 
-> :bulb: Adhar aims to revolutionise the software development by providing a comprehensive and integrated IDP(Internal Developer Platform) that seamlessly integrates the leading open-source frameworks and libraries, embraces cutting-edge cloud-native practices, utilises containerization technology, leverages cloud infrastructure, strengthens identity and access management, ensures robust API governance, offers low-code application development capabilities, powers rapid application creation with Artificial Inteligence(AI), and oversees holistic application lifecycle management. ADHAR empowers developers and businesses with an all-encompassing ecosystem to innovate, collaborate, and deliver software solutions of unparalleled quality and efficiency.
+> :bulb: `Adhar`, derived from the Sanskrit word for `Foundation` is a transformative Internal Developer Platform (IDP) that redefines software development. By seamlessly integrating industry-leading open-source technologies and embracing cloud-native principles, `Adhar` provides a ***Scalable*** and ***Efficient*** environment for developing complex, connected, ever-changing applications. With a strong emphasis on ***Security***, ***Governance***, ***AI Assistance***  and ***Developer productivity***, `Adhar` empowers teams to innovate rapidly and deliver exceptional software solutions with ease.
 
 ## Adhar Platform Goals :dart:
 
@@ -128,11 +128,11 @@ Alternatively, you can download the latest binary from [the latest release page]
 Once you have `adhar` cli installed, the most basic command which creates a Kubernetes Cluster (Kind cluster) with the core packages installed.
 
 ```bash
-./adhar up
+adhar up
 ```
 To teardown whole cluster, can run:
 ```bash
-./adhar down
+adhar down
 ```
 
 <details>
@@ -141,14 +141,6 @@ To teardown whole cluster, can run:
   * **ArgoCD** is the GitOps solution to deploy manifests to Kubernetes clusters. In this project, a package is an ArgoCD application. 
   * **Gitea** server is the in-cluster Git server that ArgoCD can be configured to sync resources from. You can sync from local file systems to this.
   * **Ingress-nginx** is used as a method to access in-cluster resources such as ArgoCD UI and Gitea UI.
-
-    #### Core package versions
-    
-    | Name     | Version |
-    | -------- | ------- |
-    | Argo CD  | v2.10.7 |
-    | Gitea    | v9.5.1  |
-    | Nginx    | v1.8.1  |
 
   The default manifests for the core packages are available [here](pkg/controllers/localbuild/resources).
   See the [contribution doc](./CONTRIBUTING.md) for more information on how core packages are installed and configured.
@@ -282,6 +274,7 @@ The platform offers a set of Kubernetes applications for all the required capabi
 - [Trivy](https://github.com/aquasecurity/trivy-operator): Kubernetes-native security toolkit
 - [Falco](https://github.com/falcosecurity/falco): Cloud Native Runtime Security
 - [Crossplane](https://github.com/crossplane/crossplane): A framework for building cloud native control planes
+- [Headlamp](https://github.com/headlamp-k8s/headlamp): A Kubernetes web UI that is fully-featured, user-friendly and extensible
 - [OpenTelemetry](https://github.com/open-telemetry/opentelemetry-operator): Instrument, generate, collect, and export telemetry data to help you analyze your software’s performance and behavior
 
 ### Supported providers :cloud:
