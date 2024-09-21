@@ -6,6 +6,11 @@ packages:
     install: "true"
     manifestPath: "security/external-secrets/manifests"
     isChart: "false"
+  - name: cert-manager
+    namespace: cert-manager
+    install: "true"
+    manifestPath: "security/cert-manager/manifests"
+    isChart: "false"
   - name: keycloak
     namespace: keycloak
     install: "true"
