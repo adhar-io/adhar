@@ -1271,7 +1271,7 @@ data:
         - email
         - groups
     nodeEvents:
-      enabled: false
+      # enabled: false
 kind: ConfigMap
 metadata:
   name: workflow-controller-configmap

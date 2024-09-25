@@ -13,9 +13,10 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "adhar",
-	Short: "Adhar CLI",
-	Long:  "Adhar Internal Developer Platform - The Open Foundation!",
+	Use:     "adhar",
+	Short:   "Adhar CLI",
+	Long:    "Adhar Internal Developer Platform - The Open Foundation!",
+	Aliases: []string{"a", "ad"},
 }
 
 func init() {

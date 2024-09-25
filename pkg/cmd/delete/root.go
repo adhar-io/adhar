@@ -15,7 +15,7 @@ var (
 
 var DeleteCmd = &cobra.Command{
 	Use:     "delete",
-	Short:   "Delete an Adhar IDP cluster",
+	Short:   "Delete an Adhar IDP cluster, Aliases: down",
 	Long:    ``,
 	RunE:    deleteE,
 	PreRunE: preDeleteE,

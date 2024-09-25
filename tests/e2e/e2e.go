@@ -248,7 +248,7 @@ func TestArgoCDEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
 	err = SendAndParse(ctx, &appResp, httpClient, req)
 	assert.Nil(t, err, fmt.Sprintf("getting argocd applications: %s", err))
 
-	assert.Equal(t, 3, len(appResp.Items), fmt.Sprintf("number of apps do not match: %v", appResp.Items))
+	assert.Equal(t, 9, len(appResp.Items), fmt.Sprintf("number of apps do not match: %v", appResp.Items))
 }
 
 func GetBasicAuth(ctx context.Context, name string) (BasicAuth, error) {

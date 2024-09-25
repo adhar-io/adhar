@@ -37,7 +37,7 @@ var (
 
 var CreateCmd = &cobra.Command{
 	Use:     "create",
-	Short:   "Create an Adhar IDP cluster",
+	Short:   "Create an Adhar IDP cluster, Aliases: up",
 	Long:    ``,
 	RunE:    create,
 	PreRunE: preCreateE,
