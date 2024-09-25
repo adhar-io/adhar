@@ -1,0 +1,4 @@
+networking:
+  host: adhar.localtest.me
+  protocol: https
+  port: 8443

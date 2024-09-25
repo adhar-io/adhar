@@ -11,6 +11,11 @@ packages:
     install: "true"
     manifestPath: "security/cert-manager/manifests"
     isChart: "false"
+  - name: headlamp
+    namespace: adhar-system
+    install: "true"
+    manifestPath: "observability/headlamp/manifests"
+    isChart: "false"
   - name: keycloak
     namespace: keycloak
     install: "true"
