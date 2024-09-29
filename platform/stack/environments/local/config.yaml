@@ -11,6 +11,11 @@ packages:
     install: "true"
     manifestPath: "security/cert-manager/manifests"
     isChart: "false"
+  - name: cnpg
+    namespace: cnpg-system
+    install: "true"
+    manifestPath: "data/cnpg/manifests"
+    isChart: "false"
   - name: headlamp
     namespace: adhar-system
     install: "true"
