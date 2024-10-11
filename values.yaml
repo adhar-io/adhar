@@ -1,16 +1,63 @@
 adhar:
-cluster:
-  name: adhar
-  provider: digitalocean
-  domainSuffix: adhar.localtest.me
-dns:
-  domainFilters:
-    - adhar.localtest.me
-  provider:
-    digitalocean:
-      apiToken: '<API_TOKEN>'
-apps:
-  cert-manager:
-    issuer: letsencrypt
-    stage: production
-    email: admin@adhar.io
+  cluster:
+    name: adhar
+    host: cloud.adhar.io
+    port: 443
+    provider: digitalocean
+    region: nyc1
+    kubeVersion: 1.30.0
+    nodePools:
+      - name: pool-1
+        size: large
+        count: 5
+        tags:
+          - adhar
+    network:
+      name: adhar
+      cidr: 192.168.1.0/24
+  apps:
+    adhar-console:
+      name: adhar-console
+      description: "Adhar Internal Developer Platform Console."
+      contextPath: /
+    kyverno:
+      name: kyverno
+      description: "Kyverno is a policy engine designed for Kubernetes."
+      contextPath: /kyverno
+    argo-workflows:
+      name: argo-workflow
+      description: "Argo Workflows is an open source container-native workflow engine for orchestrating parallel jobs on Kubernetes."
+      contextPath: /argo-workflows
+    keycloak:
+      name: keycloak
+      description: "Keycloak is an open source identity and access management solution."
+      contextPath: /keycloak
+    headlamp:
+      name: headlamp
+      description: "Headlamp is a self-hosted Kubernetes dashboard and Prometheus UI."
+      contextPath: /headlamp
+  environments:
+    production:
+      domain: cloud.adhar.io
+      namespace: adhar-prod
+      ingress:
+        class: nginx
+        tls:
+          issuer: letsencrypt
+          secretName: adhar-tls
+    staging:
+      domain: stage.prod.cloud.adhar.io
+      namespace: adhar-stage
+      ingress:
+        class: nginx
+        tls:
+          issuer: letsencrypt
+          secretName: adhar-tls
+    development:
+      domain: dev.nonprod.cloud.adhar.io
+      namespace: adhar-dev
+      ingress:
+        class: nginx
+        tls:
+          issuer: letsencrypt
+          secretName: adhar-tls

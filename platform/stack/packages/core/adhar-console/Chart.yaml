@@ -1,6 +1,6 @@
 apiVersion: v2
-name: backstage
-description: Helm chart for CNOE backstage ref implementation
+name: adhar-console
+description: Helm chart for ADHAR backstage ref implementation
 
 # A chart can be either an 'application' or a 'library' chart.
 #

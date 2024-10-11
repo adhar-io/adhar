@@ -32,6 +32,7 @@ spec:
       name: "{{ .name }}"
       labels:
         environment: "{{ .environment }}"
+        cnoe.io/package-name: adhar-stack
     spec:
       project: default
       sources:

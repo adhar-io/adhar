@@ -31,8 +31,13 @@ packages:
     install: "true"
     manifestPath: "application/argo-workflows"
     isChart: "true"
-  - name: backstage
+  - name: adhar-console
     namespace: backstage
     install: "true"
-    manifestPath: "application/backstage"
+    manifestPath: "core/adhar-console"
     isChart: "true"
+  - name: adhar-templates
+    namespace: backstage
+    install: "true"
+    manifestPath: "application/adhar-templates"
+    isChart: "false"

@@ -6,10 +6,10 @@ metadata:
 data:
   app-config.yaml: |
     app:
-      title: CNOE Backstage
+      title: Adhar Backstage
       baseUrl: https://{{ .Values.networking.host }}:{{ .Values.networking.port }}
     organization:
-      name: CNOE
+      name: Adhar
     backend:
       # Used for enabling authentication, secret is shared by all backend plugins
       # See https://backstage.io/docs/tutorials/backend-to-backend-auth for
