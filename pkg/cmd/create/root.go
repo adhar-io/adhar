@@ -36,8 +36,8 @@ var (
 )
 
 var CreateCmd = &cobra.Command{
-	Use:     "create",
-	Short:   "Create an Adhar IDP cluster, Aliases: up",
+	Use:     "up",
+	Short:   "Create an Adhar IDP cluster",
 	Long:    ``,
 	RunE:    create,
 	PreRunE: preCreateE,
@@ -45,14 +45,14 @@ var CreateCmd = &cobra.Command{
 
 func init() {
 	// Add the alias here
-	CreateCmd.Aliases = []string{"up"}
+	CreateCmd.Aliases = []string{}
 
 	// cluster related flags
 	CreateCmd.PersistentFlags().BoolVar(&recreateCluster, "recreate", false, "Delete cluster first if it already exists.")
 	CreateCmd.PersistentFlags().StringVar(&buildName, "build-name", "adhar", "Name for build (Prefix for kind cluster name, pod names, etc).")
 	CreateCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.30.0", "Version of the kind kubernetes cluster to create.")
-	CreateCmd.PersistentFlags().StringVar(&extraPortsMapping, "extra-ports", "", "List of extra ports to expose on the docker container and kubernetes cluster as nodePort (e.g. \"22:32222,9090:39090,etc\").")
-	CreateCmd.PersistentFlags().StringVar(&kindConfigPath, "kind-config", "", "Path of the kind config file to be used instead of the default.")
+	// CreateCmd.PersistentFlags().StringVar(&extraPortsMapping, "extra-ports", "", "List of extra ports to expose on the docker container and kubernetes cluster as nodePort (e.g. \"22:32222,9090:39090,etc\").")
+	// CreateCmd.PersistentFlags().StringVar(&kindConfigPath, "kind-config", "", "Path of the kind config file to be used instead of the default.")
 
 	// in-cluster resources related flags
 	CreateCmd.PersistentFlags().StringVar(&host, "host", globals.DefaultHostName, "Host name to access resources in this cluster.")
@@ -61,9 +61,9 @@ func init() {
 	CreateCmd.PersistentFlags().StringVar(&port, "port", "8443", "Port number under which idpBuilder tools are accessible.")
 	CreateCmd.PersistentFlags().BoolVar(&pathRouting, "use-path-routing", true, "When set to true, web UIs are exposed under single domain name.")
 	CreateCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{"platform/stack"}, "Paths to locations containing custom packages")
-	CreateCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, "Name of the package and the path to file to customize the package with. e.g. argocd:/tmp/argocd.yaml")
-	// idpbuilder related flags
-	CreateCmd.Flags().BoolVarP(&noExit, "no-exit", "n", true, "When set, adhar will not exit after all packages are synced. Useful for continuously syncing local directories.")
+	// CreateCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, "Name of the package and the path to file to customize the package with. e.g. argocd:/tmp/argocd.yaml")
+	// adhar related flags
+	CreateCmd.Flags().BoolVarP(&noExit, "watch", "w", true, "When set, adhar will not exit after all packages are synced. Useful for continuously syncing local directories.")
 }
 
 func preCreateE(cmd *cobra.Command, args []string) error {
@@ -109,7 +109,7 @@ func create(cmd *cobra.Command, args []string) error {
 	}
 
 	exitOnSync := true
-	if cmd.Flags().Changed("no-exit") {
+	if cmd.Flags().Changed("watch") {
 		exitOnSync = !noExit
 	}
 

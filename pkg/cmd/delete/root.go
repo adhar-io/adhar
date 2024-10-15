@@ -14,8 +14,8 @@ var (
 )
 
 var DeleteCmd = &cobra.Command{
-	Use:     "delete",
-	Short:   "Delete an Adhar IDP cluster, Aliases: down",
+	Use:     "down",
+	Short:   "Delete an Adhar IDP cluster",
 	Long:    ``,
 	RunE:    deleteE,
 	PreRunE: preDeleteE,
@@ -23,7 +23,7 @@ var DeleteCmd = &cobra.Command{
 
 func init() {
 	// Add the alias here
-	DeleteCmd.Aliases = []string{"down"}
+	DeleteCmd.Aliases = []string{}
 
 	DeleteCmd.PersistentFlags().StringVar(&name, "name", "adhar", "Name of the kind cluster to be deleted.")
 }
