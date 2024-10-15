@@ -11,7 +11,7 @@
   <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
   <a href="https://github.com/adhar-io/adhar/releases/"><img alt="Releases" src="https://img.shields.io/github/release-date/adhar-io/adhar?label=latest%20release" /></a>
   <a href="https://hub.docker.com/r/adhario/adhar"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/adhario/adhar" /></a>
-  <a href="https://img.shields.io/github/adhar-io/adhar/actions/workflows/main.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/adhar-io/adhar/nightly.yaml" /></a>
+  <a href="https://img.shields.io/github/adhar-io/adhar/actions/workflows/main.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/adhar-io/adhar/e2e.yaml" /></a>
   <a href="https://img.shields.io/github/last-commit/adhar-io/adhar"><img alt="Last commit" src="https://img.shields.io/github/last-commit/adhar-io/adhar" /></a>
   <a href="https://img.shields.io/crates/l/ap"><img alt="License" src="https://img.shields.io/crates/l/ap" /></a>
   <a href="https://adhar.io/"><img src="https://img.shields.io/website-up-down-green-red/http/shields.io.svg" alt="Website adhar.io"></a>
