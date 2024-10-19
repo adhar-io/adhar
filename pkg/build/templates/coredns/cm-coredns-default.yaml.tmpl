@@ -7,7 +7,7 @@ data:
   default.conf: |
     # Goal: Rewrite rules for in-cluster access to a service: gitea, argocd, etc using the same FQDN as for external access
 
-    # subdomain names e.g. gitea.cnoe.localtest.me resolves to the IP address of the kubernetes ingress service and then will become ingress-nginx-controller.ingress-nginx.svc.cluster.local
+    # subdomain names e.g. gitea.adhar.localtest.me resolves to the IP address of the kubernetes ingress service and then will become ingress-nginx-controller.ingress-nginx.svc.cluster.local
     rewrite stop {
         name regex (.*).{{ .Host }} ingress-nginx-controller.ingress-nginx.svc.cluster.local answer auto
     }

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/adhar-io/adhar/pkg/util"
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,7 +38,7 @@ func TestBuildCustomizedManifests(t *testing.T) {
 
 	for key := range cases {
 		c := cases[key]
-		b, err := BuildCustomizedManifests(c.filePath, c.fsPath, testDataFS, GetScheme(), util.CorePackageTemplateConfig{
+		b, err := BuildCustomizedManifests(c.filePath, c.fsPath, testDataFS, GetScheme(), v1alpha1.BuildCustomizationSpec{
 			Protocol:       "http",
 			Host:           "adhar.localtest.me",
 			IngressHost:    "localhost",

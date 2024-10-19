@@ -33,8 +33,8 @@ spec:
                 name: gitea-credentials
             - secretRef:
                 name: argocd-credentials
-          image: public.ecr.aws/cnoe-io/backstage:rc1
-          name: backstage
+          image: ghcr.io/adhar-io/adhar-console:latest
+          name: adhar-console
           ports:
             - containerPort: 7007
               name: http

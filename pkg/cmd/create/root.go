@@ -12,7 +12,6 @@ import (
 	"github.com/adhar-io/adhar/pkg/build"
 	"github.com/adhar-io/adhar/pkg/cmd/helpers"
 	"github.com/adhar-io/adhar/pkg/k8s"
-	"github.com/adhar-io/adhar/pkg/util"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/util/homedir"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -120,7 +119,7 @@ func create(cmd *cobra.Command, args []string) error {
 		KindConfigPath:    kindConfigPath,
 		ExtraPortsMapping: extraPortsMapping,
 
-		TemplateData: util.CorePackageTemplateConfig{
+		TemplateData: v1alpha1.BuildCustomizationSpec{
 			Protocol:       protocol,
 			Host:           host,
 			IngressHost:    ingressHost,

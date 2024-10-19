@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	runtime "github.com/adhar-io/adhar/pkg/runtime"
-	"github.com/adhar-io/adhar/pkg/util"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
@@ -18,20 +18,20 @@ import (
 )
 
 func TestGetConfig(t *testing.T) {
-	cluster, err := NewCluster("testcase", "v1.30.0", "", "", "", util.CorePackageTemplateConfig{
-		Host: "adhar.localtest.me",
-		Port: "8443",
-	})
-	if err != nil {
-		t.Fatalf("Initializing cluster resource: %v", err)
+
+	type tc struct {
+		host           string
+		port           string
+		usePathRouting bool
+		expectConfig   string
 	}
 
-	cfg, err := cluster.getConfig()
-	if err != nil {
-		t.Errorf("Error getting kind config: %v", err)
-	}
-
-	expectConfig := `# Kind kubernetes release images https://github.com/kubernetes-sigs/kind/releases
+	tcs := []tc{
+		{
+			host:           "adhar.localtest.me",
+			port:           "8443",
+			usePathRouting: false,
+			expectConfig: `
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -48,13 +48,52 @@ containerdConfigPatches:
   [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gitea.adhar.localtest.me:8443"]
     endpoint = ["https://gitea.adhar.localtest.me"]
   [plugins."io.containerd.grpc.v1.cri".registry.configs."gitea.adhar.localtest.me".tls]
-    insecure_skip_verify = true`
-	assert.YAMLEq(t, expectConfig, string(cfg))
+    insecure_skip_verify = true`,
+		},
+		{
+			host:           "adhar.localtest.me",
+			port:           "8443",
+			usePathRouting: true,
+			expectConfig: `
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  image: "kindest/node:v1.30.0"
+  labels:
+    ingress-ready: "true"
+  extraPortMappings:
+  - containerPort: 443
+    hostPort: 8443
+    protocol: TCP
+
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."adhar.localtest.me:8443"]
+    endpoint = ["https://adhar.localtest.me"]
+  [plugins."io.containerd.grpc.v1.cri".registry.configs."adhar.localtest.me".tls]
+    insecure_skip_verify = true`,
+		},
+	}
+
+	for i := range tcs {
+		c := tcs[i]
+		cluster, err := NewCluster("testcase", "v1.30.0", "", "", "", v1alpha1.BuildCustomizationSpec{
+			Host:           c.host,
+			Port:           c.port,
+			UsePathRouting: c.usePathRouting,
+		})
+		assert.NoError(t, err)
+
+		cfg, err := cluster.getConfig()
+		assert.NoError(t, err)
+		assert.YAMLEq(t, c.expectConfig, string(cfg))
+	}
 }
 
 func TestExtraPortMappings(t *testing.T) {
 
-	cluster, err := NewCluster("testcase", "v1.30.0", "", "", "22:32222", util.CorePackageTemplateConfig{
+	cluster, err := NewCluster("testcase", "v1.30.0", "", "", "22:32222", v1alpha1.BuildCustomizationSpec{
 		Host: "adhar.localtest.me",
 		Port: "8443",
 	})
@@ -134,7 +173,7 @@ func TestGetConfigCustom(t *testing.T) {
 	}
 
 	for _, v := range cases {
-		c, _ := NewCluster("testcase", "v1.30.0", "", v.inputPath, "", util.CorePackageTemplateConfig{
+		c, _ := NewCluster("testcase", "v1.30.0", "", v.inputPath, "", v1alpha1.BuildCustomizationSpec{
 			Host:     "adhar.localtest.me",
 			Port:     v.hostPort,
 			Protocol: v.protocol,
@@ -235,7 +274,7 @@ func TestRunsOnWrongPort(t *testing.T) {
 	cluster := &Cluster{
 		name:     "test-cluster",
 		provider: mockProvider,
-		cfg: util.CorePackageTemplateConfig{
+		cfg: v1alpha1.BuildCustomizationSpec{
 			Port: "8080",
 		},
 	}

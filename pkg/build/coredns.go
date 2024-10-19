@@ -5,8 +5,8 @@ import (
 	"embed"
 	"fmt"
 
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/adhar-io/adhar/pkg/k8s"
-	"github.com/adhar-io/adhar/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,7 +22,7 @@ const (
 //go:embed templates
 var templates embed.FS
 
-func setupCoreDNS(ctx context.Context, kubeClient client.Client, scheme *runtime.Scheme, templateData util.CorePackageTemplateConfig) error {
+func setupCoreDNS(ctx context.Context, kubeClient client.Client, scheme *runtime.Scheme, templateData v1alpha1.BuildCustomizationSpec) error {
 	checkCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "coredns-conf-default",

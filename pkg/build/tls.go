@@ -14,9 +14,9 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/adhar-io/adhar/globals"
 	"github.com/adhar-io/adhar/pkg/k8s"
-	"github.com/adhar-io/adhar/pkg/util"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -182,7 +182,7 @@ func createSelfSignedCertificate(sans []string) ([]byte, []byte, error) {
 	return certOut, privateKeyOut, nil
 }
 
-func setupSelfSignedCertificate(ctx context.Context, logger logr.Logger, kubeclient client.Client, config util.CorePackageTemplateConfig) ([]byte, error) {
+func setupSelfSignedCertificate(ctx context.Context, logger logr.Logger, kubeclient client.Client, config v1alpha1.BuildCustomizationSpec) ([]byte, error) {
 	if err := k8s.EnsureNamespace(ctx, kubeclient, globals.NginxNamespace); err != nil {
 		return nil, err
 	}

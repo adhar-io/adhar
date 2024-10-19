@@ -3,12 +3,12 @@ package localbuild
 import (
 	"testing"
 
-	"github.com/adhar-io/adhar/pkg/util"
+	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGiteaInternalBaseUrl(t *testing.T) {
-	c := util.CorePackageTemplateConfig{
+	c := v1alpha1.BuildCustomizationSpec{
 		Protocol:       "http",
 		Port:           "8080",
 		Host:           "adhar.localtest.me",
