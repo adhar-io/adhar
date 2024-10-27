@@ -145,7 +145,7 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://{{ .Values.networking.host }}:{{ .Values.networking.port }}/argo-workflows/oauth2/callback"
+        "https://adhar.localtest.me:8443/argo-workflows/oauth2/callback"
       ],
       "webOrigins": [
         "/*"
@@ -174,7 +174,7 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://{{ .Values.networking.host }}:{{ .Values.networking.port }}/api/auth/keycloak-oidc/handler/frame"
+        "https://adhar.localtest.me:8443/api/auth/keycloak-oidc/handler/frame"
       ],
       "webOrigins": [
         "/*"
@@ -343,7 +343,7 @@ spec:
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET ${KEYCLOAK_URL}/admin/realms/cnoe/clients/${CLIENT_ID} | jq -e -r '.secret')
               
-              ARGOCD_PASSWORD=$(./kubectl -n argocd get secret argocd-initial-admin-secret -o go-template='{{ printf "{{.data.password | base64decode }}" }}')
+              ARGOCD_PASSWORD=$(./kubectl -n argocd get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
               
               ARGOCD_SESSION_TOKEN=$(curl -k -sS http://argocd-server.argocd.svc.cluster.local:443/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" | jq -r .token)
               

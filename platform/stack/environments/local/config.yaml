@@ -24,8 +24,8 @@ packages:
   - name: keycloak
     namespace: keycloak
     install: "true"
-    manifestPath: "security/keycloak"
-    isChart: "true"
+    manifestPath: "security/keycloak/manifests"
+    isChart: "false"
   - name: argo-workflows
     namespace: argo
     install: "true"
@@ -34,8 +34,8 @@ packages:
   - name: adhar-console
     namespace: backstage
     install: "true"
-    manifestPath: "core/adhar-console"
-    isChart: "true"
+    manifestPath: "core/adhar-console/manifests"
+    isChart: "false"
   - name: adhar-templates
     namespace: backstage
     install: "true"

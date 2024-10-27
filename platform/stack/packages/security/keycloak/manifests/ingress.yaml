@@ -18,7 +18,7 @@ spec:
                 name: keycloak
                 port:
                   name: http
-    - host: {{ .Values.networking.host }}
+    - host: adhar.localtest.me
       http:
         paths:
           - path: /keycloak

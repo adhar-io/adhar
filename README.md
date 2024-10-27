@@ -19,6 +19,8 @@
 
 > :bulb: `Adhar`, derived from the Sanskrit word for `Foundation` is a transformative Internal Developer Platform (IDP) that redefines software development. By seamlessly integrating industry-leading open-source technologies and embracing cloud-native principles, `Adhar` provides a ***Scalable*** and ***Efficient*** environment for developing complex, connected, ever-changing applications. With a strong emphasis on ***Security***, ***Governance***, ***AI Assistance***  and ***Developer productivity***, `Adhar` empowers teams to innovate rapidly and deliver exceptional software solutions with ease.
 
+> :warning: **CAUTION:** This project is in early development stage and not ready for production. Use it only for testing and experimentation.
+
 ## Adhar Platform Goals :dart:
 
 1. **Comprehensive All-in-One Integrated Platform:** The platform encompasses the entire software development lifecycle, from defining requirements and designing solutions to developing, testing, and deploying applications. This unified approach eliminates the need for switching between disparate tools, improving efficiency and collaboration.
@@ -135,6 +137,16 @@ To teardown whole cluster, can run:
 adhar down
 ```
 
+Access the `Adhar Console` using following URL and credentials:
+
+```
+https://adhar.localtest.me:8443/
+
+Credentials:
+- user1 / Keyclaok USER_PASSWORD (Admin User)
+- user2 / Keyclaok USER_PASSWORD (Normal User)
+```
+
 <details>
   <summary>What are the core packages?</summary>
 
@@ -150,11 +162,11 @@ adhar down
 
 Once adhar finishes provisioning cluster and packages, you can access GUIs by going to the following addresses in your browser.
 
-* ArgoCD: https://adhar.localtest.me:8443/argocd/
-* Gitea: https://adhar.localtest.me:8443/gitea/
-* Keycloak: https://adhar.localtest.me:8443/keycloak/
+* ArgoCD: https://adhar.localtest.me:8443/argocd/  (Get the username and password from above command)
+* Gitea: https://adhar.localtest.me:8443/gitea/ (Get the username and password from above command)
+* Keycloak: https://adhar.localtest.me:8443/keycloak/ (Username is `cnoe-admin` and password `KEYCLOAK_ADMIN_PASSWORD` retrieved from above command)
 * Argo-Workflows: https://adhar.localtest.me:8443/argo-workflows/
-* Backstage: https://adhar.localtest.me:8443/
+* Adhar Console: https://adhar.localtest.me:8443/ (Username is `user1` or `user2` and password `USER-PASSWORD` retrieved from above command Keycloak section)
 
 #### Secrets
 You can obtain credentials for them by running the following command:
