@@ -20,6 +20,10 @@ metadata:
   name: oidc
 type: Opaque
 data:
+  clientID: "aGVhZGxhbXA="
+  clientSecret: "e3tIRUFETEFNUF9DTElFTlRfU0VDUkVUfX0="
+  issuerURL: "aHR0cDovL2tleWNsb2FrLmtleWNsb2FrLnN2Yy5jbHVzdGVyLmxvY2FsOjgwODAva2V5Y2xvYWsvcmVhbG1zL2Nub2U="
+  scopes: "ZW1haWwscHJvZmlsZQ=="
 ---
 # Source: headlamp/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -103,10 +107,38 @@ spec:
           imagePullPolicy: IfNotPresent
           
           env:
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: oidc
+                  key: clientID
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oidc
+                  key: clientSecret
+            - name: OIDC_ISSUER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oidc
+                  key: issuerURL
+            - name: OIDC_SCOPES
+              valueFrom:
+                secretKeyRef:
+                  name: oidc
+                  key: scopes
           args:
             - "-in-cluster"
             - "-plugins-dir=/headlamp/plugins"
             # Check if externalSecret is disabled
+            # Check if clientID is non empty either from env or oidc.config
+            - "-oidc-client-id=$(OIDC_CLIENT_ID)"
+            # Check if clientSecret is non empty either from env or oidc.config
+            - "-oidc-client-secret=$(OIDC_CLIENT_SECRET)"
+            # Check if issuerURL is non empty either from env or oidc.config
+            - "-oidc-idp-issuer-url=$(OIDC_ISSUER_URL)"
+            # Check if scopes are non empty either from env or oidc.config
+            - "-oidc-scopes=$(OIDC_SCOPES)"
           ports:
             - name: http
               containerPort: 4466

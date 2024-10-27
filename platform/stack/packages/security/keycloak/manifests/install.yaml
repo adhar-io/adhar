@@ -43,7 +43,7 @@ spec:
             - start-dev
           env:
             - name: KEYCLOAK_ADMIN
-              value: cnoe-admin
+              value: adhar-admin
             - name: KEYCLOAK_LOGLEVEL
               value: ALL
             - name: QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY

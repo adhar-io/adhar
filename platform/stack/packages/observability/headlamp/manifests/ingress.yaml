@@ -1,27 +1,20 @@
-kind: Ingress
 apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
   name: headlamp
   namespace: adhar-system
   annotations:
-    kubernetes.io/tls-acme: "true"
-    cert-manager.io/cluster-issuer: "letsencrypt-production"
-    kubernetes.io/ingress.class: contour
     argocd.argoproj.io/sync-wave: "100"
 spec:
   ingressClassName: "nginx"
-  tls:
-  - secretName: headlamp
-    hosts:
-    - adhar.localtest.me
   rules:
-  - host: adhar.localtest.me
-    http:
-      paths:
-      - path: /headlamp
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: headlamp
-            port:
-              number: 80
+    - host: adhar.localtest.me
+      http:
+        paths:
+          - path: /headlamp
+            pathType: Prefix
+            backend:
+              service:
+                name: headlamp
+                port:
+                  number: 80

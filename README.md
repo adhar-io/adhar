@@ -164,7 +164,7 @@ Once adhar finishes provisioning cluster and packages, you can access GUIs by go
 
 * ArgoCD: https://adhar.localtest.me:8443/argocd/  (Get the username and password from above command)
 * Gitea: https://adhar.localtest.me:8443/gitea/ (Get the username and password from above command)
-* Keycloak: https://adhar.localtest.me:8443/keycloak/ (Username is `cnoe-admin` and password `KEYCLOAK_ADMIN_PASSWORD` retrieved from above command)
+* Keycloak: https://adhar.localtest.me:8443/keycloak/ (Username is `adhar-admin` and password `KEYCLOAK_ADMIN_PASSWORD` retrieved from above command)
 * Argo-Workflows: https://adhar.localtest.me:8443/argo-workflows/
 * Adhar Console: https://adhar.localtest.me:8443/ (Username is `user1` or `user2` and password `USER-PASSWORD` retrieved from above command Keycloak section)
 

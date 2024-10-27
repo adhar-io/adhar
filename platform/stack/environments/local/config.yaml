@@ -18,7 +18,7 @@ packages:
     isChart: "false"
   - name: headlamp
     namespace: adhar-system
-    install: "false"
+    install: "true"
     manifestPath: "observability/headlamp/manifests"
     isChart: "false"
   - name: keycloak
@@ -29,8 +29,8 @@ packages:
   - name: argo-workflows
     namespace: argo
     install: "true"
-    manifestPath: "application/argo-workflows"
-    isChart: "true"
+    manifestPath: "application/argo-workflows/manifests/dev"
+    isChart: "false"
   - name: adhar-console
     namespace: backstage
     install: "true"

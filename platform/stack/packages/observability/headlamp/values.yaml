@@ -1,4 +1,6 @@
-networking:
-  host: adhar.localtest.me
-  protocol: https
-  port: 8443
+config:
+  oidc:
+    clientID: "headlamp"
+    clientSecret: "{{HEADLAMP_CLIENT_SECRET}}"
+    issuerURL: "http://keycloak.keycloak.svc.cluster.local:8080/keycloak/realms/cnoe"
+    scopes: "email,profile"
