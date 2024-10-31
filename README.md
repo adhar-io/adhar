@@ -160,13 +160,15 @@ Credentials:
 </details>
 
 
-Once adhar finishes provisioning cluster and packages, you can access GUIs by going to the following addresses in your browser.
+Once `adhar` finishes provisioning cluster and packages, you can access GUIs by going to the following addresses in your browser.
 
-* ArgoCD: https://adhar.localtest.me:8443/argocd/  (Get the username and password from above command)
-* Gitea: https://adhar.localtest.me:8443/gitea/ (Get the username and password from above command)
-* Keycloak: https://adhar.localtest.me:8443/keycloak/ (Username is `adhar-admin` and password `KEYCLOAK_ADMIN_PASSWORD` retrieved from above command)
-* Argo-Workflows: https://adhar.localtest.me:8443/argo-workflows/
-* Adhar Console: https://adhar.localtest.me:8443/ (Username is `user1` or `user2` and password `USER-PASSWORD` retrieved from above command Keycloak section)
+* ***ArgoCD***: https://adhar.localtest.me:8443/argocd/  (Get the username and password from above command)
+* ***Gitea***: https://adhar.localtest.me:8443/gitea/ (Get the username and password from above command)
+* ***Keycloak***: https://adhar.localtest.me:8443/keycloak/ (Username is `adhar-admin` and password `KEYCLOAK_ADMIN_PASSWORD` retrieved from above command)
+* ***Argo-Workflows***: https://adhar.localtest.me:8443/argo-workflows/
+* ***Adhar Console***: https://adhar.localtest.me:8443/ (Username is `user1` or `user2` and password `USER-PASSWORD` retrieved from above command Keycloak section)
+* ***Headlamp***: https://adhar.localtest.me:8443/headlamp/ (Username is `user1` or `user2` and password `USER-PASSWORD` retrieved from above command Keycloak section)
+* ***JupyterHub***: https://adhar.localtest.me:8443/jupyterhub/ (Username is `user1` or `user2` and password `USER-PASSWORD` retrieved from above command Keycloak section)
 
 #### Secrets
 You can obtain credentials for them by running the following command:
@@ -223,13 +225,13 @@ On the other hand, platform administrators can use it to enable and configure pl
 
 Moreover, it includes a Cloud Shell feature, allowing both developers and admins to run CLI commands. In essence, the Adhar Console is a comprehensive tool designed to streamline and simplify the management of your platform.
 
-![Adhar Console](docs/imgs/adhar-console-light.png)
-
-![Adhar Console](docs/imgs/adhar-console-dark.png)
+![Adhar Console](docs/imgs/adhar-console.png)
 
 ### Command Line Interface (CLI)
 
 The Adhar Command Line Interface (CLI) provides a powerful tool for developers and administrators to interact with the Adhar platform, enabling them to manage resources, execute tasks, and automate workflows directly from the command line.
+
+![Adhar Console](docs/imgs/adhar-cli.png)
 
 ### Platform Control plane (api-server)
 
@@ -245,7 +247,7 @@ Upon installation of Adhar, the desired state of the platform is captured and pr
 
 ### Golden Templates Catalog
 
-The `adhar/helm-charts` Git repository houses a collection of built-in Helm charts, which serve as the backbone for creating workloads within the Console. These charts are designed as golden templates, adhering to trending technology standards, ensuring optimal performance and compatibility. In addition to the built-in charts, the platform also offers the flexibility to add custom charts. This allows users to tailor their workloads to specific needs while maintaining the benefits of standardization. Thus, the `adhar/helm-charts` repository is not just a resource, but a gateway to efficient and standardized workload management on the Adhar platform.
+The `adhar-io/adhar-templates` Git repository houses a collection of built-in Helm charts, which serve as the backbone for creating workloads within the Console. These charts are designed as golden templates, adhering to trending technology standards, ensuring optimal performance and compatibility. In addition to the built-in charts, the platform also offers the flexibility to add custom charts. This allows users to tailor their workloads to specific needs while maintaining the benefits of standardization. Thus, the `adhar-io/adhar-templates` repository is not just a resource, but a gateway to efficient and standardized workload management on the Adhar platform.
 
 ### Automation & Self Service
 
