@@ -36,8 +36,18 @@ packages:
     install: "true"
     manifestPath: "core/adhar-console/manifests"
     isChart: "false"
-  - name: adhar-templates
-    namespace: backstage
-    install: "true"
-    manifestPath: "application/adhar-templates"
-    isChart: "false"
+  # - name: adhar-templates
+  #   namespace: backstage
+  #   install: "true"
+  #   manifestPath: "application/adhar-templates"
+  #   isChart: "false"
+  # - name: jupyterhub
+  #   namespace: jupyterhub
+  #   install: "false"
+  #   manifestPath: "data/jupyterhub/manifests"
+  #   isChart: "false"
+  # - name: adhar-templates
+  #   namespace: backstage
+  #   install: "true"
+  #   manifestPath: "application/adhar-templates"
+  #   isChart: "false"

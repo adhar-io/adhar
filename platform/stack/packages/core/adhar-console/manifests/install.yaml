@@ -177,7 +177,7 @@ data:
       locations:
         # Examples from a public GitHub repository.
         - type: url
-          target: https://adhar.localtest.me/gitea/giteaAdmin/idpbuilder-localdev-backstage-templates-entities/raw/branch/main/catalog-info.yaml
+          target: https://adhar.localtest.me:8443/gitea/giteaAdmin/adhar-adhar-backstage-templates-adhar-templates/raw/branch/main/catalog-info.yaml
           rules:
             - allow: [Component, System, API, Resource, Location, Template, User, Group]
     kubernetes:

@@ -2,8 +2,8 @@ apiVersion: scaffolder.backstage.io/v1beta3
 kind: Template
 metadata:
   description: Creates a Basic Kubernetes Deployment
-  name: basic
-  title: Create a Basic Deployment
+  name: argo-workflows-basic
+  title: Basic Argo Workflow with a Spark Job
 spec:
   owner: guests
   type: service
@@ -15,6 +15,10 @@ spec:
         name:
           type: string
           description: name of this application
+        mainApplicationFile:
+          type: string
+          default: 'local:///opt/spark/examples/jars/spark-examples_2.12-3.1.3.jar'
+          description: Path to the main application file
         
   steps:
     - id: template
