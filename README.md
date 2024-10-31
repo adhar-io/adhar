@@ -47,70 +47,16 @@
 
 12. **Fully Open Source:** The platform embraces open-source principles, fostering transparency, collaboration, and continuous improvement. This open-source philosophy aligns with the values of the developer community and promotes innovation.
 
-## How Adhar Platform Helps :rocket:
-
-:nail_care:**Design Team** - AI-powered design assistance and realistic content generation are rapidly transforming the creative process, making it easier and more efficient for designers and developers to create high-quality products. Additionally, easy design-to-code and code-to-design sync tools are helping to bridge the gap between design and development, ensuring that designs are implemented accurately and efficiently.
-
-- Use the Figma design components to build the application design
-- AI can generate the initial DRAFT version of the design and export to Figma
-- Designers love Figma, use it with full freedom
-- Export all visual elements as design-tokens which developers consume directly
-- Keep the sync between the design and the actual application code
-- Immidiate feedback look, make the change in design, see it in actual application immidiately
-- Don't have to depend on Developers for any change, be involve with the proccess
-- Evolve your design as long as it doesn't break the contract
-- Easy Collaborate with business team, tech team on same platform
-
-:moneybag:**Business Team** - Business team involvement in transparent collaboration with the Tech team is crucial for designing and developing software products that align with business objectives and meet user needs. By providing wireframes, prototypes, and detailed business requirements directly in the system used by the Tech team, businesses can ensure seamless communication and alignment throughout the development process.
-
-- Create the prototypes which are part of real application, no through away effort after handing over to developers
-- Involve in improving the user journey through out the lifecycle
-- All the tools at your finger tip to create awesome journeys
-- Don't depend on developers to recreate the jourenies based on your input, you take the ownership
-- Developers will help to take it forward to next stages of the lifecycle
-- Always on top of the realistic status for various features, don't have to ask tech team
-- Improve UI/UX by providing feedback to design team in same system
-- Improve functionality and app performance by giving feedback to development team
-- All the analytics in same platform for making any business decission after delivery
-- Discover the insights and improve the product incrementaly
-
-:computer: **Application Team** - Easy self-service is a crucial aspect of enabling developers and operators to focus on their core responsibilities and reduce the burden of managing infrastructure and resources. By providing self-service capabilities, organizations can empower their technical teams.
-
-- Scan source code for vulnerabilities
-- Build OCI compliant images from application code and store them in a private registry
-- Deploy containerized workloads using a developer catalog with build-in or BYO golden path templates
-- Automatically update container images of workloads
-- Publicly expose applications
-- Get instant access to logs, metrics and traces
-- Store charts and images in a private registry
-- Configure network policies, response headers and CNAMEs
-- Manage secrets
-- Create private Git repositories and custom CI/CD pipelines
-
-:battery: **Platform Team** - Platform engineers play a critical role in enabling developers to build, deploy, and manage applications effectively. By building and managing a Kubernetes-based platform, platform engineers provide developers with a self-service platform that simplifies and streamlines the process of bringing applications to production.
-
-- Create your platform profile and deploy to any K8s
-- Onboard development teams in a comprehensive multi-tenant setup and make them self-serving
-- Get all the required capabilities in an integrated and automated way
-- Ensure governance with security policies
-- Implement zero-trust networking
-- Change the desired state of the platform based on Configuration-as-Code
-- Support multi- and hybrid cloud scenarios
-- Prevent cloud provider lock-in
-- Implement full observability (metrics, logs, traces, alerts)
-- Create Golden path templates and offer them to teams on the platform through a catalog
-
-:cop: **Management Team** - It is important for the management team to have access to all the insights and reports to make the best possible business or technical decisions based on actual data points. This is because data can help to identify trends, patterns, and opportunities that would otherwise be invisible. It can also help to track progress, measure performance, and make informed decisions about resource allocation and strategy.
-
-- Fully integrated analytics platform
-- AI powered automated insights and recomendations
-- Various reports showcasing different aspects of the application
-- Realtime insights with zero filter
-- Usage statistics and projection
-- Easy Technology and Risk goverance
-- Visibility of end to end process
-
 ## Getting Started :sparkles:
+
+### Prerequisites
+
+Before you begin, ensure you have the following tools installed on your system:
+
+- **Docker**: Required for running containers. [Install Docker](https://docs.docker.com/get-docker/)
+- **kubectl**: Command-line tool for interacting with Kubernetes clusters. [Install kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
+
+### Installation
 
 The following command can be used as a convenience for installing `adhar`, (be sure to check the script first if you are concerned):
 
@@ -215,8 +161,6 @@ Learn about integrating, deploying and managing your apps on Adhar platform.
 
 ## Platform Components
 
-Adhar consists of the following components:
-
 ### Adhar Console (Self Service Portal)
 
 Adhar Console stands as the centerpiece of our platform, offering a seamless user experience tailored for both developers and platform administrators. It serves as a one-stop solution for a multitude of tasks. Developers can leverage the Adhar Console to build images, deploy applications, expose services, configure CNAMEs, manage network policies, and handle secrets.
@@ -233,13 +177,13 @@ The Adhar Command Line Interface (CLI) provides a powerful tool for developers a
 
 ![Adhar Console](docs/imgs/adhar-cli.png)
 
-### Platform Control plane (api-server)
+### Adhar Control plane (api-server)
 
 In the Adhar platform, the api-server plays a crucial role in enabling seamless integration. Every alteration made via the Console is first verified by the api-server within the control plane. Once validated, these changes are stored in the state store. This action initiates an automatic process where the platform aligns the actual state with the desired state, thereby ensuring smooth integration and consistency across the platform.
 
-### Adhar Assist (AI)
+### Adhar AI
 
-Adhar Assist is an innovative feature of the Adhar platform that integrates AI assistance into your workflow. It leverages advanced machine learning algorithms to provide intelligent recommendations, automate routine tasks, and enhance decision-making processes. Whether you're configuring your platform, troubleshooting issues, or optimizing performance, Adhar Assist is there to guide you. It learns from your platform's data and usage patterns, continually improving its assistance over time. With Adhar Assist, you get a smart companion that helps you make the most of the Adhar platform. As a developer, you will enjoy the assistance provided by `Adhar Assist` during development.
+Adhar AI is an innovative feature of the Adhar platform that integrates AI assistance into your workflow. It leverages advanced machine learning algorithms to provide intelligent recommendations, automate routine tasks, and enhance decision-making processes. Whether you're configuring your platform, troubleshooting issues, or optimizing performance, Adhar Assist is there to guide you. It learns from your platform's data and usage patterns, continually improving its assistance over time. With Adhar AI, you get a smart companion that helps you make the most of the Adhar platform. As a developer, you will enjoy the assistance provided by `Adhar AI` during development.
 
 ### Git Based Infrastructure
 
@@ -301,6 +245,69 @@ Adhar Platform can be installed on any Kubernetes cluster. At this time, the fol
 - `digitalocean` for [DigitalOcean Kubernetes](https://www.digitalocean.com/)
 - `civo` for [Civo Cloud K3S](https://www.civo.com/)
 - `custom` for any other cloud/infrastructure
+
+## How Adhar Platform Helps :rocket:
+
+:nail_care:**Design Team** - AI-powered design assistance and realistic content generation are rapidly transforming the creative process, making it easier and more efficient for designers and developers to create high-quality products. Additionally, easy design-to-code and code-to-design sync tools are helping to bridge the gap between design and development, ensuring that designs are implemented accurately and efficiently.
+
+- Use the Figma design components to build the application design
+- AI can generate the initial DRAFT version of the design and export to Figma
+- Designers love Figma, use it with full freedom
+- Export all visual elements as design-tokens which developers consume directly
+- Keep the sync between the design and the actual application code
+- Immidiate feedback look, make the change in design, see it in actual application immidiately
+- Don't have to depend on Developers for any change, be involve with the proccess
+- Evolve your design as long as it doesn't break the contract
+- Easy Collaborate with business team, tech team on same platform
+
+:moneybag:**Business Team** - Business team involvement in transparent collaboration with the Tech team is crucial for designing and developing software products that align with business objectives and meet user needs. By providing wireframes, prototypes, and detailed business requirements directly in the system used by the Tech team, businesses can ensure seamless communication and alignment throughout the development process.
+
+- Create the prototypes which are part of real application, no through away effort after handing over to developers
+- Involve in improving the user journey through out the lifecycle
+- All the tools at your finger tip to create awesome journeys
+- Don't depend on developers to recreate the jourenies based on your input, you take the ownership
+- Developers will help to take it forward to next stages of the lifecycle
+- Always on top of the realistic status for various features, don't have to ask tech team
+- Improve UI/UX by providing feedback to design team in same system
+- Improve functionality and app performance by giving feedback to development team
+- All the analytics in same platform for making any business decission after delivery
+- Discover the insights and improve the product incrementaly
+
+:computer: **Application Team** - Easy self-service is a crucial aspect of enabling developers and operators to focus on their core responsibilities and reduce the burden of managing infrastructure and resources. By providing self-service capabilities, organizations can empower their technical teams.
+
+- Scan source code for vulnerabilities
+- Build OCI compliant images from application code and store them in a private registry
+- Deploy containerized workloads using a developer catalog with build-in or BYO golden path templates
+- Automatically update container images of workloads
+- Publicly expose applications
+- Get instant access to logs, metrics and traces
+- Store charts and images in a private registry
+- Configure network policies, response headers and CNAMEs
+- Manage secrets
+- Create private Git repositories and custom CI/CD pipelines
+
+:battery: **Platform Team** - Platform engineers play a critical role in enabling developers to build, deploy, and manage applications effectively. By building and managing a Kubernetes-based platform, platform engineers provide developers with a self-service platform that simplifies and streamlines the process of bringing applications to production.
+
+- Create your platform profile and deploy to any K8s
+- Onboard development teams in a comprehensive multi-tenant setup and make them self-serving
+- Get all the required capabilities in an integrated and automated way
+- Ensure governance with security policies
+- Implement zero-trust networking
+- Change the desired state of the platform based on Configuration-as-Code
+- Support multi- and hybrid cloud scenarios
+- Prevent cloud provider lock-in
+- Implement full observability (metrics, logs, traces, alerts)
+- Create Golden path templates and offer them to teams on the platform through a catalog
+
+:cop: **Management Team** - It is important for the management team to have access to all the insights and reports to make the best possible business or technical decisions based on actual data points. This is because data can help to identify trends, patterns, and opportunities that would otherwise be invisible. It can also help to track progress, measure performance, and make informed decisions about resource allocation and strategy.
+
+- Fully integrated analytics platform
+- AI powered automated insights and recomendations
+- Various reports showcasing different aspects of the application
+- Realtime insights with zero filter
+- Usage statistics and projection
+- Easy Technology and Risk goverance
+- Visibility of end to end process
 
 ## Contribution :pray:
 
