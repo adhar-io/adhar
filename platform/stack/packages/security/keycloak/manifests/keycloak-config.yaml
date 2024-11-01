@@ -90,7 +90,7 @@ data:
         }
     }
   realm-payload.json: |
-    {"realm":"cnoe","enabled":true}
+    {"realm":"adhar","enabled":true}
   user-password.json: |
     {
         "temporary": false,
