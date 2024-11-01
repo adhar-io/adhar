@@ -2,5 +2,5 @@ config:
   oidc:
     clientID: "headlamp"
     clientSecret: "{{HEADLAMP_CLIENT_SECRET}}"
-    issuerURL: "http://keycloak.keycloak.svc.cluster.local:8080/keycloak/realms/cnoe"
+    issuerURL: "http://keycloak.keycloak.svc.cluster.local:8080/keycloak/realms/adhar"
     scopes: "email,profile"

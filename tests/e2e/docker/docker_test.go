@@ -44,9 +44,9 @@ func Test_CreateDocker(t *testing.T) {
 	slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctrl.SetLogger(logr.FromSlogHandler(slogger.Handler()))
 
-	//testCreate(t)
+	// testCreate(t)
 	testCreatePath(t)
-	//testCreatePort(t)
+	// testCreatePort(t)
 	testCustomPkg(t)
 }
 

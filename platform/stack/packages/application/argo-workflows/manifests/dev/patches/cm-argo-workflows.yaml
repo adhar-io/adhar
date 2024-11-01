@@ -7,7 +7,7 @@ data:
   config: |
     sso:
       insecureSkipVerify: true 
-      issuer: https://adhar.localtest.me:8443/keycloak/realms/cnoe
+      issuer: https://adhar.localtest.me:8443/keycloak/realms/adhar
       clientId:
         name: keycloak-oidc
         key: client-id

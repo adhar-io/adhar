@@ -92,7 +92,7 @@ spec:
               
               set +e
               
-              curl --fail-with-body -H "Authorization: bearer ${KEYCLOAK_TOKEN}"  "${KEYCLOAK_URL}/admin/realms/cnoe"  &> /dev/null
+              curl --fail-with-body -H "Authorization: bearer ${KEYCLOAK_TOKEN}"  "${KEYCLOAK_URL}/admin/realms/adhar"  &> /dev/null
               if [ $? -ne 0 ]; then
                 exit 0
               fi
@@ -102,18 +102,18 @@ spec:
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/jupyterhub-client-payload.json \
-                  ${KEYCLOAK_URL}/admin/realms/cnoe/clients
+                  ${KEYCLOAK_URL}/admin/realms/adhar/clients
               
               CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/cnoe/clients | jq -e -r  '.[] | select(.clientId == "jupyterhub") | .id')
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "jupyterhub") | .id')
               
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X GET  ${KEYCLOAK_URL}/admin/realms/cnoe/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-              curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X PUT  ${KEYCLOAK_URL}/admin/realms/cnoe/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+              curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
               
               JUPYTERHUB_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/cnoe/clients/${CLIENT_ID} | jq -e -r '.secret')
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
               
               ./kubectl patch secret -n keycloak keycloak-clients --type=json \
                 -p='[{
