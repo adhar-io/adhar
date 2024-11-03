@@ -5,14 +5,16 @@ metadata:
   namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: "100"
+    nginx.ingress.kubernetes.io/rewrite-target: /headlamp/$2
+    nginx.ingress.kubernetes.io/use-regex: 'true'
 spec:
   ingressClassName: "nginx"
   rules:
     - host: adhar.localtest.me
       http:
         paths:
-          - path: /headlamp
-            pathType: Prefix
+          - path: /headlamp(/|$)(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: headlamp

@@ -13,8 +13,23 @@ packages:
     isChart: "false"
   - name: cnpg
     namespace: cnpg-system
-    install: "false"
+    install: "true"
     manifestPath: "data/cnpg/manifests"
+    isChart: "false"
+  - name: kyverno
+    namespace: kyverno
+    install: "true"
+    manifestPath: "security/kyverno/manifests"
+    isChart: "false"
+  - name: kyverno-policies
+    namespace: kyverno
+    install: "true"
+    manifestPath: "security/kyverno-policies/manifests"
+    isChart: "false"
+  - name: jupyterhub
+    namespace: jupyterhub
+    install: "true"
+    manifestPath: "data/jupyterhub/manifests"
     isChart: "false"
   - name: headlamp
     namespace: adhar-system
@@ -36,18 +51,93 @@ packages:
     install: "true"
     manifestPath: "core/adhar-console/manifests"
     isChart: "false"
-  # - name: adhar-templates
-  #   namespace: backstage
-  #   install: "true"
-  #   manifestPath: "application/adhar-templates"
-  #   isChart: "false"
-  # - name: jupyterhub
-  #   namespace: jupyterhub
-  #   install: "false"
-  #   manifestPath: "data/jupyterhub/manifests"
-  #   isChart: "false"
-  # - name: adhar-templates
-  #   namespace: backstage
-  #   install: "true"
-  #   manifestPath: "application/adhar-templates"
-  #   isChart: "false"
+  - name: harbor
+    namespace: harbor
+    install: "true"
+    manifestPath: "application/harbor/manifests"
+    isChart: "false"
+  - name: kargo
+    namespace: argocd
+    install: "true"
+    manifestPath: "application/kargo/manifests"
+    isChart: "false"
+  - name: minio
+    namespace: minio
+    install: "true"
+    manifestPath: "data/minio/manifests"
+    isChart: "false"
+  - name: velero
+    namespace: velero
+    install: "true"
+    manifestPath: "core/velero/manifests"
+    isChart: "false"
+  - name: spark-operator
+    namespace: spark-operator
+    install: "true"
+    manifestPath: "data/spark-operator/manifests"
+    isChart: "false"
+  - name: metrics-server
+    namespace: kube-system
+    install: "true"
+    manifestPath: "observability/metrics-server/manifests"
+    isChart: "false"
+  - name: kube-prometheus
+    namespace: monitoring
+    install: "true"
+    manifestPath: "observability/kube-prometheus/manifests"
+    isChart: "false"
+  - name: loki
+    namespace: monitoring
+    install: "true"
+    manifestPath: "observability/loki-stack/manifests"
+    isChart: "false"
+  - name: opencost
+    namespace: monitoring
+    install: "true"
+    manifestPath: "observability/opencost/manifests"
+    isChart: "false"
+  - name: alloy
+    namespace: monitoring
+    install: "true"
+    manifestPath: "observability/alloy/manifests"
+    isChart: "false"
+  - name: oncall
+    namespace: monitoring
+    install: "true"
+    manifestPath: "observability/oncall/manifests"
+    isChart: "false"
+  - name: tempo
+    namespace: monitoring
+    install: "true"
+    manifestPath: "observability/tempo/manifests"
+    isChart: "false"
+  - name: mimir
+    namespace: monitoring
+    install: "true"
+    manifestPath: "observability/mimir/manifests"
+    isChart: "false"
+  - name: k6
+    namespace: adhar-system
+    install: "true"
+    manifestPath: "application/k6/manifests"
+    isChart: "false"
+  - name: crossplane
+    namespace: crossplane-system
+    install: "true"
+    manifestPath: "infrastructure/crossplane/manifests"
+    isChart: "false"
+  - name: terraform
+    namespace: adhar-system
+    install: "true"
+    manifestPath: "infrastructure/terraform/manifests"
+    isChart: "false"
+  - name: dapr
+    namespace: dapr-system
+    install: "true"
+    manifestPath: "application/dapr/manifests"
+    isChart: "false"
+  - name: redis
+    namespace: redis-operator
+    install: "true"
+    manifestPath: "data/redis/manifests"
+    isChart: "false"

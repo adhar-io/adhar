@@ -1,0 +1,25 @@
+hub:
+  baseUrl: /jupyterhub
+  extraEnv:
+    - name: OAUTH_TLS_VERIFY # for getting around self signed certificate issue
+      value: "0"
+    - name: OAUTH_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: jupyterhub-oidc
+          key: JUPYTERHUB_OAUTH_CLIENT_SECRET
+  config:
+    GenericOAuthenticator:
+      oauth_callback_url: https://adhar.localtest.me:8443/jupyterhub/hub/oauth_callback
+      client_id: jupyterhub
+      authorize_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/auth
+      token_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/token
+      userdata_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/userinfo
+      scope:
+        - openid
+        - profile
+      username_key: "preferred_username"
+      login_service: "keycloak"
+      allow_all: true # Allows all oauth authenticated users to use Jupyterhub. For finer grained control, you can use `allowed_users`: https://jupyterhub.readthedocs.io/en/stable/tutorial/getting-started/authenticators-users-basics.html#deciding-who-is-allowed
+    JupyterHub:
+      authenticator_class: generic-oauth

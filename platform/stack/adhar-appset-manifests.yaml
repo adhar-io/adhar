@@ -44,5 +44,17 @@ spec:
       syncPolicy:
         syncOptions:
           - CreateNamespace=true
+          - ServerSideApply=true
+          - Prune=true
+          - Validate=true
+          - applySer
+          - Replace=true
         automated:
           selfHeal: true
+          prune: true
+        retry:
+          limit: 30
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m0s

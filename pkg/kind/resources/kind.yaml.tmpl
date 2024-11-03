@@ -14,6 +14,9 @@ nodes:
     hostPort: {{ .HostPort }}
     protocol: TCP
   {{ end }}
+  extraMounts:
+  - hostPath: ./backup # replace with your own path
+    containerPath: /backup
 #networking:
   #disableDefaultCNI: true   # do not install kindnet
   #kubeProxyMode: none       # do not run kube-proxy

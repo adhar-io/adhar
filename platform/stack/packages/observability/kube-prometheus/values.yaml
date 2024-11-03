@@ -1,0 +1,29 @@
+grafana:
+  envFromSecret: grafana-oidc
+  additionalDataSources:
+    - name: loki
+      access: proxy
+      orgId: 1
+      type: loki
+      url: http://loki-gateway
+      jsonData:
+        httpHeaderName1: X-Scope-OrgID
+      secureJsonData:
+        httpHeaderValue1: '1'
+  grafana.ini:
+    server:
+      root_url: https://adhar.localtest.me:8443/grafana
+      serve_from_sub_path: true
+    auth.generic_oauth:
+      enabled: true
+      name: grafana
+      allow_sign_up: true
+      auth_url: https://adhar.localtest.me:8443/keycloak/realms/cnoe/protocol/openid-connect/auth
+      token_url: https://adhar.localtest.me:8443/keycloak/realms/cnoe/protocol/openid-connect/token
+      api_url: https://adhar.localtest.me:8443/keycloak/realms/cnoe/protocol/openid-connect/userinfo
+      scopes: openid email profile offline_access roles
+      role_attribute_path: contains(resource_access.grafana.roles[*], 'admin') && 'GrafanaAdmin' || contains(resource_access.grafana.roles[*], 'admin') && 'Admin' || contains(resource_access.grafana.roles[*], 'editor') && 'Editor' || 'Viewer'
+      allow_assign_grafana_admin: true
+      role_attribute_strict: true
+      auto_login: true
+      tls_skip_verify_insecure: true

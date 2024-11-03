@@ -8,3 +8,4 @@ __debug*
 adhar
 .history
 .lsp/.cache/db.transit.json
+backup/*

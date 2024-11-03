@@ -1,0 +1,24 @@
+# Harbor Helm Chart Values
+
+# External URL for Harbor
+externalURL: "https://harbor.adhar.localtest.me"
+
+# Ingress configuration
+expose:
+  ingress:
+    hosts:
+      core: "adhar.localtest.me"
+
+# Database configuration
+database:
+  type: "external"
+  external:
+    host: "harbor-db"
+    port: 5432
+
+# Redis configuration
+redis:
+  type: "external"
+  external:
+    host: "harbor-redis"
+    port: 6379  # Assuming the default Redis port, update if different
