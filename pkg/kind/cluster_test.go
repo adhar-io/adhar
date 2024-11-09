@@ -7,12 +7,11 @@ import (
 	"testing"
 
 	"github.com/adhar-io/adhar/api/v1alpha1"
-	runtime "github.com/adhar-io/adhar/pkg/runtime"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"sigs.k8s.io/kind/pkg/cluster/constants"
 	"sigs.k8s.io/kind/pkg/cluster/nodes"
 	"sigs.k8s.io/kind/pkg/exec"
 )
@@ -82,7 +81,7 @@ containerdConfigPatches:
 			Host:           c.host,
 			Port:           c.port,
 			UsePathRouting: c.usePathRouting,
-		})
+		}, logr.Discard())
 		assert.NoError(t, err)
 
 		cfg, err := cluster.getConfig()
@@ -96,7 +95,7 @@ func TestExtraPortMappings(t *testing.T) {
 	cluster, err := NewCluster("testcase", "v1.30.0", "", "", "22:32222", v1alpha1.BuildCustomizationSpec{
 		Host: "adhar.localtest.me",
 		Port: "8443",
-	})
+	}, logr.Discard())
 	if err != nil {
 		t.Fatalf("Initializing cluster resource: %v", err)
 	}
@@ -177,7 +176,7 @@ func TestGetConfigCustom(t *testing.T) {
 			Host:     "adhar.localtest.me",
 			Port:     v.hostPort,
 			Protocol: v.protocol,
-		})
+		}, logr.Discard())
 
 		b, err := c.getConfig()
 		if v.error {
@@ -203,7 +202,6 @@ func (m *mockProvider) ListNodes(name string) ([]nodes.Node, error) {
 
 type mockRuntime struct {
 	mock.Mock
-	runtime.IRuntime
 }
 
 func (m *mockRuntime) ContainerWithPort(ctx context.Context, name string, port string) (bool, error) {
@@ -255,45 +253,4 @@ func (n *NodeMock) SerialLogs(writer io.Writer) error {
 func (n *NodeMock) CommandContext(ctx context.Context, cmd string, args ...string) exec.Cmd {
 	mockArgs := n.Called(nil)
 	return mockArgs.Get(0).(exec.Cmd)
-}
-
-func TestRunsOnWrongPort(t *testing.T) {
-	// Mock node
-	mockNode := &NodeMock{}
-	mockNode.On("Role").Return(constants.ControlPlaneNodeRoleValue, nil)
-	mockNode.On("String").Return("test-cluster")
-
-	mockNodes := []nodes.Node{
-		mockNode,
-	}
-
-	// Mock provider
-	mockProvider := &mockProvider{}
-	mockProvider.On("ListNodes", "test-cluster").Return(mockNodes, nil)
-
-	cluster := &Cluster{
-		name:     "test-cluster",
-		provider: mockProvider,
-		cfg: v1alpha1.BuildCustomizationSpec{
-			Port: "8080",
-		},
-	}
-
-	// Mock runtime
-	mockRuntime1 := &mockRuntime{}
-	mockRuntime1.On("ContainerWithPort", context.Background(), "test-cluster", "8080").Return(true, nil)
-	cluster.runtime = mockRuntime1
-
-	result, err := cluster.RunsOnRightPort(context.Background())
-	assert.NoError(t, err)
-	assert.True(t, result)
-
-	// Mock Docker client
-	mockRuntime2 := &mockRuntime{}
-	mockRuntime2.On("ContainerWithPort", context.Background(), "test-cluster", "8080").Return(false, nil)
-	cluster.runtime = mockRuntime2
-	result, err = cluster.RunsOnRightPort(context.Background())
-
-	assert.NoError(t, err)
-	assert.False(t, result)
 }

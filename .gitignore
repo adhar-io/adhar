@@ -7,4 +7,5 @@ __debug*
 .idea
 adhar
 .history
+.lsp
 backup/*

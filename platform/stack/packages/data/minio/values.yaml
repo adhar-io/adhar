@@ -17,6 +17,8 @@ buckets:
 consoleIngress:
   enabled: true
   ingressClassName: nginx
+  path: /minio
+  port: 8443
   hosts:
     - adhar.localtest.me
 

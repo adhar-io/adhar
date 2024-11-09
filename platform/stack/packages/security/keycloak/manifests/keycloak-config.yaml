@@ -274,7 +274,7 @@ spec:
               curl -sS -LO "https://dl.k8s.io/release/v1.28.3//bin/linux/amd64/kubectl"
               chmod +x kubectl
               
-              echo "creating cnoe realm and groups"
+              echo "creating adhar realm and groups"
               
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \

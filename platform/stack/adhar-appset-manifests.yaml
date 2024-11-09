@@ -32,6 +32,8 @@ spec:
       name: "{{ .name }}"
       labels:
         environment: "{{ .environment }}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
     spec:
       project: default
       sources:
@@ -44,11 +46,6 @@ spec:
       syncPolicy:
         syncOptions:
           - CreateNamespace=true
-          - ServerSideApply=true
-          - Prune=true
-          - Validate=true
-          - applySer
-          - Replace=true
         automated:
           selfHeal: true
           prune: true

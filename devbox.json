@@ -6,7 +6,6 @@
     "kubernetes-helm@3.15.1",
     "kubectl@1.29.4",
     "yq-go@4.43.1",
-    "jq@1.7.1",
     "bat@0.24.0",
     "buildpack@0.33.2",
     "teller@1.5.6",
@@ -27,7 +26,9 @@
     "kind@0.23.0",
     "awscli2@2.15.62",
     "hubble@0.13.5",
-    "etcdctl@3.3.27"
+    "etcdctl@3.3.27",
+    "cosign@latest",
+    "jq@latest"
   ],
   "shell": {
     "init_hook": [
