@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -54,11 +55,12 @@ var (
 )
 
 var CreateCmd = &cobra.Command{
-	Use:     "up",
-	Short:   "Create an Adhar IDP cluster",
-	Long:    ``,
-	RunE:    create,
-	PreRunE: preCreateE,
+	Use:          "up",
+	Short:        "Create an Adhar IDP cluster",
+	Long:         ``,
+	RunE:         create,
+	PreRunE:      preCreateE,
+	SilenceUsage: true,
 }
 
 func init() {
@@ -164,18 +166,7 @@ func create(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	subDomain := "argocd."
-	subPath := ""
-
-	if pathRouting == true {
-		subDomain = ""
-		subPath = "argocd"
-	}
-
-	fmt.Print("\n\n########################### Finished Creating Adhar IDP Successfully! ############################\n\n\n")
-	fmt.Printf("Can Access ArgoCD at %s\nUsername: admin\n", fmt.Sprintf("%s://%s%s:%s/%s", protocol, subDomain, host, port, subPath))
-	fmt.Print(`Password can be retrieved by running: adhar get secrets -p argocd`, "\n")
-
+	printSuccessMsg()
 	return nil
 }
 
@@ -227,4 +218,33 @@ func getPackageCustomFile(input string) (v1alpha1.PackageCustomization, error) {
 		Name:     name,
 		FilePath: paths[0],
 	}, nil
+}
+
+func printSuccessMsg() {
+	subDomain := "argocd."
+	subPath := ""
+
+	if pathRouting == true {
+		subDomain = ""
+		subPath = "argocd"
+	}
+
+	var argoURL string
+
+	proxy := behindProxy()
+	if proxy {
+		argoURL = fmt.Sprintf("https://%s/argocd", host)
+	} else {
+		argoURL = fmt.Sprintf("%s://%s%s:%s/%s", protocol, subDomain, host, port, subPath)
+	}
+
+	fmt.Print("\n\n########################### Finished Creating Adhar IDP Successfully! ############################\n\n\n")
+	fmt.Printf("Can Access ArgoCD at %s\nUsername: admin\n", argoURL)
+	fmt.Print(`Password can be retrieved by running: idpbuilder get secrets -p argocd`, "\n")
+}
+
+func behindProxy() bool {
+	// check if we are in codespaces: https://docs.github.com/en/codespaces/developing-in-a-codespace/default-environment-variables-for-your-codespace
+	_, ok := os.LookupEnv("CODESPACES")
+	return ok
 }
