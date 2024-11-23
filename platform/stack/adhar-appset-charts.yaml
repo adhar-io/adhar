@@ -49,7 +49,9 @@ spec:
         namespace: "{{ .namespace }}"
       syncPolicy:
         syncOptions:
+          - Replace=true
           - CreateNamespace=true
+          - ServerSideApply=true
         automated:
           selfHeal: true
           prune: true

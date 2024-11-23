@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/jupyterhu
 
 helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/ --force-update
 helm repo update
-helm template --namespace jupyterhub jupyterhub jupyterhub/jupyterhub -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --include-crds --namespace jupyterhub jupyterhub jupyterhub/jupyterhub -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

@@ -454,9 +454,9 @@ data:
   # hub.config.JupyterHub.cookie_secret:         for cookie encryption
   # hub.config.CryptKeeper.keys:                 for auth state encryption
   #
-  hub.config.ConfigurableHTTPProxy.auth_token: "YmFqUmNnbUZ5Uk5PWjJBTzFPUzlxNld0UVlTMUJvcVpvaGJuYjNKRWF0c0RTT2FBR2lUcEYzcFZtdm03clpLdA=="
-  hub.config.JupyterHub.cookie_secret: "NjVmMWIwMjljMjk2NGY1OGM2NzZmOTc1MmVlNDU3ZjVlZDI4YTljNTg3OTE4NjAzMDVkOTY4YmRjMTc5MGZkNA=="
-  hub.config.CryptKeeper.keys: "NzJlMmMyYjg5OWFiZjM3YWM1Y2RkOWM0MmJhY2VkMjk3MTgwOTM4ZGRiMTRmZGY4MjIyZGMxODE3M2VmMzRlNQ=="
+  hub.config.ConfigurableHTTPProxy.auth_token: "a3hjYWZ2SlhZMlpoUGxLZWEyVXhuYlJBTUo1TE1KOVFXWE1QSnZYd1ltQ3k1UmFPVTNqYnZaVWxJZlpGbHVDZQ=="
+  hub.config.JupyterHub.cookie_secret: "NzhkYjZhYzNhOTczZTBhZjNiZjMyODg0NWZlYWVjNWIwMmM3OTRlNzE5NjM1NzIxYzBmMzE5ZTU1NWRjOTExZQ=="
+  hub.config.CryptKeeper.keys: "NDQyODY5Yjc2MzJiYjY0OTEwYmViNTE5NjUxNzhhYzNmMTBjNDQ3N2U4ZGY5MTg3ODI0ZDM2YzFmNTEyNjg1Mg=="
 ---
 # Source: jupyterhub/templates/hub/configmap.yaml
 kind: ConfigMap
@@ -1639,7 +1639,7 @@ spec:
         hub.jupyter.org/network-access-singleuser: "true"
       annotations:
         checksum/config-map: 428e976af1edee3381b207d0be649da24608aa7f6b5ea3c4a5a5d744702f44f7
-        checksum/secret: fd2850fded85200c1bf1bf6a8ff4fd5c0575ed1bc97826b627ad39b9c6730e9b
+        checksum/secret: 88fe98126c7a1ef0365c171c7445b3881c0f422d2458156293085eaf18527f5e
     spec:
       tolerations:
         - effect: NoSchedule
@@ -1778,7 +1778,7 @@ spec:
         # the k8s Secret template. This will cause this annotation to change to
         # match the k8s Secret during the first upgrade following an auth_token
         # was generated.
-        checksum/auth-token: "3237"
+        checksum/auth-token: "41a9"
         checksum/proxy-secret: "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
     spec:
       terminationGracePeriodSeconds: 60

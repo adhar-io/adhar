@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/spark-ope
 
 helm repo add spark-operator https://kubeflow.github.io/spark-operator --force-update
 helm repo update
-helm template --namespace spark-operator spark-operator spark-operator/spark-operator -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --include-crds --namespace spark-operator spark-operator spark-operator/spark-operator -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true  >>${INSTALL_YAML}

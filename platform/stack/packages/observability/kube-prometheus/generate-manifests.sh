@@ -10,4 +10,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/observability/
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
 helm repo update
-helm template --namespace monitoring prometheus prometheus-community/kube-prometheus-stack -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --include-crds --namespace monitoring prometheus prometheus-community/kube-prometheus-stack -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}
