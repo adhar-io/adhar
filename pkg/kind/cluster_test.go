@@ -35,13 +35,16 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: "kindest/node:v1.30.0"
+  image: "kindest/node:v1.30.3"
   labels:
     ingress-ready: "true"
   extraPortMappings:
   - containerPort: 443
     hostPort: 8443
     protocol: TCP
+  extraMounts:
+  - hostPath: ./backup
+    containerPath: /backup
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gitea.adhar.localtest.me:8443"]
@@ -58,14 +61,16 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: "kindest/node:v1.30.0"
+  image: "kindest/node:v1.30.3"
   labels:
     ingress-ready: "true"
   extraPortMappings:
   - containerPort: 443
     hostPort: 8443
     protocol: TCP
-
+  extraMounts:
+  - hostPath: ./backup
+    containerPath: /backup
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry.mirrors."adhar.localtest.me:8443"]
@@ -77,7 +82,7 @@ containerdConfigPatches:
 
 	for i := range tcs {
 		c := tcs[i]
-		cluster, err := NewCluster("testcase", "v1.30.0", "", "", "", v1alpha1.BuildCustomizationSpec{
+		cluster, err := NewCluster("testcase", "v1.30.3", "", "", "", v1alpha1.BuildCustomizationSpec{
 			Host:           c.host,
 			Port:           c.port,
 			UsePathRouting: c.usePathRouting,
@@ -92,7 +97,7 @@ containerdConfigPatches:
 
 func TestExtraPortMappings(t *testing.T) {
 
-	cluster, err := NewCluster("testcase", "v1.30.0", "", "", "22:32222", v1alpha1.BuildCustomizationSpec{
+	cluster, err := NewCluster("testcase", "v1.30.3", "", "", "22:32222", v1alpha1.BuildCustomizationSpec{
 		Host: "adhar.localtest.me",
 		Port: "8443",
 	}, logr.Discard())
@@ -110,7 +115,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: "kindest/node:v1.30.0"
+  image: "kindest/node:v1.30.3"
   labels:
     ingress-ready: "true"
   extraPortMappings:
@@ -120,6 +125,9 @@ nodes:
   - containerPort: 32222
     hostPort: 22
     protocol: TCP
+  extraMounts:
+  - hostPath: ./backup
+    containerPath: /backup
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gitea.adhar.localtest.me:8443"]
@@ -172,7 +180,7 @@ func TestGetConfigCustom(t *testing.T) {
 	}
 
 	for _, v := range cases {
-		c, _ := NewCluster("testcase", "v1.30.0", "", v.inputPath, "", v1alpha1.BuildCustomizationSpec{
+		c, _ := NewCluster("testcase", "v1.30.3", "", v.inputPath, "", v1alpha1.BuildCustomizationSpec{
 			Host:     "adhar.localtest.me",
 			Port:     v.hostPort,
 			Protocol: v.protocol,
