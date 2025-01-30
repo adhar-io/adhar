@@ -2,8 +2,9 @@ package printer
 
 import (
 	"fmt"
-	"github.com/cnoe-io/idpbuilder/pkg/printer/types"
 	"io"
+
+	"github.com/adhar-io/adhar/pkg/printer/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

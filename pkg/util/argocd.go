@@ -3,7 +3,8 @@ package util
 import (
 	"context"
 	"fmt"
-	"github.com/cnoe-io/idpbuilder/pkg/util/idp"
+
+	"github.com/adhar-io/adhar/pkg/util/idp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

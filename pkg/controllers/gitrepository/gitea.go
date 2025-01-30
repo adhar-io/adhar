@@ -3,9 +3,10 @@ package gitrepository
 import (
 	"context"
 	"fmt"
-	"github.com/cnoe-io/idpbuilder/pkg/util/files"
 	"os"
 	"path/filepath"
+
+	"github.com/adhar-io/adhar/pkg/util/files"
 
 	"code.gitea.io/sdk/gitea"
 	"github.com/adhar-io/adhar/api/v1alpha1"

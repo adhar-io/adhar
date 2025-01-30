@@ -2,7 +2,8 @@ package get
 
 import (
 	"fmt"
-	"github.com/cnoe-io/idpbuilder/pkg/cmd/helpers"
+
+	"github.com/adhar-io/adhar/pkg/cmd/helpers"
 	"github.com/spf13/cobra"
 )
 

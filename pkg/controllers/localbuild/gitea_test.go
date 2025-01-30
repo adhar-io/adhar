@@ -2,11 +2,12 @@ package localbuild
 
 import (
 	"context"
-	"github.com/cnoe-io/idpbuilder/pkg/util"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/adhar-io/adhar/pkg/util"
 
 	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/stretchr/testify/assert"

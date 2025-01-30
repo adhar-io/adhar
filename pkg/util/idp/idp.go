@@ -2,8 +2,9 @@ package idp
 
 import (
 	"context"
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
-	"github.com/cnoe-io/idpbuilder/pkg/k8s"
+
+	"github.com/adhar-io/adhar/api/v1alpha1"
+	"github.com/adhar-io/adhar/pkg/k8s"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

@@ -1,17 +1,18 @@
 package util
 
 import (
-	"code.gitea.io/sdk/gitea"
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/cnoe-io/idpbuilder/api/v1alpha1"
-	"github.com/cnoe-io/idpbuilder/pkg/util/idp"
+	"strings"
+
+	"code.gitea.io/sdk/gitea"
+	"github.com/adhar-io/adhar/api/v1alpha1"
+	"github.com/adhar-io/adhar/pkg/util/idp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
 )
 
 const (

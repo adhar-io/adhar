@@ -417,7 +417,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 9472556301411a93ff19830db2ba46ea781c96364243b2f06ab8e33fb785c25d
+        checksum/config: 4affb139fd91e1b3dfffcea0f06c45d2d217e94c7c4efffd6b2636bc48ebd552
       labels:
         helm.sh/chart: gitea-10.1.4
         app: gitea
