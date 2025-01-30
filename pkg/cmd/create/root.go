@@ -15,16 +15,16 @@ import (
 	"github.com/adhar-io/adhar/pkg/k8s"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/util/homedir"
-	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 const (
 	recreateClusterUsage   = "Delete cluster first if it already exists."
 	buildNameUsage         = "Name for build (Prefix for kind cluster name, pod names, etc)."
+	devPasswordUsage       = "Set the password \"developer\" for the admin user of the applications: argocd & gitea."
 	kubeVersionUsage       = "Version of the kind kubernetes cluster to create."
 	extraPortsMappingUsage = "List of extra ports to expose on the docker container and kubernetes cluster as nodePort " +
 		"(e.g. \"22:32222,9090:39090,etc\")."
-	kindConfigPathUsage = "Path of the kind config file to be used instead of the default."
+	kindConfigPathUsage = "Path or URL to the kind config file to be used instead of the default."
 	hostUsage           = "Host name to access resources in this cluster."
 	ingressHostUsage    = "Host name used by ingresses. Useful when you have another proxy in front of ingress-nginx that adhar provisions."
 	protocolUsage       = "Protocol to use to access web UIs. http or https."
@@ -41,6 +41,7 @@ var (
 	// Flags
 	recreateCluster           bool
 	buildName                 string
+	devPassword               bool
 	kubeVersion               string
 	extraPortsMapping         string
 	kindConfigPath            string
@@ -72,6 +73,7 @@ func init() {
 	CreateCmd.PersistentFlags().StringVar(&buildName, "build-name", "adhar", buildNameUsage)
 	CreateCmd.PersistentFlags().MarkDeprecated("build-name", "use --name instead.")
 	CreateCmd.PersistentFlags().StringVar(&buildName, "name", "adhar", buildNameUsage)
+	CreateCmd.PersistentFlags().BoolVar(&devPassword, "dev-password", false, devPasswordUsage)
 	CreateCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.30.3", kubeVersionUsage)
 	CreateCmd.PersistentFlags().StringVar(&extraPortsMapping, "extra-ports", "", extraPortsMappingUsage)
 	CreateCmd.PersistentFlags().StringVar(&kindConfigPath, "kind-config", "", kindConfigPathUsage)
@@ -94,7 +96,8 @@ func preCreateE(cmd *cobra.Command, args []string) error {
 }
 
 func create(cmd *cobra.Command, args []string) error {
-	ctx, ctxCancel := context.WithCancel(ctrl.SetupSignalHandler())
+
+	ctx, ctxCancel := context.WithCancel(cmd.Context())
 	defer ctxCancel()
 
 	kubeConfigPath := filepath.Join(homedir.HomeDir(), ".kube", "config")
@@ -149,6 +152,7 @@ func create(cmd *cobra.Command, args []string) error {
 			IngressHost:    ingressHost,
 			Port:           port,
 			UsePathRouting: pathRouting,
+			StaticPassword: devPassword,
 		},
 
 		CustomPackageDirs:    absDirPaths,
@@ -164,6 +168,10 @@ func create(cmd *cobra.Command, args []string) error {
 
 	if err := b.Run(ctx, recreateCluster); err != nil {
 		return err
+	}
+
+	if cmd.Context().Err() != nil {
+		return context.Cause(cmd.Context())
 	}
 
 	printSuccessMsg()

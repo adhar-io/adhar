@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/adhar-io/adhar/pkg/k8s"
-	"github.com/adhar-io/adhar/pkg/util"
+	"github.com/adhar-io/adhar/pkg/util/fs"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,7 +20,7 @@ import (
 var crdFS embed.FS
 
 func getK8sResources(scheme *runtime.Scheme, templateData any) ([]client.Object, error) {
-	rawResources, err := util.ConvertFSToBytes(crdFS, "resources", templateData)
+	rawResources, err := fs.ConvertFSToBytes(crdFS, "resources", templateData)
 	if err != nil {
 		return nil, err
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/adhar-io/adhar/globals"
 	"github.com/adhar-io/adhar/pkg/k8s"
-	"github.com/adhar-io/adhar/pkg/util"
+	"github.com/adhar-io/adhar/pkg/util/fs"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -43,7 +43,7 @@ func TestGetRawInstallResources(t *testing.T) {
 		resourceFS:   installArgoFS,
 		resourcePath: "resources/argo",
 	}
-	resources, err := util.ConvertFSToBytes(e.resourceFS, e.resourcePath,
+	resources, err := fs.ConvertFSToBytes(e.resourceFS, e.resourcePath,
 		v1alpha1.BuildCustomizationSpec{
 			Protocol:       "",
 			Host:           "",
