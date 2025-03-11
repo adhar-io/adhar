@@ -5,8 +5,9 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: my-gitea-inline-config
+  namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: my-gitea
@@ -16,6 +17,7 @@ metadata:
 type: Opaque
 stringData:
   _generals_: ""
+  actions: ENABLED=false
   cache: |-
     ADAPTER=memory
     HOST=
@@ -50,8 +52,9 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: my-gitea
+  namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: my-gitea
@@ -222,8 +225,9 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: my-gitea-init
+  namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: my-gitea
@@ -241,15 +245,13 @@ stringData:
     #!/usr/bin/env bash
 
     set -euo pipefail
-
-    set -x
-    mkdir -p /data/git/.ssh
-    chmod -R 700 /data/git/.ssh
-    [ ! -d /data/gitea/conf ] && mkdir -p /data/gitea/conf
+    mkdir -pv /data/git/.ssh
+    chmod -Rv 700 /data/git/.ssh
+    [ ! -d /data/gitea/conf ] && mkdir -pv /data/gitea/conf
 
     # prepare temp directory structure
-    mkdir -p "${GITEA_TEMP}"
-    chmod ug+rwx "${GITEA_TEMP}"
+    mkdir -pv "${GITEA_TEMP}"
+    chmod -v ug+rwx "${GITEA_TEMP}"
 
     
 
@@ -290,13 +292,33 @@ stringData:
 
       local ACCOUNT_ID=$(echo "${actual_user_table}" | grep -E "\s+${GITEA_ADMIN_USERNAME}\s+" | awk -F " " "{printf \$1}")
       if [[ -z "${ACCOUNT_ID}" ]]; then
+        local -a create_args
+        create_args=(--admin --username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}" --email "gitea@local.domain")
+        if [[ "${GITEA_ADMIN_PASSWORD_MODE}" = initialOnlyRequireReset ]]; then
+          create_args+=(--must-change-password=true)
+        else
+          create_args+=(--must-change-password=false)
+        fi
         echo "No admin user '${GITEA_ADMIN_USERNAME}' found. Creating now..."
-        gitea admin user create --admin --username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}" --email "gitea@local.domain" --must-change-password=false
+        gitea admin user create "${create_args[@]}"
         echo '...created.'
       else
-        echo "Admin account '${GITEA_ADMIN_USERNAME}' already exist. Running update to sync password..."
-        gitea admin user change-password --username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}"
-        echo '...password sync done.'
+        if [[ "${GITEA_ADMIN_PASSWORD_MODE}" = keepUpdated ]]; then
+          echo "Admin account '${GITEA_ADMIN_USERNAME}' already exist. Running update to sync password..."
+          # See https://gitea.com/gitea/helm-chart/issues/673
+          # --must-change-password argument was added to change-password, defaulting to true, counter to the previous behavior
+          #   which acted as if it were provided with =false. If the argument is present in this version of gitea, then we
+          #   should add it to prevent requiring frequent admin password resets.
+          local -a change_args
+          change_args=(--username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}")
+          if gitea admin user change-password --help | grep -qF -- '--must-change-password'; then
+            change_args+=(--must-change-password=false)
+          fi
+          gitea admin user change-password "${change_args[@]}"
+          echo '...password sync done.'
+        else
+          echo "Admin account '${GITEA_ADMIN_USERNAME}' already exist, but update mode is set to '${GITEA_ADMIN_PASSWORD_MODE}'. Skipping."
+        fi
       fi
     }
 
@@ -340,8 +362,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: my-gitea-http
+  namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: my-gitea
@@ -366,8 +389,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: my-gitea-ssh
+  namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: my-gitea
@@ -394,9 +418,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: my-gitea
+  namespace: gitea
   annotations:
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: my-gitea
@@ -417,9 +442,9 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 4affb139fd91e1b3dfffcea0f06c45d2d217e94c7c4efffd6b2636bc48ebd552
+        checksum/config: 84d963775a319c5adebc83ffa879c7b7fa826991fd52351dc371e4f706025be4
       labels:
-        helm.sh/chart: gitea-10.1.4
+        helm.sh/chart: gitea-10.6.0
         app: gitea
         app.kubernetes.io/name: gitea
         app.kubernetes.io/instance: my-gitea
@@ -516,6 +541,8 @@ spec:
                 secretKeyRef:
                   key:  password
                   name: gitea-credential
+            - name: GITEA_ADMIN_PASSWORD_MODE
+              value: keepUpdated
           volumeMounts:
             - name: init
               mountPath: /usr/sbin
@@ -698,7 +725,7 @@ spec:
                   number: 3000
             path: /gitea(/|$)(.*)
             pathType: ImplementationSpecific
-{{ else if ( ne .Host "adhar.localtest.me") }}
+{{- else if ( ne .Host "adhar.localtest.me") }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

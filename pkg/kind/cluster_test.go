@@ -21,6 +21,7 @@ func TestGetConfig(t *testing.T) {
 	type tc struct {
 		host           string
 		port           string
+		registryConfig []string
 		usePathRouting bool
 		expectConfig   string
 	}
@@ -29,6 +30,7 @@ func TestGetConfig(t *testing.T) {
 		{
 			host:           "adhar.localtest.me",
 			port:           "8443",
+			registryConfig: []string{},
 			usePathRouting: false,
 			expectConfig: `
 kind: Cluster
@@ -58,6 +60,7 @@ containerdConfigPatches:
 		{
 			host:           "adhar.localtest.me",
 			port:           "8443",
+			registryConfig: []string{"testdata/doesnt-exist.json", "testdata/empty.json"},
 			usePathRouting: true,
 			expectConfig: `
 kind: Cluster
@@ -77,7 +80,9 @@ nodes:
   - containerPort: 32222
     hostPort: 32222
     protocol: TCP
-
+  extraMounts:
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: testdata/empty.json
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry.mirrors."adhar.localtest.me:8443"]
@@ -89,7 +94,7 @@ containerdConfigPatches:
 
 	for i := range tcs {
 		c := tcs[i]
-		cluster, err := NewCluster("testcase", "v1.30.3", "", "", "", v1alpha1.BuildCustomizationSpec{
+		cluster, err := NewCluster("testcase", "v1.26.3", "", "", "", c.registryConfig, v1alpha1.BuildCustomizationSpec{
 			Host:           c.host,
 			Port:           c.port,
 			UsePathRouting: c.usePathRouting,
@@ -104,8 +109,8 @@ containerdConfigPatches:
 
 func TestExtraPortMappings(t *testing.T) {
 
-	cluster, err := NewCluster("testcase", "v1.30.3", "", "", "22:32222", v1alpha1.BuildCustomizationSpec{
-		Host: "adhar.localtest.me",
+	cluster, err := NewCluster("testcase", "v1.26.3", "", "", "22:32222", nil, v1alpha1.BuildCustomizationSpec{
+		Host: "cnoe.localtest.me",
 		Port: "8443",
 	}, logr.Discard())
 	if err != nil {
@@ -190,7 +195,7 @@ func TestGetConfigCustom(t *testing.T) {
 	}
 
 	for _, v := range cases {
-		c, _ := NewCluster("testcase", "v1.30.3", "", v.inputPath, "", v1alpha1.BuildCustomizationSpec{
+		c, _ := NewCluster("testcase", "v1.26.3", "", v.inputPath, "", nil, v1alpha1.BuildCustomizationSpec{
 			Host:     "adhar.localtest.me",
 			Port:     v.hostPort,
 			Protocol: v.protocol,

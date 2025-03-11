@@ -46,7 +46,5 @@ ingress:
 
 image:
   pullPolicy: "IfNotPresent"
-  tag: "1.22.3"
-  
   # Adds -rootless suffix to image name
   rootless: true
