@@ -261,7 +261,7 @@ func printSuccessMsg() {
 
 	fmt.Print("\n\n########################### Finished Creating Adhar IDP Successfully! ############################\n\n\n")
 	fmt.Printf("Can Access ArgoCD at %s\nUsername: admin\n", argoURL)
-	fmt.Print(`Password can be retrieved by running: idpbuilder get secrets -p argocd`, "\n")
+	fmt.Print(`Password can be retrieved by running: adhar get secrets -p argocd`, "\n")
 }
 
 func behindProxy() bool {

@@ -20,7 +20,7 @@ This can be useful in several ways:
 
 ## Getting Started
 
-Checkout our [documentation website](https://cnoe.io/docs/reference-implementation/installations/idpbuilder) for getting started with idpbuilder.
+Checkout our [documentation website](https://adhar.io/docs/reference-implementation/installations/adhar) for getting started with adhar.
 
 ## Community
 
@@ -30,17 +30,3 @@ Checkout our [documentation website](https://cnoe.io/docs/reference-implementati
 ## Contribution
 
 Checkout the [contribution doc](./CONTRIBUTING.md) for contribution guidelines and more information on how to set up your local environment.
-
-
-<!-- JUST BADGES & LINKS -->
-[codespell-badge]: https://github.com/cnoe-io/idpbuilder/actions/workflows/codespell.yaml/badge.svg
-[codespell-link]: https://github.com/cnoe-io/idpbuilder/actions/workflows/codespell.yaml
-
-[e2e-badge]: https://github.com/cnoe-io/idpbuilder/actions/workflows/e2e.yaml/badge.svg
-[e2e-link]: https://github.com/cnoe-io/idpbuilder/actions/workflows/e2e.yaml
-
-[report-badge]: https://goreportcard.com/badge/github.com/cnoe-io/idpbuilder
-[report-link]: https://goreportcard.com/report/github.com/cnoe-io/idpbuilder
-
-[commit-activity-badge]: https://img.shields.io/github/commit-activity/m/cnoe-io/idpbuilder
-[commit-activity-link]: https://github.com/cnoe-io/idpbuilder/pulse

@@ -12,7 +12,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: cnoe://test1
+        repoURL: adhar://test1
         targetRevision: HEAD
         path: '{{path}}'
       destination:

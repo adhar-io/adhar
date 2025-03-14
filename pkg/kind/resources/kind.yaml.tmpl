@@ -20,14 +20,13 @@ nodes:
     hostPort: {{ .HostPort }}
     protocol: TCP
   {{- end }}
-{{- if .RegistryConfig }}
-  extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: {{ .RegistryConfig }}
-{{- end }}
   extraMounts:
   - hostPath: ./backup # replace with your own path
     containerPath: /backup
+{{- if .RegistryConfig }}
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: {{ .RegistryConfig }}
+{{- end }}
 #networking:
   #disableDefaultCNI: true   # do not install kindnet
   #kubeProxyMode: none       # do not run kube-proxy

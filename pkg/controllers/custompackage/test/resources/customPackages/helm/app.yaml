@@ -8,14 +8,14 @@ spec:
     namespace: my-app-helm
     server: "https://kubernetes.default.svc"
   source:
-    repoURL: cnoe://test
+    repoURL: adhar://test
     targetRevision: HEAD
     path: "."
     helm:
       valuesObject:
-        repoURLGit: cnoe://test
+        repoURLGit: adhar://test
         nested:
-          repoURLGit: cnoe://test
+          repoURLGit: adhar://test
   project: default
   syncPolicy:
     automated:

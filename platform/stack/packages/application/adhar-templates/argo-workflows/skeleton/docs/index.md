@@ -1,4 +1,4 @@
-![cnoe logo](./images/cnoe-logo.png)
+![adhar logo](./images/adhar-logo.png)
 
 # Example Spark Application
 

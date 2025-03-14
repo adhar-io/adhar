@@ -1,7 +1,7 @@
 apiVersion: kyverno.io/v2beta1
 kind: PolicyException
 metadata:
-  name: system-cnoe-operation
+  name: system-adhar-operation
   namespace: kyverno
 spec:
   exceptions:

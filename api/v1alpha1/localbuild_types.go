@@ -9,15 +9,15 @@ import (
 
 const (
 	// LastObservedCLIStartTimeAnnotation indicates when the controller acted on a resource.
-	LastObservedCLIStartTimeAnnotation = "cnoe.io/last-observed-cli-start-time"
+	LastObservedCLIStartTimeAnnotation = "adhar.io/last-observed-cli-start-time"
 	// CliStartTimeAnnotation indicates when the CLI was invoked.
-	CliStartTimeAnnotation = "cnoe.io/cli-start-time"
-	FieldManager           = "idpbuilder"
+	CliStartTimeAnnotation = "adhar.io/cli-start-time"
+	FieldManager           = "adhar"
 	// If GetSecretLabelKey is set to GetSecretLabelValue on a kubernetes secret, secret key and values can be used by the get command.
-	CLISecretLabelKey      = "cnoe.io/cli-secret"
+	CLISecretLabelKey      = "adhar.io/cli-secret"
 	CLISecretLabelValue    = "true"
-	PackageNameLabelKey    = "cnoe.io/package-name"
-	PackageTypeLabelKey    = "cnoe.io/package-type"
+	PackageNameLabelKey    = "adhar.io/package-name"
+	PackageTypeLabelKey    = "adhar.io/package-type"
 	PackageTypeLabelCore   = "core"
 	PackageTypeLabelCustom = "custom"
 

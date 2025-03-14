@@ -57,7 +57,7 @@ func testCreate(t *testing.T) {
 	defer CleanUpDocker(t)
 
 	t.Log("running adhar up")
-	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, "up")
+	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up")
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, b)
 
@@ -80,7 +80,7 @@ func testCreatePath(t *testing.T) {
 	defer CleanUpDocker(t)
 
 	t.Log("running adhar up --use-path-routing")
-	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, "up", "--use-path-routing", "--package=../../../platform/stack")
+	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up", "--use-path-routing", "--package=../../../platform/stack")
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, fmt.Sprintf("error while running create: %s, %s", err, b))
 
@@ -103,7 +103,7 @@ func testCreatePort(t *testing.T) {
 
 	port := "2443"
 	t.Logf("running adhar up --port %s", port)
-	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, "up", "--use-path-routing", "--port", port, "--package=../../../platform/stack")
+	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up", "--use-path-routing", "--port", port, "--package=../../../platform/stack")
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, fmt.Sprintf("error while running up: %s, %s", err, b))
 
@@ -125,7 +125,7 @@ func testCustomPkg(t *testing.T) {
 	cmdString := "up --use-path-routing --package ../../../pkg/controllers/custompackage/test/resources/customPackages/testDir"
 
 	t.Log(fmt.Sprintf("running %s", cmdString))
-	cmd := exec.CommandContext(ctx, e2e.IdpbuilderBinaryLocation, strings.Split(cmdString, " ")...)
+	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, strings.Split(cmdString, " ")...)
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, fmt.Sprintf("error while running up: %s, %s", err, b))
 

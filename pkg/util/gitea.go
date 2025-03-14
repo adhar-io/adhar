@@ -23,7 +23,7 @@ const (
 	GiteaAdminTokenName      = "admin"
 	GiteaAdminTokenFieldName = "token"
 	// this is the URL accessible outside cluster. resolves to localhost
-	GiteaIngressURL = "%s://gitea.cnoe.localtest.me:%s"
+	GiteaIngressURL = "%s://gitea.adhar.localtest.me:%s"
 	// this is the URL accessible within cluster for ArgoCD to fetch resources.
 	// resolves to cluster ip
 	GiteaSvcURL = "%s://%s%s:%s%s"

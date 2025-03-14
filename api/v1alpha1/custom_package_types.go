@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	CNOEURIScheme = "cnoe://"
+	ADHARURIScheme = "adhar://"
 )
 
 // +kubebuilder:object:root=true

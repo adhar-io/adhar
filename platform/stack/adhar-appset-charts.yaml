@@ -11,7 +11,7 @@ spec:
     - matrix:
         generators:
           - git:
-              repoURL: "cnoe://environments"
+              repoURL: "adhar://environments"
               revision: HEAD
               files:
                 - path: "**/config.yaml"
@@ -32,13 +32,13 @@ spec:
       name: "{{ .name }}"
       labels:
         environment: "{{ .environment }}"
-        cnoe.io/package-name: adhar-stack
+        adhar.io/package-name: adhar-stack
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:
       project: default
       sources:
-        - repoURL: "cnoe://packages"
+        - repoURL: "adhar://packages"
           targetRevision: HEAD
           path: "{{ .manifestPath }}"
           helm:

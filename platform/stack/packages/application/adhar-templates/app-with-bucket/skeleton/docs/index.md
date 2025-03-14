@@ -1,15 +1,15 @@
-![cnoe logo](./images/cnoe-logo.png)
+![adha logo](./images/adhar-logo.png)
 
 # Example Basic Application
 
 Thanks for trying out this demo! In this example, we deployed a simple application with a S3 bucket using Crossplane.
 
 
-### idpbuilder 
+### aadhar 
 
-Checkout the idpbuilder website: https://cnoe.io/docs/reference-implementation/installations/idpbuilder
+Checkout the adhar website: https://adhar.io/docs/reference-implementation/installations/adhar
 
-Checkout the idpbuilder repository: https://github.com/cnoe-io/idpbuilder
+Checkout the adhar repository: https://github.com/adhar-io/adhar
 
 ## Crossplane
 

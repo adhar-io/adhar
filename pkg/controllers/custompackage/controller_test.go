@@ -90,8 +90,8 @@ func TestReconcileCustomPkg(t *testing.T) {
 			},
 			Spec: v1alpha1.CustomPackageSpec{
 				Replicate:           true,
-				GitServerURL:        "https://cnoe.io",
-				InternalGitServeURL: "http://internal.cnoe.io",
+				GitServerURL:        "https://adhar.io",
+				InternalGitServeURL: "http://internal.adhar.io",
 				ArgoCD: v1alpha1.ArgoCDPackageSpec{
 					ApplicationFile: filepath.Join(cwd, "test/resources/customPackages/testDir/app.yaml"),
 					Name:            "my-app",
@@ -108,8 +108,8 @@ func TestReconcileCustomPkg(t *testing.T) {
 			},
 			Spec: v1alpha1.CustomPackageSpec{
 				Replicate:           false,
-				GitServerURL:        "https://cnoe.io",
-				InternalGitServeURL: "http://cnoe.io/internal",
+				GitServerURL:        "https://adhar.io",
+				InternalGitServeURL: "http://adhar.io/internal",
 				ArgoCD: v1alpha1.ArgoCDPackageSpec{
 					ApplicationFile: filepath.Join(cwd, "test/resources/customPackages/testDir2/exampleApp.yaml"),
 					Name:            "guestbook",
@@ -126,8 +126,8 @@ func TestReconcileCustomPkg(t *testing.T) {
 			},
 			Spec: v1alpha1.CustomPackageSpec{
 				Replicate:           true,
-				GitServerURL:        "https://cnoe.io",
-				InternalGitServeURL: "http://internal.cnoe.io",
+				GitServerURL:        "https://adhar.io",
+				InternalGitServeURL: "http://internal.adhar.io",
 				ArgoCD: v1alpha1.ArgoCDPackageSpec{
 					ApplicationFile: filepath.Join(cwd, "test/resources/customPackages/testDir/app2.yaml"),
 					Name:            "my-app2",
@@ -179,8 +179,8 @@ func TestReconcileCustomPkg(t *testing.T) {
 			},
 			Provider: v1alpha1.Provider{
 				Name:             v1alpha1.GitProviderGitea,
-				GitURL:           "https://cnoe.io",
-				InternalGitURL:   "http://internal.cnoe.io",
+				GitURL:           "https://adhar.io",
+				InternalGitURL:   "http://internal.adhar.io",
 				OrganizationName: v1alpha1.GiteaAdminUserName,
 			},
 		},
@@ -228,14 +228,14 @@ func TestReconcileCustomPkg(t *testing.T) {
 		}
 
 		if app.Spec.Sources == nil {
-			if strings.HasPrefix(app.Spec.Source.RepoURL, v1alpha1.CNOEURIScheme) {
-				t.Fatalf("%s prefix should be removed", v1alpha1.CNOEURIScheme)
+			if strings.HasPrefix(app.Spec.Source.RepoURL, v1alpha1.ADHARURIScheme) {
+				t.Fatalf("%s prefix should be removed", v1alpha1.ADHARURIScheme)
 			}
 			continue
 		}
 		for _, s := range app.Spec.Sources {
-			if strings.HasPrefix(s.RepoURL, v1alpha1.CNOEURIScheme) {
-				t.Fatalf("%s prefix should be removed", v1alpha1.CNOEURIScheme)
+			if strings.HasPrefix(s.RepoURL, v1alpha1.ADHARURIScheme) {
+				t.Fatalf("%s prefix should be removed", v1alpha1.ADHARURIScheme)
 			}
 		}
 
@@ -314,8 +314,8 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 				},
 				Spec: v1alpha1.CustomPackageSpec{
 					Replicate:           true,
-					GitServerURL:        "https://cnoe.io",
-					InternalGitServeURL: "http://internal.cnoe.io",
+					GitServerURL:        "https://adhar.io",
+					InternalGitServeURL: "http://internal.adhar.io",
 					ArgoCD: v1alpha1.ArgoCDPackageSpec{
 						ApplicationFile: filepath.Join(cwd, "test/resources/customPackages/applicationSet/generator-single-source.yaml"),
 						Type:            "ApplicationSet",
@@ -334,8 +334,8 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 					},
 					Provider: v1alpha1.Provider{
 						Name:             v1alpha1.GitProviderGitea,
-						GitURL:           "https://cnoe.io",
-						InternalGitURL:   "http://internal.cnoe.io",
+						GitURL:           "https://adhar.io",
+						InternalGitURL:   "http://internal.adhar.io",
 						OrganizationName: v1alpha1.GiteaAdminUserName,
 					},
 				},
@@ -372,8 +372,8 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 				},
 				Spec: v1alpha1.CustomPackageSpec{
 					Replicate:           true,
-					GitServerURL:        "https://cnoe.io",
-					InternalGitServeURL: "http://internal.cnoe.io",
+					GitServerURL:        "https://adhar.io",
+					InternalGitServeURL: "http://internal.adhar.io",
 					ArgoCD: v1alpha1.ArgoCDPackageSpec{
 						ApplicationFile: filepath.Join(cwd, "test/resources/customPackages/applicationSet/generator-multi-sources.yaml"),
 						Type:            "ApplicationSet",
@@ -392,8 +392,8 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 					},
 					Provider: v1alpha1.Provider{
 						Name:             v1alpha1.GitProviderGitea,
-						GitURL:           "https://cnoe.io",
-						InternalGitURL:   "http://internal.cnoe.io",
+						GitURL:           "https://adhar.io",
+						InternalGitURL:   "http://internal.adhar.io",
 						OrganizationName: v1alpha1.GiteaAdminUserName,
 					},
 				},
@@ -432,8 +432,8 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 				},
 				Spec: v1alpha1.CustomPackageSpec{
 					Replicate:           true,
-					GitServerURL:        "https://cnoe.io",
-					InternalGitServeURL: "http://internal.cnoe.io",
+					GitServerURL:        "https://adhar.io",
+					InternalGitServeURL: "http://internal.adhar.io",
 					ArgoCD: v1alpha1.ArgoCDPackageSpec{
 						ApplicationFile: filepath.Join(cwd, "test/resources/customPackages/applicationSet/no-generator-single-source.yaml"),
 						Type:            "ApplicationSet",
@@ -452,8 +452,8 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 					},
 					Provider: v1alpha1.Provider{
 						Name:             v1alpha1.GitProviderGitea,
-						GitURL:           "https://cnoe.io",
-						InternalGitURL:   "http://internal.cnoe.io",
+						GitURL:           "https://adhar.io",
+						InternalGitURL:   "http://internal.adhar.io",
 						OrganizationName: v1alpha1.GiteaAdminUserName,
 					},
 				},
@@ -483,8 +483,8 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 				},
 				Spec: v1alpha1.CustomPackageSpec{
 					Replicate:           true,
-					GitServerURL:        "https://cnoe.io",
-					InternalGitServeURL: "http://internal.cnoe.io",
+					GitServerURL:        "https://adhar.io",
+					InternalGitServeURL: "http://internal.adhar.io",
 					ArgoCD: v1alpha1.ArgoCDPackageSpec{
 						ApplicationFile: filepath.Join(cwd, "test/resources/customPackages/applicationSet/generator-matrix.yaml"),
 						Type:            "ApplicationSet",
@@ -503,8 +503,8 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 					},
 					Provider: v1alpha1.Provider{
 						Name:             v1alpha1.GitProviderGitea,
-						GitURL:           "https://cnoe.io",
-						InternalGitURL:   "http://internal.cnoe.io",
+						GitURL:           "https://adhar.io",
+						InternalGitURL:   "http://internal.adhar.io",
 						OrganizationName: v1alpha1.GiteaAdminUserName,
 					},
 				},
@@ -562,11 +562,11 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 			for j := range tc.expectedApplicationSet.Spec.Template.Spec.Sources {
 				exs := tc.expectedApplicationSet.Spec.Template.Spec.Sources[j]
 				assert.Equal(t, exs.RepoURL, appset.Spec.Template.Spec.Sources[j].RepoURL)
-				assert.False(t, strings.HasPrefix(appset.Spec.Template.Spec.Sources[j].RepoURL, v1alpha1.CNOEURIScheme))
+				assert.False(t, strings.HasPrefix(appset.Spec.Template.Spec.Sources[j].RepoURL, v1alpha1.ADHARURIScheme))
 			}
 		} else {
 			assert.Equal(t, tc.expectedApplicationSet.Spec.Template.Spec.Source.RepoURL, appset.Spec.Template.Spec.Source.RepoURL)
-			assert.False(t, strings.HasPrefix(appset.Spec.Template.Spec.Source.RepoURL, v1alpha1.CNOEURIScheme))
+			assert.False(t, strings.HasPrefix(appset.Spec.Template.Spec.Source.RepoURL, v1alpha1.ADHARURIScheme))
 		}
 
 		if len(tc.expectedApplicationSet.Spec.Generators) > 0 {
@@ -664,8 +664,8 @@ func TestReconcileHelmValueObject(t *testing.T) {
 		},
 		Spec: v1alpha1.CustomPackageSpec{
 			Replicate:           true,
-			GitServerURL:        "https://cnoe.io",
-			InternalGitServeURL: "http://internal.cnoe.io",
+			GitServerURL:        "https://adhar.io",
+			InternalGitServeURL: "http://internal.adhar.io",
 			ArgoCD: v1alpha1.ArgoCDPackageSpec{
 				ApplicationFile: filepath.Join(cwd, "test/resources/customPackages/helm/app.yaml"),
 				Name:            "my-app",
@@ -679,9 +679,9 @@ func TestReconcileHelmValueObject(t *testing.T) {
 		Helm: &argov1alpha1.ApplicationSourceHelm{
 			ValuesObject: &k8sruntime.RawExtension{
 				Raw: []byte(`{
-				 "repoURLGit": "cnoe://test",
+				 "repoURLGit": "adhar://test",
 				 "nested": {
-				   "repoURLGit": "cnoe://test",
+				   "repoURLGit": "adhar://test",
 				   "bool": true,
 				   "int": 123
 				 },
@@ -689,13 +689,13 @@ func TestReconcileHelmValueObject(t *testing.T) {
 				 "int": 456,
 				 "arrayString": [
 				   "abc",
-				   "cnoe://test"
+				   "adhar://test"
 				 ],
 				 "arrayMap": [
 				   {
-				     "test": "cnoe://test",
+				     "test": "adhar://test",
 				     "nested": {
-				       "test": "cnoe://test"
+				       "test": "adhar://test"
 				     }
 				   }
 				 ]

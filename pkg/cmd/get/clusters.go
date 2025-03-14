@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/kind/pkg/cluster"
 )
 
-// ClusterManager holds the clients for the different idpbuilder clusters
+// ClusterManager holds the clients for the different adhar clusters
 type ClusterManager struct {
 	clients map[string]client.Client // map of cluster name to client
 }
@@ -91,7 +91,7 @@ func populateClusterList() ([]idpTypes.Cluster, error) {
 		return nil, err
 	}
 
-	// Populate a list of Kube client for each cluster/context matching an idpbuilder cluster
+	// Populate a list of Kube client for each cluster/context matching an adhar cluster
 	manager, err := CreateKubeClientForEachIDPCluster(config, clusters)
 	if err != nil {
 		return nil, err

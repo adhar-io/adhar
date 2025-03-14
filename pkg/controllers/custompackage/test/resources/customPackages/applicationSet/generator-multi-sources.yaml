@@ -6,7 +6,7 @@ metadata:
 spec:
   generators:
     - git:
-        repoURL: cnoe://test1
+        repoURL: adhar://test1
         revision: HEAD
         directories:
           - path: apps/*
@@ -16,7 +16,7 @@ spec:
     spec:
       project: default
       sources:
-        - repoURL: cnoe://test1
+        - repoURL: adhar://test1
           targetRevision: HEAD
           path: '{{path}}'
       destination:

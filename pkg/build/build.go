@@ -117,9 +117,9 @@ func (b *Build) GetKubeClient(kubeConfig *rest.Config) (client.Client, error) {
 }
 
 func (b *Build) ReconcileCRDs(ctx context.Context, kubeClient client.Client) error {
-	// Ensure idpbuilder CRDs
+	// Ensure adhar CRDs
 	if err := controllers.EnsureCRDs(ctx, b.scheme, kubeClient, b.cfg); err != nil {
-		setupLog.Error(err, "Error creating idpbuilder CRDs")
+		setupLog.Error(err, "Error creating adhar CRDs")
 		return err
 	}
 	return nil

@@ -7,12 +7,12 @@
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
   "postCreateCommand": ".devcontainer/postCreateCommand.sh",
-  "workspaceFolder": "/home/vscode/idpbuilder",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/home/vscode/idpbuilder,type=bind",
+  "workspaceFolder": "/home/vscode/adhar",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/vscode/adhar,type=bind",
   "hostRequirements": {
     "cpus": 4
   },
   "remoteEnv": {
-    "PATH": "${containerEnv:PATH}:/home/vscode/idpbuilder"
+    "PATH": "${containerEnv:PATH}:/home/vscode/adhar"
   }
 }

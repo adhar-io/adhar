@@ -8,10 +8,10 @@ spec:
     namespace: my-app2
     server: "https://kubernetes.default.svc"
   sources:
-    - repoURL: cnoe://app2
+    - repoURL: adhar://app2
       targetRevision: HEAD
       path: "one"
-    - repoURL: cnoe://app2
+    - repoURL: adhar://app2
       targetRevision: HEAD
       path: "two"
   project: default

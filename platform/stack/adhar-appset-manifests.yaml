@@ -11,7 +11,7 @@ spec:
     - matrix:
         generators:
           - git:
-              repoURL: "cnoe://environments"
+              repoURL: "adhar://environments"
               revision: HEAD
               files:
                 - path: "**/config.yaml"
@@ -37,7 +37,7 @@ spec:
     spec:
       project: default
       sources:
-        - repoURL: "cnoe://packages"
+        - repoURL: "adhar://packages"
           targetRevision: HEAD
           path: "{{ .manifestPath }}"
       destination:

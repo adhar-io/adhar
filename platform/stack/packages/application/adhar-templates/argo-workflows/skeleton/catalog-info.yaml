@@ -9,10 +9,10 @@ metadata:
     backstage.io/kubernetes-label-selector: 'entity-id=${{values.name}}'
     backstage.io/kubernetes-namespace: argo
     argocd/app-name: ${{values.name | dump}}
-    argo-workflows.cnoe.io/label-selector: env=dev,entity-id=${{values.name}}
-    argo-workflows.cnoe.io/cluster-name: local
-    apache-spark.cnoe.io/label-selector: env=dev,entity-id=${{values.name}}
-    apache-spark.cnoe.io/cluster-name: local
+    argo-workflows.adhar.io/label-selector: env=dev,entity-id=${{values.name}}
+    argo-workflows.adhar.io/cluster-name: local
+    apache-spark.adhar.io/label-selector: env=dev,entity-id=${{values.name}}
+    apache-spark.adhar.io/cluster-name: local
   links:
     - url: https://adhar.localtest.me:8443/gitea
       title: Repo URL
@@ -31,8 +31,8 @@ metadata:
   annotations:
     backstage.io/techdocs-ref: dir:.
   links:
-    - url: https://github.com/cnoe-io/stacks/tree/main/ref-implementation
-      title: CNOE Repo
+    - url: https://github.com/adhar-io/stacks/tree/main/ref-implementation
+      title: Adhar Repo
       icon: github
 spec:
   owner: guests

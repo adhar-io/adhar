@@ -275,7 +275,7 @@ func (r *Reconciler) reconcileArgoCDAppSet(ctx context.Context, resource *v1alph
 
 // create a gitrepository custom resource, then let the git repository controller take care of the rest
 func (r *Reconciler) reconcileArgoCDSource(ctx context.Context, resource *v1alpha1.CustomPackage, repoUrl, appName string) (ctrl.Result, *v1alpha1.GitRepository, error) {
-	if isCNOEScheme(repoUrl) {
+	if isADHARScheme(repoUrl) {
 		if resource.Spec.RemoteRepository.Url == "" {
 			return r.reconcileArgoCDSourceFromLocal(ctx, resource, appName, repoUrl)
 		}
@@ -285,7 +285,7 @@ func (r *Reconciler) reconcileArgoCDSource(ctx context.Context, resource *v1alph
 }
 
 func (r *Reconciler) reconcileArgoCDSourceFromRemote(ctx context.Context, resource *v1alpha1.CustomPackage, appName, repoURL string) (ctrl.Result, *v1alpha1.GitRepository, error) {
-	relativePath := strings.TrimPrefix(repoURL, v1alpha1.CNOEURIScheme)
+	relativePath := strings.TrimPrefix(repoURL, v1alpha1.ADHARURIScheme)
 	// no guarantee that this path exists
 	dirPath := filepath.Join(resource.Spec.RemoteRepository.Path, relativePath)
 
@@ -336,7 +336,7 @@ func (r *Reconciler) reconcileArgoCDSourceFromRemote(ctx context.Context, resour
 func (r *Reconciler) reconcileArgoCDSourceFromLocal(ctx context.Context, resource *v1alpha1.CustomPackage, appName, repoURL string) (ctrl.Result, *v1alpha1.GitRepository, error) {
 	logger := log.FromContext(ctx)
 
-	absPath, err := getCNOEAbsPath(resource.Spec.ArgoCD.ApplicationFile, repoURL)
+	absPath, err := getADHARAbsPath(resource.Spec.ArgoCD.ApplicationFile, repoURL)
 	if err != nil {
 		logger.Error(err, "processing argocd app source", "dir", resource.Spec.ArgoCD.ApplicationFile, "repoURL", repoURL)
 		return ctrl.Result{}, nil, err
@@ -480,13 +480,13 @@ func remoteRepoName(appName, pathToPkg string, repo v1alpha1.RemoteRepositorySpe
 	return fmt.Sprintf("%s-%s", appName, filepath.Base(pathToPkg))
 }
 
-func isCNOEScheme(repoURL string) bool {
-	return strings.HasPrefix(repoURL, v1alpha1.CNOEURIScheme)
+func isADHARScheme(repoURL string) bool {
+	return strings.HasPrefix(repoURL, v1alpha1.ADHARURIScheme)
 }
 
-func getCNOEAbsPath(fPath, repoURL string) (string, error) {
+func getADHARAbsPath(fPath, repoURL string) (string, error) {
 	parentDir := filepath.Dir(fPath)
-	relativePath := strings.TrimPrefix(repoURL, v1alpha1.CNOEURIScheme)
+	relativePath := strings.TrimPrefix(repoURL, v1alpha1.ADHARURIScheme)
 	absPath, err := filepath.Abs(filepath.Join(parentDir, relativePath))
 	if err != nil {
 		return "", err

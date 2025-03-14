@@ -39,8 +39,8 @@ metadata:
   annotations:
     backstage.io/techdocs-ref: dir:.
   links:
-    - url: https://github.com/cnoe-io/stacks/tree/main/ref-implementation
-      title: CNOE Repo
+    - url: https://github.com/adhar-io/stacks/tree/main/ref-implementation
+      title: Adhar Repo
       icon: github
 spec:
   owner: guests

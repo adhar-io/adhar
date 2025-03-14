@@ -95,13 +95,13 @@ func printAllPackageSecrets(ctx context.Context, outWriter io.Writer, kubeClient
 		}
 	}
 
-	cnoeLabelSecrets, err := getSecretsByCNOELabel(ctx, kubeClient, selector)
+	adharLabelSecrets, err := getSecretsByADHARLabel(ctx, kubeClient, selector)
 	if err != nil {
 		return fmt.Errorf("listing secrets: %w", err)
 	}
 
-	for i := range cnoeLabelSecrets.Items {
-		secrets = append(secrets, populateSecret(cnoeLabelSecrets.Items[i], false))
+	for i := range adharLabelSecrets.Items {
+		secrets = append(secrets, populateSecret(adharLabelSecrets.Items[i], false))
 	}
 
 	if len(secrets) == 0 {
@@ -144,13 +144,13 @@ func printPackageSecrets(ctx context.Context, outWriter io.Writer, kubeClient cl
 
 		pkgSelector := selector.Add(*req)
 
-		cnoeLabelSecrets, err := getSecretsByCNOELabel(ctx, kubeClient, pkgSelector)
+		adharLabelSecrets, err := getSecretsByADHARLabel(ctx, kubeClient, pkgSelector)
 		if err != nil {
 			return fmt.Errorf("listing secrets: %w", err)
 		}
 
-		for i := range cnoeLabelSecrets.Items {
-			secrets = append(secrets, populateSecret(cnoeLabelSecrets.Items[i], false))
+		for i := range adharLabelSecrets.Items {
+			secrets = append(secrets, populateSecret(adharLabelSecrets.Items[i], false))
 		}
 
 		if len(secrets) == 0 {
@@ -188,7 +188,7 @@ func populateSecret(s v1.Secret, isCoreSecret bool) types.Secret {
 	return secret
 }
 
-func getSecretsByCNOELabel(ctx context.Context, kubeClient client.Client, l labels.Selector) (v1.SecretList, error) {
+func getSecretsByADHARLabel(ctx context.Context, kubeClient client.Client, l labels.Selector) (v1.SecretList, error) {
 	req, err := labels.NewRequirement(v1alpha1.CLISecretLabelKey, selection.Equals, []string{v1alpha1.CLISecretLabelValue})
 	if err != nil {
 		return v1.SecretList{}, fmt.Errorf("building labels with key %s and value %s : %w", v1alpha1.CLISecretLabelKey, v1alpha1.CLISecretLabelValue, err)

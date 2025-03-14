@@ -13,7 +13,7 @@ const (
 	ArgocdInitialAdminSecretName = "argocd-initial-admin-secret"
 	ArgocdAdminName              = "admin"
 	ArgocdNamespace              = "argocd"
-	ArgocdIngressURL             = "%s://argocd.cnoe.localtest.me:%s"
+	ArgocdIngressURL             = "%s://argocd.adhar.localtest.me:%s"
 )
 
 func ArgocdBaseUrl(ctx context.Context) (string, error) {

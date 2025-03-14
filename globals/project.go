@@ -8,8 +8,8 @@ const (
 	NginxNamespace  string = "ingress-nginx"
 	ArgoCDNamespace string = "argocd"
 
-	SelfSignedCertSecretName = "idpbuilder-cert"
-	SelfSignedCertCMName     = "idpbuilder-cert"
+	SelfSignedCertSecretName = "adhar-cert"
+	SelfSignedCertCMName     = "adhar-cert"
 	SelfSignedCertCMKeyName  = "ca.crt"
 	DefaultSANWildcard       = "*.adhar.localtest.me"
 	DefaultHostName          = "adhar.localtest.me"

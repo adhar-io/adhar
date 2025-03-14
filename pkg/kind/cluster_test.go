@@ -44,12 +44,12 @@ nodes:
   - containerPort: 443
     hostPort: 8443
     protocol: TCP
-  extraMounts:
-  - hostPath: ./backup
-    containerPath: /backup
   - containerPort: 32222
     hostPort: 32222
     protocol: TCP
+  extraMounts:
+  - hostPath: ./backup
+    containerPath: /backup
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gitea.adhar.localtest.me:8443"]
@@ -74,13 +74,12 @@ nodes:
   - containerPort: 443
     hostPort: 8443
     protocol: TCP
-  extraMounts:
-  - hostPath: ./backup
-    containerPath: /backup
   - containerPort: 32222
     hostPort: 32222
     protocol: TCP
   extraMounts:
+  - hostPath: ./backup
+    containerPath: /backup
   - containerPath: /var/lib/kubelet/config.json
     hostPath: testdata/empty.json
 containerdConfigPatches:
@@ -94,7 +93,7 @@ containerdConfigPatches:
 
 	for i := range tcs {
 		c := tcs[i]
-		cluster, err := NewCluster("testcase", "v1.26.3", "", "", "", c.registryConfig, v1alpha1.BuildCustomizationSpec{
+		cluster, err := NewCluster("testcase", "v1.30.3", "", "", "", c.registryConfig, v1alpha1.BuildCustomizationSpec{
 			Host:           c.host,
 			Port:           c.port,
 			UsePathRouting: c.usePathRouting,
@@ -109,8 +108,8 @@ containerdConfigPatches:
 
 func TestExtraPortMappings(t *testing.T) {
 
-	cluster, err := NewCluster("testcase", "v1.26.3", "", "", "22:32222", nil, v1alpha1.BuildCustomizationSpec{
-		Host: "cnoe.localtest.me",
+	cluster, err := NewCluster("testcase", "v1.30.3", "", "", "22:32222", nil, v1alpha1.BuildCustomizationSpec{
+		Host: "adhar.localtest.me",
 		Port: "8443",
 	}, logr.Discard())
 	if err != nil {
@@ -195,7 +194,7 @@ func TestGetConfigCustom(t *testing.T) {
 	}
 
 	for _, v := range cases {
-		c, _ := NewCluster("testcase", "v1.26.3", "", v.inputPath, "", nil, v1alpha1.BuildCustomizationSpec{
+		c, _ := NewCluster("testcase", "v1.30.3", "", v.inputPath, "", nil, v1alpha1.BuildCustomizationSpec{
 			Host:     "adhar.localtest.me",
 			Port:     v.hostPort,
 			Protocol: v.protocol,

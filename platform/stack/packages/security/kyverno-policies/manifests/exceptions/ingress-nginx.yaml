@@ -1,7 +1,7 @@
 apiVersion: kyverno.io/v2beta1
 kind: PolicyException
 metadata:
-  name: ingress-nginx-cnoe-operation
+  name: ingress-nginx-adhar-operation
   namespace: kyverno
 spec:
   exceptions:

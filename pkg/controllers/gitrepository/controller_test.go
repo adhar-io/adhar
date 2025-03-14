@@ -299,7 +299,7 @@ func TestGitRepositoryContentReconcileEmbedded(t *testing.T) {
 				Type:            "embedded",
 			},
 			Provider: v1alpha1.Provider{
-				InternalGitURL: "http://cnoe.io",
+				InternalGitURL: "http://adhar.io",
 			},
 		},
 	}
@@ -360,7 +360,7 @@ func TestGitRepositoryReconcile(t *testing.T) {
 					},
 					Provider: v1alpha1.Provider{
 						Name:           v1alpha1.GitProviderGitea,
-						InternalGitURL: "http://cnoe.io",
+						InternalGitURL: "http://adhar.io",
 					},
 				},
 			},
@@ -369,7 +369,7 @@ func TestGitRepositoryReconcile(t *testing.T) {
 					ExternalGitRepositoryUrl: localReoDir,
 					LatestCommit:             v1alpha1.Commit{Hash: hash},
 					Synced:                   true,
-					InternalGitRepositoryUrl: "http://cnoe.io/giteaAdmin/test-test.git",
+					InternalGitRepositoryUrl: "http://adhar.io/giteaAdmin/test-test.git",
 				},
 			},
 		},
@@ -388,7 +388,7 @@ func TestGitRepositoryReconcile(t *testing.T) {
 					},
 					Provider: v1alpha1.Provider{
 						Name:           v1alpha1.GitProviderGitea,
-						InternalGitURL: "http://cnoe.io",
+						InternalGitURL: "http://adhar.io",
 					},
 				},
 			},
@@ -396,7 +396,7 @@ func TestGitRepositoryReconcile(t *testing.T) {
 				resource: v1alpha1.GitRepositoryStatus{
 					ExternalGitRepositoryUrl: updateDir,
 					Synced:                   true,
-					InternalGitRepositoryUrl: "http://cnoe.io/giteaAdmin/test-test.git",
+					InternalGitRepositoryUrl: "http://adhar.io/giteaAdmin/test-test.git",
 				},
 			},
 		},

@@ -17,7 +17,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -X github.com/adhar-io/adhar/pkg/cmd/version.idpbuilderVersion={{ .Version }}
+      - -X github.com/adhar-io/adhar/pkg/cmd/version.adharVersion={{ .Version }}
       - -X github.com/adhar-io/adhar/pkg/cmd/version.gitCommit={{ .FullCommit }}
       - -X github.com/adhar-io/adhar/pkg/cmd/version.buildDate={{ .CommitDate }}
       - -w
@@ -27,20 +27,20 @@ builds:
       - goos: linux
         goarch: '386'
 brews:
-  - name: idpbuilder
-    homepage: "https://cnoe.io"
+  - name: adhar
+    homepage: "https://adhar.io"
     repository:
-      owner: cnoe-io
+      owner: adhar-io
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TOKEN }}"
     commit_author:
-      name: "CNOEAutomation"
-      email: "noreply@cnoe.io"
+      name: "AdharAutomation"
+      email: "noreply@adhar.io"
     directory: Formula
     install: |
-      bin.install "idpbuilder"
+      bin.install "adhar"
     test: |
-      system "#{bin}/idpbuilder --version"
+      system "#{bin}/adhar --version"
 archives:
   - format: tar.gz
     name_template: >-

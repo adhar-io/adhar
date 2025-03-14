@@ -60,7 +60,7 @@ func printPackages(ctx context.Context, outWriter io.Writer, kubeClient client.C
 	customPackages := v1alpha1.CustomPackageList{}
 	var err error
 
-	idpbuilderNamespace, err := getIDPNamespace(ctx, kubeClient)
+	adharNamespace, err := getIDPNamespace(ctx, kubeClient)
 	if err != nil {
 		return fmt.Errorf("getting namespace: %w", err)
 	}
@@ -72,14 +72,14 @@ func printPackages(ctx context.Context, outWriter io.Writer, kubeClient client.C
 
 	if len(packages) == 0 {
 		// Get all custom packages
-		customPackages, err = getPackages(ctx, kubeClient, idpbuilderNamespace)
+		customPackages, err = getPackages(ctx, kubeClient, adharNamespace)
 		if err != nil {
 			return fmt.Errorf("listing custom packages: %w", err)
 		}
 	} else {
 		// Get the custom package using its name
 		for _, name := range packages {
-			cp, err := getPackageByName(ctx, kubeClient, idpbuilderNamespace, name)
+			cp, err := getPackageByName(ctx, kubeClient, adharNamespace, name)
 			if err != nil {
 				return fmt.Errorf("getting custom package %s: %w", name, err)
 			}
@@ -94,7 +94,7 @@ func printPackages(ctx context.Context, outWriter io.Writer, kubeClient client.C
 		newPackage.ArgocdRepository = argocdBaseUrl + "/applications/" + cp.Spec.ArgoCD.Namespace + "/" + cp.Spec.ArgoCD.Name
 		// There is a GitRepositoryRefs when the project has been cloned to the internal git repository
 		if cp.Status.GitRepositoryRefs != nil {
-			newPackage.GitRepository = cp.Spec.InternalGitServeURL + "/" + v1alpha1.GiteaAdminUserName + "/" + idpbuilderNamespace + "-" + cp.Status.GitRepositoryRefs[0].Name
+			newPackage.GitRepository = cp.Spec.InternalGitServeURL + "/" + v1alpha1.GiteaAdminUserName + "/" + adharNamespace + "-" + cp.Status.GitRepositoryRefs[0].Name
 		} else {
 			// Default branch reference
 			ref := "main"

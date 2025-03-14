@@ -1,6 +1,6 @@
 site_name: 'Argo Spark Example'
 nav:
   - Home: index.md
-  - idpBuilder: idpbuilder.md
+  - adhar: adhar.md
 plugins:
   - techdocs-core

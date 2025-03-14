@@ -28,14 +28,14 @@ import (
 )
 
 const (
-	IdpbuilderBinaryLocation = "../../../adhar"
-	DefaultPort              = "8443"
-	DefaultBaseDomain        = "adhar.localtest.me"
-	ArgoCDSessionEndpoint    = "/api/v1/session"
-	ArgoCDAppsEndpoint       = "/api/v1/applications"
-	GiteaSessionEndpoint     = "/api/v1/users/%s/tokens"
-	GiteaUserEndpoint        = "/api/v1/users/%s"
-	GiteaRepoEndpoint        = "/api/v1/repos/search"
+	AdharBinaryLocation   = "../../../adhar"
+	DefaultPort           = "8443"
+	DefaultBaseDomain     = "adhar.localtest.me"
+	ArgoCDSessionEndpoint = "/api/v1/session"
+	ArgoCDAppsEndpoint    = "/api/v1/applications"
+	GiteaSessionEndpoint  = "/api/v1/users/%s/tokens"
+	GiteaUserEndpoint     = "/api/v1/users/%s"
+	GiteaRepoEndpoint     = "/api/v1/repos/search"
 
 	httpRetryDelay   = 5 * time.Second
 	httpRetryTimeout = 300 * time.Second
@@ -156,9 +156,9 @@ func TestGiteaEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
 
 	assert.Equal(t, 7, len(repos))
 	expectedRepoNames := map[string]struct{}{
-		"idpbuilder-localdev-gitea":  {},
-		"idpbuilder-localdev-nginx":  {},
-		"idpbuilder-localdev-argocd": {},
+		"adhar-localdev-gitea":  {},
+		"adhar-localdev-nginx":  {},
+		"adhar-localdev-argocd": {},
 	}
 
 	for i := range repos {
@@ -260,7 +260,7 @@ func GetBasicAuth(ctx context.Context, name string) (BasicAuth, error) {
 		case <-ctx.Done():
 			return BasicAuth{}, ctx.Err()
 		default:
-			b, err := RunCommand(ctx, fmt.Sprintf("%s get secrets -o json", IdpbuilderBinaryLocation), 10*time.Second)
+			b, err := RunCommand(ctx, fmt.Sprintf("%s get secrets -o json", AdharBinaryLocation), 10*time.Second)
 			if err != nil {
 				lastErr = err
 				time.Sleep(httpRetryDelay)
@@ -380,7 +380,7 @@ func GetKubeClient() (client.Client, error) {
 // login, build a test image, push, then pull.
 func TestGiteaRegistry(ctx context.Context, t *testing.T, cmd, giteaHost, giteaPort string) {
 	t.Log("testing gitea container registry")
-	b, err := RunCommand(ctx, fmt.Sprintf("%s get secrets -o json -p gitea", IdpbuilderBinaryLocation), 10*time.Second)
+	b, err := RunCommand(ctx, fmt.Sprintf("%s get secrets -o json -p gitea", AdharBinaryLocation), 10*time.Second)
 	assert.NoError(t, err)
 
 	secs := make([]types.Secret, 1)

@@ -34,8 +34,8 @@ jobs:
         id: generate-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ vars.CNOE_HOMEBREW_APP_ID }}
-          private-key: ${{ secrets.CNOE_HOMEBREW_PRIVATE_KEY }}
+          app-id: ${{ vars.ADHAR_HOMEBREW_APP_ID }}
+          private-key: ${{ secrets.ADHAR_HOMEBREW_PRIVATE_KEY }}
           repositories: |
             homebrew-tap
       - name: GoReleaser

@@ -104,7 +104,7 @@ spec:
         defaultBranch: main
     - id: create-argocd-app
       name: Create ArgoCD App
-      action: cnoe:create-argocd-app
+      action: adhar:create-argocd-app
       input:
         appName: ${{parameters.name}}
         appNamespace: default

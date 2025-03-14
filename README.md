@@ -129,16 +129,16 @@ adhar get secrets
   The `get secrets` command retrieves the following:
   - ArgoCD initial admin password.
   - Gitea admin user credentials.
-  -  Any secrets labeled with `cnoe.io/cli-secret=true`.
+  -  Any secrets labeled with `adhar.io/cli-secret=true`.
 
   You can think of the command as executing the following kubectl commands:
 
   ```bash
   kubectl -n argocd get secret argocd-initial-admin-secret
   kubectl get secrets -n gitea gitea-admin-secret
-  kubectl get secrets -A -l cnoe.io/cli-secret=true
+  kubectl get secrets -A -l adhar.io/cli-secret=true
   ```
-  In addition, secrets labeled with `cnoe.io/package-name` can be specified with the `-p` flag. For example, for Gitea:
+  In addition, secrets labeled with `adhar.io/package-name` can be specified with the `-p` flag. For example, for Gitea:
 
   ```bash
   adhar get secrets -p gitea
