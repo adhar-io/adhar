@@ -154,7 +154,7 @@ func TestGiteaEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
 	repos, err := GetGiteaRepos(ctx, baseUrl)
 	assert.Nil(t, err)
 
-	assert.Equal(t, 7, len(repos))
+	assert.Equal(t, 8, len(repos))
 	expectedRepoNames := map[string]struct{}{
 		"adhar-localdev-gitea":  {},
 		"adhar-localdev-nginx":  {},
