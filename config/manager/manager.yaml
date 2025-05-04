@@ -25,7 +25,7 @@ spec:
   template:
     metadata:
       annotations:
-        kubectl.kubernetes.io/default-container: manager
+        kubectl.kubernetes.io/default-container: adhar
       labels:
         control-plane: controller-manager
         app.kubernetes.io/name: adhar
@@ -59,12 +59,12 @@ spec:
           type: RuntimeDefault
       containers:
       - command:
-        - /manager
+        - /adhar
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-        image: controller:latest
-        name: manager
+        image: adhar:latest
+        name: adhar
         ports: []
         securityContext:
           allowPrivilegeEscalation: false
