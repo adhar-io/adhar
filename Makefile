@@ -1,5 +1,6 @@
 # Image URL to use all building/pushing image targets
 IMG ?= adhar:latest
+VERSION ?= v0.1.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -93,7 +94,11 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: build
 build: manifests generate fmt vet ## Build adhar binary.
-	go build -o bin/adhar cmd/main.go
+	go build -o bin/adhar ./cmd
+
+.PHONY: build-version
+build-version: manifests generate fmt vet ## Build adhar binary with version information.
+	go build -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$(shell git rev-parse --short HEAD) -X main.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')" -o bin/adhar ./cmd
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -104,7 +109,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GIT_COMMIT=$(shell git rev-parse --short HEAD) \
+		--build-arg BUILD_DATE=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \
+		-t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -123,7 +132,14 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name adhar-builder
 	$(CONTAINER_TOOL) buildx use adhar-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx build \
+		--push \
+		--platform=$(PLATFORMS) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GIT_COMMIT=$(shell git rev-parse --short HEAD) \
+		--build-arg BUILD_DATE=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \
+		--tag ${IMG} \
+		-f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm adhar-builder
 	rm Dockerfile.cross
 
@@ -132,6 +148,29 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	mkdir -p dist
 	cd config/manager && $(KUSTOMIZE) edit set image adhar=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+
+##@ Release Management
+
+.PHONY: release
+release: ## Tag and build a new release with version information
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Error: VERSION must be specified (e.g., make release VERSION=v0.2.0)"; \
+		exit 1; \
+	fi
+	@echo "Creating release $(VERSION)..."
+	@if git rev-parse "$(VERSION)" >/dev/null 2>&1; then \
+		echo "Error: Tag $(VERSION) already exists"; \
+		exit 1; \
+	fi
+	@echo "Updating version information..."
+	@git tag -a $(VERSION) -m "Release $(VERSION)"
+	@echo "Building versioned binary..."
+	@$(MAKE) build-version VERSION=$(VERSION)
+	@echo "Building versioned Docker image..."
+	@$(MAKE) docker-build VERSION=$(VERSION) IMG=adhar:$(VERSION)
+	@echo "Release $(VERSION) created successfully!"
+	@echo "To push the Docker image, run: make docker-push IMG=adhar:$(VERSION)"
+	@echo "To push the git tag, run: git push origin $(VERSION)"
 
 ##@ Deployment
 

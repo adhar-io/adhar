@@ -7,4 +7,32 @@ layout:
 - go.kubebuilder.io/v4
 projectName: adhar
 repo: adhar-io/adhar
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: adhar.io
+  group: platform
+  kind: GitRepository
+  path: adhar-io/adhar/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: adhar.io
+  group: platform
+  kind: AdharPlatform
+  path: adhar-io/adhar/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: adhar.io
+  group: platform
+  kind: CustomPackage
+  path: adhar-io/adhar/api/v1alpha1
+  version: v1alpha1
 version: "3"

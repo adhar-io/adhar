@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- platform_v1alpha1_gitrepository.yaml
+- platform_v1alpha1_adharplatform.yaml
+- platform_v1alpha1_custompackage.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

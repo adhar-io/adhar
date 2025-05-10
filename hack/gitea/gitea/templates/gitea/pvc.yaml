@@ -1,0 +1,19 @@
+---
+# Source: gitea/templates/gitea/pvc.yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: gitea-shared-storage
+  namespace: default
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  
+  resources:
+    requests:
+      storage: 10Gi

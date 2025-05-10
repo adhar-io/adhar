@@ -1,0 +1,334 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: routes.adhar.example.com
+spec:
+  group: adhar.example.com
+  names:
+    kind: Route
+    listKind: RouteList
+    plural: routes
+    singular: route
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.environment
+      name: Environment
+      type: string
+    - jsonPath: .spec.hostname
+      name: Hostname
+      type: string
+    - jsonPath: .spec.serviceName
+      name: Service
+      type: string
+    - jsonPath: .spec.servicePort.number
+      name: Port
+      type: string
+    - jsonPath: .spec.tls.secretName
+      name: TLS
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Route is the Schema for the routes API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RouteSpec defines the desired state of Route
+            properties:
+              annotations:
+                additionalProperties:
+                  type: string
+                description: Annotations allows adding custom annotations to the generated
+                  Ingress resource.
+                type: object
+              environment:
+                description: |-
+                  Environment specifies the target Adhar Environment where the Ingress resource should be created.
+                  The controller uses this to find the target cluster.
+                minLength: 1
+                type: string
+              hostname:
+                description: Hostname defines the fully qualified domain name for
+                  the route.
+                minLength: 1
+                pattern: ^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$
+                type: string
+              ingressClassName:
+                description: |-
+                  IngressClassName specifies the IngressClass resource name.
+                  If omitted, the default IngressClass in the target cluster is used.
+                type: string
+              path:
+                default: /
+                description: Path defines the URL path for the route. Defaults to
+                  "/".
+                type: string
+              pathType:
+                default: Prefix
+                description: PathType defines how the path should be matched. Defaults
+                  to Prefix.
+                enum:
+                - Exact
+                - Prefix
+                - ImplementationSpecific
+                type: string
+              serviceName:
+                description: ServiceName specifies the name of the backend Kubernetes
+                  Service to route traffic to.
+                minLength: 1
+                type: string
+              servicePort:
+                description: ServicePort specifies the port number or name on the
+                  backend Service.
+                properties:
+                  name:
+                    description: |-
+                      name is the name of the port on the Service.
+                      This is a mutually exclusive setting with "Number".
+                    type: string
+                  number:
+                    description: |-
+                      number is the numerical port number (e.g. 80) on the Service.
+                      This is a mutually exclusive setting with "Name".
+                    format: int32
+                    type: integer
+                type: object
+                x-kubernetes-map-type: atomic
+              tls:
+                description: TLS defines TLS configuration for the route.
+                properties:
+                  issuerRef:
+                    description: |-
+                      IssuerRef specifies a cert-manager Issuer or ClusterIssuer to automatically provision a certificate.
+                      If specified, Adhar will create a Certificate resource.
+                      Cannot be used with SecretName.
+                    properties:
+                      kind:
+                        description: Kind specifies whether the reference is to an
+                          Issuer or ClusterIssuer.
+                        enum:
+                        - Issuer
+                        - ClusterIssuer
+                        type: string
+                      name:
+                        description: Name is the name of the Issuer or ClusterIssuer.
+                        minLength: 1
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
+                  secretName:
+                    description: |-
+                      SecretName is the name of the Kubernetes Secret containing the TLS certificate and key.
+                      If specified, Adhar assumes the secret exists or is managed externally.
+                      Cannot be used with IssuerRef.
+                    type: string
+                type: object
+            required:
+            - environment
+            - hostname
+            - serviceName
+            - servicePort
+            type: object
+          status:
+            description: RouteStatus defines the observed state of Route
+            properties:
+              certificateRef:
+                description: CertificateRef references the cert-manager Certificate
+                  resource created (if applicable).
+                properties:
+                  apiVersion:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - apiVersion
+                - kind
+                - name
+                type: object
+              conditions:
+                description: Conditions represent the latest available observations
+                  of an object's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              ingressRef:
+                description: IngressRef references the underlying Ingress resource
+                  created.
+                properties:
+                  apiVersion:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - apiVersion
+                - kind
+                - name
+                type: object
+              ingressStatus:
+                description: IngressStatus reflects the status of the underlying Kubernetes
+                  Ingress resource.
+                properties:
+                  loadBalancer:
+                    description: loadBalancer contains the current status of the load-balancer.
+                    properties:
+                      ingress:
+                        description: ingress is a list containing ingress points for
+                          the load-balancer.
+                        items:
+                          description: IngressLoadBalancerIngress represents the status
+                            of a load-balancer ingress point.
+                          properties:
+                            hostname:
+                              description: hostname is set for load-balancer ingress
+                                points that are DNS based.
+                              type: string
+                            ip:
+                              description: ip is set for load-balancer ingress points
+                                that are IP based.
+                              type: string
+                            ports:
+                              description: ports provides information about the ports
+                                exposed by this LoadBalancer.
+                              items:
+                                description: IngressPortStatus represents the error
+                                  condition of a service port
+                                properties:
+                                  error:
+                                    description: |-
+                                      error is to record the problem with the service port
+                                      The format of the error shall comply with the following rules:
+                                      - built-in error values shall be specified in this file and those shall use
+                                        CamelCase names
+                                      - cloud provider specific error values must have names that comply with the
+                                        format foo.example.com/CamelCase.
+                                    maxLength: 316
+                                    pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                                    type: string
+                                  port:
+                                    description: port is the port number of the ingress
+                                      port.
+                                    format: int32
+                                    type: integer
+                                  protocol:
+                                    description: |-
+                                      protocol is the protocol of the ingress port.
+                                      The supported values are: "TCP", "UDP", "SCTP"
+                                    type: string
+                                required:
+                                - error
+                                - port
+                                - protocol
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                type: object
+              observedGeneration:
+                description: ObservedGeneration reflects the generation of the Route
+                  Spec that was last processed.
+                format: int64
+                type: integer
+              tlsStatus:
+                description: |-
+                  TLSStatus indicates the status of TLS provisioning (e.g., Ready, Issuing, Failed).
+                  Relevant only if spec.tls.issuerRef is set.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources: {}

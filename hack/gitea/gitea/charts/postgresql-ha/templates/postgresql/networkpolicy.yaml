@@ -1,0 +1,29 @@
+---
+# Source: gitea/charts/postgresql-ha/templates/postgresql/networkpolicy.yaml
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: gitea-postgresql-ha-postgresql
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: postgresql-ha
+    app.kubernetes.io/version: 17.4.0
+    helm.sh/chart: postgresql-ha-15.2.3
+    app.kubernetes.io/component: postgresql
+    role: data
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: gitea
+      app.kubernetes.io/name: postgresql-ha
+      app.kubernetes.io/component: postgresql
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - {}
+  ingress:
+    - ports:
+        - port: 5432

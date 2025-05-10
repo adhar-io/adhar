@@ -1,0 +1,58 @@
+# Default values for GitLab Helm chart
+# Reference: https://docs.gitlab.com/charts/installation/configuration.html
+
+gitlab:
+  webservice:
+    replicas: 2
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 500m
+      limits:
+        memory: 1Gi
+        cpu: 1
+  sidekiq:
+    replicas: 1
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 250m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+  gitaly:
+    replicas: 1
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 250m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+postgresql:
+  enabled: true
+  postgresqlUsername: gitlab
+  postgresqlPassword: gitlabpassword
+  postgresqlDatabase: gitlabhq_production
+redis:
+  enabled: true
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+certmanager:
+  install: false
+nginx-ingress:
+  enabled: true
+  controller:
+    replicaCount: 2
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 250m
+      limits:
+        memory: 512Mi
+        cpu: 500m

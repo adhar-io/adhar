@@ -1,0 +1,9 @@
+apiVersion: platform.adhar.io/v1alpha1
+kind: AdharPlatform
+metadata:
+  labels:
+    app.kubernetes.io/name: adhar
+    app.kubernetes.io/managed-by: kustomize
+  name: adharplatform-sample
+spec:
+  # TODO(user): Add fields here

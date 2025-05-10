@@ -1,0 +1,21 @@
+---
+# Source: gitea/charts/redis-cluster/templates/poddisruptionbudget.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gitea-redis-cluster
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/version: 7.4.2
+    helm.sh/chart: redis-cluster-11.4.3
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: gitea
+      app.kubernetes.io/name: redis-cluster
+    matchExpressions:
+      - {key: job-name, operator: NotIn, values: [gitea-redis-cluster-cluster-update]}

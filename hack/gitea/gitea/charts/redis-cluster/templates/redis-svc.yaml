@@ -1,0 +1,25 @@
+---
+# Source: gitea/charts/redis-cluster/templates/redis-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-redis-cluster
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/version: 7.4.2
+    helm.sh/chart: redis-cluster-11.4.3
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: tcp-redis
+      protocol: TCP
+      nodePort: null
+  selector:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/name: redis-cluster

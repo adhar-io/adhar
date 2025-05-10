@@ -103,6 +103,23 @@ kubebuilder edit --plugins=helm/v1-alpha
 2. See that a chart was generated under 'dist/chart', and users
 can obtain this solution from there.
 
+## Build
+
+### For normal development builds
+```sh
+make build
+```
+
+### For versioned builds
+```sh
+make build-version VERSION=v0.2.0
+```
+
+### To create a full release with proper git tagging
+```sh
+make release VERSION=v0.2.0
+```
+
 **NOTE:** If you change the project, you need to update the Helm Chart
 using the same command above to sync the latest changes. Furthermore,
 if you create webhooks, you need to use the above command with
