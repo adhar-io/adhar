@@ -1,0 +1,58 @@
+project_name: adhar
+
+before:
+  hooks:
+    - go mod tidy
+release:
+  # Mark nightly build as prerelease based on tag
+  prerelease: auto
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -X github.com/adhar-io/adhar/pkg/cmd/version.adharVersion={{ .Version }}
+      - -X github.com/adhar-io/adhar/pkg/cmd/version.gitCommit={{ .FullCommit }}
+      - -X github.com/adhar-io/adhar/pkg/cmd/version.buildDate={{ .CommitDate }}
+      - -w
+      - -s
+    binary: adhar
+    ignore:
+      - goos: linux
+        goarch: '386'
+brews:
+  - name: adhar
+    homepage: "https://adhar.io"
+    repository:
+      owner: adhar-io
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TOKEN }}"
+    commit_author:
+      name: "AdharAutomation"
+      email: "noreply@adhar.io"
+    directory: Formula
+    install: |
+      bin.install "adhar"
+    test: |
+      system "#{bin}/adhar --version"
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}-{{ .Os }}-{{ .Arch }}
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+

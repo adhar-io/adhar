@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.10.5/.schema/devbox.schema.json",
+  "packages": [
+    "gum@latest",
+    "gh@latest",
+    "kubernetes-helm@latest",
+    "kubectl@latest",
+    "yq-go@latest",
+    "bat@latest",
+    "buildpack@latest",
+    "teller@latest",
+    "crossplane-cli@latest",
+    "eksctl@latest",
+    "viddy@latest",
+    "cilium-cli@latest",
+    "timoni@latest",
+    "doctl@latest",
+    "civo@latest",
+    "google-cloud-sdk@latest",
+    "terraform@latest",
+    "kustomize@latest",
+    "k9s@latest",
+    "azure-cli@latest",
+    "cue@latest",
+    "go@latest",
+    "kind@latest",
+    "awscli2@latest",
+    "hubble@latest",
+    "etcdctl@latest",
+    "cosign@latest",
+    "jq@latest"
+  ],
+  "shell": {
+    "init_hook": [
+      "alias cat='bat --paging never --theme DarkNeon --style plain'",
+      "alias k='kubectl'",
+      "alias a='adhar'",
+      "PS1=\"➜ \""
+    ],
+    "scripts": {}
+  }
+}

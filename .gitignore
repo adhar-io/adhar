@@ -26,3 +26,15 @@ go.work
 *.swo
 *~
 .history/
+idpbuilder
+bin/*
+.DS_Store
+cover.out
+__debug*
+.vscode
+.idea
+adhar
+.history
+.lsp
+backup/*
+.clj-kondo

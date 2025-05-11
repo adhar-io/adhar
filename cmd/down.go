@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"adhar-io/adhar/platform/logger"
+
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -67,28 +69,28 @@ func (m downModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
-	case stepMsg:
+	case logger.StepMsg:
 		m.step = string(msg)
 		return m, nil
 
-	case statusMsg:
+	case logger.StatusMsg:
 		m.status = string(msg)
 		return m, nil
 
-	case extraOutputMsg:
+	case logger.ExtraOutputMsg:
 		m.extraOutput = string(msg)
 		return m, nil
 
-	case errorMsg:
-		m.err = msg.err
+	case logger.ErrorMsg:
+		m.err = msg.Err
 		m.done = true
 		return m, tea.Quit
 
-	case doneMsg:
+	case logger.DoneMsg:
 		m.done = true
 		return m, tea.Quit
 
-	case elapsedTimeMsg:
+	case logger.ElapsedTimeMsg:
 		// Use String() method for duration formatting
 		m.elapsedTime = time.Since(m.startTime).Round(time.Second).String()
 		return m, updateElapsedTime()
@@ -116,9 +118,9 @@ func (m downModel) View() string {
 		} else if strings.Contains(m.err.Error(), "permission") || strings.Contains(m.err.Error(), "access") {
 			errorMessage += warningStyle.Render("\nTry running with sudo or with appropriate permissions.")
 		} else if forceDelete {
-			errorMessage += warningStyle.Render("\nDeletion failed even with --force. Check logs or perform manual cleanup.")
+			logger.Logger.Warn("Deletion failed even with --force. Check logs or perform manual cleanup.")
 		} else {
-			errorMessage += infoStyle.Render("\nDeletion failed. Check logs or try manual cleanup if resources remain.")
+			logger.Logger.Info("Deletion failed. Check logs or try manual cleanup if resources remain.")
 		}
 
 		return errorMessage
@@ -191,44 +193,48 @@ func (m downModel) View() string {
 	return fmt.Sprintf("\n%s\n", mainContent)
 }
 
-// Custom message types for the Bubble Tea model
-type extraOutputMsg string
+// send is a helper function to send messages to the Bubble Tea program
+func send(msg tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		return msg
+	}
+}
 
 // startClusterTeardown starts the asynchronous operation to tear down the cluster
 func startClusterTeardown() tea.Cmd {
 	return func() tea.Msg {
 		// Check if the Kind cluster exists
-		send(stepMsg("Checking for Kind cluster"))
-		send(statusMsg("looking for cluster named '" + kindClusterName + "'"))
+		send(logger.StepMsg("Checking for Kind cluster"))
+		send(logger.StatusMsg("looking for cluster named '" + kindClusterName + "'"))
 
 		exists, err := kindClusterExists()
 		if err != nil {
-			return errorMsg{fmt.Errorf("failed to check if cluster exists: %w", err)}
+			return logger.ErrorMsg{Err: fmt.Errorf("failed to check if cluster exists: %w", err)}
 		}
 
 		if !exists {
-			return errorMsg{fmt.Errorf("cluster not found")}
+			return logger.ErrorMsg{Err: fmt.Errorf("cluster not found")}
 		}
 
 		// Get active resources before deleting for verbose output
 		if verboseDown {
-			send(stepMsg("Getting cluster resources"))
-			send(statusMsg("collecting information"))
+			send(logger.StepMsg("Getting cluster resources"))
+			send(logger.StatusMsg("collecting information"))
 
 			// Run kubectl to get resources
 			cmd := exec.Command("kubectl", "get", "all", "--all-namespaces")
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				// Send a warning if kubectl fails, but don't stop the teardown
-				send(extraOutputMsg(fmt.Sprintf("Warning: Failed to get resources before deletion: %s\nOutput:\n%s", err, string(output))))
+				send(logger.ExtraOutputMsg(fmt.Sprintf("Warning: Failed to get resources before deletion: %s\nOutput:\n%s", err, string(output))))
 			} else {
-				send(extraOutputMsg(fmt.Sprintf("Resources before deletion:\n%s", string(output))))
+				send(logger.ExtraOutputMsg(fmt.Sprintf("Resources before deletion:\n%s", string(output))))
 			}
 		}
 
 		// Delete the Kind cluster
-		send(stepMsg("Deleting Kind cluster"))
-		send(statusMsg("removing '" + kindClusterName + "'"))
+		send(logger.StepMsg("Deleting Kind cluster"))
+		send(logger.StatusMsg("removing '" + kindClusterName + "'"))
 
 		deleteArgs := []string{"delete", "cluster", "--name", kindClusterName}
 
@@ -237,26 +243,26 @@ func startClusterTeardown() tea.Cmd {
 
 		// Always capture output regardless of verbosity when there's an error
 		if err != nil {
-			send(extraOutputMsg(string(output)))
-			return errorMsg{fmt.Errorf("failed to delete cluster: %w", err)}
+			send(logger.ExtraOutputMsg(string(output)))
+			return logger.ErrorMsg{Err: fmt.Errorf("failed to delete cluster: %w", err)}
 		}
 
 		// Add the command output for verbose mode on success
 		if verboseDown {
-			send(extraOutputMsg(string(output)))
+			send(logger.ExtraOutputMsg(string(output)))
 		}
 
 		// Remove any cluster-related files
 		cleanupFiles()
 
-		return doneMsg{}
+		return logger.DoneMsg{}
 	}
 }
 
 // cleanupFiles removes any leftover files related to the cluster
 func cleanupFiles() {
-	send(stepMsg("Cleaning up files"))
-	send(statusMsg("removing leftover files"))
+	send(logger.StepMsg("Cleaning up files"))
+	send(logger.StatusMsg("removing leftover files"))
 
 	// Try to find and remove any kubeconfig files generated during 'up'
 	home, err := os.UserHomeDir()
@@ -265,7 +271,7 @@ func cleanupFiles() {
 		if err == nil {
 			for _, file := range files {
 				if verboseDown {
-					send(extraOutputMsg(fmt.Sprintf("Removing file: %s", file)))
+					send(logger.ExtraOutputMsg(fmt.Sprintf("Removing file: %s", file)))
 				}
 				os.Remove(file)
 			}
@@ -277,7 +283,7 @@ func cleanupFiles() {
 	if err == nil {
 		for _, file := range files {
 			if verboseDown {
-				send(extraOutputMsg(fmt.Sprintf("Removing file: %s", file)))
+				send(logger.ExtraOutputMsg(fmt.Sprintf("Removing file: %s", file)))
 			}
 			os.Remove(file)
 		}
@@ -363,16 +369,10 @@ Examples:
 		// Initialize Bubble Tea program
 		p := tea.NewProgram(m)
 
-		// Listen for updates in a separate goroutine
-		go listenForUpdates(p)
-
 		// Run the UI
 		if _, err := p.Run(); err != nil {
 			fmt.Println("Error running program:", err)
 			os.Exit(1)
 		}
-
-		// Close the update channel when done
-		close(updateChan)
 	},
 }

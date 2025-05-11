@@ -1,0 +1,6 @@
+site_name: 'Argo Spark Example'
+nav:
+  - Home: index.md
+  - adhar: adhar.md
+plugins:
+  - techdocs-core

@@ -1,0 +1,5 @@
+allowCrossNamespaceRefs: true
+watchAllNamespaces: true
+awsPackage:
+  install: true
+  repository: ghcr.io/flux-iac/aws-primitive-modules

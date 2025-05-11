@@ -1,0 +1,10 @@
+# Kargo Helm Chart Values
+
+api:
+  ingress:
+    tls:
+      enabled: false
+  tls:
+    selfSignedCert: true
+  secret:
+    name: kargo-api

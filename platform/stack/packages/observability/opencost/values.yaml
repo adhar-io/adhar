@@ -1,0 +1,6 @@
+opencost:
+  prometheus:
+    internal:
+      serviceName: prometheus-kube-prometheus-prometheus
+      namespaceName: monitoring
+      port: 9090

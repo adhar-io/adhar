@@ -1,6 +1,15 @@
+LD_FLAGS=-ldflags " \
+    -X adhar-io/adhar/cmd/version.adharVersion=$(shell git describe --always --tags --dirty --broken) \
+    -X adhar-io/adhar/cmd/version.gitCommit=$(shell git rev-parse HEAD) \
+    -X adhar-io/adhar/cmd/version.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \
+    "
+
 # Image URL to use all building/pushing image targets
 IMG ?= adhar:latest
 VERSION ?= v0.1.0
+
+# The name of the binary. Defaults to adhar
+OUT_FILE ?= adhar
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -44,11 +53,11 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./api/..." output:crd:artifacts:config=platform/controllers/resources
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -66,8 +75,8 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-.PHONY: test-e2e
-test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+.PHONY: e2e
+e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
 	@command -v $(KIND) >/dev/null 2>&1 || { \
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
@@ -76,7 +85,7 @@ test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated 
 		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
 		exit 1; \
 	}
-	go test ./test/e2e/ -v -ginkgo.v
+	go test -v -p 1 -timeout 15m --tags=e2e ./tests/e2e/...
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -93,12 +102,8 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build adhar binary.
-	go build -o bin/adhar ./cmd
-
-.PHONY: build-version
-build-version: manifests generate fmt vet ## Build adhar binary with version information.
-	go build -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$(shell git rev-parse --short HEAD) -X main.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')" -o bin/adhar ./cmd
+build: manifests generate fmt vet embedded-resources ## Build adhar binary.
+	go build $(LD_FLAGS) -o $(OUT_FILE) ./cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -241,6 +246,10 @@ setup-envtest: envtest ## Download the binaries required for ENVTEST in the loca
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
+
+.PHONY: embedded-resources
+embedded-resources: kustomize helm
+	export PATH=$(LOCALBIN):$$PATH; ./hack/embedded-resources.sh;
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.

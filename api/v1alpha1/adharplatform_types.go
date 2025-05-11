@@ -17,23 +17,35 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"adhar-io/adhar/globals"
+	"fmt"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	// LastObservedCLIStartTimeAnnotation indicates when the controller acted on a resource.
+	LastObservedCLIStartTimeAnnotation = "adhar.io/last-observed-cli-start-time"
+	// CliStartTimeAnnotation indicates when the CLI was invoked.
+	CliStartTimeAnnotation = "adhar.io/cli-start-time"
+	FieldManager           = "adhar"
+	// If GetSecretLabelKey is set to GetSecretLabelValue on a kubernetes secret, secret key and values can be used by the get command.
+	CLISecretLabelKey      = "adhar.io/cli-secret"
+	CLISecretLabelValue    = "true"
+	PackageNameLabelKey    = "adhar.io/package-name"
+	PackageTypeLabelKey    = "adhar.io/package-type"
+	PackageTypeLabelCore   = "core"
+	PackageTypeLabelCustom = "custom"
+
+	ArgoCDPackageName       = "argocd"
+	GiteaPackageName        = "gitea"
+	IngressNginxPackageName = "nginx"
+	CiliumPackageName       = "cilium"
+	CrossplanePackageName   = "crosplane"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// EnvironmentProvider represents the supported environment providers.
-type EnvironmentProvider string
-
-const (
-	ProviderGKE   EnvironmentProvider = "gke"
-	ProviderAWS   EnvironmentProvider = "aws"
-	ProviderDO    EnvironmentProvider = "do"
-	ProviderAzure EnvironmentProvider = "azure"
-	ProviderCivo  EnvironmentProvider = "civo"
-	ProviderKind  EnvironmentProvider = "kind"
-)
 
 // AddonSpec represents the specification for an addon.
 type AddonSpec struct {
@@ -74,20 +86,82 @@ type CoreServicesSpec struct {
 type AdharPlatformSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	PackageConfigs     PackageConfigsSpec     `json:"packageConfigs,omitempty"`
+	BuildCustomization BuildCustomizationSpec `json:"buildCustomization,omitempty"`
+}
 
-	// Foo is an example field of AdharPlatform. Edit adharplatform_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+// ArgoPackageConfigSpec Allows for configuration of the ArgoCD Installation.
+// If no fields are specified then the binary embedded resources will be used to install ArgoCD.
+type ArgoPackageConfigSpec struct {
+	// Enabled controls whether to install ArgoCD.
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+// EmbeddedArgoApplicationsPackageConfigSpec Controls the installation of the embedded argo applications.
+type EmbeddedArgoApplicationsPackageConfigSpec struct {
+	// Enabled controls whether to install the embedded argo applications and the associated GitServer
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+type PackageConfigsSpec struct {
+	Argo                     ArgoPackageConfigSpec                     `json:"argoPackageConfigs,omitempty"`
+	EmbeddedArgoApplications EmbeddedArgoApplicationsPackageConfigSpec `json:"embeddedArgoApplicationsPackageConfigs,omitempty"`
+	CustomPackageDirs        []string                                  `json:"customPackageDirs,omitempty"`
+	CustomPackageUrls        []string                                  `json:"customPackageUrls,omitempty"`
+	// +kubebuilder:validation:Optional
+	CorePackageCustomization map[string]PackageCustomization `json:"packageCustomization,omitempty"`
+}
+
+// BuildCustomizationSpec fields cannot change once a cluster is created
+type BuildCustomizationSpec struct {
+	Protocol       string `json:"protocol,omitempty"`
+	Host           string `json:"host,omitempty"`
+	IngressHost    string `json:"ingressHost,omitempty"`
+	Port           string `json:"port,omitempty"`
+	UsePathRouting bool   `json:"usePathRouting,omitempty"`
+	SelfSignedCert string `json:"selfSignedCert,omitempty"`
+	StaticPassword bool   `json:"staticPassword,omitempty"`
+}
+
+// PackageCustomization defines how packages are customized
+type PackageCustomization struct {
+	// Name is the name of the package to be customized. e.g. argocd
+	Name string `json:"name,omitempty'"`
+	// FilePath is the absolute file path to a YAML file that contains Kubernetes manifests.
+	FilePath string `json:"filePath,omitempty"`
 }
 
 // AdharPlatformStatus defines the observed state of AdharPlatform.
 type AdharPlatformStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	// ObservedGeneration is the 'Generation' of the Service that was last processed by the controller.
+	// +optional
+	ObservedGeneration int64        `json:"observedGeneration,omitempty"`
+	ArgoCD             ArgoCDStatus `json:"ArgoCD,omitempty"`
+	Nginx              NginxStatus  `json:"nginx,omitempty"`
+	Gitea              GiteaStatus  `json:"gitea,omitempty"`
+}
+
+type GiteaStatus struct {
+	Available                bool   `json:"available,omitempty"`
+	ExternalURL              string `json:"externalURL,omitempty"`
+	InternalURL              string `json:"internalURL,omitempty"`
+	AdminUserSecretName      string `json:"adminUserSecretNameecret,omitempty"`
+	AdminUserSecretNamespace string `json:"adminUserSecretNamespace,omitempty"`
+}
+
+type ArgoCDStatus struct {
+	Available   bool `json:"available,omitempty"`
+	AppsCreated bool `json:"appsCreated,omitempty"`
+}
+
+type NginxStatus struct {
+	Available bool `json:"available,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-
 // AdharPlatform is the Schema for the adharplatforms API.
 type AdharPlatform struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -98,7 +172,6 @@ type AdharPlatform struct {
 }
 
 // +kubebuilder:object:root=true
-
 // AdharPlatformList contains a list of AdharPlatform.
 type AdharPlatformList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -108,4 +181,12 @@ type AdharPlatformList struct {
 
 func init() {
 	SchemeBuilder.Register(&AdharPlatform{}, &AdharPlatformList{})
+}
+
+func (l *AdharPlatform) GetArgoProjectName() string {
+	return fmt.Sprintf("%s-%s-gitserver", globals.ProjectName, l.Name)
+}
+
+func (l *AdharPlatform) GetArgoApplicationName(name string) string {
+	return fmt.Sprintf("%s-%s-gitserver-%s", globals.ProjectName, l.Name, name)
 }

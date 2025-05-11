@@ -20,6 +20,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	GitProviderGitea     = "gitea"
+	GitProviderGitlab    = "gitlab"
+	GitProviderGithub    = "github"
+	GitProviderBitbucket = "bitbucket"
+	GiteaAdminUserName   = "giteaAdmin"
+	SourceTypeLocal      = "local"
+	SourceTypeRemote     = "remote"
+	SourceTypeEmbedded   = "embedded"
+)
+
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
@@ -27,20 +38,75 @@ import (
 type GitRepositorySpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	// +kubebuilder:validation:Optional
+	Customization PackageCustomization `json:"customization,omitempty"`
+	// SecretRef is the reference to secret that contain Git server credentials
+	// +kubebuilder:validation:Optional
+	SecretRef SecretReference     `json:"secretRef"`
+	Source    GitRepositorySource `json:"source,omitempty"`
+	Provider  Provider            `json:"provider"`
+}
 
-	// Foo is an example field of GitRepository. Edit gitrepository_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+type GitRepositorySource struct {
+	// +kubebuilder:validation:Enum:=argocd;gitea;nginx
+	// +kubebuilder:validation:Optional
+	EmbeddedAppName string `json:"embeddedAppName,omitempty"`
+	// Path is the absolute path to directory that contains Kustomize structure or raw manifests.
+	// This is required when Type is set to local.
+	// +kubebuilder:validation:Optional
+	Path             string               `json:"path"`
+	RemoteRepository RemoteRepositorySpec `json:"remoteRepository"`
+	// Type is the source type.
+	// +kubebuilder:validation:Enum:=local;embedded;remote
+	// +kubebuilder:default:=embedded
+	Type string `json:"type"`
+}
+
+type Provider struct {
+	// +kubebuilder:validation:Enum:=gitea;github
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+	// GitURL is the base URL of Git server used for API calls.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^https?:\/\/.+$`
+	GitURL string `json:"gitURL"`
+	// InternalGitURL is the base URL of Git server accessible within the cluster only.
+	InternalGitURL   string `json:"internalGitURL"`
+	OrganizationName string `json:"organizationName"`
+}
+
+type SecretReference struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
+type Commit struct {
+	// Hash is the digest of the most recent commit
+	// +kubebuilder:validation:Optional
+	Hash string `json:"hash"`
 }
 
 // GitRepositoryStatus defines the observed state of GitRepository.
 type GitRepositoryStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	// LatestCommit is the most recent commit known to the controller
+	// +kubebuilder:validation:Optional
+	LatestCommit Commit `json:"commit"`
+	// ExternalGitRepositoryUrl is the url for the in-cluster repository accessible from local machine.
+	// +kubebuilder:validation:Optional
+	ExternalGitRepositoryUrl string `json:"externalGitRepositoryUrl"`
+	// InternalGitRepositoryUrl is the url for the in-cluster repository accessible within the cluster.
+	// +kubebuilder:validation:Optional
+	InternalGitRepositoryUrl string `json:"internalGitRepositoryUrl"`
+	// Path is the path within the repository that contains the files.
+	// +kubebuilder:validation:Optional
+	Path   string `json:"path"`
+	Synced bool   `json:"synced"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-
 // GitRepository is the Schema for the gitrepositories API.
 type GitRepository struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -51,7 +117,6 @@ type GitRepository struct {
 }
 
 // +kubebuilder:object:root=true
-
 // GitRepositoryList contains a list of GitRepository.
 type GitRepositoryList struct {
 	metav1.TypeMeta `json:",inline"`

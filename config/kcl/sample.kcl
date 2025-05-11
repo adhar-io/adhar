@@ -1,8 +1,0 @@
-// Sample KCL manifest for Kubernetes provisioning
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sample-config
-  namespace: default
-data:
-  key: value
