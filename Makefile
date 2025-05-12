@@ -167,14 +167,14 @@ release: ## Tag and build a new release with version information
 		echo "Error: Tag $(VERSION) already exists"; \
 		exit 1; \
 	fi
+	@git fetch --force --tags
 	@echo "Updating version information..."
 	@git tag -a $(VERSION) -m "Release $(VERSION)"
 	@echo "Building versioned binary..."
-	@$(MAKE) build-version VERSION=$(VERSION)
-	@echo "Building versioned Docker image..."
-	@$(MAKE) docker-build VERSION=$(VERSION) IMG=adhar:$(VERSION)
+	@$(MAKE) build VERSION=$(VERSION)
+	@echo "Running GoReleaser..."
+	@goreleaser release --clean --timeout 30m
 	@echo "Release $(VERSION) created successfully!"
-	@echo "To push the Docker image, run: make docker-push IMG=adhar:$(VERSION)"
 	@echo "To push the git tag, run: git push origin $(VERSION)"
 
 ##@ Deployment

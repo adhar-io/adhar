@@ -1,0 +1,50 @@
+name: release
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-nightly.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git fetch --force --tags
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Set GORELEASER_PREVIOUS_TAG in actual release
+        if: ${{ !contains(github.ref, '-nightly') }}
+        # find previous tag by filtering out nightly tags and choosing the
+        # second to last tag (last one is the current release)
+        run: |
+          prev_tag=$(git tag | grep -v "nightly" | sort -r --version-sort | head -n 2 | tail -n 1)
+          echo "GORELEASER_PREVIOUS_TAG=$prev_tag" >> $GITHUB_ENV
+      # Ensure generation tools run
+      - name: build
+        run: |
+          OUT_FILE=/tmp/adhar make build
+      - name: Generate a homebrew tap update token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.ADHAR_HOMEBREW_APP_ID }}
+          private-key: ${{ secrets.ADHAR_HOMEBREW_PRIVATE_KEY }}
+          repositories: |
+            homebrew-tap
+      - name: GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        id: run-goreleaser
+        with:
+          version: latest
+          args: release --clean --timeout 30m
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
