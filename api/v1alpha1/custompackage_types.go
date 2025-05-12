@@ -20,16 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 const (
 	ADHARURIScheme = "adhar://"
 )
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-
 // CustomPackage is the Schema for the custompackages API.
 type CustomPackage struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -40,7 +36,6 @@ type CustomPackage struct {
 }
 
 // +kubebuilder:object:root=true
-
 // CustomPackageList contains a list of CustomPackage.
 type CustomPackageList struct {
 	metav1.TypeMeta `json:",inline"`

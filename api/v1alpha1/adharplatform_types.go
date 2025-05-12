@@ -44,44 +44,6 @@ const (
 	CrossplanePackageName   = "crosplane"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// AddonSpec represents the specification for an addon.
-type AddonSpec struct {
-	Name  string    `json:"name"`
-	Chart ChartSpec `json:"chart"`
-}
-
-// ChartSpec represents the Helm chart specification.
-type ChartSpec struct {
-	Repository string `json:"repository"`
-	Name       string `json:"name"`
-	Version    string `json:"version"`
-}
-
-// ValuesConfig represents a key-value pair for configuration values.
-type ValuesConfig struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-// HelmChartConfig represents the configuration for a Helm chart.
-type HelmChartConfig struct {
-	Chart  ChartSpec      `json:"chart"`
-	Values []ValuesConfig `json:"values,omitempty"` // Updated type
-}
-
-// CoreServicesSpec defines the core services configuration for an environment.
-type CoreServicesSpec struct {
-	GitProvider string           `json:"gitProvider,omitempty"`
-	Cilium      *HelmChartConfig `json:"cilium,omitempty"`
-	Nginx       *HelmChartConfig `json:"nginx,omitempty"`
-	Gitea       *HelmChartConfig `json:"gitea,omitempty"`
-	ArgoCD      *HelmChartConfig `json:"argocd,omitempty"`
-	Values      []ValuesConfig   `json:"values,omitempty"` // Updated type
-}
-
 // AdharPlatformSpec defines the desired state of AdharPlatform.
 type AdharPlatformSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
