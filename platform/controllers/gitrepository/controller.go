@@ -28,7 +28,6 @@ import (
 	"adhar-io/adhar/platform/utils"
 
 	"code.gitea.io/sdk/gitea"
-	"github.com/adhar-io/adhar/pkg/util"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -154,7 +153,7 @@ func (r *GitRepositoryReconciler) postProcessReconcile(ctx context.Context, req 
 		logger.Error(err, "failed updating repo status")
 	}
 
-	err = util.UpdateSyncAnnotation(ctx, r.Client, repo)
+	err = utils.UpdateSyncAnnotation(ctx, r.Client, repo)
 	if err != nil {
 		logger.Error(err, "failed updating repo annotation")
 	}

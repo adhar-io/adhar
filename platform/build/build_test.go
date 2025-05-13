@@ -4,7 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/api/v1alpha1"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ func TestIsCompatible(t *testing.T) {
 	ctx := context.Background()
 	fClient := new(fakeKubeClient)
 	fClient.On("Get", ctx, client.ObjectKey{Name: "test"}, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		arg := args.Get(2).(*v1alpha1.Localbuild)
+		arg := args.Get(2).(*v1alpha1.AdharPlatform)
 		arg.Spec.BuildCustomization = cfg
 	}).Return(nil)
 
@@ -43,7 +44,7 @@ func TestIsCompatible(t *testing.T) {
 
 	fClient = new(fakeKubeClient)
 	fClient.On("Get", ctx, client.ObjectKey{Name: "test"}, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		arg := args.Get(2).(*v1alpha1.Localbuild)
+		arg := args.Get(2).(*v1alpha1.AdharPlatform)
 		c := cfg
 		c.Host = "not-right"
 		arg.Spec.BuildCustomization = c

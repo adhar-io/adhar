@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"adhar-io/adhar/platform/utils/types"
 	"bytes"
 	"context"
 	"crypto/tls"

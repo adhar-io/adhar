@@ -12,7 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adhar-io/adhar/tests/e2e"
+	"adhar-io/adhar/tests/e2e"
+
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	ctrl "sigs.k8s.io/controller-runtime"

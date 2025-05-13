@@ -17,9 +17,9 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -X github.com/adhar-io/adhar/pkg/cmd/version.adharVersion={{ .Version }}
-      - -X github.com/adhar-io/adhar/pkg/cmd/version.gitCommit={{ .FullCommit }}
-      - -X github.com/adhar-io/adhar/pkg/cmd/version.buildDate={{ .CommitDate }}
+      - -X adhar-io/adhar/pkg/cmd/version.adharVersion={{ .Version }}
+      - -X adhar-io/adhar/pkg/cmd/version.gitCommit={{ .FullCommit }}
+      - -X adhar-io/adhar/pkg/cmd/version.buildDate={{ .CommitDate }}
       - -w
       - -s
     binary: adhar

@@ -6,8 +6,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/api/v1alpha1"
+
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
@@ -237,7 +239,7 @@ type DockerClientMock struct {
 	mock.Mock
 }
 
-func (m *DockerClientMock) ContainerList(ctx context.Context, listOptions types.ContainerListOptions) ([]types.Container, error) {
+func (m *DockerClientMock) ContainerList(ctx context.Context, listOptions filters.Args) ([]types.Container, error) {
 	mockArgs := m.Called(ctx, listOptions)
 	return mockArgs.Get(0).([]types.Container), mockArgs.Error(1)
 }

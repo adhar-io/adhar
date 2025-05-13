@@ -44,6 +44,15 @@ const (
 	CrossplanePackageName   = "crosplane"
 )
 
+const (
+	ProviderDO    EnvironmentProvider = "do"
+	ProviderGKE   EnvironmentProvider = "gke"
+	ProviderAWS   EnvironmentProvider = "aws"
+	ProviderAzure EnvironmentProvider = "azure"
+	ProviderCivo  EnvironmentProvider = "civo"
+	ProviderKind  EnvironmentProvider = "kind"
+)
+
 // AdharPlatformSpec defines the desired state of AdharPlatform.
 type AdharPlatformSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -91,6 +100,44 @@ type PackageCustomization struct {
 	Name string `json:"name,omitempty'"`
 	// FilePath is the absolute file path to a YAML file that contains Kubernetes manifests.
 	FilePath string `json:"filePath,omitempty"`
+}
+
+// CoreServicesSpec defines the configuration for core services.
+type CoreServicesSpec struct {
+	Cilium *HelmChartConfig `json:"cilium,omitempty"`
+	Nginx  *HelmChartConfig `json:"nginx,omitempty"`
+	Gitea  *HelmChartConfig `json:"gitea,omitempty"`
+	ArgoCD *HelmChartConfig `json:"argocd,omitempty"`
+	Values []ValuesConfig   `json:"values,omitempty"`
+}
+
+// AddonSpec defines the configuration for an addon.
+type AddonSpec struct {
+	Name   string         `json:"name"`
+	Chart  ChartSpec      `json:"chart"`
+	Values []ValuesConfig `json:"values,omitempty"`
+}
+
+// EnvironmentProvider defines the provider for an environment.
+type EnvironmentProvider string
+
+// HelmChartConfig defines the configuration for a Helm chart.
+type HelmChartConfig struct {
+	Chart  ChartSpec      `json:"chart"`
+	Values []ValuesConfig `json:"values,omitempty"`
+}
+
+// ChartSpec defines the specification for a Helm chart.
+type ChartSpec struct {
+	Repository string `json:"repository"`
+	Name       string `json:"name"`
+	Version    string `json:"version"`
+}
+
+// ValuesConfig defines a key-value pair for Helm chart values.
+type ValuesConfig struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 // AdharPlatformStatus defines the observed state of AdharPlatform.
