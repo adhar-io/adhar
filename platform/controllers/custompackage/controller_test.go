@@ -74,7 +74,7 @@ func TestReconcileCustomPkg(t *testing.T) {
 		}
 	}()
 
-	r := &Reconciler{
+	r := &CustomPackageReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("test-custompkg-controller"),
@@ -287,7 +287,7 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 		}
 	}()
 
-	r := &Reconciler{
+	r := &CustomPackageReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("test-custompkg-controller"),
@@ -649,7 +649,7 @@ func TestReconcileHelmValueObject(t *testing.T) {
 		}
 	}
 
-	r := &Reconciler{
+	r := &CustomPackageReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("test-custompkg-controller"),

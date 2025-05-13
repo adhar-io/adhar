@@ -1,5 +1,3 @@
-//go:build e2e
-
 package e2e
 
 import (
@@ -16,9 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"adhar-io/adhar/platform/k8s"
+
 	"code.gitea.io/sdk/gitea"
-	"github.com/adhar-io/adhar/pkg/k8s"
-	"github.com/adhar-io/adhar/pkg/printer/types"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

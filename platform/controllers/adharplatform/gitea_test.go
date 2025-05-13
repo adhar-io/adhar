@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/platform/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,6 +35,6 @@ func TestGetGiteaToken(t *testing.T) {
 	}))
 	defer ts.Close()
 	ctx := context.Background()
-	_, err := util.GetGiteaToken(ctx, ts.URL, "", "")
+	_, err := utils.GetGiteaToken(ctx, ts.URL, "", "")
 	require.Error(t, err)
 }

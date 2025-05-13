@@ -198,7 +198,7 @@ func TestArgoCDAppAnnotation(t *testing.T) {
 			u := makeUnstructured(app.Name, app.Namespace, app.GroupVersionKind(), c.annotations[j])
 			fClient.On("Patch", ctx, u, client.Apply, []client.PatchOption{client.FieldOwner(v1alpha1.FieldManager)}).Return(nil)
 		}
-		rec := LocalbuildReconciler{
+		rec := AdharPlatformReconciler{
 			Client: fClient,
 		}
 		err := rec.requestArgoCDAppRefresh(ctx)

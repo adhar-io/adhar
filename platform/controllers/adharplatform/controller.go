@@ -30,6 +30,8 @@ import (
 	"time"
 
 	"code.gitea.io/sdk/gitea"
+	argocdapp "github.com/cnoe-io/argocd-api/api/argo/application"
+	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,10 +39,13 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	sel "k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -164,7 +169,7 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{RequeueAfter: defaultRequeueTime}, nil
 }
 
-func (r *AdharPlatformReconciler) installCorePackages(ctx context.Context, req ctrl.Request, resource *v1alpha1.Localbuild, errChan chan error) {
+func (r *AdharPlatformReconciler) installCorePackages(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform, errChan chan error) {
 	logger := log.FromContext(ctx)
 	defer close(errChan)
 	var wg sync.WaitGroup
@@ -192,7 +197,7 @@ func (r *AdharPlatformReconciler) installCorePackages(ctx context.Context, req c
 	wg.Wait()
 }
 
-func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.Request, resource *v1alpha1.Localbuild) (ctrl.Result, error) {
+func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Cilium core package")
 
@@ -240,7 +245,7 @@ func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.
 			logger.V(1).Info("Owner is not being deleted, attempting to set owner reference", "targetKind", obj.GetKind(), "targetName", obj.GetName())
 			// Log owner details just before setting reference
 			logger.V(1).Info("Owner details before SetControllerReference", "ownerName", freshAdharPlatform.Name, "ownerUID", freshAdharPlatform.UID)
-			if err := controllerutils.SetControllerReference(freshAdharPlatform, obj, r.Scheme); err != nil { // Use freshAdharPlatform here
+			if err := controllerutil.SetControllerReference(freshAdharPlatform, obj, r.Scheme); err != nil { // Use freshAdharPlatform here
 				logger.Error(err, "Failed to set controller reference on Cilium object", "kind", obj.GetKind(), "name", obj.GetName())
 				applyErrors = append(applyErrors, fmt.Errorf("setting owner ref on %s/%s: %w", obj.GetKind(), obj.GetName(), err))
 				continue // Skip applying this object if owner ref fails
@@ -273,7 +278,7 @@ func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
-func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, resource *v1alpha1.Localbuild) {
+func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) {
 	logger := log.FromContext(ctx)
 
 	logger.Info("Checking if we should shutdown")
@@ -297,7 +302,7 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 	}
 }
 
-func (r *AdharPlatformReconciler) ReconcileProjectNamespace(ctx context.Context, req ctrl.Request, resource *v1alpha1.Localbuild) (ctrl.Result, error) {
+func (r *AdharPlatformReconciler) ReconcileProjectNamespace(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	nsResource := &corev1.Namespace{
@@ -307,8 +312,8 @@ func (r *AdharPlatformReconciler) ReconcileProjectNamespace(ctx context.Context,
 	}
 
 	logger.V(1).Info("Create or update namespace", "resource", nsResource)
-	_, err := controllerutils.CreateOrUpdate(ctx, r.Client, nsResource, func() error {
-		if err := controllerutils.SetControllerReference(resource, nsResource, r.Scheme); err != nil {
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, nsResource, func() error {
+		if err := controllerutil.SetControllerReference(resource, nsResource, r.Scheme); err != nil {
 			logger.Error(err, "Setting controller ref on namespace resource")
 			return err
 		}
@@ -327,7 +332,7 @@ func (r *AdharPlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *AdharPlatformReconciler) ReconcileArgoAppsWithGitea(ctx context.Context, req ctrl.Request, resource *v1alpha1.Localbuild) (ctrl.Result, error) {
+func (r *AdharPlatformReconciler) ReconcileArgoAppsWithGitea(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("installing bootstrap apps to ArgoCD")
 
@@ -362,7 +367,7 @@ func (r *AdharPlatformReconciler) ReconcileArgoAppsWithGitea(ctx context.Context
 	return ctrl.Result{}, nil
 }
 
-func (r *AdharPlatformReconciler) reconcileEmbeddedApp(ctx context.Context, appName string, resource *v1alpha1.Localbuild) (ctrl.Result, error) {
+func (r *AdharPlatformReconciler) reconcileEmbeddedApp(ctx context.Context, appName string, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	logger.V(1).Info("Ensuring embedded ArgoCD Application", "name", appName)
@@ -381,7 +386,7 @@ func (r *AdharPlatformReconciler) reconcileEmbeddedApp(ctx context.Context, appN
 
 	utils.SetPackageLabels(app)
 
-	if err := controllerutils.SetControllerReference(resource, app, r.Scheme); err != nil {
+	if err := controllerutil.SetControllerReference(resource, app, r.Scheme); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -389,7 +394,7 @@ func (r *AdharPlatformReconciler) reconcileEmbeddedApp(ctx context.Context, appN
 
 	err = r.Client.Get(ctx, client.ObjectKeyFromObject(app), app)
 	if err != nil && k8serrors.IsNotFound(err) {
-		lb.SetApplicationSpec(
+		utils.SetApplicationSpec(
 			app,
 			repo.Status.InternalGitRepositoryUrl,
 			".",
@@ -403,7 +408,7 @@ func (r *AdharPlatformReconciler) reconcileEmbeddedApp(ctx context.Context, appN
 		}
 	}
 
-	lb.SetApplicationSpec(
+	utils.SetApplicationSpec(
 		app,
 		repo.Status.InternalGitRepositoryUrl,
 		".",
@@ -419,7 +424,7 @@ func (r *AdharPlatformReconciler) reconcileEmbeddedApp(ctx context.Context, appN
 	return ctrl.Result{}, nil
 }
 
-func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *v1alpha1.Localbuild) (bool, error) {
+func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *v1alpha1.AdharPlatform) (bool, error) {
 	logger := log.FromContext(ctx)
 
 	if !r.ExitOnSync {
@@ -513,7 +518,7 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 
 func (r *AdharPlatformReconciler) reconcileCustomPkg(
 	ctx context.Context,
-	resource *v1alpha1.Localbuild,
+	resource *v1alpha1.AdharPlatform,
 	b []byte,
 	filePath string,
 	remote *utils.KustomizeRemote,
@@ -537,8 +542,8 @@ func (r *AdharPlatformReconciler) reconcileCustomPkg(
 
 		cliStartTime, _ := utils.GetCLIStartTimeAnnotationValue(resource.ObjectMeta.Annotations)
 
-		_, fErr = controllerutils.CreateOrUpdate(ctx, r.Client, customPkg, func() error {
-			if err := controllerutils.SetControllerReference(resource, customPkg, r.Scheme); err != nil {
+		_, fErr = controllerutil.CreateOrUpdate(ctx, r.Client, customPkg, func() error {
+			if err := controllerutil.SetControllerReference(resource, customPkg, r.Scheme); err != nil {
 				return err
 			}
 			if customPkg.ObjectMeta.Annotations == nil {
@@ -579,7 +584,7 @@ func (r *AdharPlatformReconciler) reconcileCustomPkg(
 	return nil
 }
 
-func (r *AdharPlatformReconciler) reconcileCustomPkgUrl(ctx context.Context, resource *v1alpha1.Localbuild, pkgUrl string) (ctrl.Result, error) {
+func (r *AdharPlatformReconciler) reconcileCustomPkgUrl(ctx context.Context, resource *v1alpha1.AdharPlatform, pkgUrl string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	remote, err := utils.NewKustomizeRemote(pkgUrl)
@@ -622,7 +627,7 @@ func (r *AdharPlatformReconciler) reconcileCustomPkgUrl(ctx context.Context, res
 	return ctrl.Result{}, nil
 }
 
-func (r *AdharPlatformReconciler) reconcileCustomPkgDir(ctx context.Context, resource *v1alpha1.Localbuild, pkgDir string) (ctrl.Result, error) {
+func (r *AdharPlatformReconciler) reconcileCustomPkgDir(ctx context.Context, resource *v1alpha1.AdharPlatform, pkgDir string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	files, err := os.ReadDir(pkgDir)
@@ -652,7 +657,7 @@ func (r *AdharPlatformReconciler) reconcileCustomPkgDir(ctx context.Context, res
 	return ctrl.Result{}, nil
 }
 
-func (r *AdharPlatformReconciler) reconcileGitRepo(ctx context.Context, resource *v1alpha1.Localbuild, repoType, repoName, embeddedName, absPath string) (*v1alpha1.GitRepository, error) {
+func (r *AdharPlatformReconciler) reconcileGitRepo(ctx context.Context, resource *v1alpha1.AdharPlatform, repoType, repoName, embeddedName, absPath string) (*v1alpha1.GitRepository, error) {
 	repo := &v1alpha1.GitRepository{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      repoName,
@@ -665,8 +670,8 @@ func (r *AdharPlatformReconciler) reconcileGitRepo(ctx context.Context, resource
 		return nil, err
 	}
 
-	_, err = controllerutils.CreateOrUpdate(ctx, r.Client, repo, func() error {
-		if err := controllerutils.SetControllerReference(resource, repo, r.Scheme); err != nil {
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, repo, func() error {
+		if err := controllerutil.SetControllerReference(resource, repo, r.Scheme); err != nil {
 			return err
 		}
 
@@ -944,4 +949,22 @@ func isSupportedArgoCDTypes(gvk *schema.GroupVersionKind) bool {
 		return false
 	}
 	return gvk.Group == argocdapp.Group && (gvk.Kind == argocdapp.ApplicationKind || gvk.Kind == argocdapp.ApplicationSetKind)
+}
+
+func GetEmbeddedRawInstallResources(name string, templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
+	switch name {
+	case v1alpha1.ArgoCDPackageName:
+		// Still need to resolve lb.RawArgocdInstallResources
+		// return lb.RawArgocdInstallResources(templateData, config, scheme)
+	case v1alpha1.GiteaPackageName:
+		// Still need to resolve lb.RawGiteaInstallResources
+		// return lb.RawGiteaInstallResources(templateData, config, scheme)
+	case v1alpha1.IngressNginxPackageName:
+		// Still need to resolve lb.RawNginxInstallResources
+		// return lb.RawNginxInstallResources(templateData, config, scheme)
+	default:
+		return nil, fmt.Errorf("unsupported embedded app name %s", name)
+	}
+	// Added temporary return to allow compilation check
+	return nil, fmt.Errorf("Raw* functions not yet implemented/found")
 }

@@ -25,11 +25,15 @@ import (
 	"strings"
 	"time"
 
+	argocdapplication "github.com/cnoe-io/argocd-api/api/argo/application"
+	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -325,8 +329,8 @@ func (r *CustomPackageReconciler) reconcileArgoCDSourceFromRemote(ctx context.Co
 
 	cliStartTime, _ := utils.GetCLIStartTimeAnnotationValue(resource.ObjectMeta.Annotations)
 
-	_, err := controllerutils.CreateOrUpdate(ctx, r.Client, repo, func() error {
-		if err := controllerutils.SetControllerReference(resource, repo, r.Scheme); err != nil {
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, repo, func() error {
+		if err := controllerutil.SetControllerReference(resource, repo, r.Scheme); err != nil {
 			return err
 		}
 
@@ -378,8 +382,8 @@ func (r *CustomPackageReconciler) reconcileArgoCDSourceFromLocal(ctx context.Con
 
 	cliStartTime, _ := utils.GetCLIStartTimeAnnotationValue(resource.ObjectMeta.Annotations)
 
-	_, err = controllerutils.CreateOrUpdate(ctx, r.Client, repo, func() error {
-		if err := controllerutils.SetControllerReference(resource, repo, r.Scheme); err != nil {
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, repo, func() error {
+		if err := controllerutil.SetControllerReference(resource, repo, r.Scheme); err != nil {
 			return err
 		}
 

@@ -1,6 +1,7 @@
 package gitrepository
 
 import (
+	"adhar-io/adhar/platform/utils"
 	"context"
 	"errors"
 	"fmt"
@@ -13,8 +14,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"adhar-io/adhar/api/v1alpha1"
+
 	"code.gitea.io/sdk/gitea"
-	"github.com/adhar-io/adhar/api/v1alpha1"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
@@ -233,7 +235,7 @@ func TestGitRepositoryContentReconcile(t *testing.T) {
 			giteaClient: mockGitea{},
 		}
 		// add file to source directory, reconcile, clone the repo and check if the added file exists
-		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, gitProviderCredentials{}, testCloneDir, util.NewRepoLock())
+		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, gitProviderCredentials{}, testCloneDir, utils.NewRepoLock())
 		if err != nil {
 			t.Fatalf("failed adding %v", err)
 		}
@@ -254,7 +256,7 @@ func TestGitRepositoryContentReconcile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to remove added file %v", err)
 		}
-		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, gitProviderCredentials{}, testCloneDir, util.NewRepoLock())
+		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, gitProviderCredentials{}, testCloneDir, utils.NewRepoLock())
 		if err != nil {
 			t.Fatalf("failed removing %v", err)
 		}
@@ -308,7 +310,7 @@ func TestGitRepositoryContentReconcileEmbedded(t *testing.T) {
 			Client:      &fakeClient{},
 			giteaClient: mockGitea{},
 		}
-		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, gitProviderCredentials{}, tmpDir, util.NewRepoLock())
+		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, gitProviderCredentials{}, tmpDir, utils.NewRepoLock())
 		if err != nil {
 			t.Fatalf("failed adding %v", err)
 		}
@@ -406,11 +408,11 @@ func TestGitRepositoryReconcile(t *testing.T) {
 	t.Run("repo updates", func(t *testing.T) {
 		for k := range cases {
 			v := cases[k]
-			r := RepositoryReconciler{
+			r := GitRepositoryReconciler{
 				Client:          &fakeClient{},
 				GitProviderFunc: v.giteaProvider,
 				TempDir:         tmpDir,
-				RepoMap:         util.NewRepoLock(),
+				RepoMap:         utils.NewRepoLock(),
 			}
 			_, err := r.reconcileGitRepo(ctx, &v.input)
 			if v.expect.err == nil && err != nil {
@@ -429,10 +431,10 @@ func TestGitRepositoryPostReconcile(t *testing.T) {
 	c := fakeClient{}
 	tmpDir, _ := os.MkdirTemp("", "repo-updates-test")
 	defer os.RemoveAll(tmpDir)
-	reconciler := RepositoryReconciler{
+	reconciler := GitRepositoryReconciler{
 		Client:  &c,
 		TempDir: tmpDir,
-		RepoMap: util.NewRepoLock(),
+		RepoMap: utils.NewRepoLock(),
 	}
 	testTime := time.Now().Format(time.RFC3339Nano)
 	repo := v1alpha1.GitRepository{

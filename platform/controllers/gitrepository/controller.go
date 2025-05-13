@@ -24,19 +24,22 @@ import (
 	"net/http"
 	"time"
 
+	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/platform/utils"
+
 	"code.gitea.io/sdk/gitea"
-	"github.com/go-git/go-git"
-	"github.com/go-git/go-git/plumbing"
-	"github.com/go-git/go-git/plumbing/object"
+	"github.com/adhar-io/adhar/pkg/util"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	gitclient "github.com/go-git/go-git/v5/plumbing/transport/client"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	"adhar-io/adhar/api/v1alpha1"
-	"adhar-io/adhar/platform/utils"
 )
 
 const (
@@ -98,7 +101,7 @@ func GetGitProvider(ctx context.Context, repo *v1alpha1.GitRepository, kubeClien
 			giteaClient: giteaClient,
 			config:      tmplConfig,
 		}, nil
-	case v1alpha1.GitProviderGitHub:
+	case v1alpha1.GitProviderGithub:
 		return &gitHubProvider{
 			Client:       kubeClient,
 			Scheme:       scheme,
@@ -144,7 +147,7 @@ func (r *GitRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return result, err
 }
 
-func (r *RepositoryReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, repo *v1alpha1.GitRepository) {
+func (r *GitRepositoryReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, repo *v1alpha1.GitRepository) {
 	logger := log.FromContext(ctx)
 	err := r.Status().Update(ctx, repo)
 	if err != nil {
@@ -157,7 +160,7 @@ func (r *RepositoryReconciler) postProcessReconcile(ctx context.Context, req ctr
 	}
 }
 
-func (r *RepositoryReconciler) reconcileGitRepo(ctx context.Context, repo *v1alpha1.GitRepository) (ctrl.Result, error) {
+func (r *GitRepositoryReconciler) reconcileGitRepo(ctx context.Context, repo *v1alpha1.GitRepository) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.V(1).Info("reconciling", "name", repo.Name, "dir", repo.Spec.Source)
 	repo.Status.Synced = false
@@ -261,7 +264,7 @@ func pushToRemote(ctx context.Context, remoteRepo *git.Repository, creds gitProv
 }
 
 // add files from local fs to target repository (gitea for now)
-func reconcileLocalRepoContent(ctx context.Context, repo *v1alpha1.GitRepository, tgtRepo repoInfo, creds gitProviderCredentials, scheme *runtime.Scheme, tmplConfig v1alpha1.BuildCustomizationSpec, tmpDir string, repoMap *util.RepoMap) error {
+func reconcileLocalRepoContent(ctx context.Context, repo *v1alpha1.GitRepository, tgtRepo repoInfo, creds gitProviderCredentials, scheme *runtime.Scheme, tmplConfig v1alpha1.BuildCustomizationSpec, tmpDir string, repoMap *utils.RepoMap) error {
 	logger := log.FromContext(ctx)
 	tgtCloneDir := utils.RepoDir(tgtRepo.cloneUrl, tmpDir)
 
