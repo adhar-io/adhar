@@ -38,3 +38,4 @@ adhar
 .lsp
 backup/*
 .clj-kondo
+platform.log
