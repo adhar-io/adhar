@@ -1,0 +1,20 @@
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/controller-serviceaccount.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/controller-configmap.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/clusterrole.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/clusterrolebinding.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/controller-role.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/controller-rolebinding.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/controller-service-webhook.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/controller-service.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/controller-deployment.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/controller-ingressclass.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/controller-poddisruptionbudget.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/admission-webhooks/validating-webhook.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/admission-webhooks/job-patch/serviceaccount.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/admission-webhooks/job-patch/clusterrole.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/admission-webhooks/job-patch/clusterrolebinding.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/admission-webhooks/job-patch/role.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/admission-webhooks/job-patch/rolebinding.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/admission-webhooks/job-patch/job-createSecret.yaml
+wrote /Users/tapas-pc/Documents/Work/Adhar/adhar/hack/ingress-nginx/ingress-nginx/templates/admission-webhooks/job-patch/job-patchWebhook.yaml
+
