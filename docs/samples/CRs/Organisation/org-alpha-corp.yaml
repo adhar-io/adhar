@@ -1,0 +1,42 @@
+# --- Organization CR: Alpha Corp (Cluster-Scoped) ---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Organization
+metadata:
+  name: "org-alpha-corp"
+  labels:
+    platform.adhar.io/organizationId: "alpha-001"
+    platform.adhar.io/segment: "enterprise-technology"
+spec:
+  displayName: "Alpha Corporation"
+  description: "Alpha Corporation: Innovating the future of digital solutions and enterprise software."
+  administrators:
+    - "org-admin-alpha@alphacorp.com"
+    - "platform-ops-group-alpha" # Could be a group name
+  technicalContact:
+    name: "Dr. Eleanor Vance"
+    email: "tech.contact@alphacorp.com"
+    phone: "+1-555-0101"
+  billingContact:
+    name: "Mr. John Finance"
+    email: "billing@alphacorp.com"
+    address: "1 Alpha Way, Innovation City, AC 12345"
+  defaultResourceQuotas: # Default quotas that platform might enforce for new envs/namespaces for this org
+    maxCpu: "200"
+    maxMemory: "1024Gi"
+    maxAppsPerEnv: "50"
+  metadata: # Additional arbitrary metadata
+    industry: "Software & Cloud Services"
+    establishedDate: "2005-03-15"
+    website: "https://www.alphacorp.com"
+  labels: # Labels specific to this organization for filtering/policy
+    costCenterPrefix: "ACME-ALPHA-"
+    complianceRequired: "soc2,iso27001"
+status:
+  phase: "Active"
+  message: "Organization Alpha Corp is fully provisioned and operational."
+  createdTimestamp: "2025-01-10T09:00:00Z"
+  lastUpdatedTimestamp: "2025-05-01T14:30:00Z"
+  dedicatedNamespacePrefix: "alpha-" # Suggested prefix for namespaces related to this org
+  activeEnvironments: 3
+  activeTeams: 2 # Example
+  activeApplications: 5 # Example

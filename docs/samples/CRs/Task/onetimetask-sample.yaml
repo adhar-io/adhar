@@ -1,0 +1,35 @@
+# --- Sample OneTimeTask CR for Alpha Corp Data Migration (Namespaced: alpha-corp-admin) ---
+apiVersion: platform.adhar.com/v1alpha1
+kind: Task
+metadata:
+  name: "ott-alpha-data-migration"
+  namespace: "alpha-corp-admin" # Where the task definition lives
+spec:
+  displayName: "Alpha Corp One-Time Data Migration"
+  description: "Migrates legacy customer data to the new CRM system."
+  applicationRef: { name: "app-alpha-crm-importer" } # Contextual link to a conceptual importer app
+  jobTemplate:
+    spec:
+      containers:
+      - name: "data-migrator"
+        image: "harbor.adhar-platform.com/alpha-corp/data-migration-job:v1.0.0"
+        args: ["--source-db=legacy-db", "--target-crm=new-crm"]
+        env:
+          - name: "LEGACY_DB_USER"
+            valueFrom: { secretKeyRef: { name: "legacy-db-creds", key: "username" } }
+          - name: "LEGACY_DB_PASSWORD"
+            valueFrom: { secretKeyRef: { name: "legacy-db-creds", key: "password" } }
+          - name: "CRM_API_TOKEN"
+            valueFrom: { secretKeyRef: { name: "crm-api-token", key: "token" } }
+        resources: { requests: { cpu: "1", memory: "2Gi" }, limits: { cpu: "2", memory: "4Gi" } }
+        volumeMounts: [{ name: "migration-logs", mountPath: "/mnt/logs" }]
+      volumes: [{ name: "migration-logs", emptyDir: {} }] # For temporary logs during migration
+      restartPolicy: "Never" # Or "OnFailure" with a backoffLimit if retries are desired
+  platformConfigRefs:
+    - configRef: { name: "pconf-data-services-global", namespace: "alpha-corp-admin" }
+      version: "v1.0"
+status:
+  startTime: "2025-05-20T10:00:00Z" # Estimated or actual start time
+  completionTime: "2025-05-20T11:30:00Z" # Actual completion time
+  phase: "Succeeded" # Could be Pending, Running, Succeeded, Failed
+  message: "Data migration completed successfully." # Optional detailed message

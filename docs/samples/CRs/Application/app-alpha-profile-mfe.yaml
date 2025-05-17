@@ -1,0 +1,55 @@
+# --- Application CR: Alpha Profile Microfrontend (Remote Module) ---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Application
+metadata:
+  name: "app-alpha-profile-mfe"
+  namespace: "alpha-corp-admin"
+  labels:
+    platform.adhar.io/organization: "org-alpha-corp"
+    platform.adhar.io/team: "team-alpha-phoenix" # Could be a different, specialized MFE team
+    platform.adhar.io/app-type: "microfrontend-remote"
+spec:
+  displayName: "Alpha Profile Microfrontend"
+  description: "Manages user profile display and editing within the Alpha Corp shell application."
+  organizationRef: { name: "org-alpha-corp" }
+  teamRef: { name: "team-alpha-phoenix", namespace: "alpha-corp-admin" }
+  template:
+    templateRef:
+      name: "react-frontend-template" # Using the same versatile template
+      namespace: "platform-templates"
+    values:
+      applicationName: "profile-mfe"
+      architecture: "microfrontend-remote" # Key parameter
+      hostApplicationScope: "alphaShell" # Scope name expected by the host
+      exposedModuleName: "./ProfileModule" # Module it exposes
+      includeRouter: "react-router-dom" # MFE might have its own internal routing
+      stateManagement: "none" # Or a shared state mechanism
+
+  sourceCode:
+    repositoryRef: { name: "repo-alpha-profile-mfe", namespace: "alpha-corp-admin" }
+
+  build:
+    pipelineRef: { name: "pl-alpha-profile-mfe-main", namespace: "alpha-corp-admin" }
+    registryOutput:
+      registryRef: { name: "reg-global-harbor" }
+      imageRepositoryName: "alpha-corp/profile-mfe" # Serves remoteEntry.js and assets
+
+  deployments: # Deployed like other web apps, host will fetch remoteEntry.js from its URL
+    - environmentRef: { name: "env-alpha-prod" }
+      version: "v1.1.0"
+      replicas: 1 # Usually served statically, replicas for HA of serving infra
+      gitOps: { deploymentRef: { name: "dep-alpha-profile-mfe-prod", namespace: "alpha-prod-apps" } }
+
+  networking: # Needs to be accessible by the host application
+    - environmentRef: { name: "env-alpha-prod" }
+      routes: # Typically served under a specific path or on its own domain for the host to fetch
+        - hostnames: ["mfe.alphacorp.com"]
+          paths: [{ value: "/profile", type: "Prefix" }] # e.g., mfe.alphacorp.com/profile/remoteEntry.js
+          port: 80
+          protocol: "HTTPS"
+          gatewayRef: { name: "gw-alpha-internal-mfe", namespace: "alpha-gateways" } # Could be an internal gateway
+          tls: { mode: "Terminate", certificateRef: { name: "tls-mfe-alphacorp-com", namespace: "alpha-prod-apps" } }
+
+status:
+  phase: "Ready"
+  message: "Profile MFE is deployed and available for host consumption."

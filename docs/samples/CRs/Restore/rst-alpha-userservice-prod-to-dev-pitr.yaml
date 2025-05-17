@@ -1,0 +1,13 @@
+# --- Sample Restore CR for Alpha User Service Prod Database to Dev ---
+apiVersion: platform.adhar.com/v1alpha1
+kind: Restore
+metadata:
+  name: "rst-alpha-userservice-prod-to-dev-pitr"
+  namespace: "alpha-dev-apps" # Target namespace for restore
+spec:
+  displayName: "Restore User Service Prod DB to Dev (PITR)"
+  backupRef: { name: "bkp-alpha-userservice-prod-db-daily", namespace: "alpha-prod-apps-usw2" }
+  # veleroBackupName: "bkp-alpha-userservice-prod-db-daily-YYYYMMDDHHMMSS" # Specify actual backup if not from schedule
+  restorePVs: true
+  namespaceMapping: { "alpha-prod-apps-usw2": "alpha-dev-apps" }
+status: { phase: "New" }

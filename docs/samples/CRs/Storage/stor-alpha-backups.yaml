@@ -1,0 +1,14 @@
+# --- Sample Storage CR for Alpha Corp Backups (MinIO) ---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Storage
+metadata:
+  name: "stor-alpha-backups"
+  namespace: "alpha-corp-admin" # Org-level shared storage for backups
+spec:
+  displayName: "Alpha Corp Backup Storage"
+  organizationRef: { name: "org-alpha-corp" }
+  environmentRef: { name: "env-alpha-prod" } # Associated with prod for DR purposes
+  provider: "MinIO"
+  bucketName: "alphacorp-platform-backups"
+  minioConfig: { replicas: 1, servers: 4, drivesPerServer: 2, storageClassName: "minio-hdd-tiered", capacity: "10Ti" }
+status: { phase: "Ready", endpoint: "http://minio.alpha-storage.svc.cluster.local:9000", bucketNameActual: "alphacorp-platform-backups-xyz" }

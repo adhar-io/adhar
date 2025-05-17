@@ -1,0 +1,23 @@
+# --- Sample TracingConfig CR for Alpha Prod OpenTelemetry (Namespaced: alpha-corp-admin) ---
+apiVersion: platform.adhar.io/v1alpha1
+kind: TracingConfig
+metadata:
+  name: "traceconf-alpha-prod-otel"
+  namespace: "alpha-corp-admin"
+spec:
+  displayName: "Alpha Production OpenTelemetry Tracing (Tempo)"
+  provider: "Tempo"
+  endpoint: "tempo-distributor.alpha-observability.svc.cluster.local:4317" # OTLP gRPC endpoint
+  protocol: "grpc"
+  sampling: { type: "traceidratio", rate: 0.01 } # Sample 1% in prod
+  serviceNameSource: "ApplicationBlueprintName"
+  tags: { environment: "production", region: "us-west-2" }
+  additionalSettings:
+    enableDetailedTracing: true
+    traceExportFormat: "otlp"
+    enableDebugTracing: true
+    enableSampling: true
+    samplingRate: 0.1 # 10% sampling rate
+    enableHealthCheck: true
+    healthCheckPath: "/actuator/health"
+status: { inUseByCount: 2 }

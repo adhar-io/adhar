@@ -1,0 +1,22 @@
+apiVersion: platform.adhar.com/v1alpha1
+kind: Environment
+metadata:
+  name: "env-alpha-prod"
+  labels:
+    platform.adhar.com/region: "us-west-2"
+    platform.adhar.com/env-type: "prod"
+    platform.adhar.com/compliance: "soc2,pci-dss"
+spec:
+  displayName: "Alpha Production Environment (US-West)"
+  type: "production"
+  description: "Primary production environment for Alpha Corp customer-facing applications in the US-West region."
+  organizationRef: { name: "org-alpha-corp" }
+  namespaceName: "alpha-prod-apps-usw2"
+  clusterAffinity: { clusterName: "prod-cluster-us-west-2a" }
+  configurations:
+    logLevel: "WARN"
+    defaultReplicas: "3"
+    enableAuditLogging: "true"
+  resourceQuota: { hard: { "requests.cpu": "100", "requests.memory": "512Gi", "pods": "300" } }
+  rolloutStrategy: "BlueGreen" # More controlled rollout for production
+status: { phase: "Ready", message: "Production environment US-West is operational." }

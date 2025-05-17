@@ -1,0 +1,80 @@
+# --- Sample ApplicationTemplate: Generic Spring Boot Microservice ---
+apiVersion: platform.adhar.com/v1alpha1
+kind: ApplicationTemplate
+metadata:
+  name: "spring-boot-generic-microservice-template"
+  namespace: "platform-templates"
+  labels:
+    platform.adhar.com/template-type: "backend-service"
+    platform.adhar.com/language: "java"
+    platform.adhar.com/framework: "spring-boot"
+spec:
+  displayName: "Generic Spring Boot Microservice"
+  description: "A general-purpose template for creating Spring Boot microservices. Includes options for web framework (MVC/WebFlux), data access, and basic Actuator."
+  tags: ["java", "spring-boot", "microservice", "backend", "rest-api", "webflux"]
+  ownerTeamRef:
+    name: "platform-engineering-core-services"
+    namespace: "platform-admin"
+  type: "service"
+  source:
+    url: "https://github.com/adhar-platform-templates/spring-boot-generic-microservice.git"
+    path: "/"
+    revision: "v1.0.0"
+  parametersSchema:
+    openAPIV3Schema:
+      type: object
+      properties:
+        serviceName:
+          type: string
+          description: "The name for the new microservice (e.g., 'notification-service', 'inventory-manager')."
+          pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        basePackage:
+          type: string
+          description: "Base Java package name (e.g., 'com.mycompany.notifications')."
+          pattern: "^[a-z_][a-z0-9_]*(\\.[a-z_][a-z0-9_]*)*$"
+        javaVersion:
+          type: string
+          enum: ["11", "17", "21"]
+          default: "17"
+        springBootVersion:
+          type: string
+          default: "2.7.12" # Or a newer 3.x version
+        webFramework:
+          type: string
+          description: "Choose the Spring web framework."
+          enum: ["spring-boot-starter-web", "spring-boot-starter-webflux"]
+          default: "spring-boot-starter-web"
+        includeActuator:
+          type: boolean
+          description: "Include Spring Boot Actuator for /health, /info, /metrics."
+          default: true
+        databaseDependency:
+          type: string
+          description: "Select a Spring Data dependency if needed."
+          enum: ["none", "spring-boot-starter-data-jpa", "spring-boot-starter-data-mongodb", "spring-boot-starter-data-r2dbc"]
+          default: "none"
+        buildTool:
+          type: string
+          enum: ["maven", "gradle"]
+          default: "maven"
+      required:
+        - serviceName
+        - basePackage
+  output:
+    repositoryPattern: "{{ organization.name | lower }}-svc-{{ template.parameters.serviceName }}"
+    defaultFiles:
+      - "{{ 'pom.xml' if template.parameters.buildTool == 'maven' else 'build.gradle' }}"
+      - "Dockerfile"
+      - "README.md"
+      - "src/main/java/{{ template.parameters.basePackage | replace('.', '/') }}/{{ template.parameters.serviceName | capitalize }}Application.java"
+      - "src/main/resources/application.properties" # or application.yml
+      - ".github/workflows/ci-spring-boot.yaml"
+status:
+  observedGeneration: 1
+  usageCount: 0
+  conditions:
+    - type: "Ready"
+      status: "True"
+      lastTransitionTime: "2025-05-17T12:10:00Z"
+      reason: "TemplateAvailable"
+      message: "Generic Spring Boot microservice template is available."

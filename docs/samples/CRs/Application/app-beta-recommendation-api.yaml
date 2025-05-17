@@ -1,0 +1,69 @@
+# --- Application CR: Beta Recommendation API (Python FastAPI) ---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Application
+metadata:
+  name: "app-beta-recommendation-api"
+  namespace: "beta-solutions-admin"
+  labels:
+    platform.adhar.io/organization: "org-beta-solutions"
+    platform.adhar.io/team: "team-beta-innovators"
+    platform.adhar.io/app-type: "api-service"
+spec:
+  displayName: "Beta Recommendation API"
+  description: "Provides product recommendations for Beta Solutions clients."
+  organizationRef: { name: "org-beta-solutions" }
+  teamRef: { name: "team-beta-innovators", namespace: "beta-solutions-admin" }
+  template:
+    templateRef:
+      name: "python-fastapi-service-template"
+      namespace: "platform-templates"
+    values:
+      serviceName: "recommendation-api"
+      pythonVersion: "3.10"
+      includeDatabaseIntegration: "beanie-mongodb" # Example for async MongoDB
+      dependencyManager: "poetry"
+
+  sourceCode:
+    repositoryRef: { name: "repo-beta-recommendation-api", namespace: "beta-solutions-admin" }
+
+  build:
+    pipelineRef: { name: "pl-beta-recommendation-api-main", namespace: "beta-solutions-admin" }
+    registryOutput:
+      registryRef: { name: "reg-global-harbor" }
+      imageRepositoryName: "beta-solutions/recommendation-api"
+
+  deployments:
+    - environmentRef: { name: "env-beta-dev" } # Cluster-scoped Environment CR
+      version: "latest-dev"
+      replicas: 1
+      gitOps: { deploymentRef: { name: "dep-beta-recommendation-api-dev", namespace: "beta-dev-apps" } }
+    - environmentRef: { name: "env-beta-prod" }
+      version: "v0.5.0"
+      replicas: 2
+      gitOps: { deploymentRef: { name: "dep-beta-recommendation-api-prod", namespace: "beta-prod-apps" } }
+
+  networking:
+    - environmentRef: { name: "env-beta-prod" }
+      routes: # Accessed via an API Gateway, or directly if simple setup
+        - hostnames: ["recommendations.api.betasolutions.io"]
+          paths: [{ value: "/v1/recommend", type: "Prefix" }]
+          port: 8000 # Default FastAPI port
+          protocol: "HTTP" # Assuming TLS termination at gateway or ingress
+          # This might route through a Beta Corp API Gateway, or a simpler Ingress
+          gatewayRef: { name: "gw-beta-external", namespace: "beta-gateways" }
+
+  observability:
+    - environmentRef: { name: "env-beta-prod" }
+      logging: { level: "INFO" }
+      metrics: { scrapePath: "/metrics", scrapePortName: "http" } # FastAPI often uses a standard metrics endpoint
+      tracing: { provider: "OpenTelemetry", endpoint: "http://otel-collector.beta-observability.svc:4317", samplingRate: 0.1 }
+
+  configuration:
+    - environmentRef: { name: "env-beta-prod" }
+      platformConfigRefs:
+        - configRef: { name: "pconf-beta-recommendation-api-prod", namespace: "beta-prod-apps" }
+          version: "v1.0"
+
+status:
+  phase: "Ready"
+  message: "Recommendation API is operational."

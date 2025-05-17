@@ -1,0 +1,66 @@
+# --- Sample ApplicationTemplate: DenoJS Service ---
+apiVersion: platform.adhar.com/v1alpha1
+kind: ApplicationTemplate
+metadata:
+  name: "denojs-service-template"
+  namespace: "platform-templates"
+  labels:
+    platform.adhar.com/template-type: "backend-service"
+    platform.adhar.com/language: "typescript" # or javascript
+    platform.adhar.com/runtime: "deno"
+spec:
+  displayName: "DenoJS HTTP Service"
+  description: "A starter template for creating a lightweight HTTP service using Deno and TypeScript, typically with the Oak framework."
+  tags: ["deno", "typescript", "javascript", "backend", "http-service", "api", "oak"]
+  ownerTeamRef:
+    name: "emerging-tech-platform-team"
+    namespace: "platform-admin"
+  type: "service"
+  source:
+    url: "https://github.com/adhar-platform-templates/denojs-service.git"
+    path: "/"
+    revision: "v1.0.0"
+  parametersSchema:
+    openAPIV3Schema:
+      type: object
+      properties:
+        serviceName:
+          type: string
+          description: "The name for the new DenoJS service (e.g., 'url-shortener', 'realtime-updater')."
+          pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        denoVersion:
+          type: string
+          description: "Specify Deno version to target (e.g., in .deno-version file or Dockerfile)."
+          default: "1.30.0" # Example
+        includeOakFramework:
+          type: boolean
+          description: "Include Oak framework for routing and middleware."
+          default: true
+        includeDockerSetup:
+          type: boolean
+          description: "Include a Dockerfile for containerization."
+          default: true
+        useImportMap:
+          type: boolean
+          description: "Initialize with an import_map.json for managing dependencies."
+          default: true
+      required:
+        - serviceName
+  output:
+    repositoryPattern: "{{ organization.name | lower }}-deno-{{ template.parameters.serviceName }}"
+    defaultFiles:
+      - "{{ 'import_map.json' if template.parameters.useImportMap else '' }}"
+      - "main.ts" # or server.ts
+      - "deps.ts" # For managing dependencies
+      - "README.md"
+      - "{{ 'Dockerfile' if template.parameters.includeDockerSetup else '' }}"
+      - ".github/workflows/ci-deno.yaml"
+status:
+  observedGeneration: 1
+  usageCount: 0
+  conditions:
+    - type: "Ready"
+      status: "True"
+      lastTransitionTime: "2025-05-17T12:15:00Z"
+      reason: "TemplateAvailable"
+      message: "DenoJS service template is available."

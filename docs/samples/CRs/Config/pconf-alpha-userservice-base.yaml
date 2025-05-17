@@ -1,0 +1,34 @@
+# --- PlatformConfig CR for Alpha User Service - Base (Namespaced: alpha-corp-admin) ---
+# (Reusable base configuration, versioned)
+apiVersion: platform.adhar.io/v1alpha1
+kind: PlatformConfig
+metadata:
+  name: "pconf-alpha-userservice-base"
+  namespace: "alpha-corp-admin" # Shared within the org/team
+  labels:
+    platform.adhar.io/applicationBlueprint: "appbp-alpha-userservice"
+spec:
+  applicationBlueprintRef:
+    name: "appbp-alpha-userservice"
+    namespace: "alpha-corp-admin"
+  version: "v1.0.0" # Semantic version for this config set
+  configFormat: "yaml"
+  data:
+    featureFlags:
+      newOnboardingFlowEnabled: false
+      mfaRequiredForAdmins: true
+    externalServiceEndpoints:
+      notificationServiceUrl: "http://notifications.internal.alphacorp/api"
+      auditLogServiceUrl: "http://audit.internal.alphacorp/api"
+    cacheSettings:
+      userProfileTTLSeconds: 300
+  immutable: true # This version of config cannot be changed
+status:
+  observedGeneration: 1
+  lastValidatedTime: "2025-01-18T10:00:00Z"
+  conditions:
+    - type: "Ready"
+      status: "True"
+      lastTransitionTime: "2025-01-18T10:00:00Z"
+      reason: "ConfigValidated"
+      message: "PlatformConfig is valid and ready for use."

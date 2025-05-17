@@ -1,0 +1,58 @@
+# --- Application CR: Alpha Main Shell (Microfrontend Host) ---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Application
+metadata:
+  name: "app-alpha-main-shell"
+  namespace: "alpha-corp-admin"
+  labels:
+    platform.adhar.io/organization: "org-alpha-corp"
+    platform.adhar.io/team: "team-alpha-phoenix"
+    platform.adhar.io/app-type: "microfrontend-host"
+spec:
+  displayName: "Alpha Main Shell Application"
+  description: "The main host application for Alpha Corp, orchestrating various microfrontends."
+  organizationRef: { name: "org-alpha-corp" }
+  teamRef: { name: "team-alpha-phoenix", namespace: "alpha-corp-admin" }
+  template:
+    templateRef:
+      name: "react-microfrontend-host-template"
+      namespace: "platform-templates"
+    values:
+      applicationName: "main-shell"
+      defaultLayout: "sidebar-header-content"
+      initialRemoteModules: # Configuration for remotes it will load
+        - scopeName: "alphaProfileMFE" # Matches hostApplicationScope in profile-mfe template
+          remoteUrl: "https://mfe.alphacorp.com/profile/remoteEntry.js" # URL of the deployed profile MFE
+          exposedModule: "./ProfileModule"
+        # - scopeName: "alphaOrdersMFE"
+        #   remoteUrl: "https://mfe.alphacorp.com/orders/remoteEntry.js"
+        #   exposedModule: "./OrdersModule"
+
+  sourceCode:
+    repositoryRef: { name: "repo-alpha-main-shell", namespace: "alpha-corp-admin" }
+
+  build:
+    pipelineRef: { name: "pl-alpha-main-shell-main", namespace: "alpha-corp-admin" }
+    registryOutput:
+      registryRef: { name: "reg-global-harbor" }
+      imageRepositoryName: "alpha-corp/main-shell"
+
+  deployments:
+    - environmentRef: { name: "env-alpha-prod" }
+      version: "v3.0.1"
+      replicas: 2
+      gitOps: { deploymentRef: { name: "dep-alpha-main-shell-prod", namespace: "alpha-prod-apps" } }
+
+  networking:
+    - environmentRef: { name: "env-alpha-prod" }
+      routes:
+        - hostnames: ["shell.alphacorp.com", "app.alphacorp.com"] # Main entry point
+          paths: [{ value: "/", type: "Prefix" }]
+          port: 80
+          protocol: "HTTPS"
+          gatewayRef: { name: "gw-alpha-external", namespace: "alpha-gateways" }
+          tls: { mode: "Terminate", certificateRef: { name: "tls-shell-alphacorp-com", namespace: "alpha-prod-apps" } }
+
+status:
+  phase: "Ready"
+  message: "Main Shell application is operational."

@@ -1,0 +1,14 @@
+# --- Sample Backup CR for Alpha User Service Prod Database ---
+apiVersion: platform.adhar.com/v1alpha1
+kind: Backup
+metadata:
+  name: "bkp-alpha-userservice-prod-db-daily"
+  namespace: "alpha-prod-apps-usw2" # Same namespace as the Database CR
+spec:
+  displayName: "Daily Backup for User Service Prod DB"
+  backupTarget: { databaseRefs: [{ name: "db-alpha-userservice-prod" }] }
+  storageLocation: { storageCRRef: { name: "stor-alpha-backups", namespace: "alpha-corp-admin" } }
+  # volumeSnapshotLocations: [{ provider: "aws", config: { region: "us-west-2" } }] # If using CSI snapshots on AWS
+  schedule: "0 2 * * *" # Daily at 2 AM UTC
+  ttl: "720h" # 30 days
+status: { phase: "Scheduled", veleroScheduleName: "bkp-alpha-userservice-prod-db-daily-sched" }

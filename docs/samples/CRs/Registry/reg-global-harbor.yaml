@@ -1,0 +1,26 @@
+# --- Registry CR: Global Harbor Instance (Cluster-Scoped) ---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Registry
+metadata:
+  name: "reg-global-harbor"
+  labels:
+    platform.adhar.io/scope: "global"
+    platform.adhar.io/type: "container-registry"
+spec:
+  displayName: "Global Harbor Registry"
+  type: "Harbor"
+  serverUrl: "https://harbor.adhar-platform.com"
+  credentialsSecretRef: # Assumed to exist in a central 'platform-secrets' namespace
+    name: "global-harbor-admin-secret" # Secret with admin/push credentials for pipelines
+    namespace: "platform-secrets"
+  usageScope: "Both" # Can be used for push (by pipelines) and pull (by clusters)
+status:
+  connectivityStatus: "Healthy"
+  lastValidationTimestamp: "2025-05-18T10:00:00Z"
+  message: "Successfully connected to Harbor instance."
+  conditions:
+    - type: "Ready"
+      status: "True"
+      lastTransitionTime: "2025-05-18T10:00:00Z"
+      reason: "ConnectionVerified"
+      message: "Registry is operational."

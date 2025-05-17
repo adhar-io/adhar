@@ -1,0 +1,55 @@
+# --- Deployment CR (GitOps) for Alpha User Service in DEV (Namespaced: alpha-dev-apps) ---
+apiVersion: platform.adhar.io/v1alpha1
+kind: Deployment
+metadata:
+  name: "dep-alpha-user-service-dev"
+  namespace: "alpha-dev-apps" # Resides in the target environment's app namespace
+  labels:
+    platform.adhar.io/applicationBlueprint: "appbp-alpha-userservice"
+    platform.adhar.io/environment: "env-alpha-dev"
+spec:
+  applicationBlueprintRef:
+    name: "appbp-alpha-userservice"
+    namespace: "alpha-corp-admin"
+  environmentRef:
+    name: "env-alpha-dev" # Target Environment CR
+  version: "latest-dev" # The application version this GitOps deployment should ensure
+                      # This field is updated by Release or manual changes to trigger rollout
+  source: # GitOps configuration repository details
+    repoURL: "git@github.com:AlphaCorpInternalOrg/app-configs.git" # Dedicated GitOps config repo
+    path: "apps/alpha-corp/user-service/dev" # Path to K8s manifests, Helm chart, or Kustomization for this app in dev
+    targetRevision: "HEAD" # Tracks the head of the default branch of the config repo for dev
+    credentialsSecretRef:
+      name: "gitops-config-repo-key"
+      namespace: "platform-secrets" # Central secret for accessing config repos
+  tool:
+    name: "ArgoCD" # Explicitly using ArgoCD
+    argoProject: "alpha-dev-services" # ArgoCD project for this environment/application set
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+  values: # Values to override in the Helm chart or Kustomize base in the config repo
+    replicaCount: 1
+    image:
+      tag: "latest-dev" # This should be templated in the config repo to use the 'version' from this CR
+    environmentVariables:
+      LOG_LEVEL: "DEBUG"
+      FEATURE_FLAG_X: "true"
+    # The actual Application (Instance) CR for 'app-alpha-user-service' in 'alpha-dev-apps'
+    # would be managed by the manifests in this GitOps config repo path.
+status:
+  observedGeneration: 1
+  syncStatus: "Synced"
+  healthStatus: "Healthy"
+  deployedAppVersion: "latest-dev" # Version reported by ArgoCD
+  deployedConfigRevision: "main@abcdef123" # Commit from the config repo
+  lastSyncTimestamp: "2025-05-18T10:15:00Z"
+  toolSpecificStatus:
+    argoApplicationURL: "https://argocd.alphacorp.com/applications/alpha-dev-user-service"
+  conditions:
+    - type: "Ready"
+      status: "True"
+      lastTransitionTime: "2025-01-20T12:00:00Z"
+      reason: "GitOpsConfigured"
+      message: "GitOps deployment is active and synced with ArgoCD."
