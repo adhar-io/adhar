@@ -8,7 +8,7 @@ nameOverride: argocd
 fullnameOverride: ""
 # -- Override the namespace
 # @default -- `.Release.Namespace`
-namespaceOverride: "adhar-system"
+namespaceOverride: ""
 # -- Override the Kubernetes version, which is used to evaluate certain manifests
 kubeVersionOverride: ""
 # Override APIVersions
@@ -775,7 +775,7 @@ controller:
   # Additional replicas will cause sharding of managed clusters across number of replicas.
   ## With dynamic cluster distribution turned on, sharding of the clusters will gracefully
   ## rebalance if the number of replica's changes or one becomes unhealthy. (alpha)
-  replicas: 1
+  replicas: 2
 
   # -- Enable dynamic cluster distribution (alpha)
   # Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/dynamic-cluster-distribution
@@ -1435,7 +1435,7 @@ redis:
       # -- Repository to use for the redis-exporter
       repository: ghcr.io/oliver006/redis_exporter
       # -- Tag to use for the redis-exporter
-      tag: v1.71.0
+      tag: v1.72.0
       # -- Image pull policy for the redis-exporter
       # @default -- `""` (defaults to global.image.imagePullPolicy)
       imagePullPolicy: ""
@@ -1699,7 +1699,7 @@ redis:
 # Ref: https://github.com/DandyDeveloper/charts/blob/master/charts/redis-ha/values.yaml
 redis-ha:
   # -- Enables the Redis HA subchart and disables the custom Redis single node deployment
-  enabled: false
+  enabled: true
   ## Redis image
   image:
     # -- Redis repository
@@ -1899,9 +1899,9 @@ server:
   ## Argo CD server Horizontal Pod Autoscaler
   autoscaling:
     # -- Enable Horizontal Pod Autoscaler ([HPA]) for the Argo CD server
-    enabled: false
+    enabled: true
     # -- Minimum number of replicas for the Argo CD server [HPA]
-    minReplicas: 1
+    minReplicas: 2
     # -- Maximum number of replicas for the Argo CD server [HPA]
     maxReplicas: 5
     # -- Average CPU utilization percentage for the Argo CD server [HPA]
@@ -2570,9 +2570,9 @@ repoServer:
   ## Repo server Horizontal Pod Autoscaler
   autoscaling:
     # -- Enable Horizontal Pod Autoscaler ([HPA]) for the repo server
-    enabled: false
+    enabled: true
     # -- Minimum number of replicas for the repo server [HPA]
-    minReplicas: 1
+    minReplicas: 2
     # -- Maximum number of replicas for the repo server [HPA]
     maxReplicas: 5
     # -- Average CPU utilization percentage for the repo server [HPA]
@@ -2955,7 +2955,7 @@ applicationSet:
   name: applicationset-controller
 
   # -- The number of ApplicationSet controller pods to run
-  replicas: 1
+  replicas: 2
 
   # -- Runtime class name for the ApplicationSet controller
   # @default -- `""` (defaults to global.runtimeClassName)
