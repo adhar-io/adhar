@@ -6,7 +6,7 @@ LD_FLAGS=-ldflags " \
 
 # Image URL to use all building/pushing image targets
 IMG ?= adhar:latest
-VERSION ?= v0.1.0
+VERSION ?= v0.3.8
 
 # The name of the binary. Defaults to adhar
 OUT_FILE ?= adhar
@@ -157,7 +157,7 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 ##@ Release Management
 
 .PHONY: release
-release: ## Tag and build a new release with version information
+release: goreleaser ## Tag and build a new release with version information
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Error: VERSION must be specified (e.g., make release VERSION=v0.2.0)"; \
 		exit 1; \
@@ -172,8 +172,15 @@ release: ## Tag and build a new release with version information
 	@git tag -a $(VERSION) -m "Release $(VERSION)"
 	@echo "Building versioned binary..."
 	@$(MAKE) build VERSION=$(VERSION)
+	@if [ -z "$$GITHUB_TOKEN" ]; then \
+		echo "Error: GITHUB_TOKEN environment variable is not set"; \
+		echo "Please set it using: export GITHUB_TOKEN=your_github_token"; \
+		echo "You can create a Personal Access Token at https://github.com/settings/tokens"; \
+		echo "The token needs 'repo' permissions to create releases"; \
+		exit 1; \
+	fi
 	@echo "Running GoReleaser..."
-	@goreleaser release --clean --timeout 30m
+	@$(GORELEASER) release --clean --timeout 30m
 	@echo "Release $(VERSION) created successfully!"
 	@echo "To push the git tag, run: git push origin $(VERSION)"
 
@@ -215,6 +222,10 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 HELM ?= $(LOCALBIN)/helm
+
+# GoReleaser
+GORELEASER ?= $(LOCALBIN)/goreleaser
+GORELEASER_VERSION ?= v1.26.1
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.6.0
@@ -262,6 +273,11 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 helm: $(HELM) ## Download helm locally if necessary.
 $(HELM): $(LOCALBIN)
 	$(call go-install-tool,$(HELM),helm.sh/helm/v3/cmd/helm,$(HELM_VERSION))
+
+.PHONY: goreleaser
+goreleaser: $(GORELEASER) ## Download goreleaser locally if necessary.
+$(GORELEASER): $(LOCALBIN)
+	$(call go-install-tool,$(GORELEASER),github.com/goreleaser/goreleaser,$(GORELEASER_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary

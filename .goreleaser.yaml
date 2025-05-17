@@ -10,6 +10,7 @@ release:
 builds:
   - env:
       - CGO_ENABLED=0
+    main: ./cmd
     goos:
       - linux
       - darwin
@@ -17,9 +18,9 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -X adhar-io/adhar/pkg/cmd/version.adharVersion={{ .Version }}
-      - -X adhar-io/adhar/pkg/cmd/version.gitCommit={{ .FullCommit }}
-      - -X adhar-io/adhar/pkg/cmd/version.buildDate={{ .CommitDate }}
+      - -X adhar-io/adhar/cmd/version.adharVersion={{ .Version }}
+      - -X adhar-io/adhar/cmd/version.gitCommit={{ .FullCommit }}
+      - -X adhar-io/adhar/cmd/version.buildDate={{ .CommitDate }}
       - -w
       - -s
     binary: adhar
@@ -48,7 +49,7 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 snapshot:
-  version_template: "{{ incpatch .Version }}-next"
+  name_template: "{{ incpatch .Version }}-next"
 changelog:
   sort: asc
   filters:
