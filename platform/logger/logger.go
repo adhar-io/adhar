@@ -1,10 +1,6 @@
 package logger
 
 import (
-	"context"
-	"io"
-	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/fatih/color"
@@ -80,55 +76,4 @@ func LogToFile(filename string) {
 		MaxAge:     28,
 		Compress:   true,
 	})
-}
-
-type Options struct {
-	AddSource  bool
-	Colored    bool
-	Level      slog.Leveler
-	TimeFormat string
-}
-
-// Handler is very similar to slog's commonHandler
-type Handler struct {
-	opts              Options
-	json              bool
-	preformattedAttrs []byte
-	groupPrefix       string
-	groups            []string
-	unopenedGroups    []string
-	nOpenGroups       int
-	mu                *sync.Mutex
-	w                 io.Writer
-}
-
-// Enabled implements slog.Handler.
-func (h *Handler) Enabled(context.Context, slog.Level) bool {
-	panic("unimplemented")
-}
-
-// Handle implements slog.Handler.
-func (h *Handler) Handle(context.Context, slog.Record) error {
-	panic("unimplemented")
-}
-
-// WithAttrs implements slog.Handler.
-func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	panic("unimplemented")
-}
-
-// WithGroup implements slog.Handler.
-func (h *Handler) WithGroup(name string) slog.Handler {
-	panic("unimplemented")
-}
-
-func NewHandler(out io.Writer, opts Options) *Handler {
-	return &Handler{
-		opts:              opts,
-		preformattedAttrs: make([]byte, 0),
-		unopenedGroups:    make([]string, 0),
-		nOpenGroups:       0,
-		mu:                &sync.Mutex{},
-		w:                 out,
-	}
 }

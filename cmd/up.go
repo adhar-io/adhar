@@ -54,6 +54,7 @@ var (
 	ingressHost               string
 	port                      string
 	pathRouting               bool
+	verbose                   bool // Add verbose flag
 )
 
 var (
@@ -143,12 +144,19 @@ func init() {
 
 	// adhar related flags
 	upCmd.Flags().BoolVarP(&noExit, "watch", "w", true, noExitUsage)
+	upCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable debug logging") // Add verbose flag
 
 	// Add the upCmd to the root command
 	rootCmd.AddCommand(upCmd)
 }
 
 func preCreateE(cmd *cobra.Command, args []string) error {
+	// Set log level based on verbose flag
+	if verbose {
+		_ = helpers.SetLogLevel("debug")
+	} else {
+		_ = helpers.SetLogLevel("info")
+	}
 	return helpers.SetLogger()
 }
 
