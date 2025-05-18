@@ -5,6 +5,9 @@ import (
 	"os"
 	"strings"
 
+	"adhar-io/adhar/cmd/helpers" // Added import
+	"adhar-io/adhar/globals"     // Added import for globals package
+
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -100,9 +103,6 @@ var (
 
 	tableRowStyle = lipgloss.NewStyle().
 			Padding(0, 0, 0, 2)
-
-	// Platform version
-	adharVersion = "v0.1.0"
 )
 
 // GlamourStyles defines the styles to use for rendering markdown
@@ -125,14 +125,14 @@ func renderAsciiArt() string {
 // printHeader prints the standard Adhar Platform header.
 func printHeader() {
 	fmt.Println(renderAsciiArt())
-	fmt.Println(subtitleStyle.Render(" Platform " + adharVersion + " - The Open Foundation"))
-	fmt.Println() // Add a blank line for spacing
+	fmt.Println(subtitleStyle.Render(" Platform " + globals.Version + " - The Open Foundation")) // Use globals.Version
+	fmt.Println()                                                                                // Add a blank line for spacing
 }
 
 // renderCommandHeader prints a standardized header for any command with ASCII art and command-specific title
 func renderCommandHeader(commandName, description string) {
 	fmt.Println(renderAsciiArt())
-	fmt.Println(subtitleStyle.Render(" Platform " + adharVersion + " - The Open Foundation"))
+	fmt.Println(subtitleStyle.Render(" Platform " + globals.Version + " - The Open Foundation")) // Use globals.Version
 	if commandName != "" {
 		fmt.Println(headerStyle.Render("ADHAR " + strings.ToUpper(commandName)))
 		if description != "" {
@@ -337,7 +337,11 @@ func init() {
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable color output")
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug mode")
 	rootCmd.PersistentFlags().String("theme", "auto", "Theme for markdown rendering (auto, dark, light)")
-	rootCmd.PersistentFlags().String("kubeconfig", "", "Path to the kubeconfig file to use for Platform requests") // Add kubeconfig flag
+	rootCmd.PersistentFlags().String("kubeconfig", "", "Path to the kubeconfig file to use for Platform requests")
+
+	// Added log level and colored output flags
+	rootCmd.PersistentFlags().StringVar(&helpers.LogLevel, "log-level", "info", helpers.LogLevelMsg)
+	rootCmd.PersistentFlags().BoolVar(&helpers.ColoredOutput, "colored-logs", true, helpers.ColoredOutputMsg)
 }
 
 // AddCommand adds one or more commands to the root command

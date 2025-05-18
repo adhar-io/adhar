@@ -41,7 +41,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	sel "k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
-	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -175,10 +174,10 @@ func (r *AdharPlatformReconciler) installCorePackages(ctx context.Context, req c
 	var wg sync.WaitGroup
 
 	installers := map[string]subReconciler{
-		v1alpha1.IngressNginxPackageName: r.ReconcileNginx,
+		v1alpha1.IngressNginxPackageName: r.ReconcileNginx, // Added back ReconcileNginx
 		v1alpha1.ArgoCDPackageName:       r.ReconcileArgo,
-		v1alpha1.GiteaPackageName:        r.ReconcileGitea,
 		v1alpha1.CiliumPackageName:       r.ReconcileCilium,
+		v1alpha1.GiteaPackageName:        r.ReconcileGitea,
 	}
 	logger.V(1).Info("installing core packages")
 	for k, v := range installers {
@@ -195,87 +194,6 @@ func (r *AdharPlatformReconciler) installCorePackages(ctx context.Context, req c
 		}()
 	}
 	wg.Wait()
-}
-
-func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Cilium core package")
-
-	ciliumManifestPath := "pkg/controllers/localbuild/resources/cilium/k8s/install.yaml"
-	manifestBytes, err := os.ReadFile(ciliumManifestPath)
-	if err != nil {
-		logger.Error(err, "Failed to read Cilium install manifest", "path", ciliumManifestPath)
-		return ctrl.Result{}, fmt.Errorf("reading cilium manifest %s: %w", ciliumManifestPath, err)
-	}
-
-	decoder := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifestBytes), 100)
-	var applyErrors []error
-
-	for {
-		obj := &unstructured.Unstructured{}
-		err := decoder.Decode(obj)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			logger.Error(err, "Failed to decode object from Cilium manifest")
-			applyErrors = append(applyErrors, fmt.Errorf("decoding object: %w", err))
-			continue
-		}
-
-		if obj.Object == nil {
-			continue
-		}
-
-		// Fetch a fresh copy of the AdharPlatform resource to ensure we have the latest state
-		freshAdharPlatform := &v1alpha1.AdharPlatform{}
-		if err := r.Get(ctx, req.NamespacedName, freshAdharPlatform); err != nil {
-			logger.Error(err, "Failed to get fresh AdharPlatform resource before setting owner ref", "kind", obj.GetKind(), "name", obj.GetName())
-			applyErrors = append(applyErrors, fmt.Errorf("getting fresh owner for %s/%s: %w", obj.GetKind(), obj.GetName(), err))
-			continue
-		}
-
-		// Log the state before attempting to set owner reference using the fresh object
-		logger.V(1).Info("Checking owner reference for Cilium object with fresh owner data",
-			"kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(),
-			"ownerName", freshAdharPlatform.Name, "ownerUID", freshAdharPlatform.UID, "ownerDeletionTimestamp", freshAdharPlatform.ObjectMeta.DeletionTimestamp)
-
-		if freshAdharPlatform.ObjectMeta.DeletionTimestamp.IsZero() {
-			// Add logging before attempting to set the reference
-			logger.V(1).Info("Owner is not being deleted, attempting to set owner reference", "targetKind", obj.GetKind(), "targetName", obj.GetName())
-			// Log owner details just before setting reference
-			logger.V(1).Info("Owner details before SetControllerReference", "ownerName", freshAdharPlatform.Name, "ownerUID", freshAdharPlatform.UID)
-			if err := controllerutil.SetControllerReference(freshAdharPlatform, obj, r.Scheme); err != nil { // Use freshAdharPlatform here
-				logger.Error(err, "Failed to set controller reference on Cilium object", "kind", obj.GetKind(), "name", obj.GetName())
-				applyErrors = append(applyErrors, fmt.Errorf("setting owner ref on %s/%s: %w", obj.GetKind(), obj.GetName(), err))
-				continue // Skip applying this object if owner ref fails
-			}
-			// Add logging after successfully setting the reference
-			logger.V(1).Info("Successfully set owner reference", "targetKind", obj.GetKind(), "targetName", obj.GetName())
-		} else {
-			logger.V(1).Info("Owner resource is being deleted, skipping owner reference setting", "owner", freshAdharPlatform.Name, "targetKind", obj.GetKind(), "targetName", obj.GetName())
-		}
-
-		// Apply the object using Server-Side Apply
-		patch := client.Apply
-		opts := []client.PatchOption{client.ForceOwnership, client.FieldOwner(v1alpha1.FieldManager)}
-		err = r.Patch(ctx, obj, patch, opts...)
-		if err != nil {
-			logger.Error(err, "Failed to apply Cilium object", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace())
-			applyErrors = append(applyErrors, fmt.Errorf("applying %s/%s: %w", obj.GetKind(), obj.GetName(), err))
-			continue
-		}
-		logger.V(1).Info("Applied Cilium object", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace())
-	}
-
-	if len(applyErrors) > 0 {
-		combinedErr := fmt.Errorf("encountered %d errors applying cilium manifest: %v", len(applyErrors), applyErrors)
-		logger.Error(combinedErr, "Failed to apply all Cilium resources")
-		return ctrl.Result{}, combinedErr
-	}
-
-	logger.Info("Successfully reconciled Cilium core package")
-	return ctrl.Result{}, nil
 }
 
 func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) {
@@ -313,10 +231,6 @@ func (r *AdharPlatformReconciler) ReconcileProjectNamespace(ctx context.Context,
 
 	logger.V(1).Info("Create or update namespace", "resource", nsResource)
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, nsResource, func() error {
-		if err := controllerutil.SetControllerReference(resource, nsResource, r.Scheme); err != nil {
-			logger.Error(err, "Setting controller ref on namespace resource")
-			return err
-		}
 		return nil
 	})
 	if err != nil {
@@ -380,7 +294,7 @@ func (r *AdharPlatformReconciler) reconcileEmbeddedApp(ctx context.Context, appN
 	app := &argov1alpha1.Application{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      appName,
-			Namespace: globals.ArgoCDNamespace,
+			Namespace: globals.AdharSystemNamespace,
 		},
 	}
 
@@ -716,7 +630,7 @@ func (r *AdharPlatformReconciler) reconcileGitRepo(ctx context.Context, resource
 
 func (r *AdharPlatformReconciler) requestArgoCDAppRefresh(ctx context.Context) error {
 	apps := &argov1alpha1.ApplicationList{}
-	err := r.Client.List(ctx, apps, client.InNamespace(globals.ArgoCDNamespace))
+	err := r.Client.List(ctx, apps, client.InNamespace(globals.AdharSystemNamespace))
 	if err != nil {
 		return fmt.Errorf("listing argocd apps for refresh: %w", err)
 	}
@@ -739,7 +653,7 @@ apps:
 
 func (r *AdharPlatformReconciler) requestArgoCDAppSetRefresh(ctx context.Context) error {
 	appsets := &argov1alpha1.ApplicationSetList{}
-	err := r.Client.List(ctx, appsets, client.InNamespace(globals.ArgoCDNamespace))
+	err := r.Client.List(ctx, appsets, client.InNamespace(globals.AdharSystemNamespace))
 	if err != nil {
 		return fmt.Errorf("listing argocd apps for refresh: %w", err)
 	}
@@ -954,8 +868,7 @@ func isSupportedArgoCDTypes(gvk *schema.GroupVersionKind) bool {
 func GetEmbeddedRawInstallResources(name string, templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
 	switch name {
 	case v1alpha1.ArgoCDPackageName:
-		// Still need to resolve lb.RawArgocdInstallResources
-		// return lb.RawArgocdInstallResources(templateData, config, scheme)
+		return RawArgocdInstallResources(templateData, config, scheme)
 	case v1alpha1.GiteaPackageName:
 		// Still need to resolve lb.RawGiteaInstallResources
 		// return lb.RawGiteaInstallResources(templateData, config, scheme)
@@ -965,6 +878,6 @@ func GetEmbeddedRawInstallResources(name string, templateData any, config v1alph
 	default:
 		return nil, fmt.Errorf("unsupported embedded app name %s", name)
 	}
-	// Added temporary return to allow compilation check
-	return nil, fmt.Errorf("Raw* functions not yet implemented/found")
+	// This part might still be needed if other cases are not implemented
+	return nil, fmt.Errorf("Raw function for %s not yet fully implemented in GetEmbeddedRawInstallResources", name)
 }

@@ -1,181 +1,329 @@
 package main
 
 import (
-	"errors"
+	"context"
 	"fmt"
+	"net/url"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
-	"time"
 
-	"adhar-io/adhar/platform/logger"
+	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/cmd/helpers"
+	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/build"
+	"adhar-io/adhar/platform/k8s"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/util/homedir"
 )
 
 const (
-	kindClusterName = "adhar"
+	recreateClusterUsage           = "Delete cluster first if it already exists."
+	buildNameUsage                 = "Name for build (Prefix for kind cluster name, pod names, etc)."
+	devPasswordUsage               = "Set the password \"developer\" for the admin user of the applications: argocd & gitea."
+	kubeVersionUsage               = "Version of the kind kubernetes cluster to create."
+	extraPortsMappingUsage         = "List of extra ports to expose on the docker container and kubernetes cluster as nodePort(e.g. \"22:32222,9090:39090,etc\")."
+	registryConfigUsage            = "List of paths to mount as the registry config, uses the first one that exists"
+	kindConfigPathUsage            = "Path or URL to the kind config file to be used instead of the default."
+	hostUsage                      = "Host name to access resources in this cluster."
+	ingressHostUsage               = "Host name used by ingresses. Useful when you have another proxy in front of ingress-nginx that adhar provisions."
+	protocolUsage                  = "Protocol to use to access web UIs. http or https."
+	portUsage                      = "Port number to use to access web UIs."
+	pathRoutingUsage               = "When set to true, web UIs are exposed under single domain name. e.g. \"https://adhar.localtest.me/argocd\" instead of \"https://argocd.adhar.localtest.me\""
+	extraPackagesUsage             = "Paths to locations containing custom packages"
+	packageCustomizationFilesUsage = "Name of the package and the path to file to customize the core packages with. valid package names are: argocd, nginx, and gitea. e.g. argocd:/tmp/argocd.yaml"
+	noExitUsage                    = "When set, adhar will not exit after all packages are synced. Useful for continuously syncing local directories."
 )
 
 var (
-	waitForReadiness    bool
-	timeout             int
-	kubeconfigNamespace string
-	noSpinner           bool
-	verboseUp           bool
-	environmentName     string
+	// Flags
+	recreateCluster           bool
+	buildName                 string
+	devPassword               bool
+	kubeVersion               string
+	extraPortsMapping         string
+	kindConfigPath            string
+	extraPackages             []string
+	registryConfig            []string
+	packageCustomizationFiles []string
+	noExit                    bool
+	protocol                  string
+	host                      string
+	ingressHost               string
+	port                      string
+	pathRouting               bool
 )
 
-type upModel struct {
-	spinner     spinner.Model
-	status      string
-	done        bool
-	err         error
-	quitting    bool
-	startTime   time.Time
-	elapsedTime string
-}
-
-func (m *upModel) Init() tea.Cmd {
-	m.startTime = time.Now()
-	return tea.Batch(m.spinner.Tick, updateElapsedTime())
-}
-
-func (m *upModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
-			m.quitting = true
-			return m, tea.Quit
-		}
-		return m, nil
-
-	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
-
-	case logger.StatusMsg:
-		m.status = string(msg)
-		return m, nil
-
-	case logger.ErrorMsg:
-		m.err = msg.Err
-		m.done = true
-		return m, tea.Quit
-
-	case logger.DoneMsg:
-		m.done = true
-		return m, tea.Quit
-
-	case logger.ElapsedTimeMsg:
-		m.elapsedTime = time.Since(m.startTime).Round(time.Second).String()
-		return m, updateElapsedTime()
-
-	default:
-		return m, nil
-	}
-}
-
-func (m *upModel) View() string {
-	if m.quitting {
-		return "Operation canceled. Exiting...\n"
-	}
-
-	if m.err != nil {
-		return fmt.Sprintf("Error: %s\n", m.err.Error())
-	}
-
-	if m.done {
-		return fmt.Sprintf("✅ Adhar platform set up successfully!\nElapsed time: %s\n", m.elapsedTime)
-	}
-
-	status := m.status
-	if status == "" {
-		status = "Initializing..."
-	}
-
-	return fmt.Sprintf("%s\n%s\nElapsed time: %s\n", m.spinner.View(), status, m.elapsedTime)
-}
-
-func updateElapsedTime() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
-		return logger.ElapsedTimeMsg(t)
-	})
-}
-
-func ensureKindCluster() error {
-	_, err := exec.LookPath("kind")
-	if err != nil {
-		logger.Logger.Error("kind command not found, please install kind")
-		return errors.New("kind command not found, please install kind")
-	}
-
-	dockerCmd := exec.Command("docker", "info")
-	if err := dockerCmd.Run(); err != nil {
-		logger.Logger.Error("docker is not running, please start docker and try again")
-		return errors.New("docker is not running, please start docker and try again")
-	}
-
-	cmd := exec.Command("kind", "get", "clusters")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		logger.Logger.Errorf("failed to check for existing kind clusters: %s", err)
-		return fmt.Errorf("failed to check for existing kind clusters: %w", err)
-	}
-
-	if strings.Contains(string(output), kindClusterName) {
-		logger.Logger.Info("Kind cluster already exists")
-		return nil
-	}
-
-	logger.Logger.Info("Creating a new Kind cluster...")
-	createCmd := exec.Command("kind", "create", "cluster", "--name", kindClusterName)
-	if output, err := createCmd.CombinedOutput(); err != nil {
-		logger.Logger.Errorf("failed to create kind cluster: %s", string(output))
-		return fmt.Errorf("failed to create kind cluster: %w\n%s", err, string(output))
-	}
-
-	logger.Logger.Info("Kind cluster created successfully")
-	return nil
-}
-
-func startManager() error {
-	logger.Logger.Info("Starting the manager...")
-	// Placeholder for actual manager start logic
-	return nil
-}
+var (
+	// Define lipgloss styles
+	upTitleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")) // Purple
+	codeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Background(lipgloss.Color("236")).Padding(0, 1)
+	boldStyle     = lipgloss.NewStyle().Bold(true)
+	listItemStyle = lipgloss.NewStyle().SetString("• ")
+	urlStyle      = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("39")) // Blue
+)
 
 var upCmd = &cobra.Command{
 	Use:   "up",
-	Short: "Sets up the Adhar platform.",
-	Run: func(cmd *cobra.Command, args []string) {
-		if err := ensureKindCluster(); err != nil {
-			fmt.Printf("Error ensuring Kind cluster: %s\n", err)
-			os.Exit(1)
-		}
+	Short: "Create an Adhar IDP",
+	Long: fmt.Sprintf(`%s
 
-		model := &upModel{
-			spinner: spinner.New(),
-		}
-		p := tea.NewProgram(model)
-		if _, err := p.Run(); err != nil {
-			fmt.Println("Error running program:", err)
-			os.Exit(1)
-		}
-	},
+%s
+1. %s: Developers can use %s to quickly spin up a local Adhar cluster for testing and development purposes.
+   By default, it sets up a Kubernetes cluster using Kind (Kubernetes in Docker) and provisions essential platform components like ArgoCD, Gitea, and Nginx.
+
+   %s
+	 %s
+
+2. %s: For production environments, %s can be used with a configuration file to deploy the Adhar platform on cloud infrastructure.
+   The configuration file allows customization of cluster settings, package configurations, and resource allocations.
+
+   %s
+	 %s
+
+%s
+%s Supports local development with minimal setup
+%s Configures Kubernetes clusters in your favorite cloud vendor with custom settings
+%s Provisions core platform components like Cilium, ArgoCD, Gitea, Grafana, Keycloak, Backstage, Nginx and more
+%s Allows customization of packages and configurations
+%s Supports local development with rapid iteration
+%s Brings holistic governance to your development environment
+%s Enables developers to continuously sync local directories for rapid iteration
+%s Supports cloud-based production deployments with configuration files
+
+For more information, visit the documentation at %s`,
+		upTitleStyle.Render(`The "adhar up" command is used to create and configure an Adhar Internal Developer Platform (IDP)`),
+		boldStyle.Render("This command supports two primary use cases:"),
+		boldStyle.Render("Local Development"), codeStyle.Render("adhar up"),
+		boldStyle.Render("Example:"),
+		codeStyle.Render("adhar up"),
+		boldStyle.Render("Production Setup"), codeStyle.Render("adhar up"),
+		boldStyle.Render("Example:"),
+		codeStyle.Render("adhar up -f config.yaml"),
+		boldStyle.Render("Key Features:"),
+		listItemStyle.Render(""),
+		listItemStyle.Render(""),
+		listItemStyle.Render(""),
+		listItemStyle.Render(""),
+		listItemStyle.Render(""),
+		listItemStyle.Render(""),
+		listItemStyle.Render(""),
+		listItemStyle.Render(""),
+		urlStyle.Render("https://adhar.io/docs"),
+	),
+	RunE:         create,
+	PreRunE:      preCreateE,
+	SilenceUsage: true,
 }
 
 func init() {
-	upCmd.Flags().BoolVarP(&waitForReadiness, "wait", "w", false, "Wait for all resources to be ready")
-	upCmd.Flags().IntVarP(&timeout, "timeout", "t", 300, "Timeout in seconds for the operation")
-	upCmd.Flags().StringVarP(&kubeconfigNamespace, "namespace", "n", "default", "Namespace to operate in")
-	upCmd.Flags().BoolVar(&noSpinner, "no-spinner", false, "Disable spinner animation")
-	upCmd.Flags().BoolVar(&verboseUp, "verbose", false, "Enable verbose output")
-	upCmd.Flags().StringVarP(&environmentName, "file", "f", "adhar-config.yaml", "Path to the configuration file")
+	// Add the alias here
+	upCmd.Aliases = []string{"create"}
+
+	// cluster related flags
+	upCmd.PersistentFlags().BoolVar(&recreateCluster, "recreate", false, recreateClusterUsage)
+	upCmd.PersistentFlags().StringVar(&buildName, "name", "adhar", buildNameUsage)
+	upCmd.PersistentFlags().BoolVar(&devPassword, "dev-password", false, devPasswordUsage)
+	upCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.32.2", kubeVersionUsage)
+	upCmd.PersistentFlags().StringVar(&extraPortsMapping, "extra-ports", "", extraPortsMappingUsage)
+	upCmd.PersistentFlags().StringVar(&kindConfigPath, "kind-config", "", kindConfigPathUsage)
+	upCmd.PersistentFlags().StringSliceVar(&registryConfig, "registry-config", []string{}, registryConfigUsage)
+	upCmd.PersistentFlags().Lookup("registry-config").NoOptDefVal = "$XDG_RUNTIME_DIR/containers/auth.json,$HOME/.docker/config.json"
+
+	// in-cluster resources related flags
+	upCmd.PersistentFlags().StringVar(&host, "host", globals.DefaultHostName, hostUsage)
+	upCmd.PersistentFlags().StringVar(&ingressHost, "ingress-host-name", "", ingressHostUsage)
+	upCmd.PersistentFlags().StringVar(&protocol, "protocol", "https", protocolUsage)
+	upCmd.PersistentFlags().StringVar(&port, "port", "8443", portUsage)
+	upCmd.PersistentFlags().BoolVar(&pathRouting, "use-path-routing", true, pathRoutingUsage)
+	upCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{"platform/stack"}, extraPackagesUsage)
+	upCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, packageCustomizationFilesUsage)
+
+	// adhar related flags
+	upCmd.Flags().BoolVarP(&noExit, "watch", "w", true, noExitUsage)
 
 	// Add the upCmd to the root command
 	rootCmd.AddCommand(upCmd)
+}
+
+func preCreateE(cmd *cobra.Command, args []string) error {
+	return helpers.SetLogger()
+}
+
+func create(cmd *cobra.Command, args []string) error {
+
+	ctx, ctxCancel := context.WithCancel(cmd.Context())
+	defer ctxCancel()
+
+	kubeConfigPath := filepath.Join(homedir.HomeDir(), ".kube", "config")
+
+	protocol = strings.ToLower(protocol)
+	host = strings.ToLower(host)
+	if ingressHost == "" {
+		ingressHost = host
+	}
+
+	err := validate()
+	if err != nil {
+		return err
+	}
+
+	var absDirPaths []string
+	var remotePaths []string
+
+	if len(extraPackages) > 0 {
+		r, l, pErr := helpers.ParsePackageStrings(extraPackages)
+		if pErr != nil {
+			return pErr
+		}
+		absDirPaths = l
+		remotePaths = r
+	}
+
+	o := make(map[string]v1alpha1.PackageCustomization)
+	for i := range packageCustomizationFiles {
+		c, pErr := getPackageCustomFile(packageCustomizationFiles[i])
+		if pErr != nil {
+			return pErr
+		}
+		o[c.Name] = c
+	}
+
+	exitOnSync := true
+	if cmd.Flags().Changed("watch") {
+		exitOnSync = !noExit
+	}
+
+	// If registry-config is unset we pass nil
+	// If registry-config is change (--registry-config=foo) we pass the new value
+	// If registry-config is set but unchanged (--registry-confg) we pass ""
+	maybeRegistryConfig := []string{}
+	if cmd.Flags().Changed("registry-config") {
+		maybeRegistryConfig = registryConfig
+	}
+
+	opts := build.NewBuildOptions{
+		Name:              buildName,
+		KubeVersion:       kubeVersion,
+		KubeConfigPath:    kubeConfigPath,
+		KindConfigPath:    kindConfigPath,
+		ExtraPortsMapping: extraPortsMapping,
+		RegistryConfig:    maybeRegistryConfig,
+
+		TemplateData: v1alpha1.BuildCustomizationSpec{
+			Protocol:       protocol,
+			Host:           host,
+			IngressHost:    ingressHost,
+			Port:           port,
+			UsePathRouting: pathRouting,
+			StaticPassword: devPassword,
+		},
+
+		CustomPackageDirs:    absDirPaths,
+		CustomPackageUrls:    remotePaths,
+		ExitOnSync:           exitOnSync,
+		PackageCustomization: o,
+
+		Scheme:     k8s.GetScheme(),
+		CancelFunc: ctxCancel,
+	}
+
+	b := build.NewBuild(opts)
+
+	if err := b.Run(ctx, recreateCluster); err != nil {
+		return err
+	}
+
+	if cmd.Context().Err() != nil {
+		return context.Cause(cmd.Context())
+	}
+
+	printSuccessMsg()
+	return nil
+}
+
+func validate() error {
+	if buildName == "" {
+		return fmt.Errorf("must specify build-name")
+	}
+
+	// Add check for host
+	if host == "" {
+		return fmt.Errorf("host cannot be empty")
+	}
+
+	_, err := url.Parse(fmt.Sprintf("%s://%s:%s", protocol, host, port))
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+
+	for i := range packageCustomizationFiles {
+		_, pErr := getPackageCustomFile(packageCustomizationFiles[i])
+		if pErr != nil {
+			return pErr
+		}
+	}
+
+	_, _, err = helpers.ParsePackageStrings(extraPackages)
+	return err
+}
+
+func getPackageCustomFile(input string) (v1alpha1.PackageCustomization, error) {
+	// the format should be `<package-name>:<path-to-file>`
+	s := strings.Split(input, ":")
+	if len(s) != 2 {
+		return v1alpha1.PackageCustomization{}, fmt.Errorf("ensure %s is formatted as <package-name>:<path-to-file>", input)
+	}
+
+	paths, err := helpers.GetAbsFilePaths([]string{s[1]}, false)
+	if err != nil {
+		return v1alpha1.PackageCustomization{}, err
+	}
+
+	err = helpers.ValidateKubernetesYamlFile(paths[0])
+	if err != nil {
+		return v1alpha1.PackageCustomization{}, err
+	}
+
+	corePkgs := map[string]struct{}{v1alpha1.ArgoCDPackageName: {}, v1alpha1.GiteaPackageName: {}, v1alpha1.IngressNginxPackageName: {}}
+	name := s[0]
+	_, ok := corePkgs[name]
+	if !ok {
+		return v1alpha1.PackageCustomization{}, fmt.Errorf("customization for %s not supported", name)
+	}
+	return v1alpha1.PackageCustomization{
+		Name:     name,
+		FilePath: paths[0],
+	}, nil
+}
+
+func printSuccessMsg() {
+	subDomain := "argocd."
+	subPath := ""
+
+	if pathRouting == true {
+		subDomain = ""
+		subPath = "argocd"
+	}
+
+	var argoURL string
+
+	proxy := behindProxy()
+	if proxy {
+		argoURL = fmt.Sprintf("https://%s/argocd", host)
+	} else {
+		argoURL = fmt.Sprintf("%s://%s%s:%s/%s", protocol, subDomain, host, port, subPath)
+	}
+
+	fmt.Print("\n\n########################### Finished Creating Adhar IDP Successfully! ############################\n\n\n")
+	fmt.Printf("Can Access ArgoCD at %s\nUsername: admin\n", argoURL)
+	fmt.Print(`Password can be retrieved by running: adhar get secrets -p argocd`, "\n")
+}
+
+func behindProxy() bool {
+	// check if we are in codespaces: https://docs.github.com/en/codespaces/developing-in-a-codespace/default-environment-variables-for-your-codespace
+	_, ok := os.LookupEnv("CODESPACES")
+	return ok
 }

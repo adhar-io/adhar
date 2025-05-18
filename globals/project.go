@@ -4,7 +4,11 @@ import "fmt"
 
 const (
 	ProjectName string = "adhar"
+)
 
+var Version string = "0.0.1-dev" // Default version
+
+const (
 	CloudProviderGKE   string = "gke"
 	CloudProviderAWS   string = "aws"
 	CloudProviderDO    string = "do"
@@ -17,11 +21,7 @@ const (
 	GitProviderGithub    string = "github"
 	GitProviderBitbucket string = "bitbucket"
 
-	NginxNamespace      string = "adhar-system"
-	ArgoCDNamespace     string = "adhar-system"
-	GiteaNamespace      string = "adhar-system"
-	CiliumNamespace     string = "adhar-system"
-	CrossplaneNamespace string = "adhar-system"
+	AdharSystemNamespace string = "adhar-system"
 
 	SelfSignedCertSecretName = "adhar-cert"
 	SelfSignedCertCMName     = "adhar-cert"

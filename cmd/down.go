@@ -8,12 +8,17 @@ import (
 	"strings"
 	"time"
 
-	"adhar-io/adhar/platform/logger"
+	"adhar-io/adhar/platform/logger" // Corrected import path
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+)
+
+const (
+	// kindClusterName is the default name for the Kind cluster
+	kindClusterName = "adhar"
 )
 
 var (
@@ -313,9 +318,16 @@ func kindClusterExists() (bool, error) {
 	return strings.Contains(string(output), kindClusterName), nil
 }
 
+// updateElapsedTime creates a command that updates the elapsed time every second
+func updateElapsedTime() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return logger.ElapsedTimeMsg(t)
+	})
+}
+
 func init() {
 	// Add the down command to the root command
-	AddCommand(downCmd)
+	rootCmd.AddCommand(downCmd) // Corrected to rootCmd.AddCommand
 
 	// Add flags for the down command
 	downCmd.Flags().BoolVarP(&forceDelete, "force", "f", false, "Force deletion even if resources are still in use")

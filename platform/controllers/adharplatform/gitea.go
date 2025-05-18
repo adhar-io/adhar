@@ -1,164 +1,114 @@
 package adharplatform
 
 import (
+	"bytes"
 	"context"
-	"embed"
-	"encoding/base64"
 	"fmt"
-	"net/http"
+	"io"
+	"os"
 
 	"adhar-io/adhar/api/v1alpha1"
-	"adhar-io/adhar/platform/k8s"
-	"adhar-io/adhar/platform/utils"
 
-	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
+	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-//go:embed resources/gitea/k8s/*
-var installGiteaFS embed.FS
-
-func RawGiteaInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
-	return k8s.BuildCustomizedManifests(config.FilePath, "resources/gitea/k8s", installGiteaFS, scheme, templateData)
-}
-
-func (r *AdharPlatformReconciler) newGiteaAdminSecret(password string) corev1.Secret {
-	obj := utils.GiteaAdminSecretObject()
-	obj.StringData = map[string]string{
-		"username": v1alpha1.GiteaAdminUserName,
-		"password": password,
-	}
-	return obj
-}
-
 func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
-	logger := log.FromContext(ctx, "installer", "gitea")
-	gitea := EmbeddedInstallation{
-		name:         "Gitea",
-		resourcePath: "resources/gitea/k8s",
-		resourceFS:   installGiteaFS,
-		namespace:    utils.GiteaNamespace,
-		monitoredResources: map[string]schema.GroupVersionKind{
-			"my-gitea": {
-				Group:   "apps",
-				Version: "v1",
-				Kind:    "Deployment",
-			},
-		},
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling Gitea core package")
+
+	giteaManifestPath := "hack/gitea/install.yaml"
+	manifestBytes, err := os.ReadFile(giteaManifestPath)
+	if err != nil {
+		logger.Error(err, "Failed to read Gitea install manifest", "path", giteaManifestPath)
+		return ctrl.Result{}, fmt.Errorf("reading gitea manifest %s: %w", giteaManifestPath, err)
 	}
 
-	sec := utils.GiteaAdminSecretObject()
-	err := r.Client.Get(ctx, types.NamespacedName{
-		Namespace: sec.GetNamespace(),
-		Name:      sec.GetName(),
-	}, &sec)
+	decoder := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifestBytes), 100)
+	var applyErrors []error
 
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			genPassword, err := utils.GeneratePassword()
-			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("generating gitea password: %w", err)
-			}
+	for {
+		obj := &unstructured.Unstructured{}
+		err := decoder.Decode(obj)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			logger.Error(err, "Failed to decode object from Gitea manifest")
+			applyErrors = append(applyErrors, fmt.Errorf("decoding object: %w", err))
+			continue
+		}
 
-			giteaCreds := r.newGiteaAdminSecret(genPassword)
-			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("generating gitea admin secret: %w", err)
+		if obj.Object == nil {
+			continue
+		}
+
+		// Fetch a fresh copy of the AdharPlatform resource to ensure we have the latest state
+		freshAdharPlatform := &v1alpha1.AdharPlatform{}
+		if err := r.Get(ctx, req.NamespacedName, freshAdharPlatform); err != nil {
+			logger.Error(err, "Failed to get fresh AdharPlatform resource before setting owner ref", "kind", obj.GetKind(), "name", obj.GetName())
+			applyErrors = append(applyErrors, fmt.Errorf("getting fresh owner for %s/%s: %w", obj.GetKind(), obj.GetName(), err))
+			continue
+		}
+
+		// Log the state before attempting to set owner reference using the fresh object
+		logger.V(1).Info("Checking owner reference for Gitea object with fresh owner data",
+			"kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(),
+			"ownerName", freshAdharPlatform.Name, "ownerUID", freshAdharPlatform.UID, "ownerDeletionTimestamp", freshAdharPlatform.ObjectMeta.DeletionTimestamp)
+
+		if freshAdharPlatform.ObjectMeta.DeletionTimestamp.IsZero() {
+			// Add logging before attempting to set the reference
+			logger.V(1).Info("Owner is not being deleted, attempting to set owner reference", "targetKind", obj.GetKind(), "targetName", obj.GetName())
+			// Log owner details just before setting reference
+			logger.V(1).Info("Owner details before SetControllerReference", "ownerName", freshAdharPlatform.Name, "ownerUID", freshAdharPlatform.UID)
+			if err := controllerutil.SetControllerReference(freshAdharPlatform, obj, r.Scheme); err != nil { // Use freshAdharPlatform here
+				logger.Error(err, "Failed to set controller reference on Gitea object", "kind", obj.GetKind(), "name", obj.GetName())
+				applyErrors = append(applyErrors, fmt.Errorf("setting owner ref on %s/%s: %w", obj.GetKind(), obj.GetName(), err))
+				continue // Skip applying this object if owner ref fails
 			}
-			gitea.unmanagedResources = []client.Object{&giteaCreds}
-			sec = giteaCreds
+			// Add logging after successfully setting the reference
+			logger.V(1).Info("Successfully set owner reference", "targetKind", obj.GetKind(), "targetName", obj.GetName())
 		} else {
-			return ctrl.Result{}, fmt.Errorf("getting gitea secret: %w", err)
+			logger.V(1).Info("Owner resource is being deleted, skipping owner reference setting", "owner", freshAdharPlatform.Name, "targetKind", obj.GetKind(), "targetName", obj.GetName())
 		}
-	}
 
-	v, ok := resource.Spec.PackageConfigs.CorePackageCustomization[v1alpha1.GiteaPackageName]
-	if ok {
-		gitea.customization = v
-	}
-
-	if result, err := gitea.Install(ctx, resource, r.Client, r.Scheme, r.Config); err != nil {
-		return result, err
-	}
-
-	baseUrl, err := utils.GiteaBaseUrl(ctx)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// need this to ensure gitrepository controller can reach the api endpoint.
-	logger.V(1).Info("checking gitea api endpoint", "url", baseUrl)
-	c := utils.GetHttpClient()
-	resp, err := c.Get(baseUrl)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if resp != nil {
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			logger.V(1).Info("gitea manifests installed successfully. endpoint not ready", "statusCode", resp.StatusCode)
-			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+		// Apply the object using Server-Side Apply
+		patch := client.Apply
+		opts := []client.PatchOption{client.ForceOwnership, client.FieldOwner(v1alpha1.FieldManager)}
+		err = r.Patch(ctx, obj, patch, opts...)
+		if err != nil {
+			logger.Error(err, "Failed to apply Gitea object", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace())
+			applyErrors = append(applyErrors, fmt.Errorf("applying %s/%s: %w", obj.GetKind(), obj.GetName(), err))
+			continue
 		}
+		logger.V(1).Info("Applied Gitea object", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace())
 	}
 
-	err = r.setGiteaToken(ctx, sec, baseUrl)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("creating gitea token: %w", err)
+	if len(applyErrors) > 0 {
+		combinedErr := fmt.Errorf("encountered %d errors applying gitea manifest: %v", len(applyErrors), applyErrors)
+		logger.Error(combinedErr, "Failed to apply all Gitea resources")
+		return ctrl.Result{}, combinedErr
 	}
 
-	resource.Status.Gitea.ExternalURL = baseUrl
-	resource.Status.Gitea.InternalURL = giteaInternalBaseUrl(r.Config)
-	resource.Status.Gitea.AdminUserSecretName = utils.GiteaAdminSecret
-	resource.Status.Gitea.AdminUserSecretNamespace = utils.GiteaNamespace
-	resource.Status.Gitea.Available = true
+	logger.Info("Successfully reconciled Gitea core package")
 	return ctrl.Result{}, nil
 }
 
-func (r *AdharPlatformReconciler) setGiteaToken(ctx context.Context, secret corev1.Secret, baseUrl string) error {
-	_, ok := secret.Data[utils.GiteaAdminTokenFieldName]
-	if ok {
-		return nil
-	}
-
-	u := unstructured.Unstructured{}
-	u.SetName(utils.GiteaAdminSecret)
-	u.SetNamespace(utils.GiteaNamespace)
-	u.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
-
-	user, ok := secret.Data["username"]
-	if !ok {
-		return fmt.Errorf("username field not found in gitea secret")
-	}
-
-	pass, ok := secret.Data["password"]
-	if !ok {
-		return fmt.Errorf("password field not found in gitea secret")
-	}
-
-	t, err := utils.GetGiteaToken(ctx, baseUrl, string(user), string(pass))
-	if err != nil {
-		return fmt.Errorf("getting gitea token: %w", err)
-	}
-
-	token := base64.StdEncoding.EncodeToString([]byte(t))
-	err = unstructured.SetNestedField(u.Object, token, "data", utils.GiteaAdminTokenFieldName)
-	if err != nil {
-		return fmt.Errorf("setting gitea token field: %w", err)
-	}
-
-	return r.Client.Patch(ctx, &u, client.Apply, client.ForceOwnership, client.FieldOwner(v1alpha1.FieldManager))
-}
-
-// gitea URL reachable within the cluster with proper coredns config. Mainly for argocd
+// giteaInternalBaseUrl returns the internal URL for Gitea, used for in-cluster communication (e.g., by ArgoCD).
+// The URL format depends on whether path-based routing is used.
 func giteaInternalBaseUrl(config v1alpha1.BuildCustomizationSpec) string {
+	// Define a template for Gitea URL. This might be better placed in a constants or utils package.
+	// For now, let's assume a structure like: <protocol>://<subdomain><host>:<port><path>
+	// Example: http://gitea.example.com:8080/
+	// Example with path routing: http://example.com:8080/gitea
+	const giteaURLTemplate = "%s://%s%s:%s%s"
+
 	if config.UsePathRouting {
-		return fmt.Sprintf(utils.GiteaURLTempl, config.Protocol, "", config.Host, config.Port, "/gitea")
+		return fmt.Sprintf(giteaURLTemplate, config.Protocol, "", config.Host, config.Port, "/gitea")
 	}
-	return fmt.Sprintf(utils.GiteaURLTempl, config.Protocol, "gitea.", config.Host, config.Port, "")
+	return fmt.Sprintf(giteaURLTemplate, config.Protocol, "gitea.", config.Host, config.Port, "")
 }

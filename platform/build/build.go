@@ -133,7 +133,8 @@ func (b *Build) RunControllers(ctx context.Context, mgr manager.Manager, exitCh 
 func (b *Build) isCompatible(ctx context.Context, kubeClient client.Client) (bool, error) {
 	localBuild := v1alpha1.AdharPlatform{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: b.name,
+			Name:      b.name,
+			Namespace: globals.AdharSystemNamespace, // Changed to AdharSystemNamespace
 		},
 	}
 
@@ -237,7 +238,8 @@ func (b *Build) Run(ctx context.Context, recreateCluster bool) error {
 
 	localBuild := v1alpha1.AdharPlatform{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: b.name,
+			Name:      b.name,
+			Namespace: globals.AdharSystemNamespace, // Changed to AdharSystemNamespace
 		},
 	}
 

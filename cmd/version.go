@@ -11,9 +11,9 @@ import (
 
 var (
 	// Version information
-	version   = "v0.1.0" // This should be set during build
-	gitCommit = "unknown"
-	buildDate = "unknown"
+	cliVersion = "v0.1.0" // This should be set during build
+	gitCommit  = "unknown"
+	buildDate  = "unknown"
 )
 
 func init() {
@@ -36,7 +36,7 @@ var versionCmd = &cobra.Command{
 		// Create a pretty box for version info
 		versionInfo := fmt.Sprintf(
 			"%s %s\n%s %s\n%s %s\n%s %s\n%s %s",
-			titleStyle.Render("Version:"), highlightStyle.Render(version),
+			titleStyle.Render("Version:"), highlightStyle.Render(cliVersion),
 			titleStyle.Render("Git Commit:"), gitCommit,
 			titleStyle.Render("Build Date:"), buildDate,
 			titleStyle.Render("Go Version:"), highlightStyle.Render(runtime.Version()),

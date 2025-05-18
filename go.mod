@@ -1,8 +1,8 @@
 module adhar-io/adhar
 
-go 1.23.0
+go 1.24.2
 
-godebug default=go1.23
+godebug default=go1.24
 
 require (
 	code.gitea.io/sdk/gitea v0.21.0

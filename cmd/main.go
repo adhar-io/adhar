@@ -19,6 +19,8 @@ package main
 import (
 	"os"
 
+	"adhar-io/adhar/globals" // Added import for globals package
+
 	// Import necessary packages if needed by commands
 	_ "k8s.io/client-go/plugin/pkg/client/auth" // Required for cloud provider auth plugins
 
@@ -27,10 +29,14 @@ import (
 )
 
 var (
+	version  string // Set at build time by ldflags
 	setupLog = ctrl.Log.WithName("setup")
 )
 
 func main() {
+	// Set the globals.Version from the build-time version variable
+	globals.Version = version
+
 	// Setup logger (can be configured via root command flags if needed)
 	opts := zap.Options{
 		Development: true,

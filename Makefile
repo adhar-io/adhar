@@ -1,7 +1,7 @@
 LD_FLAGS=-ldflags " \
-    -X adhar-io/adhar/cmd/version.adharVersion=$(shell git describe --always --tags --dirty --broken) \
-    -X adhar-io/adhar/cmd/version.gitCommit=$(shell git rev-parse HEAD) \
-    -X adhar-io/adhar/cmd/version.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \
+    -X main.version=$(VERSION) \
+    -X main.gitCommit=$(shell git rev-parse --short HEAD) \
+    -X main.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \
     "
 
 # Image URL to use all building/pushing image targets
@@ -64,7 +64,7 @@ fmt: ## Run go fmt against code.
 	go fmt ./...
 
 .PHONY: vet
-vet: ## Run go vet against code.
+vet: embedded-resources ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
