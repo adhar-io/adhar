@@ -20,20 +20,26 @@ import (
 var argoCDFS embed.FS
 
 func RawArgocdInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
+	filePath := config.FilePath
+	if filePath == "" {
+		// Default to "install.yaml" if no specific file path is provided in the customization.
+		// This assumes "install.yaml" is the main manifest in the embedded 'resources/argo-cd' directory.
+		filePath = "install.yaml"
+	}
 	// argoCDFS embeds the 'resources/argo-cd' directory. Files within this directory (e.g., install.yaml)
 	// are at the root of the argoCDFS.
-	// config.FilePath (e.g., "install.yaml") is expected to be the direct name of the file in argoCDFS.
+	// filePath (e.g., "install.yaml") is expected to be the direct name of the file in argoCDFS.
 	// The fsRootPrefix for BuildCustomizedManifests should be "." to indicate the root of argoCDFS.
-	return k8s.BuildCustomizedManifests(config.FilePath, ".", argoCDFS, scheme, templateData)
+	return k8s.BuildCustomizedManifests(filePath, ".", argoCDFS, scheme, templateData)
 }
 
 func (r *AdharPlatformReconciler) ReconcileArgo(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	argocd := EmbeddedInstallation{
 		name: "Argo CD",
-		// resourcePath is relative to the root of argoCDFS.
-		// Since argoCDFS directly contains files like 'install.yaml' from the embedded 'resources/argo-cd' directory,
-		// the path to these manifests within the FS is effectively the root (".").
-		resourcePath: ".",
+		// resourcePath is the path to the primary manifest file within resourceFS.
+		// argoCDFS embeds the 'resources/argo-cd' directory. If 'install.yaml' is at the root of this FS,
+		// then resourcePath should be "install.yaml".
+		resourcePath: "install.yaml", // Changed from "."
 		resourceFS:   argoCDFS,
 		namespace:    globals.AdharSystemNamespace,
 		monitoredResources: map[string]schema.GroupVersionKind{
@@ -56,10 +62,19 @@ func (r *AdharPlatformReconciler) ReconcileArgo(ctx context.Context, req ctrl.Re
 		skipReadinessCheck: true,
 	}
 
-	v, ok := resource.Spec.PackageConfigs.CorePackageCustomization[v1alpha1.ArgoCDPackageName]
-	if ok {
-		argocd.customization = v
+	customization, ok := resource.Spec.PackageConfigs.CorePackageCustomization[v1alpha1.ArgoCDPackageName]
+	if !ok {
+		// Initialize with an empty struct if no specific customization is found.
+		customization = v1alpha1.PackageCustomization{}
 	}
+
+	// Default FilePath to "install.yaml" if it's empty or explicitly ".".
+	// This ensures that a specific file is targeted for reading from the embedded FS,
+	// preventing an "is a directory" error if FilePath were problematic.
+	if customization.FilePath == "" || customization.FilePath == "." {
+		customization.FilePath = "install.yaml"
+	}
+	argocd.customization = customization
 
 	if result, err := argocd.Install(ctx, resource, r.Client, r.Scheme, r.Config); err != nil {
 		return result, err

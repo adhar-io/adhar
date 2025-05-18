@@ -2,6 +2,7 @@ package kind
 
 import (
 	"fmt"
+	"strings" // Added import
 
 	"github.com/go-logr/logr"
 	kindlog "sigs.k8s.io/kind/pkg/log"
@@ -56,11 +57,11 @@ type kindInfoLogger struct {
 }
 
 func (k *kindInfoLogger) Info(message string) {
-	k.cliLogger.V(k.level).Info(message)
+	k.cliLogger.V(k.level).Info(strings.TrimSpace(message)) // Modified line
 }
 
 func (k *kindInfoLogger) Infof(message string, args ...interface{}) {
-	k.cliLogger.V(k.level).Info(fmt.Sprintf(message, args...))
+	k.cliLogger.V(k.level).Info(strings.TrimSpace(fmt.Sprintf(message, args...))) // Modified line
 }
 
 func (k *kindInfoLogger) Enabled() bool {

@@ -6,7 +6,6 @@ import (
 	"embed"
 	"fmt"
 	"io"
-	"os"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
@@ -25,18 +24,23 @@ import (
 var installNginxFS embed.FS
 
 func RawNginxInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
-	// installNginxFS now embeds the directory "resources/nginx/k8s".
-	// If config.FilePath is "install.yaml", it's at the root of this embedded FS.
-	// So, fsRootPrefix should be ".".
-	return k8s.BuildCustomizedManifests(config.FilePath, ".", installNginxFS, scheme, templateData)
+	// If config.FilePath is empty or not set, default to "install.yaml"
+	filePath := config.FilePath
+	if filePath == "" {
+		filePath = "install.yaml"
+	}
+	// The fsRootPrefix for k8s.BuildCustomizedManifests should be "." if installNginxFS embeds the directory containing install.yaml directly.
+	// Since //go:embed resources/nginx/* embeds the contents of the 'nginx' directory, and if 'install.yaml' is directly inside it,
+	// then the path for BuildCustomizedManifests is just "install.yaml".
+	return k8s.BuildCustomizedManifests(filePath, ".", installNginxFS, scheme, templateData)
 }
 
 func (r *AdharPlatformReconciler) ReconcileNginx(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Nginx core package")
 
-	nginxManifestPath := "hack/ingress-nginx/install.yaml"
-	manifestBytes, err := os.ReadFile(nginxManifestPath)
+	nginxManifestPath := "resources/nginx/install.yaml"              // Corrected path for embedded resource
+	manifestBytes, err := installNginxFS.ReadFile(nginxManifestPath) // Read from the correct path in nginxFS
 	if err != nil {
 		logger.Error(err, "Failed to read Nginx install manifest", "path", nginxManifestPath)
 		return ctrl.Result{}, fmt.Errorf("reading nginx manifest %s: %w", nginxManifestPath, err)

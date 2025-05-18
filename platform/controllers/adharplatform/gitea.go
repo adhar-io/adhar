@@ -3,13 +3,15 @@ package adharplatform
 import (
 	"bytes"
 	"context"
+	"embed" // Added import
 	"fmt"
 	"io"
-	"os"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/platform/k8s" // Added import for k8s package
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime" // Added import for runtime package
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -17,12 +19,28 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+//go:embed resources/gitea
+var giteaFS embed.FS // Added embedded FS
+
+// RawGiteaInstallResources loads and processes the Gitea installation manifests.
+func RawGiteaInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
+	// If config.FilePath is empty or not set, default to "install.yaml"
+	filePath := config.FilePath
+	if filePath == "" {
+		filePath = "install.yaml"
+	}
+	// The fsRootPrefix for k8s.BuildCustomizedManifests should be "." if giteaFS embeds the directory containing install.yaml directly.
+	// Since //go:embed resources/gitea embeds the 'gitea' directory, and if 'install.yaml' is directly inside it,
+	// then the path for BuildCustomizedManifests is just "install.yaml".
+	return k8s.BuildCustomizedManifests(filePath, ".", giteaFS, scheme, templateData) // Ensure k8s.BuildCustomizedManifests is correctly implemented and imported
+}
+
 func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Gitea core package")
 
-	giteaManifestPath := "hack/gitea/install.yaml"
-	manifestBytes, err := os.ReadFile(giteaManifestPath)
+	giteaManifestPath := "resources/gitea/install.yaml"       // Corrected path for embedded resource
+	manifestBytes, err := giteaFS.ReadFile(giteaManifestPath) // Read from the correct path in giteaFS
 	if err != nil {
 		logger.Error(err, "Failed to read Gitea install manifest", "path", giteaManifestPath)
 		return ctrl.Result{}, fmt.Errorf("reading gitea manifest %s: %w", giteaManifestPath, err)

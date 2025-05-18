@@ -3,9 +3,9 @@ package adharplatform
 import (
 	"bytes"
 	"context"
+	"embed" // Added import
 	"fmt"
 	"io"
-	"os"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
@@ -15,14 +15,45 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/platform/k8s" // Added import for k8s package
+
+	"k8s.io/apimachinery/pkg/runtime" // Added import for runtime package
 )
+
+//go:embed resources/cilium
+var ciliumFS embed.FS // Added embedded FS
+
+// RawCiliumInstallResources loads and processes the Cilium installation manifests.
+func RawCiliumInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
+	// Assuming install.yaml is at the root of the embedded ciliumFS.
+	// The k8s.BuildCustomizedManifests function expects a relative path within the FS.
+	// If config.FilePath is typically "install.yaml", and ciliumFS embeds "resources/cilium",
+	// the path to "install.yaml" within ciliumFS would be "install.yaml" if it's at the root of "resources/cilium".
+	// The fsRootPrefix for BuildCustomizedManifests should be the directory embedded by ciliumFS.
+	// However, BuildCustomizedManifests takes the direct path from the embedded FS root.
+	// If ciliumFS embeds "resources/cilium/*", then "install.yaml" is at the root.
+	// If ciliumFS embeds "resources/cilium/install.yaml", then "install.yaml" is at the root.
+	// Given //go:embed resources/cilium, it means the 'cilium' directory itself is the root of ciliumFS.
+	// So, if install.yaml is inside 'platform/controllers/adharplatform/resources/cilium/install.yaml',
+	// then the path within ciliumFS is 'install.yaml'.
+
+	// If config.FilePath is empty or not set, default to "install.yaml"
+	filePath := config.FilePath
+	if filePath == "" {
+		filePath = "install.yaml"
+	}
+	// The fsRootPrefix for k8s.BuildCustomizedManifests should be "." if installNginxFS embeds the directory containing install.yaml directly.
+	// Since //go:embed resources/cilium embeds the 'cilium' directory, and if 'install.yaml' is directly inside it,
+	// then the path for BuildCustomizedManifests is just "install.yaml".
+	return k8s.BuildCustomizedManifests(filePath, ".", ciliumFS, scheme, templateData)
+}
 
 func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Cilium core package")
 
-	ciliumManifestPath := "hack/cilium/install.yaml"
-	manifestBytes, err := os.ReadFile(ciliumManifestPath)
+	ciliumManifestPath := "resources/cilium/install.yaml"       // Corrected path for embedded resource
+	manifestBytes, err := ciliumFS.ReadFile(ciliumManifestPath) // Read from the correct path in ciliumFS
 	if err != nil {
 		logger.Error(err, "Failed to read Cilium install manifest", "path", ciliumManifestPath)
 		return ctrl.Result{}, fmt.Errorf("reading cilium manifest %s: %w", ciliumManifestPath, err)

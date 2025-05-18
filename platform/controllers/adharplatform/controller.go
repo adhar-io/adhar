@@ -870,14 +870,12 @@ func GetEmbeddedRawInstallResources(name string, templateData any, config v1alph
 	case v1alpha1.ArgoCDPackageName:
 		return RawArgocdInstallResources(templateData, config, scheme)
 	case v1alpha1.GiteaPackageName:
-		// Still need to resolve lb.RawGiteaInstallResources
-		// return lb.RawGiteaInstallResources(templateData, config, scheme)
+		return RawGiteaInstallResources(templateData, config, scheme)
 	case v1alpha1.IngressNginxPackageName:
-		// Still need to resolve lb.RawNginxInstallResources
-		// return lb.RawNginxInstallResources(templateData, config, scheme)
+		return RawNginxInstallResources(templateData, config, scheme)
+	case v1alpha1.CiliumPackageName:
+		return RawCiliumInstallResources(templateData, config, scheme)
 	default:
 		return nil, fmt.Errorf("unsupported embedded app name %s", name)
 	}
-	// This part might still be needed if other cases are not implemented
-	return nil, fmt.Errorf("Raw function for %s not yet fully implemented in GetEmbeddedRawInstallResources", name)
 }
