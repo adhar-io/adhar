@@ -9,7 +9,11 @@ import (
 	"text/tabwriter"
 	"time" // Import time package
 
+	"adhar-io/adhar/platform/config"
+
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 	appsv1 "k8s.io/api/apps/v1" // Import apps/v1
 	corev1 "k8s.io/api/core/v1" // Import core/v1
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -19,6 +23,13 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes" // Import standard clientset
 	"k8s.io/client-go/tools/clientcmd"
+)
+
+// Define lipgloss styles for formatting
+var (
+	getBoldStyle     = lipgloss.NewStyle().Bold(true)
+	getListItemStyle = lipgloss.NewStyle().SetString("• ")
+	getCodeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Background(lipgloss.Color("236")).Padding(0, 1)
 )
 
 var (
@@ -51,13 +62,14 @@ var (
 		},
 	}
 
-	namespace     string
-	outputFormat  string
-	allNamespaces bool
-	showLabels    bool
-	labelSelector string
-	fieldSelector string
-	resourceName  string
+	namespace      string
+	outputFormat   string
+	allNamespaces  bool
+	showLabels     bool
+	labelSelector  string
+	fieldSelector  string
+	resourceName   string
+	configFilePath string // Add config file flag for environment listing
 )
 
 func init() {
@@ -83,6 +95,9 @@ func init() {
 	getCmd.PersistentFlags().StringVarP(&labelSelector, "selector", "l", "", "Label selector to filter on")
 	getCmd.PersistentFlags().StringVar(&fieldSelector, "field-selector", "", "Field selector to filter on")
 	getCmd.PersistentFlags().String("kubeconfig", "", "Path to the kubeconfig file")
+
+	// Add config file flag specifically to environment command
+	getEnvironmentCmd.Flags().StringVarP(&configFilePath, "file", "f", "", "Path to configuration file to list available environments")
 }
 
 // getKubeconfigPath determines the path to the kubeconfig file based on flag, env var, or default
@@ -204,12 +219,33 @@ var getDatabaseCmd = &cobra.Command{
 var getEnvironmentCmd = &cobra.Command{
 	Use:     "environments [environment-name]",
 	Aliases: []string{"environment", "env", "envs"},
-	Short:   "Get Adhar environments",
+	Short:   "Get Adhar environments or list environments from config file",
+	Long: `Get Adhar environments from the cluster or list available environments from a configuration file.
+
+Examples:
+  # Get environments from cluster
+  adhar get environments
+  
+  # Get specific environment
+  adhar get env my-env
+  
+  # List environments from config file
+  adhar get envs -f config.yaml`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Check if config file is provided for listing environments
+		if configFilePath != "" {
+			if err := listAvailableEnvironments(configFilePath); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
+		// Default behavior - get environments from cluster
 		if len(args) > 0 {
 			resourceName = args[0]
 		}
-		getResources(cmd, resourceTypes["environment"], "environment") // Pass cmd
+		getResources(cmd, resourceTypes["environment"], "environment")
 	},
 }
 
@@ -341,6 +377,90 @@ var getAllCmd = &cobra.Command{
 			fmt.Println()
 		}
 	},
+}
+
+// listAvailableEnvironments lists all available environments from the configuration file
+func listAvailableEnvironments(configPath string) error {
+	if configPath == "" {
+		return fmt.Errorf("configuration file path is required. Use --file flag to specify the path")
+	}
+
+	// Load configuration
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	}
+
+	var cfg config.Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("failed to parse config file %s: %w", configPath, err)
+	}
+
+	if len(cfg.Environments) == 0 {
+		fmt.Println("No environments found in configuration file.")
+		return nil
+	}
+
+	fmt.Println("\nAvailable environments:")
+	fmt.Println("======================")
+
+	for envName, envConfig := range cfg.Environments {
+		fmt.Printf("\n%s %s\n", getBoldStyle.Render("Environment:"), envName)
+
+		// Show environment type
+		if envConfig.Type != "" {
+			fmt.Printf("  %s %s\n", getListItemStyle.Render("Type:"), envConfig.Type)
+		}
+
+		// Show provider (if explicitly specified)
+		if envConfig.Provider != "" {
+			fmt.Printf("  %s %s\n", getListItemStyle.Render("Provider:"), envConfig.Provider)
+		} else {
+			// Show which provider will be auto-assigned
+			envType := envConfig.Type
+			if envType == "" {
+				// Auto-detect based on name
+				envNameLower := strings.ToLower(envName)
+				if strings.Contains(envNameLower, "prod") || strings.Contains(envNameLower, "staging") {
+					envType = "production"
+				} else {
+					envType = "non-production"
+				}
+			}
+
+			if envType == "production" {
+				fmt.Printf("  %s %s (auto-assigned)\n", getListItemStyle.Render("Provider:"), cfg.GlobalSettings.ProductionProvider)
+			} else {
+				fmt.Printf("  %s %s (auto-assigned)\n", getListItemStyle.Render("Provider:"), cfg.GlobalSettings.NonProductionProvider)
+			}
+		}
+
+		if envConfig.Region != "" {
+			fmt.Printf("  %s %s\n", getListItemStyle.Render("Region:"), envConfig.Region)
+		}
+		if envConfig.Template != "" {
+			fmt.Printf("  %s %s\n", getListItemStyle.Render("Template:"), envConfig.Template)
+		}
+
+		// Show cluster config summary
+		if len(envConfig.ClusterConfig) > 0 {
+			fmt.Printf("  %s\n", getListItemStyle.Render("Cluster Configuration:"))
+			for _, cc := range envConfig.ClusterConfig {
+				fmt.Printf("    %s: %s\n", cc.Key, cc.Value)
+			}
+		}
+	}
+
+	fmt.Printf("\nTo provision the complete platform (all environments), use:\n")
+	fmt.Printf("%s\n", getCodeStyle.Render(fmt.Sprintf("adhar up --file %s", configPath)))
+
+	fmt.Printf("\nTo provision a specific environment, use:\n")
+	fmt.Printf("%s\n", getCodeStyle.Render(fmt.Sprintf("adhar up --file %s --env <environment-name>", configPath)))
+
+	fmt.Printf("\nNote: Management cluster and platform services are automatically provisioned.\n")
+	fmt.Printf("For dry-run mode, add the --dry-run flag.\n")
+
+	return nil
 }
 
 // getResources gets and displays resources based on the specified GVR

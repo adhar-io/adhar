@@ -53,12 +53,12 @@ iptablesRandomFully: false
 # @default -- `"~/.kube/config"`
 kubeConfigPath: ""
 # -- (string) Kubernetes service host - use "auto" for automatic lookup from the cluster-info ConfigMap
-k8sServiceHost: ""
+k8sServiceHost: "adhar-control-plane"
 # @schema
 # type: [string, integer]
 # @schema
 # -- (string) Kubernetes service port
-k8sServicePort: ""
+k8sServicePort: "6443"
 # @schema
 # type: [null, string]
 # @schema
@@ -1077,7 +1077,7 @@ eni:
   instanceTagsFilter: []
 externalIPs:
   # -- Enable ExternalIPs service support.
-  enabled: false
+  enabled: true
 # fragmentTracking enables IPv4 fragment tracking support in the datapath.
 # fragmentTracking: true
 gke:
@@ -1095,7 +1095,7 @@ hostFirewall:
   enabled: false
 hostPort:
   # -- Enable hostPort service support.
-  enabled: false
+  enabled: true
 # -- Configure socket LB
 socketLB:
   # -- Enable socket LB
@@ -1434,7 +1434,7 @@ hubble:
       extraIpAddresses: []
   relay:
     # -- Enable Hubble Relay (requires hubble.enabled=true)
-    enabled: false
+    enabled: true
     # -- Roll out Hubble Relay pods automatically when configmap is updated.
     rollOutPods: false
     # -- Hubble-relay container image.
@@ -1651,7 +1651,7 @@ hubble:
       port: 6062
   ui:
     # -- Whether to enable the Hubble UI.
-    enabled: false
+    enabled: true
     standalone:
       # -- When true, it will allow installing the Hubble UI only, without checking dependencies.
       # It is useful if a cluster already has cilium and Hubble relay installed and you just
@@ -1823,13 +1823,14 @@ hubble:
     baseUrl: "/"
     # -- hubble-ui ingress configuration.
     ingress:
-      enabled: false
-      annotations: {}
+      enabled: true
+      annotations:
+        kubernetes.io/ingress.class: nginx
       # kubernetes.io/ingress.class: nginx
       # kubernetes.io/tls-acme: "true"
       className: ""
       hosts:
-        - chart-example.local
+        - hubble-ui.127.0.0.1.nip.io
       labels: {}
       tls: []
       #  - secretName: chart-example-tls
@@ -1907,7 +1908,8 @@ installNoConntrackIptablesRules: false
 ipam:
   # -- Configure IP Address Management mode.
   # ref: https://docs.cilium.io/en/stable/network/concepts/ipam/
-  mode: "cluster-pool"
+  mode: "kubernetes"
+  #mode: "cluster-pool"
   # -- Maximum rate at which the CiliumNode custom resource is updated.
   ciliumNodeUpdateRate: "15s"
   # -- Pre-allocation settings for IPAM in Multi-Pool mode
@@ -2021,7 +2023,7 @@ readinessProbe:
 # -- Configure the kube-proxy replacement in Cilium BPF datapath
 # Valid options are "true" or "false".
 # ref: https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/
-#kubeProxyReplacement: "false"
+kubeProxyReplacement: "true"
 
 # -- healthz server bind address for the kube-proxy replacement.
 # To enable set the value to '0.0.0.0:10256' for all ipv4
@@ -2170,7 +2172,7 @@ loadBalancer:
 # -- Configure N-S k8s service loadbalancing
 nodePort:
   # -- Enable the Cilium NodePort service implementation.
-  enabled: false
+  enabled: true
   # -- Port range to use for NodePort services.
   # range: "30000,32767"
 

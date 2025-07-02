@@ -1,0 +1,48 @@
+# --- Sample Cluster CR 3: Local Kind Cluster for Platform Testing ---
+apiVersion: platform.adhar.com/v1alpha1
+kind: Cluster
+metadata:
+  name: "local-dev-kind-cluster-01"
+  namespace: "platform-admin" # For platform team's internal use
+  labels:
+    platform.adhar.com/organization: "platform-team" # Internal org
+    platform.adhar.com/environment-type: "development"
+    platform.adhar.com/local: "true"
+spec:
+  displayName: "Local Kind Cluster for Adhar Platform Dev/Test"
+  organizationRef: { name: "org-platform-team" } # A conceptual org for the platform team
+  environmentType: "development"
+  provider: "Kind"
+  # region: not applicable for Kind
+  version: "1.28.0" # Kind node image should support this
+  controlPlane:
+    endpointAccess: "Public" # Kind is typically accessed via localhost
+  nodePools: # Kind has a simpler node concept, often one control-plane and multiple workers
+    - name: "control-plane"
+      instanceType: "kind-control-plane" # Conceptual instance type
+      count: 1
+      storageSize: "20Gi" # Not directly applicable but for consistency
+      labels: { "kubernetes.io/role": "control-plane" }
+    - name: "worker-nodes"
+      instanceType: "kind-worker"
+      count: 2
+      storageSize: "20Gi"
+      labels: { "kubernetes.io/role": "worker" }
+  networkConfig:
+    podCidrBlock: "10.244.0.0/16" # Default Kind pod CIDR
+    serviceCidrBlock: "10.96.0.0/12" # Default Kind service CIDR
+    cniPlugin: "kindnet"
+  # providerConfigRef: not applicable for Kind unless you have a specific Kind provider in Crossplane
+  kindConfig:
+    clusterNameOverride: "adhar-dev-kind" # Actual name for `kind create cluster --name <name>`
+    nodeImage: "kindest/node:v1.28.0" # Ensure this image exists
+    exposePortMappings: # Example: expose Ingress controller ports on host
+      - containerPort: 80
+        hostPort: 8088 # Access on localhost:8088
+        protocol: "TCP"
+      - containerPort: 443
+        hostPort: 8443
+        protocol: "TCP"
+  deletionPolicy: "Delete" # `kind delete cluster --name <name>`
+status:
+  phase: "Pending"

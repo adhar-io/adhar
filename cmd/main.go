@@ -24,6 +24,7 @@ import (
 	// Import necessary packages if needed by commands
 	_ "k8s.io/client-go/plugin/pkg/client/auth" // Required for cloud provider auth plugins
 
+	"go.uber.org/zap/zapcore" // Added for log level constants
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
@@ -37,11 +38,13 @@ func main() {
 	// Set the globals.Version from the build-time version variable
 	globals.Version = version
 
-	// Setup logger (can be configured via root command flags if needed)
+	// Setup minimal basic logger that will be replaced by the proper user-friendly logger
+	// This is just for early initialization - the real logger is configured in commands
 	opts := zap.Options{
-		Development: true,
+		Development: true, // Use development mode for console output initially
+		Level:       zapcore.InfoLevel,
 	}
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts))) // Use default options for now
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	// Execute the root command (now directly accessible)
 	if err := Execute(); err != nil {

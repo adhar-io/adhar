@@ -11,67 +11,76 @@ import (
 
 // Config is the root configuration structure.
 type Config struct {
-	GlobalSettings       GlobalSettings                 `mapstructure:"globalSettings"`
-	EnvironmentTemplates map[string]EnvironmentTemplate `mapstructure:"environmentTemplates"`
-	Environments         map[string]EnvironmentConfig   `mapstructure:"environments"`
+	GlobalSettings       GlobalSettings                 `mapstructure:"globalSettings" yaml:"globalSettings"`
+	EnvironmentTemplates map[string]EnvironmentTemplate `mapstructure:"environmentTemplates" yaml:"environmentTemplates"`
+	Environments         map[string]EnvironmentConfig   `mapstructure:"environments" yaml:"environments"`
 
-	ResolvedEnvironments map[string]*ResolvedEnvironmentConfig `mapstructure:"-"` // Ignored by Viper/YAML
+	ResolvedEnvironments map[string]*ResolvedEnvironmentConfig `mapstructure:"-" yaml:"-"` // Ignored by Viper/YAML
 }
 
 // GlobalSettings defines platform-wide configurations.
 type GlobalSettings struct {
-	AdharContext        string                    `mapstructure:"adharContext"`
-	DefaultHost         string                    `mapstructure:"defaultHost,omitempty"`
-	DefaultHttpPort     int                       `mapstructure:"defaultHttpPort,omitempty"`
-	DefaultHttpsPort    int                       `mapstructure:"defaultHttpsPort,omitempty"`
-	DefaultRegion       string                    `mapstructure:"defaultRegion,omitempty"`
-	ProviderCredentials ProviderCredentialsConfig `mapstructure:"providerCredentials"`
+	AdharContext     string `mapstructure:"adharContext" yaml:"adharContext"`
+	DefaultHost      string `mapstructure:"defaultHost,omitempty" yaml:"defaultHost,omitempty"`
+	DefaultHttpPort  int    `mapstructure:"defaultHttpPort,omitempty" yaml:"defaultHttpPort,omitempty"`
+	DefaultHttpsPort int    `mapstructure:"defaultHttpsPort,omitempty" yaml:"defaultHttpsPort,omitempty"`
+	DefaultRegion    string `mapstructure:"defaultRegion,omitempty" yaml:"defaultRegion,omitempty"`
+
+	// Dual-provider configuration
+	ProductionProvider    apiv1alpha1.EnvironmentProvider `mapstructure:"productionProvider" yaml:"productionProvider"`
+	NonProductionProvider apiv1alpha1.EnvironmentProvider `mapstructure:"nonProductionProvider" yaml:"nonProductionProvider"`
+	ProductionRegion      string                          `mapstructure:"productionRegion,omitempty" yaml:"productionRegion,omitempty"`
+	NonProductionRegion   string                          `mapstructure:"nonProductionRegion,omitempty" yaml:"nonProductionRegion,omitempty"`
+
+	ProviderCredentials ProviderCredentialsConfig `mapstructure:"providerCredentials" yaml:"providerCredentials"`
 }
 
 // ProviderCredentialsConfig specifies how to load credentials for different providers.
 type ProviderCredentialsConfig struct {
-	DO    *CredentialSource `mapstructure:"do,omitempty"`
-	GKE   *CredentialSource `mapstructure:"gke,omitempty"`
-	AWS   *CredentialSource `mapstructure:"aws,omitempty"`
-	Azure *CredentialSource `mapstructure:"azure,omitempty"`
-	Civo  *CredentialSource `mapstructure:"civo,omitempty"`
+	DO    *CredentialSource `mapstructure:"do,omitempty" yaml:"do,omitempty"`
+	GKE   *CredentialSource `mapstructure:"gke,omitempty" yaml:"gke,omitempty"`
+	AWS   *CredentialSource `mapstructure:"aws,omitempty" yaml:"aws,omitempty"`
+	Azure *CredentialSource `mapstructure:"azure,omitempty" yaml:"azure,omitempty"`
+	Civo  *CredentialSource `mapstructure:"civo,omitempty" yaml:"civo,omitempty"`
 }
 
 // CredentialSource defines how to obtain credentials.
 type CredentialSource struct {
-	Type      string `mapstructure:"type"`
-	EnvVar    string `mapstructure:"envVar,omitempty"`
-	Path      string `mapstructure:"path,omitempty"`
-	ProjectID string `mapstructure:"projectID,omitempty"` // Added for GCP credentials
+	Type      string `mapstructure:"type" yaml:"type"`
+	EnvVar    string `mapstructure:"envVar,omitempty" yaml:"envVar,omitempty"`
+	Path      string `mapstructure:"path,omitempty" yaml:"path,omitempty"`
+	ProjectID string `mapstructure:"projectID,omitempty" yaml:"projectID,omitempty"` // Added for GCP credentials
 }
 
 // ClusterConfig defines a concrete type for cluster configuration.
 type ClusterConfig struct {
-	Key   string `mapstructure:"key"`
-	Value string `mapstructure:"value"`
+	Key   string `mapstructure:"key" yaml:"key"`
+	Value string `mapstructure:"value" yaml:"value"`
 }
 
 // EnvironmentTemplate defines reusable configurations for environment types.
 type EnvironmentTemplate struct {
-	ClusterConfig []ClusterConfig               `mapstructure:"clusterConfig,omitempty"`
-	CoreServices  *apiv1alpha1.CoreServicesSpec `mapstructure:"coreServices,omitempty"`
-	Addons        []apiv1alpha1.AddonSpec       `mapstructure:"addons,omitempty"`
+	ClusterConfig []ClusterConfig               `mapstructure:"clusterConfig,omitempty" yaml:"clusterConfig,omitempty"`
+	CoreServices  *apiv1alpha1.CoreServicesSpec `mapstructure:"coreServices,omitempty" yaml:"coreServices,omitempty"`
+	Addons        []apiv1alpha1.AddonSpec       `mapstructure:"addons,omitempty" yaml:"addons,omitempty"`
 }
 
 // EnvironmentConfig defines the configuration specific to a named environment instance.
 type EnvironmentConfig struct {
-	Template      string                          `mapstructure:"template"`
-	Provider      apiv1alpha1.EnvironmentProvider `mapstructure:"provider,omitempty"`
-	Region        string                          `mapstructure:"region,omitempty"`
-	ClusterConfig []ClusterConfig                 `mapstructure:"clusterConfig,omitempty"`
-	CoreServices  *apiv1alpha1.CoreServicesSpec   `mapstructure:"coreServices,omitempty"`
-	Addons        []apiv1alpha1.AddonSpec         `mapstructure:"addons,omitempty"`
+	Template      string                          `mapstructure:"template" yaml:"template"`
+	Type          EnvironmentType                 `mapstructure:"type,omitempty" yaml:"type,omitempty"`
+	Provider      apiv1alpha1.EnvironmentProvider `mapstructure:"provider,omitempty" yaml:"provider,omitempty"`
+	Region        string                          `mapstructure:"region,omitempty" yaml:"region,omitempty"`
+	ClusterConfig []ClusterConfig                 `mapstructure:"clusterConfig,omitempty" yaml:"clusterConfig,omitempty"`
+	CoreServices  *apiv1alpha1.CoreServicesSpec   `mapstructure:"coreServices,omitempty" yaml:"coreServices,omitempty"`
+	Addons        []apiv1alpha1.AddonSpec         `mapstructure:"addons,omitempty" yaml:"addons,omitempty"`
 }
 
 // ResolvedEnvironmentConfig holds the final, merged configuration for a specific environment.
 type ResolvedEnvironmentConfig struct {
 	Name string
 
+	ResolvedType          EnvironmentType
 	ResolvedProvider      apiv1alpha1.EnvironmentProvider
 	ResolvedRegion        string
 	ResolvedClusterConfig []ClusterConfig
@@ -80,6 +89,14 @@ type ResolvedEnvironmentConfig struct {
 
 	GlobalSettings *GlobalSettings
 }
+
+// EnvironmentType defines whether an environment is production or non-production
+type EnvironmentType string
+
+const (
+	EnvironmentTypeProduction    EnvironmentType = "production"
+	EnvironmentTypeNonProduction EnvironmentType = "non-production"
+)
 
 const (
 	configFileName = "adhar-config"

@@ -13,20 +13,20 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// NOTE: This embeds files from the 'platform/controllers/adharplatform/resources/argo-cd' directory.
+// NOTE: This embeds files from the 'platform/controllers/adharplatform/resources/argocd' directory.
 // This directory is populated by the 'make embedded-resources' target, which runs generation scripts.
 //
-//go:embed resources/argo-cd
+//go:embed resources/argocd
 var argoCDFS embed.FS
 
 func RawArgocdInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
 	filePath := config.FilePath
 	if filePath == "" {
 		// Default to "install.yaml" if no specific file path is provided in the customization.
-		// This assumes "install.yaml" is the main manifest in the embedded 'resources/argo-cd' directory.
+		// This assumes "install.yaml" is the main manifest in the embedded 'resources/argocd' directory.
 		filePath = "install.yaml"
 	}
-	// argoCDFS embeds the 'resources/argo-cd' directory. Files within this directory (e.g., install.yaml)
+	// argoCDFS embeds the 'resources/argocd' directory. Files within this directory (e.g., install.yaml)
 	// are at the root of the argoCDFS.
 	// filePath (e.g., "install.yaml") is expected to be the direct name of the file in argoCDFS.
 	// The fsRootPrefix for BuildCustomizedManifests should be "." to indicate the root of argoCDFS.
@@ -37,7 +37,7 @@ func (r *AdharPlatformReconciler) ReconcileArgo(ctx context.Context, req ctrl.Re
 	argocd := EmbeddedInstallation{
 		name: "Argo CD",
 		// resourcePath is the path to the primary manifest file within resourceFS.
-		// argoCDFS embeds the 'resources/argo-cd' directory. If 'install.yaml' is at the root of this FS,
+		// argoCDFS embeds the 'resources/argocd' directory. If 'install.yaml' is at the root of this FS,
 		// then resourcePath should be "install.yaml".
 		resourcePath: "install.yaml", // Changed from "."
 		resourceFS:   argoCDFS,

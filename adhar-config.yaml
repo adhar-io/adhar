@@ -1,215 +1,328 @@
-# Example Adhar Configuration (adhar-config.yaml)
-# Place in ~/.adhar/ or ./adhar-config.yaml
+# Production-Ready Adhar Configuration
+# This file demonstrates how to configure production Kubernetes clusters
+# across multiple cloud providers with Cilium CNI and platform components
 
-adhar:
-  # Kubeconfig context name for the Crossplane management cluster
-  context: "kind-adhar-controlplane"
-  # Default host for services if not specified elsewhere
-  defaultHost: "adhar.localtest.me"
-  # Default port for services if not specified elsewhere
+# Global Settings
+globalSettings:
+  adharContext: "adhar-management"
+  defaultHost: "adhar.production.example.com"
   defaultHttpPort: 80
-  # Example of another common global setting
   defaultHttpsPort: 443
-  # Default region used if not specified in an environment (for cloud providers)
-  defaultRegion: "us-central1"
-  # Provider credential configuration
+  defaultRegion: "us-east1"
+
+  # Dual-Provider Configuration
+  # Production provider is used for management cluster and production environments
+  productionProvider: "gke"
+  productionRegion: "us-east1-a"
+  
+  # Non-production provider is used for dev/test/staging environments
+  nonProductionProvider: "do"
+  nonProductionRegion: "nyc3"
+
+  # Provider Credentials Configuration
   providerCredentials:
+    # DigitalOcean
     do:
-      type: environment # Read from environment variable
+      type: environment
       envVar: DIGITALOCEAN_TOKEN
+
+    # Google Cloud Platform
     gke:
-      type: file # Read from Application Default Credentials (ADC) file
+      type: file
       path: "~/.config/gcloud/application_default_credentials.json"
+      projectID: "my-production-project"
+
+    # Amazon Web Services
     aws:
-      type: environment # Assumes standard AWS SDK env vars (AWS_ACCESS_KEY_ID, etc.)
-      # No specific envVar needed if using standard ones
+      type: environment
+      # Uses standard AWS environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+
+    # Microsoft Azure
     azure:
-      type: environment # Assumes standard Azure SDK env vars (AZURE_CLIENT_ID, etc.)
-      # No specific envVar needed if using standard ones
+      type: environment
+      # Uses standard Azure environment variables: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
+
+    # Civo Cloud
     civo:
       type: environment
       envVar: CIVO_TOKEN
 
-  environmentTemplates:
-    # Template for non-production environments
-    nonprod-defaults:
-      clusterConfig:
-        # Example default for DigitalOcean (adjust per provider)
-        nodePools:
-        - name: default-np
-          size: s-1vcpu-2gb # Smaller default size
-          count: 1
-      coreServices:
-        # Define default charts/versions for core services in non-prod
-        cilium:
-          chart: { repoURL: "https://helm.cilium.io/", name: "cilium", version: "1.15.7" }
-        nginx:
-          chart: { repoURL: "https://kubernetes.github.io/ingress-nginx", name: "ingress-nginx", version: "4.10.1" }
-        gitea:
-          chart: { repoURL: "https://dl.gitea.com/charts/", name: "gitea", version: "10.3.0" }
-        argocd:
-          chart: { repoURL: "https://argoproj.github.io/argo-helm", name: "argo-cd", version: "6.11.1" }
-        values: # Common values applied to all core service charts in this template
-          someNonProdSetting: true
+# Environment Templates for reusable configurations
+environmentTemplates:
+  # Production template with high availability and security
+  production-defaults:
+    clusterConfig:
+      - key: "autoScale"
+        value: "true"
+      - key: "minNodes"
+        value: "3"
+      - key: "maxNodes"
+        value: "10"
+    coreServices:
+      cilium:
+        chart:
+          repoURL: "https://helm.cilium.io/"
+          name: "cilium"
+          version: "1.15.7"
+        values:
+          - key: "cluster.name"
+            value: "production-cluster"
+          - key: "kubeProxyReplacement"
+            value: "strict"
+          - key: "hubble.enabled"
+            value: "true"
+          - key: "hubble.relay.enabled"
+            value: "true"
+          - key: "hubble.ui.enabled"
+            value: "true"
+          - key: "encryption.enabled"
+            value: "true"
+          - key: "encryption.type"
+            value: "wireguard"
+          - key: "operator.replicas"
+            value: "2"
+      nginx:
+        chart:
+          repoURL: "https://kubernetes.github.io/ingress-nginx"
+          name: "ingress-nginx"
+          version: "4.10.1"
+        values:
+          - key: "controller.replicaCount"
+            value: "3"
+          - key: "controller.service.type"
+            value: "LoadBalancer"
+      gitea:
+        chart:
+          repoURL: "https://dl.gitea.com/charts/"
+          name: "gitea"
+          version: "10.3.0"
+        values:
+          - key: "postgresql.enabled"
+            value: "true"
+          - key: "redis.enabled"
+            value: "true"
+          - key: "persistence.enabled"
+            value: "true"
+      argocd:
+        chart:
+          repoURL: "https://argoproj.github.io/argo-helm"
+          name: "argo-cd"
+          version: "6.11.1"
+        values:
+          - key: "server.replicas"
+            value: "2"
+          - key: "controller.replicas"
+            value: "2"
+          - key: "repoServer.replicas"
+            value: "2"
       addons:
-        # Default addons for non-prod (e.g., maybe a lightweight monitoring stack)
-        - name: metrics-server
-          chart: { repoURL: "https://kubernetes-sigs.github.io/metrics-server/", name: "metrics-server", version: "3.12.1" }
-          targetNamespace: kube-system
-
-    # Template for production environments
-    prod-defaults:
-      clusterConfig:
-        # Example default for DigitalOcean (open configuration)
-        # nodePools:
-        # - name: default-np
-        #   size: s-4vcpu-8gb # DigitalOcean specific node size
-        #   count: 3 # Override node count
-        #   autoScale: true
-        #   minNodes: 3
-        #   maxNodes: 5
-
-        # Example default for GCP (commented configuration)
-        machineType: n1-standard-4 # GCP specific machine type
-        numNodes: 3 # Override node count
-        # Add other GCP specific fields like networking, releaseChannel etc.
-        # Refer to Crossplane provider-gcp GKECluster documentation
-
-        # Example default for AWS (commented configuration)
-        # nodeSize: t3.medium # AWS specific node size
-        # nodeCount: 2 # Override node count
-        # kubernetesVersion: "1.29" # Default Kubernetes version
-
-        # Example default for Azure (commented configuration)
-        # vmSize: Standard_D2_v2 # Azure specific VM size
-        # nodeCount: 2 # Override node count
-        # sshPublicKey: "<your-ssh-public-key>" # Add your SSH public key
-
-        # Example default for Civo (commented configuration)
-        # nodeSize: g4s.kube.small # Civo specific node size
-        # nodeCount: 2 # Override node count
-      coreServices:
-        # Define specific charts/versions for core services in prod
-        cilium:
-          chart: { repoURL: "https://helm.cilium.io/", name: "cilium", version: "1.15.7" }
-        nginx:
-          chart: { repoURL: "https://kubernetes.github.io/ingress-nginx", name: "ingress-nginx", version: "4.10.1" }
-        gitea:
-          chart: { repoURL: "https://dl.gitea.com/charts/", name: "gitea", version: "10.3.0" }
-        argocd:
-          chart: { repoURL: "https://argoproj.github.io/argo-helm", name: "argo-cd", version: "6.11.1" }
-        values: # Common values applied to all core service charts in this template
-          someProdSetting: true
-      addons:
-        # Default addons for prod (e.g., full monitoring/logging)
         - name: prometheus
-          chart: { repoURL: "https://prometheus-community.github.io/helm-charts", name: "kube-prometheus-stack", version: "59.0.0" }
+          chart:
+            repoURL: "https://prometheus-community.github.io/helm-charts"
+            name: "kube-prometheus-stack"
+            version: "59.0.0"
           targetNamespace: monitoring
           createNamespace: true
-        - name: loki
-          chart: { repoURL: "https://grafana.github.io/helm-charts", name: "loki-stack", version: "2.10.2" }
-          targetNamespace: logging
-          createNamespace: true
-
-  environments:
-    # Local development environment using Kind
-    local:
-      provider: kind
-      # No template needed, or define a specific 'kind-template'
-      clusterConfig:
-        nodeImage: "kindest/node:v1.32.2" # Specify Kind node image
-        # Other Kind provider options: https://kind.sigs.k8s.io/docs/user/configuration/
-      coreServices:
-        # Override specific core service versions/configs for Kind if needed
-        argocd:
-          chart: { repoURL: "https://argoproj.github.io/argo-helm", name: "argo-cd", version: "6.11.1" }
           values:
-            server:
-              service:
-                type: NodePort # Expose ArgoCD via NodePort for local access
-      addons: [] # No extra addons for basic kind setup
+            - key: "grafana.enabled"
+              value: "true"
+            - key: "prometheus.prometheusSpec.retention"
+              value: "30d"
 
-    # Development environment on DigitalOcean
-    dev:
-      template: nonprod-defaults # Inherit from non-prod template
-      provider: do
-      region: nyc3 # Specific region for this environment
-      clusterConfig: # Override specific cluster settings from template
-        nodePools:
-        - name: staging-pool
-          size: s-2vcpu-4gb # Override size
-          count: 2 # Override count
-      coreServices:
-        values: # Add/override common values specifically for staging
-          environmentType: staging
-      addons: # Add specific addons for staging (appends to template addons)
         - name: cert-manager
-          chart: { repoURL: "https://charts.jetstack.io", name: "cert-manager", version: "v1.15.0" }
+          chart:
+            repoURL: "https://charts.jetstack.io"
+            name: "cert-manager"
+            version: "v1.15.0"
           targetNamespace: cert-manager
           createNamespace: true
           values:
-            installCRDs: true
+            - key: "installCRDs"
+              value: "true"
 
-    # Testing environment on DigitalOcean
-    test:
-      template: nonprod-defaults # Inherit from non-prod template
-      provider: do
-      region: nyc3 # Specific region for this environment
-      clusterConfig: # Override specific cluster settings from template
-        nodePools:
-        - name: staging-pool
-          size: s-2vcpu-4gb # Override size
-          count: 2 # Override count
-      coreServices:
-        values: # Add/override common values specifically for staging
-          environmentType: staging
-      addons: # Add specific addons for staging (appends to template addons)
-        - name: cert-manager
-          chart: { repoURL: "https://charts.jetstack.io", name: "cert-manager", version: "v1.15.0" }
-          targetNamespace: cert-manager
-          createNamespace: true
-          values:
-            installCRDs: true
-
-    # Staging environment on Non-Prod
-    stage:
-      template: prod-defaults # Inherit from non-prod template
-      provider: gke
-      region: us-central1 # Specific region for this environment
-      clusterConfig: # Override specific cluster settings from template
-        machineType: n1-standard-4 # GKE specific machine type
-        numNodes: 3 # Override node count
-        # Add other GKE specific fields like networking, releaseChannel etc.
-        # Refer to Crossplane provider-gcp GKECluster documentation
-      coreServices:
-        values: # Add/override common values specifically for staging
-          environmentType: staging
-      addons: # Add specific addons for staging (appends to template addons)
-        - name: cert-manager
-          chart: { repoURL: "https://charts.jetstack.io", name: "cert-manager", version: "v1.15.0" }
-          targetNamespace: cert-manager
-          createNamespace: true
-          values:
-            installCRDs: true
-
-    # Production environment on GKE
-    prod:
-      template: prod-defaults # Inherit from prod template
-      provider: gke
-      region: us-central1
-      clusterConfig: # Override specific cluster settings for GKE
-        machineType: n1-standard-4 # GKE specific machine type
-        numNodes: 3 # Override node count
-        # Add other GKE specific fields like networking, releaseChannel etc.
-        # Refer to Crossplane provider-gcp GKECluster documentation
-      coreServices:
-        values:
-          environmentType: production
-      addons: # Add/override addons for production
         - name: external-dns
-          chart: { repoURL: "https://kubernetes-sigs.github.io/external-dns/", name: "external-dns", version: "1.14.5" }
+          chart:
+            repoURL: "https://kubernetes-sigs.github.io/external-dns/"
+            name: "external-dns"
+            version: "1.14.5"
           targetNamespace: external-dns
           createNamespace: true
-          values:
-            provider: google # Configure for GKE/Google Cloud DNS
-            # Add necessary service account annotations or workload identity config
+
+  # Development template with cost optimization
+  development-defaults:
+      clusterConfig:
+        - key: "autoScale"
+          value: "true"
+        - key: "minNodes"
+          value: "1"
+        - key: "maxNodes"
+          value: "5"
+      coreServices:
+        cilium:
+          chart:
+            repoURL: "https://helm.cilium.io/"
+            name: "cilium"
+            version: "1.15.7"
+        nginx:
+          chart:
+            repoURL: "https://kubernetes.github.io/ingress-nginx"
+            name: "ingress-nginx"
+            version: "4.10.1"
+        gitea:
+          chart:
+            repoURL: "https://dl.gitea.com/charts/"
+            name: "gitea"
+            version: "10.3.0"
+        argocd:
+          chart:
+            repoURL: "https://argoproj.github.io/argo-helm"
+            name: "argo-cd"
+            version: "6.11.1"
+      addons:
+        - name: metrics-server
+          chart:
+            repoURL: "https://kubernetes-sigs.github.io/metrics-server/"
+            name: "metrics-server"
+            version: "3.12.1"
+          targetNamespace: kube-system
+
+# Environment Definitions
+environments:
+  # Development environments (auto-assigned to non-production provider: DigitalOcean)
+  dev:
+    type: non-production
+    template: development-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-dev"
+      - key: "nodeSize"
+        value: "s-2vcpu-4gb"
+      - key: "nodeCount"
+        value: "2"
+
+  # Testing environment (auto-assigned to non-production provider: DigitalOcean)
+  test:
+    type: non-production
+    template: development-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-test"
+      - key: "nodeSize"
+        value: "s-2vcpu-4gb"
+      - key: "nodeCount"
+        value: "2"
+
+  # Staging environment (auto-assigned to production provider: GKE for production-like testing)
+  staging:
+    type: production
+    template: production-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-staging"
+      - key: "machineType"
+        value: "e2-standard-4"
+      - key: "numNodes"
+        value: "3"
+      - key: "projectID"
+        value: "my-staging-project"
+
+  # Production environment (auto-assigned to production provider: GKE)
+  production:
+    type: production
+    template: production-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-production"
+      - key: "machineType"
+        value: "n2-standard-8"
+      - key: "numNodes"
+        value: "5"
+      - key: "projectID"
+        value: "my-production-project"
+      - key: "releaseChannel"
+        value: "STABLE"
+      - key: "enableNetworkPolicy"
+        value: "true"
+      - key: "enablePodSecurityPolicy"
+        value: "true"
+
+  # Alternative production environment with explicit provider override
+  production-aws:
+    type: production
+    provider: aws  # Override production provider for this specific environment
+    region: us-east-1
+    template: production-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-production-aws"
+      - key: "nodeInstanceType"
+        value: "m5.xlarge"
+      - key: "nodeCount"
+        value: "6"
+      - key: "kubernetesVersion"
+        value: "1.29"
+      - key: "managedNodeGroup"
+        value: "true"
+
+  # Alternative production environment with explicit provider override
+  production-azure:
+    type: production
+    provider: azure  # Override production provider for this specific environment
+    region: eastus
+    template: production-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-production-azure"
+      - key: "resourceGroup"
+        value: "rg-adhar-production"
+      - key: "vmSize"
+        value: "Standard_D4s_v3"
+      - key: "nodeCount"
+        value: "5"
+      - key: "kubernetesVersion"
+        value: "1.29"
+
+  # Cost-optimized development environment with explicit provider override
+  dev-civo:
+    type: non-production
+    provider: civo  # Override non-production provider for this specific environment
+    region: LON1
+    template: development-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-dev-civo"
+      - key: "nodeSize"
+        value: "g4s.kube.medium"
+      - key: "nodeCount"
+        value: "2"
+
+  # On-premises deployment (explicit provider override)
+  on-premises:
+    provider: onprem
+    coreServices:
+      cilium:
+        chart:
+          repoURL: "https://helm.cilium.io/"
+          name: "cilium"
+          version: "1.15.7"
+        values:
+          - key: "kubeProxyReplacement"
+            value: "strict"
+          - key: "hubble.enabled"
+            value: "true"
+      nginx:
+        chart:
+          repoURL: "https://kubernetes.github.io/ingress-nginx"
+          name: "ingress-nginx"
+          version: "4.10.1"
+        values:
+          - key: "controller.service.type"
+            value: "NodePort"
+    addons:
+      - name: metallb
+        chart:
+          repoURL: "https://metallb.github.io/metallb"
+          name: "metallb"
+          version: "0.14.3"
+        targetNamespace: metallb-system
+        createNamespace: true

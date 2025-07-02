@@ -4,6 +4,9 @@ import "fmt"
 
 const (
 	ProjectName string = "adhar"
+
+	// Default cluster name for Kind clusters
+	DefaultClusterName string = "adhar"
 )
 
 var Version string = "0.0.1-dev" // Default version

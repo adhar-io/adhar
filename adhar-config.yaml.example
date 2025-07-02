@@ -1,0 +1,215 @@
+# Example Adhar Configuration (adhar-config.yaml)
+# Place in ~/.adhar/ or ./adhar-config.yaml
+
+adhar:
+  # Kubeconfig context name for the Crossplane management cluster
+  context: "kind-adhar-controlplane"
+  # Default host for services if not specified elsewhere
+  defaultHost: "adhar.localtest.me"
+  # Default port for services if not specified elsewhere
+  defaultHttpPort: 80
+  # Example of another common global setting
+  defaultHttpsPort: 443
+  # Default region used if not specified in an environment (for cloud providers)
+  defaultRegion: "us-central1"
+  # Provider credential configuration
+  providerCredentials:
+    do:
+      type: environment # Read from environment variable
+      envVar: DIGITALOCEAN_TOKEN
+    gke:
+      type: file # Read from Application Default Credentials (ADC) file
+      path: "~/.config/gcloud/application_default_credentials.json"
+    aws:
+      type: environment # Assumes standard AWS SDK env vars (AWS_ACCESS_KEY_ID, etc.)
+      # No specific envVar needed if using standard ones
+    azure:
+      type: environment # Assumes standard Azure SDK env vars (AZURE_CLIENT_ID, etc.)
+      # No specific envVar needed if using standard ones
+    civo:
+      type: environment
+      envVar: CIVO_TOKEN
+
+  environmentTemplates:
+    # Template for non-production environments
+    nonprod-defaults:
+      clusterConfig:
+        # Example default for DigitalOcean (adjust per provider)
+        nodePools:
+        - name: default-np
+          size: s-1vcpu-2gb # Smaller default size
+          count: 1
+      coreServices:
+        # Define default charts/versions for core services in non-prod
+        cilium:
+          chart: { repoURL: "https://helm.cilium.io/", name: "cilium", version: "1.15.7" }
+        nginx:
+          chart: { repoURL: "https://kubernetes.github.io/ingress-nginx", name: "ingress-nginx", version: "4.10.1" }
+        gitea:
+          chart: { repoURL: "https://dl.gitea.com/charts/", name: "gitea", version: "10.3.0" }
+        argocd:
+          chart: { repoURL: "https://argoproj.github.io/argo-helm", name: "argo-cd", version: "6.11.1" }
+        values: # Common values applied to all core service charts in this template
+          someNonProdSetting: true
+      addons:
+        # Default addons for non-prod (e.g., maybe a lightweight monitoring stack)
+        - name: metrics-server
+          chart: { repoURL: "https://kubernetes-sigs.github.io/metrics-server/", name: "metrics-server", version: "3.12.1" }
+          targetNamespace: kube-system
+
+    # Template for production environments
+    prod-defaults:
+      clusterConfig:
+        # Example default for DigitalOcean (open configuration)
+        # nodePools:
+        # - name: default-np
+        #   size: s-4vcpu-8gb # DigitalOcean specific node size
+        #   count: 3 # Override node count
+        #   autoScale: true
+        #   minNodes: 3
+        #   maxNodes: 5
+
+        # Example default for GCP (commented configuration)
+        machineType: n1-standard-4 # GCP specific machine type
+        numNodes: 3 # Override node count
+        # Add other GCP specific fields like networking, releaseChannel etc.
+        # Refer to Crossplane provider-gcp GKECluster documentation
+
+        # Example default for AWS (commented configuration)
+        # nodeSize: t3.medium # AWS specific node size
+        # nodeCount: 2 # Override node count
+        # kubernetesVersion: "1.29" # Default Kubernetes version
+
+        # Example default for Azure (commented configuration)
+        # vmSize: Standard_D2_v2 # Azure specific VM size
+        # nodeCount: 2 # Override node count
+        # sshPublicKey: "<your-ssh-public-key>" # Add your SSH public key
+
+        # Example default for Civo (commented configuration)
+        # nodeSize: g4s.kube.small # Civo specific node size
+        # nodeCount: 2 # Override node count
+      coreServices:
+        # Define specific charts/versions for core services in prod
+        cilium:
+          chart: { repoURL: "https://helm.cilium.io/", name: "cilium", version: "1.15.7" }
+        nginx:
+          chart: { repoURL: "https://kubernetes.github.io/ingress-nginx", name: "ingress-nginx", version: "4.10.1" }
+        gitea:
+          chart: { repoURL: "https://dl.gitea.com/charts/", name: "gitea", version: "10.3.0" }
+        argocd:
+          chart: { repoURL: "https://argoproj.github.io/argo-helm", name: "argo-cd", version: "6.11.1" }
+        values: # Common values applied to all core service charts in this template
+          someProdSetting: true
+      addons:
+        # Default addons for prod (e.g., full monitoring/logging)
+        - name: prometheus
+          chart: { repoURL: "https://prometheus-community.github.io/helm-charts", name: "kube-prometheus-stack", version: "59.0.0" }
+          targetNamespace: monitoring
+          createNamespace: true
+        - name: loki
+          chart: { repoURL: "https://grafana.github.io/helm-charts", name: "loki-stack", version: "2.10.2" }
+          targetNamespace: logging
+          createNamespace: true
+
+  environments:
+    # Local development environment using Kind
+    local:
+      provider: kind
+      # No template needed, or define a specific 'kind-template'
+      clusterConfig:
+        nodeImage: "kindest/node:v1.32.2" # Specify Kind node image
+        # Other Kind provider options: https://kind.sigs.k8s.io/docs/user/configuration/
+      coreServices:
+        # Override specific core service versions/configs for Kind if needed
+        argocd:
+          chart: { repoURL: "https://argoproj.github.io/argo-helm", name: "argo-cd", version: "6.11.1" }
+          values:
+            server:
+              service:
+                type: NodePort # Expose ArgoCD via NodePort for local access
+      addons: [] # No extra addons for basic kind setup
+
+    # Development environment on DigitalOcean
+    dev:
+      template: nonprod-defaults # Inherit from non-prod template
+      provider: do
+      region: nyc3 # Specific region for this environment
+      clusterConfig: # Override specific cluster settings from template
+        nodePools:
+        - name: staging-pool
+          size: s-2vcpu-4gb # Override size
+          count: 2 # Override count
+      coreServices:
+        values: # Add/override common values specifically for staging
+          environmentType: staging
+      addons: # Add specific addons for staging (appends to template addons)
+        - name: cert-manager
+          chart: { repoURL: "https://charts.jetstack.io", name: "cert-manager", version: "v1.15.0" }
+          targetNamespace: cert-manager
+          createNamespace: true
+          values:
+            installCRDs: true
+
+    # Testing environment on DigitalOcean
+    test:
+      template: nonprod-defaults # Inherit from non-prod template
+      provider: do
+      region: nyc3 # Specific region for this environment
+      clusterConfig: # Override specific cluster settings from template
+        nodePools:
+        - name: staging-pool
+          size: s-2vcpu-4gb # Override size
+          count: 2 # Override count
+      coreServices:
+        values: # Add/override common values specifically for staging
+          environmentType: staging
+      addons: # Add specific addons for staging (appends to template addons)
+        - name: cert-manager
+          chart: { repoURL: "https://charts.jetstack.io", name: "cert-manager", version: "v1.15.0" }
+          targetNamespace: cert-manager
+          createNamespace: true
+          values:
+            installCRDs: true
+
+    # Staging environment on Non-Prod
+    stage:
+      template: prod-defaults # Inherit from non-prod template
+      provider: gke
+      region: us-central1 # Specific region for this environment
+      clusterConfig: # Override specific cluster settings from template
+        machineType: n1-standard-4 # GKE specific machine type
+        numNodes: 3 # Override node count
+        # Add other GKE specific fields like networking, releaseChannel etc.
+        # Refer to Crossplane provider-gcp GKECluster documentation
+      coreServices:
+        values: # Add/override common values specifically for staging
+          environmentType: staging
+      addons: # Add specific addons for staging (appends to template addons)
+        - name: cert-manager
+          chart: { repoURL: "https://charts.jetstack.io", name: "cert-manager", version: "v1.15.0" }
+          targetNamespace: cert-manager
+          createNamespace: true
+          values:
+            installCRDs: true
+
+    # Production environment on GKE
+    prod:
+      template: prod-defaults # Inherit from prod template
+      provider: gke
+      region: us-central1
+      clusterConfig: # Override specific cluster settings for GKE
+        machineType: n1-standard-4 # GKE specific machine type
+        numNodes: 3 # Override node count
+        # Add other GKE specific fields like networking, releaseChannel etc.
+        # Refer to Crossplane provider-gcp GKECluster documentation
+      coreServices:
+        values:
+          environmentType: production
+      addons: # Add/override addons for production
+        - name: external-dns
+          chart: { repoURL: "https://kubernetes-sigs.github.io/external-dns/", name: "external-dns", version: "1.14.5" }
+          targetNamespace: external-dns
+          createNamespace: true
+          values:
+            provider: google # Configure for GKE/Google Cloud DNS
+            # Add necessary service account annotations or workload identity config

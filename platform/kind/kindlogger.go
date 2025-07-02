@@ -47,7 +47,7 @@ func KindLoggerFromLogr(logrLogger *logr.Logger) *kindLogger {
 func newKindInfoLogger(logrLogger *logr.Logger, level int) *kindInfoLogger {
 	return &kindInfoLogger{
 		cliLogger: logrLogger,
-		level:     level + 1, // push log level down. e.g. info log becomes debug+1.
+		level:     level, // Don't push log level down - respect the original level
 	}
 }
 
@@ -57,11 +57,21 @@ type kindInfoLogger struct {
 }
 
 func (k *kindInfoLogger) Info(message string) {
-	k.cliLogger.V(k.level).Info(strings.TrimSpace(message)) // Modified line
+	// For level 0 (normal info), use Info() directly. For higher levels, use V()
+	if k.level == 0 {
+		k.cliLogger.Info(strings.TrimSpace(message))
+	} else {
+		k.cliLogger.V(k.level).Info(strings.TrimSpace(message))
+	}
 }
 
 func (k *kindInfoLogger) Infof(message string, args ...interface{}) {
-	k.cliLogger.V(k.level).Info(strings.TrimSpace(fmt.Sprintf(message, args...))) // Modified line
+	// For level 0 (normal info), use Info() directly. For higher levels, use V()
+	if k.level == 0 {
+		k.cliLogger.Info(strings.TrimSpace(fmt.Sprintf(message, args...)))
+	} else {
+		k.cliLogger.V(k.level).Info(strings.TrimSpace(fmt.Sprintf(message, args...)))
+	}
 }
 
 func (k *kindInfoLogger) Enabled() bool {

@@ -8,7 +8,7 @@ GITEA_VERSION=${1:-"11.0.1"} # Default to version 11.0.1 if not provided
 echo "Using Gitea as the Git provider."
 helm repo add gitea-charts https://dl.gitea.com/charts/
 helm repo update gitea-charts
-helm template gitea gitea-charts/gitea --version "$GITEA_VERSION" -f "$HACK_DIR/values.yaml" > "$INSTALL_YAML"
+helm template gitea gitea-charts/gitea --namespace adhar-system --version "$GITEA_VERSION" -f "$HACK_DIR/values.yaml" > "$INSTALL_YAML"
 
 if [ -f "$INSTALL_YAML" ]; then
     echo "Gitea manifest with CRDs generated successfully."

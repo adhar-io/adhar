@@ -522,12 +522,12 @@ gitea:
 ## Valkey cluster and [Valkey](#valkey) cannot be enabled at the same time.
 ## @descriptionEnd
 valkey-cluster:
-  enabled: true
+  enabled: false
   usePassword: false
   usePasswordFiles: false
   cluster:
-    nodes: 3 # default: 6
-    replicas: 0 # default: 1
+    nodes: 1 
+    replicas: 0
   service:
     ports:
       valkey: 6379
@@ -544,7 +544,7 @@ valkey-cluster:
 ## Valkey and [Valkey cluster](#valkey-cluster) cannot be enabled at the same time.
 ## @descriptionEnd
 valkey:
-  enabled: false
+  enabled: true
   architecture: standalone
   global:
     valkey:
@@ -573,7 +573,7 @@ postgresql-ha:
       database: gitea
       password: gitea
       username: gitea
-  enabled: true
+  enabled: false
   postgresql:
     repmgrPassword: changeme2
     postgresPassword: changeme1
@@ -595,7 +595,7 @@ postgresql-ha:
 ## @param postgresql.global.postgresql.service.ports.postgresql PostgreSQL service port (overrides `service.ports.postgresql`)
 ## @param postgresql.primary.persistence.size PVC Storage Request for PostgreSQL volume
 postgresql:
-  enabled: false
+  enabled: true
   global:
     postgresql:
       auth:
@@ -618,7 +618,7 @@ postgresql:
 ## @param test.image.tag Image tag for the wget container used in the test-connection Pod.
 checkDeprecation: true
 test:
-  enabled: true
+  enabled: false
   image:
     name: busybox
     tag: latest

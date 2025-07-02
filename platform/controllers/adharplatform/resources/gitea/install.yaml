@@ -1,53 +1,23 @@
 ---
-# Source: gitea/charts/postgresql-ha/templates/pgpool/networkpolicy.yaml
+# Source: gitea/charts/postgresql/templates/primary/networkpolicy.yaml
 kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
 metadata:
-  name: gitea-postgresql-ha-pgpool
-  namespace: "default"
+  name: gitea-postgresql
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
+    app.kubernetes.io/name: postgresql
     app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: pgpool
-    role: data
+    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/component: primary
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/instance: gitea
-      app.kubernetes.io/name: postgresql-ha
-      app.kubernetes.io/component: pgpool
-  policyTypes:
-    - Ingress
-    - Egress
-  egress:
-    - {}
-  ingress:
-    - ports:
-        - port: 5432
----
-# Source: gitea/charts/postgresql-ha/templates/postgresql/networkpolicy.yaml
-kind: NetworkPolicy
-apiVersion: networking.k8s.io/v1
-metadata:
-  name: gitea-postgresql-ha-postgresql
-  namespace: "default"
-  labels:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: postgresql
-    role: data
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/instance: gitea
-      app.kubernetes.io/name: postgresql-ha
-      app.kubernetes.io/component: postgresql
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
   policyTypes:
     - Ingress
     - Egress
@@ -62,7 +32,7 @@ kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
 metadata:
   name: gitea-redis-cluster
-  namespace: "default"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
@@ -85,77 +55,33 @@ spec:
         - port: 6379
         - port: 16379
 ---
-# Source: gitea/charts/postgresql-ha/templates/pgpool/pdb.yaml
+# Source: gitea/charts/postgresql/templates/primary/pdb.yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: gitea-postgresql-ha-pgpool
-  namespace: "default"
+  name: gitea-postgresql
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/version: 4.5.5
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: pgpool
-spec:
-  maxUnavailable: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/instance: gitea
-      app.kubernetes.io/name: postgresql-ha
-      app.kubernetes.io/component: pgpool
----
-# Source: gitea/charts/postgresql-ha/templates/postgresql/pdb.yaml
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: gitea-postgresql-ha-postgresql
-  namespace: "default"
-  labels:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
+    app.kubernetes.io/name: postgresql
     app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: postgresql
+    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/component: primary
 spec:
   maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/instance: gitea
-      app.kubernetes.io/name: postgresql-ha
-      app.kubernetes.io/component: postgresql
----
-# Source: gitea/charts/postgresql-ha/templates/postgresql/witness-pdb.yaml
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: gitea-postgresql-ha-postgresql-witness 
-  namespace: "default"
-  labels:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: postgresql
-    role: witness
-spec:
-  maxUnavailable: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/instance: gitea
-      app.kubernetes.io/name: postgresql-ha
-      app.kubernetes.io/component: postgresql
-      role: witness
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
 ---
 # Source: gitea/charts/redis-cluster/templates/poddisruptionbudget.yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: gitea-redis-cluster
-  namespace: "default"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
@@ -171,18 +97,18 @@ spec:
     matchExpressions:
       - {key: job-name, operator: NotIn, values: [gitea-redis-cluster-cluster-update]}
 ---
-# Source: gitea/charts/postgresql-ha/templates/serviceaccount.yaml
+# Source: gitea/charts/postgresql/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: gitea-postgresql-ha
-  namespace: "default"
+  name: gitea-postgresql
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
+    app.kubernetes.io/name: postgresql
     app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
+    helm.sh/chart: postgresql-16.4.14
 automountServiceAccountToken: false
 ---
 # Source: gitea/charts/redis-cluster/templates/redis-serviceaccount.yaml
@@ -190,7 +116,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: gitea-redis-cluster
-  namespace: "default"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
@@ -199,41 +125,23 @@ metadata:
     helm.sh/chart: redis-cluster-11.4.3
 automountServiceAccountToken: false
 ---
-# Source: gitea/charts/postgresql-ha/templates/pgpool/secrets.yaml
+# Source: gitea/charts/postgresql/templates/secrets.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: gitea-postgresql-ha-pgpool
-  namespace: "default"
+  name: gitea-postgresql
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/version: 4.5.5
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: pgpool
-type: Opaque
-data:
-  admin-password: "Y2hhbmdlbWUz"
----
-# Source: gitea/charts/postgresql-ha/templates/postgresql/secrets.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: gitea-postgresql-ha-postgresql
-  namespace: "default"
-  labels:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
+    app.kubernetes.io/name: postgresql
     app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: postgresql
+    helm.sh/chart: postgresql-16.4.14
 type: Opaque
 data:
-  postgres-password: "Y2hhbmdlbWUx"
+  postgres-password: "T005N0hlNlcyeQ=="
   password: "Z2l0ZWE="
-  repmgr-password: "Y2hhbmdlbWUy"
+  # We don't auto-generate LDAP password when it's not provided as we do for other passwords
 ---
 # Source: gitea/templates/gitea/config.yaml
 apiVersion: v1
@@ -255,17 +163,17 @@ stringData:
   actions: ENABLED=false
   cache: |-
     ADAPTER=redis
-    HOST=redis+cluster://:@gitea-redis-cluster-headless.default.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
+    HOST=redis+cluster://:@gitea-redis-cluster-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
   database: |-
     DB_TYPE=postgres
-    HOST=gitea-postgresql-ha-pgpool.default.svc.cluster.local:5432
+    HOST=gitea-postgresql.adhar-system.svc.cluster.local:5432
     NAME=gitea
     PASSWD=gitea
     USER=gitea
   indexer: ISSUE_INDEXER_TYPE=db
   metrics: ENABLED=false
   queue: |-
-    CONN_STR=redis+cluster://:@gitea-redis-cluster-headless.default.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
+    CONN_STR=redis+cluster://:@gitea-redis-cluster-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
     TYPE=redis
   repository: ROOT=/data/git/gitea-repositories
   security: INSTALL_LOCK=true
@@ -282,7 +190,7 @@ stringData:
     START_SSH_SERVER=true
   session: |-
     PROVIDER=redis
-    PROVIDER_CONFIG=redis+cluster://:@gitea-redis-cluster-headless.default.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
+    PROVIDER_CONFIG=redis+cluster://:@gitea-redis-cluster-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
 ---
 # Source: gitea/templates/gitea/config.yaml
 apiVersion: v1
@@ -511,7 +419,7 @@ stringData:
       
       echo 'Wait for redis to become available...'
       until [ "${RETRY}" -ge "${MAX}" ]; do
-        nc -vz -w2 gitea-redis-cluster-headless.default.svc.cluster.local 6379 && break
+        nc -vz -w2 gitea-redis-cluster-headless.adhar-system.svc.cluster.local 6379 && break
         RETRY=$[${RETRY}+1]
         echo "...not ready yet (${RETRY}/${MAX})"
       done
@@ -593,147 +501,12 @@ stringData:
 
     echo '==== END GITEA CONFIGURATION ===='
 ---
-# Source: gitea/charts/postgresql-ha/templates/postgresql/hooks-scripts-configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: gitea-postgresql-ha-postgresql-hooks-scripts
-  namespace: "default"
-  labels:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: postgresql
-data:
-  pre-stop.sh: |-
-    #!/bin/bash
-    set -o errexit
-    set -o pipefail
-    set -o nounset
-
-    # Debug section
-    exec 3>&1
-    exec 4>&2
-
-    # Process input parameters
-    MIN_DELAY_AFTER_PG_STOP_SECONDS=$1
-
-    # Load Libraries
-    . /opt/bitnami/scripts/liblog.sh
-    . /opt/bitnami/scripts/libpostgresql.sh
-    . /opt/bitnami/scripts/librepmgr.sh
-
-    # Load PostgreSQL & repmgr environment variables
-    . /opt/bitnami/scripts/postgresql-env.sh
-
-    # Auxiliary functions
-    is_new_primary_ready() {
-        return_value=1
-        currenty_primary_node="$(repmgr_get_primary_node)"
-        currenty_primary_host="$(echo $currenty_primary_node | awk '{print $1}')"
-
-        info "$currenty_primary_host != $REPMGR_NODE_NETWORK_NAME"
-        if [[ $(echo $currenty_primary_node | wc -w) -eq 2 ]] && [[ "$currenty_primary_host" != "$REPMGR_NODE_NETWORK_NAME" ]]; then
-            info "New primary detected, leaving the cluster..."
-            return_value=0
-        else
-            info "Waiting for a new primary to be available..."
-        fi
-        return $return_value
-    }
-
-    export MODULE="pre-stop-hook"
-
-    if [[ "${BITNAMI_DEBUG}" == "true" ]]; then
-        info "Bash debug is on"
-    else
-        info "Bash debug is off"
-        exec 1>/dev/null
-        exec 2>/dev/null
-    fi
-
-    postgresql_enable_nss_wrapper
-
-    # Prepare env vars for managing roles
-    readarray -t primary_node < <(repmgr_get_upstream_node)
-    primary_host="${primary_node[0]}"
-
-    # Stop postgresql for graceful exit.
-    PG_STOP_TIME=$EPOCHSECONDS
-    postgresql_stop
-
-    if [[ -z "$primary_host" ]] || [[ "$primary_host" == "$REPMGR_NODE_NETWORK_NAME" ]]; then
-        info "Primary node need to wait for a new primary node before leaving the cluster"
-        retry_while is_new_primary_ready 10 5
-    else
-        info "Standby node doesn't need to wait for a new primary switchover. Leaving the cluster"
-    fi
-
-    # Make sure pre-stop hook waits at least 25 seconds after stop of PG to make sure PGPOOL detects node is down.
-    # default terminationGracePeriodSeconds=30 seconds
-    PG_STOP_DURATION=$(($EPOCHSECONDS - $PG_STOP_TIME))
-    if (( $PG_STOP_DURATION < $MIN_DELAY_AFTER_PG_STOP_SECONDS )); then
-        WAIT_TO_PG_POOL_TIME=$(($MIN_DELAY_AFTER_PG_STOP_SECONDS - $PG_STOP_DURATION)) 
-        info "PG stopped including primary switchover in $PG_STOP_DURATION. Waiting additional $WAIT_TO_PG_POOL_TIME seconds for PG pool"
-        sleep $WAIT_TO_PG_POOL_TIME
-    fi
-
-  readiness-probe.sh: |-
-    #!/bin/bash
-    set -o errexit
-    set -o pipefail
-    set -o nounset
-
-    # Debug section
-    exec 3>&1
-    exec 4>&2
-
-    # Load Libraries
-    . /opt/bitnami/scripts/liblog.sh
-    . /opt/bitnami/scripts/libpostgresql.sh
-
-    # Load PostgreSQL & repmgr environment variables
-    . /opt/bitnami/scripts/postgresql-env.sh
-
-    # Process input parameters
-    MIN_DELAY_AFTER_POD_READY_FIRST_TIME=$1
-    TMP_FIRST_READY_FILE_TS="/tmp/ts-first-ready.mark"
-    TMP_DELAY_APPLIED_FILE="/tmp/delay-applied.mark"
-
-    DB_CHECK_RESULT=$(echo "SELECT 1" | postgresql_execute_print_output "$POSTGRESQL_DATABASE" "$POSTGRESQL_USERNAME" "$POSTGRESQL_PASSWORD" "-h 127.0.0.1 -tA" || echo "command failed")
-    if [[ "$DB_CHECK_RESULT" == "1" ]]; then
-      if [[ ! -f "$TMP_DELAY_APPLIED_FILE" ]]; then
-        # DB up, but initial readiness delay not applied
-        if [[ -f "$TMP_FIRST_READY_FILE_TS" ]]; then
-          # calculate delay from the first readiness success
-          FIRST_READY_TS=$(cat $TMP_FIRST_READY_FILE_TS)
-          CURRENT_DELAY_SECONDS=$(($EPOCHSECONDS - $FIRST_READY_TS))
-          if (( $CURRENT_DELAY_SECONDS > $MIN_DELAY_AFTER_POD_READY_FIRST_TIME )); then
-            # minimal delay of the first readiness state passed - report success and mark delay as applied
-            touch "$TMP_DELAY_APPLIED_FILE"
-          else
-            # minimal delay of the first readiness state not reached yet - report failure
-            exit 1
-          fi
-        else
-          # first ever readiness test success - store timestamp and report failure
-          echo $EPOCHSECONDS > $TMP_FIRST_READY_FILE_TS
-          exit 1
-        fi
-      fi
-    else
-      # DB test failed - report failure
-      exit 1
-    fi
----
 # Source: gitea/charts/redis-cluster/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: gitea-redis-cluster-default
-  namespace: "default"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
@@ -3024,7 +2797,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: gitea-redis-cluster-scripts
-  namespace: "default"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
@@ -3112,92 +2885,68 @@ spec:
     requests:
       storage: 10Gi
 ---
-# Source: gitea/charts/postgresql-ha/templates/pgpool/service.yaml
+# Source: gitea/charts/postgresql/templates/primary/svc-headless.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: gitea-postgresql-ha-pgpool
-  namespace: "default"
+  name: gitea-postgresql-hl
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/version: 4.5.5
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: pgpool
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/version: 17.4.0
+    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/component: primary
+  annotations:
+spec:
+  type: ClusterIP
+  clusterIP: None
+  # We want all pods in the StatefulSet to have their addresses published for
+  # the sake of the other Postgresql pods even before they're ready, since they
+  # have to be able to talk to each other in order to become ready.
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: primary
+---
+# Source: gitea/charts/postgresql/templates/primary/svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-postgresql
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/version: 17.4.0
+    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/component: primary
 spec:
   type: ClusterIP
   sessionAffinity: None
   ports:
-    - name: "postgresql"
+    - name: tcp-postgresql
       port: 5432
-      targetPort: postgresql
-      protocol: TCP
+      targetPort: tcp-postgresql
       nodePort: null
   selector:
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/component: pgpool
----
-# Source: gitea/charts/postgresql-ha/templates/postgresql/service-headless.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: gitea-postgresql-ha-postgresql-headless
-  namespace: "default"
-  labels:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
-spec:
-  type: ClusterIP
-  clusterIP: None
-  publishNotReadyAddresses: false
-  ports:
-    - name: "postgresql"
-      port: 5432
-      targetPort: postgresql
-      protocol: TCP
-  selector:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/component: postgresql
-    role: data
----
-# Source: gitea/charts/postgresql-ha/templates/postgresql/service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: gitea-postgresql-ha-postgresql
-  namespace: "default"
-  labels:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: postgresql
-spec:
-  type: ClusterIP
-  ports:
-    - name: "postgresql"
-      port: 5432
-      targetPort: postgresql
-      protocol: TCP
-  selector:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/component: postgresql
-    role: data
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: primary
 ---
 # Source: gitea/charts/redis-cluster/templates/headless-svc.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: gitea-redis-cluster-headless
-  namespace: "default"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
@@ -3224,7 +2973,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: gitea-redis-cluster
-  namespace: "default"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
@@ -3299,181 +3048,6 @@ spec:
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
 ---
-# Source: gitea/charts/postgresql-ha/templates/pgpool/deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: gitea-postgresql-ha-pgpool
-  namespace: "default"
-  labels:
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
-    app.kubernetes.io/version: 4.5.5
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: pgpool
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/instance: gitea
-      app.kubernetes.io/name: postgresql-ha
-      app.kubernetes.io/component: pgpool
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/instance: gitea
-        app.kubernetes.io/managed-by: Helm
-        app.kubernetes.io/name: postgresql-ha
-        app.kubernetes.io/version: 4.5.5
-        helm.sh/chart: postgresql-ha-15.2.3
-        app.kubernetes.io/component: pgpool
-    spec:
-      
-      automountServiceAccountToken: false
-      affinity:
-        podAffinity:
-          
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app.kubernetes.io/instance: gitea
-                    app.kubernetes.io/name: postgresql-ha
-                    app.kubernetes.io/component: pgpool
-                topologyKey: kubernetes.io/hostname
-              weight: 1
-        nodeAffinity:
-          
-      securityContext:
-        fsGroup: 1001
-        fsGroupChangePolicy: Always
-        supplementalGroups: []
-        sysctls: []
-      serviceAccountName: gitea-postgresql-ha
-      # Auxiliary vars to populate environment variables
-      containers:
-        - name: pgpool
-          image: docker.io/bitnami/pgpool:4.5.5-debian-12-r6
-          imagePullPolicy: "IfNotPresent"
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-              - ALL
-            privileged: false
-            readOnlyRootFilesystem: true
-            runAsGroup: 1001
-            runAsNonRoot: true
-            runAsUser: 1001
-            seLinuxOptions: {}
-            seccompProfile:
-              type: RuntimeDefault
-          env:
-            - name: BITNAMI_DEBUG
-              value: "false"
-            - name: PGPOOL_BACKEND_NODES
-              value: 0:gitea-postgresql-ha-postgresql-0.gitea-postgresql-ha-postgresql-headless:5432,1:gitea-postgresql-ha-postgresql-1.gitea-postgresql-ha-postgresql-headless:5432,2:gitea-postgresql-ha-postgresql-2.gitea-postgresql-ha-postgresql-headless:5432,
-            - name: PGPOOL_SR_CHECK_USER
-              value: "repmgr"
-            - name: PGPOOL_SR_CHECK_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: gitea-postgresql-ha-postgresql
-                  key: repmgr-password
-            - name: PGPOOL_SR_CHECK_DATABASE
-              value: "postgres"
-            - name: PGPOOL_ENABLE_LDAP
-              value: "no"
-            - name: PGPOOL_POSTGRES_USERNAME
-              value: "gitea"
-            - name: PGPOOL_POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: gitea-postgresql-ha-postgresql
-                  key: password
-            - name: PGPOOL_ADMIN_USERNAME
-              value: "admin"
-            - name: PGPOOL_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: gitea-postgresql-ha-pgpool
-                  key: admin-password
-            - name: PGPOOL_AUTHENTICATION_METHOD
-              value: "scram-sha-256"
-            - name: PGPOOL_ENABLE_LOAD_BALANCING
-              value: "yes"
-            - name: PGPOOL_DISABLE_LOAD_BALANCE_ON_WRITE
-              value: "transaction"
-            - name: PGPOOL_ENABLE_LOG_CONNECTIONS
-              value: "no"
-            - name: PGPOOL_ENABLE_LOG_HOSTNAME
-              value: "yes"
-            - name: PGPOOL_ENABLE_LOG_PER_NODE_STATEMENT
-              value: "no"
-            - name: PGPOOL_RESERVED_CONNECTIONS
-              value: '1'
-            - name: PGPOOL_CHILD_LIFE_TIME
-              value: ""
-            - name: PGPOOL_ENABLE_TLS
-              value: "no"
-            - name: PGPOOL_HEALTH_CHECK_PSQL_TIMEOUT
-              value: "6"
-          envFrom:
-          ports:
-            - name: postgresql
-              containerPort: 5432
-              protocol: TCP
-          livenessProbe:
-            failureThreshold: 5
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 5
-            exec:
-              command:
-                - /opt/bitnami/scripts/pgpool/healthcheck.sh
-          readinessProbe:
-            failureThreshold: 5
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            successThreshold: 1
-            timeoutSeconds: 5
-            exec:
-              command:
-                - bash
-                - -ec
-                - 'PGPASSWORD=$PGPOOL_POSTGRES_PASSWORD psql -U "gitea" -d "gitea" -h /opt/bitnami/pgpool/tmp -tA -c "SELECT 1" >/dev/null'
-          resources:
-            limits:
-              cpu: 375m
-              ephemeral-storage: 2Gi
-              memory: 384Mi
-            requests:
-              cpu: 250m
-              ephemeral-storage: 50Mi
-              memory: 256Mi
-          volumeMounts:
-            - name: empty-dir
-              mountPath: /tmp
-              subPath: tmp-dir
-            - name: empty-dir
-              mountPath: /opt/bitnami/pgpool/etc
-              subPath: app-etc-dir
-            - name: empty-dir
-              mountPath: /opt/bitnami/pgpool/conf
-              subPath: app-conf-dir
-            - name: empty-dir
-              mountPath: /opt/bitnami/pgpool/tmp
-              subPath: app-tmp-dir
-            - name: empty-dir
-              mountPath: /opt/bitnami/pgpool/logs
-              subPath: app-logs-dir
-      volumes:
-        - name: empty-dir
-          emptyDir: {}
----
 # Source: gitea/templates/gitea/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -3503,7 +3077,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: a83ffb0d39c8978f0f3a49e2c328c01e2a918b5453447d2d2303c689a3ecc602
+        checksum/config: fe80bf011bba67f74200435817fa19130dd66c9dc3852835ef493a94bf6f00eb
       labels:
         helm.sh/chart: gitea-11.0.1
         app: gitea
@@ -3687,43 +3261,42 @@ spec:
           persistentVolumeClaim:
             claimName: gitea-shared-storage
 ---
-# Source: gitea/charts/postgresql-ha/templates/postgresql/statefulset.yaml
+# Source: gitea/charts/postgresql/templates/primary/statefulset.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: gitea-postgresql-ha-postgresql
-  namespace: "default"
+  name: gitea-postgresql
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: postgresql-ha
+    app.kubernetes.io/name: postgresql
     app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-ha-15.2.3
-    app.kubernetes.io/component: postgresql
-    role: data
+    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/component: primary
 spec:
-  replicas: 3
-  podManagementPolicy: "Parallel"
-  serviceName: gitea-postgresql-ha-postgresql-headless
+  replicas: 1
+  serviceName: gitea-postgresql-hl
   updateStrategy:
+    rollingUpdate: {}
     type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/instance: gitea
-      app.kubernetes.io/name: postgresql-ha
-      app.kubernetes.io/component: postgresql
-      role: data
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
   template:
     metadata:
+      name: gitea-postgresql
       labels:
         app.kubernetes.io/instance: gitea
         app.kubernetes.io/managed-by: Helm
-        app.kubernetes.io/name: postgresql-ha
+        app.kubernetes.io/name: postgresql
         app.kubernetes.io/version: 17.4.0
-        helm.sh/chart: postgresql-ha-15.2.3
-        app.kubernetes.io/component: postgresql
-        role: data
+        helm.sh/chart: postgresql-16.4.14
+        app.kubernetes.io/component: primary
     spec:
+      serviceAccountName: gitea-postgresql
       
       automountServiceAccountToken: false
       affinity:
@@ -3735,8 +3308,8 @@ spec:
                 labelSelector:
                   matchLabels:
                     app.kubernetes.io/instance: gitea
-                    app.kubernetes.io/name: postgresql-ha
-                    app.kubernetes.io/component: postgresql
+                    app.kubernetes.io/name: postgresql
+                    app.kubernetes.io/component: primary
                 topologyKey: kubernetes.io/hostname
               weight: 1
         nodeAffinity:
@@ -3746,12 +3319,11 @@ spec:
         fsGroupChangePolicy: Always
         supplementalGroups: []
         sysctls: []
-      serviceAccountName: gitea-postgresql-ha
       hostNetwork: false
       hostIPC: false
       containers:
         - name: postgresql
-          image: docker.io/bitnami/postgresql-repmgr:17.4.0-debian-12-r2
+          image: docker.io/bitnami/postgresql:17.4.0-debian-12-r2
           imagePullPolicy: "IfNotPresent"
           securityContext:
             allowPrivilegeEscalation: false
@@ -3766,110 +3338,53 @@ spec:
             seLinuxOptions: {}
             seccompProfile:
               type: RuntimeDefault
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /pre-stop.sh
-                  - "25"
-          # Auxiliary vars to populate environment variables
           env:
             - name: BITNAMI_DEBUG
               value: "false"
-            # PostgreSQL configuration
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
             - name: POSTGRESQL_VOLUME_DIR
               value: "/bitnami/postgresql"
             - name: PGDATA
               value: "/bitnami/postgresql/data"
-            - name: POSTGRES_POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: gitea-postgresql-ha-postgresql
-                  key: postgres-password
+            # Authentication
             - name: POSTGRES_USER
               value: "gitea"
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: gitea-postgresql-ha-postgresql
+                  name: gitea-postgresql
                   key: password
-            - name: POSTGRES_DB
+            - name: POSTGRES_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-postgresql
+                  key: postgres-password
+            - name: POSTGRES_DATABASE
               value: "gitea"
+            # LDAP
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+            # TLS
+            - name: POSTGRESQL_ENABLE_TLS
+              value: "no"
+            # Audit
             - name: POSTGRESQL_LOG_HOSTNAME
-              value: "true"
+              value: "false"
             - name: POSTGRESQL_LOG_CONNECTIONS
               value: "false"
             - name: POSTGRESQL_LOG_DISCONNECTIONS
               value: "false"
             - name: POSTGRESQL_PGAUDIT_LOG_CATALOG
               value: "off"
+            # Others
             - name: POSTGRESQL_CLIENT_MIN_MESSAGES
               value: "error"
             - name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES
-              value: "pgaudit, repmgr"
-            - name: POSTGRESQL_ENABLE_TLS
-              value: "no"
-            - name: POSTGRESQL_PORT_NUMBER
-              value: "5432"
-            # Repmgr configuration
-            - name: REPMGR_PORT_NUMBER
-              value: "5432"
-            - name: REPMGR_PRIMARY_PORT
-              value: "5432"
-            - name: MY_POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: REPMGR_UPGRADE_EXTENSION
-              value: "no"
-            - name: REPMGR_PGHBA_TRUST_ALL
-              value: "no"
-            - name: REPMGR_MOUNTED_CONF_DIR
-              value: "/bitnami/repmgr/conf"
-            - name: REPMGR_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: REPMGR_PARTNER_NODES
-              value: gitea-postgresql-ha-postgresql-0.gitea-postgresql-ha-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local,gitea-postgresql-ha-postgresql-1.gitea-postgresql-ha-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local,gitea-postgresql-ha-postgresql-2.gitea-postgresql-ha-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local,
-            - name: REPMGR_PRIMARY_HOST
-              value: "gitea-postgresql-ha-postgresql-0.gitea-postgresql-ha-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local"
-            - name: REPMGR_NODE_NAME
-              value: "$(MY_POD_NAME)"
-            - name: REPMGR_NODE_NETWORK_NAME
-              value: "$(MY_POD_NAME).gitea-postgresql-ha-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local"
-            - name: REPMGR_NODE_TYPE
-              value: "data"
-            - name: REPMGR_LOG_LEVEL
-              value: "NOTICE"
-            - name: REPMGR_CONNECT_TIMEOUT
-              value: "5"
-            - name: REPMGR_RECONNECT_ATTEMPTS
-              value: "2"
-            - name: REPMGR_RECONNECT_INTERVAL
-              value: "3"
-            - name: REPMGR_USERNAME
-              value: "repmgr"
-            - name: REPMGR_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: gitea-postgresql-ha-postgresql
-                  key: repmgr-password
-            - name: REPMGR_DATABASE
-              value: "repmgr"
-            - name: REPMGR_FENCE_OLD_PRIMARY
-              value: "no"
-            - name: REPMGR_CHILD_NODES_CHECK_INTERVAL
-              value: "5"
-            - name: REPMGR_CHILD_NODES_CONNECTED_MIN_COUNT
-              value: "1"
-            - name: REPMGR_CHILD_NODES_DISCONNECT_TIMEOUT
-              value: "30"
-          envFrom:
+              value: "pgaudit"
           ports:
-            - name: postgresql
+            - name: tcp-postgresql
               containerPort: 5432
-              protocol: TCP
           livenessProbe:
             failureThreshold: 6
             initialDelaySeconds: 30
@@ -3878,9 +3393,9 @@ spec:
             timeoutSeconds: 5
             exec:
               command:
-                - bash
-                - -ec
-                - 'ps waux | grep "data standby clone" | grep -v grep || PGPASSWORD=$POSTGRES_PASSWORD psql -w -U "gitea" -d "gitea" -h 127.0.0.1 -p 5432 -c "SELECT 1"'
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "gitea" -d "dbname=gitea" -h 127.0.0.1 -p 5432
           readinessProbe:
             failureThreshold: 6
             initialDelaySeconds: 5
@@ -3889,20 +3404,21 @@ spec:
             timeoutSeconds: 5
             exec:
               command:
-                - bash
-                - -ec
+                - /bin/sh
+                - -c
+                - -e
                 - |
-                  exec pg_isready -U "postgres" -h 127.0.0.1 -p 5432
+                  exec pg_isready -U "gitea" -d "dbname=gitea" -h 127.0.0.1 -p 5432
                   [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
           resources:
             limits:
-              cpu: 375m
+              cpu: 150m
               ephemeral-storage: 2Gi
-              memory: 384Mi
+              memory: 192Mi
             requests:
-              cpu: 250m
+              cpu: 100m
               ephemeral-storage: 50Mi
-              memory: 256Mi
+              memory: 128Mi
           volumeMounts:
             - name: empty-dir
               mountPath: /tmp
@@ -3913,30 +3429,16 @@ spec:
             - name: empty-dir
               mountPath: /opt/bitnami/postgresql/tmp
               subPath: app-tmp-dir
-            - name: empty-dir
-              mountPath: /opt/bitnami/repmgr/conf
-              subPath: repmgr-conf-dir
-            - name: empty-dir
-              mountPath: /opt/bitnami/repmgr/tmp
-              subPath: repmgr-tmp-dir
-            - name: empty-dir
-              mountPath: /opt/bitnami/repmgr/logs
-              subPath: repmgr-logs-dir
+            - name: dshm
+              mountPath: /dev/shm
             - name: data
               mountPath: /bitnami/postgresql
-            - name: hooks-scripts
-              mountPath: /pre-stop.sh
-              subPath: pre-stop.sh
-            - name: hooks-scripts
-              mountPath: /readiness-probe.sh
-              subPath: readiness-probe.sh
       volumes:
         - name: empty-dir
           emptyDir: {}
-        - name: hooks-scripts
-          configMap:
-            name: gitea-postgresql-ha-postgresql-hooks-scripts
-            defaultMode: 0755
+        - name: dshm
+          emptyDir:
+            medium: Memory
   volumeClaimTemplates:
     - apiVersion: v1
       kind: PersistentVolumeClaim
@@ -3944,7 +3446,7 @@ spec:
         name: data
       spec:
         accessModes:
-          - "ReadWriteOnce"        
+          - "ReadWriteOnce"
         resources:
           requests:
             storage: "10Gi"
@@ -3954,7 +3456,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: gitea-redis-cluster
-  namespace: "default"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
@@ -3982,9 +3484,9 @@ spec:
         app.kubernetes.io/version: 7.4.2
         helm.sh/chart: redis-cluster-11.4.3
       annotations:
-        checksum/scripts: 4acc1849f930642c849a32e31b27fbba621a98e56130a2ac305967c5111e8a1c
+        checksum/scripts: 9368449c834b4f9cb175b57b33e999fd66261b54777f9042bbee4be31aadf244
         checksum/secret: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-        checksum/config: a4906a0004e987346576b92a1debbd7f4689d00d6540c9f9684474a875305e0a
+        checksum/config: 76a638963f53a5a7bc275b33ced3416bfdcd579b26f42be861d41772eb83cca0
     spec:
       hostNetwork: false
       enableServiceLinks: false
@@ -4141,28 +3643,3 @@ spec:
         resources:
           requests:
             storage: "8Gi"
----
-# Source: gitea/templates/tests/test-http-connection.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: "gitea-test-connection"
-  namespace: adhar-system
-  labels:
-
-    helm.sh/chart: gitea-11.0.1
-    app: gitea
-    app.kubernetes.io/name: gitea
-    app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.23.6"
-    version: "1.23.6"
-    app.kubernetes.io/managed-by: Helm
-  annotations:
-    "helm.sh/hook": test-success
-spec:
-  containers:
-    - name: wget
-      image: "busybox:latest"
-      command: ['wget']
-      args:  ['gitea-http:3000']
-  restartPolicy: Never

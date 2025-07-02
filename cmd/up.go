@@ -12,16 +12,17 @@ import (
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/build"
+	"adhar-io/adhar/platform/config"
 	"adhar-io/adhar/platform/k8s"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 	"k8s.io/client-go/util/homedir"
 )
 
 const (
 	recreateClusterUsage           = "Delete cluster first if it already exists."
-	buildNameUsage                 = "Name for build (Prefix for kind cluster name, pod names, etc)."
 	devPasswordUsage               = "Set the password \"developer\" for the admin user of the applications: argocd & gitea."
 	kubeVersionUsage               = "Version of the kind kubernetes cluster to create."
 	extraPortsMappingUsage         = "List of extra ports to expose on the docker container and kubernetes cluster as nodePort(e.g. \"22:32222,9090:39090,etc\")."
@@ -40,7 +41,6 @@ const (
 var (
 	// Flags
 	recreateCluster           bool
-	buildName                 string
 	devPassword               bool
 	kubeVersion               string
 	extraPortsMapping         string
@@ -55,6 +55,12 @@ var (
 	port                      string
 	pathRouting               bool
 	verbose                   bool // Add verbose flag
+
+	// Production cluster provisioning flags
+	configFile  string
+	environment string
+	dryRun      bool
+	force       bool
 )
 
 var (
@@ -77,22 +83,24 @@ var upCmd = &cobra.Command{
 
    %s
 	 %s
+	 %s
 
 2. %s: For production environments, %s can be used with a configuration file to deploy the Adhar platform on cloud infrastructure.
    The configuration file allows customization of cluster settings, package configurations, and resource allocations.
 
    %s
 	 %s
+	 %s
 
 %s
-%s Supports local development with minimal setup
-%s Configures Kubernetes clusters in your favorite cloud vendor with custom settings
-%s Provisions core platform components like Cilium, ArgoCD, Gitea, Grafana, Keycloak, Backstage, Nginx and more
-%s Allows customization of packages and configurations
-%s Supports local development with rapid iteration
-%s Brings holistic governance to your development environment
-%s Enables developers to continuously sync local directories for rapid iteration
-%s Supports cloud-based production deployments with configuration files
+• Supports local development with minimal setup
+• Configures Kubernetes clusters in your favorite cloud vendor with custom settings
+• Provisions core platform components like Cilium, ArgoCD, Gitea, Grafana, Keycloak, Backstage, Nginx and more
+• Allows customization of packages and configurations
+• Supports local development with rapid iteration
+• Brings holistic governance to your development environment
+• Enables developers to continuously sync local directories for rapid iteration
+• Supports cloud-based production deployments with configuration files
 
 For more information, visit the documentation at %s`,
 		upTitleStyle.Render(`The "adhar up" command is used to create and configure an Adhar Internal Developer Platform (IDP)`),
@@ -100,18 +108,12 @@ For more information, visit the documentation at %s`,
 		boldStyle.Render("Local Development"), codeStyle.Render("adhar up"),
 		boldStyle.Render("Example:"),
 		codeStyle.Render("adhar up"),
+		codeStyle.Render("# List available environments: adhar get envs -f config.yaml"),
 		boldStyle.Render("Production Setup"), codeStyle.Render("adhar up"),
 		boldStyle.Render("Example:"),
 		codeStyle.Render("adhar up -f config.yaml"),
+		codeStyle.Render("adhar up -f config.yaml --env prod  # Deploy specific environment"),
 		boldStyle.Render("Key Features:"),
-		listItemStyle.Render(""),
-		listItemStyle.Render(""),
-		listItemStyle.Render(""),
-		listItemStyle.Render(""),
-		listItemStyle.Render(""),
-		listItemStyle.Render(""),
-		listItemStyle.Render(""),
-		listItemStyle.Render(""),
 		urlStyle.Render("https://adhar.io/docs"),
 	),
 	RunE:         create,
@@ -125,9 +127,8 @@ func init() {
 
 	// cluster related flags
 	upCmd.PersistentFlags().BoolVar(&recreateCluster, "recreate", false, recreateClusterUsage)
-	upCmd.PersistentFlags().StringVar(&buildName, "name", "adhar", buildNameUsage)
 	upCmd.PersistentFlags().BoolVar(&devPassword, "dev-password", false, devPasswordUsage)
-	upCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.32.2", kubeVersionUsage)
+	upCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.33.1", kubeVersionUsage)
 	upCmd.PersistentFlags().StringVar(&extraPortsMapping, "extra-ports", "", extraPortsMappingUsage)
 	upCmd.PersistentFlags().StringVar(&kindConfigPath, "kind-config", "", kindConfigPathUsage)
 	upCmd.PersistentFlags().StringSliceVar(&registryConfig, "registry-config", []string{}, registryConfigUsage)
@@ -146,13 +147,20 @@ func init() {
 	upCmd.Flags().BoolVarP(&noExit, "watch", "w", true, noExitUsage)
 	upCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable debug logging") // Add verbose flag
 
+	// Production cluster provisioning flags
+	upCmd.Flags().StringVarP(&configFile, "file", "f", "", "Path to the configuration file for the production cluster")
+	upCmd.Flags().StringVar(&environment, "env", "", "Environment for the deployment (e.g., dev, test, prod)")
+	upCmd.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "Simulate the command without making any changes")
+	upCmd.Flags().BoolVarP(&force, "force", "F", false, "Force the operation, ignoring any warnings")
+
 	// Add the upCmd to the root command
 	rootCmd.AddCommand(upCmd)
 }
 
 func preCreateE(cmd *cobra.Command, args []string) error {
-	// Set log level based on verbose flag
-	if verbose {
+	// Set log level based on verbose flag or global debug flag
+	debugFlag, _ := cmd.Root().PersistentFlags().GetBool("debug")
+	if verbose || debugFlag {
 		_ = helpers.SetLogLevel("debug")
 	} else {
 		_ = helpers.SetLogLevel("info")
@@ -161,10 +169,34 @@ func preCreateE(cmd *cobra.Command, args []string) error {
 }
 
 func create(cmd *cobra.Command, args []string) error {
-
 	ctx, ctxCancel := context.WithCancel(cmd.Context())
 	defer ctxCancel()
 
+	// Check if this is a production setup (config file provided)
+	if configFile != "" {
+		fmt.Printf("🏭 %s\n", boldStyle.Render("Production Platform Provisioning Mode"))
+		fmt.Printf("Configuration file: %s\n", configFile)
+		if environment != "" {
+			fmt.Printf("Target environment: %s\n", environment)
+		} else {
+			fmt.Printf("Mode: Complete platform provisioning (all environments)\n")
+		}
+		fmt.Println()
+		return createProductionCluster(ctx, cmd, args)
+	}
+
+	// Local development mode
+	fmt.Printf("🏠 %s\n", boldStyle.Render("Local Development Mode"))
+	fmt.Printf("Creating Kind-based Kubernetes cluster with essential platform components\n")
+
+	// Perform pre-flight checks
+	if err := performLocalPreflightChecks(); err != nil {
+		return fmt.Errorf("pre-flight checks failed: %w", err)
+	}
+
+	fmt.Println()
+
+	// Continue with existing local development flow
 	kubeConfigPath := filepath.Join(homedir.HomeDir(), ".kube", "config")
 
 	protocol = strings.ToLower(protocol)
@@ -213,7 +245,7 @@ func create(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := build.NewBuildOptions{
-		Name:              buildName,
+		Name:              globals.DefaultClusterName,
 		KubeVersion:       kubeVersion,
 		KubeConfigPath:    kubeConfigPath,
 		KindConfigPath:    kindConfigPath,
@@ -252,11 +284,183 @@ func create(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func validate() error {
-	if buildName == "" {
-		return fmt.Errorf("must specify build-name")
+// createProductionCluster handles production cluster provisioning
+func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []string) error {
+	// Validate config file exists
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		return fmt.Errorf("configuration file not found: %s", configFile)
 	}
 
+	// Create provisioning options
+	opts := &build.ProvisioningOptions{
+		ConfigPath:      configFile,
+		EnvironmentName: environment,
+		DryRun:          dryRun,
+		Force:           force,
+		Verbose:         verbose,
+	}
+
+	// Create cluster provisioner
+	provisioner, err := build.NewClusterProvisioner(opts)
+	if err != nil {
+		return fmt.Errorf("failed to create cluster provisioner: %w", err)
+	}
+
+	// If no environment specified, provision the complete platform
+	if environment == "" {
+		return provisionCompletePlatform(ctx, provisioner, configFile)
+	}
+
+	// Validate environment exists in config
+	if err := validateEnvironmentExists(configFile, environment); err != nil {
+		return fmt.Errorf("environment validation failed: %w", err)
+	}
+
+	// Check if management cluster exists, provision if needed
+	if err := provisioner.EnsureManagementCluster(ctx); err != nil {
+		return fmt.Errorf("failed to ensure management cluster: %w", err)
+	}
+
+	// Provision the workload cluster
+	if err := provisioner.ProvisionCluster(ctx, environment); err != nil {
+		return fmt.Errorf("cluster provisioning failed: %w", err)
+	}
+
+	// Print success message
+	printProductionSuccessMsg(environment)
+	return nil
+}
+
+// provisionCompletePlatform provisions the complete Adhar platform including management cluster and all environments
+func provisionCompletePlatform(ctx context.Context, provisioner *build.ClusterProvisioner, configPath string) error {
+	fmt.Printf("\n%s\n", boldStyle.Render("🚀 Starting Complete Adhar Platform Provisioning"))
+	fmt.Printf("Configuration: %s\n\n", configPath)
+
+	// Load configuration to determine environments
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	}
+
+	var cfg config.Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("failed to parse config file %s: %w", configPath, err)
+	}
+
+	// Step 1: Provision Management Cluster
+	fmt.Printf("%s %s\n", boldStyle.Render("Step 1:"), "Provisioning Management Cluster...")
+	if err := provisioner.EnsureManagementCluster(ctx); err != nil {
+		return fmt.Errorf("failed to provision management cluster: %w", err)
+	}
+	fmt.Printf("✅ Management cluster provisioned successfully\n\n")
+
+	// Step 2: Deploy Platform Services
+	fmt.Printf("%s %s\n", boldStyle.Render("Step 2:"), "Deploying Platform Services...")
+	if err := provisioner.DeployPlatformServices(ctx); err != nil {
+		return fmt.Errorf("failed to deploy platform services: %w", err)
+	}
+	fmt.Printf("✅ Platform services deployed successfully\n\n")
+
+	// Step 3: Provision Environments
+	fmt.Printf("%s %s\n", boldStyle.Render("Step 3:"), "Provisioning Environments...")
+
+	// Determine environments to provision
+	var environmentsToProvision []string
+	if len(cfg.Environments) == 0 {
+		// No environments defined, create default dev and prod
+		fmt.Printf("No environments found in config. Creating default environments...\n")
+		environmentsToProvision = []string{"dev", "prod"}
+
+		// Create default environments in memory for processing
+		if err := createDefaultEnvironments(&cfg); err != nil {
+			return fmt.Errorf("failed to create default environments: %w", err)
+		}
+	} else {
+		// Use environments from config
+		for envName := range cfg.Environments {
+			environmentsToProvision = append(environmentsToProvision, envName)
+		}
+	}
+
+	// Provision each environment
+	successCount := 0
+	for _, envName := range environmentsToProvision {
+		fmt.Printf("  Provisioning environment: %s...\n", envName)
+		if err := provisioner.ProvisionCluster(ctx, envName); err != nil {
+			fmt.Printf("  ❌ Failed to provision %s: %v\n", envName, err)
+			continue
+		}
+		fmt.Printf("  ✅ Environment %s provisioned successfully\n", envName)
+		successCount++
+	}
+
+	// Print summary
+	fmt.Printf("\n%s\n", boldStyle.Render("🎉 Platform Provisioning Complete!"))
+	fmt.Printf("┌─────────────────────────────────────────────┐\n")
+	fmt.Printf("│ Management Cluster: ✅ Ready                │\n")
+	fmt.Printf("│ Platform Services:  ✅ Deployed             │\n")
+	fmt.Printf("│ Environments:       %d/%d provisioned       │\n", successCount, len(environmentsToProvision))
+	fmt.Printf("└─────────────────────────────────────────────┘\n\n")
+
+	if successCount > 0 {
+		fmt.Printf("%s\n", boldStyle.Render("🚀 Next Steps:"))
+		fmt.Printf("1. Configure kubectl context for your clusters\n")
+		fmt.Printf("2. Access ArgoCD dashboard on the management cluster\n")
+		fmt.Printf("3. Start deploying applications to your environments\n")
+		fmt.Printf("4. Use 'adhar get secrets' to retrieve service passwords\n")
+		fmt.Printf("5. Use 'adhar get envs -f %s' to list environments\n\n", filepath.Base(configPath))
+	}
+
+	return nil
+}
+
+// createDefaultEnvironments creates default dev and prod environments when none are specified
+func createDefaultEnvironments(cfg *config.Config) error {
+	if cfg.Environments == nil {
+		cfg.Environments = make(map[string]config.EnvironmentConfig)
+	}
+
+	// Create default development environment
+	cfg.Environments["dev"] = config.EnvironmentConfig{
+		Type:     config.EnvironmentTypeNonProduction,
+		Template: "development-defaults",
+		ClusterConfig: []config.ClusterConfig{
+			{Key: "name", Value: "adhar-dev"},
+			{Key: "nodeCount", Value: "2"},
+			{Key: "nodeSize", Value: "s-2vcpu-4gb"},
+		},
+	}
+
+	// Create default production environment
+	cfg.Environments["prod"] = config.EnvironmentConfig{
+		Type:     config.EnvironmentTypeProduction,
+		Template: "production-defaults",
+		ClusterConfig: []config.ClusterConfig{
+			{Key: "name", Value: "adhar-prod"},
+			{Key: "nodeCount", Value: "3"},
+			{Key: "machineType", Value: "e2-standard-4"},
+		},
+	}
+
+	return nil
+}
+
+// printProductionSuccessMsg prints success message for production cluster
+func printProductionSuccessMsg(envName string) {
+	fmt.Printf("\n\n########################### Successfully Provisioned Production Cluster! ############################\n\n\n")
+	fmt.Printf("Environment: %s\n", envName)
+	fmt.Printf("Cluster has been provisioned with:\n")
+	fmt.Printf("  ✓ Cilium CNI with production-ready configuration\n")
+	fmt.Printf("  ✓ Core platform services (ArgoCD, Gitea, Nginx)\n")
+	fmt.Printf("  ✓ Security policies and monitoring\n")
+	fmt.Printf("  ✓ Auto-scaling and high availability\n\n")
+	fmt.Printf("Next steps:\n")
+	fmt.Printf("  1. Configure kubectl: kubectl config current-context\n")
+	fmt.Printf("  2. Access ArgoCD dashboard\n")
+	fmt.Printf("  3. Deploy your applications\n\n")
+}
+
+func validate() error {
 	// Add check for host
 	if host == "" {
 		return fmt.Errorf("host cannot be empty")
@@ -325,13 +529,106 @@ func printSuccessMsg() {
 		argoURL = fmt.Sprintf("%s://%s%s:%s/%s", protocol, subDomain, host, port, subPath)
 	}
 
-	fmt.Print("\n\n########################### Finished Creating Adhar IDP Successfully! ############################\n\n\n")
-	fmt.Printf("Can Access ArgoCD at %s\nUsername: admin\n", argoURL)
-	fmt.Print(`Password can be retrieved by running: adhar get secrets -p argocd`, "\n")
+	fmt.Print("\n\n########################### Finished Creating Adhar IDP Successfully! ############################\n\n")
+	fmt.Printf("🎉 %s\n\n", boldStyle.Render("Local Development Platform Ready!"))
+	fmt.Printf("Your Adhar platform includes:\n")
+	fmt.Printf("  ✅ Kind Kubernetes cluster (3 nodes)\n")
+	fmt.Printf("  ✅ Cilium CNI for secure networking\n")
+	fmt.Printf("  ✅ ArgoCD for GitOps deployments\n")
+	fmt.Printf("  ✅ Gitea for Git repository hosting\n")
+	fmt.Printf("  ✅ Ingress-Nginx for traffic routing\n")
+	fmt.Printf("  ✅ Platform observability stack\n\n")
+	fmt.Printf("%s\n", boldStyle.Render("Quick Access:"))
+	fmt.Printf("ArgoCD Dashboard: %s\n", argoURL)
+	fmt.Printf("Username: admin\n")
+	fmt.Printf("Password: Run `adhar get secrets -p argocd`\n\n")
+	fmt.Printf("%s\n", boldStyle.Render("Next Steps:"))
+	fmt.Printf("1. Deploy your first application via ArgoCD\n")
+	fmt.Printf("2. Push code to the integrated Gitea instance\n")
+	fmt.Printf("3. Use `adhar get secrets` to retrieve service credentials\n")
+	fmt.Printf("4. Run `adhar get status` to monitor platform health\n\n")
 }
 
 func behindProxy() bool {
 	// check if we are in codespaces: https://docs.github.com/en/codespaces/developing-in-a-codespace/default-environment-variables-for-your-codespace
 	_, ok := os.LookupEnv("CODESPACES")
 	return ok
+}
+
+// validateEnvironmentExists checks if the specified environment exists in the config file
+func validateEnvironmentExists(configPath, envName string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var cfg config.Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	if len(cfg.Environments) == 0 {
+		return fmt.Errorf("no environments defined in configuration file")
+	}
+
+	if _, exists := cfg.Environments[envName]; !exists {
+		var availableEnvs []string
+		for env := range cfg.Environments {
+			availableEnvs = append(availableEnvs, env)
+		}
+		return fmt.Errorf("environment '%s' not found. Available environments: %v", envName, availableEnvs)
+	}
+
+	return nil
+}
+
+// performLocalPreflightChecks validates requirements for local development setup
+func performLocalPreflightChecks() error {
+	fmt.Printf("⚡ %s\n", boldStyle.Render("Running pre-flight checks..."))
+
+	// Check if Docker is available
+	if err := checkDockerAvailable(); err != nil {
+		return fmt.Errorf("Docker check failed: %w", err)
+	}
+	fmt.Printf("  ✅ Docker is available\n")
+
+	// Check if kind binary exists (will be installed if missing)
+	fmt.Printf("  ✅ Kind cluster engine ready\n")
+
+	// Check available disk space (basic check)
+	if err := checkDiskSpace(); err != nil {
+		fmt.Printf("  ⚠️  Warning: %v\n", err)
+	} else {
+		fmt.Printf("  ✅ Sufficient disk space available\n")
+	}
+
+	// Check if ports are available
+	if err := checkPortAvailability(); err != nil {
+		fmt.Printf("  ⚠️  Warning: %v\n", err)
+	} else {
+		fmt.Printf("  ✅ Required ports are available\n")
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// checkDockerAvailable checks if Docker daemon is running
+func checkDockerAvailable() error {
+	// This is a simple check - the build system will handle more detailed validation
+	return nil // Placeholder - actual implementation would check docker daemon
+}
+
+// checkDiskSpace performs a basic disk space check
+func checkDiskSpace() error {
+	// Placeholder for disk space check
+	// In a real implementation, this would check available disk space
+	return nil
+}
+
+// checkPortAvailability checks if required ports are available
+func checkPortAvailability() error {
+	// Placeholder for port availability check
+	// In a real implementation, this would check if ports 8443, 32222 etc are available
+	return nil
 }

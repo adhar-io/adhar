@@ -19,6 +19,7 @@ helm repo update "$HELM_REPO_NAME"
 echo "Generating NGINX Ingress manifest version $NGINX_VERSION..."
 helm template ingress-nginx "$HELM_CHART_NAME" \
   --version "$NGINX_VERSION" \
+  --namespace adhar-system \
   --include-crds \
   -f "$HACK_DIR/values.yaml" > "$INSTALL_YAML"
 

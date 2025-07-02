@@ -64,7 +64,7 @@ fmt: ## Run go fmt against code.
 	go fmt ./...
 
 .PHONY: vet
-vet: embedded-resources ## Run go vet against code.
+vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
@@ -102,11 +102,11 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet embedded-resources ## Build adhar binary.
+build: manifests generate fmt vet ## Build adhar binary.
 	go build $(LD_FLAGS) -o $(OUT_FILE) ./cmd
 
 .PHONY: run
-run: manifests generate fmt vet embedded-resources ## Run a controller from your host.
+run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.

@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"slices"
 	"sync"
-	"time"
 )
 
 // https://en.wikipedia.org/wiki/ANSI_escape_code
@@ -25,7 +24,7 @@ const (
 	CyanDim            = "\033[36;2m"
 	// this mirrors the limit value from the internal slog package
 	maxBufferSize = 16384
-	dateFormat    = time.Stamp
+	dateFormat    = "2006-01-02T15:04:05" // Use ISO 8601 format for better readability
 )
 
 var bufPool = sync.Pool{
@@ -154,10 +153,10 @@ func (h *Handler) Handle(ctx context.Context, record slog.Record) error {
 		free(bufp)
 	}()
 
-	// append time, level, then message.
+	// append time, level, then message in a clean, user-friendly format
 	if h.opts.Colored {
 		buf = fmt.Appendf(buf, WhiteDim)
-		buf = slog.Time(slog.TimeKey, record.Time).Value.Time().AppendFormat(buf, fmt.Sprintf("%s%s ", dateFormat, Reset))
+		buf = slog.Time(slog.TimeKey, record.Time).Value.Time().AppendFormat(buf, fmt.Sprintf("%s%s\t", dateFormat, Reset))
 
 		var color string
 		switch record.Level {
@@ -172,13 +171,13 @@ func (h *Handler) Handle(ctx context.Context, record slog.Record) error {
 		default:
 			color = Magenta
 		}
-		buf = fmt.Appendf(buf, "%s%s%s ", color, record.Level.String(), Reset)
+		buf = fmt.Appendf(buf, "%s%s%s\t", color, record.Level.String(), Reset)
 
-		buf = fmt.Appendf(buf, "%s%s%s ", Cyan, record.Message, Reset)
+		buf = fmt.Appendf(buf, "%s", record.Message)
 	} else {
-		buf = slog.Time(slog.TimeKey, record.Time).Value.Time().AppendFormat(buf, fmt.Sprintf("%s ", dateFormat))
-		buf = fmt.Appendf(buf, "%s ", record.Level)
-		buf = fmt.Appendf(buf, "%s ", record.Message)
+		buf = slog.Time(slog.TimeKey, record.Time).Value.Time().AppendFormat(buf, fmt.Sprintf("%s\t", dateFormat))
+		buf = fmt.Appendf(buf, "%s\t", record.Level)
+		buf = fmt.Appendf(buf, "%s", record.Message)
 	}
 
 	if h.opts.AddSource {
@@ -201,13 +200,41 @@ func (h *Handler) Handle(ctx context.Context, record slog.Record) error {
 }
 
 func (h *Handler) appendKeyValuePair(buf []byte, a slog.Attr) []byte {
-	if h.opts.Colored {
-		if a.Key == "err" {
-			return fmt.Appendf(buf, "%s%s=%v%s ", BrightRed, a.Key, a.Value.String(), Reset)
-		}
-		return fmt.Appendf(buf, "%s%s=%s%s%s%s ", WhiteDim, a.Key, Reset, White, a.Value.String(), Reset)
+	// Skip verbose controller-runtime structured fields to make logs more readable
+	skipFields := []string{
+		"controllerGroup", "controllerKind", "reconcileID",
+		"AdharPlatform", "namespace", "name",
 	}
-	return fmt.Appendf(buf, "%s=%v ", a.Key, a.Value.String())
+	for _, field := range skipFields {
+		if a.Key == field {
+			return buf // Skip these verbose fields
+		}
+	}
+
+	// For controller field, only show the controller name, not the full structured data
+	if a.Key == "controller" {
+		if h.opts.Colored {
+			return fmt.Appendf(buf, " %s[%s]%s", Cyan, a.Value.String(), Reset)
+		}
+		return fmt.Appendf(buf, " [%s]", a.Value.String())
+	}
+
+	// For resource field, format it nicely
+	if a.Key == "resource" {
+		if h.opts.Colored {
+			return fmt.Appendf(buf, " %sresource=%s%s", GreenDimUnderlined, a.Value.String(), Reset)
+		}
+		return fmt.Appendf(buf, " resource=%s", a.Value.String())
+	}
+
+	// Handle errors with special formatting
+	if h.opts.Colored {
+		if a.Key == "err" || a.Key == "error" {
+			return fmt.Appendf(buf, " %s%s=%v%s", BrightRed, a.Key, a.Value.String(), Reset)
+		}
+		return fmt.Appendf(buf, " %s%s=%s%s", CyanDim, a.Key, a.Value.String(), Reset)
+	}
+	return fmt.Appendf(buf, " %s=%v", a.Key, a.Value.String())
 }
 
 func free(b *[]byte) {

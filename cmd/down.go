@@ -8,17 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/logger" // Corrected import path
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-)
-
-const (
-	// kindClusterName is the default name for the Kind cluster
-	kindClusterName = "adhar"
 )
 
 var (
@@ -119,7 +115,7 @@ func (m downModel) View() string {
 			"Failed to tear down Adhar platform")
 
 		if strings.Contains(m.err.Error(), "cluster not found") {
-			errorMessage += infoStyle.Render("\nNo cluster named 'adhar' exists. Nothing to tear down.")
+			errorMessage += infoStyle.Render("\nNo cluster named '" + globals.DefaultClusterName + "' exists. Nothing to tear down.")
 		} else if strings.Contains(m.err.Error(), "permission") || strings.Contains(m.err.Error(), "access") {
 			errorMessage += warningStyle.Render("\nTry running with sudo or with appropriate permissions.")
 		} else if forceDelete {
@@ -160,7 +156,7 @@ func (m downModel) View() string {
 	// In progress
 	status := m.status
 	if status == "" {
-		status = "initializing..."
+		status = "Cleaning up..."
 	}
 
 	step := m.step
@@ -210,7 +206,7 @@ func startClusterTeardown() tea.Cmd {
 	return func() tea.Msg {
 		// Check if the Kind cluster exists
 		send(logger.StepMsg("Checking for Kind cluster"))
-		send(logger.StatusMsg("looking for cluster named '" + kindClusterName + "'"))
+		send(logger.StatusMsg("looking for cluster named '" + globals.DefaultClusterName + "'"))
 
 		exists, err := kindClusterExists()
 		if err != nil {
@@ -239,9 +235,9 @@ func startClusterTeardown() tea.Cmd {
 
 		// Delete the Kind cluster
 		send(logger.StepMsg("Deleting Kind cluster"))
-		send(logger.StatusMsg("removing '" + kindClusterName + "'"))
+		send(logger.StatusMsg("removing '" + globals.DefaultClusterName + "'"))
 
-		deleteArgs := []string{"delete", "cluster", "--name", kindClusterName}
+		deleteArgs := []string{"delete", "cluster", "--name", globals.DefaultClusterName}
 
 		deleteCmd := exec.Command("kind", deleteArgs...)
 		output, err := deleteCmd.CombinedOutput()
@@ -315,7 +311,7 @@ func kindClusterExists() (bool, error) {
 		return false, fmt.Errorf("failed to run 'kind get clusters': %w\nOutput: %s", err, string(output))
 	}
 
-	return strings.Contains(string(output), kindClusterName), nil
+	return strings.Contains(string(output), globals.DefaultClusterName), nil
 }
 
 // updateElapsedTime creates a command that updates the elapsed time every second
@@ -340,7 +336,7 @@ var downCmd = &cobra.Command{
 	Use:   "down",
 	Short: "Tears down the local Kind cluster and cleans up Adhar resources",
 	Long: `The 'down' command deletes the local Kubernetes cluster managed by Kind
-named '` + kindClusterName + `' and removes all associated resources.
+named '` + globals.DefaultClusterName + `' and removes all associated resources.
 This is useful for cleanup or resetting your development environment.
 
 During execution:

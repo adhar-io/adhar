@@ -28,11 +28,14 @@ nodes:
     hostPath: {{ .RegistryConfig }}
 {{- end }}
 - role: worker
+  labels:
+    ingress-ready: "true"
 - role: worker
-- role: worker
+  labels:
+    ingress-ready: "true"
 networking:
   disableDefaultCNI: true   # do not install kindnet
-  #kubeProxyMode: none       # do not run kube-proxy
+  kubeProxyMode: none       # do not run kube-proxy
 containerdConfigPatches:
 - |-
   {{ if .UsePathRouting -}}
