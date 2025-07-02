@@ -28,9 +28,15 @@ nodes:
     hostPath: {{ .RegistryConfig }}
 {{- end }}
 - role: worker
+  image: "kindest/node:{{ .KubernetesVersion }}"
   labels:
     ingress-ready: "true"
 - role: worker
+  image: "kindest/node:{{ .KubernetesVersion }}"
+  labels:
+    ingress-ready: "true"
+- role: worker
+  image: "kindest/node:{{ .KubernetesVersion }}"
   labels:
     ingress-ready: "true"
 networking:

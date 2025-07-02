@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -78,7 +80,51 @@ func (r *AdharPlatformReconciler) ReconcileNginx(ctx context.Context, req ctrl.R
 			"kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(),
 			"ownerName", freshAdharPlatform.Name, "ownerUID", freshAdharPlatform.UID, "ownerDeletionTimestamp", freshAdharPlatform.ObjectMeta.DeletionTimestamp)
 
+		// Determine if the resource is cluster-scoped
+		groupVersionKind := obj.GetObjectKind().GroupVersionKind()
+		mapping, err := r.RESTMapper().RESTMapping(groupVersionKind.GroupKind(), groupVersionKind.Version)
+		isClusterScoped := false
+		if err == nil {
+			isClusterScoped = mapping.Scope.Name() == meta.RESTScopeNameRoot
+		} else {
+			knownClusterScopedKinds := map[schema.GroupKind]bool{
+				{Group: "", Kind: "Namespace"}:                                                  true,
+				{Group: "rbac.authorization.k8s.io", Kind: "ClusterRole"}:                       true,
+				{Group: "rbac.authorization.k8s.io", Kind: "ClusterRoleBinding"}:                true,
+				{Group: "apiextensions.k8s.io", Kind: "CustomResourceDefinition"}:               true,
+				{Group: "admissionregistration.k8s.io", Kind: "MutatingWebhookConfiguration"}:   true,
+				{Group: "admissionregistration.k8s.io", Kind: "ValidatingWebhookConfiguration"}: true,
+				{Group: "networking.k8s.io", Kind: "IngressClass"}:                              true,
+			}
+			if knownClusterScopedKinds[groupVersionKind.GroupKind()] {
+				isClusterScoped = true
+			}
+			logger.V(1).Info("Could not determine scope from RESTMapper, falling back", "gvk", groupVersionKind, "error", err, "assumed clusterScoped", isClusterScoped)
+		}
+
+		canSetOwnerRef := false
 		if freshAdharPlatform.ObjectMeta.DeletionTimestamp.IsZero() {
+			if !isClusterScoped {
+				resourceNamespace := obj.GetNamespace()
+				if resourceNamespace == "" {
+					resourceNamespace = freshAdharPlatform.Namespace
+					obj.SetNamespace(freshAdharPlatform.Namespace)
+				}
+
+				if resourceNamespace == freshAdharPlatform.Namespace {
+					canSetOwnerRef = true
+				} else {
+					logger.V(1).Info("Skipping owner reference for resource in different namespace",
+						"resource", groupVersionKind.Kind+"/"+obj.GetName(), "resourceNamespace", resourceNamespace, "ownerNamespace", freshAdharPlatform.Namespace)
+				}
+			} else {
+				logger.V(1).Info("Skipping owner reference for cluster-scoped resource", "resource", groupVersionKind.Kind+"/"+obj.GetName())
+			}
+		} else {
+			logger.V(1).Info("Owner resource is being deleted, skipping owner reference setting", "owner", freshAdharPlatform.Name, "targetKind", obj.GetKind(), "targetName", obj.GetName())
+		}
+
+		if canSetOwnerRef {
 			// Add logging before attempting to set the reference
 			logger.V(1).Info("Owner is not being deleted, attempting to set owner reference", "targetKind", obj.GetKind(), "targetName", obj.GetName())
 			// Log owner details just before setting reference
@@ -90,8 +136,6 @@ func (r *AdharPlatformReconciler) ReconcileNginx(ctx context.Context, req ctrl.R
 			}
 			// Add logging after successfully setting the reference
 			logger.V(1).Info("Successfully set owner reference", "targetKind", obj.GetKind(), "targetName", obj.GetName())
-		} else {
-			logger.V(1).Info("Owner resource is being deleted, skipping owner reference setting", "owner", freshAdharPlatform.Name, "targetKind", obj.GetKind(), "targetName", obj.GetName())
 		}
 
 		// Apply the object using Server-Side Apply

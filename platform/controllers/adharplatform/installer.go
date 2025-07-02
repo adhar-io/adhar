@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-var timeout = time.After(5 * time.Minute)
+var timeout = time.After(10 * time.Minute)
 
 type EmbeddedInstallation struct {
 	name         string
@@ -143,8 +143,8 @@ func (e *EmbeddedInstallation) Install(ctx context.Context, resource *v1alpha1.A
 
 	select {
 	case <-timeout:
-		err := errors.New("Timeout")
-		logger.Error(err, fmt.Sprintf("Didn't reconcile %s on time", e.name))
+		err := errors.New("Installation timeout exceeded")
+		logger.Error(err, fmt.Sprintf("Didn't reconcile %s within 10-minute timeout - components may still be starting up", e.name))
 		return ctrl.Result{}, err
 	case err, errOccurred := <-errCh:
 		if !errOccurred {

@@ -164,7 +164,7 @@ func (b *Build) isCompatible(ctx context.Context, kubeClient client.Client) (boo
 }
 
 func (b *Build) Run(ctx context.Context, recreateCluster bool) error {
-	setupLog.Info("Creating kind cluster")
+	setupLog.V(1).Info("Creating kind cluster")
 	if err := b.ReconcileKindCluster(ctx, recreateCluster); err != nil {
 		return err
 	}
@@ -187,28 +187,25 @@ func (b *Build) Run(ctx context.Context, recreateCluster bool) error {
 	cmdNS.Stdout = &nsStdOutBuf // Capture stdout for logging if needed
 	cmdNS.Stderr = &nsStdErrBuf // Capture stderr to check for specific errors
 
-	setupLog.Info("Attempting to create adhar-system namespace...", "command", createNSCmdStr)
+	setupLog.Info("Creating adhar-system namespace...")
+	setupLog.V(1).Info("Executing command", "command", createNSCmdStr)
 	if err := cmdNS.Run(); err != nil {
 		stderrOutput := nsStdErrBuf.String()
 		// Check if the error is because the namespace already exists
 		if strings.Contains(stderrOutput, "AlreadyExists") || strings.Contains(stderrOutput, "already exists") {
-			setupLog.Info("Namespace adhar-system already exists, proceeding.", "details", stderrOutput)
+			setupLog.Info("Namespace adhar-system already exists, proceeding.")
+			setupLog.V(1).Info("Namespace exists details", "stderr", stderrOutput)
 		} else {
 			// If it's a different error, log and return it
-			setupLog.Error(err, "Failed to create adhar-system namespace", "stdout", nsStdOutBuf.String(), "stderr", stderrOutput, "command", createNSCmdStr)
+			setupLog.Error(err, "Failed to create adhar-system namespace", "command", createNSCmdStr, "stdout", nsStdOutBuf.String(), "stderr", stderrOutput)
 			return fmt.Errorf("failed to create namespace '%s': %w. Stdout: '%s', Stderr: '%s'", globals.AdharSystemNamespace, err, nsStdOutBuf.String(), stderrOutput)
 		}
 	} else {
-		setupLog.Info("Namespace adhar-system created successfully.", "stdout", nsStdOutBuf.String())
+		setupLog.Info("Namespace adhar-system created successfully.")
+		setupLog.V(1).Info("Namespace creation output", "stdout", nsStdOutBuf.String())
 	}
 
-	setupLog.Info("Patching local-path-provisioner for improved scheduling")
-	if err := b.PatchLocalPathProvisioner(ctx, b.kubeConfigPath); err != nil {
-		setupLog.Info("Failed to patch local-path-provisioner, but continuing", "error", err)
-		// Don't fail the build for this patch, as it's an optimization
-	}
-
-	setupLog.Info("Installing Cilium CNI")
+	setupLog.Info("Installing Cilium CNI...")
 	if err := b.InstallCilium(ctx, b.kubeConfigPath); err != nil {
 		setupLog.Error(err, "Failed to install Cilium")
 		return err
@@ -326,8 +323,6 @@ func (b *Build) Run(ctx context.Context, recreateCluster bool) error {
 }
 
 func (b *Build) InstallCilium(ctx context.Context, kubeConfigPath string) error {
-	setupLog.Info("Installing Cilium CNI using embedded manifest...")
-
 	// Define the path to the Cilium manifest
 	ciliumManifestPath := "platform/controllers/adharplatform/resources/cilium/install.yaml"
 	if _, err := os.Stat(ciliumManifestPath); os.IsNotExist(err) {
@@ -343,20 +338,21 @@ func (b *Build) InstallCilium(ctx context.Context, kubeConfigPath string) error 
 	applyCmd.Stdout = &applyOutBuf
 	applyCmd.Stderr = &applyErrBuf
 
-	setupLog.Info("Executing kubectl apply for Cilium installation...", "command", applyCmdStr)
+	setupLog.V(1).Info("Executing kubectl apply for Cilium installation", "command", applyCmdStr)
 	if err := applyCmd.Run(); err != nil {
 		setupLog.Error(err, "Failed to apply cilium manifest", "command", applyCmdStr, "stdout", applyOutBuf.String(), "stderr", applyErrBuf.String())
 		return fmt.Errorf("failed to apply cilium manifest: %w. Stdout: '%s', Stderr: '%s'", err, applyOutBuf.String(), applyErrBuf.String())
 	}
 
-	setupLog.Info("Cilium manifest applied successfully.", "stdout", applyOutBuf.String())
+	setupLog.Info("Cilium manifest applied successfully.")
+	setupLog.V(1).Info("Cilium apply output", "stdout", applyOutBuf.String())
 
 	// Wait for nodes to become ready
-	setupLog.Info("Waiting for all nodes to become ready...")
-	nodeReadyCmd := fmt.Sprintf("kubectl --kubeconfig %s wait --for=condition=Ready nodes --all --timeout=300s", kubeConfigPath)
+	setupLog.Info("Waiting for all nodes to become ready (timeout: 10 minutes)...")
+	nodeReadyCmd := fmt.Sprintf("kubectl --kubeconfig %s wait --for=condition=Ready nodes --all --timeout=600s", kubeConfigPath)
 	nodeReadyExec := exec.CommandContext(ctx, "sh", "-c", nodeReadyCmd)
 	if err := nodeReadyExec.Run(); err != nil {
-		setupLog.Error(err, "Nodes did not become ready within timeout")
+		setupLog.Error(err, "Nodes did not become ready within 10-minute timeout - this often indicates slow image pulls")
 		return fmt.Errorf("nodes not ready: %w", err)
 	}
 
@@ -367,7 +363,7 @@ func (b *Build) InstallCilium(ctx context.Context, kubeConfigPath string) error 
 
 // ValidateClusterComponents validates that essential cluster components are ready
 func (b *Build) ValidateClusterComponents(ctx context.Context, kubeConfigPath string) error {
-	setupLog.Info("Validating essential cluster components are ready...")
+	setupLog.Info("Validating essential cluster components...")
 
 	// List of essential components to validate
 	essentialComponents := []struct {
@@ -380,17 +376,19 @@ func (b *Build) ValidateClusterComponents(ctx context.Context, kubeConfigPath st
 	}
 
 	for _, component := range essentialComponents {
-		setupLog.Info("Waiting for component to be ready", "component", component.name, "namespace", component.namespace)
+		setupLog.Info("Waiting for component to be ready (timeout: 10 minutes)", "component", component.name)
+		setupLog.V(1).Info("Component details", "component", component.name, "namespace", component.namespace, "resource", component.resource)
 
 		// Use kubectl wait with a reasonable timeout
-		waitCmd := fmt.Sprintf("kubectl --kubeconfig %s -n %s wait --for=condition=Available %s --timeout=300s",
+		waitCmd := fmt.Sprintf("kubectl --kubeconfig %s -n %s wait --for=condition=Available %s --timeout=600s",
 			kubeConfigPath, component.namespace, component.resource)
 
+		setupLog.V(1).Info("Executing wait command", "command", waitCmd)
 		cmd := exec.CommandContext(ctx, "sh", "-c", waitCmd)
 		output, err := cmd.CombinedOutput()
 
 		if err != nil {
-			setupLog.Error(err, "Component not ready within timeout",
+			setupLog.Error(err, "Component not ready within 10-minute timeout - this may indicate slow container startup",
 				"component", component.name,
 				"namespace", component.namespace,
 				"resource", component.resource,
@@ -400,6 +398,7 @@ func (b *Build) ValidateClusterComponents(ctx context.Context, kubeConfigPath st
 		}
 
 		setupLog.Info("Component is ready", "component", component.name)
+		setupLog.V(1).Info("Component ready output", "component", component.name, "output", string(output))
 	}
 
 	setupLog.Info("All essential cluster components are ready")
@@ -415,36 +414,4 @@ func isBuildCustomizationSpecEqual(s1, s2 v1alpha1.BuildCustomizationSpec) bool 
 		s1.UsePathRouting == s2.UsePathRouting &&
 		s1.SelfSignedCert == s2.SelfSignedCert &&
 		s1.StaticPassword == s2.StaticPassword
-}
-
-// PatchLocalPathProvisioner patches the local-path-provisioner deployment to add missing tolerations
-func (b *Build) PatchLocalPathProvisioner(ctx context.Context, kubeConfigPath string) error {
-	setupLog.Info("Patching local-path-provisioner to tolerate not-ready nodes")
-
-	// Wait for local-path-provisioner deployment to exist first
-	checkCmd := fmt.Sprintf("kubectl --kubeconfig %s -n local-path-storage get deployment local-path-provisioner", kubeConfigPath)
-	for i := 0; i < 30; i++ {
-		cmd := exec.CommandContext(ctx, "sh", "-c", checkCmd)
-		if cmd.Run() == nil {
-			break
-		}
-		if i == 29 {
-			return fmt.Errorf("local-path-provisioner deployment not found after 30 retries")
-		}
-		setupLog.V(1).Info("Waiting for local-path-provisioner deployment to exist", "attempt", i+1)
-		time.Sleep(2 * time.Second)
-	}
-
-	// Apply the patch using JSON patch to add the missing toleration
-	patchCmd := fmt.Sprintf("kubectl --kubeconfig %s -n local-path-storage patch deployment local-path-provisioner --type='json' -p='[{\"op\": \"add\", \"path\": \"/spec/template/spec/tolerations/-\", \"value\": {\"key\": \"node.kubernetes.io/not-ready\", \"operator\": \"Exists\"}}]'", kubeConfigPath)
-	cmd := exec.CommandContext(ctx, "sh", "-c", patchCmd)
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		setupLog.Error(err, "Failed to patch local-path-provisioner deployment", "output", string(output))
-		return fmt.Errorf("patching local-path-provisioner deployment: %w", err)
-	}
-
-	setupLog.Info("Successfully patched local-path-provisioner with missing tolerations")
-	return nil
 }
