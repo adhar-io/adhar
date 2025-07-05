@@ -26,6 +26,9 @@ type GlobalSettings struct {
 	DefaultHttpsPort int    `mapstructure:"defaultHttpsPort,omitempty" yaml:"defaultHttpsPort,omitempty"`
 	DefaultRegion    string `mapstructure:"defaultRegion,omitempty" yaml:"defaultRegion,omitempty"`
 
+	// High Availability Mode - controls replica counts for all services
+	EnableHAMode bool `mapstructure:"enableHAMode" yaml:"enableHAMode"`
+
 	// Dual-provider configuration
 	ProductionProvider    apiv1alpha1.EnvironmentProvider `mapstructure:"productionProvider" yaml:"productionProvider"`
 	NonProductionProvider apiv1alpha1.EnvironmentProvider `mapstructure:"nonProductionProvider" yaml:"nonProductionProvider"`
@@ -168,6 +171,11 @@ func (c *Config) resolveEnvironments() error {
 		c.ResolvedEnvironments[envName] = resolved
 	}
 	return nil
+}
+
+// ResolveEnvironments publicly exposes environment resolution
+func (c *Config) ResolveEnvironments() error {
+	return c.resolveEnvironments()
 }
 
 // validateConfig performs Go-level validation after resolving templates.
@@ -325,19 +333,39 @@ func mergeCoreServices(template, env *apiv1alpha1.CoreServicesSpec) *apiv1alpha1
 
 	if env != nil {
 		if env.Cilium != nil {
-			merged.Cilium = mergeHelmConfig(template.Cilium, env.Cilium)
+			var templateCilium *apiv1alpha1.HelmChartConfig
+			if template != nil {
+				templateCilium = template.Cilium
+			}
+			merged.Cilium = mergeHelmConfig(templateCilium, env.Cilium)
 		}
 		if env.Nginx != nil {
-			merged.Nginx = mergeHelmConfig(template.Nginx, env.Nginx)
+			var templateNginx *apiv1alpha1.HelmChartConfig
+			if template != nil {
+				templateNginx = template.Nginx
+			}
+			merged.Nginx = mergeHelmConfig(templateNginx, env.Nginx)
 		}
 		if env.Gitea != nil {
-			merged.Gitea = mergeHelmConfig(template.Gitea, env.Gitea)
+			var templateGitea *apiv1alpha1.HelmChartConfig
+			if template != nil {
+				templateGitea = template.Gitea
+			}
+			merged.Gitea = mergeHelmConfig(templateGitea, env.Gitea)
 		}
 		if env.ArgoCD != nil {
-			merged.ArgoCD = mergeHelmConfig(template.ArgoCD, env.ArgoCD)
+			var templateArgoCD *apiv1alpha1.HelmChartConfig
+			if template != nil {
+				templateArgoCD = template.ArgoCD
+			}
+			merged.ArgoCD = mergeHelmConfig(templateArgoCD, env.ArgoCD)
 		}
 		if env.Values != nil {
-			merged.Values = mergeJSONValues(template.Values, env.Values)
+			var templateValues []apiv1alpha1.ValuesConfig
+			if template != nil {
+				templateValues = template.Values
+			}
+			merged.Values = mergeJSONValues(templateValues, env.Values)
 		}
 	}
 

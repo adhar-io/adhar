@@ -1,0 +1,38 @@
+apiVersion: v1alpha1
+kind: Config
+
+# GCP test environment configuration
+environments:
+  gcp-test:
+    name: adhar-gcp-test
+    type: production
+    provider: gcp
+    region: us-central1
+    
+    # GCP-specific cluster configuration
+    clusterConfig:
+      - key: project_id
+        value: my-gcp-project
+      - key: zone
+        value: us-central1-a
+      - key: node_count
+        value: "3"
+      - key: machine_type
+        value: e2-standard-4
+      - key: disk_size_gb
+        value: "100"
+      - key: "kubernetes_version"
+        value: "1.28"
+    coreServices:
+      argocd:
+        values:
+          - key: "server.replicas"
+            value: "1"
+      gitea:
+        values:
+          - key: "replicaCount"
+            value: "1"
+      nginx:
+        enabled: true
+      cilium:
+        enabled: true

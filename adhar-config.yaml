@@ -10,6 +10,11 @@ globalSettings:
   defaultHttpsPort: 443
   defaultRegion: "us-east1"
 
+  # High Availability Mode - controls replica counts for all services
+  # When false, uses single replicas for all services (optimized for local development)
+  # When true, uses multiple replicas for high availability (production)
+  enableHAMode: false
+
   # Dual-Provider Configuration
   # Production provider is used for management cluster and production environments
   productionProvider: "gke"

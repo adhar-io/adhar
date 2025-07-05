@@ -1,13 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"adhar-io/adhar/platform/build"
 
 	"github.com/spf13/cobra"
 )
@@ -118,40 +115,8 @@ func init() {
 func runClusterBootstrap(cmd *cobra.Command, args []string) error {
 	fmt.Println("🚀 Starting management cluster bootstrap...")
 
-	// Get flags
-	configPath, _ := cmd.Flags().GetString("config")
-	force, _ := cmd.Flags().GetBool("force")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-
-	// Create provisioning options
-	opts := &build.ProvisioningOptions{
-		ConfigPath:      configPath,
-		EnvironmentName: "adhar-management",
-		DryRun:          dryRun,
-		Force:           force,
-		Verbose:         true,
-	}
-
-	// Create provisioner
-	provisioner, err := build.NewClusterProvisioner(opts)
-	if err != nil {
-		return fmt.Errorf("failed to create cluster provisioner: %w", err)
-	}
-
-	// Execute bootstrap
-	ctx := context.Background()
-	if err := provisioner.ProvisionManagementCluster(ctx); err != nil {
-		return fmt.Errorf("management cluster bootstrap failed: %w", err)
-	}
-
-	fmt.Println("✅ Management cluster bootstrap completed successfully!")
-	fmt.Println("")
-	fmt.Println("Next steps:")
-	fmt.Println("1. Copy /etc/kubernetes/admin.conf to your workstation")
-	fmt.Println("2. Run 'adhar cluster status' to verify cluster health")
-	fmt.Println("3. Use 'adhar up' to provision environments")
-
-	return nil
+	// TODO: Port cluster management to new provider system
+	return fmt.Errorf("cluster management commands are temporarily disabled during provider system migration")
 }
 
 // runClusterStatus handles the cluster status command

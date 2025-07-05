@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -13,12 +12,11 @@ import (
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/build"
 	"adhar-io/adhar/platform/config"
-	"adhar-io/adhar/platform/k8s"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
-	"k8s.io/client-go/util/homedir"
 )
 
 const (
@@ -196,134 +194,59 @@ func create(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	// Continue with existing local development flow
-	kubeConfigPath := filepath.Join(homedir.HomeDir(), ".kube", "config")
-
-	protocol = strings.ToLower(protocol)
-	host = strings.ToLower(host)
-	if ingressHost == "" {
-		ingressHost = host
-	}
-
-	err := validate()
-	if err != nil {
-		return err
-	}
-
-	var absDirPaths []string
-	var remotePaths []string
-
-	if len(extraPackages) > 0 {
-		r, l, pErr := helpers.ParsePackageStrings(extraPackages)
-		if pErr != nil {
-			return pErr
-		}
-		absDirPaths = l
-		remotePaths = r
-	}
-
-	o := make(map[string]v1alpha1.PackageCustomization)
-	for i := range packageCustomizationFiles {
-		c, pErr := getPackageCustomFile(packageCustomizationFiles[i])
-		if pErr != nil {
-			return pErr
-		}
-		o[c.Name] = c
-	}
-
-	exitOnSync := true
-	if cmd.Flags().Changed("watch") {
-		exitOnSync = !noExit
-	}
-
-	// If registry-config is unset we pass nil
-	// If registry-config is change (--registry-config=foo) we pass the new value
-	// If registry-config is set but unchanged (--registry-confg) we pass ""
-	maybeRegistryConfig := []string{}
-	if cmd.Flags().Changed("registry-config") {
-		maybeRegistryConfig = registryConfig
-	}
-
-	opts := build.NewBuildOptions{
-		Name:              globals.DefaultClusterName,
-		KubeVersion:       kubeVersion,
-		KubeConfigPath:    kubeConfigPath,
-		KindConfigPath:    kindConfigPath,
-		ExtraPortsMapping: extraPortsMapping,
-		RegistryConfig:    maybeRegistryConfig,
-
-		TemplateData: v1alpha1.BuildCustomizationSpec{
-			Protocol:       protocol,
-			Host:           host,
-			IngressHost:    ingressHost,
-			Port:           port,
-			UsePathRouting: pathRouting,
-			StaticPassword: devPassword,
-		},
-
-		CustomPackageDirs:    absDirPaths,
-		CustomPackageUrls:    remotePaths,
-		ExitOnSync:           exitOnSync,
-		PackageCustomization: o,
-
-		Scheme:     k8s.GetScheme(),
-		CancelFunc: ctxCancel,
-	}
-
-	b := build.NewBuild(opts)
-
-	if err := b.Run(ctx, recreateCluster); err != nil {
-		return err
-	}
-
-	if cmd.Context().Err() != nil {
-		return context.Cause(cmd.Context())
-	}
-
-	printSuccessMsg()
-	return nil
+	// TODO: Port local development to new ProviderManager with Kind
+	return fmt.Errorf("local development mode temporarily disabled - please use 'adhar up -f config.yaml' with a Kind provider configuration")
 }
 
-// createProductionCluster handles production cluster provisioning
+// createProductionCluster handles production cluster provisioning using the new ProviderManager
 func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []string) error {
 	// Validate config file exists
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		return fmt.Errorf("configuration file not found: %s", configFile)
 	}
 
-	// Create provisioning options
-	opts := &build.ProvisioningOptions{
-		ConfigPath:      configFile,
-		EnvironmentName: environment,
-		DryRun:          dryRun,
-		Force:           force,
-		Verbose:         verbose,
+	// Load configuration from file
+	cfg, err := loadConfigFromFile(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Create cluster provisioner
-	provisioner, err := build.NewClusterProvisioner(opts)
-	if err != nil {
-		return fmt.Errorf("failed to create cluster provisioner: %w", err)
+	// Initialize logger
+	logger := logrus.New()
+	if verbose {
+		logger.SetLevel(logrus.DebugLevel)
 	}
+
+	// Initialize template engine
+	templateEngine := build.NewTemplateEngine()
+
+	// Create provider manager
+	providerManager := build.NewProviderManager(logger, templateEngine)
 
 	// If no environment specified, provision the complete platform
 	if environment == "" {
-		return provisionCompletePlatform(ctx, provisioner, configFile)
+		return provisionCompletePlatformNew(ctx, providerManager, cfg, dryRun, force)
 	}
 
-	// Validate environment exists in config
-	if err := validateEnvironmentExists(configFile, environment); err != nil {
-		return fmt.Errorf("environment validation failed: %w", err)
+	// Get environment configuration
+	envConfig, err := resolveEnvironmentConfig(cfg, environment)
+	if err != nil {
+		return fmt.Errorf("failed to resolve environment configuration: %w", err)
 	}
 
-	// Check if management cluster exists, provision if needed
-	if err := provisioner.EnsureManagementCluster(ctx); err != nil {
-		return fmt.Errorf("failed to ensure management cluster: %w", err)
+	// If dry run, show what would be provisioned
+	if dryRun {
+		return showDryRunInfo(envConfig)
 	}
 
-	// Provision the workload cluster
-	if err := provisioner.ProvisionCluster(ctx, environment); err != nil {
-		return fmt.Errorf("cluster provisioning failed: %w", err)
+	// Provision the environment
+	provisionOpts := build.ProvisionOptions{
+		DryRun: dryRun,
+		Force:  force,
+	}
+
+	if err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts); err != nil {
+		return fmt.Errorf("failed to provision environment %s: %w", environment, err)
 	}
 
 	// Print success message
@@ -331,118 +254,40 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	return nil
 }
 
-// provisionCompletePlatform provisions the complete Adhar platform including management cluster and all environments
-func provisionCompletePlatform(ctx context.Context, provisioner *build.ClusterProvisioner, configPath string) error {
-	fmt.Printf("\n%s\n", boldStyle.Render("🚀 Starting Complete Adhar Platform Provisioning"))
-	fmt.Printf("Configuration: %s\n\n", configPath)
-
-	// Load configuration to determine environments
-	data, err := os.ReadFile(configPath)
+// loadConfigFromFile loads configuration from a specific file path
+func loadConfigFromFile(configPath string) (*config.Config, error) {
+	file, err := os.Open(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		return nil, fmt.Errorf("failed to open configuration file: %w", err)
 	}
+	defer file.Close()
 
 	var cfg config.Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("failed to parse config file %s: %w", configPath, err)
+	decoder := yaml.NewDecoder(file)
+	if err := decoder.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse configuration file: %w", err)
 	}
 
-	// Step 1: Provision Management Cluster
-	fmt.Printf("%s %s\n", boldStyle.Render("Step 1:"), "Provisioning Management Cluster...")
-	if err := provisioner.EnsureManagementCluster(ctx); err != nil {
-		return fmt.Errorf("failed to provision management cluster: %w", err)
-	}
-	fmt.Printf("✅ Management cluster provisioned successfully\n\n")
-
-	// Step 2: Deploy Platform Services
-	fmt.Printf("%s %s\n", boldStyle.Render("Step 2:"), "Deploying Platform Services...")
-	if err := provisioner.DeployPlatformServices(ctx); err != nil {
-		return fmt.Errorf("failed to deploy platform services: %w", err)
-	}
-	fmt.Printf("✅ Platform services deployed successfully\n\n")
-
-	// Step 3: Provision Environments
-	fmt.Printf("%s %s\n", boldStyle.Render("Step 3:"), "Provisioning Environments...")
-
-	// Determine environments to provision
-	var environmentsToProvision []string
-	if len(cfg.Environments) == 0 {
-		// No environments defined, create default dev and prod
-		fmt.Printf("No environments found in config. Creating default environments...\n")
-		environmentsToProvision = []string{"dev", "prod"}
-
-		// Create default environments in memory for processing
-		if err := createDefaultEnvironments(&cfg); err != nil {
-			return fmt.Errorf("failed to create default environments: %w", err)
-		}
-	} else {
-		// Use environments from config
-		for envName := range cfg.Environments {
-			environmentsToProvision = append(environmentsToProvision, envName)
-		}
+	// Resolve environment configurations
+	if err := cfg.ResolveEnvironments(); err != nil {
+		return nil, fmt.Errorf("failed to resolve environments: %w", err)
 	}
 
-	// Provision each environment
-	successCount := 0
-	for _, envName := range environmentsToProvision {
-		fmt.Printf("  Provisioning environment: %s...\n", envName)
-		if err := provisioner.ProvisionCluster(ctx, envName); err != nil {
-			fmt.Printf("  ❌ Failed to provision %s: %v\n", envName, err)
-			continue
-		}
-		fmt.Printf("  ✅ Environment %s provisioned successfully\n", envName)
-		successCount++
-	}
-
-	// Print summary
-	fmt.Printf("\n%s\n", boldStyle.Render("🎉 Platform Provisioning Complete!"))
-	fmt.Printf("┌─────────────────────────────────────────────┐\n")
-	fmt.Printf("│ Management Cluster: ✅ Ready                │\n")
-	fmt.Printf("│ Platform Services:  ✅ Deployed             │\n")
-	fmt.Printf("│ Environments:       %d/%d provisioned       │\n", successCount, len(environmentsToProvision))
-	fmt.Printf("└─────────────────────────────────────────────┘\n\n")
-
-	if successCount > 0 {
-		fmt.Printf("%s\n", boldStyle.Render("🚀 Next Steps:"))
-		fmt.Printf("1. Configure kubectl context for your clusters\n")
-		fmt.Printf("2. Access ArgoCD dashboard on the management cluster\n")
-		fmt.Printf("3. Start deploying applications to your environments\n")
-		fmt.Printf("4. Use 'adhar get secrets' to retrieve service passwords\n")
-		fmt.Printf("5. Use 'adhar get envs -f %s' to list environments\n\n", filepath.Base(configPath))
-	}
-
-	return nil
+	return &cfg, nil
 }
 
-// createDefaultEnvironments creates default dev and prod environments when none are specified
-func createDefaultEnvironments(cfg *config.Config) error {
-	if cfg.Environments == nil {
-		cfg.Environments = make(map[string]config.EnvironmentConfig)
+// resolveEnvironmentConfig resolves a specific environment configuration
+func resolveEnvironmentConfig(cfg *config.Config, envName string) (*config.ResolvedEnvironmentConfig, error) {
+	if cfg.ResolvedEnvironments == nil {
+		return nil, fmt.Errorf("environments not resolved")
 	}
 
-	// Create default development environment
-	cfg.Environments["dev"] = config.EnvironmentConfig{
-		Type:     config.EnvironmentTypeNonProduction,
-		Template: "development-defaults",
-		ClusterConfig: []config.ClusterConfig{
-			{Key: "name", Value: "adhar-dev"},
-			{Key: "nodeCount", Value: "2"},
-			{Key: "nodeSize", Value: "s-2vcpu-4gb"},
-		},
+	envConfig, exists := cfg.ResolvedEnvironments[envName]
+	if !exists {
+		return nil, fmt.Errorf("environment '%s' not found in configuration", envName)
 	}
 
-	// Create default production environment
-	cfg.Environments["prod"] = config.EnvironmentConfig{
-		Type:     config.EnvironmentTypeProduction,
-		Template: "production-defaults",
-		ClusterConfig: []config.ClusterConfig{
-			{Key: "name", Value: "adhar-prod"},
-			{Key: "nodeCount", Value: "3"},
-			{Key: "machineType", Value: "e2-standard-4"},
-		},
-	}
-
-	return nil
+	return envConfig, nil
 }
 
 // printProductionSuccessMsg prints success message for production cluster
@@ -630,5 +475,94 @@ func checkDiskSpace() error {
 func checkPortAvailability() error {
 	// Placeholder for port availability check
 	// In a real implementation, this would check if ports 8443, 32222 etc are available
+	return nil
+}
+
+// provisionCompletePlatformNew provisions the complete Adhar platform using the new provider system
+func provisionCompletePlatformNew(ctx context.Context, providerManager *build.ProviderManager, cfg *config.Config, dryRun bool, force bool) error {
+	fmt.Printf("\n%s\n", boldStyle.Render("🚀 Starting Complete Adhar Platform Provisioning"))
+	fmt.Println()
+
+	// Determine environments to provision
+	var environmentsToProvision []string
+	if len(cfg.Environments) == 0 {
+		return fmt.Errorf("no environments defined in configuration file")
+	}
+
+	// Use environments from config
+	for envName := range cfg.Environments {
+		environmentsToProvision = append(environmentsToProvision, envName)
+	}
+
+	// Provision each environment
+	successCount := 0
+	for _, envName := range environmentsToProvision {
+		fmt.Printf("  Provisioning environment: %s...\n", envName)
+
+		envConfig, err := resolveEnvironmentConfig(cfg, envName)
+		if err != nil {
+			fmt.Printf("  ❌ Failed to resolve configuration for %s: %v\n", envName, err)
+			continue
+		}
+
+		provisionOpts := build.ProvisionOptions{
+			DryRun: dryRun,
+			Force:  force,
+		}
+
+		if err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts); err != nil {
+			fmt.Printf("  ❌ Failed to provision %s: %v\n", envName, err)
+			continue
+		}
+		fmt.Printf("  ✅ Environment %s provisioned successfully\n", envName)
+		successCount++
+	}
+
+	// Print summary
+	fmt.Printf("\n%s\n", boldStyle.Render("🎉 Platform Provisioning Complete!"))
+	fmt.Printf("┌─────────────────────────────────────────────┐\n")
+	fmt.Printf("│ Environments Provisioned: %d/%d              │\n", successCount, len(environmentsToProvision))
+	fmt.Printf("└─────────────────────────────────────────────┘\n")
+
+	if successCount < len(environmentsToProvision) {
+		return fmt.Errorf("failed to provision %d out of %d environments", len(environmentsToProvision)-successCount, len(environmentsToProvision))
+	}
+
+	return nil
+}
+
+// showDryRunInfo displays what would be provisioned in dry-run mode
+func showDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
+	fmt.Printf("\n%s\n", boldStyle.Render("🔍 Dry Run - Configuration Preview"))
+	fmt.Printf("┌─────────────────────────────────────────────┐\n")
+	fmt.Printf("│ Environment: %-30s │\n", envConfig.Name)
+	fmt.Printf("│ Provider:    %-30s │\n", envConfig.ResolvedProvider)
+	fmt.Printf("│ Region:      %-30s │\n", envConfig.ResolvedRegion)
+	fmt.Printf("│ Type:        %-30s │\n", envConfig.ResolvedType)
+	fmt.Printf("└─────────────────────────────────────────────┘\n")
+
+	if len(envConfig.ResolvedClusterConfig) > 0 {
+		fmt.Printf("\nCluster Configuration:\n")
+		for _, cfg := range envConfig.ResolvedClusterConfig {
+			fmt.Printf("  %s: %s\n", cfg.Key, cfg.Value)
+		}
+	}
+
+	if envConfig.ResolvedCoreServices != nil {
+		fmt.Printf("\nCore Services:\n")
+		fmt.Printf("  ArgoCD:    %v\n", envConfig.ResolvedCoreServices.ArgoCD != nil)
+		fmt.Printf("  Gitea:     %v\n", envConfig.ResolvedCoreServices.Gitea != nil)
+		fmt.Printf("  Nginx:     %v\n", envConfig.ResolvedCoreServices.Nginx != nil)
+		fmt.Printf("  Cilium:    %v\n", envConfig.ResolvedCoreServices.Cilium != nil)
+	}
+
+	if len(envConfig.ResolvedAddons) > 0 {
+		fmt.Printf("\nAddons:\n")
+		for _, addon := range envConfig.ResolvedAddons {
+			fmt.Printf("  %s\n", addon.Name)
+		}
+	}
+
+	fmt.Printf("\n%s\n", codeStyle.Render("No changes will be made in dry-run mode"))
 	return nil
 }
