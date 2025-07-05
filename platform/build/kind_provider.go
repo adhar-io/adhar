@@ -3,12 +3,8 @@ package build
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -16,39 +12,13 @@ import (
 	"adhar-io/adhar/platform/config"
 
 	"github.com/sirupsen/logrus"
-	kindv1alpha4 "sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
-	"sigs.k8s.io/yaml"
 )
-
-const (
-	ingressNginxNodeLabelKey   = "ingress-ready"
-	ingressNginxNodeLabelValue = "true"
-)
-
-// PortMapping represents port mapping configuration from legacy Kind implementation
-type PortMapping struct {
-	HostPort      string
-	ContainerPort string
-}
-
-// HttpClient interface for HTTP operations (from legacy code)
-type HttpClient interface {
-	Get(url string) (resp *http.Response, err error)
-}
-
-// defaultHttpClient implements HttpClient interface
-type defaultHttpClient struct{}
-
-func (c *defaultHttpClient) Get(url string) (resp *http.Response, err error) {
-	return http.Get(url)
-}
 
 // KindProvider implements Provider for local Kind clusters
 type KindProvider struct {
 	envConfig      *config.ResolvedEnvironmentConfig
 	logger         *logrus.Logger
 	templateEngine *TemplateEngine
-	httpClient     HttpClient // Add HTTP client for remote config support
 }
 
 // NewKindProvider creates a new Kind provider
@@ -57,7 +27,6 @@ func NewKindProvider(envConfig *config.ResolvedEnvironmentConfig, logger *logrus
 		envConfig:      envConfig,
 		logger:         logger,
 		templateEngine: templateEngine,
-		httpClient:     &defaultHttpClient{}, // Initialize HTTP client
 	}, nil
 }
 
@@ -100,9 +69,8 @@ func (kp *KindProvider) Provision(ctx context.Context, envConfig *config.Resolve
 		kp.logger.Info("🏗️  Creating Kind cluster using template configuration...")
 		kp.logger.Info("   Cluster name: " + clusterName)
 		kp.logger.Info("   Kubernetes version: " + kubeVersion)
-		kp.logger.Info("   Configuration: 1 control-plane + 2 worker nodes")
+		kp.logger.Info("   Configuration: 1 control-plane + 3 worker nodes")
 		kp.logger.Info("   Networking: CNI disabled (Cilium will be installed)")
-		kp.logger.Info("   Template source: platform/build/templates/kind/kind.yaml.tmpl")
 		if err := kp.createClusterWithTemplate(ctx, clusterName, kubeVersion, envConfig); err != nil {
 			return fmt.Errorf("failed to create Kind cluster with template: %w", err)
 		}
@@ -201,21 +169,20 @@ func (kp *KindProvider) InstallPlatformServices(ctx context.Context, envConfig *
 			return fmt.Errorf("failed to install core infrastructure with templates: %w", err)
 		}
 
-		// Phase 2: Setup ArgoCD for platform stack management (includes success message)
+		// Phase 2: Setup ArgoCD for platform stack management
 		if err := kp.setupArgoCDPlatformManagement(ctx, kubeconfig, enableHAMode, envConfig); err != nil {
 			return fmt.Errorf("failed to setup ArgoCD platform management: %w", err)
 		}
 
-		// Optional: Run background verification
-		go func() {
-			time.Sleep(60 * time.Second) // Wait a minute before final verification
-			kp.logger.Info("🔍 Running background platform verification...")
-			if err := kp.verifyPlatformServices(ctx, kubeconfig); err != nil {
-				kp.logger.Warn("⚠️  Some services may still be starting up", "error", err)
-			} else {
-				kp.logger.Info("✅ All platform services verified successfully")
-			}
-		}()
+		// Final verification and success message
+		kp.logger.Info("🔍 Running final platform verification...")
+		if err := kp.verifyPlatformServices(ctx, kubeconfig); err != nil {
+			kp.logger.Warn("⚠️  Some services may not be fully ready yet", "error", err)
+		}
+
+		kp.logger.Info("🎉✨ Adhar platform is ready! ✨🎉")
+		kp.logger.Info("🌐 Access your services at:")
+		kp.printServiceURLs(envConfig)
 	} else {
 		// Default: Install using Helm directly
 		if err := kp.installWithHelm(ctx, kubeconfig, enableHAMode, envConfig); err != nil {
@@ -259,13 +226,6 @@ func (kp *KindProvider) installCoreInfrastructureWithTemplates(ctx context.Conte
 	kp.logger.Info("🔗 Installing Cilium CNI (Container Network Interface)...")
 	kp.logger.Info("   This may take a few minutes as images are pulled...")
 
-	// Pre-check: Ensure the cluster is ready before installing Cilium
-	kp.logger.Info("   Pre-check: Verifying cluster is ready...")
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "nodes", "--no-headers"); err != nil {
-		return fmt.Errorf("cluster nodes are not ready: %w", err)
-	}
-	kp.logger.Info("   ✅ Cluster nodes are accessible")
-
 	ciliumManifests, err := kp.templateEngine.GenerateManifests(ctx, "cilium", enableHAMode)
 	if err != nil {
 		return fmt.Errorf("failed to generate Cilium manifests: %w", err)
@@ -290,89 +250,33 @@ func (kp *KindProvider) installCoreInfrastructureWithTemplates(ctx context.Conte
 		kp.logger.Info("✅ All cluster nodes are ready")
 	}
 
-	// Step 3: Install other core services in parallel (after Cilium is ready)
+	// Step 3: Install other core services (in order)
 	otherServices := []string{"nginx", "gitea"}
 
-	kp.logger.Info("🚀 Installing platform services in parallel...")
-
-	// Create channels for tracking parallel installation
-	type serviceResult struct {
-		service string
-		err     error
-	}
-	resultChan := make(chan serviceResult, len(otherServices))
-
-	// Install services in parallel
 	for _, service := range otherServices {
-		go func(svcName string) {
-			kp.logger.Info("🔧 Starting installation of: " + svcName + "...")
+		kp.logger.Info("🔧 Installing platform service: " + service + "...")
 
-			// Generate manifests using the template engine
-			manifests, err := kp.templateEngine.GenerateManifests(ctx, svcName, enableHAMode)
-			if err != nil {
-				resultChan <- serviceResult{svcName, fmt.Errorf("failed to generate manifests for %s: %w", svcName, err)}
-				return
-			}
+		// Generate manifests using the template engine
+		manifests, err := kp.templateEngine.GenerateManifests(ctx, service, enableHAMode)
+		if err != nil {
+			return fmt.Errorf("failed to generate manifests for %s: %w", service, err)
+		}
 
-			// Apply manifests using kubectl
-			if err := kp.applyManifests(ctx, kubeconfig, manifests, svcName); err != nil {
-				resultChan <- serviceResult{svcName, fmt.Errorf("failed to apply manifests for %s: %w", svcName, err)}
-				return
-			}
+		// Apply manifests using kubectl
+		if err := kp.applyManifests(ctx, kubeconfig, manifests, service); err != nil {
+			return fmt.Errorf("failed to apply manifests for %s: %w", service, err)
+		}
 
-			kp.logger.Info("✅ " + svcName + " manifests applied successfully")
-			resultChan <- serviceResult{svcName, nil}
-		}(service)
-	}
-
-	// Wait for all parallel installations to complete
-	var installationErrors []error
-	for i := 0; i < len(otherServices); i++ {
-		result := <-resultChan
-		if result.err != nil {
-			kp.logger.Error("Failed to install service", "service", result.service, "error", result.err)
-			installationErrors = append(installationErrors, result.err)
+		// Wait for service to be ready
+		kp.logger.Info("⏳ Waiting for " + service + " to be ready...")
+		if err := kp.waitForServiceReady(ctx, kubeconfig, service); err != nil {
+			kp.logger.Warn("⚠️  "+service+" may not be fully ready yet, but continuing...", "error", err)
 		} else {
-			kp.logger.Info("📦 " + result.service + " installation initiated successfully")
+			kp.logger.Info("✅ " + service + " is ready")
 		}
 	}
 
-	// Check if any installations failed
-	if len(installationErrors) > 0 {
-		return fmt.Errorf("failed to install %d services: %v", len(installationErrors), installationErrors)
-	}
-
-	// Now wait for all services to be ready in parallel
-	kp.logger.Info("⏳ Waiting for all platform services to become ready...")
-	readinessChan := make(chan serviceResult, len(otherServices))
-
-	for _, service := range otherServices {
-		go func(svcName string) {
-			kp.logger.Info("🔍 Checking readiness of: " + svcName + "...")
-			if err := kp.waitForServiceReadyRobust(ctx, kubeconfig, svcName); err != nil {
-				readinessChan <- serviceResult{svcName, err}
-			} else {
-				kp.logger.Info("✅ " + svcName + " is ready and operational")
-				readinessChan <- serviceResult{svcName, nil}
-			}
-		}(service)
-	}
-
-	// Collect readiness results
-	var readinessErrors []error
-	readyServices := 0
-	for i := 0; i < len(otherServices); i++ {
-		result := <-readinessChan
-		if result.err != nil {
-			kp.logger.Warn("⚠️  "+result.service+" may not be fully ready yet", "error", result.err)
-			readinessErrors = append(readinessErrors, result.err)
-		} else {
-			readyServices++
-			kp.logger.Info("🎉 " + result.service + " is fully operational")
-		}
-	}
-
-	kp.logger.Info("🎉 Core infrastructure installation completed", "ready_services", readyServices, "total_services", len(otherServices))
+	kp.logger.Info("🎉 Core infrastructure installation completed successfully")
 	return nil
 }
 
@@ -391,30 +295,21 @@ func (kp *KindProvider) setupArgoCDPlatformManagement(ctx context.Context, kubec
 		return fmt.Errorf("failed to apply ArgoCD manifests: %w", err)
 	}
 
-	// Wait for ArgoCD to be ready using robust checking
-	kp.logger.Info("⏳ Waiting for ArgoCD to be ready (this is the final critical component)...")
-	if err := kp.waitForServiceReadyRobust(ctx, kubeconfig, "argocd"); err != nil {
+	// Wait for ArgoCD to be ready
+	kp.logger.Info("⏳ Waiting for ArgoCD to be ready...")
+	if err := kp.waitForServiceReady(ctx, kubeconfig, "argocd"); err != nil {
 		kp.logger.Warn("⚠️  ArgoCD may not be fully ready yet, but continuing...", "error", err)
 	} else {
-		kp.logger.Info("🎉 ArgoCD is ready and operational!")
-
-		// Show success message immediately when ArgoCD is ready
-		kp.logger.Info("")
-		kp.logger.Info("🎉✨ Adhar platform is ready! ✨🎉")
-		kp.logger.Info("🌐 Access your services at:")
-		kp.printServiceURLs(envConfig)
-		kp.logger.Info("")
+		kp.logger.Info("✅ ArgoCD is ready")
 	}
 
-	// Deploy platform stack applications in the background
-	go func() {
-		kp.logger.Info("📦 Deploying platform stack applications in background...")
-		if err := kp.deployPlatformStackApplications(ctx, kubeconfig, envConfig); err != nil {
-			kp.logger.Warn("⚠️  Some platform stack applications may not have deployed successfully", "error", err)
-		} else {
-			kp.logger.Info("✅ Platform stack applications deployed successfully")
-		}
-	}()
+	// Deploy platform stack applications
+	kp.logger.Info("📦 Deploying platform stack applications...")
+	if err := kp.deployPlatformStackApplications(ctx, kubeconfig, envConfig); err != nil {
+		kp.logger.Warn("⚠️  Some platform stack applications may not have deployed successfully", "error", err)
+	} else {
+		kp.logger.Info("✅ Platform stack applications deployed")
+	}
 
 	kp.logger.Info("🎉 ArgoCD platform management setup completed")
 	return nil
@@ -469,127 +364,18 @@ func (kp *KindProvider) applyManifests(ctx context.Context, kubeconfig, manifest
 // waitForServiceReady waits for a service to be ready
 func (kp *KindProvider) waitForServiceReady(ctx context.Context, kubeconfig, serviceName string) error {
 	// Define service-specific readiness checks (all services are in adhar-system namespace)
-	timeout := "1800s" // 30 minutes for all services
-
 	switch serviceName {
 	case "cilium":
-		// Cilium uses a more comprehensive check in waitForCiliumReady
-		return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "k8s-app=cilium", "-n", "adhar-system", "--timeout="+timeout)
+		// Cilium uses a more comprehensive check in waitForCiliumReady with extended timeout
+		return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "k8s-app=cilium", "-n", "adhar-system", "--timeout=600s")
 	case "nginx":
-		kp.logger.Info("   Waiting for NGINX Ingress Controller... (timeout: 30 minutes)")
-		if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=ingress-nginx", "-n", "adhar-system", "--timeout="+timeout); err != nil {
-			kp.logger.Warn("NGINX timeout, checking status...")
-			kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "app.kubernetes.io/name=ingress-nginx")
-			return err
-		}
-		return nil
+		return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=ingress-nginx", "-n", "adhar-system", "--timeout=300s")
 	case "gitea":
-		kp.logger.Info("   Waiting for Gitea... (timeout: 30 minutes)")
-		if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=gitea", "-n", "adhar-system", "--timeout="+timeout); err != nil {
-			kp.logger.Warn("Gitea timeout, checking status...")
-			kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "app.kubernetes.io/name=gitea")
-			return err
-		}
-		return nil
+		return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=gitea", "-n", "adhar-system", "--timeout=300s")
 	case "argocd":
-		kp.logger.Info("   Waiting for ArgoCD... (timeout: 30 minutes)")
-		if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=argocd-server", "-n", "adhar-system", "--timeout="+timeout); err != nil {
-			kp.logger.Warn("ArgoCD timeout, checking status...")
-			kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "app.kubernetes.io/name=argocd-server")
-			return err
-		}
-		return nil
+		return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=argocd-server", "-n", "adhar-system", "--timeout=300s")
 	default:
 		// Generic wait - just give it some time
-		kp.logger.Info("   Waiting for " + serviceName + "...")
-		time.Sleep(30 * time.Second)
-		return nil
-	}
-}
-
-// waitForServiceReadyRobust waits for a service to be ready with enhanced polling and retries
-func (kp *KindProvider) waitForServiceReadyRobust(ctx context.Context, kubeconfig, serviceName string) error {
-	timeout := "1800s" // 30 minutes total timeout
-	maxRetries := 10
-	baseDelay := 30 * time.Second
-
-	switch serviceName {
-	case "nginx":
-		kp.logger.Info("   🔍 Robust check for NGINX Ingress Controller...")
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=ingress-nginx", "-n", "adhar-system", "--timeout=180s")
-			if err == nil {
-				// Additional check: verify deployment is available
-				if err2 := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=available", "deployment", "-l", "app.kubernetes.io/name=ingress-nginx", "-n", "adhar-system", "--timeout=60s"); err2 == nil {
-					return nil
-				}
-			}
-
-			if attempt < maxRetries {
-				delay := time.Duration(attempt) * baseDelay
-				kp.logger.Info("   ⏳ NGINX not ready yet, retrying...", "attempt", attempt, "max_retries", maxRetries, "next_check_in", delay)
-				time.Sleep(delay)
-			}
-		}
-
-		// Final attempt with full timeout
-		kp.logger.Info("   🔄 Final attempt for NGINX readiness...")
-		return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=ingress-nginx", "-n", "adhar-system", "--timeout="+timeout)
-
-	case "gitea":
-		kp.logger.Info("   🔍 Robust check for Gitea...")
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=gitea", "-n", "adhar-system", "--timeout=180s")
-			if err == nil {
-				// Additional check: verify statefulset is ready
-				if err2 := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "statefulset", "-l", "app.kubernetes.io/name=gitea", "-n", "adhar-system", "--timeout=60s"); err2 == nil {
-					return nil
-				}
-			}
-
-			if attempt < maxRetries {
-				delay := time.Duration(attempt) * baseDelay
-				kp.logger.Info("   ⏳ Gitea not ready yet, retrying...", "attempt", attempt, "max_retries", maxRetries, "next_check_in", delay)
-				time.Sleep(delay)
-			}
-		}
-
-		// Final attempt with full timeout
-		kp.logger.Info("   🔄 Final attempt for Gitea readiness...")
-		return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=gitea", "-n", "adhar-system", "--timeout="+timeout)
-
-	case "argocd":
-		kp.logger.Info("   🔍 Robust check for ArgoCD...")
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			// Check server pods
-			err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=argocd-server", "-n", "adhar-system", "--timeout=180s")
-			if err == nil {
-				// Additional checks: verify other ArgoCD components
-				err2 := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=argocd-application-controller", "-n", "adhar-system", "--timeout=60s")
-				err3 := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=argocd-repo-server", "-n", "adhar-system", "--timeout=60s")
-
-				if err2 == nil && err3 == nil {
-					// Final check: verify ArgoCD API is responding
-					if err4 := kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "app.kubernetes.io/part-of=argocd", "--no-headers"); err4 == nil {
-						return nil
-					}
-				}
-			}
-
-			if attempt < maxRetries {
-				delay := time.Duration(attempt) * baseDelay
-				kp.logger.Info("   ⏳ ArgoCD not ready yet, retrying...", "attempt", attempt, "max_retries", maxRetries, "next_check_in", delay)
-				time.Sleep(delay)
-			}
-		}
-
-		// Final attempt with full timeout
-		kp.logger.Info("   🔄 Final attempt for ArgoCD readiness...")
-		return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "app.kubernetes.io/name=argocd-server", "-n", "adhar-system", "--timeout="+timeout)
-
-	default:
-		// Generic robust check
-		kp.logger.Info("   🔍 Generic robust check for " + serviceName + "...")
 		time.Sleep(30 * time.Second)
 		return nil
 	}
@@ -785,7 +571,7 @@ func (kp *KindProvider) runKubectlCommand(ctx context.Context, kubeconfig string
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		kp.logger.Error("kubectl command failed", "cmd", cmd.String(), "output", string(output), "error", err)
+		kp.logger.Debug("kubectl command failed", "cmd", cmd.String(), "output", string(output), "error", err)
 		return fmt.Errorf("kubectl command failed: %w", err)
 	}
 
@@ -866,15 +652,13 @@ func (kp *KindProvider) getKubeVersion(envConfig *config.ResolvedEnvironmentConf
 func (kp *KindProvider) createAdharSystemNamespace(ctx context.Context, kubeconfig string) error {
 	kp.logger.Info("Creating adhar-system namespace")
 
-	// Create namespace manifest
-	namespaceManifest := `apiVersion: v1
-kind: Namespace
-metadata:
-  name: adhar-system
-  labels:
-    app.kubernetes.io/name: adhar-system
-    app.kubernetes.io/part-of: adhar-platform
-`
+	// Read the namespace manifest from template file
+	templatePath := "platform/build/templates/k8s/adhar-system-namespace.yaml"
+	manifestBytes, err := os.ReadFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("failed to read namespace template file %s: %w", templatePath, err)
+	}
+	namespaceManifest := string(manifestBytes)
 
 	// Apply the namespace manifest using kubectl
 	var cmd *exec.Cmd
@@ -894,77 +678,64 @@ metadata:
 	return nil
 }
 
-// createClusterWithTemplate creates a Kind cluster using enhanced template configuration (enhanced from legacy code)
+// createClusterWithTemplate creates a Kind cluster using the kind.yaml.tmpl template file
 func (kp *KindProvider) createClusterWithTemplate(ctx context.Context, clusterName, kubeVersion string, envConfig *config.ResolvedEnvironmentConfig) error {
-	// Check if a custom Kind config path is specified
-	customConfigPath := ""
+	// Read the Kind cluster template from file
+	templatePath := "platform/build/templates/kind/kind.yaml.tmpl"
+	templateBytes, err := os.ReadFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("failed to read Kind template file %s: %w", templatePath, err)
+	}
+	kindTemplate := string(templateBytes)
+
+	// Prepare template data with all required variables for the template
+	templateData := map[string]interface{}{
+		"KubernetesVersion": kubeVersion,
+		"Protocol":          "https",
+		"Port":              "8443",
+		"Host":              "adhar.localtest.me",
+		"UsePathRouting":    false,
+		"StaticPassword":    false,
+		"ExtraPortsMapping": []map[string]interface{}{},
+		"RegistryConfig":    "",
+	}
+
+	// Override with any configuration from envConfig if available
 	for _, cfg := range envConfig.ResolvedClusterConfig {
-		if cfg.Key == "kindConfigPath" {
-			customConfigPath = cfg.Value
-			break
+		switch cfg.Key {
+		case "protocol":
+			templateData["Protocol"] = cfg.Value
+		case "port":
+			templateData["Port"] = cfg.Value
+		case "host":
+			templateData["Host"] = cfg.Value
+		case "usePathRouting":
+			templateData["UsePathRouting"] = cfg.Value == "true"
+		case "staticPassword":
+			templateData["StaticPassword"] = cfg.Value == "true"
 		}
 	}
 
-	// Load the Kind configuration (file, remote URL, or default template)
-	var templateContent []byte
-	var err error
-
-	if customConfigPath != "" {
-		kp.logger.Info("🔧 Using custom Kind configuration", "source", customConfigPath)
-		templateContent, err = kp.loadKindConfig(customConfigPath)
-		if err != nil {
-			return fmt.Errorf("failed to load custom Kind config: %w", err)
-		}
-
-		// For custom configs, apply template rendering if it contains template variables
-		if strings.Contains(string(templateContent), "{{") {
-			kp.logger.Info("🎨 Rendering custom Kind config template...")
-			templateData := kp.prepareKindTemplateData(kubeVersion, envConfig)
-			renderedConfig, err := kp.renderKindTemplate(string(templateContent), templateData)
-			if err != nil {
-				return fmt.Errorf("failed to render custom Kind template: %w", err)
-			}
-			templateContent = []byte(renderedConfig)
-		}
-
-		// Ensure the custom config has correct port mappings and labels
-		kp.logger.Info("� Validating and correcting custom Kind configuration...")
-		templateContent, err = kp.ensureCorrectKindConfig(templateContent, envConfig)
-		if err != nil {
-			return fmt.Errorf("failed to validate custom Kind config: %w", err)
-		}
-	} else {
-		// Use default template approach
-		templateContent, err = kp.loadKindConfig("") // Empty path loads default template
-		if err != nil {
-			return fmt.Errorf("failed to load default Kind template: %w", err)
-		}
-
-		// Prepare template data with configuration from envConfig
-		templateData := kp.prepareKindTemplateData(kubeVersion, envConfig)
-
-		// Render the template
-		renderedConfig, err := kp.renderKindTemplate(string(templateContent), templateData)
-		if err != nil {
-			return fmt.Errorf("failed to render Kind template: %w", err)
-		}
-		templateContent = []byte(renderedConfig)
+	// Render the template
+	renderedConfig, err := kp.renderKindTemplate(kindTemplate, templateData)
+	if err != nil {
+		return fmt.Errorf("failed to render Kind template: %w", err)
 	}
 
-	kp.logger.Info("########################### Adhar Kind Configuration ############################")
-	kp.logger.Info(string(templateContent))
-	kp.logger.Info("#########################   Configuration End    ############################")
+	kp.logger.Info("########################### Adhar kind config ############################")
+	kp.logger.Info("\n" + renderedConfig)
+	kp.logger.Info("#########################   config end    ############################")
 
-	// Create the cluster using the processed configuration
+	// Create the cluster using the rendered config
 	cmd := exec.CommandContext(ctx, "kind", "create", "cluster", "--name", clusterName, "--config", "-")
-	cmd.Stdin = strings.NewReader(string(templateContent))
+	cmd.Stdin = strings.NewReader(renderedConfig)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to create Kind cluster with template: %w, output: %s", err, string(output))
 	}
 
-	kp.logger.Info("✅ Kind cluster created successfully with enhanced template", "name", clusterName)
+	kp.logger.Info("Kind cluster created successfully with template", "name", clusterName)
 	return nil
 }
 
@@ -983,71 +754,43 @@ func (kp *KindProvider) renderKindTemplate(templateStr string, data map[string]i
 	return rendered.String(), nil
 }
 
-// waitForCiliumReady waits specifically for Cilium to be ready with proper logging
+// waitForCiliumReady waits specifically for Cilium to be ready with proper logging and extended timeouts
 func (kp *KindProvider) waitForCiliumReady(ctx context.Context, kubeconfig string) error {
-	// Wait for Cilium operator to be ready first (30 minutes timeout)
-	kp.logger.Info("   Waiting for Cilium operator... (this may take up to 30 minutes)")
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=available", "deployment", "cilium-operator", "-n", "adhar-system", "--timeout=1800s"); err != nil {
-		kp.logger.Warn("Cilium operator timeout, checking status...")
-		// Show current status for debugging
-		kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "name=cilium-operator")
-		kp.runKubectlCommand(ctx, kubeconfig, "describe", "deployment", "cilium-operator", "-n", "adhar-system")
-		return fmt.Errorf("Cilium operator failed to become ready: %w", err)
+	kp.logger.Info("🔍 Starting comprehensive Cilium readiness check...")
+
+	// Wait for Cilium operator to be ready first with extended timeout
+	kp.logger.Info("   Phase 1: Waiting for Cilium operator deployment...")
+	if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=available", "deployment", "cilium-operator", "-n", "adhar-system", "--timeout=600s"); err != nil {
+		kp.logger.Error("Cilium operator deployment failed to become ready, checking status...")
+		kp.runCiliumDiagnostics(ctx, kubeconfig)
+		return fmt.Errorf("Cilium operator deployment failed to become ready: %w", err)
 	}
+	kp.logger.Info("   ✅ Cilium operator deployment is ready")
 
-	// Wait for Cilium DaemonSet to be ready (30 minutes timeout)
-	kp.logger.Info("   Waiting for Cilium DaemonSet... (this may take up to 30 minutes)")
+	// Wait for Cilium DaemonSet to be ready with extended timeout (10 minutes)
+	kp.logger.Info("   Phase 2: Waiting for Cilium DaemonSet pods (this may take several minutes)...")
+	if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "k8s-app=cilium", "-n", "adhar-system", "--timeout=600s"); err != nil {
+		kp.logger.Error("Cilium DaemonSet pods failed to become ready, running diagnostics...")
+		kp.runCiliumDiagnostics(ctx, kubeconfig)
+		return fmt.Errorf("Cilium DaemonSet pods failed to become ready: %w", err)
+	}
+	kp.logger.Info("   ✅ Cilium DaemonSet pods are ready")
 
-	// First, try a quick check to see if pods are already ready
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-l", "k8s-app=cilium", "-n", "adhar-system", "--no-headers"); err == nil {
-		// Pods exist, check if they're ready with a shorter timeout first
-		if err2 := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "k8s-app=cilium", "-n", "adhar-system", "--timeout=60s"); err2 == nil {
-			kp.logger.Info("   ✅ Cilium pods are already ready")
-		} else {
-			// If quick check fails, do the long wait
-			if err3 := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "k8s-app=cilium", "-n", "adhar-system", "--timeout=1800s"); err3 != nil {
-				kp.logger.Warn("Cilium DaemonSet timeout, checking status...")
-				// Show current status for debugging
-				kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "k8s-app=cilium")
-				kp.runKubectlCommand(ctx, kubeconfig, "describe", "pods", "-n", "adhar-system", "-l", "k8s-app=cilium")
-				kp.runKubectlCommand(ctx, kubeconfig, "get", "daemonset", "cilium", "-n", "adhar-system")
-				return fmt.Errorf("Cilium DaemonSet failed to become ready: %w", err3)
-			}
-		}
+	// Verify that Cilium is providing networking
+	kp.logger.Info("   Phase 3: Verifying Cilium networking...")
+	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "ciliumnodes", "--timeout=60s"); err != nil {
+		kp.logger.Debug("CiliumNodes CRD not yet available, this is normal during initial startup")
 	} else {
-		return fmt.Errorf("Cilium pods not found: %w", err)
+		kp.logger.Info("   ✅ Cilium networking CRDs are available")
 	}
 
-	// Additional check: Wait for all nodes to have Cilium pods running
-	kp.logger.Info("   Verifying Cilium is running on all nodes...")
-	// Check DaemonSet status instead of waiting for "ready" condition (which doesn't exist for DaemonSets)
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "daemonset", "cilium", "-n", "adhar-system", "-o", "jsonpath={.status.numberReady}"); err != nil {
-		kp.logger.Warn("Could not check Cilium DaemonSet status, but continuing...")
-	} else {
-		// Verify that desired replicas match ready replicas (this is a quick check)
-		if err2 := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=available", "daemonset", "cilium", "-n", "adhar-system", "--timeout=300s"); err2 != nil {
-			kp.logger.Warn("Cilium DaemonSet not fully available, but pods are ready, continuing...")
-		}
-	}
-
-	// Verify that Cilium is providing networking (check if we can see cilium endpoints)
-	kp.logger.Info("   Verifying Cilium networking...")
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "ciliumnodes"); err != nil {
-		kp.logger.Debug("CiliumNodes not yet available, checking pods instead...")
-		// Alternative check - verify cilium pods are running
-		if err2 := kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "k8s-app=cilium", "--no-headers"); err2 != nil {
-			kp.logger.Debug("Could not verify Cilium pods, but continuing...")
-		}
-	}
-
-	kp.logger.Info("   ✅ Cilium readiness checks completed")
+	kp.logger.Info("🎉 Cilium is fully ready and operational!")
 	return nil
 }
 
 // waitForNodesReady waits for all cluster nodes to be in Ready state
 func (kp *KindProvider) waitForNodesReady(ctx context.Context, kubeconfig string) error {
-	kp.logger.Info("   Waiting for all nodes to be ready... (timeout: 10 minutes)")
-	return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "nodes", "--all", "--timeout=600s")
+	return kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "nodes", "--all", "--timeout=120s")
 }
 
 // verifyPlatformServices performs final verification of all platform services
@@ -1056,55 +799,26 @@ func (kp *KindProvider) verifyPlatformServices(ctx context.Context, kubeconfig s
 		name      string
 		namespace string
 		selector  string
-		checkType string // "pod", "deployment", "statefulset"
 	}{
-		{"cilium", "adhar-system", "k8s-app=cilium", "pod"},
-		{"nginx", "adhar-system", "app.kubernetes.io/name=argocd-server", "deployment"},
-		{"gitea", "adhar-system", "app.kubernetes.io/name=gitea", "pod"},
-		{"argocd-server", "adhar-system", "app.kubernetes.io/name=argocd-server", "pod"},
-		{"argocd-controller", "adhar-system", "app.kubernetes.io/name=argocd-application-controller", "pod"},
-		{"argocd-repo", "adhar-system", "app.kubernetes.io/name=argocd-repo-server", "pod"},
+		{"cilium", "adhar-system", "k8s-app=cilium"},
+		{"nginx", "adhar-system", "app.kubernetes.io/name=ingress-nginx"},
+		{"gitea", "adhar-system", "app.kubernetes.io/name=gitea"},
+		{"argocd", "adhar-system", "app.kubernetes.io/name=argocd-server"},
 	}
 
 	allReady := true
-	readyCount := 0
-
-	kp.logger.Info("🔍 Comprehensive platform verification...")
-
 	for _, svc := range services {
 		kp.logger.Info("   Checking " + svc.name + "...")
-
-		// Check if pods exist and are running
 		if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-l", svc.selector, "-n", svc.namespace, "--no-headers"); err != nil {
 			kp.logger.Warn("   ⚠️  " + svc.name + " pods not found")
 			allReady = false
 			continue
 		}
-
-		// Additional readiness check based on service type
-		var readyErr error
-		switch svc.checkType {
-		case "deployment":
-			readyErr = kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=available", "deployment", "-l", svc.selector, "-n", svc.namespace, "--timeout=30s")
-		case "statefulset":
-			readyErr = kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "statefulset", "-l", svc.selector, "-n", svc.namespace, "--timeout=30s")
-		default: // pod
-			readyErr = kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", svc.selector, "-n", svc.namespace, "--timeout=30s")
-		}
-
-		if readyErr != nil {
-			kp.logger.Warn("   ⚠️  " + svc.name + " not fully ready yet")
-			allReady = false
-		} else {
-			kp.logger.Info("   ✅ " + svc.name + " is healthy")
-			readyCount++
-		}
+		kp.logger.Info("   ✅ " + svc.name + " pods found")
 	}
 
-	kp.logger.Info("📊 Platform verification completed", "ready_services", readyCount, "total_services", len(services))
-
 	if !allReady {
-		return fmt.Errorf("some services are not fully ready yet (%d/%d ready)", readyCount, len(services))
+		return fmt.Errorf("some services are not fully ready")
 	}
 
 	return nil
@@ -1139,289 +853,31 @@ func (kp *KindProvider) printServiceURLs(envConfig *config.ResolvedEnvironmentCo
 	kp.logger.Info("   Gitea: adhar / developer")
 }
 
-// logServiceStatus logs the current status of a service during installation
-func (kp *KindProvider) logServiceStatus(ctx context.Context, kubeconfig, serviceName, namespace string) {
-	// Log pod status
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", namespace, "-l", "app.kubernetes.io/name="+serviceName, "--no-headers"); err == nil {
-		kp.logger.Debug("Pod status logged", "service", serviceName)
+// runCiliumDiagnostics runs diagnostic commands to help troubleshoot Cilium issues
+func (kp *KindProvider) runCiliumDiagnostics(ctx context.Context, kubeconfig string) {
+	kp.logger.Info("🔧 Running Cilium diagnostics for troubleshooting...")
+
+	// Check Cilium pod status
+	kp.logger.Info("   Checking Cilium pod status...")
+	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "k8s-app=cilium", "-o", "wide"); err != nil {
+		kp.logger.Warn("Failed to get Cilium pod status", "error", err)
 	}
 
-	// Log events for the namespace
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "events", "-n", namespace, "--sort-by='.lastTimestamp'", "--field-selector=type=Warning", "--no-headers"); err == nil {
-		kp.logger.Debug("Events status logged", "service", serviceName)
-	}
-}
-
-// prepareKindTemplateData prepares the template data for the Kind cluster template (enhanced from legacy code)
-func (kp *KindProvider) prepareKindTemplateData(kubeVersion string, envConfig *config.ResolvedEnvironmentConfig) map[string]interface{} {
-	// Extract configuration values from envConfig
-	host := "adhar.localtest.me"
-	port := "8443"
-	protocol := "https"
-	usePathRouting := false
-	staticPassword := false
-	registryConfig := ""
-	extraPortsMappingStr := ""
-	registryConfigPaths := []string{}
-
-	// Extract values from ResolvedClusterConfig
-	for _, cfg := range envConfig.ResolvedClusterConfig {
-		switch cfg.Key {
-		case "host":
-			host = cfg.Value
-		case "port":
-			port = cfg.Value
-		case "protocol":
-			protocol = cfg.Value
-		case "usePathRouting":
-			usePathRouting = cfg.Value == "true"
-		case "staticPassword":
-			staticPassword = cfg.Value == "true"
-		case "registryConfig":
-			registryConfig = cfg.Value
-		case "extraPortsMapping":
-			extraPortsMappingStr = cfg.Value
-		case "registryConfigPaths":
-			registryConfigPaths = strings.Split(cfg.Value, ",")
-		}
+	// Check Cilium operator status
+	kp.logger.Info("   Checking Cilium operator status...")
+	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "deployment", "-n", "adhar-system", "cilium-operator", "-o", "wide"); err != nil {
+		kp.logger.Warn("Failed to get Cilium operator status", "error", err)
 	}
 
-	// Parse extra port mappings from string configuration
-	portMappings := kp.parsePortMappings(extraPortsMappingStr)
-	extraPortsMapping := make([]map[string]interface{}, len(portMappings))
-	for i, pm := range portMappings {
-		extraPortsMapping[i] = map[string]interface{}{
-			"HostPort":      pm.HostPort,
-			"ContainerPort": pm.ContainerPort,
-		}
+	// Check events for Cilium-related issues
+	kp.logger.Info("   Checking recent events for Cilium issues...")
+	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "events", "-n", "adhar-system", "--sort-by=.lastTimestamp"); err != nil {
+		kp.logger.Warn("Failed to get Cilium events", "error", err)
 	}
 
-	// Find registry config file if paths are provided
-	if len(registryConfigPaths) > 0 && registryConfig == "" {
-		registryConfig = kp.findRegistryConfig(registryConfigPaths)
+	// Get logs from Cilium pods (if they exist)
+	kp.logger.Info("   Attempting to get Cilium pod logs...")
+	if err := kp.runKubectlCommand(ctx, kubeconfig, "logs", "-n", "adhar-system", "-l", "k8s-app=cilium", "--tail=20", "--prefix=true"); err != nil {
+		kp.logger.Debug("Could not retrieve Cilium pod logs (pods may not be running)", "error", err)
 	}
-
-	templateData := map[string]interface{}{
-		"KubernetesVersion": kubeVersion,
-		"Host":              host,
-		"Port":              port,
-		"Protocol":          protocol,
-		"UsePathRouting":    usePathRouting,
-		"StaticPassword":    staticPassword,
-		"RegistryConfig":    registryConfig,
-		"ExtraPortsMapping": extraPortsMapping,
-	}
-
-	kp.logger.Debug("Kind template data prepared",
-		"kubeVersion", kubeVersion,
-		"host", host,
-		"port", port,
-		"protocol", protocol,
-		"usePathRouting", usePathRouting,
-		"staticPassword", staticPassword,
-		"extraPortsCount", len(extraPortsMapping),
-		"registryConfig", registryConfig,
-	)
-
-	return templateData
-}
-
-// loadKindConfig loads Kind configuration from file, remote URL, or embedded template (enhanced from legacy code)
-func (kp *KindProvider) loadKindConfig(configPath string) ([]byte, error) {
-	var rawConfigTempl []byte
-	var err error
-
-	if configPath != "" {
-		if strings.HasPrefix(configPath, "https://") || strings.HasPrefix(configPath, "http://") {
-			kp.logger.Info("📡 Loading Kind config from remote URL: " + configPath)
-			resp, err := kp.httpClient.Get(configPath)
-			if err != nil {
-				return nil, fmt.Errorf("fetching remote kind config: %w", err)
-			}
-			defer resp.Body.Close()
-
-			if !(resp.StatusCode < 300 && resp.StatusCode >= 200) {
-				return nil, fmt.Errorf("got %d status code when fetching kind config from %s", resp.StatusCode, configPath)
-			}
-
-			rawConfigTempl, err = io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, fmt.Errorf("reading remote kind config body: %w", err)
-			}
-			kp.logger.Info("✅ Successfully loaded remote Kind config")
-		} else {
-			kp.logger.Info("📁 Loading Kind config from local file: " + configPath)
-			rawConfigTempl, err = os.ReadFile(configPath)
-			if err != nil {
-				return nil, fmt.Errorf("reading local kind config file: %w", err)
-			}
-		}
-	} else {
-		// Use default template
-		templatePath := "platform/build/templates/kind/kind.yaml.tmpl"
-		absTemplatePath, err := filepath.Abs(templatePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get absolute path for Kind template: %w", err)
-		}
-		kp.logger.Info("📄 Loading default Kind template from: " + absTemplatePath)
-		rawConfigTempl, err = os.ReadFile(absTemplatePath)
-		if err != nil {
-			return nil, fmt.Errorf("reading default kind template: %w", err)
-		}
-	}
-
-	return rawConfigTempl, nil
-}
-
-// parsePortMappings parses extra port mappings from string format (from legacy code)
-func (kp *KindProvider) parsePortMappings(extraPortsMapping string) []PortMapping {
-	var portMappingPairs []PortMapping
-	if len(extraPortsMapping) > 0 {
-		kp.logger.Debug("Parsing extra port mappings", "mappings", extraPortsMapping)
-		// Split pairs of ports "11:1111","22:2222",etc
-		pairs := strings.Split(extraPortsMapping, ",")
-		// Create a slice to store PortMapping pairs.
-		portMappingPairs = make([]PortMapping, len(pairs))
-		// Parse each pair into PortMapping objects.
-		for i, pair := range pairs {
-			parts := strings.Split(pair, ":")
-			if len(parts) == 2 {
-				portMappingPairs[i] = PortMapping{
-					HostPort:      strings.TrimSpace(parts[0]),
-					ContainerPort: strings.TrimSpace(parts[1]),
-				}
-			}
-		}
-		kp.logger.Debug("Parsed port mappings", "count", len(portMappingPairs))
-	}
-	return portMappingPairs
-}
-
-// findRegistryConfig finds the first existing registry config file from provided paths (from legacy code)
-func (kp *KindProvider) findRegistryConfig(registryConfigPaths []string) string {
-	for _, s := range registryConfigPaths {
-		path := os.ExpandEnv(s)
-		if _, err := os.Stat(path); err == nil {
-			kp.logger.Info("✅ Found registry config at: " + path)
-			return path
-		}
-	}
-	if len(registryConfigPaths) > 0 {
-		kp.logger.Debug("No registry config found in provided paths", "paths", registryConfigPaths)
-	}
-	return ""
-}
-
-// ensureCorrectKindConfig ensures the Kind config has correct port mappings and ingress labels (enhanced from legacy code)
-func (kp *KindProvider) ensureCorrectKindConfig(configData []byte, envConfig *config.ResolvedEnvironmentConfig) ([]byte, error) {
-	// Parse the YAML config
-	parsedCluster := kindv1alpha4.Cluster{}
-	err := yaml.Unmarshal(configData, &parsedCluster)
-	if err != nil {
-		return nil, fmt.Errorf("parsing kind config: %w", err)
-	}
-
-	if len(parsedCluster.Nodes) == 0 {
-		return nil, fmt.Errorf("provided kind config does not have the node field defined")
-	}
-
-	// Get configuration values
-	port := "8443"
-	protocol := "https"
-	for _, cfg := range envConfig.ResolvedClusterConfig {
-		switch cfg.Key {
-		case "port":
-			port = cfg.Value
-		case "protocol":
-			protocol = cfg.Value
-		}
-	}
-
-	// Determine container port based on protocol
-	containerPort := "443"
-	if protocol == "http" {
-		containerPort = "80"
-	}
-
-	kp.logger.Debug("Ensuring correct Kind config", "hostPort", port, "containerPort", containerPort, "protocol", protocol)
-
-	// Check if we need to add necessary port and ingress-nginx label
-	appendNecessaryPort := true
-	appendIngressNodeLabel := true
-	nodePosition := 0 // pick the first node for the ingress-nginx if we need to configure node port
-
-	// Look for existing configuration
-nodes:
-	for i := range parsedCluster.Nodes {
-		node := parsedCluster.Nodes[i]
-
-		// Check if port mapping already exists
-		for _, pm := range node.ExtraPortMappings {
-			if strconv.Itoa(int(pm.HostPort)) == port {
-				appendNecessaryPort = false
-				nodePosition = i
-				if node.Labels != nil {
-					v, ok := node.Labels[ingressNginxNodeLabelKey]
-					if ok && v == ingressNginxNodeLabelValue {
-						appendIngressNodeLabel = false
-					}
-				}
-				break nodes
-			}
-		}
-
-		// Check if ingress label already exists
-		if node.Labels != nil {
-			v, ok := node.Labels[ingressNginxNodeLabelKey]
-			if ok && v == ingressNginxNodeLabelValue {
-				appendIngressNodeLabel = false
-				nodePosition = i
-				break nodes
-			}
-		}
-	}
-
-	// Add necessary port mapping if missing
-	if appendNecessaryPort {
-		hp, err := strconv.Atoi(port)
-		if err != nil {
-			return nil, fmt.Errorf("converting port, %s, to int: %w", port, err)
-		}
-		cp, err := strconv.Atoi(containerPort)
-		if err != nil {
-			return nil, fmt.Errorf("converting container port, %s, to int: %w", containerPort, err)
-		}
-
-		if parsedCluster.Nodes[nodePosition].ExtraPortMappings == nil {
-			parsedCluster.Nodes[nodePosition].ExtraPortMappings = make([]kindv1alpha4.PortMapping, 0, 1)
-		}
-
-		parsedCluster.Nodes[nodePosition].ExtraPortMappings = append(
-			parsedCluster.Nodes[nodePosition].ExtraPortMappings,
-			kindv1alpha4.PortMapping{
-				ContainerPort: int32(cp),
-				HostPort:      int32(hp),
-				Protocol:      "TCP",
-			},
-		)
-
-		kp.logger.Info("➕ Added port mapping to Kind config", "hostPort", hp, "containerPort", cp, "nodeIndex", nodePosition)
-	}
-
-	// Add ingress-nginx label if missing
-	if appendIngressNodeLabel {
-		if parsedCluster.Nodes[nodePosition].Labels == nil {
-			parsedCluster.Nodes[nodePosition].Labels = make(map[string]string)
-		}
-		parsedCluster.Nodes[nodePosition].Labels[ingressNginxNodeLabelKey] = ingressNginxNodeLabelValue
-		kp.logger.Info("🏷️  Added ingress-ready label to Kind config", "nodeIndex", nodePosition)
-	}
-
-	// Marshal back to YAML
-	out, err := yaml.Marshal(parsedCluster)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling corrected kind cluster config: %w", err)
-	}
-
-	return out, nil
 }

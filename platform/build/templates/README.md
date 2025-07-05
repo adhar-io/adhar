@@ -59,7 +59,8 @@ Each platform application has specific configuration sections:
 
 ```go
 // Create template engine
-templateEngine := NewTemplateEngine()
+logger := logrus.New()
+templateEngine := NewTemplateEngine(logger)
 
 // Generate manifests for a service with HA mode
 manifests, err := templateEngine.GenerateManifests(ctx, "gitea", true)

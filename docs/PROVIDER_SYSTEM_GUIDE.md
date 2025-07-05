@@ -475,7 +475,8 @@ platform/build/templates/
 
 ```go
 // Create template engine
-templateEngine := NewTemplateEngine("platform/build/templates")
+logger := logrus.New()
+templateEngine := NewTemplateEngine(logger)
 
 // Generate manifests for ArgoCD
 manifests, err := templateEngine.GenerateManifests(ctx, "argocd", enableHAMode)

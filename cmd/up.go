@@ -218,7 +218,7 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	}
 
 	// Initialize template engine
-	templateEngine := build.NewTemplateEngine()
+	templateEngine := build.NewTemplateEngine(logger)
 
 	// Create provider manager
 	providerManager := build.NewProviderManager(logger, templateEngine)
@@ -678,7 +678,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		logger.SetLevel(logrus.DebugLevel)
 	}
 
-	templateEngine := build.NewTemplateEngine()
+	templateEngine := build.NewTemplateEngine(logger)
 	providerManager := build.NewProviderManager(logger, templateEngine)
 
 	// Create environment config for Kind provider with CLI flags that uses template mode

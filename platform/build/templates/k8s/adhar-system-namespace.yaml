@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-system
+    app.kubernetes.io/part-of: adhar-platform

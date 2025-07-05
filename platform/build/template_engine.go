@@ -8,18 +8,21 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
 // TemplateEngine handles KCL-based template processing
 type TemplateEngine struct {
 	templatesDir string
+	logger       *logrus.Logger
 }
 
 // NewTemplateEngine creates a new template engine
-func NewTemplateEngine() *TemplateEngine {
+func NewTemplateEngine(logger *logrus.Logger) *TemplateEngine {
 	return &TemplateEngine{
 		templatesDir: "platform/build/templates/platform-apps",
+		logger:       logger,
 	}
 }
 
@@ -65,7 +68,7 @@ func (te *TemplateEngine) LoadKCLConfig(ctx context.Context, appName string, ena
 	output, err := cmd.Output()
 	if err != nil {
 		// Fallback to hardcoded configuration if KCL is not available
-		fmt.Printf("KCL not available, using fallback configuration for app: %s, mode: %v\n", appName, mode)
+		te.logger.Info("KCL not available, using fallback configuration", "app", appName, "mode", mode)
 		return te.getFallbackConfig(appName, enableHAMode), nil
 	}
 
