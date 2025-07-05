@@ -55,37 +55,17 @@ func (kp *KindProvider) Provision(ctx context.Context, envConfig *config.Resolve
 		return nil
 	}
 
-	// Check if we should use template mode
-	useTemplates := false
-	if envConfig.GlobalSettings != nil && envConfig.GlobalSettings.AdharContext == "template-mode" {
-		useTemplates = true
-	}
-
 	clusterName := envConfig.Name
 	kubeVersion := kp.getKubeVersion(envConfig)
 
-	if useTemplates {
-		// Use template-based cluster creation (original approach)
-		kp.logger.Info("🏗️  Creating Kind cluster using template configuration...")
-		kp.logger.Info("   Cluster name: " + clusterName)
-		kp.logger.Info("   Kubernetes version: " + kubeVersion)
-		kp.logger.Info("   Configuration: 1 control-plane + 3 worker nodes")
-		kp.logger.Info("   Networking: CNI disabled (Cilium will be installed)")
-		if err := kp.createClusterWithTemplate(ctx, clusterName, kubeVersion, envConfig); err != nil {
-			return fmt.Errorf("failed to create Kind cluster with template: %w", err)
-		}
-	} else {
-		// Use basic cluster creation
-		kp.logger.Info("Creating Kind cluster using basic mode", "name", clusterName, "kubeVersion", kubeVersion)
-		cmd := exec.CommandContext(ctx, "kind", "create", "cluster", "--name", clusterName)
-		if kubeVersion != "" {
-			cmd.Args = append(cmd.Args, "--image", fmt.Sprintf("kindest/node:%s", kubeVersion))
-		}
-
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to create Kind cluster: %w, output: %s", err, string(output))
-		}
+	// Use template-based cluster creation
+	kp.logger.Info("🏗️  Creating Kind cluster using template...")
+	kp.logger.Info("   Cluster name: " + clusterName)
+	kp.logger.Info("   Kubernetes version: " + kubeVersion)
+	kp.logger.Info("   Configuration: 1 control-plane + 3 worker nodes")
+	kp.logger.Info("   Networking: CNI disabled (Cilium will be installed)")
+	if err := kp.createClusterWithTemplate(ctx, clusterName, kubeVersion, envConfig); err != nil {
+		return fmt.Errorf("failed to create Kind cluster with template: %w", err)
 	}
 
 	kp.logger.Info("✅ Kind cluster created successfully: " + clusterName)
@@ -156,58 +136,23 @@ func (kp *KindProvider) InstallPlatformServices(ctx context.Context, envConfig *
 	enableHAMode := false // Always force local mode for Kind clusters
 	kp.logger.Info("   Enforcing local development mode (minimal replicas)")
 
-	// Choose installation method: Helm (default) or Templates
-	useTemplates := false
-	if envConfig.GlobalSettings != nil && envConfig.GlobalSettings.AdharContext == "template-mode" {
-		useTemplates = true
-		kp.logger.Info("   Using Kustomize-based templates with local development overlays")
+	// Phase 1: Install core infrastructure using templates (like cloud providers)
+	if err := kp.installCoreInfrastructureWithTemplates(ctx, kubeconfig, enableHAMode, envConfig); err != nil {
+		return fmt.Errorf("failed to install core infrastructure with templates: %w", err)
 	}
 
-	if useTemplates {
-		// Phase 1: Install core infrastructure using templates (like cloud providers)
-		if err := kp.installCoreInfrastructureWithTemplates(ctx, kubeconfig, enableHAMode, envConfig); err != nil {
-			return fmt.Errorf("failed to install core infrastructure with templates: %w", err)
-		}
-
-		// Phase 2: Setup ArgoCD for platform stack management
-		if err := kp.setupArgoCDPlatformManagement(ctx, kubeconfig, enableHAMode, envConfig); err != nil {
-			return fmt.Errorf("failed to setup ArgoCD platform management: %w", err)
-		}
-
-		// Final verification and success message
-		kp.logger.Info("🔍 Running final platform verification...")
-		if err := kp.verifyPlatformServices(ctx, kubeconfig); err != nil {
-			kp.logger.Warn("⚠️  Some services may not be fully ready yet", "error", err)
-		}
-
-		kp.logger.Info("🎉✨ Adhar platform is ready! ✨🎉")
-		kp.logger.Info("🌐 Access your services at:")
-		kp.printServiceURLs(envConfig)
-	} else {
-		// Default: Install using Helm directly
-		if err := kp.installWithHelm(ctx, kubeconfig, enableHAMode, envConfig); err != nil {
-			return fmt.Errorf("failed to install with Helm: %w", err)
-		}
-		kp.logger.Info("All platform services installed successfully on Kind cluster")
-	}
-	return nil
-}
-
-// installWithHelm installs platform services using Helm (existing implementation)
-func (kp *KindProvider) installWithHelm(ctx context.Context, kubeconfig string, enableHAMode bool, envConfig *config.ResolvedEnvironmentConfig) error {
-	// Define the order of services to install
-	services := []string{"cilium", "nginx", "gitea", "argocd"}
-
-	for _, service := range services {
-		kp.logger.Info("Installing platform service", "service", service)
-
-		if err := kp.installService(ctx, service, kubeconfig, enableHAMode, envConfig); err != nil {
-			return fmt.Errorf("failed to install service %s: %w", service, err)
-		}
-
-		kp.logger.Info("Platform service installed successfully", "service", service)
+	// Phase 2: Deploy platform stack applications via ArgoCD
+	kp.logger.Info("📦 Deploying platform stack applications...")
+	if err := kp.deployPlatformStackApplications(ctx, kubeconfig, envConfig); err != nil {
+		kp.logger.Warn("⚠️  Some platform stack applications may not have deployed successfully", "error", err)
 	}
 
+	// Final verification and success message
+	kp.verifyPlatformServices(ctx, kubeconfig)
+
+	kp.logger.Info("🎉✨ Adhar platform is ready! ✨🎉")
+	kp.logger.Info("🌐 Access your services at:")
+	kp.printServiceURLs(envConfig)
 	return nil
 }
 
@@ -251,7 +196,7 @@ func (kp *KindProvider) installCoreInfrastructureWithTemplates(ctx context.Conte
 	}
 
 	// Step 3: Install other core services (in order)
-	otherServices := []string{"nginx", "gitea"}
+	otherServices := []string{"nginx", "gitea", "argocd"}
 
 	for _, service := range otherServices {
 		kp.logger.Info("🔧 Installing platform service: " + service + "...")
@@ -277,41 +222,6 @@ func (kp *KindProvider) installCoreInfrastructureWithTemplates(ctx context.Conte
 	}
 
 	kp.logger.Info("🎉 Core infrastructure installation completed successfully")
-	return nil
-}
-
-// setupArgoCDPlatformManagement installs ArgoCD and configures it for platform stack management
-func (kp *KindProvider) setupArgoCDPlatformManagement(ctx context.Context, kubeconfig string, enableHAMode bool, envConfig *config.ResolvedEnvironmentConfig) error {
-	kp.logger.Info("🔄 Setting up ArgoCD for platform management...")
-
-	// Install ArgoCD using templates
-	kp.logger.Info("🔧 Installing ArgoCD...")
-	manifests, err := kp.templateEngine.GenerateManifests(ctx, "argocd", enableHAMode)
-	if err != nil {
-		return fmt.Errorf("failed to generate ArgoCD manifests: %w", err)
-	}
-
-	if err := kp.applyManifests(ctx, kubeconfig, manifests, "argocd"); err != nil {
-		return fmt.Errorf("failed to apply ArgoCD manifests: %w", err)
-	}
-
-	// Wait for ArgoCD to be ready
-	kp.logger.Info("⏳ Waiting for ArgoCD to be ready...")
-	if err := kp.waitForServiceReady(ctx, kubeconfig, "argocd"); err != nil {
-		kp.logger.Warn("⚠️  ArgoCD may not be fully ready yet, but continuing...", "error", err)
-	} else {
-		kp.logger.Info("✅ ArgoCD is ready")
-	}
-
-	// Deploy platform stack applications
-	kp.logger.Info("📦 Deploying platform stack applications...")
-	if err := kp.deployPlatformStackApplications(ctx, kubeconfig, envConfig); err != nil {
-		kp.logger.Warn("⚠️  Some platform stack applications may not have deployed successfully", "error", err)
-	} else {
-		kp.logger.Info("✅ Platform stack applications deployed")
-	}
-
-	kp.logger.Info("🎉 ArgoCD platform management setup completed")
 	return nil
 }
 
@@ -762,7 +672,8 @@ func (kp *KindProvider) waitForCiliumReady(ctx context.Context, kubeconfig strin
 	kp.logger.Info("   Phase 1: Waiting for Cilium operator deployment...")
 	if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=available", "deployment", "cilium-operator", "-n", "adhar-system", "--timeout=600s"); err != nil {
 		kp.logger.Error("Cilium operator deployment failed to become ready, checking status...")
-		kp.runCiliumDiagnostics(ctx, kubeconfig)
+		// Show pod status for debugging
+		kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "io.cilium/app=operator")
 		return fmt.Errorf("Cilium operator deployment failed to become ready: %w", err)
 	}
 	kp.logger.Info("   ✅ Cilium operator deployment is ready")
@@ -771,7 +682,6 @@ func (kp *KindProvider) waitForCiliumReady(ctx context.Context, kubeconfig strin
 	kp.logger.Info("   Phase 2: Waiting for Cilium DaemonSet pods (this may take several minutes)...")
 	if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "k8s-app=cilium", "-n", "adhar-system", "--timeout=600s"); err != nil {
 		kp.logger.Error("Cilium DaemonSet pods failed to become ready, running diagnostics...")
-		kp.runCiliumDiagnostics(ctx, kubeconfig)
 		return fmt.Errorf("Cilium DaemonSet pods failed to become ready: %w", err)
 	}
 	kp.logger.Info("   ✅ Cilium DaemonSet pods are ready")
@@ -806,21 +716,19 @@ func (kp *KindProvider) verifyPlatformServices(ctx context.Context, kubeconfig s
 		{"argocd", "adhar-system", "app.kubernetes.io/name=argocd-server"},
 	}
 
-	allReady := true
+	var notReady []string
 	for _, svc := range services {
-		kp.logger.Info("   Checking " + svc.name + "...")
 		if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-l", svc.selector, "-n", svc.namespace, "--no-headers"); err != nil {
-			kp.logger.Warn("   ⚠️  " + svc.name + " pods not found")
-			allReady = false
-			continue
+			notReady = append(notReady, svc.name)
 		}
-		kp.logger.Info("   ✅ " + svc.name + " pods found")
 	}
 
-	if !allReady {
-		return fmt.Errorf("some services are not fully ready")
+	if len(notReady) > 0 {
+		kp.logger.Warn(fmt.Sprintf("⚠️  Some services may not be fully ready: %s", strings.Join(notReady, ", ")))
+		return fmt.Errorf("some services are not fully ready: %s", strings.Join(notReady, ", "))
 	}
 
+	kp.logger.Info("✅ All platform services are verified and ready")
 	return nil
 }
 
@@ -851,33 +759,4 @@ func (kp *KindProvider) printServiceURLs(envConfig *config.ResolvedEnvironmentCo
 	kp.logger.Info("💡 Default credentials:")
 	kp.logger.Info("   ArgoCD: admin / developer")
 	kp.logger.Info("   Gitea: adhar / developer")
-}
-
-// runCiliumDiagnostics runs diagnostic commands to help troubleshoot Cilium issues
-func (kp *KindProvider) runCiliumDiagnostics(ctx context.Context, kubeconfig string) {
-	kp.logger.Info("🔧 Running Cilium diagnostics for troubleshooting...")
-
-	// Check Cilium pod status
-	kp.logger.Info("   Checking Cilium pod status...")
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "k8s-app=cilium", "-o", "wide"); err != nil {
-		kp.logger.Warn("Failed to get Cilium pod status", "error", err)
-	}
-
-	// Check Cilium operator status
-	kp.logger.Info("   Checking Cilium operator status...")
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "deployment", "-n", "adhar-system", "cilium-operator", "-o", "wide"); err != nil {
-		kp.logger.Warn("Failed to get Cilium operator status", "error", err)
-	}
-
-	// Check events for Cilium-related issues
-	kp.logger.Info("   Checking recent events for Cilium issues...")
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "get", "events", "-n", "adhar-system", "--sort-by=.lastTimestamp"); err != nil {
-		kp.logger.Warn("Failed to get Cilium events", "error", err)
-	}
-
-	// Get logs from Cilium pods (if they exist)
-	kp.logger.Info("   Attempting to get Cilium pod logs...")
-	if err := kp.runKubectlCommand(ctx, kubeconfig, "logs", "-n", "adhar-system", "-l", "k8s-app=cilium", "--tail=20", "--prefix=true"); err != nil {
-		kp.logger.Debug("Could not retrieve Cilium pod logs (pods may not be running)", "error", err)
-	}
 }

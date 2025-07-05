@@ -128,7 +128,7 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 		return fmt.Errorf("failed to install platform services: %w", err)
 	}
 
-	pm.logger.Info("Environment provisioning completed successfully", "name", envConfig.Name)
+	pm.logger.Info(fmt.Sprintf("✅ Environment '%s' provisioning completed successfully", envConfig.Name))
 	return nil
 }
 

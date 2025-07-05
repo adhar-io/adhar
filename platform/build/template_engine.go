@@ -68,7 +68,7 @@ func (te *TemplateEngine) LoadKCLConfig(ctx context.Context, appName string, ena
 	output, err := cmd.Output()
 	if err != nil {
 		// Fallback to hardcoded configuration if KCL is not available
-		te.logger.Info("KCL not available, using fallback configuration", "app", appName, "mode", mode)
+		te.logger.Info(fmt.Sprintf("KCL not available for %s (%s mode), using fallback configuration", appName, mode))
 		return te.getFallbackConfig(appName, enableHAMode), nil
 	}
 
