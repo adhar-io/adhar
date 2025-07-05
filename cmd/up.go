@@ -194,8 +194,8 @@ func create(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	// TODO: Port local development to new ProviderManager with Kind
-	return fmt.Errorf("local development mode temporarily disabled - please use 'adhar up -f config.yaml' with a Kind provider configuration")
+	// Create local development cluster using new ProviderManager
+	return createLocalDevelopmentCluster(ctx, cmd, args)
 }
 
 // createProductionCluster handles production cluster provisioning using the new ProviderManager
@@ -565,4 +565,219 @@ func showDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 
 	fmt.Printf("\n%s\n", codeStyle.Render("No changes will be made in dry-run mode"))
 	return nil
+}
+
+// showLocalDryRunInfo displays what would be provisioned in local development dry-run mode
+func showLocalDryRunInfo(adharSpec *v1alpha1.AdharPlatformSpec, envConfig *config.ResolvedEnvironmentConfig) error {
+	fmt.Printf("\n%s\n", boldStyle.Render("🔍 Dry Run - Local Development Preview"))
+	fmt.Printf("┌─────────────────────────────────────────────┐\n")
+	fmt.Printf("│ Environment: %-30s │\n", envConfig.Name)
+	fmt.Printf("│ Provider:    %-30s │\n", envConfig.ResolvedProvider)
+	fmt.Printf("│ Region:      %-30s │\n", envConfig.ResolvedRegion)
+	fmt.Printf("│ Type:        %-30s │\n", envConfig.ResolvedType)
+	fmt.Printf("└─────────────────────────────────────────────┘\n")
+
+	fmt.Printf("\nPlatform Configuration:\n")
+	fmt.Printf("  Host:        %s\n", adharSpec.BuildCustomization.Host)
+	fmt.Printf("  Protocol:    %s\n", adharSpec.BuildCustomization.Protocol)
+	fmt.Printf("  Port:        %s\n", adharSpec.BuildCustomization.Port)
+	fmt.Printf("  Path Routing: %v\n", adharSpec.BuildCustomization.UsePathRouting)
+
+	if len(envConfig.ResolvedClusterConfig) > 0 {
+		fmt.Printf("\nKind Cluster Configuration:\n")
+		for _, cfg := range envConfig.ResolvedClusterConfig {
+			switch cfg.Key {
+			case "kubeVersion":
+				fmt.Printf("  Kubernetes Version: %s\n", cfg.Value)
+			case "extraPorts":
+				fmt.Printf("  Extra Ports: %s\n", cfg.Value)
+			case "configPath":
+				fmt.Printf("  Config Path: %s\n", cfg.Value)
+			default:
+				fmt.Printf("  %s: %s\n", cfg.Key, cfg.Value)
+			}
+		}
+	}
+
+	fmt.Printf("\nCore Services:\n")
+	fmt.Printf("  ArgoCD:      %v\n", adharSpec.PackageConfigs.Argo.Enabled)
+	fmt.Printf("  Gitea:       %v\n", adharSpec.PackageConfigs.EmbeddedArgoApplications.Enabled)
+	fmt.Printf("  Nginx:       true\n")
+	fmt.Printf("  Cilium:      true\n")
+
+	if len(adharSpec.PackageConfigs.CustomPackageDirs) > 0 || len(adharSpec.PackageConfigs.CustomPackageUrls) > 0 {
+		fmt.Printf("\nCustom Packages:\n")
+		for _, pkg := range adharSpec.PackageConfigs.CustomPackageDirs {
+			fmt.Printf("  Directory: %s\n", pkg)
+		}
+		for _, pkg := range adharSpec.PackageConfigs.CustomPackageUrls {
+			fmt.Printf("  URL: %s\n", pkg)
+		}
+	}
+
+	fmt.Printf("\n%s\n", codeStyle.Render("No changes will be made in dry-run mode"))
+	return nil
+}
+
+// createLocalDevelopmentCluster creates a local Kind cluster using the original template-based approach with ProviderManager
+func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args []string) error {
+	// Validate arguments and set up build configuration
+	if err := validate(); err != nil {
+		return err
+	}
+
+	customPackageDirs, customPackageUrls, err := helpers.ParsePackageStrings(extraPackages)
+	if err != nil {
+		return err
+	}
+
+	registryConfigPaths, err := helpers.GetAbsFilePaths(registryConfig, true)
+	if err != nil {
+		return err
+	}
+	_ = registryConfigPaths // TODO: Use registry config paths in build process
+
+	packageCustomizations := map[string]v1alpha1.PackageCustomization{}
+	for _, packageCustomFile := range packageCustomizationFiles {
+		packageCustom, customFileErr := getPackageCustomFile(packageCustomFile)
+		if customFileErr != nil {
+			return customFileErr
+		}
+		packageCustomizations[packageCustom.Name] = packageCustom
+	}
+
+	// Create AdharPlatformSpec using the template approach
+	adharSpec := &v1alpha1.AdharPlatformSpec{
+		PackageConfigs: v1alpha1.PackageConfigsSpec{
+			Argo: v1alpha1.ArgoPackageConfigSpec{
+				Enabled: true,
+			},
+			EmbeddedArgoApplications: v1alpha1.EmbeddedArgoApplicationsPackageConfigSpec{
+				Enabled: true,
+			},
+			CustomPackageDirs:        customPackageDirs,
+			CustomPackageUrls:        customPackageUrls,
+			CorePackageCustomization: packageCustomizations,
+		},
+		BuildCustomization: v1alpha1.BuildCustomizationSpec{
+			Protocol:       protocol,
+			Host:           host,
+			IngressHost:    ingressHost,
+			Port:           port,
+			UsePathRouting: pathRouting,
+			StaticPassword: devPassword,
+		},
+	}
+
+	fmt.Printf("🚀 %s\n", boldStyle.Render("Provisioning Local Development Cluster"))
+	fmt.Println()
+
+	// Use the original template-based build approach with ProviderManager
+	logger := logrus.New()
+	if verbose {
+		logger.SetLevel(logrus.DebugLevel)
+	}
+
+	templateEngine := build.NewTemplateEngine()
+	providerManager := build.NewProviderManager(logger, templateEngine)
+
+	// Create environment config for Kind provider with CLI flags that uses template mode
+	var clusterConfig []config.ClusterConfig
+
+	if kubeVersion != "" && kubeVersion != "v1.33.1" {
+		clusterConfig = append(clusterConfig, config.ClusterConfig{
+			Key:   "kubeVersion",
+			Value: kubeVersion,
+		})
+	}
+
+	if extraPortsMapping != "" {
+		clusterConfig = append(clusterConfig, config.ClusterConfig{
+			Key:   "extraPorts",
+			Value: extraPortsMapping,
+		})
+	}
+
+	if kindConfigPath != "" {
+		clusterConfig = append(clusterConfig, config.ClusterConfig{
+			Key:   "configPath",
+			Value: kindConfigPath,
+		})
+	}
+
+	envConfig := &config.ResolvedEnvironmentConfig{
+		Name:                  globals.DefaultClusterName, // Use "adhar" as cluster name
+		ResolvedProvider:      v1alpha1.ProviderKind,
+		ResolvedRegion:        "local",
+		ResolvedType:          config.EnvironmentTypeNonProduction,
+		ResolvedClusterConfig: clusterConfig,
+		GlobalSettings: &config.GlobalSettings{
+			AdharContext: "template-mode", // This triggers template-based approach
+			DefaultHost:  host,
+			EnableHAMode: false,
+		},
+	}
+
+	// Set provision options
+	provisionOpts := build.ProvisionOptions{
+		DryRun: dryRun,
+		Force:  force || recreateCluster,
+	}
+
+	// If dry run, show what would be provisioned
+	if dryRun {
+		return showLocalDryRunInfo(adharSpec, envConfig)
+	}
+
+	// Use the ProviderManager to create the Kind cluster with template-based provisioning
+	if err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts); err != nil {
+		return fmt.Errorf("failed to provision local development cluster: %w", err)
+	}
+
+	// Print success message
+	printSuccessMsg()
+	return nil
+}
+
+// printLocalSuccessMsg prints success message for local development cluster
+func printLocalSuccessMsg() {
+	subDomain := "argocd."
+	subPath := ""
+
+	if pathRouting == true {
+		subDomain = ""
+		subPath = "argocd"
+	}
+
+	var argoURL string
+
+	proxy := behindProxy()
+	if proxy {
+		argoURL = fmt.Sprintf("https://%s/argocd", host)
+	} else {
+		argoURL = fmt.Sprintf("%s://%s%s:%s/%s", protocol, subDomain, host, port, subPath)
+	}
+
+	fmt.Print("\n\n########################### Finished Creating Adhar IDP Successfully! ############################\n\n")
+	fmt.Printf("🎉 %s\n\n", boldStyle.Render("Local Development Platform Ready!"))
+	fmt.Printf("Your Adhar platform includes:\n")
+	fmt.Printf("  ✅ Kind Kubernetes cluster\n")
+	fmt.Printf("  ✅ Cilium CNI for secure networking\n")
+	fmt.Printf("  ✅ ArgoCD for GitOps deployments\n")
+	fmt.Printf("  ✅ Gitea for Git repository hosting\n")
+	fmt.Printf("  ✅ Ingress-Nginx for traffic routing\n")
+	fmt.Printf("  ✅ Platform observability stack\n\n")
+	fmt.Printf("%s\n", boldStyle.Render("Quick Access:"))
+	fmt.Printf("ArgoCD Dashboard: %s\n", argoURL)
+	fmt.Printf("Username: admin\n")
+	fmt.Printf("Password: Run `adhar get secrets -p argocd`\n\n")
+	fmt.Printf("%s\n", boldStyle.Render("Next Steps:"))
+	fmt.Printf("1. Deploy your first application via ArgoCD\n")
+	fmt.Printf("2. Push code to the integrated Gitea instance\n")
+	fmt.Printf("3. Use `adhar get secrets` to retrieve service credentials\n")
+	fmt.Printf("4. Run `adhar get status` to monitor platform health\n\n")
+	fmt.Printf("%s\n", boldStyle.Render("Local Development Commands:"))
+	fmt.Printf("• Check cluster status: adhar get status\n")
+	fmt.Printf("• Get service secrets: adhar get secrets\n")
+	fmt.Printf("• Destroy cluster: adhar down\n\n")
 }

@@ -112,7 +112,7 @@ Check cluster health:
 
 ### Go Integration
 
-- **`../platform/management/cluster.go`** - Go integration module
+- **`../platform/build/cluster.go`** - Go integration module
   - Programmatic cluster management
   - CLI integration
   - Status monitoring and validation

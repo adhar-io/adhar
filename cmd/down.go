@@ -161,7 +161,7 @@ func (m downModel) View() string {
 
 	step := m.step
 	if step == "" {
-		step = "Preparing"
+		step = "Working"
 	}
 
 	// Show the current spinner, step, and status

@@ -146,7 +146,7 @@ test_cluster_connectivity() {
 test_go_integration() {
     log "Testing Go module integration"
     
-    local go_module="${SCRIPT_DIR}/../../platform/management/cluster.go"
+    local go_module="${SCRIPT_DIR}/../../platform/build/cluster.go"
     
     if [[ ! -f "$go_module" ]]; then
         error "Go management module not found: $go_module"

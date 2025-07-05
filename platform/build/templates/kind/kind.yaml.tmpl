@@ -8,15 +8,36 @@ nodes:
   extraPortMappings:
   - containerPort: {{ if (eq .Protocol "http")  -}} 80 {{- else -}} 443 {{- end }}
     hostPort: {{ .Port }}
+    {{- if .StaticPassword }}
+    listenAddress: "127.0.0.1"
+    {{- end }}
     protocol: TCP
-  - containerPort: 10
-    hostPort: 1000
+  - containerPort: 32222
+    hostPort: 32222
     protocol: TCP
-  {{ range .ExtraPortsMapping -}}
+  {{- range .ExtraPortsMapping }}
   - containerPort: {{ .ContainerPort }}
     hostPort: {{ .HostPort }}
     protocol: TCP
-  {{ end }}
+  {{- end }}
+  extraMounts:
+  - hostPath: ./backup
+    containerPath: /backup
+{{- if .RegistryConfig }}
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: {{ .RegistryConfig }}
+{{- end }}
+- role: worker
+  image: "kindest/node:{{ .KubernetesVersion }}"
+  labels:
+    ingress-ready: "true"
+- role: worker
+  image: "kindest/node:{{ .KubernetesVersion }}"
+  labels:
+    ingress-ready: "true"
+networking:
+  disableDefaultCNI: true
+  kubeProxyMode: none
 containerdConfigPatches:
 - |-
   {{ if .UsePathRouting -}}

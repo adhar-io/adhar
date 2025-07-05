@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"text/template"
 
 	"gopkg.in/yaml.v3"
 )
@@ -140,33 +139,23 @@ func (te *TemplateEngine) getFallbackConfig(appName string, enableHAMode bool) *
 
 // GenerateManifests generates Kubernetes manifests for a platform app using KCL config and YAML templates
 func (te *TemplateEngine) GenerateManifests(ctx context.Context, appName string, enableHAMode bool) (string, error) {
-	// Load KCL configuration
-	config, err := te.LoadKCLConfig(ctx, appName, enableHAMode)
+	// Force local mode for Kind clusters (non-HA) - always use minimal replica configuration
+
+	// Load KCL configuration in local mode
+	config, err := te.LoadKCLConfig(ctx, appName, false) // Always use local mode for Kind
 	if err != nil {
 		return "", fmt.Errorf("failed to load KCL config: %w", err)
 	}
 
-	// Load base YAML template
-	baseYAMLPath := filepath.Join(te.templatesDir, appName, "base.yaml")
+	// Load base YAML template from controllers directory (the actual manifest files)
+	baseYAMLPath := filepath.Join("platform/controllers/adharplatform/resources", appName, "install.yaml")
 	baseYAML, err := os.ReadFile(baseYAMLPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read base YAML template: %w", err)
 	}
 
-	// Apply configuration to the YAML template using Go templates
-	tmpl, err := template.New("manifest").Parse(string(baseYAML))
-	if err != nil {
-		// If template parsing fails, it means the YAML doesn't have template variables
-		// Return the base YAML as is and apply patches separately
-		return te.applyConfigurationPatches(string(baseYAML), config)
-	}
-
-	var result strings.Builder
-	if err := tmpl.Execute(&result, config); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	return result.String(), nil
+	// Apply configuration patches using Kustomize overlays for local development
+	return te.applyConfigurationPatches(string(baseYAML), config)
 }
 
 // applyConfigurationPatches applies configuration patches to static YAML manifests
