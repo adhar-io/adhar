@@ -21,8 +21,8 @@ nodes:
     protocol: TCP
   {{- end }}
   extraMounts:
-  - hostPath: ./adhar/backup
-    containerPath: /adhar/backup
+  - hostPath: ./backup
+    containerPath: /backup
 {{- if .RegistryConfig }}
   - containerPath: /var/lib/kubelet/config.json
     hostPath: {{ .RegistryConfig }}
