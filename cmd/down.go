@@ -317,7 +317,7 @@ func kindClusterExists() (bool, error) {
 // updateElapsedTime creates a command that updates the elapsed time every second
 func updateElapsedTime() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
-		return logger.ElapsedTimeMsg(t)
+		return logger.ElapsedTimeMsg(t.Format("15:04:05"))
 	})
 }
 

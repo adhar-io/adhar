@@ -33,10 +33,11 @@ cover.out
 __debug*
 .vscode
 .idea
-adhar
 dist/
 .history
 .lsp
 backup/*
 .clj-kondo
 platform.log
+.adhar/
+adhar

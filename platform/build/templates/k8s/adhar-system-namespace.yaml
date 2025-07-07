@@ -3,5 +3,9 @@ kind: Namespace
 metadata:
   name: adhar-system
   labels:
-    app.kubernetes.io/name: adhar-system
-    app.kubernetes.io/part-of: adhar-platform
+    app.kubernetes.io/managed-by: adhar
+    adhar.io/component: platform
+    kubernetes.io/metadata.name: adhar-system
+  annotations:
+    adhar.io/description: "Core system namespace for Adhar platform services"
+    adhar.io/created-by: "adhar-platform"

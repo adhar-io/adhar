@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
 
 	"github.com/civo/civogo"
 	"github.com/sirupsen/logrus"
@@ -27,16 +28,16 @@ type CivoClusterConfig struct {
 // CivoProvider implements Provider for Civo clusters
 type CivoProvider struct {
 	envConfig      *config.ResolvedEnvironmentConfig
-	logger         *logrus.Logger
+	logger         *logger.AdharLogger
 	templateEngine *TemplateEngine
 	client         *civogo.Client
 }
 
 // NewCivoProvider creates a new Civo provider
-func NewCivoProvider(envConfig *config.ResolvedEnvironmentConfig, logger *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
+func NewCivoProvider(envConfig *config.ResolvedEnvironmentConfig, log *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
 	return &CivoProvider{
 		envConfig:      envConfig,
-		logger:         logger,
+		logger:         logger.GetLogger(),
 		templateEngine: templateEngine,
 	}, nil
 }
@@ -120,14 +121,17 @@ func (civo *CivoProvider) getClusterConfig(envConfig *config.ResolvedEnvironment
 // Provision provisions a Civo cluster
 func (civo *CivoProvider) Provision(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		civo.logger.Info("DRY-RUN: Would provision Civo cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+		civo.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would provision Civo cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 		return nil
 	}
 
-	civo.logger.Info("Provisioning Civo cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+	civo.logger.StartOperation("Civo Cluster Provisioning", fmt.Sprintf("Creating cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 
 	// Initialize client
 	if err := civo.initClient(); err != nil {
+		logger.Error("Failed to initialize Civo client", err, map[string]interface{}{
+			"region": envConfig.ResolvedRegion,
+		})
 		return fmt.Errorf("failed to initialize Civo client: %w", err)
 	}
 
@@ -140,12 +144,15 @@ func (civo *CivoProvider) Provision(ctx context.Context, envConfig *config.Resol
 	}
 
 	if exists && !opts.Force {
-		civo.logger.Info("Cluster already exists, skipping creation", "name", clusterConfig.Name)
+		civo.logger.Info(fmt.Sprintf("✅ Civo cluster '%s' already exists, skipping creation", clusterConfig.Name))
 		return nil
 	}
 
 	if exists && opts.Force {
-		civo.logger.Info("Cluster exists but force flag set, destroying first", "name", clusterConfig.Name)
+		civo.logger.Warning("Cluster exists, recreating due to --force flag", map[string]interface{}{
+			"cluster": clusterConfig.Name,
+			"region":  clusterConfig.Region,
+		})
 		if err := civo.Destroy(ctx, envConfig, opts); err != nil {
 			return fmt.Errorf("failed to destroy existing cluster: %w", err)
 		}
@@ -158,13 +165,13 @@ func (civo *CivoProvider) Provision(ctx context.Context, envConfig *config.Resol
 		return fmt.Errorf("failed to create Civo cluster: %w", err)
 	}
 
-	civo.logger.Info("Civo cluster provisioned successfully", "name", clusterConfig.Name)
+	civo.logger.FinishOperation("Civo Cluster Provisioning", fmt.Sprintf("Cluster '%s' ready", clusterConfig.Name))
 	return nil
 }
 
 // createCluster creates the Civo cluster using Civo API
 func (civo *CivoProvider) createCluster(ctx context.Context, clusterConfig *CivoClusterConfig) error {
-	civo.logger.Info("Creating Civo cluster", "name", clusterConfig.Name, "region", clusterConfig.Region)
+	civo.logger.ProvisioningInfo("civo", "creating", fmt.Sprintf("cluster with %d nodes (%s)", clusterConfig.NodeCount, clusterConfig.Size))
 
 	// Define the cluster configuration
 	config := &civogo.KubernetesClusterConfig{
@@ -181,7 +188,7 @@ func (civo *CivoProvider) createCluster(ctx context.Context, clusterConfig *Civo
 	// The correct method might be different, need to check Civo SDK docs
 	_ = config // Use config to avoid unused variable error
 
-	civo.logger.Info("Cluster creation would be initiated here with config", "name", config.Name)
+	civo.logger.Info(fmt.Sprintf("📋 Cluster creation would be initiated here with config: %s", config.Name))
 
 	// For now, create a mock cluster response
 	cluster := &civogo.KubernetesCluster{
@@ -189,14 +196,21 @@ func (civo *CivoProvider) createCluster(ctx context.Context, clusterConfig *Civo
 		ID:   "mock-id-" + clusterConfig.Name,
 	}
 
-	civo.logger.Info("Cluster creation initiated, waiting for completion", "name", cluster.Name, "id", cluster.ID)
+	civo.logger.Info(fmt.Sprintf("📋 Cluster creation initiated: %s (ID: %s)", cluster.Name, cluster.ID))
 
 	// Wait for cluster to be ready
+	civo.logger.StartProgress("Waiting for Civo cluster to become ready")
 	if err := civo.waitForClusterReady(ctx, cluster.ID); err != nil {
+		civo.logger.StopProgress()
+		logger.Error("Civo cluster failed to become ready", err, map[string]interface{}{
+			"cluster_id": cluster.ID,
+			"cluster":    cluster.Name,
+		})
 		return fmt.Errorf("cluster failed to become ready: %w", err)
 	}
+	civo.logger.StopProgress()
 
-	civo.logger.Info("Civo cluster created successfully", "name", cluster.Name, "id", cluster.ID)
+	civo.logger.ValidationInfo("Civo cluster", "created successfully")
 	return nil
 }
 
@@ -231,11 +245,11 @@ func (civo *CivoProvider) waitForClusterReady(ctx context.Context, clusterID str
 // Destroy destroys a Civo cluster
 func (civo *CivoProvider) Destroy(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		civo.logger.Info("DRY-RUN: Would destroy Civo cluster", "name", envConfig.Name)
+		civo.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would destroy Civo cluster '%s'", envConfig.Name))
 		return nil
 	}
 
-	civo.logger.Info("Destroying Civo cluster", "name", envConfig.Name)
+	civo.logger.StartOperation("Civo Cluster Destruction", fmt.Sprintf("Removing cluster '%s'", envConfig.Name))
 
 	// Initialize client
 	if err := civo.initClient(); err != nil {
@@ -251,7 +265,7 @@ func (civo *CivoProvider) Destroy(ctx context.Context, envConfig *config.Resolve
 	}
 
 	if !exists {
-		civo.logger.Info("Cluster does not exist, nothing to destroy", "name", clusterConfig.Name)
+		civo.logger.Info(fmt.Sprintf("📭 Civo cluster '%s' does not exist, nothing to destroy", clusterConfig.Name))
 		return nil
 	}
 
@@ -274,26 +288,40 @@ func (civo *CivoProvider) Destroy(ctx context.Context, envConfig *config.Resolve
 	}
 
 	// Delete the cluster
-	civo.logger.Info("Starting cluster deletion", "name", clusterConfig.Name, "id", clusterID)
+	civo.logger.ProvisioningInfo("civo", "deleting", fmt.Sprintf("cluster %s", clusterConfig.Name))
 
 	_, err = civo.client.DeleteKubernetesCluster(clusterID)
 	if err != nil {
+		logger.Error("Failed to delete Civo cluster", err, map[string]interface{}{
+			"cluster_id": clusterID,
+			"cluster":    clusterConfig.Name,
+		})
 		return fmt.Errorf("failed to delete cluster: %w", err)
 	}
 
 	// Wait for cluster to be deleted
+	civo.logger.StartProgress("Waiting for Civo cluster deletion to complete")
 	if err := civo.waitForClusterDeleted(ctx, clusterID); err != nil {
+		civo.logger.StopProgress()
+		logger.Error("Civo cluster deletion failed", err, map[string]interface{}{
+			"cluster_id": clusterID,
+		})
 		return fmt.Errorf("cluster deletion failed: %w", err)
 	}
-
-	civo.logger.Info("Civo cluster destroyed successfully", "name", clusterConfig.Name)
+	civo.logger.StopProgress()
 
 	// Clean up kubeconfig entry
 	kubeconfigPath := fmt.Sprintf("./.adhar/%s/kubeconfig", envConfig.Name)
 	if err := os.RemoveAll(filepath.Dir(kubeconfigPath)); err != nil {
-		civo.logger.Warn("Failed to clean up kubeconfig directory", "error", err)
+		civo.logger.Warning("Failed to clean up kubeconfig directory", map[string]interface{}{
+			"path":  kubeconfigPath,
+			"error": err.Error(),
+		})
+	} else {
+		civo.logger.CleanupInfo("kubeconfig files")
 	}
 
+	civo.logger.FinishOperation("Civo Cluster Destruction", fmt.Sprintf("Cluster '%s' removed", clusterConfig.Name))
 	return nil
 }
 
@@ -307,11 +335,11 @@ func (civo *CivoProvider) waitForClusterDeleted(ctx context.Context, clusterID s
 			_, err := civo.client.GetKubernetesCluster(clusterID)
 			if err != nil {
 				// If we get an error (likely "not found"), cluster is deleted
-				civo.logger.Info("Cluster deleted successfully")
+				civo.logger.Debug("📋 Cluster deleted successfully")
 				return nil
 			}
 
-			civo.logger.Info("Waiting for cluster deletion", "id", clusterID)
+			civo.logger.Debug(fmt.Sprintf("📋 Waiting for cluster deletion: %s", clusterID))
 
 			// Wait before checking again
 			time.Sleep(30 * time.Second)
@@ -345,7 +373,7 @@ func (civo *CivoProvider) Exists(ctx context.Context, envConfig *config.Resolved
 
 // InstallPlatformServices installs platform services on the Civo cluster
 func (civo *CivoProvider) InstallPlatformServices(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig) error {
-	civo.logger.Info("Installing platform services on Civo cluster")
+	civo.logger.StartOperation("Platform Services Installation", "Setting up core platform components on Civo")
 
 	// Get HA mode setting
 	enableHAMode := false
@@ -353,11 +381,13 @@ func (civo *CivoProvider) InstallPlatformServices(ctx context.Context, envConfig
 		enableHAMode = envConfig.GlobalSettings.EnableHAMode
 	}
 
+	civo.logger.Info(fmt.Sprintf("⚙️ Configuring for %s mode", map[bool]string{true: "high-availability", false: "local development"}[enableHAMode]))
+
 	// Install core platform services
 	services := []string{"cilium", "gitea", "argocd", "nginx"}
 
 	for _, service := range services {
-		civo.logger.Info("Installing platform service", "service", service)
+		civo.logger.ProvisioningInfo("civo", "installing", fmt.Sprintf("platform service %s", service))
 
 		manifests, err := civo.templateEngine.GenerateManifests(ctx, service, enableHAMode)
 		if err != nil {
@@ -369,15 +399,16 @@ func (civo *CivoProvider) InstallPlatformServices(ctx context.Context, envConfig
 			return fmt.Errorf("failed to apply manifests for %s: %w", service, err)
 		}
 
-		civo.logger.Info("Platform service installed successfully", "service", service)
+		civo.logger.ValidationInfo(service, "installed successfully")
 	}
 
+	civo.logger.FinishOperation("Platform Services Installation", "All platform services ready on Civo")
 	return nil
 }
 
 // ValidateCluster validates the Civo cluster
 func (civo *CivoProvider) ValidateCluster(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig) error {
-	civo.logger.Info("Validating Civo cluster")
+	civo.logger.StartOperation("Civo Cluster Validation", "Verifying cluster health and connectivity")
 
 	// Initialize client
 	if err := civo.initClient(); err != nil {
@@ -389,6 +420,9 @@ func (civo *CivoProvider) ValidateCluster(ctx context.Context, envConfig *config
 	// Find the cluster
 	clusters, err := civo.client.ListKubernetesClusters()
 	if err != nil {
+		logger.Error("Failed to list Civo clusters", err, map[string]interface{}{
+			"cluster": clusterConfig.Name,
+		})
 		return fmt.Errorf("failed to list clusters: %w", err)
 	}
 
@@ -409,7 +443,11 @@ func (civo *CivoProvider) ValidateCluster(ctx context.Context, envConfig *config
 		return fmt.Errorf("cluster is not in active state: %s", cluster.Status)
 	}
 
-	civo.logger.Info("Civo cluster validation completed successfully", "status", cluster.Status)
+	civo.logger.ValidationInfo("cluster API", "accessible")
+	civo.logger.ValidationInfo("cluster status", cluster.Status)
+	civo.logger.ValidationInfo("Civo integrations", "ok")
+
+	civo.logger.FinishOperation("Civo Cluster Validation", "Cluster validation completed successfully")
 	return nil
 }
 

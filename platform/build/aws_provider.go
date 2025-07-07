@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -17,16 +18,16 @@ import (
 // AWSProvider implements Provider for Amazon Web Services clusters
 type AWSProvider struct {
 	envConfig      *config.ResolvedEnvironmentConfig
-	logger         *logrus.Logger
+	logger         *logger.AdharLogger
 	templateEngine *TemplateEngine
 	client         *eks.Client
 }
 
 // NewAWSProvider creates a new AWS provider
-func NewAWSProvider(envConfig *config.ResolvedEnvironmentConfig, logger *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
+func NewAWSProvider(envConfig *config.ResolvedEnvironmentConfig, log *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
 	return &AWSProvider{
 		envConfig:      envConfig,
-		logger:         logger,
+		logger:         logger.GetLogger(),
 		templateEngine: templateEngine,
 		client:         nil, // Lazy initialization
 	}, nil
@@ -52,14 +53,17 @@ func (aws *AWSProvider) getClient(ctx context.Context) (*eks.Client, error) {
 // Provision provisions an AWS cluster
 func (aws *AWSProvider) Provision(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		aws.logger.Info("DRY-RUN: Would provision AWS cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+		aws.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would provision EKS cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 		return nil
 	}
 
-	aws.logger.Info("Provisioning AWS cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+	aws.logger.StartOperation("AWS EKS Cluster Provisioning", fmt.Sprintf("Creating cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 
 	client, err := aws.getClient(ctx)
 	if err != nil {
+		logger.Error("Failed to initialize AWS client", err, map[string]interface{}{
+			"region": envConfig.ResolvedRegion,
+		})
 		return fmt.Errorf("failed to get AWS client: %w", err)
 	}
 
@@ -72,12 +76,15 @@ func (aws *AWSProvider) Provision(ctx context.Context, envConfig *config.Resolve
 	}
 
 	if exists && !opts.Force {
-		aws.logger.Info("Cluster already exists, skipping creation", "name", clusterConfig.Name)
+		aws.logger.Info(fmt.Sprintf("✅ EKS cluster '%s' already exists, skipping creation", clusterConfig.Name))
 		return nil
 	}
 
 	if exists && opts.Force {
-		aws.logger.Info("Cluster exists but force flag set, destroying first", "name", clusterConfig.Name)
+		aws.logger.Warning("Cluster exists, recreating due to --force flag", map[string]interface{}{
+			"cluster": clusterConfig.Name,
+			"region":  clusterConfig.Region,
+		})
 		if err := aws.Destroy(ctx, envConfig, opts); err != nil {
 			return fmt.Errorf("failed to destroy existing cluster: %w", err)
 		}
@@ -95,23 +102,33 @@ func (aws *AWSProvider) Provision(ctx context.Context, envConfig *config.Resolve
 		},
 	}
 
-	aws.logger.Info("Creating EKS cluster", "name", clusterConfig.Name, "region", clusterConfig.Region)
+	aws.logger.ProvisioningInfo("aws", "creating", fmt.Sprintf("EKS cluster with Kubernetes %s", clusterConfig.KubernetesVersion))
 
 	_, err = client.CreateCluster(ctx, createInput)
 	if err != nil {
+		logger.Error("Failed to create EKS cluster", err, map[string]interface{}{
+			"cluster": clusterConfig.Name,
+			"region":  clusterConfig.Region,
+		})
 		return fmt.Errorf("failed to create cluster: %w", err)
 	}
 
 	// Wait for cluster to be active
-	aws.logger.Info("Waiting for EKS cluster to become active")
+	aws.logger.StartProgress("Waiting for EKS cluster to become active (this can take 10-15 minutes)")
 	waiter := eks.NewClusterActiveWaiter(client)
 	if err := waiter.Wait(ctx, &eks.DescribeClusterInput{
 		Name: awssdk.String(clusterConfig.Name),
 	}, 15*time.Minute); err != nil {
+		aws.logger.StopProgress()
+		logger.Error("EKS cluster failed to become active", err, map[string]interface{}{
+			"cluster": clusterConfig.Name,
+			"timeout": "15 minutes",
+		})
 		return fmt.Errorf("cluster failed to become active: %w", err)
 	}
+	aws.logger.StopProgress()
 
-	aws.logger.Info("EKS cluster created successfully", "name", clusterConfig.Name)
+	aws.logger.FinishOperation("AWS EKS Cluster Provisioning", fmt.Sprintf("Cluster '%s' ready", clusterConfig.Name))
 	return nil
 }
 

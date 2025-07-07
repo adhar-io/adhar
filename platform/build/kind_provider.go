@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
 
 	"github.com/sirupsen/logrus"
 )
@@ -17,15 +18,15 @@ import (
 // KindProvider implements Provider for local Kind clusters
 type KindProvider struct {
 	envConfig      *config.ResolvedEnvironmentConfig
-	logger         *logrus.Logger
+	logger         *logger.AdharLogger
 	templateEngine *TemplateEngine
 }
 
 // NewKindProvider creates a new Kind provider
-func NewKindProvider(envConfig *config.ResolvedEnvironmentConfig, logger *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
+func NewKindProvider(envConfig *config.ResolvedEnvironmentConfig, log *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
 	return &KindProvider{
 		envConfig:      envConfig,
-		logger:         logger,
+		logger:         logger.GetLogger(),
 		templateEngine: templateEngine,
 	}, nil
 }
@@ -33,53 +34,60 @@ func NewKindProvider(envConfig *config.ResolvedEnvironmentConfig, logger *logrus
 // Provision creates a new Kind cluster
 func (kp *KindProvider) Provision(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		kp.logger.Info("DRY-RUN: Would provision Kind cluster", "name", envConfig.Name)
+		kp.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would provision Kind cluster '%s'", envConfig.Name))
 		return nil
 	}
 
-	kp.logger.Info("Provisioning Kind cluster", "name", envConfig.Name)
+	kp.logger.StartOperation("Kind Cluster Provisioning", fmt.Sprintf("Setting up local cluster '%s'", envConfig.Name))
 
-	// Check if kind is installed
+	// Check if Kind is installed
 	if !kp.isKindInstalled() {
-		return fmt.Errorf("kind is not installed. Please install kind from https://kind.sigs.k8s.io/docs/user/quick-start/")
+		return fmt.Errorf("Kind is not installed. Please install Kind from https://kind.sigs.k8s.io/docs/user/quick-start/")
 	}
 
 	// Check if cluster already exists
 	exists, err := kp.Exists(ctx, envConfig)
 	if err != nil {
-		return fmt.Errorf("failed to check if Kind cluster exists: %w", err)
+		return fmt.Errorf("failed to check if cluster exists: %w", err)
 	}
 
 	if exists {
-		kp.logger.Info("Kind cluster already exists", "name", envConfig.Name)
-		return nil
+		if opts.Force {
+			kp.logger.Warning("Cluster exists, recreating due to --force flag", map[string]interface{}{
+				"cluster": envConfig.Name,
+			})
+			if err := kp.Destroy(ctx, envConfig, opts); err != nil {
+				return fmt.Errorf("failed to destroy existing cluster: %w", err)
+			}
+			time.Sleep(5 * time.Second) // Wait for cleanup
+		} else {
+			kp.logger.Info(fmt.Sprintf("✅ Kind cluster '%s' already exists, skipping creation", envConfig.Name))
+			return nil
+		}
 	}
 
+	// Create the cluster using existing method
 	clusterName := envConfig.Name
 	kubeVersion := kp.getKubeVersion(envConfig)
 
-	// Use template-based cluster creation
-	kp.logger.Info("🏗️  Creating Kind cluster using template...")
-	kp.logger.Info("   Cluster name: " + clusterName)
-	kp.logger.Info("   Kubernetes version: " + kubeVersion)
-	kp.logger.Info("   Configuration: 1 control-plane + 3 worker nodes")
-	kp.logger.Info("   Networking: CNI disabled (Cilium will be installed)")
+	kp.logger.ProvisioningInfo("kind", "creating", fmt.Sprintf("cluster '%s' with Kubernetes %s", clusterName, kubeVersion))
+
 	if err := kp.createClusterWithTemplate(ctx, clusterName, kubeVersion, envConfig); err != nil {
-		return fmt.Errorf("failed to create Kind cluster with template: %w", err)
+		return fmt.Errorf("failed to create Kind cluster: %w", err)
 	}
 
-	kp.logger.Info("✅ Kind cluster created successfully: " + clusterName)
+	kp.logger.FinishOperation("Kind Cluster Provisioning", fmt.Sprintf("Cluster '%s' ready", clusterName))
 	return nil
 }
 
 // Destroy destroys a Kind cluster
 func (kp *KindProvider) Destroy(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		kp.logger.Info("DRY-RUN: Would destroy Kind cluster", "name", envConfig.Name)
+		kp.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would destroy Kind cluster '%s'", envConfig.Name))
 		return nil
 	}
 
-	kp.logger.Info("Destroying Kind cluster", "name", envConfig.Name)
+	kp.logger.StartOperation("Kind Cluster Destruction", fmt.Sprintf("Removing cluster '%s'", envConfig.Name))
 
 	clusterName := envConfig.Name
 	cmd := exec.CommandContext(ctx, "kind", "delete", "cluster", "--name", clusterName)
@@ -88,13 +96,13 @@ func (kp *KindProvider) Destroy(ctx context.Context, envConfig *config.ResolvedE
 	if err != nil {
 		// Kind delete can fail if cluster doesn't exist, which is fine
 		if strings.Contains(string(output), "not found") {
-			kp.logger.Info("Kind cluster not found, nothing to destroy", "name", clusterName)
+			kp.logger.Info(fmt.Sprintf("📭 Kind cluster '%s' not found, nothing to destroy", clusterName))
 			return nil
 		}
 		return fmt.Errorf("failed to destroy Kind cluster: %w, output: %s", err, string(output))
 	}
 
-	kp.logger.Info("Kind cluster destroyed successfully", "name", clusterName)
+	kp.logger.FinishOperation("Kind Cluster Destruction", fmt.Sprintf("Cluster '%s' removed", clusterName))
 	return nil
 }
 
@@ -118,8 +126,7 @@ func (kp *KindProvider) Exists(ctx context.Context, envConfig *config.ResolvedEn
 
 // InstallPlatformServices installs platform services on the Kind cluster
 func (kp *KindProvider) InstallPlatformServices(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig) error {
-	kp.logger.Info("🚀 Installing platform services on Kind cluster...")
-	kp.logger.Info("   This will install: Cilium, Nginx, Gitea, and ArgoCD")
+	kp.logger.StartOperation("Platform Services Installation", "Setting up core platform components")
 
 	// Check if helm is available
 	if !kp.isHelmInstalled() {
@@ -134,7 +141,7 @@ func (kp *KindProvider) InstallPlatformServices(ctx context.Context, envConfig *
 
 	// Force local development mode (non-HA, minimal replicas) for Kind clusters
 	enableHAMode := false // Always force local mode for Kind clusters
-	kp.logger.Info("   Enforcing local development mode (minimal replicas)")
+	kp.logger.Info(fmt.Sprintf("⚙️ Configuring local development mode (minimal resource usage)"))
 
 	// Phase 1: Install core infrastructure using templates (like cloud providers)
 	if err := kp.installCoreInfrastructureWithTemplates(ctx, kubeconfig, enableHAMode, envConfig); err != nil {
@@ -142,34 +149,35 @@ func (kp *KindProvider) InstallPlatformServices(ctx context.Context, envConfig *
 	}
 
 	// Phase 2: Deploy platform stack applications via ArgoCD
-	kp.logger.Info("📦 Deploying platform stack applications...")
+	kp.logger.ManifestInfo("deploying", "platform stack applications")
 	if err := kp.deployPlatformStackApplications(ctx, kubeconfig, envConfig); err != nil {
-		kp.logger.Warn("⚠️  Some platform stack applications may not have deployed successfully", "error", err)
+		kp.logger.Warning("Some platform stack applications may not have deployed successfully", map[string]interface{}{
+			"error": err.Error(),
+		})
 	}
 
 	// Final verification and success message
 	kp.verifyPlatformServices(ctx, kubeconfig)
 
-	kp.logger.Info("🎉✨ Adhar platform is ready! ✨🎉")
-	kp.logger.Info("🌐 Access your services at:")
+	kp.logger.FinishOperation("Platform Services Installation", "All platform services ready")
 	kp.printServiceURLs(envConfig)
 	return nil
 }
 
 // installCoreInfrastructureWithTemplates installs core infrastructure using templates (like cloud providers)
 func (kp *KindProvider) installCoreInfrastructureWithTemplates(ctx context.Context, kubeconfig string, enableHAMode bool, envConfig *config.ResolvedEnvironmentConfig) error {
-	kp.logger.Info("🚀 Installing core infrastructure with templates...")
+	kp.logger.StartOperation("Core Infrastructure Installation", "Installing essential platform services")
 
 	// Step 1: Create the adhar-system namespace first (required for all platform services)
-	kp.logger.Info("📁 Creating adhar-system namespace...")
+	kp.logger.ProvisioningInfo("kubernetes", "creating", "adhar-system namespace")
 	if err := kp.createAdharSystemNamespace(ctx, kubeconfig); err != nil {
 		return fmt.Errorf("failed to create adhar-system namespace: %w", err)
 	}
-	kp.logger.Info("✅ adhar-system namespace created successfully")
+	kp.logger.ValidationInfo("adhar-system namespace", "ready")
 
 	// Step 2: Install Cilium first (CNI must be ready before other services)
-	kp.logger.Info("🔗 Installing Cilium CNI (Container Network Interface)...")
-	kp.logger.Info("   This may take a few minutes as images are pulled...")
+	kp.logger.NetworkInfo("Installing CNI", "Cilium Container Network Interface")
+	kp.logger.Info(fmt.Sprintf("📡 This may take a few minutes as container images are pulled..."))
 
 	ciliumManifests, err := kp.templateEngine.GenerateManifests(ctx, "cilium", enableHAMode)
 	if err != nil {
@@ -181,25 +189,29 @@ func (kp *KindProvider) installCoreInfrastructureWithTemplates(ctx context.Conte
 	}
 
 	// Wait for Cilium to be ready - this is critical for cluster networking
-	kp.logger.Info("⏳ Waiting for Cilium to be ready (this enables cluster networking)...")
+	kp.logger.StartProgress("Waiting for Cilium to initialize cluster networking")
 	if err := kp.waitForCiliumReady(ctx, kubeconfig); err != nil {
+		kp.logger.StopProgress()
 		return fmt.Errorf("Cilium failed to become ready: %w", err)
 	}
-	kp.logger.Info("✅ Cilium CNI is ready - cluster networking is now active")
+	kp.logger.StopProgress()
+	kp.logger.ValidationInfo("Cilium CNI", "ready - cluster networking active")
 
 	// Verify nodes are ready after CNI is installed
-	kp.logger.Info("🔍 Verifying cluster nodes are ready...")
+	kp.logger.ValidationInfo("cluster nodes", "checking readiness")
 	if err := kp.waitForNodesReady(ctx, kubeconfig); err != nil {
-		kp.logger.Warn("Some nodes may not be ready yet, but continuing...", "error", err)
+		kp.logger.Warning("Some nodes may not be ready yet, continuing...", map[string]interface{}{
+			"error": err.Error(),
+		})
 	} else {
-		kp.logger.Info("✅ All cluster nodes are ready")
+		kp.logger.ValidationInfo("cluster nodes", "all ready")
 	}
 
 	// Step 3: Install other core services (in order)
 	otherServices := []string{"nginx", "gitea", "argocd"}
 
 	for _, service := range otherServices {
-		kp.logger.Info("🔧 Installing platform service: " + service + "...")
+		kp.logger.ProvisioningInfo("platform", "installing", service)
 
 		// Generate manifests using the template engine
 		manifests, err := kp.templateEngine.GenerateManifests(ctx, service, enableHAMode)
@@ -213,15 +225,20 @@ func (kp *KindProvider) installCoreInfrastructureWithTemplates(ctx context.Conte
 		}
 
 		// Wait for service to be ready
-		kp.logger.Info("⏳ Waiting for " + service + " to be ready...")
+		kp.logger.StartProgress(fmt.Sprintf("Waiting for %s to become ready", service))
 		if err := kp.waitForServiceReady(ctx, kubeconfig, service); err != nil {
-			kp.logger.Warn("⚠️  "+service+" may not be fully ready yet, but continuing...", "error", err)
+			kp.logger.StopProgress()
+			kp.logger.Warning(fmt.Sprintf("%s may not be fully ready yet, continuing...", service), map[string]interface{}{
+				"service": service,
+				"error":   err.Error(),
+			})
 		} else {
-			kp.logger.Info("✅ " + service + " is ready")
+			kp.logger.StopProgress()
+			kp.logger.ValidationInfo(service, "ready")
 		}
 	}
 
-	kp.logger.Info("🎉 Core infrastructure installation completed successfully")
+	kp.logger.FinishOperation("Core Infrastructure Installation", "All core services deployed")
 	return nil
 }
 
@@ -481,11 +498,92 @@ func (kp *KindProvider) runKubectlCommand(ctx context.Context, kubeconfig string
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		kp.logger.Debug("kubectl command failed", "cmd", cmd.String(), "output", string(output), "error", err)
+		// Enhanced error logging - show detailed output for troubleshooting
+		kp.logger.Error("kubectl command failed", err, map[string]interface{}{
+			"command": fmt.Sprintf("kubectl %s", strings.Join(cmdArgs, " ")),
+			"output":  string(output),
+			"exit_code": func() int {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					return exitErr.ExitCode()
+				}
+				return -1
+			}(),
+		})
+
+		// For apply commands, provide more context about the failure
+		if len(args) > 0 && args[0] == "apply" {
+			kp.logger.Error("Manifest application failed", nil, map[string]interface{}{
+				"details":         "This could indicate issues with cluster networking, RBAC permissions, or resource conflicts",
+				"troubleshooting": "Check if the cluster is ready and kubectl can connect to it",
+			})
+
+			// Try to get cluster status for diagnostic information
+			kp.logClusterDiagnostics(ctx, kubeconfig)
+		}
+
 		return fmt.Errorf("kubectl command failed: %w", err)
 	}
 
 	kp.logger.Debug("kubectl command succeeded", "cmd", cmd.String())
+	return nil
+}
+
+// logClusterDiagnostics logs cluster diagnostic information when kubectl commands fail
+func (kp *KindProvider) logClusterDiagnostics(ctx context.Context, kubeconfig string) {
+	kp.logger.Info("🔍 Running cluster diagnostics...")
+
+	// Check cluster connectivity
+	if err := kp.runBasicKubectl(ctx, kubeconfig, "cluster-info"); err != nil {
+		kp.logger.Error("Cluster connectivity check failed", err, nil)
+	}
+
+	// Check node status
+	if err := kp.runBasicKubectl(ctx, kubeconfig, "get", "nodes", "-o", "wide"); err != nil {
+		kp.logger.Error("Failed to get node status", err, nil)
+	}
+
+	// Check namespaces
+	if err := kp.runBasicKubectl(ctx, kubeconfig, "get", "namespaces"); err != nil {
+		kp.logger.Error("Failed to get namespaces", err, nil)
+	} else {
+		kp.logger.Info("✅ Namespaces accessible")
+	}
+
+	// Check if adhar-system namespace exists
+	if err := kp.runBasicKubectl(ctx, kubeconfig, "get", "namespace", "adhar-system"); err != nil {
+		kp.logger.Error("adhar-system namespace not found or not accessible", err, nil)
+	} else {
+		kp.logger.Info("✅ adhar-system namespace exists")
+	}
+
+	// Check existing pods in adhar-system
+	if err := kp.runBasicKubectl(ctx, kubeconfig, "get", "pods", "-n", "adhar-system"); err != nil {
+		kp.logger.Warning("Failed to get pods in adhar-system", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
+}
+
+// runBasicKubectl runs a kubectl command for diagnostics without recursive error handling
+func (kp *KindProvider) runBasicKubectl(ctx context.Context, kubeconfig string, args ...string) error {
+	var cmdArgs []string
+	if kubeconfig != "" {
+		cmdArgs = append([]string{"--kubeconfig", kubeconfig}, args...)
+	} else {
+		cmdArgs = args
+	}
+	cmd := exec.CommandContext(ctx, "kubectl", cmdArgs...)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("command failed: %w, output: %s", err, string(output))
+	}
+
+	// Log successful diagnostic output
+	if len(output) > 0 {
+		kp.logger.Info(fmt.Sprintf("Diagnostic output for 'kubectl %s':", strings.Join(args, " ")), "output", string(output))
+	}
+
 	return nil
 }
 
@@ -564,12 +662,36 @@ func (kp *KindProvider) createAdharSystemNamespace(ctx context.Context, kubeconf
 
 	// Read the namespace manifest from template file
 	templatePath := "platform/build/templates/k8s/adhar-system-namespace.yaml"
+
+	// Check if template file exists
+	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
+		kp.logger.Warning("Namespace template file not found, using fallback manifest", map[string]interface{}{
+			"template_path": templatePath,
+		})
+
+		// Use fallback namespace manifest
+		namespaceManifest := `apiVersion: v1
+kind: Namespace
+metadata:
+  name: adhar-system
+  labels:
+    app.kubernetes.io/managed-by: adhar
+    adhar.io/component: platform`
+
+		return kp.applyNamespaceManifest(ctx, kubeconfig, namespaceManifest)
+	}
+
 	manifestBytes, err := os.ReadFile(templatePath)
 	if err != nil {
 		return fmt.Errorf("failed to read namespace template file %s: %w", templatePath, err)
 	}
 	namespaceManifest := string(manifestBytes)
 
+	return kp.applyNamespaceManifest(ctx, kubeconfig, namespaceManifest)
+}
+
+// applyNamespaceManifest applies the namespace manifest using kubectl
+func (kp *KindProvider) applyNamespaceManifest(ctx context.Context, kubeconfig, namespaceManifest string) error {
 	// Apply the namespace manifest using kubectl
 	var cmd *exec.Cmd
 	if kubeconfig != "" {
@@ -581,6 +703,17 @@ func (kp *KindProvider) createAdharSystemNamespace(ctx context.Context, kubeconf
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		kp.logger.Error("Failed to create adhar-system namespace", err, map[string]interface{}{
+			"output":   string(output),
+			"manifest": namespaceManifest,
+		})
+
+		// Try to check if namespace already exists
+		if strings.Contains(string(output), "already exists") || strings.Contains(string(output), "AlreadyExists") {
+			kp.logger.Info("adhar-system namespace already exists, continuing...")
+			return nil
+		}
+
 		return fmt.Errorf("failed to create adhar-system namespace: %w, output: %s", err, string(output))
 	}
 
@@ -624,6 +757,7 @@ func (kp *KindProvider) createClusterWithTemplate(ctx context.Context, clusterNa
 		case "staticPassword":
 			templateData["StaticPassword"] = cfg.Value == "true"
 		}
+
 	}
 
 	// Render the template
@@ -668,12 +802,42 @@ func (kp *KindProvider) renderKindTemplate(templateStr string, data map[string]i
 func (kp *KindProvider) waitForCiliumReady(ctx context.Context, kubeconfig string) error {
 	kp.logger.Info("🔍 Starting comprehensive Cilium readiness check...")
 
+	// First, verify that Cilium manifests were applied successfully
+	kp.logger.Info("   Pre-check: Verifying Cilium resources exist...")
+	if err := kp.runBasicKubectl(ctx, kubeconfig, "get", "deployment", "cilium-operator", "-n", "adhar-system"); err != nil {
+		kp.logger.Error("Cilium operator deployment not found", err, map[string]interface{}{
+			"namespace":  "adhar-system",
+			"suggestion": "This indicates the Cilium manifests were not applied successfully",
+		})
+
+		// Show what resources do exist in adhar-system
+		kp.logger.Info("Checking what resources exist in adhar-system namespace...")
+		kp.runBasicKubectl(ctx, kubeconfig, "get", "all", "-n", "adhar-system")
+
+		return fmt.Errorf("Cilium operator deployment not found in adhar-system namespace")
+	}
+
+	if err := kp.runBasicKubectl(ctx, kubeconfig, "get", "daemonset", "cilium", "-n", "adhar-system"); err != nil {
+		kp.logger.Error("Cilium DaemonSet not found", err, map[string]interface{}{
+			"namespace":  "adhar-system",
+			"suggestion": "This indicates the Cilium manifests were not applied successfully",
+		})
+		return fmt.Errorf("Cilium DaemonSet not found in adhar-system namespace")
+	}
+
 	// Wait for Cilium operator to be ready first with extended timeout
 	kp.logger.Info("   Phase 1: Waiting for Cilium operator deployment...")
 	if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=available", "deployment", "cilium-operator", "-n", "adhar-system", "--timeout=600s"); err != nil {
 		kp.logger.Error("Cilium operator deployment failed to become ready, checking status...")
-		// Show pod status for debugging
-		kp.runKubectlCommand(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "io.cilium/app=operator")
+
+		// Show detailed status for debugging
+		kp.logger.Info("Cilium operator deployment status:")
+		kp.runBasicKubectl(ctx, kubeconfig, "describe", "deployment", "cilium-operator", "-n", "adhar-system")
+
+		kp.logger.Info("Cilium operator pods status:")
+		kp.runBasicKubectl(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "io.cilium/app=operator")
+		kp.runBasicKubectl(ctx, kubeconfig, "describe", "pods", "-n", "adhar-system", "-l", "io.cilium/app=operator")
+
 		return fmt.Errorf("Cilium operator deployment failed to become ready: %w", err)
 	}
 	kp.logger.Info("   ✅ Cilium operator deployment is ready")
@@ -682,6 +846,27 @@ func (kp *KindProvider) waitForCiliumReady(ctx context.Context, kubeconfig strin
 	kp.logger.Info("   Phase 2: Waiting for Cilium DaemonSet pods (this may take several minutes)...")
 	if err := kp.runKubectlCommand(ctx, kubeconfig, "wait", "--for=condition=ready", "pod", "-l", "k8s-app=cilium", "-n", "adhar-system", "--timeout=600s"); err != nil {
 		kp.logger.Error("Cilium DaemonSet pods failed to become ready, running diagnostics...")
+
+		// Show detailed status for debugging
+		kp.logger.Info("Cilium DaemonSet status:")
+		kp.runBasicKubectl(ctx, kubeconfig, "describe", "daemonset", "cilium", "-n", "adhar-system")
+
+		kp.logger.Info("Cilium pods status:")
+		kp.runBasicKubectl(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "k8s-app=cilium", "-o", "wide")
+		kp.runBasicKubectl(ctx, kubeconfig, "describe", "pods", "-n", "adhar-system", "-l", "k8s-app=cilium")
+
+		// Check events for more context
+		kp.logger.Info("Recent events in adhar-system namespace:")
+		kp.runBasicKubectl(ctx, kubeconfig, "get", "events", "-n", "adhar-system", "--sort-by=.metadata.creationTimestamp")
+
+		// Common troubleshooting suggestions
+		kp.logger.Error("Cilium troubleshooting suggestions", nil, map[string]interface{}{
+			"suggestion_1": "Check if container images can be pulled (network connectivity)",
+			"suggestion_2": "Verify Kind cluster has sufficient resources (CPU/Memory)",
+			"suggestion_3": "Check if there are conflicting CNI plugins installed",
+			"suggestion_4": "Ensure kernel modules required by Cilium are available",
+		})
+
 		return fmt.Errorf("Cilium DaemonSet pods failed to become ready: %w", err)
 	}
 	kp.logger.Info("   ✅ Cilium DaemonSet pods are ready")
@@ -692,6 +877,16 @@ func (kp *KindProvider) waitForCiliumReady(ctx context.Context, kubeconfig strin
 		kp.logger.Debug("CiliumNodes CRD not yet available, this is normal during initial startup")
 	} else {
 		kp.logger.Info("   ✅ Cilium networking CRDs are available")
+	}
+
+	// Additional verification - check that nodes are properly managed by Cilium
+	kp.logger.Info("   Phase 4: Final Cilium verification...")
+	if err := kp.runBasicKubectl(ctx, kubeconfig, "get", "pods", "-n", "adhar-system", "-l", "k8s-app=cilium", "--no-headers"); err != nil {
+		kp.logger.Warning("Could not verify final Cilium status", map[string]interface{}{
+			"error": err.Error(),
+		})
+	} else {
+		kp.logger.Info("   ✅ Cilium pods are running")
 	}
 
 	kp.logger.Info("🎉 Cilium is fully ready and operational!")

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
 
 	"github.com/digitalocean/godo"
 	"github.com/sirupsen/logrus"
@@ -17,7 +18,7 @@ import (
 // DigitalOceanProvider implements Provider for DigitalOcean clusters
 type DigitalOceanProvider struct {
 	envConfig      *config.ResolvedEnvironmentConfig
-	logger         *logrus.Logger
+	logger         *logger.AdharLogger
 	templateEngine *TemplateEngine
 	client         *godo.Client
 }
@@ -44,10 +45,10 @@ type DONodePool struct {
 }
 
 // NewDigitalOceanProvider creates a new DigitalOcean provider
-func NewDigitalOceanProvider(envConfig *config.ResolvedEnvironmentConfig, logger *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
+func NewDigitalOceanProvider(envConfig *config.ResolvedEnvironmentConfig, log *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
 	return &DigitalOceanProvider{
 		envConfig:      envConfig,
-		logger:         logger,
+		logger:         logger.GetLogger(),
 		templateEngine: templateEngine,
 		client:         nil, // Will be initialized when needed
 	}, nil
@@ -56,14 +57,17 @@ func NewDigitalOceanProvider(envConfig *config.ResolvedEnvironmentConfig, logger
 // Provision provisions a DigitalOcean cluster
 func (dop *DigitalOceanProvider) Provision(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		dop.logger.Info("DRY-RUN: Would provision DigitalOcean cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+		dop.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would provision DOKS cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 		return nil
 	}
 
-	dop.logger.Info("Provisioning DigitalOcean cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+	dop.logger.StartOperation("DigitalOcean DOKS Cluster Provisioning", fmt.Sprintf("Creating cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 
 	// Initialize client
 	if err := dop.initializeClient(); err != nil {
+		logger.Error("Failed to initialize DigitalOcean client", err, map[string]interface{}{
+			"region": envConfig.ResolvedRegion,
+		})
 		return fmt.Errorf("failed to initialize DigitalOcean client: %w", err)
 	}
 
@@ -76,7 +80,7 @@ func (dop *DigitalOceanProvider) Provision(ctx context.Context, envConfig *confi
 	}
 
 	if exists {
-		dop.logger.Info("Cluster already exists", "name", clusterConfig.Name)
+		dop.logger.Info(fmt.Sprintf("✅ DOKS cluster '%s' already exists, skipping creation", clusterConfig.Name))
 		return nil
 	}
 
@@ -112,33 +116,44 @@ func (dop *DigitalOceanProvider) Provision(ctx context.Context, envConfig *confi
 		createRequest.VPCUUID = clusterConfig.VPCId
 	}
 
-	dop.logger.Info("Creating DigitalOcean Kubernetes cluster", "name", clusterConfig.Name)
+	dop.logger.ProvisioningInfo("digitalocean", "creating", fmt.Sprintf("DOKS cluster with %d node pools", len(nodePools)))
 
 	// Create the cluster
 	cluster, _, err := dop.client.Kubernetes.Create(ctx, createRequest)
 	if err != nil {
+		logger.Error("Failed to create DOKS cluster", err, map[string]interface{}{
+			"cluster": clusterConfig.Name,
+			"region":  clusterConfig.Region,
+		})
 		return fmt.Errorf("failed to create DigitalOcean cluster: %w", err)
 	}
 
-	dop.logger.Info("Cluster creation initiated", "id", cluster.ID, "name", cluster.Name)
+	dop.logger.Info(fmt.Sprintf("📋 Cluster creation initiated: %s (ID: %s)", cluster.Name, cluster.ID))
 
 	// Wait for cluster to be ready
+	dop.logger.StartProgress("Waiting for DOKS cluster to become ready (this can take 5-10 minutes)")
 	if err := dop.waitForClusterReady(ctx, cluster.ID); err != nil {
+		dop.logger.StopProgress()
+		logger.Error("DOKS cluster failed to become ready", err, map[string]interface{}{
+			"cluster_id": cluster.ID,
+			"cluster":    cluster.Name,
+		})
 		return fmt.Errorf("cluster failed to become ready: %w", err)
 	}
+	dop.logger.StopProgress()
 
-	dop.logger.Info("DigitalOcean cluster provisioned successfully", "name", clusterConfig.Name)
+	dop.logger.FinishOperation("DigitalOcean DOKS Cluster Provisioning", fmt.Sprintf("Cluster '%s' ready", clusterConfig.Name))
 	return nil
 }
 
 // Destroy destroys a DigitalOcean cluster
 func (dop *DigitalOceanProvider) Destroy(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		dop.logger.Info("DRY-RUN: Would destroy DigitalOcean cluster", "name", envConfig.Name)
+		dop.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would destroy DOKS cluster '%s'", envConfig.Name))
 		return nil
 	}
 
-	dop.logger.Info("Destroying DigitalOcean cluster", "name", envConfig.Name)
+	dop.logger.StartOperation("DigitalOcean DOKS Cluster Destruction", fmt.Sprintf("Removing cluster '%s'", envConfig.Name))
 
 	// Initialize client
 	if err := dop.initializeClient(); err != nil {
@@ -149,25 +164,35 @@ func (dop *DigitalOceanProvider) Destroy(ctx context.Context, envConfig *config.
 	cluster, err := dop.getClusterByName(ctx, envConfig.Name)
 	if err != nil {
 		if err.Error() == "cluster not found" {
-			dop.logger.Info("Cluster not found, nothing to destroy", "name", envConfig.Name)
+			dop.logger.Info(fmt.Sprintf("📭 DOKS cluster '%s' not found, nothing to destroy", envConfig.Name))
 			return nil
 		}
 		return fmt.Errorf("failed to get cluster: %w", err)
 	}
 
 	// Delete the cluster
-	dop.logger.Info("Deleting cluster", "id", cluster.ID, "name", cluster.Name)
+	dop.logger.ProvisioningInfo("digitalocean", "deleting", fmt.Sprintf("DOKS cluster %s", cluster.Name))
 	_, err = dop.client.Kubernetes.Delete(ctx, cluster.ID)
 	if err != nil {
+		logger.Error("Failed to delete DOKS cluster", err, map[string]interface{}{
+			"cluster_id": cluster.ID,
+			"cluster":    cluster.Name,
+		})
 		return fmt.Errorf("failed to delete cluster: %w", err)
 	}
 
 	// Wait for cluster to be deleted
+	dop.logger.StartProgress("Waiting for DOKS cluster deletion to complete")
 	if err := dop.waitForClusterDeleted(ctx, cluster.ID); err != nil {
+		dop.logger.StopProgress()
+		logger.Error("Failed to wait for DOKS cluster deletion", err, map[string]interface{}{
+			"cluster_id": cluster.ID,
+		})
 		return fmt.Errorf("failed to wait for cluster deletion: %w", err)
 	}
+	dop.logger.StopProgress()
 
-	dop.logger.Info("DigitalOcean cluster destroyed successfully", "name", envConfig.Name)
+	dop.logger.FinishOperation("DigitalOcean DOKS Cluster Destruction", fmt.Sprintf("Cluster '%s' removed", envConfig.Name))
 	return nil
 }
 
@@ -189,7 +214,7 @@ func (dop *DigitalOceanProvider) Exists(ctx context.Context, envConfig *config.R
 
 // InstallPlatformServices installs platform services on the DigitalOcean cluster
 func (dop *DigitalOceanProvider) InstallPlatformServices(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig) error {
-	dop.logger.Info("Installing platform services on DigitalOcean cluster")
+	dop.logger.StartOperation("Platform Services Installation", "Setting up core platform components on DOKS")
 
 	// Initialize client to ensure we can communicate with DO API
 	if err := dop.initializeClient(); err != nil {
@@ -218,7 +243,7 @@ func (dop *DigitalOceanProvider) InstallPlatformServices(ctx context.Context, en
 		return fmt.Errorf("failed to setup ArgoCD platform management: %w", err)
 	}
 
-	dop.logger.Info("Platform services installation completed successfully")
+	dop.logger.FinishOperation("Platform Services Installation", "Platform services installation completed successfully")
 	return nil
 }
 

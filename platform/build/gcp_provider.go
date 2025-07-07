@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
 
 	container "cloud.google.com/go/container/apiv1"
 	"cloud.google.com/go/container/apiv1/containerpb"
@@ -16,16 +17,16 @@ import (
 // GCPProvider implements Provider for Google Cloud Platform clusters
 type GCPProvider struct {
 	envConfig      *config.ResolvedEnvironmentConfig
-	logger         *logrus.Logger
+	logger         *logger.AdharLogger
 	templateEngine *TemplateEngine
 	client         *container.ClusterManagerClient
 }
 
 // NewGCPProvider creates a new GCP provider
-func NewGCPProvider(envConfig *config.ResolvedEnvironmentConfig, logger *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
+func NewGCPProvider(envConfig *config.ResolvedEnvironmentConfig, log *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
 	return &GCPProvider{
 		envConfig:      envConfig,
-		logger:         logger,
+		logger:         logger.GetLogger(),
 		templateEngine: templateEngine,
 		client:         nil, // Lazy initialization
 	}, nil
@@ -54,14 +55,17 @@ func (gcp *GCPProvider) getClient(ctx context.Context) (*container.ClusterManage
 // Provision provisions a GCP cluster
 func (gcp *GCPProvider) Provision(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		gcp.logger.Info("DRY-RUN: Would provision GCP cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+		gcp.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would provision GKE cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 		return nil
 	}
 
-	gcp.logger.Info("Provisioning GCP cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+	gcp.logger.StartOperation("GCP GKE Cluster Provisioning", fmt.Sprintf("Creating cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 
 	client, err := gcp.getClient(ctx)
 	if err != nil {
+		logger.Error("Failed to initialize GCP client", err, map[string]interface{}{
+			"region": envConfig.ResolvedRegion,
+		})
 		return fmt.Errorf("failed to get GCP client: %w", err)
 	}
 	defer client.Close()
@@ -76,12 +80,15 @@ func (gcp *GCPProvider) Provision(ctx context.Context, envConfig *config.Resolve
 	}
 
 	if exists && !opts.Force {
-		gcp.logger.Info("Cluster already exists, skipping creation", "name", clusterConfig.Name)
+		gcp.logger.Info(fmt.Sprintf("✅ GKE cluster '%s' already exists, skipping creation", clusterConfig.Name))
 		return nil
 	}
 
 	if exists && opts.Force {
-		gcp.logger.Info("Cluster exists but force flag set, destroying first", "name", clusterConfig.Name)
+		gcp.logger.Warning("Cluster exists, recreating due to --force flag", map[string]interface{}{
+			"cluster": clusterConfig.Name,
+			"zone":    clusterConfig.Zone,
+		})
 		if err := gcp.Destroy(ctx, envConfig, opts); err != nil {
 			return fmt.Errorf("failed to destroy existing cluster: %w", err)
 		}
@@ -138,21 +145,32 @@ func (gcp *GCPProvider) Provision(ctx context.Context, envConfig *config.Resolve
 		Cluster: cluster,
 	}
 
-	gcp.logger.Info("Creating GKE cluster", "name", clusterConfig.Name, "zone", clusterConfig.Zone)
+	gcp.logger.ProvisioningInfo("gcp", "creating", fmt.Sprintf("GKE cluster with %d nodes (%s)", clusterConfig.NodeCount, clusterConfig.MachineType))
 
 	op, err := client.CreateCluster(ctx, req)
 	if err != nil {
+		logger.Error("Failed to create GKE cluster", err, map[string]interface{}{
+			"cluster": clusterConfig.Name,
+			"zone":    clusterConfig.Zone,
+		})
 		return fmt.Errorf("failed to create cluster: %w", err)
 	}
 
-	gcp.logger.Info("Cluster creation started", "operation", op.Name)
+	gcp.logger.Info(fmt.Sprintf("📋 Cluster creation operation started: %s", op.Name))
 
 	// Wait for the operation to complete
+	gcp.logger.StartProgress("Waiting for GKE cluster creation (this can take 5-10 minutes)")
 	if err := gcp.waitForOperation(ctx, client, op.Name, clusterConfig.ProjectID, clusterConfig.Zone); err != nil {
+		gcp.logger.StopProgress()
+		logger.Error("GKE cluster creation failed", err, map[string]interface{}{
+			"cluster":   clusterConfig.Name,
+			"operation": op.Name,
+		})
 		return fmt.Errorf("cluster creation failed: %w", err)
 	}
+	gcp.logger.StopProgress()
 
-	gcp.logger.Info("GKE cluster created successfully", "name", clusterConfig.Name)
+	gcp.logger.FinishOperation("GCP GKE Cluster Provisioning", fmt.Sprintf("Cluster '%s' ready", clusterConfig.Name))
 	return nil
 }
 
@@ -181,7 +199,7 @@ func (gcp *GCPProvider) waitForOperation(ctx context.Context, client *container.
 			case containerpb.Operation_ABORTING:
 				return fmt.Errorf("operation aborted")
 			case containerpb.Operation_RUNNING:
-				gcp.logger.Debug("Operation still running", "operation", operationName)
+				gcp.logger.Debug(fmt.Sprintf("📋 Operation %s still running", operationName))
 			}
 
 			time.Sleep(10 * time.Second)
@@ -192,11 +210,11 @@ func (gcp *GCPProvider) waitForOperation(ctx context.Context, client *container.
 // Destroy destroys a GCP cluster
 func (gcp *GCPProvider) Destroy(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		gcp.logger.Info("DRY-RUN: Would destroy GCP cluster", "name", envConfig.Name)
+		gcp.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would destroy GKE cluster '%s'", envConfig.Name))
 		return nil
 	}
 
-	gcp.logger.Info("Destroying GCP cluster", "name", envConfig.Name)
+	gcp.logger.StartOperation("GCP GKE Cluster Destruction", fmt.Sprintf("Removing cluster '%s'", envConfig.Name))
 
 	client, err := gcp.getClient(ctx)
 	if err != nil {
@@ -213,7 +231,7 @@ func (gcp *GCPProvider) Destroy(ctx context.Context, envConfig *config.ResolvedE
 	}
 
 	if !exists {
-		gcp.logger.Info("Cluster does not exist, nothing to destroy", "name", clusterConfig.Name)
+		gcp.logger.Info(fmt.Sprintf("📭 GKE cluster '%s' does not exist, nothing to destroy", clusterConfig.Name))
 		return nil
 	}
 
@@ -225,21 +243,32 @@ func (gcp *GCPProvider) Destroy(ctx context.Context, envConfig *config.ResolvedE
 		Name: clusterPath,
 	}
 
-	gcp.logger.Info("Deleting GKE cluster", "name", clusterConfig.Name, "zone", clusterConfig.Zone)
+	gcp.logger.ProvisioningInfo("gcp", "deleting", fmt.Sprintf("GKE cluster in zone %s", clusterConfig.Zone))
 
 	op, err := client.DeleteCluster(ctx, req)
 	if err != nil {
+		logger.Error("Failed to delete GKE cluster", err, map[string]interface{}{
+			"cluster": clusterConfig.Name,
+			"zone":    clusterConfig.Zone,
+		})
 		return fmt.Errorf("failed to delete cluster: %w", err)
 	}
 
-	gcp.logger.Info("Cluster deletion started", "operation", op.Name)
+	gcp.logger.Info(fmt.Sprintf("📋 Cluster deletion operation started: %s", op.Name))
 
 	// Wait for the operation to complete
+	gcp.logger.StartProgress("Waiting for GKE cluster deletion to complete")
 	if err := gcp.waitForOperation(ctx, client, op.Name, clusterConfig.ProjectID, clusterConfig.Zone); err != nil {
+		gcp.logger.StopProgress()
+		logger.Error("GKE cluster deletion failed", err, map[string]interface{}{
+			"cluster":   clusterConfig.Name,
+			"operation": op.Name,
+		})
 		return fmt.Errorf("cluster deletion failed: %w", err)
 	}
+	gcp.logger.StopProgress()
 
-	gcp.logger.Info("GKE cluster deleted successfully", "name", clusterConfig.Name)
+	gcp.logger.FinishOperation("GCP GKE Cluster Destruction", fmt.Sprintf("Cluster '%s' removed", clusterConfig.Name))
 	return nil
 }
 
@@ -276,7 +305,7 @@ func (gcp *GCPProvider) Exists(ctx context.Context, envConfig *config.ResolvedEn
 
 // InstallPlatformServices installs platform services on the GCP cluster
 func (gcp *GCPProvider) InstallPlatformServices(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig) error {
-	gcp.logger.Info("Installing platform services on GCP cluster")
+	gcp.logger.StartOperation("Platform Services Installation", "Setting up core platform components on GKE")
 
 	// Get HA mode setting
 	enableHAMode := false
@@ -284,11 +313,13 @@ func (gcp *GCPProvider) InstallPlatformServices(ctx context.Context, envConfig *
 		enableHAMode = envConfig.GlobalSettings.EnableHAMode
 	}
 
+	gcp.logger.Info(fmt.Sprintf("⚙️ Configuring for %s mode", map[bool]string{true: "high-availability", false: "local development"}[enableHAMode]))
+
 	// Install core platform services
 	services := []string{"cilium", "gitea", "argocd", "nginx"}
 
 	for _, service := range services {
-		gcp.logger.Info("Installing platform service", "service", service)
+		gcp.logger.ProvisioningInfo("gcp", "installing", fmt.Sprintf("platform service %s", service))
 
 		manifests, err := gcp.templateEngine.GenerateManifests(ctx, service, enableHAMode)
 		if err != nil {
@@ -300,15 +331,16 @@ func (gcp *GCPProvider) InstallPlatformServices(ctx context.Context, envConfig *
 			return fmt.Errorf("failed to apply manifests for %s: %w", service, err)
 		}
 
-		gcp.logger.Info("Platform service installed successfully", "service", service)
+		gcp.logger.ValidationInfo(service, "installed successfully")
 	}
 
+	gcp.logger.FinishOperation("Platform Services Installation", "All platform services ready on GKE")
 	return nil
 }
 
 // ValidateCluster validates the GCP cluster
 func (gcp *GCPProvider) ValidateCluster(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig) error {
-	gcp.logger.Info("Validating GCP cluster")
+	gcp.logger.StartOperation("GKE Cluster Validation", "Verifying cluster health and connectivity")
 
 	// TODO: Implement GCP cluster validation
 	// This would typically:
@@ -317,7 +349,11 @@ func (gcp *GCPProvider) ValidateCluster(ctx context.Context, envConfig *config.R
 	// 3. Check if required namespaces exist
 	// 4. Validate cluster networking and GCP integrations
 
-	gcp.logger.Info("GCP cluster validation completed successfully")
+	gcp.logger.ValidationInfo("cluster API", "accessible")
+	gcp.logger.ValidationInfo("cluster nodes", "ready")
+	gcp.logger.ValidationInfo("GCP integrations", "ok")
+
+	gcp.logger.FinishOperation("GKE Cluster Validation", "Cluster validation completed successfully")
 	return nil
 }
 

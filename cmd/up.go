@@ -12,9 +12,9 @@ import (
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/build"
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -159,11 +159,17 @@ func preCreateE(cmd *cobra.Command, args []string) error {
 	// Set log level based on verbose flag or global debug flag
 	debugFlag, _ := cmd.Root().PersistentFlags().GetBool("debug")
 	if verbose || debugFlag {
-		_ = helpers.SetLogLevel("debug")
+		logger.CLILogLevel = "debug"
+		_ = logger.SetLogLevel("debug")
 	} else {
-		_ = helpers.SetLogLevel("info")
+		logger.CLILogLevel = "info"
+		_ = logger.SetLogLevel("info")
 	}
-	return helpers.SetLogger()
+
+	// Set colored output (enable by default, disable if NO_COLOR is set)
+	logger.CLIColoredOutput = os.Getenv("NO_COLOR") == ""
+
+	return logger.SetupKubernetesLogging()
 }
 
 func create(cmd *cobra.Command, args []string) error {
@@ -211,17 +217,20 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Initialize logger
-	logger := logrus.New()
+	// Initialize enhanced logger
+	log := logger.GetLogger()
 	if verbose {
-		logger.SetLevel(logrus.DebugLevel)
+		log.SetLevel(logger.LogLevelDebug)
 	}
 
 	// Initialize template engine
-	templateEngine := build.NewTemplateEngine(logger)
+	templateEngine := build.NewTemplateEngine(log.Logger)
 
 	// Create provider manager
-	providerManager := build.NewProviderManager(logger, templateEngine)
+	providerManager := build.NewProviderManager(log.Logger, templateEngine)
+
+	// Show banner
+	logger.Banner("Adhar Platform", "Provisioning Management Cluster and Platform Components")
 
 	// If no environment specified, provision the complete platform
 	if environment == "" {
@@ -240,14 +249,22 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	}
 
 	// Provision the environment
+	log.StartOperation("Environment Provisioning", fmt.Sprintf("Deploying %s environment", environment))
+
 	provisionOpts := build.ProvisionOptions{
 		DryRun: dryRun,
 		Force:  force,
 	}
 
 	if err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts); err != nil {
+		logger.Error("Environment provisioning failed", err, map[string]interface{}{
+			"environment": environment,
+			"provider":    envConfig.ResolvedProvider,
+		})
 		return fmt.Errorf("failed to provision environment %s: %w", environment, err)
 	}
+
+	log.FinishOperation("Environment Provisioning", fmt.Sprintf("%s environment ready", environment))
 
 	// Print success message
 	printProductionSuccessMsg(environment)
@@ -395,7 +412,7 @@ func printSuccessMsg() {
 }
 
 func behindProxy() bool {
-	// check if we are in codespaces: https://docs.github.com/en/codespaces/developing-in-a-codespace/default-environment-variables-for-your-codespace
+	// check if we are in codespaces: https://docs.github.com/en/codespaces/developing-in-a-codespace
 	_, ok := os.LookupEnv("CODESPACES")
 	return ok
 }
@@ -669,17 +686,17 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		},
 	}
 
-	fmt.Printf("🚀 %s\n", boldStyle.Render("Provisioning Local Development Cluster"))
-	fmt.Println()
+	// Show banner for local development
+	logger.Banner("Adhar Development Platform", "Provisioning Management Cluster and Platform Components")
 
 	// Use the original template-based build approach with ProviderManager
-	logger := logrus.New()
+	log := logger.GetLogger()
 	if verbose {
-		logger.SetLevel(logrus.DebugLevel)
+		log.SetLevel(logger.LogLevelDebug)
 	}
 
-	templateEngine := build.NewTemplateEngine(logger)
-	providerManager := build.NewProviderManager(logger, templateEngine)
+	templateEngine := build.NewTemplateEngine(log.Logger)
+	providerManager := build.NewProviderManager(log.Logger, templateEngine)
 
 	// Create environment config for Kind provider with CLI flags that uses template mode
 	var clusterConfig []config.ClusterConfig
@@ -729,10 +746,19 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		return showLocalDryRunInfo(adharSpec, envConfig)
 	}
 
+	// Start the provisioning process
+	log.StartOperation("Local Development Cluster", "Creating Kind cluster with platform services")
+
 	// Use the ProviderManager to create the Kind cluster with template-based provisioning
 	if err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts); err != nil {
+		logger.Error("Local cluster provisioning failed", err, map[string]interface{}{
+			"cluster":  envConfig.Name,
+			"provider": "kind",
+		})
 		return fmt.Errorf("failed to provision local development cluster: %w", err)
 	}
+
+	log.FinishOperation("Local Development Cluster", "Platform ready for development")
 
 	// Print success message
 	printSuccessMsg()

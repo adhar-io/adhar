@@ -5,8 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"adhar-io/adhar/cmd/helpers" // Added import
-	"adhar-io/adhar/globals"     // Added import for globals package
+	// Added import
+	"adhar-io/adhar/globals" // Added import for globals package
+	"adhar-io/adhar/platform/logger"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -340,8 +341,8 @@ func init() {
 	rootCmd.PersistentFlags().String("kubeconfig", "", "Path to the kubeconfig file to use for Platform requests")
 
 	// Added log level and colored output flags
-	rootCmd.PersistentFlags().StringVar(&helpers.LogLevel, "log-level", "info", helpers.LogLevelMsg)
-	rootCmd.PersistentFlags().BoolVar(&helpers.ColoredOutput, "colored-logs", true, helpers.ColoredOutputMsg)
+	rootCmd.PersistentFlags().StringVar(&logger.CLILogLevel, "log-level", "info", logger.LogLevelMsg)
+	rootCmd.PersistentFlags().BoolVar(&logger.CLIColoredOutput, "colored-logs", true, logger.ColoredOutputMsg)
 }
 
 // AddCommand adds one or more commands to the root command

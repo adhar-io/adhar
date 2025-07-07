@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"adhar-io/adhar/platform/logger"
+
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -15,14 +17,14 @@ import (
 // TemplateEngine handles KCL-based template processing
 type TemplateEngine struct {
 	templatesDir string
-	logger       *logrus.Logger
+	logger       *logger.AdharLogger
 }
 
 // NewTemplateEngine creates a new template engine
-func NewTemplateEngine(logger *logrus.Logger) *TemplateEngine {
+func NewTemplateEngine(log *logrus.Logger) *TemplateEngine {
 	return &TemplateEngine{
 		templatesDir: "platform/build/templates/platform-apps",
-		logger:       logger,
+		logger:       logger.GetLogger(),
 	}
 }
 
@@ -142,31 +144,131 @@ func (te *TemplateEngine) getFallbackConfig(appName string, enableHAMode bool) *
 
 // GenerateManifests generates Kubernetes manifests for a platform app using KCL config and YAML templates
 func (te *TemplateEngine) GenerateManifests(ctx context.Context, appName string, enableHAMode bool) (string, error) {
+	te.logger.ManifestInfo("generating", fmt.Sprintf("%s manifests", appName))
+	te.logger.Debug(fmt.Sprintf("Generating manifests for %s with HA mode: %v", appName, enableHAMode))
+
 	// Force local mode for Kind clusters (non-HA) - always use minimal replica configuration
-
-	// Load KCL configuration in local mode
-	config, err := te.LoadKCLConfig(ctx, appName, false) // Always use local mode for Kind
+	config, err := te.LoadKCLConfig(ctx, appName, enableHAMode)
 	if err != nil {
-		return "", fmt.Errorf("failed to load KCL config: %w", err)
+		te.logger.Debug("Failed to load KCL config, using fallback", "app", appName, "error", err)
+		config = te.getFallbackConfig(appName, enableHAMode)
 	}
 
-	// Load base YAML template from controllers directory (the actual manifest files)
-	baseYAMLPath := filepath.Join("platform/controllers/adharplatform/resources", appName, "install.yaml")
-	baseYAML, err := os.ReadFile(baseYAMLPath)
+	// Load base manifests from the resources directory
+	baseManifests, err := te.loadBaseManifests(appName)
 	if err != nil {
-		return "", fmt.Errorf("failed to read base YAML template: %w", err)
+		te.logger.Error("Failed to load base manifests", err, map[string]interface{}{
+			"app": appName,
+		})
+		return "", fmt.Errorf("failed to load base manifests for %s: %w", appName, err)
 	}
 
-	// Apply configuration patches using Kustomize overlays for local development
-	return te.applyConfigurationPatches(string(baseYAML), config)
+	// Apply Kustomize-based configuration
+	manifests, err := te.applyConfigurationPatches(baseManifests, config)
+	if err != nil {
+		te.logger.Error("Failed to apply configuration patches", err, map[string]interface{}{
+			"app":     appName,
+			"ha_mode": enableHAMode,
+			"config":  fmt.Sprintf("%+v", config),
+		})
+		return "", fmt.Errorf("failed to apply configuration patches: %w", err)
+	}
+
+	// Validate generated manifests
+	if err := te.validateGeneratedManifests(manifests, appName); err != nil {
+		te.logger.Error("Generated manifests failed validation", err, map[string]interface{}{
+			"app":             appName,
+			"manifest_length": len(manifests),
+		})
+		return "", fmt.Errorf("generated manifests failed validation: %w", err)
+	}
+
+	te.logger.ValidationInfo(fmt.Sprintf("%s manifests", appName), "generated successfully")
+	return manifests, nil
+}
+
+// loadBaseManifests loads the base YAML manifests for a platform application
+func (te *TemplateEngine) loadBaseManifests(appName string) (string, error) {
+	// Map app names to their manifest resource paths
+	manifestPaths := map[string]string{
+		"cilium":     "platform/controllers/adharplatform/resources/cilium/install.yaml",
+		"nginx":      "platform/controllers/adharplatform/resources/nginx/install.yaml",
+		"gitea":      "platform/controllers/adharplatform/resources/gitea/install.yaml",
+		"argocd":     "platform/controllers/adharplatform/resources/argocd/install.yaml",
+		"crossplane": "platform/controllers/adharplatform/resources/crossplane/install.yaml",
+	}
+
+	manifestPath, exists := manifestPaths[appName]
+	if !exists {
+		return "", fmt.Errorf("no base manifests found for app: %s", appName)
+	}
+
+	// Check if the manifest file exists
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		te.logger.Warning("Base manifest file not found", map[string]interface{}{
+			"app":  appName,
+			"path": manifestPath,
+		})
+		return "", fmt.Errorf("base manifest file not found: %s", manifestPath)
+	}
+
+	// Read the manifest file
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read base manifest file %s: %w", manifestPath, err)
+	}
+
+	manifestContent := string(manifestBytes)
+	te.logger.Debug("Base manifests loaded", "app", appName, "path", manifestPath, "size", len(manifestContent))
+
+	return manifestContent, nil
+}
+
+// validateGeneratedManifests performs basic validation on generated manifests
+func (te *TemplateEngine) validateGeneratedManifests(manifests, appName string) error {
+	if len(manifests) == 0 {
+		return fmt.Errorf("no manifests generated for %s", appName)
+	}
+
+	// Check for basic YAML structure
+	lines := strings.Split(manifests, "\n")
+	hasKubernetesResource := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "apiVersion:") || strings.HasPrefix(line, "kind:") {
+			hasKubernetesResource = true
+			break
+		}
+	}
+
+	if !hasKubernetesResource {
+		return fmt.Errorf("generated manifests do not contain valid Kubernetes resources for %s", appName)
+	}
+
+	te.logger.Debug("Manifest validation passed", "app", appName, "size", len(manifests))
+	return nil
 }
 
 // applyConfigurationPatches applies configuration patches to static YAML manifests
 func (te *TemplateEngine) applyConfigurationPatches(baseYAML string, config *PlatformAppConfig) (string, error) {
+	// For local development mode with minimal configuration,
+	// we might not need to apply any patches and can return the base manifests directly
+	if config.Name != "" && te.shouldUseBaseManifests(config) {
+		te.logger.Debug("Using base manifests without patches for local development", "app", config.Name)
+		return baseYAML, nil
+	}
+
 	// For now, we'll create Kustomize patches and apply them
 	// This is a transitional approach while we move to full KCL templating
 
 	patches := te.generateKustomizePatches(config)
+
+	// If no patches are generated, return base manifests
+	if patches == "" {
+		te.logger.Debug("No patches generated, using base manifests", "app", config.Name)
+		return baseYAML, nil
+	}
 
 	// Create a temporary directory for Kustomize processing
 	tempDir, err := os.MkdirTemp("", fmt.Sprintf("adhar-%s-", config.Name))
@@ -206,21 +308,34 @@ resources:
 kind: Kustomization
 resources:
   - ../base
-
+patches:
 %s`, patches)
 
 	if err := os.WriteFile(filepath.Join(overlayDir, "kustomization.yaml"), []byte(overlayKustomization), 0644); err != nil {
 		return "", fmt.Errorf("failed to write overlay kustomization: %w", err)
 	}
 
-	// Generate final manifests using Kustomize
-	cmd := exec.Command("kustomize", "build", overlayDir)
+	// Apply kustomization using kubectl kustomize
+	cmd := exec.Command("kubectl", "kustomize", overlayDir)
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to build Kustomize overlay: %w", err)
+		te.logger.Debug("Kustomize command failed", "error", err, "output", string(output))
+		return "", fmt.Errorf("failed to apply kustomize patches: %w", err)
 	}
 
 	return string(output), nil
+}
+
+// shouldUseBaseManifests determines if we should use base manifests without patches
+func (te *TemplateEngine) shouldUseBaseManifests(config *PlatformAppConfig) bool {
+	// For local development (non-HA mode), use base manifests without patches for Cilium
+	// The base Cilium manifests are already optimized for local development
+	if config.Name == "cilium" && config.OperatorReplicas <= 1 {
+		return true
+	}
+
+	// For other services, we might still want to apply resource patches
+	return false
 }
 
 // generateKustomizePatches generates Kustomize patches based on configuration

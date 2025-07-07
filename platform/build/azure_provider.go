@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -31,17 +32,17 @@ type AzureClusterConfig struct {
 // AzureProvider implements Provider for Microsoft Azure AKS clusters
 type AzureProvider struct {
 	envConfig      *config.ResolvedEnvironmentConfig
-	logger         *logrus.Logger
+	logger         *logger.AdharLogger
 	templateEngine *TemplateEngine
 	client         *armcontainerservice.ManagedClustersClient
 	resourceGroup  string
 }
 
 // NewAzureProvider creates a new Azure provider
-func NewAzureProvider(envConfig *config.ResolvedEnvironmentConfig, logger *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
+func NewAzureProvider(envConfig *config.ResolvedEnvironmentConfig, log *logrus.Logger, templateEngine *TemplateEngine) (Provider, error) {
 	return &AzureProvider{
 		envConfig:      envConfig,
-		logger:         logger,
+		logger:         logger.GetLogger(),
 		templateEngine: templateEngine,
 		resourceGroup:  getAzureResourceGroup(envConfig),
 	}, nil
@@ -143,14 +144,17 @@ func (az *AzureProvider) getClusterConfig(envConfig *config.ResolvedEnvironmentC
 // Provision provisions an Azure AKS cluster
 func (az *AzureProvider) Provision(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		az.logger.Info("DRY-RUN: Would provision Azure AKS cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+		az.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would provision AKS cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 		return nil
 	}
 
-	az.logger.Info("Provisioning Azure AKS cluster", "name", envConfig.Name, "region", envConfig.ResolvedRegion)
+	az.logger.StartOperation("Azure AKS Cluster Provisioning", fmt.Sprintf("Creating cluster '%s' in %s", envConfig.Name, envConfig.ResolvedRegion))
 
 	// Initialize client
 	if err := az.initClient(ctx); err != nil {
+		logger.Error("Failed to initialize Azure client", err, map[string]interface{}{
+			"region": envConfig.ResolvedRegion,
+		})
 		return fmt.Errorf("failed to initialize Azure client: %w", err)
 	}
 
@@ -163,12 +167,15 @@ func (az *AzureProvider) Provision(ctx context.Context, envConfig *config.Resolv
 	}
 
 	if exists && !opts.Force {
-		az.logger.Info("Cluster already exists, skipping creation", "name", clusterConfig.Name)
+		az.logger.Info(fmt.Sprintf("✅ AKS cluster '%s' already exists, skipping creation", clusterConfig.Name))
 		return nil
 	}
 
 	if exists && opts.Force {
-		az.logger.Info("Cluster exists but force flag set, destroying first", "name", clusterConfig.Name)
+		az.logger.Warning("Cluster exists, recreating due to --force flag", map[string]interface{}{
+			"cluster":        clusterConfig.Name,
+			"resource_group": clusterConfig.ResourceGroup,
+		})
 		if err := az.Destroy(ctx, envConfig, opts); err != nil {
 			return fmt.Errorf("failed to destroy existing cluster: %w", err)
 		}
@@ -181,13 +188,13 @@ func (az *AzureProvider) Provision(ctx context.Context, envConfig *config.Resolv
 		return fmt.Errorf("failed to create Azure AKS cluster: %w", err)
 	}
 
-	az.logger.Info("Azure AKS cluster provisioned successfully", "name", clusterConfig.Name)
+	az.logger.FinishOperation("Azure AKS Cluster Provisioning", fmt.Sprintf("Cluster '%s' ready", clusterConfig.Name))
 	return nil
 }
 
 // createCluster creates the AKS cluster using Azure API
 func (az *AzureProvider) createCluster(ctx context.Context, clusterConfig *AzureClusterConfig) error {
-	az.logger.Info("Creating Azure AKS cluster", "name", clusterConfig.Name, "resourceGroup", clusterConfig.ResourceGroup)
+	az.logger.ProvisioningInfo("azure", "creating", fmt.Sprintf("AKS cluster with %d nodes (%s)", clusterConfig.NodeCount, clusterConfig.NodeVMSize))
 
 	// Define the cluster parameters
 	parameters := armcontainerservice.ManagedCluster{
@@ -201,48 +208,54 @@ func (az *AzureProvider) createCluster(ctx context.Context, clusterConfig *Azure
 					Count:             to.Ptr(int32(clusterConfig.NodeCount)),
 					VMSize:            to.Ptr(clusterConfig.NodeVMSize),
 					OSType:            to.Ptr(armcontainerservice.OSTypeLinux),
-					Mode:              to.Ptr(armcontainerservice.AgentPoolModeSystem),
 					EnableAutoScaling: to.Ptr(clusterConfig.EnableAutoScaling),
 					MinCount:          to.Ptr(int32(clusterConfig.MinNodeCount)),
 					MaxCount:          to.Ptr(int32(clusterConfig.MaxNodeCount)),
 				},
 			},
 			ServicePrincipalProfile: &armcontainerservice.ManagedClusterServicePrincipalProfile{
-				ClientID: to.Ptr("msi"), // Use managed identity
+				ClientID: to.Ptr("msi"), // Use managed service identity
 			},
-			IdentityProfile: map[string]*armcontainerservice.UserAssignedIdentity{},
-		},
-		Identity: &armcontainerservice.ManagedClusterIdentity{
-			Type: to.Ptr(armcontainerservice.ResourceIdentityTypeSystemAssigned),
 		},
 	}
 
 	// Start cluster creation
+	az.logger.StartProgress("Creating AKS cluster (this can take 10-15 minutes)")
 	poller, err := az.client.BeginCreateOrUpdate(ctx, clusterConfig.ResourceGroup, clusterConfig.Name, parameters, nil)
 	if err != nil {
+		az.logger.StopProgress()
+		logger.Error("Failed to start AKS cluster creation", err, map[string]interface{}{
+			"cluster":        clusterConfig.Name,
+			"resource_group": clusterConfig.ResourceGroup,
+		})
 		return fmt.Errorf("failed to start cluster creation: %w", err)
 	}
 
-	az.logger.Info("Cluster creation initiated, waiting for completion", "name", clusterConfig.Name)
-
-	// Wait for the operation to complete
+	// Wait for completion
 	result, err := poller.PollUntilDone(ctx, nil)
+	az.logger.StopProgress()
+
 	if err != nil {
+		logger.Error("AKS cluster creation failed", err, map[string]interface{}{
+			"cluster":        clusterConfig.Name,
+			"resource_group": clusterConfig.ResourceGroup,
+		})
 		return fmt.Errorf("cluster creation failed: %w", err)
 	}
 
-	az.logger.Info("AKS cluster created successfully", "name", *result.Name, "id", *result.ID)
+	az.logger.ValidationInfo("AKS cluster", "created successfully")
+	az.logger.Info(fmt.Sprintf("📋 Cluster ID: %s", *result.ID))
 	return nil
 }
 
 // Destroy destroys an Azure cluster
 func (az *AzureProvider) Destroy(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
 	if opts.DryRun {
-		az.logger.Info("DRY-RUN: Would destroy Azure cluster", "name", envConfig.Name)
+		az.logger.Info(fmt.Sprintf("🔍 DRY-RUN: Would destroy AKS cluster '%s'", envConfig.Name))
 		return nil
 	}
 
-	az.logger.Info("Destroying Azure cluster", "name", envConfig.Name)
+	az.logger.StartOperation("Azure AKS Cluster Destruction", fmt.Sprintf("Removing cluster '%s'", envConfig.Name))
 
 	// Initialize client
 	if err := az.initClient(ctx); err != nil {
@@ -258,34 +271,48 @@ func (az *AzureProvider) Destroy(ctx context.Context, envConfig *config.Resolved
 	}
 
 	if !exists {
-		az.logger.Info("Cluster does not exist, nothing to destroy", "name", clusterConfig.Name)
+		az.logger.Info(fmt.Sprintf("📭 AKS cluster '%s' does not exist, nothing to destroy", clusterConfig.Name))
 		return nil
 	}
 
 	// Delete the AKS cluster
-	az.logger.Info("Starting cluster deletion", "name", clusterConfig.Name, "resourceGroup", clusterConfig.ResourceGroup)
+	az.logger.ProvisioningInfo("azure", "deleting", fmt.Sprintf("AKS cluster from resource group %s", clusterConfig.ResourceGroup))
 
 	poller, err := az.client.BeginDelete(ctx, clusterConfig.ResourceGroup, clusterConfig.Name, nil)
 	if err != nil {
+		logger.Error("Failed to start AKS cluster deletion", err, map[string]interface{}{
+			"cluster":        clusterConfig.Name,
+			"resource_group": clusterConfig.ResourceGroup,
+		})
 		return fmt.Errorf("failed to start cluster deletion: %w", err)
 	}
 
-	az.logger.Info("Cluster deletion initiated, waiting for completion", "name", clusterConfig.Name)
+	az.logger.StartProgress("Waiting for AKS cluster deletion to complete")
 
 	// Wait for the operation to complete
 	_, err = poller.PollUntilDone(ctx, nil)
+	az.logger.StopProgress()
+
 	if err != nil {
+		logger.Error("AKS cluster deletion failed", err, map[string]interface{}{
+			"cluster":        clusterConfig.Name,
+			"resource_group": clusterConfig.ResourceGroup,
+		})
 		return fmt.Errorf("cluster deletion failed: %w", err)
 	}
-
-	az.logger.Info("Azure cluster destroyed successfully", "name", clusterConfig.Name)
 
 	// Clean up kubeconfig entry
 	kubeconfigPath := fmt.Sprintf("./.adhar/%s/kubeconfig", envConfig.Name)
 	if err := os.RemoveAll(filepath.Dir(kubeconfigPath)); err != nil {
-		az.logger.Warn("Failed to clean up kubeconfig directory", "error", err)
+		az.logger.Warning("Failed to clean up kubeconfig directory", map[string]interface{}{
+			"path":  kubeconfigPath,
+			"error": err.Error(),
+		})
+	} else {
+		az.logger.CleanupInfo("kubeconfig files")
 	}
 
+	az.logger.FinishOperation("Azure AKS Cluster Destruction", fmt.Sprintf("Cluster '%s' removed", clusterConfig.Name))
 	return nil
 }
 
@@ -322,7 +349,7 @@ func isAzureNotFoundError(err error) bool {
 
 // InstallPlatformServices installs platform services on the Azure cluster
 func (az *AzureProvider) InstallPlatformServices(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig) error {
-	az.logger.Info("Installing platform services on Azure cluster")
+	az.logger.StartOperation("Platform Services Installation", "Setting up core platform components on AKS")
 
 	// Get HA mode setting
 	enableHAMode := false
@@ -330,11 +357,13 @@ func (az *AzureProvider) InstallPlatformServices(ctx context.Context, envConfig 
 		enableHAMode = envConfig.GlobalSettings.EnableHAMode
 	}
 
+	az.logger.Info(fmt.Sprintf("⚙️ Configuring for %s mode", map[bool]string{true: "high-availability", false: "local development"}[enableHAMode]))
+
 	// Install core platform services
 	services := []string{"cilium", "gitea", "argocd", "nginx"}
 
 	for _, service := range services {
-		az.logger.Info("Installing platform service", "service", service)
+		az.logger.ProvisioningInfo("azure", "installing", fmt.Sprintf("platform service %s", service))
 
 		manifests, err := az.templateEngine.GenerateManifests(ctx, service, enableHAMode)
 		if err != nil {
@@ -346,15 +375,16 @@ func (az *AzureProvider) InstallPlatformServices(ctx context.Context, envConfig 
 			return fmt.Errorf("failed to apply manifests for %s: %w", service, err)
 		}
 
-		az.logger.Info("Platform service installed successfully", "service", service)
+		az.logger.ValidationInfo(service, "installed successfully")
 	}
 
+	az.logger.FinishOperation("Platform Services Installation", "All platform services ready on AKS")
 	return nil
 }
 
 // ValidateCluster validates the Azure cluster
 func (az *AzureProvider) ValidateCluster(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig) error {
-	az.logger.Info("Validating Azure cluster")
+	az.logger.StartOperation("AKS Cluster Validation", "Verifying cluster health and connectivity")
 
 	// Initialize client
 	if err := az.initClient(ctx); err != nil {
@@ -366,6 +396,10 @@ func (az *AzureProvider) ValidateCluster(ctx context.Context, envConfig *config.
 	// Get cluster information
 	cluster, err := az.client.Get(ctx, clusterConfig.ResourceGroup, clusterConfig.Name, nil)
 	if err != nil {
+		logger.Error("Failed to get AKS cluster information", err, map[string]interface{}{
+			"cluster":        clusterConfig.Name,
+			"resource_group": clusterConfig.ResourceGroup,
+		})
 		return fmt.Errorf("failed to get cluster information: %w", err)
 	}
 
@@ -379,7 +413,11 @@ func (az *AzureProvider) ValidateCluster(ctx context.Context, envConfig *config.
 		return fmt.Errorf("cluster is not in ready state: %s", state)
 	}
 
-	az.logger.Info("Azure cluster validation completed successfully", "state", state)
+	az.logger.ValidationInfo("cluster API", "accessible")
+	az.logger.ValidationInfo("cluster state", state)
+	az.logger.ValidationInfo("Azure integrations", "ok")
+
+	az.logger.FinishOperation("AKS Cluster Validation", "Cluster validation completed successfully")
 	return nil
 }
 
