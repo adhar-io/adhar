@@ -177,84 +177,115 @@ func renderMarkdown(md string, style string) (string, error) {
 	return renderer.Render(md)
 }
 
-// renderCommands renders a list of commands in a pretty format
-func renderCommands(commands []*cobra.Command) string {
+// Command groups for better organization
+type CommandGroup struct {
+	Name        string
+	Description string
+	Commands    []string
+	Icon        string
+}
+
+var commandGroups = []CommandGroup{
+	{
+		Name:        "Platform Operations",
+		Description: "Core platform lifecycle management",
+		Commands:    []string{"up", "down", "cluster"},
+		Icon:        "🏗️",
+	},
+	{
+		Name:        "Application Management",
+		Description: "Develop, deploy, and manage applications",
+		Commands:    []string{"apps"},
+		Icon:        "🚀",
+	},
+	{
+		Name:        "Resources & Status",
+		Description: "View and monitor platform resources",
+		Commands:    []string{"get"},
+		Icon:        "📊",
+	},
+	{
+		Name:        "Utilities",
+		Description: "Additional tools and utilities",
+		Commands:    []string{"completion", "help", "version"},
+		Icon:        "🛠️",
+	},
+}
+
+// renderCommandGroups renders commands organized by groups
+func renderCommandGroups(commands []*cobra.Command) string {
 	var sb strings.Builder
 
+	// Create a map of commands by name for quick lookup
+	cmdMap := make(map[string]*cobra.Command)
 	for _, cmd := range commands {
-		name := titleStyle.Render(cmd.Name())
-		desc := cmdDescStyle.Render(cmd.Short)
-		sb.WriteString(fmt.Sprintf("%s\n  %s\n\n", name, desc))
+		cmdMap[cmd.Name()] = cmd
+	}
+
+	for i, group := range commandGroups {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+
+		// Group header
+		groupHeader := fmt.Sprintf("%s %s", group.Icon, group.Name)
+		sb.WriteString(headerStyle.Render(groupHeader) + "\n")
+		sb.WriteString(subtitleStyle.Render(group.Description) + "\n\n")
+
+		// Commands in this group
+		for _, cmdName := range group.Commands {
+			if cmd, exists := cmdMap[cmdName]; exists {
+				cmdLine := fmt.Sprintf("  %s  %s",
+					titleStyle.Render(cmd.Name()),
+					cmdDescStyle.Render(cmd.Short))
+				sb.WriteString(cmdLine + "\n")
+			}
+		}
 	}
 
 	return sb.String()
+}
+
+// renderQuickStart provides a quick start guide
+func renderQuickStart() string {
+	quickStart := `
+**Quick Start Guide:**
+
+1. **Start a local development environment:**
+   ` + "`adhar up`" + `
+
+2. **Deploy your first application:**
+   ` + "`adhar apps create myorg myapp my-service --template node-express`" + `
+
+3. **Check platform status:**
+   ` + "`adhar get status`" + `
+
+4. **Clean up when done:**
+   ` + "`adhar down`" + `
+`
+
+	rendered, err := renderMarkdown(quickStart, "auto")
+	if err != nil {
+		return quickStart
+	}
+	return rendered
 }
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:     "adhar",
 	Aliases: []string{"a", "ad"},
-	Short:   "Adhar Platform - The Open Foundation for your Internal Developer Platform",
-	Long: lipgloss.JoinVertical(lipgloss.Left,
-		"",
-		highlightStyle.Render("Adhar streamlines your entire software development lifecycle across five key stages:"),
-		"",
-		highlightStyle.Render("Define:")+" Plan and structure your projects.",
-		bulletStyle.Render("  • "+"Define your business requirements"),
-		bulletStyle.Render("  • "+"Define your goals and objectives"),
-		bulletStyle.Render("  • "+"Define your processes and workflows"),
-		bulletStyle.Render("  • "+"Define your success criteria"),
-		"",
-		highlightStyle.Render("Design:")+" Architect and scaffold your applications.",
-		bulletStyle.Render("  • "+"Design your UI/UX journey with low-code tools"),
-		bulletStyle.Render("  • "+"Design your technology architecture with best practices"),
-		bulletStyle.Render("  • "+"Create apps & services instantly with templates"),
-		bulletStyle.Render("  • "+"Design your data architecture with best practices"),
-		bulletStyle.Render("  • ")+"Design your UI/UX journey with low-code tools",
-		bulletStyle.Render("  • ")+"Design your technology architecture with best practices",
-		bulletStyle.Render("  • ")+"Create apps & services instantly with templates",
-		bulletStyle.Render("  • ")+"Design your data architecture with best practices",
-		"",
-		bulletStyle.Render("  • "+"Collaborate with your team and stakeholders"),
-		"",
-		highlightStyle.Render("Deliver:")+" Ship, manage, and secure your deployments.",
-		bulletStyle.Render("  • "+"Ship confidently with GitOps to any environment"),
-		bulletStyle.Render("  • "+"Control pipelines, infrastructure, and secrets easily"),
-		bulletStyle.Render("  • "+"Keep your applications and data safe"),
-		bulletStyle.Render("  • "+"Manage your applications and services effortlessly"),
-		bulletStyle.Render("  • ")+"Ship confidently with GitOps to any environment",
-		bulletStyle.Render("  • ")+"Control pipelines, infrastructure, and secrets easily",
-		bulletStyle.Render("  • ")+"Keep your applications and data safe",
-		bulletStyle.Render("  • ")+"Manage your applications and services effortlessly",
-		"",
-		highlightStyle.Render("Discover:")+" Monitor, optimize, and gain insights.",
-		bulletStyle.Render("  • ")+"Gain insights with built-in monitoring",
-		bulletStyle.Render("  • ")+"Optimize performance effortlessly",
-		bulletStyle.Render("  • ")+"Discover and manage your business metrics",
-		bulletStyle.Render("  • ")+"Discover and manage your data",
-		"",
-		highlightStyle.Render("Decide:")+" Actionable Insights, Data Driven Decisions",
-		bulletStyle.Render("  • ")+"Find out actionable insights from your data",
-		bulletStyle.Render("  • ")+"Data driven decisions",
-		bulletStyle.Render("  • ")+"Spent time and effort where it matters",
-		bulletStyle.Render("  • ")+"Make the right decisions",
-		"",
-		highlightStyle.Render("Unlock developer productivity and maintain control!"),
-		"",
-	),
-	Example: lipgloss.JoinVertical(lipgloss.Left,
-		infoStyle.Render("  # Create a new application"),
-		"  "+highlightStyle.Render("adhar apps create myorg myspace my-api --template spring-boot-api"),
-		"",
-		infoStyle.Render("  # Deploy an application"),
-		"  "+highlightStyle.Render("adhar apps deploy myorg myspace my-api --image=company/my-api:latest"),
-		"",
-		infoStyle.Render("  # List all applications"),
-		"  "+highlightStyle.Render("adhar apps list myorg myspace"),
-		"",
-		infoStyle.Render("  # Get platform status"),
-		"  "+highlightStyle.Render("adhar get status"),
-	),
+	Short:   "The Open Foundation for your Internal Developer Platform",
+	Long: `Adhar streamlines your software development lifecycle with a comprehensive Internal Developer Platform built on Kubernetes and GitOps principles.
+
+The platform provides unified tools for the complete development journey:
+• Define & Plan: Structure projects and requirements
+• Design & Build: Architect applications with templates and best practices  
+• Deploy & Deliver: Ship confidently with GitOps to any environment
+• Discover & Monitor: Gain insights with built-in observability
+• Decide & Optimize: Make data-driven decisions for continuous improvement
+
+Built for developer productivity with enterprise-grade security and governance.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Print header before any command runs
 		// Skip header for help command itself to avoid duplication with Cobra's default help flag behavior
@@ -267,59 +298,66 @@ var rootCmd = &cobra.Command{
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		// Show a welcome message
-		welcomeMsg := highlightStyle.Render("Welcome to Adhar Platform!") + "\n\n" +
-			infoStyle.Render("Unlock developer productivity and maintain control!")
-		fmt.Println(welcomeMsg)
+		// Modern welcome with better visual hierarchy
+		welcomeHeader := borderStyle.Width(80).Align(lipgloss.Center).Render(
+			highlightStyle.Render("🚀 Welcome to Adhar Platform") + "\n" +
+				subtitleStyle.Render("The Open Foundation for Internal Developer Platforms"),
+		)
+		fmt.Println(welcomeHeader)
 		fmt.Println()
 
-		// Render main description as markdown
-		description := `
-			## About Adhar
+		// Platform overview with styled formatting for better control
+		overviewHeader := highlightStyle.Render("Adhar") + " transforms how teams build and deploy software by providing:"
+		fmt.Println(overviewHeader)
+		fmt.Println()
 
-			Adhar is an open foundation for your Internal Developer Platform that streamlines your entire software development lifecycle across multiple stages.
-
-			### Main Features:
-
-			* **Define** - Plan and structure your projects, requirements, goals, processes, and success criteria
-			* **Design** - Architect and scaffold your applications with low-code tools and best practices
-			* **Deliver** - Ship, manage, and secure your deployments with GitOps, pipeline controls, and security measures
-			* **Discover** - Monitor, optimize, and gain insights into your applications and business metrics
-			* **Cloud Native** - Built on Kubernetes and Crossplane with a focus on developer productivity
-			* **GitOps Ready** - Declarative configuration and management across environments
-		`
-
-		rendered, err := renderMarkdown(description, "auto")
-		if err == nil {
-			fmt.Println(rendered)
-		} else {
-			// Fallback if markdown rendering fails
-			fmt.Println(cmd.Long)
+		// Use direct styling for bullet points to ensure proper line breaks
+		features := []string{
+			"🏗️ Unified Platform - Complete IDP on Kubernetes with GitOps",
+			"⚡ Developer Velocity - Templates, automation, and self-service",
+			"🔒 Enterprise Ready - Security, governance, and compliance built-in",
+			"🌐 Multi-Cloud - Deploy anywhere with consistent experience",
+			"📊 Full Observability - Monitor everything from code to production",
 		}
 
-		// Render available commands in a fancy box
-		fmt.Println(headerStyle.Render("AVAILABLE COMMANDS:"))
-		commandsBox := borderStyle.Render(renderCommands(cmd.Commands()))
+		for _, feature := range features {
+			fmt.Printf("  %s %s\n", bulletStyle.Render("•"), feature)
+		}
+		fmt.Println()
+
+		// Commands organized by groups
+		fmt.Println(headerStyle.Render("📋 AVAILABLE COMMANDS"))
+		commandsContent := renderCommandGroups(cmd.Commands())
+		commandsBox := borderStyle.Width(80).Render(commandsContent)
 		fmt.Println(commandsBox)
+		fmt.Println()
 
-		// Show some helpful tips
-		tips := `
-			💡 Tip: Use 'adhar [command] --help' for more information about a specific command.
-			🔄 Run 'adhar up -e <environment>' to provision a new environment.
-			🌐 First time user? Try 'adhar help' to see detailed documentation.
-			🔍 Use 'adhar get all' to see all resources managed by Adhar.
-		`
-		fmt.Println(headerStyle.Render("TIPS & TRICKS:"))
-		fmt.Println(lipgloss.NewStyle().Faint(true).Render(tips))
+		// Quick start guide
+		fmt.Println(headerStyle.Render("🚀 QUICK START"))
+		quickStartBox := borderStyle.Width(80).Render(renderQuickStart())
+		fmt.Println(quickStartBox)
+		fmt.Println()
 
-		// Show support and community info
-		community := `
-			Community: https://github.com/adhar-io/adhar/community
-			Documentation: https://docs.adhar.io
-			Issues: https://github.com/adhar-io/adhar/issues
-		`
-		fmt.Println(headerStyle.Render("COMMUNITY & SUPPORT:"))
-		fmt.Println(infoStyle.Render(community))
+		// Help and resources in a compact format
+		resources := []string{
+			"💡 Get help: " + highlightStyle.Render("adhar [command] --help"),
+			"📚 Documentation: " + infoStyle.Render("https://adhar.io/docs"),
+			"💬 Community: " + infoStyle.Render("https://github.com/adhar-io/adhar/community"),
+			"🐛 Issues: " + infoStyle.Render("https://github.com/adhar-io/adhar/issues"),
+		}
+
+		fmt.Println(headerStyle.Render("🔗 RESOURCES & SUPPORT"))
+		for _, resource := range resources {
+			fmt.Println("  " + resource)
+		}
+		fmt.Println()
+
+		// Footer with version info
+		footer := subtitleStyle.Render(
+			fmt.Sprintf("Adhar Platform %s • Built with ❤️ for developers", globals.Version),
+		)
+		fmt.Println(lipgloss.NewStyle().Align(lipgloss.Center).Render(footer))
+		fmt.Println()
 	},
 }
 
