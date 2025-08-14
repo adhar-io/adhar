@@ -1,3 +1,19 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package main
 
 import (
@@ -5,8 +21,7 @@ import (
 	"os"
 	"strings"
 
-	// Added import
-	"adhar-io/adhar/globals" // Added import for globals package
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/charmbracelet/glamour"
@@ -15,7 +30,8 @@ import (
 )
 
 // ASCII Art for ADHAR Platform
-const adharArt = `    _      ____    _    _      _      ____   
+const adharArt = `
+    _      ____    _    _      _      ____   
    / \    |  _ \  | |  | |    / \    |  _ \  
   / _ \   | | | | | |__| |   / _ \   | |_) | 
  / ___ \  | |_| | |  __  |  / ___ \  |  _ <  
@@ -106,15 +122,6 @@ var (
 			Padding(0, 0, 0, 2)
 )
 
-// GlamourStyles defines the styles to use for rendering markdown
-// Note: Using standard style names directly
-var glamourStyles = map[string]glamour.TermRendererOption{
-	"light":   glamour.WithStandardStyle("light"),   // Use standard light style
-	"dark":    glamour.WithStandardStyle("dark"),    // Use standard dark style
-	"dracula": glamour.WithStandardStyle("dracula"), // Add dracula style if needed
-	"auto":    glamour.WithAutoStyle(),
-}
-
 // renderAsciiArt renders the ADHAR ASCII art with style
 func renderAsciiArt() string {
 	return lipgloss.NewStyle().
@@ -123,17 +130,25 @@ func renderAsciiArt() string {
 		Render(adharArt)
 }
 
-// printHeader prints the standard Adhar Platform header.
+// printHeader prints the standard Adhar Platform header with ASCII art
 func printHeader() {
 	fmt.Println(renderAsciiArt())
-	fmt.Println(subtitleStyle.Render(" Platform " + globals.Version + " - The Open Foundation")) // Use globals.Version
-	fmt.Println()                                                                                // Add a blank line for spacing
+	fmt.Println(subtitleStyle.Render(" Platform " + globals.Version + " - The Open Foundation"))
+	fmt.Println() // Add a blank line for spacing
+}
+
+// GlamourStyles defines the styles to use for rendering markdown
+var glamourStyles = map[string]glamour.TermRendererOption{
+	"light":   glamour.WithStandardStyle("light"),   // Use standard light style
+	"dark":    glamour.WithStandardStyle("dark"),    // Use standard dark style
+	"dracula": glamour.WithStandardStyle("dracula"), // Add dracula style if needed
+	"auto":    glamour.WithAutoStyle(),
 }
 
 // renderCommandHeader prints a standardized header for any command with ASCII art and command-specific title
 func renderCommandHeader(commandName, description string) {
 	fmt.Println(renderAsciiArt())
-	fmt.Println(subtitleStyle.Render(" Platform " + globals.Version + " - The Open Foundation")) // Use globals.Version
+	fmt.Println(subtitleStyle.Render(" Platform " + globals.Version + " - The Open Foundation"))
 	if commandName != "" {
 		fmt.Println(headerStyle.Render("ADHAR " + strings.ToUpper(commandName)))
 		if description != "" {
@@ -175,35 +190,22 @@ func renderCommands(commands []*cobra.Command) string {
 	return sb.String()
 }
 
-// renderProgressBar renders a simple progress bar
-func renderProgressBar(percent float64, width int) string {
-	w := width - 7 // Account for the percentage and brackets
-	fill := int(percent * float64(w))
-	empty := w - fill
-
-	bar := fmt.Sprintf("[%s%s] %3.0f%%",
-		strings.Repeat("=", fill),
-		strings.Repeat(" ", empty),
-		percent*100)
-
-	return successStyle.Render(bar)
-}
-
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "adhar",
-	Short: "Adhar Platform - The Open Foundation for your Internal Developer Platform",
+	Use:     "adhar",
+	Aliases: []string{"a", "ad"},
+	Short:   "Adhar Platform - The Open Foundation for your Internal Developer Platform",
 	Long: lipgloss.JoinVertical(lipgloss.Left,
 		"",
-		highlightStyle.Render("Adhar streamlines your entire software development lifecycle across five key stages:"), // Assuming boldStyle was intended to be highlightStyle or similar
+		highlightStyle.Render("Adhar streamlines your entire software development lifecycle across five key stages:"),
 		"",
-		highlightStyle.Render("Define:")+" Plan and structure your projects.", // Assuming boldStyle was intended to be highlightStyle or similar
+		highlightStyle.Render("Define:")+" Plan and structure your projects.",
 		bulletStyle.Render("  • "+"Define your business requirements"),
 		bulletStyle.Render("  • "+"Define your goals and objectives"),
 		bulletStyle.Render("  • "+"Define your processes and workflows"),
 		bulletStyle.Render("  • "+"Define your success criteria"),
 		"",
-		highlightStyle.Render("Design:")+" Architect and scaffold your applications.", // Assuming boldStyle was intended to be highlightStyle or similar
+		highlightStyle.Render("Design:")+" Architect and scaffold your applications.",
 		bulletStyle.Render("  • "+"Design your UI/UX journey with low-code tools"),
 		bulletStyle.Render("  • "+"Design your technology architecture with best practices"),
 		bulletStyle.Render("  • "+"Create apps & services instantly with templates"),
@@ -215,7 +217,7 @@ var rootCmd = &cobra.Command{
 		"",
 		bulletStyle.Render("  • "+"Collaborate with your team and stakeholders"),
 		"",
-		highlightStyle.Render("Deliver:")+" Ship, manage, and secure your deployments.", // Assuming boldStyle was intended to be highlightStyle or similar
+		highlightStyle.Render("Deliver:")+" Ship, manage, and secure your deployments.",
 		bulletStyle.Render("  • "+"Ship confidently with GitOps to any environment"),
 		bulletStyle.Render("  • "+"Control pipelines, infrastructure, and secrets easily"),
 		bulletStyle.Render("  • "+"Keep your applications and data safe"),
@@ -225,29 +227,34 @@ var rootCmd = &cobra.Command{
 		bulletStyle.Render("  • ")+"Keep your applications and data safe",
 		bulletStyle.Render("  • ")+"Manage your applications and services effortlessly",
 		"",
-		highlightStyle.Render("Discover:")+" Monitor, optimize, and gain insights.", // Replaced boldStyle with highlightStyle
+		highlightStyle.Render("Discover:")+" Monitor, optimize, and gain insights.",
 		bulletStyle.Render("  • ")+"Gain insights with built-in monitoring",
 		bulletStyle.Render("  • ")+"Optimize performance effortlessly",
 		bulletStyle.Render("  • ")+"Discover and manage your business metrics",
 		bulletStyle.Render("  • ")+"Discover and manage your data",
 		"",
-		highlightStyle.Render("Unlock developer productivity and maintain control!"), // Replaced categoryIntroStyle with highlightStyle
+		highlightStyle.Render("Decide:")+" Actionable Insights, Data Driven Decisions",
+		bulletStyle.Render("  • ")+"Find out actionable insights from your data",
+		bulletStyle.Render("  • ")+"Data driven decisions",
+		bulletStyle.Render("  • ")+"Spent time and effort where it matters",
+		bulletStyle.Render("  • ")+"Make the right decisions",
+		"",
+		highlightStyle.Render("Unlock developer productivity and maintain control!"),
 		"",
 	),
 	Example: lipgloss.JoinVertical(lipgloss.Left,
-		infoStyle.Render("  # Create a new application"),                                                // Replaced codeStyle with infoStyle (or choose another defined style)
-		"  "+highlightStyle.Render("adhar apps create myorg myspace my-api --template spring-boot-api"), // Replaced boldStyle with highlightStyle
+		infoStyle.Render("  # Create a new application"),
+		"  "+highlightStyle.Render("adhar apps create myorg myspace my-api --template spring-boot-api"),
 		"",
-		infoStyle.Render("  # Deploy an application"),                                                      // Replaced codeStyle with infoStyle
-		"  "+highlightStyle.Render("adhar apps deploy myorg myspace my-api --image=company/my-api:latest"), // Replaced boldStyle with highlightStyle
+		infoStyle.Render("  # Deploy an application"),
+		"  "+highlightStyle.Render("adhar apps deploy myorg myspace my-api --image=company/my-api:latest"),
 		"",
-		infoStyle.Render("  # List all applications"),               // Replaced codeStyle with infoStyle
-		"  "+highlightStyle.Render("adhar apps list myorg myspace"), // Replaced boldStyle with highlightStyle
+		infoStyle.Render("  # List all applications"),
+		"  "+highlightStyle.Render("adhar apps list myorg myspace"),
 		"",
-		infoStyle.Render("  # Get platform status"),    // Replaced codeStyle with infoStyle
-		"  "+highlightStyle.Render("adhar get status"), // Replaced boldStyle with highlightStyle
+		infoStyle.Render("  # Get platform status"),
+		"  "+highlightStyle.Render("adhar get status"),
 	),
-	Aliases: []string{"a", "ad"},
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Print header before any command runs
 		// Skip header for help command itself to avoid duplication with Cobra's default help flag behavior
@@ -260,8 +267,6 @@ var rootCmd = &cobra.Command{
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		// Header is now printed in PersistentPreRun
-
 		// Show a welcome message
 		welcomeMsg := highlightStyle.Render("Welcome to Adhar Platform!") + "\n\n" +
 			infoStyle.Render("Unlock developer productivity and maintain control!")
@@ -270,18 +275,18 @@ var rootCmd = &cobra.Command{
 
 		// Render main description as markdown
 		description := `
-## About Adhar
+			## About Adhar
 
-Adhar is an open foundation for your Internal Developer Platform that streamlines your entire software development lifecycle across multiple stages.
+			Adhar is an open foundation for your Internal Developer Platform that streamlines your entire software development lifecycle across multiple stages.
 
-### Main Features:
+			### Main Features:
 
-* **Define** - Plan and structure your projects, requirements, goals, processes, and success criteria
-* **Design** - Architect and scaffold your applications with low-code tools and best practices
-* **Deliver** - Ship, manage, and secure your deployments with GitOps, pipeline controls, and security measures
-* **Discover** - Monitor, optimize, and gain insights into your applications and business metrics
-* **Cloud Native** - Built on Kubernetes and Crossplane with a focus on developer productivity
-* **GitOps Ready** - Declarative configuration and management across environments
+			* **Define** - Plan and structure your projects, requirements, goals, processes, and success criteria
+			* **Design** - Architect and scaffold your applications with low-code tools and best practices
+			* **Deliver** - Ship, manage, and secure your deployments with GitOps, pipeline controls, and security measures
+			* **Discover** - Monitor, optimize, and gain insights into your applications and business metrics
+			* **Cloud Native** - Built on Kubernetes and Crossplane with a focus on developer productivity
+			* **GitOps Ready** - Declarative configuration and management across environments
 		`
 
 		rendered, err := renderMarkdown(description, "auto")
@@ -299,19 +304,19 @@ Adhar is an open foundation for your Internal Developer Platform that streamline
 
 		// Show some helpful tips
 		tips := `
-💡 Tip: Use 'adhar [command] --help' for more information about a specific command.
-🔄 Run 'adhar up -e <environment>' to provision a new environment.
-🌐 First time user? Try 'adhar help' to see detailed documentation.
-🔍 Use 'adhar get all' to see all resources managed by Adhar.
+			💡 Tip: Use 'adhar [command] --help' for more information about a specific command.
+			🔄 Run 'adhar up -e <environment>' to provision a new environment.
+			🌐 First time user? Try 'adhar help' to see detailed documentation.
+			🔍 Use 'adhar get all' to see all resources managed by Adhar.
 		`
 		fmt.Println(headerStyle.Render("TIPS & TRICKS:"))
 		fmt.Println(lipgloss.NewStyle().Faint(true).Render(tips))
 
 		// Show support and community info
 		community := `
-Community: https://github.com/adhar-io/adhar/community
-Documentation: https://docs.adhar.io
-Issues: https://github.com/adhar-io/adhar/issues
+			Community: https://github.com/adhar-io/adhar/community
+			Documentation: https://docs.adhar.io
+			Issues: https://github.com/adhar-io/adhar/issues
 		`
 		fmt.Println(headerStyle.Render("COMMUNITY & SUPPORT:"))
 		fmt.Println(infoStyle.Render(community))
@@ -331,8 +336,6 @@ func Execute() error {
 func init() {
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
 	// Add global flags that apply to all commands
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable color output")
