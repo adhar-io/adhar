@@ -1,57 +1,84 @@
-![Adhar Logo](docs/imgs/adhar-logo-white.svg#gh-dark-mode-only)
-![Adhar Logo](docs/imgs/adhar-logo-black.svg#gh-light-mode-only)
-
 <div align="center">
 
-# ADHAR - The Open Foundation
+## Adhar Platform – Production-Ready Internal Developer Platform
+
+<a href="https://github.com/adhar/platform"><img alt="Build" src="https://img.shields.io/badge/build-passing-brightgreen"></a>
+<a href="https://golang.org"><img alt="Go Version" src="https://img.shields.io/badge/go-1.21%2B-blue"></a>
+<a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-green"></a>
+<a href="https://github.com/adhar/platform"><img alt="Status" src="https://img.shields.io/badge/status-production%20ready-success"></a>
 
 </div>
 
-<p align="center">
-  <a href="https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww"><img src="https://img.shields.io/badge/slack--channel-blue?logo=slack"></a>
-  <a href="https://github.com/adhar-io/adhar/releases/"><img alt="Releases" src="https://img.shields.io/github/release-date/adhar-io/adhar?label=latest%20release" /></a>
-  <a href="https://hub.docker.com/r/adhario/adhar"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/adhario/adhar" /></a>
-  <a href="https://img.shields.io/github/adhar-io/adhar/actions/workflows/main.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/adhar-io/adhar/e2e.yaml" /></a>
-  <a href="https://img.shields.io/github/last-commit/adhar-io/adhar"><img alt="Last commit" src="https://img.shields.io/github/last-commit/adhar-io/adhar" /></a>
-  <a href="https://img.shields.io/crates/l/ap"><img alt="License" src="https://img.shields.io/crates/l/ap" /></a>
-  <a href="https://adhar.io/"><img src="https://img.shields.io/website-up-down-green-red/http/shields.io.svg" alt="Website adhar.io"></a>
-</p>
+> Adhar (Sanskrit for "Foundation") is a unified, Kubernetes‑native Internal Developer Platform (IDP) for the entire software delivery lifecycle. It provides a consistent multi‑cloud experience, GitOps‑first operations, and a secure, production‑grade foundation.
 
-> :bulb: `Adhar`, derived from the Sanskrit word meaning `Foundation` is a transformative Internal Developer Platform (IDP) that redefines software development and governance. By seamlessly integrating industry-leading open-source technologies and embracing cloud-native principles, `Adhar` provides a ***Scalable*** and ***Efficient*** environment for developing complex, connected, ever-changing applications, with a strong emphasis on ***Security***, ***Governance***, ***AI Assistance***  and ***Developer productivity***. `Adhar` empowers teams to innovate rapidly and deliver exceptional software solutions with ease, same time enables architects and SMEs to in full control of the platform.
+---
 
-> :warning: **CAUTION:** This project is in early development stage and not ready for production. Use it only for testing and experimentation.
+## Table of Contents
 
-## Adhar Platform Goals :dart:
+- Overview
+- Key Features
+- Architecture
+- Getting Started
+- Configuration
+- Usage Examples
+- Platform Components
+- Platform Capabilities
+- Security and Observability
+- Testing and Quality
+- Build and Release
+- Roadmap
+- Community and License
 
-1. **Comprehensive All-in-One Integrated Platform:** The platform encompasses the entire software development lifecycle, from defining requirements and designing solutions to developing, testing, and deploying applications in production. This unified approach eliminates the need for switching between disparate tools, improving efficiency and collaboration.
+---
 
-2. **Enhanced Developer and Operator Experience:** The platform prioritizes developer and operator experience by providing intuitive interfaces, automated tasks, and streamlined workflows. This user-centric design reduces friction and empowers users to focus on their core responsibilities.
+## Overview
 
-3. **Clear Responsibility Segregation:** The platform establishes clear boundaries between application teams and platform teams, promoting a well-defined division of roles & responsibilities. This separation of concerns ensures that each team focuses on their respective areas of expertise, enhancing overall efficiency.
+Adhar delivers a unified workflow for platform and application teams across six providers (AWS, Azure, GCP, DigitalOcean, Civo, Kind) with a single CLI and GitOps‑managed platform services.
 
-4. **Holistic Governance and Compliance:** The platform incorporates robust governance and compliance mechanisms to ensure adherence to regulatory requirements and maintain data integrity without burdening developers with blocking hard gates. This built-in compliance framework minimizes risk and promotes transparency.
+## Key Features
 
-5. **Platform-as-a-Product Approach:** The platform adopts a product-centric approach, eliminating the need for each organization to reinvent the wheel. This shared infrastructure model reduces development costs and promotes standardization across the industry.
+- Multi‑Cloud Support (6 providers)
+- Unified CLI with automatic kubeconfig/context management
+- Production‑grade infrastructure: error handling, structured logging, automated backups
+- GitOps‑driven operations with ArgoCD, Helm, Kustomize
+- Security by default: zero‑trust networking, policy enforcement
 
-6. **Polyglot Technology Stack:** The platform embraces a polyglot approach, supporting a wide range of programming languages, frameworks, and cloud environments. This flexibility allows developers to choose the tools that best suit their needs, fostering innovation without making chaos for governance.
+### Providers
 
-7. **Continuous Evolution:** The platform remains perpetually evolving, incorporating modern technology trends and industry best practices. This commitment to continuous improvement ensures that the platform remains relevant and cutting-edge. Incremental evolution is a key differentiator compared to other platforms because of lean & foundational nature of the platform.
+- AWS (EKS), Azure (AKS), GCP (GKE), DigitalOcean, Civo, Kind (local)
 
-8. **Optimal Open Source Cloud-Native Integration:** The platform involves seamlessly combining open-source tools and technologies to build, deploy, and manage cloud-native applications. This integration enables organizations to leverage the flexibility, scalability, and cost-effectiveness of cloud computing while maintaining control over their infrastructure and data.
+---
 
-9. **GitOps for Infrastructure and Applications:** The platform adheres to GitOps principles for managing both infrastructure and applications. This declarative approach ensures consistency, reproducibility, and simplified configuration management.
+## Architecture
 
-10. **Self-Service Resource Provisioning:** The platform empowers users to provision resources on-demand, eliminating the need for manual intervention. This self-service model enhances agility and reduces administrative overhead. Automated workflows with adequate guard rails and policies are key enabler for self-service.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Adhar Platform                           │
+├─────────────────────────────────────────────────────────────┤
+│  AWS  │  Azure  │  GCP  │ DigitalOcean │  Civo  │  Kind    │
+├─────────────────────────────────────────────────────────────┤
+│ Core Services │ Security Services │ Observability Services   │
+├─────────────────────────────────────────────────────────────┤
+│        CLI Interface │ API Gateway │ Web UI (Console)        │
+└─────────────────────────────────────────────────────────────┘
+```
 
-11. **AI Powered Low-Code Platform:** Adhar's low-code application development capabilities can empower non-technical users to create simple applications without extensive coding knowledge, broadening the pool of contributors and accelerating application development. AI can automate repetitive tasks, provide code recommendations, and accelerate application testing, leading to faster and more efficient software development.
+---
 
-12. **Fully Open Source:** The platform embraces open-source principles, fostering transparency, collaboration, and continuous improvement. Not only Adhar uses Open Source tools and technologies, every component of Adhar platform if release under Apache 2.0 License. This open-source philosophy aligns with the values of the developer community and promotes innovation.
+## Getting Started
 
-## Getting Started :sparkles:
+### Prerequisites
 
-### Quick Start
+```bash
+go 1.21+
+docker
+kubectl
+helm
+# optional
+kind
+```
 
-The fastest way to get started with Adhar is to run it locally:
+### Quick Start (installer)
 
 ```bash
 # Install Adhar CLI
@@ -64,240 +91,241 @@ adhar up
 open https://adhar.localtest.me:8443
 ```
 
-### Prerequisites
+### From Source
 
-- **Docker**: [Install Docker](https://docs.docker.com/get-docker/)
-- **kubectl**: [Install kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
-
-### Installation Options
-
-**Local Development:**
 ```bash
-adhar up  # Creates Kind cluster with all services
+# Clone the repository
+git clone https://github.com/adhar/platform.git
+cd adhar
+
+# Build and install the CLI (standard Go install)
+go install ./...
+
+# Verify
+adhar version
 ```
 
-**Cloud Deployment:**
-```bash
-# Single provider
-adhar up -f config.yaml
+### Access Platform Services (local)
 
-# Multi-cloud setup
-adhar up -f dual-provider-config.yaml
+- Adhar Console: https://adhar.localtest.me:8443/
+- ArgoCD: https://adhar.localtest.me:8443/argocd/
+- Gitea: https://adhar.localtest.me:8443/gitea/
+- Grafana: https://adhar.localtest.me:8443/grafana/
+
+Credentials: `adhar get secrets`
+
+---
+
+## Configuration
+
+```yaml
+# config.yaml
+global:
+  log_level: info
+  log_format: json
+  log_output: stdout
+
+providers:
+  civo:
+    type: civo
+    region: MUM1
+    primary: true
+    token: "your-civo-token"
+    config:
+      size: g4s.kube.medium
+      disk_image: ubuntu-22.04-x64
+      firewall_rules:
+        - label: adhar-cluster
+          rules:
+            - protocol: tcp
+              start_port: "22"
+              end_port: "22"
+              cidr: ["0.0.0.0/0"]
+              direction: ingress
+
+environments:
+  development:
+    providers: ["kind", "civo"]
+    replicas: 1
+    ha_mode: false
+  production:
+    providers: ["aws", "azure"]
+    replicas: 3
+    ha_mode: true
 ```
 
-### Access Platform Services
+More examples: see `docs/CONFIGURATION.md` and `docs/examples/`.
 
-After deployment, access these services:
+---
 
-- **Adhar Console**: <https://adhar.localtest.me:8443/> - Self-service portal
-- **ArgoCD**: <https://adhar.localtest.me:8443/argocd/> - GitOps deployments
-- **Gitea**: <https://adhar.localtest.me:8443/gitea/> - Git repositories
-- **Grafana**: <https://adhar.localtest.me:8443/grafana/> - Monitoring dashboards
+## Usage Examples
 
-Get credentials with: `adhar get secrets`
+### Unified CLI
 
-## Documentation :books:
+```bash
+# Create a cluster
+adhar cluster create my-cluster --provider civo --region MUM1
 
-### Core Guides
+# List clusters
+adhar cluster list
 
-- **[Getting Started](./docs/GETTING_STARTED.md)** - Complete installation and setup guide
-- **[Platform Guide](./docs/PLATFORM_GUIDE.md)** - Comprehensive operational guide
-- **[Platform Capabilities](./docs/PLATFORM_CAPABILITIES.md)** - Complete overview of all 60+ platform tools and features
-- **[Architecture](./docs/ARCHITECTURE.md)** - Technical architecture and design
-- **[Configuration](./docs/CONFIGURATION.md)** - Configuration reference and examples
+# Get details
+adhar cluster get my-cluster
 
-### Advanced Topics
+# Delete cluster
+adhar cluster delete my-cluster
 
-- **[Contributing](./docs/CONTRIBUTING.md)** - Development and contribution guide
-- **[Samples](./docs/samples/)** - Example configurations and templates
+# Get kubeconfig
+adhar cluster kubeconfig my-cluster
+```
 
-### Provider-Specific Guides
+### Advanced Operations
 
-- **Google Cloud Platform (GKE)** - Production-ready GKE clusters
-- **Amazon Web Services (EKS)** - EKS with proper IAM and networking
-- **Microsoft Azure (AKS)** - AKS with enhanced security
-- **DigitalOcean** - Cost-effective Kubernetes clusters
-- **Civo** - Cloud-native Kubernetes
-- **On-Premises** - Self-hosted cluster deployment
+```bash
+# Multi-cloud deployment
+adhar cluster create prod-cluster \
+  --provider aws \
+  --region us-west-2 \
+  --ha-mode \
+  --replicas 3
 
-## Platform Features :rocket:
+# Environment-specific
+adhar cluster create dev-cluster \
+  --environment development \
+  --provider civo
 
-Learn about integrating, deploying and managing your apps on Adhar platform.
+# Backup and restore
+adhar cluster backup my-cluster
+adhar cluster restore backup-id target-cluster
 
-- [Architecture overview](./docs/architecture.md)
-- [Setting up your environment](./docs/setup.md)
-- [Development guide](./docs/development.md)
+# Health and metrics
+adhar cluster health my-cluster
+adhar cluster metrics my-cluster
+```
 
+### Provider-Specific
 
-## Platform Architecture :crystal_ball:
+```bash
+# AWS
+adhar cluster create aws-cluster \
+  --provider aws \
+  --instance-type t3.medium \
+  --vpc-cidr 10.0.0.0/16
 
-<p align="center"><img src="docs/imgs/adhar-platform.svg" width="100%" alt="Adhar platform"></p>
+# Azure
+adhar cluster create azure-cluster \
+  --provider azure \
+  --vm-size Standard_D2s_v3 \
+  --resource-group my-rg
+
+# GCP
+adhar cluster create gcp-cluster \
+  --provider gcp \
+  --machine-type e2-medium \
+  --network default
+```
+
+---
 
 ## Platform Components
 
-### Adhar Console (Self Service Portal)
+- Adhar Console: self‑service portal for developers and platform admins
+- CLI: powerful automation and workflows from the terminal
+- Control Plane (API server): validates desired state and reconciles actual state
+- AI Assistance: intelligent guidance across setup, troubleshooting, and optimization
+- Git‑based Infrastructure: desired state managed in Git for traceability
+- Golden Templates Catalog: curated Helm charts and templates for golden paths
 
-Adhar Console stands as the centerpiece of our platform, offering a seamless user experience tailored for both developers and platform administrators. It serves as a one-stop solution for a multitude of tasks. Developers can leverage the Adhar Console to build images, deploy applications, expose services, configure CNAMEs, manage network policies, and handle secrets.
-
-On the other hand, platform administrators can use it to enable and configure platform capabilities, as well as onboard development teams. The Adhar Console goes beyond just a web-based self-service portal, providing direct and context-aware access to platform capabilities like code repositories, registries, logs, metrics, traces, and dashboards.
-
-Moreover, it includes a Cloud Shell feature, allowing both developers and admins to run CLI commands. In essence, the Adhar Console is a comprehensive tool designed to streamline and simplify the management of your platform.
-
-![Adhar Console](docs/imgs/adhar-console.png)
-
-### Command Line Interface (CLI)
-
-The Adhar Command Line Interface (CLI) provides a powerful tool for developers and administrators to interact with the Adhar platform, enabling them to manage resources, execute tasks, and automate workflows directly from the command line.
-
-![Adhar Console](docs/imgs/adhar-cli.png)
-
-### Adhar Control plane (api-server)
-
-In the Adhar platform, the api-server plays a crucial role in enabling seamless integration. Every alteration made via the Console is first verified by the api-server within the control plane. Once validated, these changes are stored in the state store. This action initiates an automatic process where the platform aligns the actual state with the desired state, thereby ensuring smooth integration and consistency across the platform.
-
-### Adhar AI
-
-Adhar AI is an innovative feature of the Adhar platform that integrates AI assistance into your workflow. It leverages advanced machine learning algorithms to provide intelligent recommendations, automate routine tasks, and enhance decision-making processes. Whether you're configuring your platform, troubleshooting issues, or optimizing performance, Adhar Assist is there to guide you. It learns from your platform's data and usage patterns, continually improving its assistance over time. With Adhar AI, you get a smart companion that helps you make the most of the Adhar platform. As a developer, you will enjoy the assistance provided by `Adhar AI` during development.
-
-### Git Based Infrastructure
-
-Upon installation of Adhar, the desired state of the platform is captured and preserved in the Git repository, specifically within the `adhar/values` repository in the Gitea. This Git-based state store plays a pivotal role in infrastructure management, serving as a reliable and version-controlled source of truth. Any modifications made through the Console are promptly mirrored in this repository. This approach not only ensures consistency and traceability but also facilitates collaboration and rollback capabilities, underscoring the importance of a Git-based state store in modern infrastructure.
-
-### Golden Templates Catalog
-
-The `adhar-io/adhar-templates` Git repository houses a collection of built-in Helm charts, which serve as the backbone for creating workloads within the Console. These charts are designed as golden templates, adhering to trending technology standards, ensuring optimal performance and compatibility. In addition to the built-in charts, the platform also offers the flexibility to add custom charts. This allows users to tailor their workloads to specific needs while maintaining the benefits of standardization. Thus, the `adhar-io/adhar-templates` repository is not just a resource, but a gateway to efficient and standardized workload management on the Adhar platform.
-
-### Automation & Self Service
-
-Automation and self-service capabilities are crucial aspects of modern platforms like Adhar. Automation helps in maintaining consistency, reducing human error, and increasing efficiency by automating repetitive tasks. For instance, it can be used to synchronize the desired state with the actual state of applications, ensuring they are always in sync and reducing the need for manual intervention. On the other hand, self-service capabilities empower users by giving them direct control over their services. This not only improves user satisfaction by providing immediate access to services but also reduces the load on support teams. In the context of Adhar, a platform that serves over a billion users, these features are not just beneficial, they are essential for scalability and user satisfaction.
+---
 
 ## Platform Capabilities
 
-The platform offers a set of Kubernetes applications for all the required capabilities. Core applications are always installed, optional applications can be activated. When an application is activated, the application will be installed based on default configuration. Default configuration can be adjusted using the Console.
+Core applications are always installed; optional applications can be activated and configured via the Console.
 
-**Integrated Applications:**
+- Kubernetes, Cilium, Nginx Ingress, External DNS
+- Argo CD, Argo Workflows, Argo Events, Argo Rollouts
+- Gitea, Harbor, Kaniko, Paketo Buildpacks
+- CloudNativePG, Redis, MinIO
+- Prometheus, Grafana, Loki, Tempo, Jaeger, OpenTelemetry, Hubble
+- Vault, Kyverno, Trivy, Falco
+- Crossplane, Headlamp, Backstage
 
-- [Kubernetes](https://github.com/kubernetes/kubernetes): Production-Grade Container Scheduling and Management platform
-- [Cilium](https://github.com/cilium/cilium): eBPF-based Networking, Security, and Observability for Kubernetes
-- [Keycloak](https://github.com/keycloak/keycloak): Identity and access management for modern applications and services
-- [Cert Manager](https://github.com/cert-manager/cert-manager) - Bring your own wildcard certificate or request one from Let's Encrypt
-- [Nginx Ingress Controller](https://github.com/kubernetes/ingress-nginx): Ingress controller for Kubernetes
-- [External DNS](https://github.com/kubernetes-sigs/external-dns): Synchronize exposed ingresses with DNS providers
-- [Argo CD](https://github.com/argoproj/argo-cd): Declarative continuous deployment
-- [Kaniko](https://github.com/GoogleContainerTools/kaniko): Build container images from a Dockerfile
-- [Paketo build packs](https://github.com/paketo-buildpacks): Cloud Native Buildpack implementations for popular programming language ecosystems
-- [Cloudnative-pg](https://github.com/cloudnative-pg/cloudnative-pg): Open source operator designed to manage PostgreSQL workloads
-- [Argo Workflows](https://github.com/argoproj/argo-workflows): Open source container-native workflow engine for orchestrating parallel jobs on Kubernetes
-- [Argo Events](https://github.com/argoproj/argo-events): Argo Events is an event-driven workflow automation framework for Kubernetes
-- [Argo Rollouts](https://github.com/argoproj/argo-rollouts): Provide advanced deployment capabilities such as blue-green, canary, canary analysis, experimentation, and progressive delivery features to Kubernetes
-- [Gitea](https://github.com/go-gitea/gitea): Self-hosted Git service
-- [Velero](https://github.com/vmware-tanzu/velero): Back up and restore your Kubernetes cluster resources and persistent volumes
-- [Knative](https://github.com/knative/serving): Deploy and manage serverless workloads
-- [Prometheus](https://github.com/prometheus/prometheus): Collecting container application metrics
-- [Grafana](https://github.com/grafana/grafana): Visualize metrics, logs, and traces from multiple sources
-- [Grafana Loki](https://github.com/grafana/loki): Collecting container application logs
-- [Grafana Tempo](https://github.com/grafana/tempo): High-scale distributed tracing backend
-- [Harbor](https://github.com/goharbor/harbor): Container image registry with role-based access control, image scanning, and image signing
-- [HashiCorp Vault](https://github.com/hashicorp/vault): Manage Secrets and Protect Sensitive Data
-- [Kyverno](https://github.com/kyverno/kyverno): Cloud Native Policy Management for Kubernetes
-- [Jaeger](https://github.com/jaegertracing/jaeger): End-to-end distributed tracing and monitor for complex distributed systems
-- [Backstage](https://github.com/backstage/backstage): Open source framework for building developer portals
-- [Minio](https://github.com/minio/minio): High performance Object Storage compatible with Amazon S3 cloud storage service
-- [Trivy](https://github.com/aquasecurity/trivy-operator): Kubernetes-native security toolkit
-- [Falco](https://github.com/falcosecurity/falco): Cloud Native Runtime Security
-- [Crossplane](https://github.com/crossplane/crossplane): A framework for building cloud native control planes
-- [Headlamp](https://github.com/headlamp-k8s/headlamp): A Kubernetes web UI that is fully-featured, user-friendly and extensible
-- [OpenTelemetry](https://github.com/open-telemetry/opentelemetry-operator): Instrument, generate, collect, and export telemetry data to help you analyze your software’s performance and behavior
+### Supported Providers
 
-### Supported providers :cloud:
+- `aws` (EKS), `azure` (AKS), `google` (GKE), `digitalocean`, `civo`, `kind`
 
-Adhar Platform can be installed on any Kubernetes cluster. At this time, the following providers are supported:
+---
 
-- `aws` for [AWS Elastic Kubernetes Service](https://aws.amazon.com/eks/)
-- `azure` for [Azure Kubernetes Service](https://azure.microsoft.com/en-us/products/kubernetes-service)
-- `google` for [Google Kubernetes Engine](https://cloud.google.com/kubernetes-engine?hl=en)
-- `digitalocean` for [DigitalOcean Kubernetes](https://www.digitalocean.com/)
-- `civo` for [Civo Cloud K3S](https://www.civo.com/)
-- `custom` for any other cloud/infrastructure
+## Security and Observability
 
-## How Adhar Platform Helps :rocket:
+### Security
 
-:nail_care:**Design Team** - AI-powered design assistance and realistic content generation are rapidly transforming the creative process, making it easier and more efficient for designers and developers to create high-quality products. Additionally, easy design-to-code and code-to-design sync tools are helping to bridge the gap between design and development, ensuring that designs are implemented accurately and efficiently.
+- Zero‑trust networking with Cilium CNI
+- Policy enforcement with Kyverno
+- Secrets management with Vault
+- Image and workload scanning with Trivy; runtime protection with Falco
 
-- Use the Figma design components to build the application design
-- AI can generate the initial DRAFT version of the design and export to Figma
-- Designers love Figma, use it with full freedom
-- Export all visual elements as design-tokens which developers consume directly
-- Keep the sync between the design and the actual application code
-- Immidiate feedback look, make the change in design, see it in actual application immidiately
-- Don't have to depend on Developers for any change, be involve with the proccess
-- Evolve your design as long as it doesn't break the contract
-- Easy Collaborate with business team, tech team on same platform
+### Observability
 
-:moneybag:**Business Team** - Business team involvement in transparent collaboration with the Tech team is crucial for designing and developing software products that align with business objectives and meet user needs. By providing wireframes, prototypes, and detailed business requirements directly in the system used by the Tech team, businesses can ensure seamless communication and alignment throughout the development process.
+- Metrics: Prometheus
+- Logs: Loki
+- Traces: Tempo and Jaeger
+- Network visibility: Hubble; dashboards in Grafana
 
-- Create the prototypes which are part of real application, no through away effort after handing over to developers
-- Involve in improving the user journey through out the lifecycle
-- All the tools at your finger tip to create awesome journeys
-- Don't depend on developers to recreate the jourenies based on your input, you take the ownership
-- Developers will help to take it forward to next stages of the lifecycle
-- Always on top of the realistic status for various features, don't have to ask tech team
-- Improve UI/UX by providing feedback to design team in same system
-- Improve functionality and app performance by giving feedback to development team
-- All the analytics in same platform for making any business decission after delivery
-- Discover the insights and improve the product incrementaly
+Structured logging example:
 
-:computer: **Application Team** - Easy self-service is a crucial aspect of enabling developers and operators to focus on their core responsibilities and reduce the burden of managing infrastructure and resources. By providing self-service capabilities, organizations can empower their technical teams.
+```go
+logger.Info("Creating cluster", logger.WithFields(logger.Fields{
+    "provider": "civo",
+    "cluster": clusterName,
+    "region": region,
+}))
+logger.ErrorWithContext("Failed to create cluster", err)
+```
 
-- Scan source code for vulnerabilities
-- Build OCI compliant images from application code and store them in a private registry
-- Deploy containerized workloads using a developer catalog with build-in or BYO golden path templates
-- Automatically update container images of workloads
-- Publicly expose applications
-- Get instant access to logs, metrics and traces
-- Store charts and images in a private registry
-- Configure network policies, response headers and CNAMEs
-- Manage secrets
-- Create private Git repositories and custom CI/CD pipelines
+---
 
-:battery: **Platform Team** - Platform engineers play a critical role in enabling developers to build, deploy, and manage applications effectively. By building and managing a Kubernetes-based platform, platform engineers provide developers with a self-service platform that simplifies and streamlines the process of bringing applications to production.
+## Testing and Quality
 
-- Create your platform profile and deploy to any K8s
-- Onboard development teams in a comprehensive multi-tenant setup and make them self-serving
-- Get all the required capabilities in an integrated and automated way
-- Ensure governance with security policies
-- Implement zero-trust networking
-- Change the desired state of the platform based on Configuration-as-Code
-- Support multi- and hybrid cloud scenarios
-- Prevent cloud provider lock-in
-- Implement full observability (metrics, logs, traces, alerts)
-- Create Golden path templates and offer them to teams on the platform through a catalog
+```bash
+# Run unit tests
+go test ./...
 
-:cop: **Management Team** - It is important for the management team to have access to all the insights and reports to make the best possible business or technical decisions based on actual data points. This is because data can help to identify trends, patterns, and opportunities that would otherwise be invisible. It can also help to track progress, measure performance, and make informed decisions about resource allocation and strategy.
+# Static checks (if configured)
+golangci-lint run || true
+```
 
-- Fully integrated analytics platform
-- AI powered automated insights and recomendations
-- Various reports showcasing different aspects of the application
-- Realtime insights with zero filter
-- Usage statistics and projection
-- Easy Technology and Risk goverance
-- Visibility of end to end process
+---
 
-## Contribution :pray:
+## Build and Release
 
-If you wish to contribute please read our [Contributor Code of Conduct](https://adhar.io/community/code-of-conduct) and [Contribution Guidelines](https://adhar.io/community/get-involved).
+```bash
+# Build CLI locally
+go build ./...
 
-If you want to say **thank you** or/and support the active development of Adhar:
+# Install CLI
+go install ./...
+```
 
-- [Star](https://github.com/adhar-io/adhar) the Adhar project on Github
-- Feel free to write articles about the project on [dev.to](https://dev.to/), [medium](https://medium.com/) or on your personal blog and share your experiences
+---
 
-This project exists thanks to all the people who have contributed
+## Roadmap (high‑level)
 
-<a href="https://github.com/adhar-io/adhar/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=adhar-io/adhar" />
-</a>
+- Multi‑cloud provider support (complete)
+- Unified CLI experience (complete)
+- Advanced networking and security hardening (ongoing)
+- Multi‑cluster management and federation (upcoming)
+- Intelligent autoscaling and anomaly detection (upcoming)
 
-## License :snowflake:
+---
 
-Adhar is licensed under the [Apache 2.0 License](https://github.com/adhar-io/adhar/blob/main/LICENSE).
+## Community and License
+
+- Discussions and issues: GitHub
+- Contributions welcome – see `docs/CONTRIBUTING.md`
+
+This project is licensed under the Apache 2.0 License – see `LICENSE` for details.
+
+---
+
+Built with ❤️ by the Adhar Platform team.

@@ -119,9 +119,9 @@ func (m downModel) View() string {
 		} else if strings.Contains(m.err.Error(), "permission") || strings.Contains(m.err.Error(), "access") {
 			errorMessage += warningStyle.Render("\nTry running with sudo or with appropriate permissions.")
 		} else if forceDelete {
-			logger.Logger.Warn("Deletion failed even with --force. Check logs or perform manual cleanup.")
+			logger.GetLogger().Warn("Deletion failed even with --force. Check logs or perform manual cleanup.")
 		} else {
-			logger.Logger.Info("Deletion failed. Check logs or try manual cleanup if resources remain.")
+			logger.GetLogger().Info("Deletion failed. Check logs or try manual cleanup if resources remain.")
 		}
 
 		return errorMessage

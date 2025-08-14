@@ -1,546 +1,495 @@
 package logger
 
 import (
-	"context"
 	"fmt"
 	"io"
-	"log/slog"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/fatih/color"
-	"github.com/go-logr/logr"
-	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"k8s.io/klog/v2"
-	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// LogLevel represents different log levels
-type LogLevel string
+// LogLevel represents the logging level
+type LogLevel int
 
 const (
-	LogLevelDebug LogLevel = "debug"
-	LogLevelInfo  LogLevel = "info"
-	LogLevelWarn  LogLevel = "warn"
-	LogLevelError LogLevel = "error"
+	DEBUG LogLevel = iota
+	INFO
+	WARN
+	ERROR
+	FATAL
 )
 
-// CLI integration variables (moved from helpers)
-var (
-	CLILogLevel      string
-	LogLevelMsg      = "Set the log verbosity. Supported values are: debug, info, warn, and error."
-	CmdLogger        logr.Logger
-	CLIColoredOutput bool
-	ColoredOutputMsg = "Enable colored log messages."
-)
-
-// AdharLogger is our enhanced logger with beautiful formatting
-type AdharLogger struct {
-	*logrus.Logger
-	mu              sync.RWMutex
-	progressSpinner *ProgressSpinner
-	isJSON          bool
-	noColor         bool
+// String returns the string representation of the log level
+func (l LogLevel) String() string {
+	switch l {
+	case DEBUG:
+		return "DEBUG"
+	case INFO:
+		return "INFO"
+	case WARN:
+		return "WARN"
+	case ERROR:
+		return "ERROR"
+	case FATAL:
+		return "FATAL"
+	default:
+		return "UNKNOWN"
+	}
 }
 
-// ProgressSpinner handles progress indicators
-type ProgressSpinner struct {
-	mu       sync.Mutex
-	active   bool
-	message  string
-	frames   []string
-	current  int
-	stopChan chan bool
+// AdharLogger represents the main logger instance
+type AdharLogger struct {
+	Logger    *log.Logger
+	Level     LogLevel
+	Fields    map[string]interface{}
+	Output    io.Writer
+	Formatter LogFormatter
+}
+
+// LogFormatter defines the interface for log formatting
+type LogFormatter interface {
+	Format(level LogLevel, message string, fields map[string]interface{}) string
+}
+
+// DefaultFormatter provides default log formatting
+type DefaultFormatter struct{}
+
+// Format formats the log message with timestamp, level, and fields
+func (f *DefaultFormatter) Format(level LogLevel, message string, fields map[string]interface{}) string {
+	timestamp := time.Now().Format("2006-01-02T15:04:05.000Z07:00")
+
+	var fieldStr string
+	if len(fields) > 0 {
+		var pairs []string
+		for k, v := range fields {
+			pairs = append(pairs, fmt.Sprintf("%s=%v", k, v))
+		}
+		fieldStr = " " + strings.Join(pairs, " ")
+	}
+
+	return fmt.Sprintf("[%s] %s: %s%s", timestamp, level.String(), message, fieldStr)
+}
+
+// JSONFormatter provides JSON log formatting
+type JSONFormatter struct{}
+
+// Format formats the log message as JSON
+func (f *JSONFormatter) Format(level LogLevel, message string, fields map[string]interface{}) string {
+	// Simple JSON formatting - in production, use a proper JSON library
+	json := fmt.Sprintf(`{"timestamp":"%s","level":"%s","message":"%s"`,
+		time.Now().Format("2006-01-02T15:04:05.000Z07:00"),
+		level.String(),
+		message)
+
+	if len(fields) > 0 {
+		for k, v := range fields {
+			json += fmt.Sprintf(`,"%s":"%v"`, k, v)
+		}
+	}
+	json += "}"
+	return json
 }
 
 // Global logger instance
-var (
-	globalLogger *AdharLogger
-	once         sync.Once
-)
+var globalLogger *AdharLogger
 
-// Color and emoji constants for better UX
-var (
-	// Emojis for different log levels and operations
-	EmojiInfo     = "💡"
+// Emoji constants for better visual feedback
+const (
+	EmojiInfo     = "ℹ️"
 	EmojiSuccess  = "✅"
 	EmojiWarning  = "⚠️"
 	EmojiError    = "❌"
 	EmojiDebug    = "🔍"
-	EmojiProgress = "⏳"
-	EmojiStarted  = "🚀"
-	EmojiFinished = "🎉"
+	EmojiSecurity = "🔒"
+	EmojiNetwork  = "🌐"
 	EmojiCluster  = "🏗️"
 	EmojiProvider = "☁️"
-	EmojiNetwork  = "🔗"
-	EmojiSecurity = "🔒"
-	EmojiConfig   = "⚙️"
-	EmojiManifest = "📋"
-	EmojiValidate = "🔎"
-	EmojiCleanup  = "🧹"
-
-	// Colors for different components
-	ColorTimestamp = color.New(color.FgHiBlack)
-	ColorLevel     = color.New(color.FgWhite, color.Bold)
-	ColorInfo      = color.New(color.FgCyan)
-	ColorSuccess   = color.New(color.FgGreen, color.Bold)
-	ColorWarning   = color.New(color.FgYellow)
-	ColorError     = color.New(color.FgRed, color.Bold)
-	ColorDebug     = color.New(color.FgMagenta)
-	ColorField     = color.New(color.FgHiBlue)
-	ColorValue     = color.New(color.FgWhite)
-	ColorProvider  = color.New(color.FgCyan, color.Bold)
-	ColorCluster   = color.New(color.FgGreen)
 )
 
-// GetLogger returns the global logger instance
-func GetLogger() *AdharLogger {
-	once.Do(func() {
-		globalLogger = NewLogger()
-	})
-	return globalLogger
+// Init initializes the global logger
+func Init(config *LoggerConfig) {
+	globalLogger = NewLogger(config)
 }
 
-// NewLogger creates a new enhanced logger
-func NewLogger() *AdharLogger {
-	baseLogger := logrus.New()
+// LoggerConfig holds logger configuration
+type LoggerConfig struct {
+	Level      LogLevel `json:"level"`
+	Output     string   `json:"output"`     // "stdout", "stderr", or file path
+	Format     string   `json:"format"`     // "text" or "json"
+	MaxSize    int      `json:"maxSize"`    // Maximum size in MB before rotation
+	MaxBackups int      `json:"maxBackups"` // Maximum number of old log files
+	MaxAge     int      `json:"maxAge"`     // Maximum number of days to retain old log files
+	Compress   bool     `json:"compress"`   // Whether to compress rotated log files
+}
 
-	logger := &AdharLogger{
-		Logger: baseLogger,
-		progressSpinner: &ProgressSpinner{
-			frames:   []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
-			stopChan: make(chan bool),
-		},
-		noColor: os.Getenv("NO_COLOR") != "" || os.Getenv("ADHAR_NO_COLOR") != "",
+// DefaultConfig returns a default logger configuration
+func DefaultConfig() *LoggerConfig {
+	return &LoggerConfig{
+		Level:      INFO,
+		Output:     "stdout",
+		Format:     "text",
+		MaxSize:    100,
+		MaxBackups: 3,
+		MaxAge:     28,
+		Compress:   true,
+	}
+}
+
+// NewLogger creates a new logger instance
+func NewLogger(config *LoggerConfig) *AdharLogger {
+	if config == nil {
+		config = DefaultConfig()
 	}
 
-	// Configure the base logger
-	logger.configureLogger()
+	// Set up output writer
+	var output io.Writer
+	switch config.Output {
+	case "stdout":
+		output = os.Stdout
+	case "stderr":
+		output = os.Stderr
+	default:
+		// File output with rotation
+		output = &lumberjack.Logger{
+			Filename:   config.Output,
+			MaxSize:    config.MaxSize,
+			MaxBackups: config.MaxBackups,
+			MaxAge:     config.MaxAge,
+			Compress:   config.Compress,
+		}
+	}
+
+	// Set up formatter
+	var formatter LogFormatter
+	switch config.Format {
+	case "json":
+		formatter = &JSONFormatter{}
+	default:
+		formatter = &DefaultFormatter{}
+	}
+
+	logger := &AdharLogger{
+		Logger:    log.New(output, "", 0),
+		Level:     config.Level,
+		Fields:    make(map[string]interface{}),
+		Output:    output,
+		Formatter: formatter,
+	}
 
 	return logger
 }
 
-// configureLogger sets up the base logger configuration
-func (l *AdharLogger) configureLogger() {
-	// Create logs directory if it doesn't exist
-	logsDir := ".adhar/logs"
-	if err := os.MkdirAll(logsDir, 0755); err == nil {
-		// Set up file logging with rotation
-		l.Logger.SetOutput(&lumberjack.Logger{
-			Filename:   filepath.Join(logsDir, "adhar.log"),
-			MaxSize:    50, // MB
-			MaxBackups: 5,  // Keep 5 old files
-			MaxAge:     30, // Days
-			Compress:   true,
-		})
+// GetLogger returns the global logger instance
+func GetLogger() *AdharLogger {
+	if globalLogger == nil {
+		globalLogger = NewLogger(DefaultConfig())
+	}
+	return globalLogger
+}
+
+// WithField adds a field to the logger context
+func (l *AdharLogger) WithField(key string, value interface{}) *AdharLogger {
+	newLogger := &AdharLogger{
+		Logger:    l.Logger,
+		Level:     l.Level,
+		Fields:    make(map[string]interface{}),
+		Output:    l.Output,
+		Formatter: l.Formatter,
 	}
 
-	// Set default level
-	l.Logger.SetLevel(logrus.InfoLevel)
-
-	// Use our custom formatter
-	l.Logger.SetFormatter(&AdharFormatter{
-		noColor: l.noColor,
-	})
-}
-
-// AdharFormatter is our custom formatter with beautiful output
-type AdharFormatter struct {
-	noColor bool
-}
-
-// Format formats the log entry with colors and emojis
-func (f *AdharFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	timestamp := entry.Time.Format("15:04:05")
-
-	var emoji, levelColor, messageColor string
-	if !f.noColor {
-		switch entry.Level {
-		case logrus.DebugLevel:
-			emoji = EmojiDebug
-			levelColor = ColorDebug.Sprint("DEBUG")
-			messageColor = ColorDebug.Sprint(entry.Message)
-		case logrus.InfoLevel:
-			emoji = EmojiInfo
-			levelColor = ColorInfo.Sprint("INFO ")
-			messageColor = ColorInfo.Sprint(entry.Message)
-		case logrus.WarnLevel:
-			emoji = EmojiWarning
-			levelColor = ColorWarning.Sprint("WARN ")
-			messageColor = ColorWarning.Sprint(entry.Message)
-		case logrus.ErrorLevel:
-			emoji = EmojiError
-			levelColor = ColorError.Sprint("ERROR")
-			messageColor = ColorError.Sprint(entry.Message)
-		default:
-			emoji = EmojiInfo
-			levelColor = ColorInfo.Sprint("INFO ")
-			messageColor = ColorInfo.Sprint(entry.Message)
-		}
-
-		timestamp = ColorTimestamp.Sprint(timestamp)
-	} else {
-		// No color mode
-		switch entry.Level {
-		case logrus.DebugLevel:
-			levelColor = "DEBUG"
-		case logrus.InfoLevel:
-			levelColor = "INFO "
-		case logrus.WarnLevel:
-			levelColor = "WARN "
-		case logrus.ErrorLevel:
-			levelColor = "ERROR"
-		default:
-			levelColor = "INFO "
-		}
-		messageColor = entry.Message
+	// Copy existing fields
+	for k, v := range l.Fields {
+		newLogger.Fields[k] = v
 	}
 
-	// Build the log line
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf("%s %s [%s] %s",
-		emoji, timestamp, levelColor, messageColor))
+	// Add new field
+	newLogger.Fields[key] = value
+	return newLogger
+}
 
-	// Add fields if present
-	if len(entry.Data) > 0 {
-		result.WriteString(" ")
-		f.formatFields(&result, entry.Data)
+// WithFields adds multiple fields to the logger context
+func (l *AdharLogger) WithFields(fields map[string]interface{}) *AdharLogger {
+	newLogger := &AdharLogger{
+		Logger:    l.Logger,
+		Level:     l.Level,
+		Fields:    make(map[string]interface{}),
+		Output:    l.Output,
+		Formatter: l.Formatter,
 	}
 
-	result.WriteString("\n")
-	return []byte(result.String()), nil
-}
-
-// formatFields formats log fields with colors
-func (f *AdharFormatter) formatFields(result *strings.Builder, fields logrus.Fields) {
-	var parts []string
-
-	for key, value := range fields {
-		var fieldStr string
-		if !f.noColor {
-			fieldStr = fmt.Sprintf("%s=%s",
-				ColorField.Sprint(key),
-				ColorValue.Sprint(fmt.Sprintf("%v", value)))
-		} else {
-			fieldStr = fmt.Sprintf("%s=%v", key, value)
-		}
-		parts = append(parts, fieldStr)
+	// Copy existing fields
+	for k, v := range l.Fields {
+		newLogger.Fields[k] = v
 	}
 
-	result.WriteString(strings.Join(parts, " "))
-}
-
-// Enhanced logging methods with context
-func (l *AdharLogger) WithProvider(provider string) *logrus.Entry {
-	return l.WithField("provider", provider)
-}
-
-func (l *AdharLogger) WithCluster(cluster string) *logrus.Entry {
-	return l.WithField("cluster", cluster)
-}
-
-func (l *AdharLogger) WithEnvironment(env string) *logrus.Entry {
-	return l.WithField("environment", env)
-}
-
-func (l *AdharLogger) WithService(service string) *logrus.Entry {
-	return l.WithField("service", service)
-}
-
-func (l *AdharLogger) WithOperation(operation string) *logrus.Entry {
-	return l.WithField("operation", operation)
-}
-
-// Specialized logging methods for common Adhar operations
-func (l *AdharLogger) StartOperation(operation, details string) {
-	if !l.noColor {
-		msg := fmt.Sprintf("%s Starting %s", EmojiStarted, operation)
-		if details != "" {
-			msg += fmt.Sprintf(": %s", details)
-		}
-		l.Info(msg)
-	} else {
-		l.WithField("operation", operation).Info("Starting operation: " + details)
-	}
-}
-
-func (l *AdharLogger) FinishOperation(operation, details string) {
-	if !l.noColor {
-		msg := fmt.Sprintf("%s Completed %s", EmojiFinished, operation)
-		if details != "" {
-			msg += fmt.Sprintf(": %s", details)
-		}
-		l.Info(msg)
-	} else {
-		l.WithField("operation", operation).Info("Completed operation: " + details)
-	}
-}
-
-func (l *AdharLogger) ProvisioningInfo(provider, action, target string) {
-	emoji := EmojiProvider
-	switch action {
-	case "creating", "provisioning":
-		emoji = EmojiCluster
-	case "validating":
-		emoji = EmojiValidate
-	case "configuring":
-		emoji = EmojiConfig
-	case "installing":
-		emoji = EmojiManifest
+	// Add new fields
+	for k, v := range fields {
+		newLogger.Fields[k] = v
 	}
 
-	l.WithProvider(provider).Info(fmt.Sprintf("%s %s %s", emoji, action, target))
+	return newLogger
 }
 
-func (l *AdharLogger) SecurityInfo(action, details string) {
-	l.Info(fmt.Sprintf("%s %s: %s", EmojiSecurity, action, details))
-}
-
-func (l *AdharLogger) NetworkInfo(action, details string) {
-	l.Info(fmt.Sprintf("%s %s: %s", EmojiNetwork, action, details))
-}
-
-func (l *AdharLogger) ValidationInfo(item, status string) {
-	emoji := EmojiValidate
-	if status == "passed" || status == "ok" || status == "ready" {
-		emoji = EmojiSuccess
-	} else if status == "warning" {
-		emoji = EmojiWarning
-	} else if status == "failed" || status == "error" {
-		emoji = EmojiError
-	}
-
-	l.Info(fmt.Sprintf("%s Validation %s: %s", emoji, item, status))
-}
-
-func (l *AdharLogger) ManifestInfo(action, manifest string) {
-	l.WithField("manifest", manifest).Info(fmt.Sprintf("%s %s manifest", EmojiManifest, action))
-}
-
-func (l *AdharLogger) CleanupInfo(resource string) {
-	l.WithField("resource", resource).Info(fmt.Sprintf("%s Cleaning up %s", EmojiCleanup, resource))
-}
-
-// Progress methods
-func (l *AdharLogger) StartProgress(message string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if l.progressSpinner.active {
-		l.StopProgress()
-	}
-
-	l.progressSpinner.message = message
-	l.progressSpinner.active = true
-	l.progressSpinner.current = 0
-
-	go l.runSpinner()
-}
-
-func (l *AdharLogger) StopProgress() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if !l.progressSpinner.active {
+// logMessage logs a message at the specified level
+func (l *AdharLogger) logMessage(level LogLevel, message string) {
+	if level < l.Level {
 		return
 	}
 
-	l.progressSpinner.active = false
-	select {
-	case l.progressSpinner.stopChan <- true:
-	default:
-	}
-
-	// Clear the spinner line
-	fmt.Print("\r\033[K")
+	formattedMessage := l.Formatter.Format(level, message, l.Fields)
+	l.Logger.Println(formattedMessage)
 }
 
-func (l *AdharLogger) runSpinner() {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+// Debug logs a debug message
+func (l *AdharLogger) Debug(message string) {
+	l.logMessage(DEBUG, message)
+}
 
-	for {
-		select {
-		case <-l.progressSpinner.stopChan:
-			return
-		case <-ticker.C:
-			l.progressSpinner.mu.Lock()
-			if !l.progressSpinner.active {
-				l.progressSpinner.mu.Unlock()
-				return
-			}
+// Info logs an info message
+func (l *AdharLogger) Info(message string) {
+	l.logMessage(INFO, message)
+}
 
-			frame := l.progressSpinner.frames[l.progressSpinner.current]
-			l.progressSpinner.current = (l.progressSpinner.current + 1) % len(l.progressSpinner.frames)
+// Warn logs a warning message
+func (l *AdharLogger) Warn(message string) {
+	l.logMessage(WARN, message)
+}
 
-			if !l.noColor {
-				fmt.Printf("\r%s %s %s",
-					EmojiProgress,
-					ColorInfo.Sprint(frame),
-					l.progressSpinner.message)
-			} else {
-				fmt.Printf("\r[%s] %s", frame, l.progressSpinner.message)
-			}
-			l.progressSpinner.mu.Unlock()
+// Error logs an error message
+func (l *AdharLogger) Error(message string) {
+	l.logMessage(ERROR, message)
+}
+
+// Fatal logs a fatal message and exits
+func (l *AdharLogger) Fatal(message string) {
+	l.logMessage(FATAL, message)
+	os.Exit(1)
+}
+
+// Debugf logs a formatted debug message
+func (l *AdharLogger) Debugf(format string, args ...interface{}) {
+	l.Debug(fmt.Sprintf(format, args...))
+}
+
+// Infof logs a formatted info message
+func (l *AdharLogger) Infof(format string, args ...interface{}) {
+	l.Info(fmt.Sprintf(format, args...))
+}
+
+// Warnf logs a formatted warning message
+func (l *AdharLogger) Warnf(format string, args ...interface{}) {
+	l.Warn(fmt.Sprintf(format, args...))
+}
+
+// Errorf logs a formatted error message
+func (l *AdharLogger) Errorf(format string, args ...interface{}) {
+	l.Error(fmt.Sprintf(format, args...))
+}
+
+// Fatalf logs a formatted fatal message and exits
+func (l *AdharLogger) Fatalf(format string, args ...interface{}) {
+	l.Fatal(fmt.Sprintf(format, args...))
+}
+
+// Convenience functions for global logger
+func Debug(message string) {
+	GetLogger().Debug(message)
+}
+
+func Info(message string) {
+	GetLogger().Info(message)
+}
+
+func Warn(message string) {
+	GetLogger().Warn(message)
+}
+
+func Error(message string, err error, fields map[string]interface{}) {
+	logger := GetLogger()
+	if err != nil {
+		if fields == nil {
+			fields = make(map[string]interface{})
 		}
+		fields["error"] = err.Error()
 	}
-}
-
-// SetLevel sets the log level
-func (l *AdharLogger) SetLevel(level LogLevel) {
-	switch level {
-	case LogLevelDebug:
-		l.Logger.SetLevel(logrus.DebugLevel)
-	case LogLevelInfo:
-		l.Logger.SetLevel(logrus.InfoLevel)
-	case LogLevelWarn:
-		l.Logger.SetLevel(logrus.WarnLevel)
-	case LogLevelError:
-		l.Logger.SetLevel(logrus.ErrorLevel)
-	}
-}
-
-// SetOutput sets both console and file output
-func (l *AdharLogger) SetOutput(writers ...io.Writer) {
-	if len(writers) == 1 {
-		l.Logger.SetOutput(writers[0])
-	} else if len(writers) > 1 {
-		l.Logger.SetOutput(io.MultiWriter(writers...))
-	}
-}
-
-// EnableJSONMode enables JSON formatting for machine-readable logs
-func (l *AdharLogger) EnableJSONMode() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	l.isJSON = true
-	l.Logger.SetFormatter(&logrus.JSONFormatter{
-		TimestampFormat: time.RFC3339,
-		PrettyPrint:     false,
-	})
-}
-
-// DisableColor disables color output
-func (l *AdharLogger) DisableColor() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	l.noColor = true
-	l.Logger.SetFormatter(&AdharFormatter{noColor: true})
-}
-
-// Context-aware logging helpers
-func (l *AdharLogger) WithContext(ctx context.Context) *logrus.Entry {
-	entry := l.WithField("timestamp", time.Now())
-
-	// Add context values if they exist
-	if value := ctx.Value("operation"); value != nil {
-		entry = entry.WithField("operation", value)
-	}
-	if value := ctx.Value("provider"); value != nil {
-		entry = entry.WithField("provider", value)
-	}
-	if value := ctx.Value("cluster"); value != nil {
-		entry = entry.WithField("cluster", value)
-	}
-
-	return entry
-}
-
-// Helper functions for common patterns
-func Success(message string, fields ...logrus.Fields) {
-	entry := GetLogger().WithField("status", "success")
 	if len(fields) > 0 {
-		entry = entry.WithFields(fields[0])
+		logger.WithFields(fields).Error(message)
+	} else {
+		logger.Error(message)
 	}
+}
+
+func Fatal(message string) {
+	GetLogger().Fatal(message)
+}
+
+func Debugf(format string, args ...interface{}) {
+	GetLogger().Debugf(format, args...)
+}
+
+func Infof(format string, args ...interface{}) {
+	GetLogger().Infof(format, args...)
+}
+
+func Warnf(format string, args ...interface{}) {
+	GetLogger().Warnf(format, args...)
+}
+
+func Errorf(format string, args ...interface{}) {
+	GetLogger().Errorf(format, args...)
+}
+
+func Fatalf(format string, args ...interface{}) {
+	GetLogger().Fatalf(format, args...)
+}
+
+// WithField adds a field to the global logger
+func WithField(key string, value interface{}) *AdharLogger {
+	return GetLogger().WithField(key, value)
+}
+
+// WithFields adds multiple fields to the global logger
+func WithFields(fields map[string]interface{}) *AdharLogger {
+	return GetLogger().WithFields(fields)
+}
+
+// Provider-specific loggers
+func ForProvider(provider string) *AdharLogger {
+	return GetLogger().WithField("provider", provider)
+}
+
+func ForCluster(cluster string) *AdharLogger {
+	return GetLogger().WithField("cluster", cluster)
+}
+
+func ForEnvironment(env string) *AdharLogger {
+	return GetLogger().WithField("environment", env)
+}
+
+// Security logging
+func SecurityInfo(action, details string) {
+	GetLogger().Info(fmt.Sprintf("%s %s: %s", EmojiSecurity, action, details))
+}
+
+func SecurityWarn(action, details string) {
+	GetLogger().Warn(fmt.Sprintf("%s %s: %s", EmojiSecurity, action, details))
+}
+
+func SecurityError(action, details string) {
+	GetLogger().Error(fmt.Sprintf("%s %s: %s", EmojiSecurity, action, details))
+}
+
+// Network logging
+func NetworkInfo(action, details string) {
+	GetLogger().Info(fmt.Sprintf("%s %s: %s", EmojiNetwork, action, details))
+}
+
+func NetworkWarn(action, details string) {
+	GetLogger().Warn(fmt.Sprintf("%s %s: %s", EmojiNetwork, action, details))
+}
+
+func NetworkError(action, details string) {
+	GetLogger().Error(fmt.Sprintf("%s %s: %s", EmojiNetwork, action, details))
+}
+
+// Cluster logging
+func ClusterInfo(action, details string) {
+	GetLogger().Info(fmt.Sprintf("%s %s: %s", EmojiCluster, action, details))
+}
+
+func ClusterWarn(action, details string) {
+	GetLogger().Warn(fmt.Sprintf("%s %s: %s", EmojiCluster, action, details))
+}
+
+func ClusterError(action, details string) {
+	GetLogger().Error(fmt.Sprintf("%s %s: %s", EmojiCluster, action, details))
+}
+
+// Provider logging
+func ProviderInfo(provider, action, details string) {
+	GetLogger().WithField("provider", provider).Info(fmt.Sprintf("%s %s: %s", EmojiProvider, action, details))
+}
+
+func ProviderWarn(provider, action, details string) {
+	GetLogger().WithField("provider", provider).Warn(fmt.Sprintf("%s %s: %s", EmojiProvider, action, details))
+}
+
+func ProviderError(provider, action, details string) {
+	GetLogger().WithField("provider", provider).Error(fmt.Sprintf("%s %s: %s", EmojiProvider, action, details))
+}
+
+// Success logging
+func Success(message string) {
+	entry := GetLogger().WithField("status", "success")
 	entry.Info(fmt.Sprintf("%s %s", EmojiSuccess, message))
 }
 
-func Warning(message string, fields ...logrus.Fields) {
+// Warning logging
+func Warning(message string) {
 	entry := GetLogger().WithField("status", "warning")
-	if len(fields) > 0 {
-		entry = entry.WithFields(fields[0])
-	}
 	entry.Warn(fmt.Sprintf("%s %s", EmojiWarning, message))
 }
 
-func Error(message string, err error, fields ...logrus.Fields) {
-	entry := GetLogger().WithField("status", "error")
-	if err != nil {
-		entry = entry.WithError(err)
+// Error logging with context
+func ErrorWithContext(message string, err error) {
+	fields := map[string]interface{}{
+		"error": err.Error(),
 	}
-	if len(fields) > 0 {
-		entry = entry.WithFields(fields[0])
+
+	if pc, file, line, ok := runtime.Caller(1); ok {
+		fields["file"] = filepath.Base(file)
+		fields["line"] = line
+		fields["function"] = runtime.FuncForPC(pc).Name()
 	}
-	entry.Error(fmt.Sprintf("%s %s", EmojiError, message))
+
+	GetLogger().WithFields(fields).Error(message)
 }
 
-func Debug(message string, fields ...logrus.Fields) {
+// Debug logging with fields
+func DebugWithFields(message string, fields map[string]interface{}) {
 	if len(fields) > 0 {
-		GetLogger().WithFields(fields[0]).Debug(fmt.Sprintf("%s %s", EmojiDebug, message))
+		GetLogger().WithFields(fields).Debug(fmt.Sprintf("%s %s", EmojiDebug, message))
 	} else {
 		GetLogger().Debug(fmt.Sprintf("%s %s", EmojiDebug, message))
 	}
 }
 
-func Info(message string, fields ...logrus.Fields) {
+// Info logging with fields
+func InfoWithFields(message string, fields map[string]interface{}) {
 	if len(fields) > 0 {
-		GetLogger().WithFields(fields[0]).Info(fmt.Sprintf("%s %s", EmojiInfo, message))
+		GetLogger().WithFields(fields).Info(fmt.Sprintf("%s %s", EmojiInfo, message))
 	} else {
 		GetLogger().Info(fmt.Sprintf("%s %s", EmojiInfo, message))
 	}
 }
 
-// Banner displays a beautiful banner with title and subtitle
-func Banner(title, subtitle string) {
-	if noColor := os.Getenv("NO_COLOR"); noColor != "" {
-		fmt.Printf("=== %s ===\n%s\n\n", title, subtitle)
-		return
-	}
-
-	// Create a beautiful banner
-	titleLen := len(title)
-	subtitleLen := len(subtitle)
-	maxLen := titleLen
-	if subtitleLen > maxLen {
-		maxLen = subtitleLen
-	}
-
-	// Add padding
-	width := maxLen + 4
-	if width < 50 {
-		width = 50
-	}
-
-	// Top border
-	fmt.Printf("┌%s┐\n", strings.Repeat("─", width-2))
-
-	// Title
-	titlePadding := (width - 2 - titleLen) / 2
-	titleLine := fmt.Sprintf("│%s%s%s│",
-		strings.Repeat(" ", titlePadding),
-		title,
-		strings.Repeat(" ", width-2-titleLen-titlePadding))
-	fmt.Printf("%s\n", ColorInfo.Sprint(titleLine))
-
-	// Subtitle
-	subtitlePadding := (width - 2 - subtitleLen) / 2
-	subtitleLine := fmt.Sprintf("│%s%s%s│",
-		strings.Repeat(" ", subtitlePadding),
-		subtitle,
-		strings.Repeat(" ", width-2-subtitleLen-subtitlePadding))
-	fmt.Printf("%s\n", ColorField.Sprint(subtitleLine))
-
-	// Bottom border
-	fmt.Printf("└%s┘\n\n", strings.Repeat("─", width-2))
+// SetOutput sets the output for the global logger
+func SetOutput(output io.Writer) {
+	GetLogger().SetOutput(output)
 }
 
-// Message types for Bubble Tea UI (used in down command)
+// SetLevel sets the log level for the global logger
+func SetLevel(level LogLevel) {
+	GetLogger().Level = level
+}
+
+// SetOutput sets the output writer for the logger
+func (l *AdharLogger) SetOutput(output io.Writer) {
+	l.Logger.SetOutput(output)
+	l.Output = output
+}
+
+// SetLevel sets the log level for the logger
+func (l *AdharLogger) SetLevel(level LogLevel) {
+	l.Level = level
+}
+
+// Message types for tea-based CLI communication
 type StepMsg string
 type StatusMsg string
 type ExtraOutputMsg string
@@ -550,118 +499,89 @@ type ErrorMsg struct {
 	Err error
 }
 
-// Legacy compatibility - maintain the old interface while using new logger
+// CLI configuration variables
 var (
-	Logger        = GetLogger().Logger
-	ColoredOutput = struct {
-		Info    func(format string, a ...interface{})
-		Warn    func(format string, a ...interface{})
-		Error   func(format string, a ...interface{})
-		Success func(format string, a ...interface{})
-	}{
-		Info:    ColorInfo.PrintfFunc(),
-		Warn:    ColorWarning.PrintfFunc(),
-		Error:   ColorError.PrintfFunc(),
-		Success: ColorSuccess.PrintfFunc(),
-	}
+	CLILogLevel      string = "info"
+	CLIColoredOutput bool   = true
 )
 
-// SetLogLevel for backward compatibility
-func SetLogLevel(level string) error {
-	var logLevel LogLevel
-	switch strings.ToLower(level) {
-	case "debug":
-		logLevel = LogLevelDebug
-	case "info":
-		logLevel = LogLevelInfo
-	case "warn", "warning":
-		logLevel = LogLevelWarn
-	case "error":
-		logLevel = LogLevelError
-	default:
-		return fmt.Errorf("invalid log level: %s", level)
-	}
+// CLI flag descriptions
+const (
+	LogLevelMsg      = "Set the log level (debug, info, warn, error, fatal)"
+	ColoredOutputMsg = "Enable colored output in logs"
+)
 
-	GetLogger().SetLevel(logLevel)
-	return nil
-}
+// LogLevel string constants
+const (
+	LogLevelDebug = "debug"
+	LogLevelInfo  = "info"
+	LogLevelWarn  = "warn"
+	LogLevelError = "error"
+	LogLevelFatal = "fatal"
+)
 
-// WithFields for backward compatibility
-func WithFields(fields logrus.Fields) *logrus.Entry {
-	return GetLogger().WithFields(fields)
-}
-
-// LogToFile for backward compatibility
-func LogToFile(filename string) {
-	GetLogger().SetOutput(&lumberjack.Logger{
-		Filename:   filename,
-		MaxSize:    10,
-		MaxBackups: 3,
-		MaxAge:     28,
-		Compress:   true,
-	})
-}
-
-// SetupKubernetesLogging sets up logging for controller-runtime and klog
-func SetupKubernetesLogging() error {
-	l, err := getSlogLevel(CLILogLevel)
+// SetLogLevel sets the global log level from a string
+func SetLogLevel(levelStr string) error {
+	level, err := parseLogLevel(levelStr)
 	if err != nil {
 		return err
 	}
-
-	// Get the enhanced Adhar logger
-	adharLogger := GetLogger()
-
-	// Set the log level on the enhanced logger
-	switch l {
-	case slog.LevelDebug:
-		adharLogger.SetLevel(LogLevelDebug)
-	case slog.LevelInfo:
-		adharLogger.SetLevel(LogLevelInfo)
-	case slog.LevelWarn:
-		adharLogger.SetLevel(LogLevelWarn)
-	case slog.LevelError:
-		adharLogger.SetLevel(LogLevelError)
-	}
-
-	// Configure colored output
-	if !CLIColoredOutput {
-		adharLogger.DisableColor()
-	}
-
-	// Create slog handlers for controller-runtime and klog
-	slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: l}))
-	kslogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: getKlogLevel(l)}))
-
-	logger := logr.FromSlogHandler(slogger.Handler())
-	klogger := logr.FromSlogHandler(kslogger.Handler())
-
-	klog.SetLogger(klogger)
-	ctrl.SetLogger(logger)
-	CmdLogger = logger
+	SetLevel(level)
 	return nil
 }
 
-// getSlogLevel converts string level to slog.Level
-func getSlogLevel(s string) (slog.Level, error) {
-	switch strings.ToLower(s) {
+// parseLogLevel converts a string to LogLevel
+func parseLogLevel(levelStr string) (LogLevel, error) {
+	switch strings.ToLower(levelStr) {
 	case "debug":
-		return slog.LevelDebug, nil
+		return DEBUG, nil
 	case "info":
-		return slog.LevelInfo, nil
-	case "warn":
-		return slog.LevelWarn, nil
+		return INFO, nil
+	case "warn", "warning":
+		return WARN, nil
 	case "error":
-		return slog.LevelError, nil
+		return ERROR, nil
+	case "fatal":
+		return FATAL, nil
 	default:
-		return slog.LevelDebug, fmt.Errorf("%s is not a valid log level", s)
+		return INFO, fmt.Errorf("invalid log level: %s", levelStr)
 	}
 }
 
-// getKlogLevel adjusts log level for klog (end users don't need verbose klog messages)
-func getKlogLevel(l slog.Level) slog.Level {
-	if l < slog.LevelInfo {
-		return l
+// SetupKubernetesLogging configures logging for Kubernetes operations
+func SetupKubernetesLogging() error {
+	// Set up structured logging for Kubernetes operations
+	config := DefaultConfig()
+
+	// Use the CLI log level if set
+	if CLILogLevel != "" {
+		level, err := parseLogLevel(CLILogLevel)
+		if err == nil {
+			config.Level = level
+		}
 	}
-	return slog.LevelError
+
+	// Initialize global logger
+	Init(config)
+
+	return nil
+}
+
+// Banner prints a formatted banner message
+func Banner(title, subtitle string) {
+	logger := GetLogger()
+	logger.Info(fmt.Sprintf("=== %s ===", title))
+	if subtitle != "" {
+		logger.Info(subtitle)
+	}
+}
+
+// StartOperation logs the start of an operation
+func (l *AdharLogger) StartOperation(operation, details string) {
+	l.Info(fmt.Sprintf("🚀 Starting %s: %s", operation, details))
+}
+
+// FinishOperation logs the completion of an operation
+func (l *AdharLogger) FinishOperation(operation, details string) {
+	l.Info(fmt.Sprintf("✅ Completed %s: %s", operation, details))
 }

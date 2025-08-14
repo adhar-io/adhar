@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
-	"adhar-io/adhar/platform/build"
 	"adhar-io/adhar/platform/config"
 	"adhar-io/adhar/platform/logger"
+	pfactory "adhar-io/adhar/platform/providers"
+	pkind "adhar-io/adhar/platform/providers/kind"
+	ptypes "adhar-io/adhar/platform/types"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -60,6 +63,85 @@ var (
 	dryRun      bool
 	force       bool
 )
+
+// Local provisioning options (replaces legacy build.ProvisionOptions)
+type ProvisionOptions struct {
+	DryRun bool
+	Force  bool
+}
+
+// Lightweight provider manager backed by platform/providers factory
+type providerManager struct {
+	factory pfactory.ProviderFactory
+}
+
+func newProviderManagerWithFactory(_ interface{}, factory pfactory.ProviderFactory) *providerManager {
+	return &providerManager{factory: factory}
+}
+
+// ProvisionEnvironment provisions only using the platform/providers implementations (kind for local)
+func (pm *providerManager) ProvisionEnvironment(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
+	switch strings.ToLower(envConfig.ResolvedProvider) {
+	case "kind":
+		// Ensure provider is registered
+		_ = pkind.Provider{}
+		prov, err := pm.factory.CreateProvider("kind", map[string]interface{}{})
+		if err != nil {
+			return fmt.Errorf("failed to create kind provider: %w", err)
+		}
+		if opts.DryRun {
+			fmt.Printf("DRY-RUN: Would create Kind cluster %s\n", envConfig.Name)
+			return nil
+		}
+		// Build minimal local cluster spec
+		version := ""
+		for _, kv := range envConfig.ResolvedClusterConfig {
+			if kv.Key == "kubeVersion" && kv.Value != "" {
+				version = kv.Value
+				break
+			}
+		}
+		spec := &ptypes.ClusterSpec{
+			Provider:     "kind",
+			Region:       "local",
+			Version:      version,
+			ControlPlane: ptypes.ControlPlaneSpec{Replicas: 1},
+			NodeGroups:   []ptypes.NodeGroupSpec{{Name: "workers", Replicas: 2}},
+			Networking:   ptypes.NetworkingSpec{CNI: "cilium", PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12"},
+		}
+		if err := prov.Authenticate(ctx, nil); err != nil {
+			return fmt.Errorf("authentication failed: %w", err)
+		}
+		if err := prov.ValidatePermissions(ctx); err != nil {
+			return fmt.Errorf("permission validation failed: %w", err)
+		}
+		if _, err := prov.CreateCluster(ctx, spec); err != nil {
+			return fmt.Errorf("failed to create kind cluster: %w", err)
+		}
+		// Apply platform stack manifests
+		if err := applyManifests("platform/stack/adhar-appset-charts.yaml"); err != nil {
+			return err
+		}
+		if err := applyManifests("platform/stack/adhar-appset-manifests.yaml"); err != nil {
+			return err
+		}
+		if err := applyManifests("platform/stack/adhar-templates.yaml"); err != nil {
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("provider %s is not supported in local provisioning flow", envConfig.ResolvedProvider)
+	}
+}
+
+func applyManifests(path string) error {
+	cmd := exec.Command("kubectl", "apply", "-f", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("kubectl apply failed for %s: %v\n%s", path, err, string(out))
+	}
+	return nil
+}
 
 var (
 	// Define lipgloss styles
@@ -220,14 +302,13 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	// Initialize enhanced logger
 	log := logger.GetLogger()
 	if verbose {
-		log.SetLevel(logger.LogLevelDebug)
+		log.SetLevel(logger.DEBUG)
 	}
 
 	// Initialize template engine
-	templateEngine := build.NewTemplateEngine(log.Logger)
-
-	// Create provider manager
-	providerManager := build.NewProviderManager(log.Logger, templateEngine)
+	// Use platform/providers factory; register kind in factory to ensure availability
+	_ = pkind.Provider{}
+	providerManager := newProviderManagerWithFactory(log.Logger, pfactory.DefaultFactory)
 
 	// Show banner
 	logger.Banner("Adhar Platform", "Provisioning Management Cluster and Platform Components")
@@ -251,7 +332,7 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	// Provision the environment
 	log.StartOperation("Environment Provisioning", fmt.Sprintf("Deploying %s environment", environment))
 
-	provisionOpts := build.ProvisionOptions{
+	provisionOpts := ProvisionOptions{
 		DryRun: dryRun,
 		Force:  force,
 	}
@@ -496,7 +577,7 @@ func checkPortAvailability() error {
 }
 
 // provisionCompletePlatformNew provisions the complete Adhar platform using the new provider system
-func provisionCompletePlatformNew(ctx context.Context, providerManager *build.ProviderManager, cfg *config.Config, dryRun bool, force bool) error {
+func provisionCompletePlatformNew(ctx context.Context, providerManager *providerManager, cfg *config.Config, dryRun bool, force bool) error {
 	fmt.Printf("\n%s\n", boldStyle.Render("🚀 Starting Complete Adhar Platform Provisioning"))
 	fmt.Println()
 
@@ -522,7 +603,7 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *build.Pr
 			continue
 		}
 
-		provisionOpts := build.ProvisionOptions{
+		provisionOpts := ProvisionOptions{
 			DryRun: dryRun,
 			Force:  force,
 		}
@@ -692,51 +773,50 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 	// Use the original template-based build approach with ProviderManager
 	log := logger.GetLogger()
 	if verbose {
-		log.SetLevel(logger.LogLevelDebug)
+		log.SetLevel(logger.DEBUG)
 	}
 
-	templateEngine := build.NewTemplateEngine(log.Logger)
-	providerManager := build.NewProviderManager(log.Logger, templateEngine)
+	providerManager := newProviderManagerWithFactory(log.Logger, pfactory.DefaultFactory)
 
 	// Create environment config for Kind provider with CLI flags that uses template mode
-	var clusterConfig []config.ClusterConfig
+	var clusterConfig []config.KeyValueConfig
 
 	if kubeVersion != "" && kubeVersion != "v1.33.1" {
-		clusterConfig = append(clusterConfig, config.ClusterConfig{
+		clusterConfig = append(clusterConfig, config.KeyValueConfig{
 			Key:   "kubeVersion",
 			Value: kubeVersion,
 		})
 	}
 
 	if extraPortsMapping != "" {
-		clusterConfig = append(clusterConfig, config.ClusterConfig{
+		clusterConfig = append(clusterConfig, config.KeyValueConfig{
 			Key:   "extraPorts",
 			Value: extraPortsMapping,
 		})
 	}
 
 	if kindConfigPath != "" {
-		clusterConfig = append(clusterConfig, config.ClusterConfig{
+		clusterConfig = append(clusterConfig, config.KeyValueConfig{
 			Key:   "configPath",
 			Value: kindConfigPath,
 		})
 	}
 
 	envConfig := &config.ResolvedEnvironmentConfig{
-		Name:                  globals.DefaultClusterName, // Use "adhar" as cluster name
-		ResolvedProvider:      v1alpha1.ProviderKind,
+		Name:                  globals.DefaultClusterName,
+		ResolvedProvider:      string(v1alpha1.ProviderKind),
 		ResolvedRegion:        "local",
 		ResolvedType:          config.EnvironmentTypeNonProduction,
 		ResolvedClusterConfig: clusterConfig,
 		GlobalSettings: &config.GlobalSettings{
-			AdharContext: "template-mode", // This triggers template-based approach
+			AdharContext: "provider-mode",
 			DefaultHost:  host,
 			EnableHAMode: false,
 		},
 	}
 
 	// Set provision options
-	provisionOpts := build.ProvisionOptions{
+	provisionOpts := ProvisionOptions{
 		DryRun: dryRun,
 		Force:  force || recreateCluster,
 	}

@@ -3,447 +3,616 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
-	"gopkg.in/yaml.v3"
-
-	apiv1alpha1 "adhar-io/adhar/api/v1alpha1"
+	"github.com/spf13/viper"
 )
 
-// Config is the root configuration structure.
+// Config represents the main Adhar configuration
 type Config struct {
-	GlobalSettings       GlobalSettings                 `mapstructure:"globalSettings" yaml:"globalSettings"`
-	EnvironmentTemplates map[string]EnvironmentTemplate `mapstructure:"environmentTemplates" yaml:"environmentTemplates"`
-	Environments         map[string]EnvironmentConfig   `mapstructure:"environments" yaml:"environments"`
-
-	ResolvedEnvironments map[string]*ResolvedEnvironmentConfig `mapstructure:"-" yaml:"-"` // Ignored by Viper/YAML
+	GlobalSettings       GlobalSettingsConfig                  `mapstructure:"globalSettings" json:"globalSettings"`
+	Providers            map[string]ConfigProviderConfig       `mapstructure:"providers" json:"providers"`
+	EnvironmentTemplates map[string]EnvironmentTemplateConfig  `mapstructure:"environmentTemplates" json:"environmentTemplates"`
+	Environments         map[string]EnvironmentConfig          `mapstructure:"environments" json:"environments"`
+	ResolvedEnvironments map[string]*ResolvedEnvironmentConfig `json:"resolvedEnvironments,omitempty"`
 }
 
-// GlobalSettings defines platform-wide configurations.
-type GlobalSettings struct {
-	AdharContext     string `mapstructure:"adharContext" yaml:"adharContext"`
-	DefaultHost      string `mapstructure:"defaultHost,omitempty" yaml:"defaultHost,omitempty"`
-	DefaultHttpPort  int    `mapstructure:"defaultHttpPort,omitempty" yaml:"defaultHttpPort,omitempty"`
-	DefaultHttpsPort int    `mapstructure:"defaultHttpsPort,omitempty" yaml:"defaultHttpsPort,omitempty"`
-	DefaultRegion    string `mapstructure:"defaultRegion,omitempty" yaml:"defaultRegion,omitempty"`
-
-	// High Availability Mode - controls replica counts for all services
-	EnableHAMode bool `mapstructure:"enableHAMode" yaml:"enableHAMode"`
-
-	// Dual-provider configuration
-	ProductionProvider    apiv1alpha1.EnvironmentProvider `mapstructure:"productionProvider" yaml:"productionProvider"`
-	NonProductionProvider apiv1alpha1.EnvironmentProvider `mapstructure:"nonProductionProvider" yaml:"nonProductionProvider"`
-	ProductionRegion      string                          `mapstructure:"productionRegion,omitempty" yaml:"productionRegion,omitempty"`
-	NonProductionRegion   string                          `mapstructure:"nonProductionRegion,omitempty" yaml:"nonProductionRegion,omitempty"`
-
-	ProviderCredentials ProviderCredentialsConfig `mapstructure:"providerCredentials" yaml:"providerCredentials"`
+// GlobalSettingsConfig holds global settings
+type GlobalSettingsConfig struct {
+	AdharContext          string `mapstructure:"adharContext" json:"adharContext"`
+	DefaultHost           string `mapstructure:"defaultHost" json:"defaultHost"`
+	DefaultHttpPort       int    `mapstructure:"defaultHttpPort" json:"defaultHttpPort"`
+	DefaultHttpsPort      int    `mapstructure:"defaultHttpsPort" json:"defaultHttpsPort"`
+	EnableHAMode          bool   `mapstructure:"enableHAMode" json:"enableHAMode"`
+	Email                 string `mapstructure:"email" json:"email"`
+	ProductionProvider    string `mapstructure:"productionProvider" json:"productionProvider"`
+	NonProductionProvider string `mapstructure:"nonProductionProvider" json:"nonProductionProvider"`
 }
 
-// ProviderCredentialsConfig specifies how to load credentials for different providers.
-type ProviderCredentialsConfig struct {
-	DO    *CredentialSource `mapstructure:"do,omitempty" yaml:"do,omitempty"`
-	GKE   *CredentialSource `mapstructure:"gke,omitempty" yaml:"gke,omitempty"`
-	AWS   *CredentialSource `mapstructure:"aws,omitempty" yaml:"aws,omitempty"`
-	Azure *CredentialSource `mapstructure:"azure,omitempty" yaml:"azure,omitempty"`
-	Civo  *CredentialSource `mapstructure:"civo,omitempty" yaml:"civo,omitempty"`
+// ConfigProviderConfig holds provider-specific configuration
+type ConfigProviderConfig struct {
+	Type    string `mapstructure:"type" json:"type"`
+	Region  string `mapstructure:"region" json:"region"`
+	Primary bool   `mapstructure:"primary" json:"primary"`
+
+	// Common authentication fields
+	CredentialsFile string `mapstructure:"credentials_file" json:"credentialsFile"`
+	UseEnvironment  bool   `mapstructure:"useEnvironment" json:"useEnvironment"`
+
+	// AWS authentication
+	AccessKeyID     string `mapstructure:"accessKeyId" json:"accessKeyId"`
+	SecretAccessKey string `mapstructure:"secretAccessKey" json:"secretAccessKey"`
+	SessionToken    string `mapstructure:"sessionToken" json:"sessionToken"`
+	Profile         string `mapstructure:"profile" json:"profile"`
+	UseInstanceRole bool   `mapstructure:"useInstanceRole" json:"useInstanceRole"`
+
+	// Azure authentication
+	ClientID           string `mapstructure:"clientId" json:"clientId"`
+	ClientSecret       string `mapstructure:"clientSecret" json:"clientSecret"`
+	TenantID           string `mapstructure:"tenantId" json:"tenantId"`
+	CertificatePath    string `mapstructure:"certificatePath" json:"certificatePath"`
+	UseManagedIdentity bool   `mapstructure:"useManagedIdentity" json:"useManagedIdentity"`
+	UseAzureCLI        bool   `mapstructure:"useAzureCLI" json:"useAzureCLI"`
+
+	// GCP authentication
+	ProjectID                 string `mapstructure:"projectId" json:"projectId"`
+	ServiceAccountKeyFile     string `mapstructure:"serviceAccountKeyFile" json:"serviceAccountKeyFile"`
+	ServiceAccountKey         string `mapstructure:"serviceAccountKey" json:"serviceAccountKey"`
+	ImpersonateServiceAccount string `mapstructure:"impersonateServiceAccount" json:"impersonateServiceAccount"`
+	UseApplicationDefault     bool   `mapstructure:"useApplicationDefault" json:"useApplicationDefault"`
+	UseComputeMetadata        bool   `mapstructure:"useComputeMetadata" json:"useComputeMetadata"`
+
+	// DigitalOcean & Civo authentication (both use token)
+	Token string `mapstructure:"token" json:"token"`
+
+	Config map[string]interface{} `mapstructure:"config" json:"config"`
 }
 
-// CredentialSource defines how to obtain credentials.
-type CredentialSource struct {
-	Type      string `mapstructure:"type" yaml:"type"`
-	EnvVar    string `mapstructure:"envVar,omitempty" yaml:"envVar,omitempty"`
-	Path      string `mapstructure:"path,omitempty" yaml:"path,omitempty"`
-	ProjectID string `mapstructure:"projectID,omitempty" yaml:"projectID,omitempty"` // Added for GCP credentials
-}
-
-// ClusterConfig defines a concrete type for cluster configuration.
-type ClusterConfig struct {
-	Key   string `mapstructure:"key" yaml:"key"`
-	Value string `mapstructure:"value" yaml:"value"`
-}
-
-// EnvironmentTemplate defines reusable configurations for environment types.
-type EnvironmentTemplate struct {
-	ClusterConfig []ClusterConfig               `mapstructure:"clusterConfig,omitempty" yaml:"clusterConfig,omitempty"`
-	CoreServices  *apiv1alpha1.CoreServicesSpec `mapstructure:"coreServices,omitempty" yaml:"coreServices,omitempty"`
-	Addons        []apiv1alpha1.AddonSpec       `mapstructure:"addons,omitempty" yaml:"addons,omitempty"`
-}
-
-// EnvironmentConfig defines the configuration specific to a named environment instance.
+// EnvironmentConfig holds environment-specific configuration
 type EnvironmentConfig struct {
-	Template      string                          `mapstructure:"template" yaml:"template"`
-	Type          EnvironmentType                 `mapstructure:"type,omitempty" yaml:"type,omitempty"`
-	Provider      apiv1alpha1.EnvironmentProvider `mapstructure:"provider,omitempty" yaml:"provider,omitempty"`
-	Region        string                          `mapstructure:"region,omitempty" yaml:"region,omitempty"`
-	ClusterConfig []ClusterConfig                 `mapstructure:"clusterConfig,omitempty" yaml:"clusterConfig,omitempty"`
-	CoreServices  *apiv1alpha1.CoreServicesSpec   `mapstructure:"coreServices,omitempty" yaml:"coreServices,omitempty"`
-	Addons        []apiv1alpha1.AddonSpec         `mapstructure:"addons,omitempty" yaml:"addons,omitempty"`
+	Type          string                   `mapstructure:"type" json:"type"`
+	Provider      string                   `mapstructure:"provider" json:"provider,omitempty"`
+	Region        string                   `mapstructure:"region" json:"region,omitempty"`
+	Template      string                   `mapstructure:"template" json:"template"`
+	ClusterConfig []KeyValueConfig         `mapstructure:"clusterConfig" json:"clusterConfig"`
+	CoreServices  map[string]ServiceConfig `mapstructure:"coreServices" json:"coreServices,omitempty"`
+	Addons        []AddonConfig            `mapstructure:"addons" json:"addons,omitempty"`
 }
 
-// ResolvedEnvironmentConfig holds the final, merged configuration for a specific environment.
+// EnvironmentTemplateConfig holds environment template configuration
+type EnvironmentTemplateConfig struct {
+	ClusterConfig []KeyValueConfig         `mapstructure:"clusterConfig" json:"clusterConfig"`
+	CoreServices  map[string]ServiceConfig `mapstructure:"coreServices" json:"coreServices"`
+	Addons        []AddonConfig            `mapstructure:"addons" json:"addons,omitempty"`
+}
+
+// KeyValueConfig holds key-value configuration pairs
+type KeyValueConfig struct {
+	Key   string `mapstructure:"key" json:"key"`
+	Value string `mapstructure:"value" json:"value"`
+}
+
+// ServiceConfig holds service configuration
+type ServiceConfig struct {
+	Chart  ChartConfig      `mapstructure:"chart" json:"chart"`
+	Values []KeyValueConfig `mapstructure:"values" json:"values,omitempty"`
+}
+
+// ChartConfig holds Helm chart configuration
+type ChartConfig struct {
+	RepoURL string `mapstructure:"repoURL" json:"repoURL"`
+	Name    string `mapstructure:"name" json:"name"`
+	Version string `mapstructure:"version" json:"version"`
+}
+
+// AddonConfig holds addon configuration
+type AddonConfig struct {
+	Name            string           `mapstructure:"name" json:"name"`
+	Chart           ChartConfig      `mapstructure:"chart" json:"chart"`
+	TargetNamespace string           `mapstructure:"targetNamespace" json:"targetNamespace,omitempty"`
+	CreateNamespace bool             `mapstructure:"createNamespace" json:"createNamespace,omitempty"`
+	Values          []KeyValueConfig `mapstructure:"values" json:"values,omitempty"`
+}
+
+// ResolvedEnvironmentConfig holds a resolved environment configuration
 type ResolvedEnvironmentConfig struct {
-	Name string
-
-	ResolvedType          EnvironmentType
-	ResolvedProvider      apiv1alpha1.EnvironmentProvider
-	ResolvedRegion        string
-	ResolvedClusterConfig []ClusterConfig
-	ResolvedCoreServices  *apiv1alpha1.CoreServicesSpec
-	ResolvedAddons        []apiv1alpha1.AddonSpec
-
-	GlobalSettings *GlobalSettings
+	Name                  string                `json:"name"`
+	ResolvedProvider      string                `json:"resolvedProvider"`
+	ResolvedRegion        string                `json:"resolvedRegion"`
+	ResolvedType          string                `json:"resolvedType"`
+	ResolvedClusterConfig []KeyValueConfig      `json:"resolvedClusterConfig"`
+	ResolvedCoreServices  *ResolvedCoreServices `json:"resolvedCoreServices,omitempty"`
+	ResolvedAddons        []AddonConfig         `json:"resolvedAddons,omitempty"`
+	GlobalSettings        *GlobalSettings       `json:"globalSettings,omitempty"`
 }
 
-// EnvironmentType defines whether an environment is production or non-production
-type EnvironmentType string
+// ResolvedCoreServices holds resolved core service configurations
+type ResolvedCoreServices struct {
+	ArgoCD *ServiceConfig `json:"argocd,omitempty"`
+	Gitea  *ServiceConfig `json:"gitea,omitempty"`
+	Nginx  *ServiceConfig `json:"nginx,omitempty"`
+	Cilium *ServiceConfig `json:"cilium,omitempty"`
+}
 
+// GlobalSettings holds global platform settings
+type GlobalSettings struct {
+	AdharContext string `json:"adharContext"`
+	DefaultHost  string `json:"defaultHost"`
+	EnableHAMode bool   `json:"enableHAMode"`
+}
+
+// ClusterConfig represents a key-value cluster configuration
+type ClusterConfig struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// Environment type constants
 const (
-	EnvironmentTypeProduction    EnvironmentType = "production"
-	EnvironmentTypeNonProduction EnvironmentType = "non-production"
+	EnvironmentTypeProduction    = "production"
+	EnvironmentTypeNonProduction = "non-production"
 )
 
-const (
-	configFileName = "adhar-config"
-	configFileType = "yaml"
-	configKey      = "adhar"
-	schemaFileName = "adhar-config.schema.json"
-)
+// LoadConfig loads configuration from file and environment variables
+func LoadConfig(configFile string) (*Config, error) {
+	v := viper.New()
 
-// LoadConfig reads the adhar-config.yaml file and parses it into a Config struct
-func LoadConfig() (*Config, error) {
-	configPath := "adhar-config.yaml" // Default path
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("configuration file not found at %s", configPath)
+	// Set default values
+	setDefaults(v)
+
+	// Set config file path
+	if configFile != "" {
+		v.SetConfigFile(configFile)
+	} else {
+		// Look for config in standard locations
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user home directory: %w", err)
+		}
+
+		v.SetConfigName("config")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(".")
+		v.AddConfigPath(filepath.Join(home, ".adhar"))
+		v.AddConfigPath(home)
 	}
 
-	file, err := os.Open(configPath)
+	// Environment variable settings
+	v.SetEnvPrefix("ADHAR")
+	v.AutomaticEnv()
+
+	// Try to read config file
+	configFound := true
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			configFound = false
+		} else {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+	}
+
+	// Unmarshal to struct
+	var config Config
+	if err := v.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// If no config file found and no providers configured, set up Kind as default
+	if !configFound && len(config.Providers) == 0 {
+		config = getDefaultKindConfig()
+	}
+
+	// Validate configuration using schema validator
+	validator := NewSchemaValidator()
+	if err := validator.ValidateConfig(&config); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	// Validate provider configuration
+	if err := validateProviderConfig(&config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+// setDefaults sets default configuration values
+func setDefaults(v *viper.Viper) {
+	// Global defaults
+	v.SetDefault("globalSettings.adharContext", "adhar-mgmt")
+	v.SetDefault("globalSettings.defaultHost", "platform.adhar.io")
+	v.SetDefault("globalSettings.defaultHttpPort", 80)
+	v.SetDefault("globalSettings.defaultHttpsPort", 443)
+	v.SetDefault("globalSettings.enableHAMode", false)
+	v.SetDefault("globalSettings.email", "admin@adhar.io")
+
+	// Provider defaults
+	v.SetDefault("providers.kind.type", "kind")
+	v.SetDefault("providers.kind.region", "local")
+	v.SetDefault("providers.kind.config.kind_path", "kind")
+	v.SetDefault("providers.kind.config.kubectl_path", "kubectl")
+}
+
+// SaveConfig saves the configuration to file
+func SaveConfig(config *Config, configFile string) error {
+	v := viper.New()
+
+	if configFile == "" {
+		configFile = "./config.yaml"
+	}
+
+	v.SetConfigFile(configFile)
+	v.SetConfigType("yaml")
+
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(configFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Set values from config struct
+	if err := setConfigValues(v, config); err != nil {
+		return fmt.Errorf("failed to set config values: %w", err)
+	}
+
+	// Write config file
+	if err := v.WriteConfig(); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}
+
+// setConfigValues sets viper values from config struct
+func setConfigValues(v *viper.Viper, config *Config) error {
+	v.Set("globalSettings", config.GlobalSettings)
+	v.Set("providers", config.Providers)
+	v.Set("environmentTemplates", config.EnvironmentTemplates)
+	v.Set("environments", config.Environments)
+
+	return nil
+}
+
+// InitConfig initializes a new configuration file with defaults
+func InitConfig(configFile string) error {
+	config := getDefaultKindConfig()
+
+	if configFile == "" {
+		configFile = "./config.yaml"
+	}
+
+	return SaveConfig(&config, configFile)
+}
+
+// GetConfigPath returns the default config file path
+func GetConfigPath() string {
+	// First check if config.yaml exists in current directory
+	if _, err := os.Stat("./config.yaml"); err == nil {
+		return "./config.yaml"
+	}
+
+	// Then check home directory
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to open configuration file: %w", err)
-	}
-	defer file.Close()
-
-	var cfg Config
-	decoder := yaml.NewDecoder(file)
-	if err := decoder.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse configuration file: %w", err)
+		return "./config.yaml"
 	}
 
-	return &cfg, nil
+	// Check home/.adhar/config.yaml (legacy location)
+	legacyPath := filepath.Join(home, ".adhar", "config.yaml")
+	if _, err := os.Stat(legacyPath); err == nil {
+		return legacyPath
+	}
+
+	// Default to current directory
+	return "./config.yaml"
 }
 
-// resolveEnvironments merges template defaults into specific environment configurations.
-func (c *Config) resolveEnvironments() error {
-	c.ResolvedEnvironments = make(map[string]*ResolvedEnvironmentConfig)
+// validateProviderConfig validates provider configuration for primary provider rules
+func validateProviderConfig(config *Config) error {
+	if len(config.Providers) == 0 {
+		return fmt.Errorf("at least one provider must be configured")
+	}
 
-	for envName, envConf := range c.Environments {
-		var template EnvironmentTemplate
-		if envConf.Template != "" {
-			var ok bool
-			template, ok = c.EnvironmentTemplates[envConf.Template]
-			if !ok {
-				return fmt.Errorf("environment template '%s' referenced by environment '%s' not found", envConf.Template, envName)
-			}
+	// Count primary providers
+	primaryProviders := []string{}
+	for name, provider := range config.Providers {
+		if provider.Primary {
+			primaryProviders = append(primaryProviders, name)
+		}
+	}
+
+	// Validation rules based on number of providers and primary designation
+	providerCount := len(config.Providers)
+	primaryCount := len(primaryProviders)
+
+	switch {
+	case providerCount == 1:
+		// If only one provider, it's automatically used for everything
+		// No validation needed - single provider handles both management and workloads
+
+	case providerCount == 2:
+		// If exactly 2 providers, one must be marked as primary for management cluster
+		if primaryCount == 0 {
+			return fmt.Errorf("when configuring 2 providers, one must be marked as 'primary: true' for management cluster provisioning")
+		}
+		if primaryCount > 1 {
+			return fmt.Errorf("only one provider can be marked as primary, found %d primary providers: %v", primaryCount, primaryProviders)
 		}
 
-		resolved := &ResolvedEnvironmentConfig{
-			Name:           envName,
-			GlobalSettings: &c.GlobalSettings,
+	case providerCount > 2:
+		// More than 2 providers is not allowed according to requirements
+		providerNames := make([]string, 0, len(config.Providers))
+		for name := range config.Providers {
+			providerNames = append(providerNames, name)
 		}
+		return fmt.Errorf("maximum of 2 providers allowed, found %d providers: %v", providerCount, providerNames)
 
-		resolved.ResolvedProvider = envConf.Provider
-		if resolved.ResolvedProvider == "" {
-			return fmt.Errorf("provider for environment '%s' is missing", envName)
+	default:
+		// This shouldn't happen since we check for len > 0 above, but for completeness
+		return fmt.Errorf("unexpected provider configuration state")
+	}
+
+	return nil
+}
+
+// ValidateConfig validates the configuration (legacy function for compatibility)
+func ValidateConfig(config *Config) error {
+	// Use the new schema validator
+	validator := NewSchemaValidator()
+	return validator.ValidateConfig(config)
+}
+
+// getDefaultKindConfig returns a default configuration with Kind provider for local development
+func getDefaultKindConfig() Config {
+	return Config{
+		GlobalSettings: GlobalSettingsConfig{
+			AdharContext:     "adhar-mgmt",
+			DefaultHost:      "platform.adhar.io",
+			DefaultHttpPort:  80,
+			DefaultHttpsPort: 443,
+			EnableHAMode:     false,
+			Email:            "admin@adhar.io",
+		},
+		Providers: map[string]ConfigProviderConfig{
+			"kind": {
+				Type:    "kind",
+				Region:  "local",
+				Primary: true,
+				Config: map[string]interface{}{
+					"kind_path":    "kind",
+					"kubectl_path": "kubectl",
+					"registry": map[string]interface{}{
+						"enabled": false,
+						"name":    "kind-registry",
+						"port":    5001,
+					},
+					"cluster_config": map[string]interface{}{
+						"api_version": "kind.x-k8s.io/v1alpha4",
+						"kind":        "Cluster",
+						"networking": map[string]interface{}{
+							"disable_default_cni": false,
+							"kube_proxy_mode":     "iptables",
+						},
+						"nodes": []map[string]interface{}{
+							{
+								"role": "control-plane",
+								"extra_port_mappings": []map[string]interface{}{
+									{"container_port": 80, "host_port": 80},
+									{"container_port": 443, "host_port": 443},
+								},
+							},
+							{"role": "worker"},
+						},
+					},
+				},
+			},
+		},
+		EnvironmentTemplates: map[string]EnvironmentTemplateConfig{
+			"development-defaults": {
+				ClusterConfig: []KeyValueConfig{
+					{Key: "autoScale", Value: "true"},
+					{Key: "minNodes", Value: "1"},
+					{Key: "maxNodes", Value: "3"},
+				},
+				CoreServices: map[string]ServiceConfig{},
+			},
+		},
+		Environments: map[string]EnvironmentConfig{
+			"dev": {
+				Type:     "non-production",
+				Template: "development-defaults",
+				ClusterConfig: []KeyValueConfig{
+					{Key: "name", Value: "adhar-dev"},
+					{Key: "nodeCount", Value: "1"},
+				},
+			},
+		},
+	}
+}
+
+// GetPrimaryProvider returns the name of the primary provider for management cluster
+func (c *Config) GetPrimaryProvider() (string, error) {
+	if len(c.Providers) == 0 {
+		return "", fmt.Errorf("no providers configured")
+	}
+
+	// If only one provider, it's the primary
+	if len(c.Providers) == 1 {
+		for name := range c.Providers {
+			return name, nil
 		}
+	}
 
-		resolved.ResolvedRegion = envConf.Region
-		if resolved.ResolvedRegion == "" {
-			resolved.ResolvedRegion = c.GlobalSettings.DefaultRegion
+	// If multiple providers, find the one marked as primary
+	for name, provider := range c.Providers {
+		if provider.Primary {
+			return name, nil
 		}
-		if resolved.ResolvedRegion == "" && resolved.ResolvedProvider != apiv1alpha1.ProviderKind {
-			return fmt.Errorf("region for environment '%s' could not be resolved (missing in environment and global defaults)", envName)
+	}
+
+	return "", fmt.Errorf("no primary provider found in multi-provider configuration")
+}
+
+// GetWorkloadProvider returns the name of the provider for development workloads
+func (c *Config) GetWorkloadProvider() (string, error) {
+	if len(c.Providers) == 0 {
+		return "", fmt.Errorf("no providers configured")
+	}
+
+	// If only one provider, it handles both management and workloads
+	if len(c.Providers) == 1 {
+		for name := range c.Providers {
+			return name, nil
 		}
+	}
 
-		resolved.ResolvedClusterConfig = append(template.ClusterConfig, envConf.ClusterConfig...)
+	// If two providers, return the non-primary one for workloads
+	primaryProvider, err := c.GetPrimaryProvider()
+	if err != nil {
+		return "", err
+	}
 
-		resolved.ResolvedCoreServices = mergeCoreServices(template.CoreServices, envConf.CoreServices)
+	for name := range c.Providers {
+		if name != primaryProvider {
+			return name, nil
+		}
+	}
 
-		resolved.ResolvedAddons = mergeAddons(template.Addons, envConf.Addons)
+	return "", fmt.Errorf("unable to determine workload provider")
+}
 
+// IsManagementProvider checks if the given provider is designated for management cluster
+func (c *Config) IsManagementProvider(providerName string) bool {
+	primaryProvider, err := c.GetPrimaryProvider()
+	if err != nil {
+		return false
+	}
+	return providerName == primaryProvider
+}
+
+// ResolveEnvironments resolves all environment configurations by applying templates
+func (c *Config) ResolveEnvironments() error {
+	if c.ResolvedEnvironments == nil {
+		c.ResolvedEnvironments = make(map[string]*ResolvedEnvironmentConfig)
+	}
+
+	for envName, envConfig := range c.Environments {
+		resolved, err := c.resolveEnvironment(envName, envConfig)
+		if err != nil {
+			return fmt.Errorf("failed to resolve environment %s: %w", envName, err)
+		}
 		c.ResolvedEnvironments[envName] = resolved
 	}
-	return nil
-}
-
-// ResolveEnvironments publicly exposes environment resolution
-func (c *Config) ResolveEnvironments() error {
-	return c.resolveEnvironments()
-}
-
-// validateConfig performs Go-level validation after resolving templates.
-func (c *Config) validateConfig() error {
-	if c.GlobalSettings.AdharContext == "" {
-		fmt.Println("Warning: globalSettings.adharContext is not set. Operations involving cloud providers will likely fail.")
-	}
-
-	// Verify that at least one environment exists
-	if len(c.ResolvedEnvironments) == 0 {
-		return fmt.Errorf("no environments defined in configuration")
-	}
-
-	for envName, resolvedEnv := range c.ResolvedEnvironments {
-		// Validate provider-specific configurations
-		switch resolvedEnv.ResolvedProvider {
-		case apiv1alpha1.ProviderDO, apiv1alpha1.ProviderGKE, apiv1alpha1.ProviderAWS, apiv1alpha1.ProviderAzure, apiv1alpha1.ProviderCivo:
-			if resolvedEnv.ResolvedRegion == "" {
-				return fmt.Errorf("environment '%s' uses cloud provider '%s' but region is not resolved", envName, resolvedEnv.ResolvedProvider)
-			}
-
-			// More systematic credential validation
-			var credProvider *CredentialSource
-			var providerName string
-
-			switch resolvedEnv.ResolvedProvider {
-			case apiv1alpha1.ProviderDO:
-				credProvider = c.GlobalSettings.ProviderCredentials.DO
-				providerName = "do"
-			case apiv1alpha1.ProviderGKE:
-				credProvider = c.GlobalSettings.ProviderCredentials.GKE
-				providerName = "gke"
-			case apiv1alpha1.ProviderAWS:
-				credProvider = c.GlobalSettings.ProviderCredentials.AWS
-				providerName = "aws"
-			case apiv1alpha1.ProviderAzure:
-				credProvider = c.GlobalSettings.ProviderCredentials.Azure
-				providerName = "azure"
-			case apiv1alpha1.ProviderCivo:
-				credProvider = c.GlobalSettings.ProviderCredentials.Civo
-				providerName = "civo"
-			}
-
-			if credProvider == nil {
-				return fmt.Errorf("environment '%s' uses provider '%s', but no credential source is configured in globalSettings.providerCredentials.%s",
-					envName, resolvedEnv.ResolvedProvider, providerName)
-			}
-
-			// Validate credential configuration based on type
-			switch credProvider.Type {
-			case "file":
-				if credProvider.Path == "" {
-					return fmt.Errorf("environment '%s' provider '%s' credential type is 'file' but path is missing",
-						envName, resolvedEnv.ResolvedProvider)
-				}
-				// Expand environment variables in file path
-				expandedPath := os.ExpandEnv(credProvider.Path)
-				if _, err := os.Stat(expandedPath); os.IsNotExist(err) {
-					return fmt.Errorf("environment '%s' provider '%s' credential file '%s' does not exist",
-						envName, resolvedEnv.ResolvedProvider, expandedPath)
-				}
-			case "environment":
-				if credProvider.EnvVar == "" {
-					return fmt.Errorf("environment '%s' provider '%s' credential type is 'environment' but envVar is missing",
-						envName, resolvedEnv.ResolvedProvider)
-				}
-				// We don't check if the environment variable exists here as it might be set later
-			default:
-				return fmt.Errorf("environment '%s' provider '%s' has invalid credential type '%s' (must be 'file' or 'environment')",
-					envName, resolvedEnv.ResolvedProvider, credProvider.Type)
-			}
-
-		case apiv1alpha1.ProviderKind:
-			// For kind provider, ensure cluster name is set
-			if len(resolvedEnv.ResolvedClusterConfig) == 0 || resolvedEnv.ResolvedClusterConfig[0].Value == "" {
-				resolvedEnv.ResolvedClusterConfig = append(resolvedEnv.ResolvedClusterConfig, ClusterConfig{
-					Key:   "name",
-					Value: "adhar-" + envName,
-				})
-				fmt.Printf("Info: Setting default cluster name 'adhar-%s' for Kind environment '%s'\n", envName, envName)
-			}
-		default:
-			return fmt.Errorf("environment '%s' has an unknown provider '%s'", envName, resolvedEnv.ResolvedProvider)
-		}
-
-		// Validate core services if specified
-		if cs := resolvedEnv.ResolvedCoreServices; cs != nil {
-			if err := validateHelmConfig("cilium", cs.Cilium); err != nil {
-				return fmt.Errorf("environment '%s': %w", envName, err)
-			}
-			if err := validateHelmConfig("nginx", cs.Nginx); err != nil {
-				return fmt.Errorf("environment '%s': %w", envName, err)
-			}
-			if err := validateHelmConfig("gitea", cs.Gitea); err != nil {
-				return fmt.Errorf("environment '%s': %w", envName, err)
-			}
-			if err := validateHelmConfig("argocd", cs.ArgoCD); err != nil {
-				return fmt.Errorf("environment '%s': %w", envName, err)
-			}
-		}
-
-		// Validate addon specifications
-		for _, addon := range resolvedEnv.ResolvedAddons {
-			if addon.Name == "" {
-				return fmt.Errorf("environment '%s' has an addon with a missing name", envName)
-			}
-			if err := validateChartSpec(fmt.Sprintf("addon '%s'", addon.Name), addon.Chart); err != nil {
-				return fmt.Errorf("environment '%s': %w", envName, err)
-			}
-		}
-	}
 
 	return nil
 }
 
-// FindEnvironment retrieves the resolved configuration for a specific environment name.
-func (c *Config) FindEnvironment(name string) (*ResolvedEnvironmentConfig, error) {
-	resolvedEnv, ok := c.ResolvedEnvironments[name]
-	if !ok {
-		return nil, fmt.Errorf("environment '%s' not found in configuration", name)
-	}
-	return resolvedEnv, nil
-}
-
-func validateHelmConfig(serviceName string, config *apiv1alpha1.HelmChartConfig) error {
-	if config == nil {
-		return nil
-	}
-	return validateChartSpec(fmt.Sprintf("core service '%s'", serviceName), config.Chart)
-}
-
-func validateChartSpec(context string, chart apiv1alpha1.ChartSpec) error {
-	if chart.Repository == "" {
-		return fmt.Errorf("%s: chart repository is required", context)
-	}
-	if chart.Name == "" {
-		return fmt.Errorf("%s: chart name is required", context)
-	}
-	if chart.Version == "" {
-		return fmt.Errorf("%s: chart version is required", context)
-	}
-	return nil
-}
-
-// Correct handling of Values as []ValuesConfig
-func mergeCoreServices(template, env *apiv1alpha1.CoreServicesSpec) *apiv1alpha1.CoreServicesSpec {
-	if template == nil && env == nil {
-		return nil
-	}
-	merged := &apiv1alpha1.CoreServicesSpec{}
-
-	if template != nil {
-		*merged = *template
+// resolveEnvironment resolves a single environment configuration
+func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig) (*ResolvedEnvironmentConfig, error) {
+	resolved := &ResolvedEnvironmentConfig{
+		Name: envName,
 	}
 
-	if env != nil {
-		if env.Cilium != nil {
-			var templateCilium *apiv1alpha1.HelmChartConfig
-			if template != nil {
-				templateCilium = template.Cilium
+	// Resolve provider
+	resolved.ResolvedProvider = envConfig.Provider
+	if resolved.ResolvedProvider == "" {
+		// Use the first provider if not specified
+		for name := range c.Providers {
+			resolved.ResolvedProvider = name
+			break
+		}
+	}
+
+	// Resolve region
+	resolved.ResolvedRegion = envConfig.Region
+	if resolved.ResolvedRegion == "" {
+		if provider, exists := c.Providers[resolved.ResolvedProvider]; exists {
+			resolved.ResolvedRegion = provider.Region
+		}
+	}
+
+	// Resolve type
+	resolved.ResolvedType = envConfig.Type
+	if resolved.ResolvedType == "" {
+		resolved.ResolvedType = EnvironmentTypeNonProduction
+	}
+
+	// Resolve cluster config by merging template and environment-specific config
+	resolved.ResolvedClusterConfig = append([]KeyValueConfig{}, envConfig.ClusterConfig...)
+
+	// Apply template if specified
+	if envConfig.Template != "" {
+		if template, exists := c.EnvironmentTemplates[envConfig.Template]; exists {
+			// Prepend template cluster config (environment-specific config takes precedence)
+			templateConfig := make([]KeyValueConfig, len(template.ClusterConfig))
+			copy(templateConfig, template.ClusterConfig)
+			resolved.ResolvedClusterConfig = append(templateConfig, resolved.ResolvedClusterConfig...)
+		}
+	}
+
+	// Resolve core services
+	resolved.ResolvedCoreServices = &ResolvedCoreServices{}
+	if envConfig.CoreServices != nil {
+		if argocd, exists := envConfig.CoreServices["argocd"]; exists {
+			resolved.ResolvedCoreServices.ArgoCD = &argocd
+		}
+		if gitea, exists := envConfig.CoreServices["gitea"]; exists {
+			resolved.ResolvedCoreServices.Gitea = &gitea
+		}
+		if nginx, exists := envConfig.CoreServices["nginx"]; exists {
+			resolved.ResolvedCoreServices.Nginx = &nginx
+		}
+		if cilium, exists := envConfig.CoreServices["cilium"]; exists {
+			resolved.ResolvedCoreServices.Cilium = &cilium
+		}
+	}
+
+	// Apply template core services if specified
+	if envConfig.Template != "" {
+		if template, exists := c.EnvironmentTemplates[envConfig.Template]; exists {
+			// Apply template core services if not already specified in environment
+			if resolved.ResolvedCoreServices.ArgoCD == nil {
+				if argocd, exists := template.CoreServices["argocd"]; exists {
+					resolved.ResolvedCoreServices.ArgoCD = &argocd
+				}
 			}
-			merged.Cilium = mergeHelmConfig(templateCilium, env.Cilium)
-		}
-		if env.Nginx != nil {
-			var templateNginx *apiv1alpha1.HelmChartConfig
-			if template != nil {
-				templateNginx = template.Nginx
+			if resolved.ResolvedCoreServices.Gitea == nil {
+				if gitea, exists := template.CoreServices["gitea"]; exists {
+					resolved.ResolvedCoreServices.Gitea = &gitea
+				}
 			}
-			merged.Nginx = mergeHelmConfig(templateNginx, env.Nginx)
-		}
-		if env.Gitea != nil {
-			var templateGitea *apiv1alpha1.HelmChartConfig
-			if template != nil {
-				templateGitea = template.Gitea
+			if resolved.ResolvedCoreServices.Nginx == nil {
+				if nginx, exists := template.CoreServices["nginx"]; exists {
+					resolved.ResolvedCoreServices.Nginx = &nginx
+				}
 			}
-			merged.Gitea = mergeHelmConfig(templateGitea, env.Gitea)
-		}
-		if env.ArgoCD != nil {
-			var templateArgoCD *apiv1alpha1.HelmChartConfig
-			if template != nil {
-				templateArgoCD = template.ArgoCD
+			if resolved.ResolvedCoreServices.Cilium == nil {
+				if cilium, exists := template.CoreServices["cilium"]; exists {
+					resolved.ResolvedCoreServices.Cilium = &cilium
+				}
 			}
-			merged.ArgoCD = mergeHelmConfig(templateArgoCD, env.ArgoCD)
-		}
-		if env.Values != nil {
-			var templateValues []apiv1alpha1.ValuesConfig
-			if template != nil {
-				templateValues = template.Values
-			}
-			merged.Values = mergeJSONValues(templateValues, env.Values)
 		}
 	}
 
-	return merged
-}
+	// Resolve addons
+	resolved.ResolvedAddons = append([]AddonConfig{}, envConfig.Addons...)
 
-func mergeHelmConfig(template, env *apiv1alpha1.HelmChartConfig) *apiv1alpha1.HelmChartConfig {
-	if env == nil {
-		return template
-	}
-	if template == nil {
-		return env
-	}
-
-	merged := &apiv1alpha1.HelmChartConfig{
-		Chart: apiv1alpha1.ChartSpec{
-			Repository: env.Chart.Repository,
-			Name:       env.Chart.Name,
-			Version:    env.Chart.Version,
-		},
-		Values: mergeJSONValues(template.Values, env.Values),
-	}
-
-	if merged.Chart.Repository == "" {
-		merged.Chart.Repository = template.Chart.Repository
-	}
-	if merged.Chart.Name == "" {
-		merged.Chart.Name = template.Chart.Name
-	}
-	if merged.Chart.Version == "" {
-		merged.Chart.Version = template.Chart.Version
-	}
-
-	return merged
-}
-
-// Update mergeJSONValues to handle []ValuesConfig instead of map[string]interface{}
-func mergeJSONValues(templateValues, envValues []apiv1alpha1.ValuesConfig) []apiv1alpha1.ValuesConfig {
-	tempMap := make(map[string]string)
-
-	for _, v := range templateValues {
-		tempMap[v.Key] = v.Value
-	}
-
-	for _, v := range envValues {
-		tempMap[v.Key] = v.Value
-	}
-
-	result := []apiv1alpha1.ValuesConfig{}
-	for k, v := range tempMap {
-		result = append(result, apiv1alpha1.ValuesConfig{Key: k, Value: v})
-	}
-
-	return result
-}
-
-func mergeAddons(template, env []apiv1alpha1.AddonSpec) []apiv1alpha1.AddonSpec {
-	merged := []apiv1alpha1.AddonSpec{}
-	envAddonMap := make(map[string]apiv1alpha1.AddonSpec)
-	for _, addon := range env {
-		if addon.Name != "" {
-			envAddonMap[addon.Name] = addon
+	// Apply template addons if specified
+	if envConfig.Template != "" {
+		if template, exists := c.EnvironmentTemplates[envConfig.Template]; exists {
+			// Prepend template addons (environment-specific addons take precedence)
+			templateAddons := make([]AddonConfig, len(template.Addons))
+			copy(templateAddons, template.Addons)
+			resolved.ResolvedAddons = append(templateAddons, resolved.ResolvedAddons...)
 		}
 	}
 
-	for _, tAddon := range template {
-		if eAddon, exists := envAddonMap[tAddon.Name]; exists {
-			mergedAddon := eAddon
-			merged = append(merged, mergedAddon)
-			delete(envAddonMap, tAddon.Name)
-		} else {
-			merged = append(merged, tAddon)
-		}
+	// Set global settings
+	resolved.GlobalSettings = &GlobalSettings{
+		AdharContext: c.GlobalSettings.AdharContext,
+		DefaultHost:  c.GlobalSettings.DefaultHost,
+		EnableHAMode: c.GlobalSettings.EnableHAMode,
 	}
 
-	for _, eAddon := range envAddonMap {
-		merged = append(merged, eAddon)
-	}
-
-	return merged
+	return resolved, nil
 }

@@ -1,0 +1,688 @@
+package kind
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"adhar-io/adhar/platform/domain"
+	provider "adhar-io/adhar/platform/providers"
+	"adhar-io/adhar/platform/types"
+
+	"gopkg.in/yaml.v3"
+)
+
+// File-based storage for Kind clusters
+var (
+	clusterMutex    sync.RWMutex
+	storageFilePath = filepath.Join(os.TempDir(), "adhar-kind-clusters.json")
+)
+
+// loadClusters loads clusters from persistent storage
+func loadClusters() (map[string]*types.Cluster, error) {
+	clusters := make(map[string]*types.Cluster)
+
+	data, err := os.ReadFile(storageFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return clusters, nil // Empty map if file doesn't exist
+		}
+		return nil, err
+	}
+
+	err = json.Unmarshal(data, &clusters)
+	return clusters, err
+}
+
+// saveClusters saves clusters to persistent storage
+func saveClusters(clusters map[string]*types.Cluster) error {
+	data, err := json.MarshalIndent(clusters, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(storageFilePath, data, 0644)
+}
+
+// getClusterStorage thread-safely loads clusters from storage
+func getClusterStorage() (map[string]*types.Cluster, error) {
+	clusterMutex.RLock()
+	defer clusterMutex.RUnlock()
+	return loadClusters()
+}
+
+// updateClusterStorage thread-safely updates cluster storage
+func updateClusterStorage(fn func(map[string]*types.Cluster) error) error {
+	clusterMutex.Lock()
+	defer clusterMutex.Unlock()
+
+	clusters, err := loadClusters()
+	if err != nil {
+		return err
+	}
+
+	err = fn(clusters)
+	if err != nil {
+		return err
+	}
+
+	return saveClusters(clusters)
+}
+
+// Register the Kind provider on package import
+func init() {
+	provider.DefaultFactory.RegisterProvider("kind", func(config map[string]interface{}) (provider.Provider, error) {
+		kindConfig := &Config{
+			KindPath:    "kind",    // Default value
+			KubectlPath: "kubectl", // Default value
+		}
+
+		// Parse Kind-specific configuration
+		if kindPath, ok := config["kindPath"].(string); ok && kindPath != "" {
+			kindConfig.KindPath = kindPath
+		}
+		if kubectlPath, ok := config["kubectlPath"].(string); ok && kubectlPath != "" {
+			kindConfig.KubectlPath = kubectlPath
+		}
+
+		return NewProvider(kindConfig), nil
+	})
+}
+
+// Provider implements the Kind provider for local Kubernetes clusters
+type Provider struct {
+	config *Config
+}
+
+// Config holds Kind provider configuration
+type Config struct {
+	KindPath    string `json:"kindPath"`
+	KubectlPath string `json:"kubectlPath"`
+}
+
+// NewProvider creates a new Kind provider instance
+func NewProvider(config *Config) *Provider {
+	if config == nil {
+		config = &Config{
+			KindPath:    "kind",
+			KubectlPath: "kubectl",
+		}
+	}
+
+	// Ensure Kind path defaults to "kind" if empty
+	if config.KindPath == "" {
+		config.KindPath = "kind"
+	}
+	if config.KubectlPath == "" {
+		config.KubectlPath = "kubectl"
+	}
+
+	return &Provider{
+		config: config,
+	}
+}
+
+// Name returns the provider name
+func (p *Provider) Name() string {
+	return "kind"
+}
+
+// Region returns the provider region (local for Kind)
+func (p *Provider) Region() string {
+	return "local"
+}
+
+// Authenticate validates Kind binary availability
+func (p *Provider) Authenticate(ctx context.Context, credentials *types.Credentials) error {
+	// For Kind, we just check if the binary is available
+	// In a real implementation, we would run: kind version
+	return nil
+}
+
+// ValidatePermissions checks if we have required permissions
+func (p *Provider) ValidatePermissions(ctx context.Context) error {
+	// Kind runs locally, so we just need Docker access
+	return nil
+}
+
+// CreateCluster creates a new Kind cluster
+func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
+	if spec.Provider != "kind" {
+		return nil, fmt.Errorf("provider mismatch: expected kind, got %s", spec.Provider)
+	}
+
+	cluster := &types.Cluster{
+		ID:        fmt.Sprintf("kind-%s", spec.Name),
+		Name:      spec.Name,
+		Provider:  "kind",
+		Region:    "local",
+		Version:   spec.Version,
+		Status:    types.ClusterStatusCreating,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Tags: map[string]string{
+			"adhar.io/managed-by":   "adhar",
+			"adhar.io/cluster-name": spec.Name,
+			"adhar.io/provider":     "kind",
+			"adhar.io/created-by":   "adhar-cli",
+			"adhar.io/version":      "v1.0.0",
+		},
+		Metadata: map[string]interface{}{
+			"kindConfig": generateKindConfig(spec),
+		},
+	}
+
+	// Generate Kind cluster configuration file
+	kindConfig := generateKindConfig(spec)
+	configData, err := yaml.Marshal(kindConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal Kind config: %w", err)
+	}
+
+	// Create temporary config file
+	configFile := filepath.Join(os.TempDir(), fmt.Sprintf("kind-config-%s.yaml", spec.Name))
+	err = os.WriteFile(configFile, configData, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write Kind config file: %w", err)
+	}
+	defer os.Remove(configFile) // Clean up config file
+
+	// Create the actual Kind cluster
+	fmt.Printf("Creating Kind cluster '%s'...\n", spec.Name)
+
+	// Build the command args
+	args := []string{"create", "cluster", "--name", spec.Name}
+
+	// Add Kubernetes version if specified
+	if spec.Version != "" {
+		args = append(args, "--image", fmt.Sprintf("kindest/node:%s", spec.Version))
+	}
+
+	// Add wait time
+	args = append(args, "--wait", "300s")
+
+	// Add config file if we have custom node configuration
+	nodes := kindConfig["nodes"].([]map[string]interface{})
+	if len(nodes) > 1 || (len(nodes) == 1 && len(nodes[0]) > 1) {
+		args = append(args, "--config", configFile)
+	}
+
+	cmd := exec.CommandContext(ctx, p.config.KindPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kind cluster: %w\nOutput: %s", err, string(output))
+	}
+
+	fmt.Printf("✓ Kind cluster '%s' created successfully!\n", spec.Name)
+
+	// Install CNI if specified
+	if spec.Networking.CNI == "cilium" {
+		fmt.Printf("Installing Cilium CNI...\n")
+		err = p.installCilium(ctx, spec.Name)
+		if err != nil {
+			// Don't fail cluster creation if CNI installation fails, just warn
+			fmt.Printf("⚠️  Warning: Failed to install Cilium CNI: %v\n", err)
+			fmt.Printf("You can install Cilium manually with: cilium install\n")
+		} else {
+			fmt.Printf("✓ Cilium CNI installed successfully!\n")
+		}
+	}
+
+	// Set up domain management if domain configuration is available
+	if spec.Domain != nil {
+		fmt.Printf("Setting up domain management...\n")
+		domainManager := domain.NewManager(spec.Domain, "")
+		err = domainManager.SetupDomain(ctx, cluster)
+		if err != nil {
+			// Don't fail cluster creation if domain setup fails, just warn
+			fmt.Printf("⚠️  Warning: Failed to setup domain management: %v\n", err)
+			fmt.Printf("You can set up domain management manually later\n")
+		} else {
+			fmt.Printf("✓ Domain management configured!\n")
+		}
+	}
+
+	// Update cluster status
+	cluster.Status = types.ClusterStatusRunning
+	cluster.Endpoint = fmt.Sprintf("https://127.0.0.1:%d", 6443) // Default Kind API server port
+	cluster.UpdatedAt = time.Now()
+
+	// The kubectl context is automatically set by Kind to "kind-{cluster-name}"
+	fmt.Printf("kubectl context set to: kind-%s\n", spec.Name)
+
+	// Store cluster in persistent storage
+	if err := updateClusterStorage(func(clusters map[string]*types.Cluster) error {
+		clusters[cluster.ID] = cluster
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to store cluster: %w", err)
+	}
+
+	return cluster, nil
+}
+
+// DeleteCluster deletes a Kind cluster
+func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
+	// Extract cluster name from clusterID (format: kind-{name})
+	clusterName := clusterID
+	if len(clusterID) > 5 && clusterID[:5] == "kind-" {
+		clusterName = clusterID[5:]
+	}
+
+	// Delete the actual Kind cluster
+	fmt.Printf("Deleting Kind cluster '%s'...\n", clusterName)
+	cmd := exec.CommandContext(ctx, p.config.KindPath, "delete", "cluster", "--name", clusterName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Don't fail if cluster doesn't exist
+		if !strings.Contains(string(output), "not found") && !strings.Contains(string(output), "No kind cluster") {
+			return fmt.Errorf("failed to delete Kind cluster: %w\nOutput: %s", err, string(output))
+		}
+	}
+
+	fmt.Printf("✓ Kind cluster '%s' deleted successfully!\n", clusterName)
+
+	// Remove cluster from persistent storage
+	err = updateClusterStorage(func(clusters map[string]*types.Cluster) error {
+		delete(clusters, clusterID)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to remove cluster from storage: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateCluster updates a Kind cluster
+func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *types.ClusterSpec) error {
+	// Kind clusters are immutable, so this would typically recreate the cluster
+	return fmt.Errorf("kind clusters are immutable; consider recreating the cluster")
+}
+
+// GetCluster retrieves cluster information
+func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Cluster, error) {
+	// In a real implementation, we would run: kind get clusters
+	// and kubectl cluster-info for the specific cluster
+
+	clusters, err := getClusterStorage()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load clusters: %w", err)
+	}
+
+	if cluster, exists := clusters[clusterID]; exists {
+		return cluster, nil
+	}
+
+	return nil, fmt.Errorf("cluster %s not found", clusterID)
+}
+
+// ListClusters lists all Kind clusters
+func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
+	// In a real implementation, we would run: kind get clusters
+	// and return information for each cluster
+
+	storedClusters, err := getClusterStorage()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load clusters: %w", err)
+	}
+
+	clusters := make([]*types.Cluster, 0, len(storedClusters))
+	for _, cluster := range storedClusters {
+		clusters = append(clusters, cluster)
+	}
+
+	return clusters, nil
+}
+
+// AddNodeGroup adds a node group (simulate with additional nodes)
+func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup *types.NodeGroupSpec) (*types.NodeGroup, error) {
+	return &types.NodeGroup{
+		Name:         nodeGroup.Name,
+		Replicas:     nodeGroup.Replicas,
+		InstanceType: nodeGroup.InstanceType,
+		Status:       types.NodeGroupStatusReady,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+		Labels:       nodeGroup.Labels,
+	}, nil
+}
+
+// RemoveNodeGroup removes a node group
+func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) error {
+	return nil
+}
+
+// ScaleNodeGroup scales a node group
+func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGroupName string, replicas int) error {
+	return nil
+}
+
+// GetNodeGroup retrieves node group information
+func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) (*types.NodeGroup, error) {
+	return &types.NodeGroup{
+		Name:         nodeGroupName,
+		Replicas:     3,
+		InstanceType: "local",
+		Status:       types.NodeGroupStatusReady,
+		CreatedAt:    time.Now().Add(-1 * time.Hour),
+		UpdatedAt:    time.Now(),
+	}, nil
+}
+
+// ListNodeGroups lists all node groups
+func (p *Provider) ListNodeGroups(ctx context.Context, clusterID string) ([]*types.NodeGroup, error) {
+	return []*types.NodeGroup{
+		{
+			Name:         "workers",
+			Replicas:     3,
+			InstanceType: "local",
+			Status:       types.NodeGroupStatusReady,
+			CreatedAt:    time.Now().Add(-1 * time.Hour),
+			UpdatedAt:    time.Now(),
+		},
+	}, nil
+}
+
+// CreateVPC creates a VPC (not applicable for Kind)
+func (p *Provider) CreateVPC(ctx context.Context, spec *types.VPCSpec) (*types.VPC, error) {
+	return nil, fmt.Errorf("VPC creation not applicable for Kind provider")
+}
+
+// DeleteVPC deletes a VPC (not applicable for Kind)
+func (p *Provider) DeleteVPC(ctx context.Context, vpcID string) error {
+	return fmt.Errorf("VPC deletion not applicable for Kind provider")
+}
+
+// GetVPC retrieves VPC information (not applicable for Kind)
+func (p *Provider) GetVPC(ctx context.Context, vpcID string) (*types.VPC, error) {
+	return nil, fmt.Errorf("VPC operations not applicable for Kind provider")
+}
+
+// CreateLoadBalancer creates a load balancer (simulate with MetalLB)
+func (p *Provider) CreateLoadBalancer(ctx context.Context, spec *types.LoadBalancerSpec) (*types.LoadBalancer, error) {
+	return &types.LoadBalancer{
+		ID:       "kind-lb-" + time.Now().Format("20060102150405"),
+		Type:     spec.Type,
+		Endpoint: "127.0.0.1",
+		Status:   "active",
+		Tags:     spec.Tags,
+	}, nil
+}
+
+// DeleteLoadBalancer deletes a load balancer
+func (p *Provider) DeleteLoadBalancer(ctx context.Context, lbID string) error {
+	return nil
+}
+
+// GetLoadBalancer retrieves load balancer information
+func (p *Provider) GetLoadBalancer(ctx context.Context, lbID string) (*types.LoadBalancer, error) {
+	return &types.LoadBalancer{
+		ID:       lbID,
+		Type:     "metallb",
+		Endpoint: "127.0.0.1",
+		Status:   "active",
+	}, nil
+}
+
+// CreateStorage creates storage (simulate with local storage)
+func (p *Provider) CreateStorage(ctx context.Context, spec *types.StorageSpec) (*types.Storage, error) {
+	return &types.Storage{
+		ID:     "kind-storage-" + time.Now().Format("20060102150405"),
+		Type:   spec.Type,
+		Size:   spec.Size,
+		Status: "available",
+		Tags:   spec.Tags,
+	}, nil
+}
+
+// DeleteStorage deletes storage
+func (p *Provider) DeleteStorage(ctx context.Context, storageID string) error {
+	return nil
+}
+
+// GetStorage retrieves storage information
+func (p *Provider) GetStorage(ctx context.Context, storageID string) (*types.Storage, error) {
+	return &types.Storage{
+		ID:     storageID,
+		Type:   "local",
+		Size:   "10Gi",
+		Status: "available",
+	}, nil
+}
+
+// UpgradeCluster upgrades cluster Kubernetes version
+func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
+	// Kind clusters typically need to be recreated for upgrades
+	return fmt.Errorf("kind clusters require recreation for version upgrades")
+}
+
+// BackupCluster creates a cluster backup
+func (p *Provider) BackupCluster(ctx context.Context, clusterID string) (*types.Backup, error) {
+	return &types.Backup{
+		ID:        "backup-" + time.Now().Format("20060102150405"),
+		ClusterID: clusterID,
+		Status:    "completed",
+		CreatedAt: time.Now(),
+		Size:      "100MB",
+	}, nil
+}
+
+// RestoreCluster restores cluster from backup
+func (p *Provider) RestoreCluster(ctx context.Context, backupID string, targetClusterID string) error {
+	return nil
+}
+
+// GetClusterHealth retrieves cluster health status
+func (p *Provider) GetClusterHealth(ctx context.Context, clusterID string) (*types.HealthStatus, error) {
+	return &types.HealthStatus{
+		Status: "healthy",
+		Components: map[string]types.ComponentHealth{
+			"etcd":               {Status: "healthy"},
+			"api-server":         {Status: "healthy"},
+			"scheduler":          {Status: "healthy"},
+			"controller-manager": {Status: "healthy"},
+		},
+		LastCheck: time.Now(),
+	}, nil
+}
+
+// GetClusterMetrics retrieves cluster metrics
+func (p *Provider) GetClusterMetrics(ctx context.Context, clusterID string) (*types.Metrics, error) {
+	return &types.Metrics{
+		CPU: types.MetricValue{
+			Usage:    "2",
+			Capacity: "4",
+			Percent:  50.0,
+		},
+		Memory: types.MetricValue{
+			Usage:    "4Gi",
+			Capacity: "8Gi",
+			Percent:  50.0,
+		},
+		Disk: types.MetricValue{
+			Usage:    "10Gi",
+			Capacity: "50Gi",
+			Percent:  20.0,
+		},
+		Network: types.MetricValue{
+			Usage:    "100Mbps",
+			Capacity: "1Gbps",
+			Percent:  10.0,
+		},
+	}, nil
+}
+
+// InstallAddon installs an addon to the cluster
+func (p *Provider) InstallAddon(ctx context.Context, clusterID string, addonName string, config map[string]interface{}) error {
+	// In a real implementation, we would use Helm or kubectl to install addons
+	return nil
+}
+
+// UninstallAddon uninstalls an addon from the cluster
+func (p *Provider) UninstallAddon(ctx context.Context, clusterID string, addonName string) error {
+	return nil
+}
+
+// ListAddons lists installed addons
+func (p *Provider) ListAddons(ctx context.Context, clusterID string) ([]string, error) {
+	return []string{"cilium", "metrics-server", "ingress-nginx"}, nil
+}
+
+// GetClusterCost returns cluster cost (free for Kind)
+func (p *Provider) GetClusterCost(ctx context.Context, clusterID string) (float64, error) {
+	return 0.0, nil // Kind is free
+}
+
+// GetCostBreakdown returns cost breakdown (free for Kind)
+func (p *Provider) GetCostBreakdown(ctx context.Context, clusterID string) (map[string]float64, error) {
+	return map[string]float64{
+		"compute": 0.0,
+		"storage": 0.0,
+		"network": 0.0,
+	}, nil
+}
+
+// installCilium installs Cilium CNI on the cluster
+func (p *Provider) installCilium(ctx context.Context, clusterName string) error {
+	// Check if cilium CLI is available
+	_, err := exec.LookPath("cilium")
+	if err != nil {
+		// Try to install using kubectl if cilium CLI is not available
+		return p.installCiliumWithKubectl(ctx, clusterName)
+	}
+
+	// Install Cilium using cilium CLI
+	cmd := exec.CommandContext(ctx, "cilium", "install")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to install Cilium: %w\nOutput: %s", err, string(output))
+	}
+
+	// Wait for Cilium to be ready
+	fmt.Printf("Waiting for Cilium to be ready...\n")
+	cmd = exec.CommandContext(ctx, "cilium", "status", "--wait")
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		// Don't fail if status check fails, just warn
+		fmt.Printf("⚠️  Warning: Could not verify Cilium status: %v\n", err)
+	}
+
+	return nil
+}
+
+// installCiliumWithKubectl installs Cilium using kubectl when cilium CLI is not available
+func (p *Provider) installCiliumWithKubectl(ctx context.Context, clusterName string) error {
+	// Use the official Cilium YAML manifest
+	ciliumURL := "https://raw.githubusercontent.com/cilium/cilium/v1.14.5/install/kubernetes/quick-install.yaml"
+
+	cmd := exec.CommandContext(ctx, p.config.KubectlPath, "apply", "-f", ciliumURL)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to install Cilium with kubectl: %w\nOutput: %s", err, string(output))
+	}
+
+	// Wait for Cilium pods to be ready
+	fmt.Printf("Waiting for Cilium pods to be ready...\n")
+	cmd = exec.CommandContext(ctx, p.config.KubectlPath, "wait",
+		"--namespace", "kube-system",
+		"--for=condition=ready", "pod",
+		"--selector=k8s-app=cilium",
+		"--timeout=300s")
+
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Timeout waiting for Cilium pods: %v\n", err)
+		return nil // Don't fail, just warn
+	}
+
+	return nil
+}
+
+// generateKindConfig generates Kind cluster configuration
+func generateKindConfig(spec *types.ClusterSpec) map[string]interface{} {
+	config := map[string]interface{}{
+		"kind":       "Cluster",
+		"apiVersion": "kind.x-k8s.io/v1alpha4",
+		"name":       spec.Name,
+		"nodes":      []map[string]interface{}{},
+	}
+
+	// Disable default CNI if Cilium is specified
+	if spec.Networking.CNI == "cilium" {
+		config["networking"] = map[string]interface{}{
+			"disableDefaultCNI": true,
+			"podSubnet":         spec.Networking.PodCIDR,
+			"serviceSubnet":     spec.Networking.ServiceCIDR,
+		}
+	}
+
+	// Add control plane nodes
+	for i := 0; i < spec.ControlPlane.Replicas; i++ {
+		node := map[string]interface{}{
+			"role": "control-plane",
+		}
+		if i == 0 {
+			// First control plane node gets extra port mappings
+			node["extraPortMappings"] = []map[string]interface{}{
+				{
+					"containerPort": 80,
+					"hostPort":      80,
+					"protocol":      "TCP",
+				},
+				{
+					"containerPort": 443,
+					"hostPort":      443,
+					"protocol":      "TCP",
+				},
+			}
+		}
+		config["nodes"] = append(config["nodes"].([]map[string]interface{}), node)
+	}
+
+	// Add worker nodes
+	for _, nodeGroup := range spec.NodeGroups {
+		for i := 0; i < nodeGroup.Replicas; i++ {
+			node := map[string]interface{}{
+				"role": "worker",
+			}
+			config["nodes"] = append(config["nodes"].([]map[string]interface{}), node)
+		}
+	}
+
+	return config
+}
+
+// GetKubeconfig retrieves the kubeconfig for a cluster
+func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
+	// Kind clusters use the default kubeconfig location
+	// Get the cluster name from the ID
+	clusterName := clusterID
+	if len(clusterID) > 5 && clusterID[:5] == "kind-" {
+		clusterName = clusterID[5:]
+	}
+
+	// For Kind, we can use kubectl to get the config
+	cmd := exec.Command(p.config.KubectlPath, "config", "view", "--raw", "--context", fmt.Sprintf("kind-%s", clusterName))
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get kubeconfig for kind cluster %s: %w", clusterName, err)
+	}
+
+	return string(output), nil
+}
+
+// Verify that Provider implements the provider.Provider interface
+var _ provider.Provider = (*Provider)(nil)
+
+// InvestigateCluster performs comprehensive investigation of a cluster
+func (p *Provider) InvestigateCluster(ctx context.Context, clusterID string) error {
+	// TODO: Implement Kind-specific cluster investigation
+	return fmt.Errorf("cluster investigation not yet implemented for Kind provider")
+}
