@@ -1,3 +1,19 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package main
 
 import (
@@ -12,8 +28,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Version information is now provided through globals package
-
 func init() {
 	// Add the version command to the root command
 	AddCommand(versionCmd)
@@ -21,15 +35,12 @@ func init() {
 
 // versionCmd represents the version command
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print the version information of Adhar",
-	Long:  `Display detailed version information about the Adhar Platform, including version number, git commit, and build date.`,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Skip the default PersistentPreRun to avoid duplicate ASCII art
-	},
+	Use:     "version",
+	Aliases: []string{"v", "ver"},
+	Short:   "Print the version information of Adhar",
+	Long:    `Display detailed version information about the Adhar Platform, including version number, git commit, and build date.`,
+
 	Run: func(cmd *cobra.Command, args []string) {
-		// Print the header with ASCII art and version
-		printHeader()
 
 		// Create a pretty box for version info
 		versionInfo := fmt.Sprintf(
@@ -63,7 +74,7 @@ func checkDependencies() {
 	}{
 		{"Docker", "docker", []string{"--version"}},
 		{"Kind", "kind", []string{"--version"}},
-		{"kubectl", "kubectl", []string{"version", "--client", "--output=yaml"}},
+		{"Kubectl", "kubectl", []string{"version", "--client", "--output=yaml"}},
 		{"Helm", "helm", []string{"version", "--short"}},
 	}
 
