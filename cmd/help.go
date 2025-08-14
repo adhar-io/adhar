@@ -1,3 +1,19 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package main
 
 import (
@@ -5,10 +21,199 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"adhar-io/adhar/globals"
 )
+
+// GlamourStyles defines the styles to use for rendering markdown
+var glamourStyles = map[string]glamour.TermRendererOption{
+	"light":   glamour.WithStandardStyle("light"),   // Use standard light style
+	"dark":    glamour.WithStandardStyle("dark"),    // Use standard dark style
+	"dracula": glamour.WithStandardStyle("dracula"), // Add dracula style if needed
+	"auto":    glamour.WithAutoStyle(),
+}
+
+// renderMarkdown renders markdown text with glamour with enhanced styling options
+func renderMarkdown(md string, style string) (string, error) {
+	rendererStyle, exists := glamourStyles[style]
+	if !exists {
+		// Fallback to auto style if the requested style doesn't exist
+		rendererStyle = glamourStyles["auto"]
+	}
+
+	renderer, err := glamour.NewTermRenderer(
+		rendererStyle,
+		glamour.WithWordWrap(100),
+		glamour.WithEmoji(),
+	)
+	if err != nil {
+		return "", err
+	}
+	return renderer.Render(md)
+}
+
+// Command groups for better organization
+type CommandGroup struct {
+	Name        string
+	Description string
+	Commands    []string
+	Icon        string
+}
+
+var commandGroups = []CommandGroup{
+	{
+		Name:        "Platform Operations",
+		Description: "Core platform lifecycle management",
+		Commands:    []string{"up", "down", "cluster"},
+		Icon:        "🏗️",
+	},
+	{
+		Name:        "Application Management",
+		Description: "Develop, deploy, and manage applications",
+		Commands:    []string{"apps"},
+		Icon:        "🚀",
+	},
+	{
+		Name:        "Resources & Status",
+		Description: "View and monitor platform resources",
+		Commands:    []string{"get"},
+		Icon:        "📊",
+	},
+	{
+		Name:        "Utilities",
+		Description: "Additional tools and utilities",
+		Commands:    []string{"completion", "help", "version"},
+		Icon:        "🛠️",
+	},
+}
+
+// renderCommandGroups renders commands organized by groups
+func renderCommandGroups(commands []*cobra.Command) string {
+	var sb strings.Builder
+
+	// Create a map of commands by name for quick lookup
+	cmdMap := make(map[string]*cobra.Command)
+	for _, cmd := range commands {
+		cmdMap[cmd.Name()] = cmd
+	}
+
+	for i, group := range commandGroups {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+
+		// Group header
+		groupHeader := fmt.Sprintf("%s %s", group.Icon, group.Name)
+		sb.WriteString(headerStyle.Render(groupHeader) + "\n")
+		sb.WriteString(subtitleStyle.Render(group.Description) + "\n\n")
+
+		// Commands in this group
+		for _, cmdName := range group.Commands {
+			if cmd, exists := cmdMap[cmdName]; exists {
+				cmdLine := fmt.Sprintf("  %s  %s",
+					titleStyle.Render(cmd.Name()),
+					cmdDescStyle.Render(cmd.Short))
+				sb.WriteString(cmdLine + "\n")
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+// renderQuickStart provides a quick start guide
+func renderQuickStart() string {
+	quickStart := `
+**Quick Start Guide:**
+
+1. **Start a local development environment:**
+   ` + "`adhar up`" + `
+
+2. **Deploy your first application:**
+   ` + "`adhar apps create myorg myapp my-service --template node-express`" + `
+
+3. **Check platform status:**
+   ` + "`adhar get status`" + `
+
+4. **Clean up when done:**
+   ` + "`adhar down`" + `
+`
+
+	rendered, err := renderMarkdown(quickStart, "auto")
+	if err != nil {
+		return quickStart
+	}
+	return rendered
+}
+
+// renderRootCommandContent renders the main content shown when running 'adhar' without arguments
+// This function is shared between the root command and help command for consistency
+func renderRootCommandContent(cmd *cobra.Command) {
+	// Modern welcome with better visual hierarchy
+	welcomeHeader := borderStyle.Width(80).Align(lipgloss.Center).Render(
+		highlightStyle.Render("🚀 Welcome to Adhar Platform") + "\n" +
+			subtitleStyle.Render("The Open Foundation for Internal Developer Platforms"),
+	)
+	fmt.Println(welcomeHeader)
+	fmt.Println()
+
+	// Platform overview with styled formatting for better control
+	overviewHeader := highlightStyle.Render("Adhar") + " transforms how teams build and deploy software by providing:"
+	fmt.Println(overviewHeader)
+	fmt.Println()
+
+	// Use direct styling for bullet points to ensure proper line breaks
+	features := []string{
+		"🏗️ Unified Platform - Complete IDP on Kubernetes with GitOps",
+		"⚡ Developer Velocity - Templates, automation, and self-service",
+		"🔒 Enterprise Ready - Security, governance, and compliance built-in",
+		"🌐 Multi-Cloud - Deploy anywhere with consistent experience",
+		"📊 Full Observability - Monitor everything from code to production",
+	}
+
+	for _, feature := range features {
+		fmt.Printf("  %s %s\n", bulletStyle.Render("•"), feature)
+	}
+	fmt.Println()
+
+	// Commands organized by groups
+	fmt.Println(headerStyle.Render("📋 AVAILABLE COMMANDS"))
+	commandsContent := renderCommandGroups(cmd.Commands())
+	commandsBox := borderStyle.Width(80).Render(commandsContent)
+	fmt.Println(commandsBox)
+	fmt.Println()
+
+	// Quick start guide
+	fmt.Println(headerStyle.Render("🚀 QUICK START"))
+	quickStartBox := borderStyle.Width(80).Render(renderQuickStart())
+	fmt.Println(quickStartBox)
+	fmt.Println()
+
+	// Help and resources in a compact format
+	resources := []string{
+		"💡 Get help: " + highlightStyle.Render("adhar [command] --help"),
+		"📚 Documentation: " + infoStyle.Render("https://adhar.io/docs"),
+		"💬 Community: " + infoStyle.Render("https://github.com/adhar-io/adhar/community"),
+		"🐛 Issues: " + infoStyle.Render("https://github.com/adhar-io/adhar/issues"),
+	}
+
+	fmt.Println(headerStyle.Render("🔗 RESOURCES & SUPPORT"))
+	for _, resource := range resources {
+		fmt.Println("  " + resource)
+	}
+	fmt.Println()
+
+	// Footer with version info
+	footer := subtitleStyle.Render(
+		fmt.Sprintf("Adhar Platform %s • Built with ❤️ for developers", globals.Version),
+	)
+	fmt.Println(lipgloss.NewStyle().Align(lipgloss.Center).Render(footer))
+	fmt.Println()
+}
 
 func init() {
 	// Add the help command to the root command
@@ -27,90 +232,8 @@ Without a command name, it displays general help for Adhar.`, // Header is now p
 		printHeader()
 
 		if len(args) == 0 {
-			// Main description
-			description := `
-Adhar is a modern tool for managing application environments and deployments via Kubernetes and Crossplane.
-It simplifies environment provisioning, application deployment, and resource management.
-`
-			fmt.Println(description)
-
-			// Create sections for commands
-			fmt.Println(headerStyle.Render("COMMAND CATEGORIES:"))
-
-			// Define command categories (Updated)
-			commandCategories := map[string][]string{
-				"Application Lifecycle":  {"apps"}, // Added apps
-				"Environment Management": {"up", "down"},
-				"Resource Management":    {"get"},             // 'get' covers multiple resources now
-				"Platform Status":        {"status"},          // Added status command here
-				"System":                 {"version", "help"}, // Removed explore
-			}
-
-			// Display command categories
-			var sb strings.Builder
-			for category, cmdList := range commandCategories {
-				sb.WriteString(fmt.Sprintf("%s\n", titleStyle.Render(category)))
-
-				for _, cmdName := range cmdList {
-					// Find command by name (search root and subcommands)
-					var helpText string
-					foundCmd, _, err := rootCmd.Find([]string{cmdName}) // Use Find for better searching
-					if err == nil && foundCmd != nil {
-						helpText = foundCmd.Short
-					} else {
-						helpText = "Command description not found" // Fallback
-					}
-
-					sb.WriteString(fmt.Sprintf("  %s: %s\n",
-						subtitleStyle.Render(cmdName),
-						helpText))
-				}
-				sb.WriteString("\n")
-			}
-
-			categoryBox := borderStyle.Render(sb.String())
-			fmt.Println(categoryBox)
-
-			// Show usage examples (Updated)
-			fmt.Println(headerStyle.Render("COMMON USAGE:"))
-			examples := `
-  # Start the local environment (Kind cluster)
-  adhar up
-
-  # Provision a specific environment defined in config (e.g., GKE)
-  adhar up -e staging-gke
-
-  # List all Adhar applications
-  adhar get applications
-
-  # Get the status of the Adhar platform components
-  adhar get status
-
-  # Show detailed help for the 'get' command
-  adhar help get
-
-  # Display version information
-  adhar version
-
-  # Tear down the local environment
-  adhar down
-
-  # Tear down a specific environment
-  adhar down -e staging-gke
-`
-			examplesBox := borderStyle.Render(examples)
-			fmt.Println(examplesBox)
-
-			// Add tips section
-			tips := `
-💡 Use 'adhar help <command>' for detailed information on a specific command
-💡 All commands support the --help flag for quick reference
-💡 Use TAB completion (if enabled in your shell) to quickly navigate commands and options
-💡 Use 'adhar get all' to list all managed Adhar resource types
-💡 Specify a kubeconfig using --kubeconfig flag or KUBECONFIG environment variable
-`
-			fmt.Println(subtitleStyle.Render("TIPS:"))
-			fmt.Println(lipgloss.NewStyle().Faint(true).Render(tips))
+			// Use the same beautiful content as the root command
+			renderRootCommandContent(rootCmd)
 		} else {
 			// Show help for a specific command
 			subcommandName := args[0]
