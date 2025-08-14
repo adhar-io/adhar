@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helpers
 
 import (
 	"fmt"
@@ -22,12 +22,58 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ============================================================================
 // ENHANCED PROGRESS SYSTEM
 // Consolidated progress tracking for all long-running commands
 // ============================================================================
+
+// Define styles for progress system
+var (
+	// Define some base colors
+	primaryColor   = lipgloss.AdaptiveColor{Light: "#0366d6", Dark: "#58a6ff"}
+	secondaryColor = lipgloss.AdaptiveColor{Light: "#28a745", Dark: "#3fb950"}
+	accentColor    = lipgloss.AdaptiveColor{Light: "#6f42c1", Dark: "#8957e5"}
+	errorColor     = lipgloss.AdaptiveColor{Light: "#cb2431", Dark: "#f85149"}
+	warningColor   = lipgloss.AdaptiveColor{Light: "#f66a0a", Dark: "#f0883e"}
+	infoColor      = lipgloss.AdaptiveColor{Light: "#0090ff", Dark: "#00b4ff"}
+	highlightColor = lipgloss.AdaptiveColor{Light: "#e36209", Dark: "#ffab70"}
+
+	// Define styles for progress system
+	headerStyle = lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Bold(true)
+
+	titleStyle = lipgloss.NewStyle().
+			Foreground(accentColor).
+			Bold(true)
+
+	subtitleStyle = lipgloss.NewStyle().
+			Foreground(secondaryColor).
+			Italic(true)
+
+	successStyle = lipgloss.NewStyle().
+			Foreground(secondaryColor).
+			Bold(true)
+
+	errorStyle = lipgloss.NewStyle().
+			Foreground(errorColor).
+			Bold(true)
+
+	warningStyle = lipgloss.NewStyle().
+			Foreground(warningColor).
+			Bold(true)
+
+	infoStyle = lipgloss.NewStyle().
+			Foreground(infoColor).
+			Italic(true)
+
+	highlightStyle = lipgloss.NewStyle().
+			Foreground(highlightColor).
+			Bold(true)
+)
 
 // Progress tracking structures
 type ProgressStep struct {
