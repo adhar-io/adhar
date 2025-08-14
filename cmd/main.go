@@ -19,21 +19,16 @@ package main
 import (
 	"os"
 
-	"adhar-io/adhar/globals" // Added import for globals package
+	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/logger"
 
-	// Import necessary packages if needed by commands
 	_ "k8s.io/client-go/plugin/pkg/client/auth" // Required for cloud provider auth plugins
-
-	"go.uber.org/zap/zapcore" // Added for log level constants
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 var (
 	version   string // Set at build time by ldflags
 	gitCommit string // Set at build time by ldflags
 	buildDate string // Set at build time by ldflags
-	setupLog  = ctrl.Log.WithName("setup")
 )
 
 func main() {
@@ -42,17 +37,15 @@ func main() {
 	globals.GitCommit = gitCommit
 	globals.BuildDate = buildDate
 
-	// Setup minimal basic logger that will be replaced by the proper user-friendly logger
-	// This is just for early initialization - the real logger is configured in commands
-	opts := zap.Options{
-		Development: true, // Use development mode for console output initially
-		Level:       zapcore.InfoLevel,
-	}
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	// Initialize platform logger with default configuration
+	// This provides consistent logging throughout the platform
+	logger.Init(logger.DefaultConfig())
 
-	// Execute the root command (now directly accessible)
+	// Execute the root command
 	if err := Execute(); err != nil {
-		setupLog.Error(err, "command execution failed")
+		logger.Error("Command execution failed", err, map[string]interface{}{
+			"command": os.Args,
+		})
 		os.Exit(1)
 	}
 }
