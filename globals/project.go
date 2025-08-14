@@ -9,7 +9,11 @@ const (
 	DefaultClusterName string = "adhar"
 )
 
-var Version string = "0.0.1-dev" // Default version
+var (
+	Version   string = "0.0.1-dev" // Default version, set at build time
+	GitCommit string = "unknown"   // Default git commit, set at build time
+	BuildDate string = "unknown"   // Default build date, set at build time
+)
 
 const (
 	CloudProviderGKE   string = "gke"

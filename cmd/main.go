@@ -30,13 +30,17 @@ import (
 )
 
 var (
-	version  string // Set at build time by ldflags
-	setupLog = ctrl.Log.WithName("setup")
+	version   string // Set at build time by ldflags
+	gitCommit string // Set at build time by ldflags
+	buildDate string // Set at build time by ldflags
+	setupLog  = ctrl.Log.WithName("setup")
 )
 
 func main() {
-	// Set the globals.Version from the build-time version variable
+	// Set the globals from the build-time variables
 	globals.Version = version
+	globals.GitCommit = gitCommit
+	globals.BuildDate = buildDate
 
 	// Setup minimal basic logger that will be replaced by the proper user-friendly logger
 	// This is just for early initialization - the real logger is configured in commands

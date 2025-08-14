@@ -3,18 +3,16 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
+
+	"adhar-io/adhar/globals"
 
 	"github.com/spf13/cobra"
 )
 
-var (
-	// Version information
-	cliVersion = "v0.1.0" // This should be set during build
-	gitCommit  = "unknown"
-	buildDate  = "unknown"
-)
+// Version information is now provided through globals package
 
 func init() {
 	// Add the version command to the root command
@@ -36,9 +34,9 @@ var versionCmd = &cobra.Command{
 		// Create a pretty box for version info
 		versionInfo := fmt.Sprintf(
 			"%s %s\n%s %s\n%s %s\n%s %s\n%s %s",
-			titleStyle.Render("Version:"), highlightStyle.Render(cliVersion),
-			titleStyle.Render("Git Commit:"), gitCommit,
-			titleStyle.Render("Build Date:"), buildDate,
+			titleStyle.Render("Version:"), highlightStyle.Render(globals.Version),
+			titleStyle.Render("Git Commit:"), globals.GitCommit,
+			titleStyle.Render("Build Date:"), globals.BuildDate,
 			titleStyle.Render("Go Version:"), highlightStyle.Render(runtime.Version()),
 			titleStyle.Render("OS/Arch:"), fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		)
@@ -65,7 +63,7 @@ func checkDependencies() {
 	}{
 		{"Docker", "docker", []string{"--version"}},
 		{"Kind", "kind", []string{"--version"}},
-		{"kubectl", "kubectl", []string{"version", "--client"}},
+		{"kubectl", "kubectl", []string{"version", "--client", "--output=yaml"}},
 		{"Helm", "helm", []string{"version", "--short"}},
 	}
 
@@ -80,10 +78,21 @@ func checkDependencies() {
 			status = "✗ Not found"
 			info = "Required for platform functionality"
 		} else {
-			// Extract just the first line of output for cleaner display
-			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-			if len(lines) > 0 {
-				info = strings.TrimSpace(lines[0])
+			// Special handling for kubectl YAML output
+			if dep.command == "kubectl" && strings.Contains(string(dep.args[len(dep.args)-1]), "yaml") {
+				// Extract version from YAML output using regex
+				versionRegex := regexp.MustCompile(`gitVersion:\s*"?([^"\s]+)"?`)
+				if match := versionRegex.FindStringSubmatch(string(output)); len(match) > 1 {
+					info = fmt.Sprintf("Client Version: %s", match[1])
+				} else {
+					info = "Version info available"
+				}
+			} else {
+				// Extract just the first line of output for cleaner display
+				lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+				if len(lines) > 0 {
+					info = strings.TrimSpace(lines[0])
+				}
 			}
 		}
 
