@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -79,59 +80,173 @@ func newProviderManagerWithFactory(_ interface{}, factory pfactory.ProviderFacto
 	return &providerManager{factory: factory}
 }
 
-// ProvisionEnvironment provisions only using the platform/providers implementations (kind for local)
+// ProvisionEnvironment provisions using the appropriate provider based on configuration
 func (pm *providerManager) ProvisionEnvironment(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
-	switch strings.ToLower(envConfig.ResolvedProvider) {
-	case "kind":
-		// Ensure provider is registered
-		_ = pkind.Provider{}
-		prov, err := pm.factory.CreateProvider("kind", map[string]interface{}{})
-		if err != nil {
-			return fmt.Errorf("failed to create kind provider: %w", err)
-		}
-		if opts.DryRun {
-			fmt.Printf("DRY-RUN: Would create Kind cluster %s\n", envConfig.Name)
-			return nil
-		}
-		// Build minimal local cluster spec
-		version := ""
-		for _, kv := range envConfig.ResolvedClusterConfig {
-			if kv.Key == "kubeVersion" && kv.Value != "" {
-				version = kv.Value
-				break
-			}
-		}
-		spec := &ptypes.ClusterSpec{
-			Provider:     "kind",
-			Region:       "local",
-			Version:      version,
-			ControlPlane: ptypes.ControlPlaneSpec{Replicas: 1},
-			NodeGroups:   []ptypes.NodeGroupSpec{{Name: "workers", Replicas: 2}},
-			Networking:   ptypes.NetworkingSpec{CNI: "cilium", PodCIDR: "10.244.0.0/16", ServiceCIDR: "10.96.0.0/12"},
-		}
-		if err := prov.Authenticate(ctx, nil); err != nil {
-			return fmt.Errorf("authentication failed: %w", err)
-		}
-		if err := prov.ValidatePermissions(ctx); err != nil {
-			return fmt.Errorf("permission validation failed: %w", err)
-		}
-		if _, err := prov.CreateCluster(ctx, spec); err != nil {
-			return fmt.Errorf("failed to create kind cluster: %w", err)
-		}
-		// Apply platform stack manifests
-		if err := applyManifests("platform/stack/adhar-appset-charts.yaml"); err != nil {
-			return err
-		}
-		if err := applyManifests("platform/stack/adhar-appset-manifests.yaml"); err != nil {
-			return err
-		}
-		if err := applyManifests("platform/stack/adhar-templates.yaml"); err != nil {
-			return err
-		}
-		return nil
-	default:
-		return fmt.Errorf("provider %s is not supported in local provisioning flow", envConfig.ResolvedProvider)
+	providerType := strings.ToLower(envConfig.ResolvedProvider)
+
+	// Build provider configuration from environment config
+	providerConfig := buildProviderConfig(envConfig)
+
+	// Create provider instance
+	prov, err := pm.factory.CreateProvider(providerType, providerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create %s provider: %w", providerType, err)
 	}
+
+	if opts.DryRun {
+		fmt.Printf("DRY-RUN: Would create %s cluster '%s' in region '%s'\n",
+			envConfig.ResolvedProvider, envConfig.Name, envConfig.ResolvedRegion)
+		return nil
+	}
+
+	// Build cluster specification based on provider and environment
+	spec, err := buildClusterSpec(envConfig)
+	if err != nil {
+		return fmt.Errorf("failed to build cluster specification: %w", err)
+	}
+
+	// Authenticate with the provider
+	if err := prov.Authenticate(ctx, buildCredentials(envConfig)); err != nil {
+		return fmt.Errorf("authentication failed for %s provider: %w", providerType, err)
+	}
+
+	// Validate permissions
+	if err := prov.ValidatePermissions(ctx); err != nil {
+		return fmt.Errorf("permission validation failed for %s provider: %w", providerType, err)
+	}
+
+	// Create the cluster
+	logger.Infof("Creating cluster '%s' using %s provider in region %s", envConfig.Name, providerType, envConfig.ResolvedRegion)
+
+	cluster, err := prov.CreateCluster(ctx, spec)
+	if err != nil {
+		return fmt.Errorf("failed to create %s cluster: %w", providerType, err)
+	}
+
+	logger.Infof("Cluster created successfully - ID: %s, Status: %s", cluster.ID, cluster.Status)
+
+	// Apply platform stack manifests for all providers
+	if err := applyPlatformStack(); err != nil {
+		return fmt.Errorf("failed to apply platform stack: %w", err)
+	}
+
+	return nil
+}
+
+// buildProviderConfig creates provider-specific configuration from environment config
+func buildProviderConfig(envConfig *config.ResolvedEnvironmentConfig) map[string]interface{} {
+	providerConfig := make(map[string]interface{})
+
+	// Add region
+	if envConfig.ResolvedRegion != "" {
+		providerConfig["region"] = envConfig.ResolvedRegion
+	}
+
+	// Add cluster-specific configuration
+	for _, kv := range envConfig.ResolvedClusterConfig {
+		providerConfig[kv.Key] = kv.Value
+	}
+
+	return providerConfig
+}
+
+// buildClusterSpec creates a cluster specification based on environment configuration
+func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*ptypes.ClusterSpec, error) {
+	spec := &ptypes.ClusterSpec{
+		Provider: envConfig.ResolvedProvider,
+		Region:   envConfig.ResolvedRegion,
+		ObjectMeta: ptypes.ObjectMeta{
+			Name: envConfig.Name,
+		},
+	}
+
+	// Set defaults based on environment type
+	isProduction := envConfig.ResolvedType == config.EnvironmentTypeProduction
+
+	// Configure control plane
+	controlPlaneReplicas := 1
+	if isProduction {
+		controlPlaneReplicas = 3 // HA for production
+	}
+	spec.ControlPlane = ptypes.ControlPlaneSpec{
+		Replicas: controlPlaneReplicas,
+	}
+
+	// Configure node groups
+	workerReplicas := 2
+	if isProduction {
+		workerReplicas = 3 // More workers for production
+	}
+	spec.NodeGroups = []ptypes.NodeGroupSpec{
+		{
+			Name:     "workers",
+			Replicas: workerReplicas,
+		},
+	}
+
+	// Configure networking
+	spec.Networking = ptypes.NetworkingSpec{
+		CNI:         "cilium",
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+	}
+
+	// Apply cluster-specific configuration
+	for _, kv := range envConfig.ResolvedClusterConfig {
+		switch kv.Key {
+		case "kubeVersion", "version":
+			spec.Version = kv.Value
+		case "controlPlaneReplicas":
+			if replicas := parseIntOrDefault(kv.Value, controlPlaneReplicas); replicas > 0 {
+				spec.ControlPlane.Replicas = replicas
+			}
+		case "workerReplicas":
+			if replicas := parseIntOrDefault(kv.Value, workerReplicas); replicas > 0 {
+				spec.NodeGroups[0].Replicas = replicas
+			}
+		case "nodeInstanceType", "instanceType":
+			spec.NodeGroups[0].InstanceType = kv.Value
+		case "diskSize":
+			// Note: DiskSize not available in current NodeGroupSpec
+			// This could be added to the spec if needed in the future
+		}
+	}
+
+	return spec, nil
+}
+
+// buildCredentials creates credentials from environment configuration
+func buildCredentials(envConfig *config.ResolvedEnvironmentConfig) *ptypes.Credentials {
+	// For now, credentials will be loaded from environment variables or cloud provider defaults
+	// In the future, this could be enhanced to read from config file or secret stores
+	return &ptypes.Credentials{
+		// Provider-specific credentials will be handled by each provider implementation
+	}
+}
+
+// applyPlatformStack applies the core platform components
+func applyPlatformStack() error {
+	manifests := []string{
+		"platform/stack/adhar-appset-charts.yaml",
+		"platform/stack/adhar-appset-manifests.yaml",
+		"platform/stack/adhar-templates.yaml",
+	}
+
+	for _, manifest := range manifests {
+		if err := applyManifests(manifest); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// parseIntOrDefault parses a string to int, returning default if parsing fails
+func parseIntOrDefault(s string, defaultValue int) int {
+	if i, err := strconv.Atoi(s); err == nil {
+		return i
+	}
+	return defaultValue
 }
 
 func applyManifests(path string) error {

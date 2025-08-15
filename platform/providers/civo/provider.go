@@ -20,7 +20,6 @@ import (
 	"github.com/civo/civogo"
 	"golang.org/x/crypto/ssh"
 
-	"adhar-io/adhar/platform/logger"
 	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
 
@@ -29,9 +28,8 @@ import (
 
 // Register the Civo provider on package import
 func init() {
-	logger.Info("Registering Civo provider")
 	provider.DefaultFactory.RegisterProvider("civo", func(config map[string]interface{}) (provider.Provider, error) {
-		logger.Info("Creating Civo provider from config")
+
 		civoConfig := &Config{}
 
 		// Parse authentication
@@ -47,20 +45,19 @@ func init() {
 
 		// Parse configuration section
 		if configSection, ok := config["config"].(map[string]interface{}); ok {
-			logger.Info("Parsing Civo config section")
 
 			// Basic configuration
 			if size, ok := configSection["size"].(string); ok {
 				civoConfig.Size = size
-				logger.Info("Set size: " + size)
+
 			}
 			if diskImage, ok := configSection["disk_image"].(string); ok {
 				civoConfig.DiskImage = diskImage
-				logger.Info("Set disk_image: " + diskImage)
+
 			}
 			if defaultNodeCount, ok := configSection["default_node_count"].(float64); ok {
 				civoConfig.DefaultNodeCount = int(defaultNodeCount)
-				logger.Info(fmt.Sprintf("Set default_node_count: %d", int(defaultNodeCount)))
+
 			}
 
 			// Network configuration
@@ -123,10 +120,8 @@ func init() {
 			}
 		}
 
-		logger.Info("Creating provider with parsed config")
 		return NewProvider(civoConfig)
 	})
-	logger.Info("Civo provider registered successfully")
 }
 
 type Provider struct {
