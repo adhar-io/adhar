@@ -224,8 +224,35 @@ func buildCredentials(envConfig *config.ResolvedEnvironmentConfig) *ptypes.Crede
 	}
 }
 
-// applyPlatformStack applies the core platform components
+// applyPlatformStack applies the core platform components in the correct order
 func applyPlatformStack() error {
+	// Step 1: Install platform CRDs
+	logger.Info("Installing platform CRDs...")
+	if err := applyManifests("platform/controllers/resources/"); err != nil {
+		return fmt.Errorf("failed to install platform CRDs: %w", err)
+	}
+
+	// Step 2: Create required namespaces
+	logger.Info("Creating required namespaces...")
+	if err := createNamespaces(); err != nil {
+		return fmt.Errorf("failed to create namespaces: %w", err)
+	}
+
+	// Step 3: Install ArgoCD
+	logger.Info("Installing ArgoCD...")
+	if err := applyManifests("platform/controllers/adharplatform/resources/argocd/install.yaml"); err != nil {
+		return fmt.Errorf("failed to install ArgoCD: %w", err)
+	}
+
+	// Step 4: Wait for ArgoCD to be ready
+	logger.Info("Waiting for ArgoCD to be ready...")
+	if err := waitForArgoCD(); err != nil {
+		logger.Warnf("ArgoCD readiness check failed, continuing anyway: %v", err)
+		// Don't fail completely, just warn and continue
+	}
+
+	// Step 5: Apply platform stack manifests
+	logger.Info("Applying platform ApplicationSets...")
 	manifests := []string{
 		"platform/stack/adhar-appset-charts.yaml",
 		"platform/stack/adhar-appset-manifests.yaml",
@@ -234,10 +261,11 @@ func applyPlatformStack() error {
 
 	for _, manifest := range manifests {
 		if err := applyManifests(manifest); err != nil {
-			return err
+			return fmt.Errorf("failed to apply platform stack: %w", err)
 		}
 	}
 
+	logger.Info("✓ Platform stack applied successfully!")
 	return nil
 }
 
@@ -255,6 +283,52 @@ func applyManifests(path string) error {
 	if err != nil {
 		return fmt.Errorf("kubectl apply failed for %s: %v\n%s", path, err, string(out))
 	}
+	return nil
+}
+
+// createNamespaces creates the required namespaces for the platform
+func createNamespaces() error {
+	namespaces := []string{"adhar-system", "argocd"}
+
+	for _, ns := range namespaces {
+		cmd := exec.Command("kubectl", "create", "namespace", ns, "--dry-run=client", "-o", "yaml")
+		createCmd := exec.Command("kubectl", "apply", "-f", "-")
+
+		// Pipe the output of the first command to the second
+		createCmd.Stdin, _ = cmd.StdoutPipe()
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("failed to generate namespace %s: %w", ns, err)
+		}
+
+		if err := createCmd.Run(); err != nil {
+			// Ignore errors if namespace already exists
+			if !strings.Contains(err.Error(), "already exists") {
+				return fmt.Errorf("failed to create namespace %s: %w", ns, err)
+			}
+		}
+
+		if err := cmd.Wait(); err != nil {
+			return fmt.Errorf("failed to wait for namespace generation %s: %w", ns, err)
+		}
+	}
+
+	return nil
+}
+
+// waitForArgoCD waits for ArgoCD components to be ready
+func waitForArgoCD() error {
+	// Wait for the ApplicationSet controller specifically since that's what we need
+	cmd := exec.Command("kubectl", "wait",
+		"--for=condition=ready", "pod",
+		"--selector=app.kubernetes.io/name=argocd-applicationset-controller",
+		"-n", "adhar-system",
+		"--timeout=180s")
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ArgoCD not ready: %v\nOutput: %s", err, string(out))
+	}
+
 	return nil
 }
 
