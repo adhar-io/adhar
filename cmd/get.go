@@ -87,7 +87,7 @@ var (
 	fieldSelector  string
 	resourceName   string
 	configFilePath string // Add config file flag for environment listing
-	secretProvider string  // Add provider flag for secrets command
+	secretProvider string // Add provider flag for secrets command
 )
 
 func init() {
@@ -100,7 +100,7 @@ func init() {
 	getCmd.AddCommand(getEnvironmentCmd)
 	getCmd.AddCommand(getManagedToolCmd)
 	getCmd.AddCommand(getRouteCmd)
-	getCmd.AddCommand(getStatusCmd) // Add the status command
+	getCmd.AddCommand(getStatusCmd)  // Add the status command
 	getCmd.AddCommand(getClusterCmd) // Add the cluster command
 	getCmd.AddCommand(getSecretsCmd) // Add the secrets command
 
@@ -118,7 +118,7 @@ func init() {
 
 	// Add config file flag specifically to environment command
 	getEnvironmentCmd.Flags().StringVarP(&configFilePath, "file", "f", "", "Path to configuration file to list available environments")
-	
+
 	// Add provider flag specifically to secrets command
 	getSecretsCmd.Flags().StringVarP(&secretProvider, "provider", "p", "", "Filter secrets by provider (e.g., argocd, gitea, nginx)")
 }
@@ -807,7 +807,7 @@ func getClusterInfo(cmd *cobra.Command) {
 		fmt.Printf("\nProvider: %s\n", successStyle.Render("Kind (Local Development)"))
 		clusterName := strings.TrimPrefix(currentContext, "kind-")
 		fmt.Printf("Cluster Name: %s\n", clusterName)
-		
+
 		// Show additional Kind-specific information
 		fmt.Printf("\n%s\n", getBoldStyle.Render("Kind Cluster Details:"))
 		fmt.Printf("  • Local development cluster running in Docker\n")
@@ -931,7 +931,7 @@ func getProviderSecrets(ctx context.Context, clientset *kubernetes.Clientset, pr
 			fmt.Printf("  %s: %s\n", key, value)
 		}
 	}
-	
+
 	// Add helpful usage information
 	fmt.Printf("\n%s\n", infoStyle.Render("Usage Tips:"))
 	switch strings.ToLower(provider) {
@@ -1135,7 +1135,7 @@ func displaySecret(secret *corev1.Secret, namespace string) {
 	fmt.Printf("%s: %s\n", getBoldStyle.Render("Name"), secret.Name)
 	fmt.Printf("%s: %s\n", getBoldStyle.Render("Namespace"), namespace)
 	fmt.Printf("%s: %s\n", getBoldStyle.Render("Type"), secret.Type)
-	
+
 	age := "unknown"
 	if !secret.CreationTimestamp.Time.IsZero() {
 		age = duration.HumanDuration(time.Since(secret.CreationTimestamp.Time))
@@ -1146,9 +1146,9 @@ func displaySecret(secret *corev1.Secret, namespace string) {
 		fmt.Printf("\n%s:\n", getBoldStyle.Render("Data"))
 		for key, value := range secret.Data {
 			// For sensitive data, show only if it's clearly a password or token
-			if strings.Contains(strings.ToLower(key), "password") || 
-			   strings.Contains(strings.ToLower(key), "token") ||
-			   strings.Contains(strings.ToLower(key), "key") {
+			if strings.Contains(strings.ToLower(key), "password") ||
+				strings.Contains(strings.ToLower(key), "token") ||
+				strings.Contains(strings.ToLower(key), "key") {
 				// Decode base64 if it's text data
 				if decoded, err := base64.StdEncoding.DecodeString(string(value)); err == nil {
 					// Check if it's printable text
