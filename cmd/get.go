@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,6 +87,7 @@ var (
 	fieldSelector  string
 	resourceName   string
 	configFilePath string // Add config file flag for environment listing
+	secretProvider string  // Add provider flag for secrets command
 )
 
 func init() {
@@ -99,6 +101,8 @@ func init() {
 	getCmd.AddCommand(getManagedToolCmd)
 	getCmd.AddCommand(getRouteCmd)
 	getCmd.AddCommand(getStatusCmd) // Add the status command
+	getCmd.AddCommand(getClusterCmd) // Add the cluster command
+	getCmd.AddCommand(getSecretsCmd) // Add the secrets command
 
 	// For convenience, add an 'all' command to get all resources
 	getCmd.AddCommand(getAllCmd)
@@ -114,6 +118,9 @@ func init() {
 
 	// Add config file flag specifically to environment command
 	getEnvironmentCmd.Flags().StringVarP(&configFilePath, "file", "f", "", "Path to configuration file to list available environments")
+	
+	// Add provider flag specifically to secrets command
+	getSecretsCmd.Flags().StringVarP(&secretProvider, "provider", "p", "", "Filter secrets by provider (e.g., argocd, gitea, nginx)")
 }
 
 // getKubeconfigPath determines the path to the kubeconfig file based on flag, env var, or default
@@ -375,6 +382,52 @@ var getStatusCmd = &cobra.Command{
 		}
 
 		// Add checks for other components (e.g., Crossplane, specific providers) here if needed
+	},
+}
+
+var getClusterCmd = &cobra.Command{
+	Use:     "cluster [cluster-name]",
+	Aliases: []string{"clusters"},
+	Short:   "Get cluster information",
+	Long: `Get information about the current Kubernetes cluster or specific cluster.
+
+Examples:
+  # Get current cluster information
+  adhar get cluster
+  
+  # Get specific cluster information (for Kind provider)
+  adhar get cluster my-cluster`,
+	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) > 0 {
+			resourceName = args[0]
+		}
+		getClusterInfo(cmd)
+	},
+}
+
+var getSecretsCmd = &cobra.Command{
+	Use:     "secrets [secret-name]",
+	Aliases: []string{"secret"},
+	Short:   "Get secrets from Kubernetes cluster",
+	Long: `Get secrets from the Kubernetes cluster, with optional filtering by provider.
+
+Examples:
+  # Get all secrets
+  adhar get secrets
+  
+  # Get ArgoCD admin password
+  adhar get secrets -p argocd
+  
+  # Get Gitea admin password  
+  adhar get secrets -p gitea
+  
+  # Get specific secret
+  adhar get secrets my-secret`,
+	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) > 0 {
+			resourceName = args[0]
+		}
+		getSecrets(cmd)
 	},
 }
 
@@ -644,4 +697,491 @@ func getResources(cmd *cobra.Command, gvr schema.GroupVersionResource, resourceT
 			w.Flush()
 		}
 	}
+}
+
+// getClusterInfo retrieves and displays cluster information
+func getClusterInfo(cmd *cobra.Command) {
+	fmt.Println(headerStyle.Render("Cluster Information"))
+
+	// Determine kubeconfig path
+	kubeconfigPath := getKubeconfigPath(cmd)
+
+	// Get kubernetes config
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	if err != nil {
+		fmt.Printf("%s Failed to get kubeconfig from '%s': %v\n", errorStyle.Render("Error:"), kubeconfigPath, err)
+		fmt.Printf("\n%s\n", infoStyle.Render("Make sure you have a Kubernetes cluster running and kubectl is configured."))
+		fmt.Printf("For local development, you can create a cluster with: %s\n", getCodeStyle.Render("adhar up"))
+		return
+	}
+
+	// Create standard clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		fmt.Printf("%s Failed to create clientset: %v\n", errorStyle.Render("Error:"), err)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Get cluster version
+	version, err := clientset.Discovery().ServerVersion()
+	if err != nil {
+		fmt.Printf("%s Failed to get cluster version: %v\n", errorStyle.Render("Error:"), err)
+		return
+	}
+
+	// Get current context
+	currentContext := ""
+	if kubeconfigPath != "" {
+		if config, err := clientcmd.LoadFromFile(kubeconfigPath); err == nil {
+			currentContext = config.CurrentContext
+		}
+	}
+
+	// Get nodes
+	nodes, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		fmt.Printf("%s Failed to get nodes: %v\n", errorStyle.Render("Error:"), err)
+		return
+	}
+
+	// Display cluster information
+	fmt.Printf("Current Context: %s\n", successStyle.Render(currentContext))
+	fmt.Printf("Kubernetes Version: %s\n", version.String())
+	fmt.Printf("Nodes: %d\n", len(nodes.Items))
+
+	// Display node information in table format
+	if len(nodes.Items) > 0 {
+		fmt.Println("\nNodes:")
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "NAME\tSTATUS\tROLES\tAGE\tVERSION")
+
+		for _, node := range nodes.Items {
+			// Get node status
+			status := "Unknown"
+			for _, condition := range node.Status.Conditions {
+				if condition.Type == corev1.NodeReady {
+					if condition.Status == corev1.ConditionTrue {
+						status = "Ready"
+					} else {
+						status = "NotReady"
+					}
+					break
+				}
+			}
+
+			// Get node roles
+			roles := []string{}
+			for label := range node.Labels {
+				if strings.HasPrefix(label, "node-role.kubernetes.io/") {
+					role := strings.TrimPrefix(label, "node-role.kubernetes.io/")
+					if role == "" {
+						role = "worker"
+					}
+					roles = append(roles, role)
+				}
+			}
+			if len(roles) == 0 {
+				roles = append(roles, "worker")
+			}
+
+			// Calculate age
+			age := "unknown"
+			if !node.CreationTimestamp.Time.IsZero() {
+				age = duration.HumanDuration(time.Since(node.CreationTimestamp.Time))
+			}
+
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				node.Name,
+				status,
+				strings.Join(roles, ","),
+				age,
+				node.Status.NodeInfo.KubeletVersion)
+		}
+		w.Flush()
+	}
+
+	// Check if this is a Kind cluster
+	if strings.Contains(currentContext, "kind-") {
+		fmt.Printf("\nProvider: %s\n", successStyle.Render("Kind (Local Development)"))
+		clusterName := strings.TrimPrefix(currentContext, "kind-")
+		fmt.Printf("Cluster Name: %s\n", clusterName)
+		
+		// Show additional Kind-specific information
+		fmt.Printf("\n%s\n", getBoldStyle.Render("Kind Cluster Details:"))
+		fmt.Printf("  • Local development cluster running in Docker\n")
+		fmt.Printf("  • Access services via: https://adhar.localtest.me:8443\n")
+		fmt.Printf("  • Get service passwords with: %s\n", getCodeStyle.Render("adhar get secrets -p <provider>"))
+	} else {
+		// Try to detect other providers
+		if strings.Contains(strings.ToLower(currentContext), "gke") {
+			fmt.Printf("\nProvider: %s\n", successStyle.Render("Google Kubernetes Engine (GKE)"))
+		} else if strings.Contains(strings.ToLower(currentContext), "eks") {
+			fmt.Printf("\nProvider: %s\n", successStyle.Render("Amazon Elastic Kubernetes Service (EKS)"))
+		} else if strings.Contains(strings.ToLower(currentContext), "aks") {
+			fmt.Printf("\nProvider: %s\n", successStyle.Render("Azure Kubernetes Service (AKS)"))
+		} else {
+			fmt.Printf("\nProvider: %s\n", infoStyle.Render("Unknown"))
+		}
+	}
+}
+
+// getSecrets retrieves and displays secrets from the cluster
+func getSecrets(cmd *cobra.Command) {
+	fmt.Println(headerStyle.Render("Kubernetes Secrets"))
+
+	// Determine kubeconfig path
+	kubeconfigPath := getKubeconfigPath(cmd)
+
+	// Get kubernetes config
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	if err != nil {
+		fmt.Printf("%s Failed to get kubeconfig from '%s': %v\n", errorStyle.Render("Error:"), kubeconfigPath, err)
+		fmt.Printf("\n%s\n", infoStyle.Render("Make sure you have a Kubernetes cluster running and kubectl is configured."))
+		fmt.Printf("For local development, you can create a cluster with: %s\n", getCodeStyle.Render("adhar up"))
+		return
+	}
+
+	// Create standard clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		fmt.Printf("%s Failed to create clientset: %v\n", errorStyle.Render("Error:"), err)
+		return
+	}
+
+	ctx := context.Background()
+
+	// If a specific secret name is provided, get that secret
+	if resourceName != "" {
+		getSpecificSecret(ctx, clientset, resourceName)
+		return
+	}
+
+	// If provider filter is specified, get secrets for that provider
+	if secretProvider != "" {
+		getProviderSecrets(ctx, clientset, secretProvider)
+		return
+	}
+
+	// Otherwise, list all secrets
+	listAllSecrets(ctx, clientset)
+}
+
+// getSpecificSecret retrieves a specific secret by name
+func getSpecificSecret(ctx context.Context, clientset *kubernetes.Clientset, secretName string) {
+	// Try to find the secret in common namespaces
+	namespaces := []string{"default", "adhar-system", "argocd", "gitea", "nginx-system", "kube-system"}
+	if namespace != "" {
+		namespaces = []string{namespace}
+	}
+
+	var foundSecret *corev1.Secret
+	var foundNamespace string
+
+	for _, ns := range namespaces {
+		secret, err := clientset.CoreV1().Secrets(ns).Get(ctx, secretName, metav1.GetOptions{})
+		if err == nil {
+			foundSecret = secret
+			foundNamespace = ns
+			break
+		}
+	}
+
+	if foundSecret == nil {
+		fmt.Printf("%s Secret '%s' not found in any namespace\n", errorStyle.Render("Error:"), secretName)
+		return
+	}
+
+	displaySecret(foundSecret, foundNamespace)
+}
+
+// getProviderSecrets retrieves secrets for a specific provider
+func getProviderSecrets(ctx context.Context, clientset *kubernetes.Clientset, provider string) {
+	var secrets []secretInfo
+	var err error
+
+	switch strings.ToLower(provider) {
+	case "argocd":
+		secrets, err = getArgoCDSecrets(ctx, clientset)
+	case "gitea":
+		secrets, err = getGiteaSecrets(ctx, clientset)
+	case "nginx":
+		secrets, err = getNginxSecrets(ctx, clientset)
+	default:
+		fmt.Printf("%s Unknown provider: %s\n", errorStyle.Render("Error:"), provider)
+		fmt.Println("Supported providers: argocd, gitea, nginx")
+		return
+	}
+
+	if err != nil {
+		fmt.Printf("%s Failed to get %s secrets: %v\n", errorStyle.Render("Error:"), provider, err)
+		return
+	}
+
+	if len(secrets) == 0 {
+		fmt.Printf("No %s secrets found\n", provider)
+		return
+	}
+
+	fmt.Printf("%s Secrets:\n", titleStyle.Render(strings.Title(provider)))
+	for _, secret := range secrets {
+		fmt.Printf("\n%s: %s (Namespace: %s)\n", getBoldStyle.Render("Secret"), secret.Name, secret.Namespace)
+		for key, value := range secret.Data {
+			fmt.Printf("  %s: %s\n", key, value)
+		}
+	}
+	
+	// Add helpful usage information
+	fmt.Printf("\n%s\n", infoStyle.Render("Usage Tips:"))
+	switch strings.ToLower(provider) {
+	case "argocd":
+		fmt.Printf("  • Access ArgoCD at: https://argocd.adhar.localtest.me:8443\n")
+		fmt.Printf("  • Username: admin\n")
+		fmt.Printf("  • Use the admin-password from above\n")
+	case "gitea":
+		fmt.Printf("  • Access Gitea at: https://gitea.adhar.localtest.me:8443\n")
+		fmt.Printf("  • Use the admin credentials from above\n")
+	case "nginx":
+		fmt.Printf("  • These are TLS certificates for Ingress\n")
+		fmt.Printf("  • Used for HTTPS termination\n")
+	}
+}
+
+// listAllSecrets lists all secrets in the cluster
+func listAllSecrets(ctx context.Context, clientset *kubernetes.Clientset) {
+	// Get secrets from common namespaces
+	namespaces := []string{"default", "adhar-system", "argocd", "gitea", "nginx-system"}
+	if allNamespaces {
+		// Get all namespaces
+		nsList, err := clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			fmt.Printf("%s Failed to list namespaces: %v\n", errorStyle.Render("Error:"), err)
+			return
+		}
+		namespaces = []string{}
+		for _, ns := range nsList.Items {
+			namespaces = append(namespaces, ns.Name)
+		}
+	} else if namespace != "" {
+		namespaces = []string{namespace}
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "NAMESPACE\tNAME\tTYPE\tDATA\tAGE")
+
+	for _, ns := range namespaces {
+		secrets, err := clientset.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			continue // Skip namespaces we can't access
+		}
+
+		for _, secret := range secrets.Items {
+			// Skip service account tokens unless specifically requested
+			if secret.Type == corev1.SecretTypeServiceAccountToken && secretProvider == "" {
+				continue
+			}
+
+			age := "unknown"
+			if !secret.CreationTimestamp.Time.IsZero() {
+				age = duration.HumanDuration(time.Since(secret.CreationTimestamp.Time))
+			}
+
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
+				secret.Namespace,
+				secret.Name,
+				secret.Type,
+				len(secret.Data),
+				age)
+		}
+	}
+	w.Flush()
+}
+
+// secretInfo holds secret information for display
+type secretInfo struct {
+	Name      string
+	Namespace string
+	Data      map[string]string
+}
+
+// getArgoCDSecrets retrieves ArgoCD-related secrets
+func getArgoCDSecrets(ctx context.Context, clientset *kubernetes.Clientset) ([]secretInfo, error) {
+	var secrets []secretInfo
+
+	// Common ArgoCD namespaces
+	namespaces := []string{"argocd", "adhar-system"}
+
+	for _, ns := range namespaces {
+		// Get ArgoCD initial admin secret
+		secret, err := clientset.CoreV1().Secrets(ns).Get(ctx, "argocd-initial-admin-secret", metav1.GetOptions{})
+		if err == nil {
+			data := make(map[string]string)
+			if password, ok := secret.Data["password"]; ok {
+				data["admin-password"] = string(password)
+			}
+			secrets = append(secrets, secretInfo{
+				Name:      secret.Name,
+				Namespace: secret.Namespace,
+				Data:      data,
+			})
+		}
+
+		// Get ArgoCD server TLS secret
+		secret, err = clientset.CoreV1().Secrets(ns).Get(ctx, "argocd-server-tls", metav1.GetOptions{})
+		if err == nil {
+			data := make(map[string]string)
+			if cert, ok := secret.Data["tls.crt"]; ok {
+				data["tls-certificate"] = "*** CERTIFICATE DATA ***"
+				_ = cert // Use cert to avoid unused variable
+			}
+			if key, ok := secret.Data["tls.key"]; ok {
+				data["tls-private-key"] = "*** PRIVATE KEY DATA ***"
+				_ = key // Use key to avoid unused variable
+			}
+			secrets = append(secrets, secretInfo{
+				Name:      secret.Name,
+				Namespace: secret.Namespace,
+				Data:      data,
+			})
+		}
+	}
+
+	return secrets, nil
+}
+
+// getGiteaSecrets retrieves Gitea-related secrets
+func getGiteaSecrets(ctx context.Context, clientset *kubernetes.Clientset) ([]secretInfo, error) {
+	var secrets []secretInfo
+
+	// Common Gitea namespaces
+	namespaces := []string{"gitea", "adhar-system"}
+
+	for _, ns := range namespaces {
+		// Get Gitea admin secret
+		secret, err := clientset.CoreV1().Secrets(ns).Get(ctx, "gitea-admin-secret", metav1.GetOptions{})
+		if err == nil {
+			data := make(map[string]string)
+			if username, ok := secret.Data["username"]; ok {
+				data["admin-username"] = string(username)
+			}
+			if password, ok := secret.Data["password"]; ok {
+				data["admin-password"] = string(password)
+			}
+			secrets = append(secrets, secretInfo{
+				Name:      secret.Name,
+				Namespace: secret.Namespace,
+				Data:      data,
+			})
+		}
+
+		// Get Gitea database secret
+		secret, err = clientset.CoreV1().Secrets(ns).Get(ctx, "gitea-db-secret", metav1.GetOptions{})
+		if err == nil {
+			data := make(map[string]string)
+			if password, ok := secret.Data["password"]; ok {
+				data["database-password"] = string(password)
+			}
+			secrets = append(secrets, secretInfo{
+				Name:      secret.Name,
+				Namespace: secret.Namespace,
+				Data:      data,
+			})
+		}
+	}
+
+	return secrets, nil
+}
+
+// getNginxSecrets retrieves Nginx-related secrets
+func getNginxSecrets(ctx context.Context, clientset *kubernetes.Clientset) ([]secretInfo, error) {
+	var secrets []secretInfo
+
+	// Common Nginx namespaces
+	namespaces := []string{"nginx-system", "ingress-nginx", "adhar-system"}
+
+	for _, ns := range namespaces {
+		// Get Nginx TLS secrets
+		secretList, err := clientset.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/name=ingress-nginx",
+		})
+		if err == nil {
+			for _, secret := range secretList.Items {
+				if secret.Type == corev1.SecretTypeTLS {
+					data := make(map[string]string)
+					if cert, ok := secret.Data["tls.crt"]; ok {
+						data["tls-certificate"] = "*** CERTIFICATE DATA ***"
+						_ = cert
+					}
+					if key, ok := secret.Data["tls.key"]; ok {
+						data["tls-private-key"] = "*** PRIVATE KEY DATA ***"
+						_ = key
+					}
+					secrets = append(secrets, secretInfo{
+						Name:      secret.Name,
+						Namespace: secret.Namespace,
+						Data:      data,
+					})
+				}
+			}
+		}
+	}
+
+	return secrets, nil
+}
+
+// displaySecret displays a single secret with formatted output
+func displaySecret(secret *corev1.Secret, namespace string) {
+	fmt.Printf("%s: %s\n", getBoldStyle.Render("Name"), secret.Name)
+	fmt.Printf("%s: %s\n", getBoldStyle.Render("Namespace"), namespace)
+	fmt.Printf("%s: %s\n", getBoldStyle.Render("Type"), secret.Type)
+	
+	age := "unknown"
+	if !secret.CreationTimestamp.Time.IsZero() {
+		age = duration.HumanDuration(time.Since(secret.CreationTimestamp.Time))
+	}
+	fmt.Printf("%s: %s\n", getBoldStyle.Render("Age"), age)
+
+	if len(secret.Data) > 0 {
+		fmt.Printf("\n%s:\n", getBoldStyle.Render("Data"))
+		for key, value := range secret.Data {
+			// For sensitive data, show only if it's clearly a password or token
+			if strings.Contains(strings.ToLower(key), "password") || 
+			   strings.Contains(strings.ToLower(key), "token") ||
+			   strings.Contains(strings.ToLower(key), "key") {
+				// Decode base64 if it's text data
+				if decoded, err := base64.StdEncoding.DecodeString(string(value)); err == nil {
+					// Check if it's printable text
+					if isPrintableText(decoded) {
+						fmt.Printf("  %s: %s\n", key, string(decoded))
+					} else {
+						fmt.Printf("  %s: *** BINARY DATA ***\n", key)
+					}
+				} else {
+					fmt.Printf("  %s: %s\n", key, string(value))
+				}
+			} else {
+				fmt.Printf("  %s: *** DATA ***\n", key)
+			}
+		}
+	}
+
+	if len(secret.StringData) > 0 {
+		fmt.Printf("\n%s:\n", getBoldStyle.Render("String Data"))
+		for key, value := range secret.StringData {
+			fmt.Printf("  %s: %s\n", key, value)
+		}
+	}
+}
+
+// isPrintableText checks if data contains printable text
+func isPrintableText(data []byte) bool {
+	for _, b := range data {
+		if b < 32 || b > 126 {
+			if b != '\n' && b != '\r' && b != '\t' {
+				return false
+			}
+		}
+	}
+	return true
 }
