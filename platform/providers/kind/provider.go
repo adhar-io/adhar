@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/domain"
 	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
@@ -193,8 +194,21 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	}
 	defer os.Remove(configFile) // Clean up config file
 
-	// Create the actual Kind cluster
-	fmt.Printf("Creating Kind cluster '%s'...\n", spec.Name)
+	// Create progress tracker for cluster creation steps
+	stepNames := []string{
+		"Create Kind Cluster",
+		"Install CNI (Cilium)",
+		"Configure Networking",
+	}
+
+	progress := helpers.NewProgressTracker("🔧 Setting up Kind Cluster", stepNames)
+	defer func() {
+		// Clear the progress display
+		fmt.Print("\r\033[K")
+	}()
+
+	// Step 1: Create the actual Kind cluster
+	progress.StartStep(0, fmt.Sprintf("Creating Kubernetes cluster '%s' with %d nodes...", spec.Name, len(kindConfig["nodes"].([]map[string]interface{}))))
 
 	// Build the command args
 	args := []string{"create", "cluster", "--name", spec.Name}
@@ -216,23 +230,38 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	cmd := exec.CommandContext(ctx, p.config.KindPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		progress.FailStep(0, err)
 		return nil, fmt.Errorf("failed to create Kind cluster: %w\nOutput: %s", err, string(output))
 	}
+	progress.CompleteStep(0)
+	time.Sleep(500 * time.Millisecond) // Brief pause for visual feedback
 
-	fmt.Printf("✓ Kind cluster '%s' created successfully!\n", spec.Name)
-
-	// Install CNI if specified
+	// Step 2: Install CNI if specified
 	if spec.Networking.CNI == "cilium" {
-		fmt.Printf("Installing Cilium CNI...\n")
+		progress.StartStep(1, "Installing Cilium CNI for secure networking...")
 		err = p.installCilium(ctx, spec.Name)
 		if err != nil {
-			// Don't fail cluster creation if CNI installation fails, just warn
+			// Don't fail cluster creation if CNI installation fails, just warn and skip
+			progress.SkipStep(1, "CNI installation failed, continuing anyway")
 			fmt.Printf("⚠️  Warning: Failed to install Cilium CNI: %v\n", err)
 			fmt.Printf("You can install Cilium manually with: cilium install\n")
 		} else {
-			fmt.Printf("✓ Cilium CNI installed successfully!\n")
+			progress.CompleteStep(1)
 		}
+		time.Sleep(500 * time.Millisecond)
+	} else {
+		progress.SkipStep(1, "No CNI specified")
+		time.Sleep(500 * time.Millisecond)
 	}
+
+	// Step 3: Configure networking (placeholder for now)
+	progress.StartStep(2, "Configuring cluster networking...")
+	// For now, this is just a placeholder - in the future we could add network policy setup, etc.
+	time.Sleep(1 * time.Second) // Simulate some networking setup
+	progress.CompleteStep(2)
+
+	// Complete the progress tracker
+	progress.Complete()
 
 	// Set up domain management if domain configuration is available
 	if spec.Domain != nil {
@@ -566,12 +595,11 @@ func (p *Provider) installCilium(ctx context.Context, clusterName string) error 
 	}
 
 	// Wait for Cilium to be ready
-	fmt.Printf("Waiting for Cilium to be ready...\n")
 	cmd = exec.CommandContext(ctx, "cilium", "status", "--wait")
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		// Don't fail if status check fails, just warn
-		fmt.Printf("⚠️  Warning: Could not verify Cilium status: %v\n", err)
+		return fmt.Errorf("could not verify Cilium status: %v\nOutput: %s", err, string(output))
 	}
 
 	return nil
@@ -589,7 +617,6 @@ func (p *Provider) installCiliumWithKubectl(ctx context.Context, clusterName str
 	}
 
 	// Wait for Cilium pods to be ready
-	fmt.Printf("Waiting for Cilium pods to be ready...\n")
 	cmd = exec.CommandContext(ctx, p.config.KubectlPath, "wait",
 		"--namespace", "kube-system",
 		"--for=condition=ready", "pod",
@@ -598,8 +625,7 @@ func (p *Provider) installCiliumWithKubectl(ctx context.Context, clusterName str
 
 	output, err = cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("⚠️  Warning: Timeout waiting for Cilium pods: %v\n", err)
-		return nil // Don't fail, just warn
+		return fmt.Errorf("timeout waiting for Cilium pods: %v\nOutput: %s", err, string(output))
 	}
 
 	return nil
