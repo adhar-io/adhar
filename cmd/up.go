@@ -243,50 +243,58 @@ func buildCredentials(envConfig *config.ResolvedEnvironmentConfig) *ptypes.Crede
 
 // applyPlatformStack applies the core platform components in the correct order with progress tracking
 func applyPlatformStack() error {
-	// Create progress tracker with all the steps
+	// Create progress tracker with detailed step descriptions
 	stepNames := []string{
 		"Install Platform CRDs",
-		"Create Required Namespaces", 
+		"Create Required Namespaces",
 		"Install ArgoCD",
 		"Wait for ArgoCD Ready",
 		"Apply ApplicationSets",
 	}
-	
-	progress := helpers.NewProgressTracker("🚀 Installing Platform Stack", stepNames)
+
+	stepDescriptions := []string{
+		"Installing Custom Resource Definitions for platform components",
+		"Creating adhar-system and argocd namespaces",
+		"Installing ArgoCD GitOps controller and components",
+		"Waiting for ArgoCD ApplicationSet controller to be ready",
+		"Applying platform ApplicationSets and templates",
+	}
+
+	progress := helpers.NewProgressTrackerWithDetails("Setting up Adhar Platform", stepNames, stepDescriptions)
 	defer func() {
 		// Clear the progress display
 		fmt.Print("\r\033[K")
 	}()
 
 	// Step 1: Install platform CRDs
-	progress.StartStep(0, "Installing Custom Resource Definitions...")
+	progress.StartStep(0, "")
 	if err := applyManifests("platform/controllers/resources/"); err != nil {
 		progress.FailStep(0, err)
 		return fmt.Errorf("failed to install platform CRDs: %w", err)
 	}
 	progress.CompleteStep(0)
-	time.Sleep(500 * time.Millisecond) // Brief pause for visual feedback
+	time.Sleep(800 * time.Millisecond) // Brief pause for visual feedback
 
 	// Step 2: Create required namespaces
-	progress.StartStep(1, "Creating adhar-system and argocd namespaces...")
+	progress.StartStep(1, "")
 	if err := createNamespaces(); err != nil {
 		progress.FailStep(1, err)
 		return fmt.Errorf("failed to create namespaces: %w", err)
 	}
 	progress.CompleteStep(1)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(800 * time.Millisecond)
 
 	// Step 3: Install ArgoCD
-	progress.StartStep(2, "Installing ArgoCD components and controllers...")
+	progress.StartStep(2, "")
 	if err := applyManifests("platform/controllers/adharplatform/resources/argocd/install.yaml"); err != nil {
 		progress.FailStep(2, err)
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
 	}
 	progress.CompleteStep(2)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(800 * time.Millisecond)
 
 	// Step 4: Wait for ArgoCD to be ready
-	progress.StartStep(3, "Waiting for ArgoCD ApplicationSet controller...")
+	progress.StartStep(3, "")
 	if err := waitForArgoCD(); err != nil {
 		// Don't fail completely, just warn and skip
 		progress.SkipStep(3, "ArgoCD not fully ready, continuing anyway")
@@ -294,10 +302,10 @@ func applyPlatformStack() error {
 	} else {
 		progress.CompleteStep(3)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(800 * time.Millisecond)
 
 	// Step 5: Apply platform stack manifests
-	progress.StartStep(4, "Applying platform ApplicationSets and templates...")
+	progress.StartStep(4, "")
 	manifests := []string{
 		"platform/stack/adhar-appset-charts.yaml",
 		"platform/stack/adhar-appset-manifests.yaml",
@@ -314,7 +322,7 @@ func applyPlatformStack() error {
 
 	// Complete the progress tracker
 	progress.Complete()
-	
+
 	return nil
 }
 
@@ -368,7 +376,7 @@ func createNamespaces() error {
 func waitForArgoCD() error {
 	// Start a simple progress indicator for the wait
 	done := make(chan error, 1)
-	
+
 	go func() {
 		cmd := exec.Command("kubectl", "wait",
 			"--for=condition=ready", "pod",
@@ -387,9 +395,9 @@ func waitForArgoCD() error {
 	// Show a simple spinner while waiting
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-	
+
 	timeout := time.After(180 * time.Second)
-	
+
 	for {
 		select {
 		case err := <-done:

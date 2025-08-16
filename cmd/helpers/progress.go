@@ -114,14 +114,59 @@ func (s ProgressStatus) String() string {
 
 // ProgressTracker manages multiple steps with visual feedback
 type ProgressTracker struct {
-	Title       string
-	Steps       []ProgressStep
-	CurrentStep int
-	StartTime   time.Time
-	Width       int
-	ShowSpinner bool
-	Spinner     spinner.Model
-	Quiet       bool // For non-interactive usage
+	Title        string
+	Steps        []ProgressStep
+	CurrentStep  int
+	StartTime    time.Time
+	Width        int
+	ShowSpinner  bool
+	Spinner      spinner.Model
+	Quiet        bool      // For non-interactive usage
+	spinnerIdx   int       // Current spinner frame index
+	stopChan     chan bool // Channel to stop spinner animation
+	animating    bool      // Track if animation is running
+	linesPrinted int       // Track how many lines we've printed
+	ExpandedView bool      // Show expanded task list view
+}
+
+// NewProgressTrackerWithDetails creates a new progress tracker with detailed descriptions
+func NewProgressTrackerWithDetails(title string, stepNames []string, descriptions []string) *ProgressTracker {
+	steps := make([]ProgressStep, len(stepNames))
+	for i, name := range stepNames {
+		desc := ""
+		if i < len(descriptions) {
+			desc = descriptions[i]
+		}
+		steps[i] = ProgressStep{
+			Name:        name,
+			Description: desc,
+			Status:      StatusPending,
+		}
+	}
+
+	// Initialize spinner with enhanced frames for smooth animation
+	s := spinner.New()
+	s.Spinner = spinner.Spinner{
+		Frames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
+		FPS:    time.Millisecond * 100, // Smooth animation
+	}
+	s.Style = highlightStyle
+
+	return &ProgressTracker{
+		Title:        title,
+		Steps:        steps,
+		CurrentStep:  0,
+		StartTime:    time.Now(),
+		Width:        50,
+		ShowSpinner:  true,
+		Spinner:      s,
+		Quiet:        false,
+		spinnerIdx:   0,
+		linesPrinted: 0,
+		stopChan:     make(chan bool),
+		animating:    false,
+		ExpandedView: true, // Default to expanded view for better UX
+	}
 }
 
 // NewProgressTracker creates a new progress tracker
@@ -134,23 +179,72 @@ func NewProgressTracker(title string, stepNames []string) *ProgressTracker {
 		}
 	}
 
-	// Initialize spinner
+	// Initialize spinner with enhanced frames for smooth animation
 	s := spinner.New()
 	s.Spinner = spinner.Spinner{
 		Frames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
-		FPS:    10,
+		FPS:    time.Millisecond * 100, // Smooth animation
 	}
-	s.Style = successStyle
+	s.Style = highlightStyle
 
 	return &ProgressTracker{
-		Title:       title,
-		Steps:       steps,
-		CurrentStep: 0,
-		StartTime:   time.Now(),
-		Width:       50,
-		ShowSpinner: true,
-		Spinner:     s,
-		Quiet:       false,
+		Title:        title,
+		Steps:        steps,
+		CurrentStep:  0,
+		StartTime:    time.Now(),
+		Width:        50,
+		ShowSpinner:  true,
+		Spinner:      s,
+		Quiet:        false,
+		spinnerIdx:   0,
+		linesPrinted: 0,
+		stopChan:     make(chan bool),
+		animating:    false,
+		ExpandedView: true, // Default to expanded view for better UX
+	}
+}
+
+// getCurrentSpinnerFrame returns the current spinner frame with animation
+func (p *ProgressTracker) getCurrentSpinnerFrame() string {
+	// Update spinner frame on each call for animation when rendering
+	p.spinnerIdx = (p.spinnerIdx + 1) % len(p.Spinner.Spinner.Frames)
+	return p.Spinner.Spinner.Frames[p.spinnerIdx]
+}
+
+// startSpinnerAnimation starts the continuous spinner animation
+func (p *ProgressTracker) startSpinnerAnimation() {
+	if p.animating {
+		return // Already animating
+	}
+
+	p.animating = true
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond) // Smooth 10 FPS animation
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if !p.Quiet && p.animating {
+					if p.ExpandedView {
+						p.renderExpandedView()
+					} else {
+						p.renderSingleLine()
+					}
+				}
+			case <-p.stopChan:
+				return
+			}
+		}
+	}()
+}
+
+// stopSpinnerAnimation stops the continuous spinner animation
+func (p *ProgressTracker) stopSpinnerAnimation() {
+	if p.animating {
+		p.animating = false
+		close(p.stopChan)
+		p.stopChan = make(chan bool) // Create new channel for next animation
 	}
 }
 
@@ -158,11 +252,21 @@ func NewProgressTracker(title string, stepNames []string) *ProgressTracker {
 func (p *ProgressTracker) StartStep(stepIndex int, description string) {
 	if stepIndex >= 0 && stepIndex < len(p.Steps) {
 		p.Steps[stepIndex].Status = StatusInProgress
-		p.Steps[stepIndex].Description = description
+		if description != "" {
+			p.Steps[stepIndex].Description = description
+		}
 		p.Steps[stepIndex].StartTime = time.Now()
 		p.CurrentStep = stepIndex
+
+		// Start continuous spinner animation for smooth animation
+		p.startSpinnerAnimation()
+
 		if !p.Quiet {
-			p.Render()
+			if p.ExpandedView {
+				p.renderExpandedView()
+			} else {
+				p.renderSingleLine()
+			}
 		}
 	}
 }
@@ -172,8 +276,16 @@ func (p *ProgressTracker) CompleteStep(stepIndex int) {
 	if stepIndex >= 0 && stepIndex < len(p.Steps) {
 		p.Steps[stepIndex].Status = StatusCompleted
 		p.Steps[stepIndex].EndTime = time.Now()
+
+		// Stop continuous spinner animation when step completes
+		p.stopSpinnerAnimation()
+
 		if !p.Quiet {
-			p.Render()
+			if p.ExpandedView {
+				p.renderExpandedView()
+			} else {
+				p.renderSingleLine()
+			}
 		}
 	}
 }
@@ -184,8 +296,16 @@ func (p *ProgressTracker) FailStep(stepIndex int, err error) {
 		p.Steps[stepIndex].Status = StatusFailed
 		p.Steps[stepIndex].Error = err
 		p.Steps[stepIndex].EndTime = time.Now()
+
+		// Stop spinner animation on failure
+		p.stopSpinnerAnimation()
+
 		if !p.Quiet {
-			p.Render()
+			if p.ExpandedView {
+				p.renderExpandedView()
+			} else {
+				p.renderSingleLine()
+			}
 		}
 	}
 }
@@ -196,8 +316,16 @@ func (p *ProgressTracker) SkipStep(stepIndex int, reason string) {
 		p.Steps[stepIndex].Status = StatusSkipped
 		p.Steps[stepIndex].Description = reason
 		p.Steps[stepIndex].EndTime = time.Now()
+
+		// Stop spinner animation when skipping
+		p.stopSpinnerAnimation()
+
 		if !p.Quiet {
-			p.Render()
+			if p.ExpandedView {
+				p.renderExpandedView()
+			} else {
+				p.renderSingleLine()
+			}
 		}
 	}
 }
@@ -211,6 +339,41 @@ func (p *ProgressTracker) GetOverallProgress() float64 {
 		}
 	}
 	return float64(completed) / float64(len(p.Steps))
+}
+
+// renderEnhancedProgressBar renders a more visually appealing progress bar
+func renderEnhancedProgressBar(percent float64, width int) string {
+	w := width - 7 // Account for brackets and percentage
+	fill := int(percent * float64(w))
+	empty := w - fill
+
+	// Use different characters for a more modern look
+	var fillChar, emptyChar string
+	if percent >= 1.0 {
+		fillChar = "█"
+		emptyChar = ""
+	} else {
+		fillChar = "█"
+		emptyChar = "░"
+	}
+
+	bar := fmt.Sprintf("[%s%s] %3.0f%%",
+		strings.Repeat(fillChar, fill),
+		strings.Repeat(emptyChar, empty),
+		percent*100)
+
+	// Color the bar based on progress with enhanced styling
+	if percent >= 1.0 {
+		return successStyle.Render(bar)
+	} else if percent >= 0.8 {
+		return highlightStyle.Render(bar)
+	} else if percent >= 0.5 {
+		return warningStyle.Render(bar)
+	} else if percent >= 0.2 {
+		return infoStyle.Render(bar)
+	} else {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(bar)
+	}
 }
 
 // renderProgressBar renders an enhanced progress bar with better styling
@@ -252,65 +415,225 @@ func renderSimpleProgressBar(percent float64, width int) string {
 	return renderProgressBar(percent, width, true)
 }
 
-// Render displays the current progress state
-func (p *ProgressTracker) Render() {
+// formatDuration formats duration in a user-friendly way
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	} else if d < time.Hour {
+		minutes := int(d.Minutes())
+		seconds := int(d.Seconds()) % 60
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
+	} else {
+		hours := int(d.Hours())
+		minutes := int(d.Minutes()) % 60
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	}
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// renderSingleLine displays the current progress state with enhanced visual feedback in a single line
+func (p *ProgressTracker) renderSingleLine() {
+	if p.Quiet {
+		return
+	}
+
 	// Clear the current line and move cursor to beginning
 	fmt.Print("\r\033[K")
 
-	// Show title
-	fmt.Printf("%s\n", headerStyle.Render(p.Title))
+	// Get terminal width (default to 100 if can't determine)
+	width := 100
 
-	// Show overall progress bar
+	// Show enhanced progress with better visual feedback
 	overallProgress := p.GetOverallProgress()
-	progressBar := renderProgressBar(overallProgress, p.Width, true)
-	fmt.Printf("%s\n", progressBar)
 
-	// Show steps
-	for i, step := range p.Steps {
-		status := step.Status.String()
-		name := step.Name
+	// Calculate available space for progress bar
+	// Reserve space for: "🚀 Setting up Adhar Platform " + " | Elapsed: Xs" + step info
+	prefixLen := len("🚀 Setting up Adhar Platform ")
+	suffixLen := 25   // Space for elapsed time and percentage
+	stepInfoLen := 35 // More space for detailed step info
+	availableWidth := width - prefixLen - suffixLen - stepInfoLen
 
-		if i == p.CurrentStep && step.Status == StatusInProgress {
-			// Show spinner for current step
-			if p.ShowSpinner {
-				fmt.Printf("  %s %s %s\n",
-					p.Spinner.View(),
-					titleStyle.Render(name),
-					infoStyle.Render(step.Description))
-			} else {
-				fmt.Printf("  %s %s %s\n",
-					status,
-					titleStyle.Render(name),
-					infoStyle.Render(step.Description))
-			}
-		} else {
-			// Regular step display
-			style := infoStyle
-			if step.Status == StatusCompleted {
-				style = successStyle
-			} else if step.Status == StatusFailed {
-				style = errorStyle
-			} else if step.Status == StatusSkipped {
-				style = warningStyle
-			}
+	if availableWidth < 25 {
+		availableWidth = 25 // Minimum progress bar width
+	}
 
-			fmt.Printf("  %s %s", status, style.Render(name))
-			if step.Description != "" {
-				fmt.Printf(" %s", subtitleStyle.Render(step.Description))
-			}
-			fmt.Println()
+	progressBar := renderEnhancedProgressBar(overallProgress, availableWidth)
+
+	// Show current step with enhanced visual indicators
+	var stepInfo string
+	if p.CurrentStep < len(p.Steps) {
+		step := p.Steps[p.CurrentStep]
+
+		// Use description if available, otherwise fall back to name
+		displayText := step.Description
+		if displayText == "" {
+			displayText = step.Name
+		}
+
+		// Truncate long descriptions for better display
+		if len(displayText) > 30 {
+			displayText = displayText[:27] + "..."
+		}
+
+		switch step.Status {
+		case StatusInProgress:
+			stepInfo = fmt.Sprintf(" %s %s",
+				highlightStyle.Render(p.getCurrentSpinnerFrame()),
+				infoStyle.Render(displayText))
+		case StatusCompleted:
+			stepInfo = fmt.Sprintf(" %s %s",
+				successStyle.Render("✓"),
+				successStyle.Render(step.Name))
+		case StatusFailed:
+			stepInfo = fmt.Sprintf(" %s %s",
+				errorStyle.Render("✗"),
+				errorStyle.Render(step.Name))
+		case StatusSkipped:
+			stepInfo = fmt.Sprintf(" %s %s",
+				warningStyle.Render("⏭"),
+				warningStyle.Render(step.Name))
+		default:
+			stepInfo = fmt.Sprintf(" %s %s",
+				infoStyle.Render("⏳"),
+				infoStyle.Render(step.Name))
 		}
 	}
 
-	// Show elapsed time
+	// Show elapsed time with better formatting
 	elapsed := time.Since(p.StartTime).Round(time.Second)
-	fmt.Printf("\n%s %s\n",
-		infoStyle.Render("Elapsed:"),
-		successStyle.Render(elapsed.String()))
+	elapsedStr := formatDuration(elapsed)
+
+	// Show step progress (current/total)
+	stepProgress := fmt.Sprintf("(%d/%d)",
+		min(p.CurrentStep+1, len(p.Steps)),
+		len(p.Steps))
+
+	// Build the complete line with enhanced styling
+	line := fmt.Sprintf("🚀 Setting up Adhar Platform %s%s | %s %s",
+		progressBar,
+		stepInfo,
+		infoStyle.Render(stepProgress),
+		infoStyle.Render("Elapsed: "+elapsedStr))
+
+	fmt.Print(line)
 }
 
-// Complete finishes the progress tracker
+// clearLines clears the specified number of lines from the terminal
+func (p *ProgressTracker) clearLines(numLines int) {
+	for i := 0; i < numLines; i++ {
+		fmt.Print("\033[1A\033[K") // Move up one line and clear it
+	}
+}
+
+// renderExpandedView displays all tasks in an expanded list format with individual spinners
+func (p *ProgressTracker) renderExpandedView() {
+	if p.Quiet {
+		return
+	}
+
+	// Clear previous output if we've printed lines before
+	if p.linesPrinted > 0 {
+		p.clearLines(p.linesPrinted)
+	}
+
+	lines := 0
+
+	// Show title and overall progress
+	overallProgress := p.GetOverallProgress()
+	progressBar := renderEnhancedProgressBar(overallProgress, 60)
+	elapsed := time.Since(p.StartTime).Round(time.Second)
+	elapsedStr := formatDuration(elapsed)
+
+	// Header line
+	fmt.Printf("🚀 %s\n", headerStyle.Render(p.Title))
+	lines++
+
+	// Progress bar line
+	fmt.Printf("%s | %s %s\n",
+		progressBar,
+		infoStyle.Render(fmt.Sprintf("(%d/%d)", min(p.CurrentStep+1, len(p.Steps)), len(p.Steps))),
+		infoStyle.Render("Elapsed: "+elapsedStr))
+	lines++
+
+	// Empty line for spacing
+	fmt.Println()
+	lines++
+
+	// Show all steps with their current status
+	for _, step := range p.Steps {
+		var statusIcon, stepText string
+
+		switch step.Status {
+		case StatusPending:
+			statusIcon = infoStyle.Render("⏳")
+			stepText = infoStyle.Render(step.Name)
+		case StatusInProgress:
+			statusIcon = highlightStyle.Render(p.getCurrentSpinnerFrame())
+			stepText = titleStyle.Render(step.Name)
+			if step.Description != "" {
+				stepText += " " + subtitleStyle.Render("- "+step.Description)
+			}
+		case StatusCompleted:
+			statusIcon = successStyle.Render("✓")
+			stepText = successStyle.Render(step.Name)
+			if !step.EndTime.IsZero() {
+				duration := step.EndTime.Sub(step.StartTime).Round(time.Millisecond)
+				stepText += " " + infoStyle.Render(fmt.Sprintf("(%s)", formatDuration(duration)))
+			}
+		case StatusFailed:
+			statusIcon = errorStyle.Render("✗")
+			stepText = errorStyle.Render(step.Name)
+			if step.Error != nil {
+				stepText += " " + errorStyle.Render("- "+step.Error.Error())
+			}
+		case StatusSkipped:
+			statusIcon = warningStyle.Render("⏭")
+			stepText = warningStyle.Render(step.Name)
+			if step.Description != "" {
+				stepText += " " + warningStyle.Render("- "+step.Description)
+			}
+		}
+
+		fmt.Printf("  %s %s\n", statusIcon, stepText)
+		lines++
+	}
+
+	// Store the number of lines we printed for next clear operation
+	p.linesPrinted = lines
+}
+
+// Refresh updates the display with current spinner state
+func (p *ProgressTracker) Refresh() {
+	if !p.Quiet {
+		if p.ExpandedView {
+			p.renderExpandedView()
+		} else {
+			p.renderSingleLine()
+		}
+	}
+}
+
+// Render displays the current progress state
+func (p *ProgressTracker) Render() {
+	if p.ExpandedView {
+		p.renderExpandedView()
+	} else {
+		p.renderSingleLine()
+	}
+}
+
+// Complete finishes the progress tracker with enhanced completion feedback
 func (p *ProgressTracker) Complete() {
+	// Stop any ongoing spinner animation
+	p.stopSpinnerAnimation()
+
 	// Mark any remaining steps as completed
 	for i := range p.Steps {
 		if p.Steps[i].Status == StatusPending || p.Steps[i].Status == StatusInProgress {
@@ -320,27 +643,115 @@ func (p *ProgressTracker) Complete() {
 	}
 
 	if !p.Quiet {
-		p.Render()
+		if p.ExpandedView {
+			// Clear previous output and show final expanded view
+			if p.linesPrinted > 0 {
+				p.clearLines(p.linesPrinted)
+			}
+			p.renderExpandedView()
+		} else {
+			// Clear current line and show final progress
+			fmt.Print("\r\033[K")
 
-		// Show completion message
+			// Show 100% completion bar
+			finalBar := renderEnhancedProgressBar(1.0, 50)
+			elapsed := time.Since(p.StartTime).Round(time.Second)
+			elapsedStr := formatDuration(elapsed)
+
+			// Show final completion line
+			fmt.Printf("🚀 Setting up Adhar Platform %s %s | %s %s\n",
+				finalBar,
+				successStyle.Render("✓ All tasks completed"),
+				successStyle.Render(fmt.Sprintf("(%d/%d)", len(p.Steps), len(p.Steps))),
+				infoStyle.Render("Elapsed: "+elapsedStr))
+		}
+
+		// Show detailed completion summary
+		fmt.Printf("\n%s\n", successStyle.Render("✅ Platform Setup Complete!"))
+
+		// Count completed, failed, and skipped steps
+		completed, failed, skipped := 0, 0, 0
+		for _, step := range p.Steps {
+			switch step.Status {
+			case StatusCompleted:
+				completed++
+			case StatusFailed:
+				failed++
+			case StatusSkipped:
+				skipped++
+			}
+		}
+
+		// Show summary
+		if failed == 0 && skipped == 0 {
+			fmt.Printf("   %s All %d steps completed successfully\n",
+				successStyle.Render("✓"), completed)
+		} else {
+			fmt.Printf("   %s %d completed", successStyle.Render("✓"), completed)
+			if skipped > 0 {
+				fmt.Printf(", %s %d skipped", warningStyle.Render("⏭"), skipped)
+			}
+			if failed > 0 {
+				fmt.Printf(", %s %d failed", errorStyle.Render("✗"), failed)
+			}
+			fmt.Println()
+		}
+
 		elapsed := time.Since(p.StartTime).Round(time.Second)
-		fmt.Printf("\n%s %s %s\n",
-			successStyle.Render("✓"),
-			successStyle.Render("All tasks completed successfully!"),
-			infoStyle.Render(fmt.Sprintf("(in %s)", elapsed)))
+		elapsedStr := formatDuration(elapsed)
+		fmt.Printf("   %s Total time: %s\n\n",
+			infoStyle.Render("⏱"),
+			highlightStyle.Render(elapsedStr))
 	}
 }
 
-// Fail marks the tracker as failed
+// Fail marks the tracker as failed with enhanced error feedback
 func (p *ProgressTracker) Fail(err error) {
-	if !p.Quiet {
-		p.Render()
+	// Stop any ongoing spinner animation
+	p.stopSpinnerAnimation()
 
-		// Show failure message
-		fmt.Printf("\n%s %s\n%s\n",
+	if !p.Quiet {
+		// Clear current line
+		fmt.Print("\r\033[K")
+
+		// Show current progress with failure indication
+		overallProgress := p.GetOverallProgress()
+		failedBar := renderEnhancedProgressBar(overallProgress, 50)
+		elapsed := time.Since(p.StartTime).Round(time.Second)
+		elapsedStr := formatDuration(elapsed)
+
+		// Show failure line
+		fmt.Printf("🚀 Setting up Adhar Platform %s %s | %s %s\n",
+			failedBar,
+			errorStyle.Render("✗ Operation failed"),
+			errorStyle.Render(fmt.Sprintf("(%d/%d)", p.CurrentStep+1, len(p.Steps))),
+			infoStyle.Render("Elapsed: "+elapsedStr))
+
+		// Show detailed failure message
+		fmt.Printf("\n%s\n", errorStyle.Render("❌ Platform Setup Failed"))
+		fmt.Printf("   %s Step: %s\n",
 			errorStyle.Render("✗"),
-			errorStyle.Render("Operation failed:"),
+			errorStyle.Render(p.Steps[p.CurrentStep].Name))
+		fmt.Printf("   %s Error: %s\n",
+			errorStyle.Render("⚠"),
 			errorStyle.Render(err.Error()))
+
+		// Show progress summary
+		completed := 0
+		for i := 0; i < p.CurrentStep; i++ {
+			if p.Steps[i].Status == StatusCompleted {
+				completed++
+			}
+		}
+
+		if completed > 0 {
+			fmt.Printf("   %s %d of %d steps completed before failure\n",
+				infoStyle.Render("ℹ"), completed, len(p.Steps))
+		}
+
+		fmt.Printf("   %s Total time: %s\n\n",
+			infoStyle.Render("⏱"),
+			infoStyle.Render(elapsedStr))
 	}
 }
 
