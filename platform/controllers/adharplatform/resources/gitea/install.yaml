@@ -139,7 +139,7 @@ metadata:
     helm.sh/chart: postgresql-16.4.14
 type: Opaque
 data:
-  postgres-password: "T005N0hlNlcyeQ=="
+  postgres-password: "RzVjUEV6bjhlag=="
   password: "Z2l0ZWE="
   # We don't auto-generate LDAP password when it's not provided as we do for other passwords
 ---
@@ -3208,6 +3208,11 @@ spec:
               value: /data
             - name: GITEA_TEMP
               value: /tmp/gitea
+            - name: GOMAXPROCS
+              valueFrom:
+                resourceFieldRef:
+                  divisor: "1"
+                  resource: limits.cpu
             - name: TMPDIR
               value: /tmp/gitea
             - name: HOME
@@ -3234,7 +3239,12 @@ spec:
               port: http
             timeoutSeconds: 1
           resources:
-            {}
+            limits:
+              cpu: 200m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
           securityContext:
             {}
           volumeMounts:
@@ -3449,7 +3459,7 @@ spec:
           - "ReadWriteOnce"
         resources:
           requests:
-            storage: "10Gi"
+            storage: "5Gi"
 ---
 # Source: gitea/charts/redis-cluster/templates/redis-statefulset.yaml
 apiVersion: apps/v1

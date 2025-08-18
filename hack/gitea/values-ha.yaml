@@ -24,8 +24,8 @@ global:
 namespace: "adhar-system"
 
 ## @param replicaCount number of replicas for the deployment
-## For local development: single instance only
-replicaCount: 1
+## For production HA: multiple instances for high availability
+replicaCount: 2
 
 ## @section strategy
 ## @param strategy.type strategy type
@@ -93,10 +93,10 @@ containerSecurityContext: {}
 securityContext: {}
 
 ## @param podDisruptionBudget Pod disruption budget
-## LOCAL DEV: Disabled for single instance deployment
-podDisruptionBudget: {}
+## PRODUCTION HA: Enable PDB for high availability
+podDisruptionBudget:
+  minAvailable: 1
 #  maxUnavailable: 1
-#  minAvailable: 1
 
 ## @section Service
 service:
@@ -190,14 +190,14 @@ ingress:
 ## @section deployment
 #
 ## @param resources Kubernetes resources
-## LOCAL DEV: Minimal resource allocation for development environments
+## PRODUCTION HA: Enhanced resource allocation for production workloads
 resources:
   limits:
+    cpu: 1000m
+    memory: 2048Mi
+  requests:
     cpu: 200m
     memory: 512Mi
-  requests:
-    cpu: 50m
-    memory: 128Mi
 
 ## Use an alternate scheduler, e.g. "stork".
 ## ref: https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/
@@ -373,11 +373,12 @@ gitea:
   ## @param gitea.metrics.serviceMonitor.scrapeTimeout Timeout after which the scrape is ended. If not specified, global Prometheus scrape timeout is used.
   ## @param gitea.metrics.serviceMonitor.tlsConfig TLS configuration to use when scraping the metric endpoint by Prometheus.
   metrics:
-    ## LOCAL DEV: Metrics disabled to reduce resource usage
-    enabled: false
+    ## PRODUCTION HA: Enable metrics for monitoring and observability
+    enabled: true
     token:
     serviceMonitor:
-      enabled: false
+      ## PRODUCTION HA: Enable ServiceMonitor for Prometheus
+      enabled: true
       #  additionalLabels:
       #    prometheus-release: prom1
       interval: ""
@@ -521,12 +522,14 @@ gitea:
 ## Valkey cluster and [Valkey](#valkey) cannot be enabled at the same time.
 ## @descriptionEnd
 valkey-cluster:
-  enabled: false
+  ## PRODUCTION HA: Enable Redis/Valkey cluster for caching HA
+  enabled: true
   usePassword: false
   usePasswordFiles: false
   cluster:
-    nodes: 1
-    replicas: 0
+    ## PRODUCTION HA: Multiple nodes with replicas for Redis HA
+    nodes: 3
+    replicas: 1
   service:
     ports:
       valkey: 6379
@@ -543,7 +546,8 @@ valkey-cluster:
 ## Valkey and [Valkey cluster](#valkey-cluster) cannot be enabled at the same time.
 ## @descriptionEnd
 valkey:
-  enabled: true
+  ## PRODUCTION HA: Disable single Valkey as we use Valkey cluster
+  enabled: false
   architecture: standalone
   global:
     valkey:
@@ -572,7 +576,8 @@ postgresql-ha:
       database: gitea
       password: gitea
       username: gitea
-  enabled: false
+  ## PRODUCTION HA: Enable PostgreSQL HA for database high availability
+  enabled: true
   postgresql:
     repmgrPassword: changeme2
     postgresPassword: changeme1
@@ -583,7 +588,8 @@ postgresql-ha:
     ports:
       postgresql: 5432
   persistence:
-    size: 10Gi
+    ## PRODUCTION HA: Larger storage for production data
+    size: 20Gi
 
 ## @section PostgreSQL
 #
@@ -594,7 +600,8 @@ postgresql-ha:
 ## @param postgresql.global.postgresql.service.ports.postgresql PostgreSQL service port (overrides `service.ports.postgresql`)
 ## @param postgresql.primary.persistence.size PVC Storage Request for PostgreSQL volume
 postgresql:
-  enabled: true
+  ## PRODUCTION HA: Disable single PostgreSQL as we use PostgreSQL HA
+  enabled: false
   global:
     postgresql:
       auth:
@@ -606,8 +613,7 @@ postgresql:
           postgresql: 5432
   primary:
     persistence:
-      ## LOCAL DEV: Smaller storage for development
-      size: 5Gi
+      size: 10Gi
 
 # By default, removed or moved settings that still remain in a user defined values.yaml will cause Helm to fail running the install/update.
 # Set it to false to skip this basic validation check.

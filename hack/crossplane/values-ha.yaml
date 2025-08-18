@@ -2,8 +2,8 @@
 # appropiate.
 #
 # -- The number of Crossplane pod `replicas` to deploy.
-# For local development: single instance only
-replicas: 1
+# For production HA: multiple instances for high availability
+replicas: 2
 
 # -- The number of Crossplane ReplicaSets to retain.
 revisionHistoryLimit: null
@@ -26,7 +26,16 @@ nodeSelector: {}
 # -- Add `tolerations` to the Crossplane pod deployment.
 tolerations: []
 # -- Add `affinities` to the Crossplane pod deployment.
-affinity: {}
+# PRODUCTION HA: Anti-affinity to spread pods across nodes
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: crossplane
+          topologyKey: kubernetes.io/hostname
 # -- Add `topologySpreadConstraints` to the Crossplane pod deployment.
 topologySpreadConstraints: []
 
@@ -94,8 +103,8 @@ rbacManager:
   # -- Don't install aggregated Crossplane ClusterRoles.
   skipAggregatedClusterRoles: false
   # -- The number of RBAC Manager pod `replicas` to deploy.
-  # For local development: single instance only
-  replicas: 1
+  # For production HA: multiple instances for high availability
+  replicas: 2
   # -- The number of RBAC Manager ReplicaSets to retain.
   revisionHistoryLimit: null
   # -- Enable [leader election](https://docs.crossplane.io/latest/concepts/pods/#leader-election) for the RBAC Manager pod.
@@ -107,7 +116,17 @@ rbacManager:
   # -- Add `tolerations` to the RBAC Manager pod deployment.
   tolerations: []
   # -- Add `affinities` to the RBAC Manager pod deployment.
-  affinity: {}
+  # PRODUCTION HA: Anti-affinity to spread RBAC Manager pods across nodes
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: crossplane
+                app.kubernetes.io/component: rbac-manager
+            topologyKey: kubernetes.io/hostname
   # -- Add `topologySpreadConstraints` to the RBAC Manager pod deployment.
   topologySpreadConstraints: []
 
@@ -120,16 +139,16 @@ runtimeClassName: ""
 resourcesCrossplane:
   limits:
     # -- CPU resource limits for the Crossplane pod.
-    # LOCAL DEV: Reduced limits for resource efficiency
-    cpu: 200m
+    # PRODUCTION HA: Higher limits for production workloads
+    cpu: 1000m
     # -- Memory resource limits for the Crossplane pod.
-    memory: 512Mi
+    memory: 2048Mi
   requests:
     # -- CPU resource requests for the Crossplane pod.
-    # LOCAL DEV: Minimal resource requests
-    cpu: 50m
+    # PRODUCTION HA: Guaranteed resources for reliability
+    cpu: 200m
     # -- Memory resource requests for the Crossplane pod.
-    memory: 128Mi
+    memory: 512Mi
 
 securityContextCrossplane:
   # -- The user ID used by the Crossplane pod.
@@ -143,9 +162,11 @@ securityContextCrossplane:
 
 packageCache:
   # -- Set to `Memory` to hold the package cache in a RAM backed file system. Useful for Crossplane development.
+  # PRODUCTION HA: Keep default medium for persistent storage
   medium: ""
   # -- The size limit for the package cache. If medium is `Memory` the `sizeLimit` can't exceed Node memory.
-  sizeLimit: 20Mi
+  # PRODUCTION HA: Larger cache for better performance
+  sizeLimit: 100Mi
   # -- The name of a PersistentVolumeClaim to use as the package cache. Disables the default package cache `emptyDir` Volume.
   pvc: ""
   # -- The name of a ConfigMap to use as the package cache. Disables the default package cache `emptyDir` Volume.
@@ -153,25 +174,27 @@ packageCache:
 
 functionCache:
   # -- Set to `Memory` to hold the function cache in a RAM backed file system. Useful for Crossplane development.
+  # PRODUCTION HA: Keep default medium for persistent storage
   medium: ""
   # -- The size limit for the function cache. If medium is `Memory` the `sizeLimit` can't exceed Node memory.
-  sizeLimit: 512Mi
+  # PRODUCTION HA: Larger cache for better performance
+  sizeLimit: 1Gi
   # -- The name of a PersistentVolumeClaim to use as the function cache. Disables the default function cache `emptyDir` Volume.
   pvc: ""
 
 resourcesRBACManager:
   limits:
     # -- CPU resource limits for the RBAC Manager pod.
-    # LOCAL DEV: Reduced limits for resource efficiency
-    cpu: 50m
+    # PRODUCTION HA: Higher limits for production workloads
+    cpu: 200m
     # -- Memory resource limits for the RBAC Manager pod.
-    memory: 256Mi
+    memory: 1024Mi
   requests:
     # -- CPU resource requests for the RBAC Manager pod.
-    # LOCAL DEV: Minimal resource requests
-    cpu: 25m
+    # PRODUCTION HA: Guaranteed resources for reliability
+    cpu: 100m
     # -- Memory resource requests for the RBAC Manager pod.
-    memory: 128Mi
+    memory: 256Mi
 
 securityContextRBACManager:
   # -- The user ID used by the RBAC Manager pod.
@@ -185,8 +208,8 @@ securityContextRBACManager:
 
 metrics:
   # -- Enable Prometheus path, port and scrape annotations and expose port 8080 for both the Crossplane and RBAC Manager pods.
-  # LOCAL DEV: Metrics disabled to reduce resource usage
-  enabled: false
+  # PRODUCTION HA: Enable metrics for monitoring and observability
+  enabled: true
   # -- The port the metrics server listens on.
   port: ""
 

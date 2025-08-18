@@ -789,11 +789,11 @@ controller:
   name: application-controller
 
   # -- The number of application controller pods to run.
-  # For local development: single instance only
+  # For production HA: multiple instances for high availability
   # Additional replicas will cause sharding of managed clusters across number of replicas.
   ## With dynamic cluster distribution turned on, sharding of the clusters will gracefully
   ## rebalance if the number of replica's changes or one becomes unhealthy. (alpha)
-  replicas: 1
+  replicas: 2
 
   # -- Enable dynamic cluster distribution (alpha)
   # Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/dynamic-cluster-distribution
@@ -818,14 +818,16 @@ controller:
   ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
   pdb:
     # -- Deploy a [PodDisruptionBudget] for the application controller
-    enabled: false
+    # PRODUCTION HA: Enable PDB for high availability
+    enabled: true
     # -- Labels to be added to application controller pdb
     labels: {}
     # -- Annotations to be added to application controller pdb
     annotations: {}
     # -- Number of pods that are available after eviction as number or percentage (eg.: 50%)
     # @default -- `""` (defaults to 0 if not specified)
-    minAvailable: ""
+    # PRODUCTION HA: Keep at least 1 pod available during disruptions
+    minAvailable: 1
     # -- Number of pods that are unavailable after eviction as number or percentage (eg.: 50%).
     ## Has higher precedence over `controller.pdb.minAvailable`
     maxUnavailable: ""
@@ -1751,11 +1753,11 @@ redis:
 
 ## Redis-HA subchart replaces custom redis deployment when `redis-ha.enabled=true`
 # Ref: https://github.com/DandyDeveloper/charts/blob/master/charts/redis-ha/values.yaml
-# For local development: Redis HA is DISABLED, using single Redis instance
+# For production HA: Redis HA is ENABLED for high availability
 redis-ha:
   # -- Enables the Redis HA subchart and disables the custom Redis single node deployment
-  # LOCAL DEV: Disabled for single-instance Redis
-  enabled: false
+  # PRODUCTION HA: Enabled for high-availability Redis cluster
+  enabled: true
   ## Redis image
   image:
     # -- Redis repository
@@ -1949,8 +1951,8 @@ server:
   name: server
 
   # -- The number of server pods to run
-  # For local development: single instance only
-  replicas: 1
+  # For production HA: multiple instances for high availability
+  replicas: 2
 
   # -- Runtime class name for the Argo CD server
   # @default -- `""` (defaults to global.runtimeClassName)
@@ -1959,9 +1961,11 @@ server:
   ## Argo CD server Horizontal Pod Autoscaler
   autoscaling:
     # -- Enable Horizontal Pod Autoscaler ([HPA]) for the Argo CD server
-    enabled: false
+    # PRODUCTION HA: Enable HPA for auto-scaling
+    enabled: true
     # -- Minimum number of replicas for the Argo CD server [HPA]
-    minReplicas: 1
+    # PRODUCTION HA: Start with 2 replicas minimum
+    minReplicas: 2
     # -- Maximum number of replicas for the Argo CD server [HPA]
     maxReplicas: 5
     # -- Average CPU utilization percentage for the Argo CD server [HPA]
@@ -1991,14 +1995,16 @@ server:
   ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
   pdb:
     # -- Deploy a [PodDisruptionBudget] for the Argo CD server
-    enabled: false
+    # PRODUCTION HA: Enable PDB for high availability
+    enabled: true
     # -- Labels to be added to Argo CD server pdb
     labels: {}
     # -- Annotations to be added to Argo CD server pdb
     annotations: {}
     # -- Number of pods that are available after eviction as number or percentage (eg.: 50%)
     # @default -- `""` (defaults to 0 if not specified)
-    minAvailable: ""
+    # PRODUCTION HA: Keep at least 1 pod available during disruptions
+    minAvailable: 1
     # -- Number of pods that are unavailable after eviction as number or percentage (eg.: 50%).
     ## Has higher precedence over `server.pdb.minAvailable`
     maxUnavailable: ""
@@ -2646,8 +2652,8 @@ repoServer:
   name: repo-server
 
   # -- The number of repo server pods to run
-  # For local development: single instance only
-  replicas: 1
+  # For production HA: multiple instances for high availability
+  replicas: 2
 
   # -- Runtime class name for the repo server
   # @default -- `""` (defaults to global.runtimeClassName)
@@ -2656,9 +2662,11 @@ repoServer:
   ## Repo server Horizontal Pod Autoscaler
   autoscaling:
     # -- Enable Horizontal Pod Autoscaler ([HPA]) for the repo server
-    enabled: false
+    # PRODUCTION HA: Enable HPA for auto-scaling
+    enabled: true
     # -- Minimum number of replicas for the repo server [HPA]
-    minReplicas: 1
+    # PRODUCTION HA: Start with 2 replicas minimum
+    minReplicas: 2
     # -- Maximum number of replicas for the repo server [HPA]
     maxReplicas: 5
     # -- Average CPU utilization percentage for the repo server [HPA]
@@ -2688,14 +2696,16 @@ repoServer:
   ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
   pdb:
     # -- Deploy a [PodDisruptionBudget] for the repo server
-    enabled: false
+    # PRODUCTION HA: Enable PDB for high availability
+    enabled: true
     # -- Labels to be added to repo server pdb
     labels: {}
     # -- Annotations to be added to repo server pdb
     annotations: {}
     # -- Number of pods that are available after eviction as number or percentage (eg.: 50%)
     # @default -- `""` (defaults to 0 if not specified)
-    minAvailable: ""
+    # PRODUCTION HA: Keep at least 1 pod available during disruptions
+    minAvailable: 1
     # -- Number of pods that are unavailable after eviction as number or percentage (eg.: 50%).
     ## Has higher precedence over `repoServer.pdb.minAvailable`
     maxUnavailable: ""
@@ -3058,7 +3068,7 @@ applicationSet:
   name: applicationset-controller
 
   # -- The number of ApplicationSet controller pods to run
-  # For local development: single instance only
+  # For production HA: single instance (ApplicationSet doesn't support multiple replicas)
   replicas: 1
 
   # -- Runtime class name for the ApplicationSet controller

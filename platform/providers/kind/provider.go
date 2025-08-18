@@ -231,7 +231,36 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		progress.FailStep(0, err)
-		return nil, fmt.Errorf("failed to create Kind cluster: %w\nOutput: %s", err, string(output))
+
+		// Check for common error scenarios and provide helpful messages
+		outputStr := string(output)
+
+		// Port conflict error
+		if strings.Contains(outputStr, "port is already allocated") || strings.Contains(outputStr, "Bind for 0.0.0.0:80 failed") {
+			return nil, p.handlePortConflictError(spec.Name, outputStr)
+		}
+
+		// Docker daemon not running
+		if strings.Contains(outputStr, "Cannot connect to the Docker daemon") {
+			return nil, fmt.Errorf("🐳 Docker Error: Docker daemon is not running\n\n" +
+				"💡 Solution:\n" +
+				"   • Start Docker Desktop or Docker daemon\n" +
+				"   • Verify Docker is running: docker ps\n" +
+				"   • Then retry: adhar up")
+		}
+
+		// Insufficient resources
+		if strings.Contains(outputStr, "no space left on device") {
+			return nil, fmt.Errorf("💾 Storage Error: Insufficient disk space\n\n" +
+				"💡 Solutions:\n" +
+				"   • Free up disk space\n" +
+				"   • Clean Docker images: docker system prune -a\n" +
+				"   • Check available space: df -h\n" +
+				"   • Then retry: adhar up")
+		}
+
+		// Generic error with output
+		return nil, fmt.Errorf("failed to create Kind cluster: %w\nOutput: %s", err, outputStr)
 	}
 	progress.CompleteStep(0)
 	time.Sleep(500 * time.Millisecond) // Brief pause for visual feedback
@@ -702,6 +731,63 @@ func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string,
 	}
 
 	return string(output), nil
+}
+
+// handlePortConflictError provides a user-friendly error message and solutions for port conflicts
+func (p *Provider) handlePortConflictError(clusterName, output string) error {
+	// Determine which ports are in conflict
+	conflictingPorts := []string{}
+	if strings.Contains(output, "Bind for 0.0.0.0:80 failed") {
+		conflictingPorts = append(conflictingPorts, "80")
+	}
+	if strings.Contains(output, "Bind for 0.0.0.0:443 failed") {
+		conflictingPorts = append(conflictingPorts, "443")
+	}
+	if len(conflictingPorts) == 0 {
+		conflictingPorts = append(conflictingPorts, "80/443")
+	}
+
+	// Check for existing Kind clusters
+	cmd := exec.Command("kind", "get", "clusters")
+	existingClusters, _ := cmd.Output()
+	clusterList := strings.TrimSpace(string(existingClusters))
+
+	errorMsg := fmt.Sprintf("🚫 Port Conflict Error: Cannot create cluster '%s'\n\n", clusterName)
+	errorMsg += fmt.Sprintf("❌ Problem: Port(s) %s are already in use by another service\n\n", strings.Join(conflictingPorts, ", "))
+
+	if clusterList != "" && clusterList != "No kind clusters found." {
+		clusters := strings.Split(clusterList, "\n")
+		errorMsg += "🔍 Found existing Kind clusters:\n"
+		for _, cluster := range clusters {
+			if strings.TrimSpace(cluster) != "" {
+				errorMsg += fmt.Sprintf("   • %s\n", strings.TrimSpace(cluster))
+			}
+		}
+		errorMsg += "\n"
+	}
+
+	errorMsg += "💡 Solutions (choose one):\n\n"
+	errorMsg += "   1️⃣  Delete existing clusters:\n"
+	if clusterList != "" && clusterList != "No kind clusters found." {
+		errorMsg += "      kind delete cluster --name <cluster-name>\n"
+		errorMsg += "      # Or delete all: kind delete clusters --all\n"
+	} else {
+		errorMsg += "      kind delete clusters --all\n"
+	}
+	errorMsg += "\n"
+
+	errorMsg += "   2️⃣  Find and stop conflicting services:\n"
+	errorMsg += "      # Check what's using port 80/443:\n"
+	errorMsg += "      lsof -i :80\n"
+	errorMsg += "      lsof -i :443\n"
+	errorMsg += "      # Stop the conflicting service\n\n"
+
+	errorMsg += "   3️⃣  Use different ports (advanced):\n"
+	errorMsg += "      adhar up --port 8080 --protocol http\n\n"
+
+	errorMsg += "🔄 Then retry: adhar up"
+
+	return fmt.Errorf("%s", errorMsg)
 }
 
 // Verify that Provider implements the provider.Provider interface

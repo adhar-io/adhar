@@ -16,10 +16,10 @@ globalSettings:
 # For development, Kind is enabled by default
 providers:
   # Kind - Local development clusters (enabled by default)
-  # kind:
-  #   type: kind
-  #   region: local
-  #   primary: true  # Management cluster provider for local development
+  kind:
+    type: kind
+    region: local
+    primary: true # Management cluster provider for local development
   #   config:
   #     kind_path: kind
   #     kubectl_path: kubectl
@@ -194,30 +194,30 @@ providers:
   #       - "development"
 
   # Civo Provider (commented - uncomment and configure to use)
-  civo:
-    type: civo
-    region: MUM1
-    primary: true
-    token: "lOnAEP9p4XTEF7C3oIASs8s7oBAd4Of6PNRFkAXMBUrqCoLaRL"
-    # credentials_file: "~/.civo/credentials"
-    # useEnvironment: true #Environment variable (CIVO_TOKEN)
-    config:
-      network_id: "5f035c8b-98f7-4fac-a036-077828ca00ef"
-      size: "g4s.kube.medium"
-      disk_image: "ubuntu-22.04-x64"
-      firewall_rules:
-        - label: "adhar-cluster"
-          rules:
-            - protocol: "tcp"
-              start_port: "22"
-              end_port: "22"
-              cidr: ["0.0.0.0/0"]
-              direction: "ingress"
-            - protocol: "tcp"
-              start_port: "6443"
-              end_port: "6443"
-              cidr: ["0.0.0.0/0"]
-              direction: "ingress"
+  # civo:
+  #   type: civo
+  #   region: MUM1
+  #   primary: false
+  #   token: "lOnAEP9p4XTEF7C3oIASs8s7oBAd4Of6PNRFkAXMBUrqCoLaRL"
+  #   # credentials_file: "~/.civo/credentials"
+  #   # useEnvironment: true #Environment variable (CIVO_TOKEN)
+  #   config:
+  #     network_id: "5f035c8b-98f7-4fac-a036-077828ca00ef"
+  #     size: "g4s.kube.medium"
+  #     disk_image: "ubuntu-22.04-x64"
+  #     firewall_rules:
+  #       - label: "adhar-cluster"
+  #         rules:
+  #           - protocol: "tcp"
+  #             start_port: "22"
+  #             end_port: "22"
+  #             cidr: ["0.0.0.0/0"]
+  #             direction: "ingress"
+  #           - protocol: "tcp"
+  #             start_port: "6443"
+  #             end_port: "6443"
+  #             cidr: ["0.0.0.0/0"]
+  #             direction: "ingress"
 
   # Custom/On-Premises Provider (commented - uncomment and configure to use)
   # custom:

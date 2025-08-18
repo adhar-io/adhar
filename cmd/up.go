@@ -420,8 +420,9 @@ var (
 )
 
 var upCmd = &cobra.Command{
-	Use:   "up",
-	Short: "Create an Adhar IDP",
+	Use:     "up",
+	Aliases: []string{"create"},
+	Short:   "Create an Adhar IDP",
 	Long: fmt.Sprintf(`%s
 
 %s
@@ -469,9 +470,6 @@ For more information, visit the documentation at %s`,
 }
 
 func init() {
-	// Add the alias here
-	upCmd.Aliases = []string{"create"}
-
 	// cluster related flags
 	upCmd.PersistentFlags().BoolVar(&recreateCluster, "recreate", false, recreateClusterUsage)
 	upCmd.PersistentFlags().BoolVar(&devPassword, "dev-password", false, devPasswordUsage)
