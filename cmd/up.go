@@ -208,6 +208,9 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*ptypes.Clus
 		ServiceCIDR: "10.96.0.0/12",
 	}
 
+	// Configure domain management
+	spec.Domain = buildDomainConfig(envConfig)
+
 	// Apply cluster-specific configuration
 	for _, kv := range envConfig.ResolvedClusterConfig {
 		switch kv.Key {
@@ -230,6 +233,61 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*ptypes.Clus
 	}
 
 	return spec, nil
+}
+
+// buildDomainConfig creates domain configuration based on environment and provider
+func buildDomainConfig(envConfig *config.ResolvedEnvironmentConfig) *ptypes.DomainConfig {
+	// Get domain configuration from global settings or use defaults
+	var baseDomain string
+	var email string
+
+	if envConfig.GlobalSettings != nil {
+		if envConfig.GlobalSettings.DefaultHost != "" {
+			baseDomain = envConfig.GlobalSettings.DefaultHost
+		}
+		if envConfig.GlobalSettings.Email != "" {
+			email = envConfig.GlobalSettings.Email
+		}
+	}
+
+	// Use Kind-specific defaults for local development
+	if envConfig.ResolvedProvider == "kind" || envConfig.ResolvedProvider == globals.CloudProviderKind {
+		if baseDomain == "" || baseDomain == "platform.adhar.io" {
+			baseDomain = globals.DefaultHostName // "adhar.localtest.me"
+		}
+		if email == "" {
+			email = "admin@" + baseDomain
+		}
+	}
+
+	// Default email if still not set
+	if email == "" {
+		email = "admin@adhar.io"
+	}
+
+	// Default domain if still not set
+	if baseDomain == "" {
+		baseDomain = "platform.adhar.io"
+	}
+
+	domainConfig := &ptypes.DomainConfig{
+		Name:            "default",
+		BaseDomain:      baseDomain,
+		CertificateType: "selfsigned", // Use self-signed certs for local development
+		TLS: ptypes.TLSConfig{
+			Enabled:     true,
+			Email:       email,
+			Environment: "staging", // Use staging for local development
+		},
+		DNS: ptypes.DNSConfig{
+			Provider: "coredns", // Use CoreDNS for local resolution
+		},
+		Ingress: ptypes.IngressConfig{
+			Provider: "nginx", // Use NGINX ingress controller
+		},
+	}
+
+	return domainConfig
 }
 
 // buildCredentials creates credentials from environment configuration
@@ -1075,8 +1133,9 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		ResolvedClusterConfig: clusterConfig,
 		GlobalSettings: &config.GlobalSettings{
 			AdharContext: "provider-mode",
-			DefaultHost:  host,
+			DefaultHost:  globals.DefaultHostName, // Use adhar.localtest.me for Kind clusters
 			EnableHAMode: false,
+			Email:        "admin@" + globals.DefaultHostName, // Set email for domain config
 		},
 	}
 

@@ -139,6 +139,7 @@ type GlobalSettings struct {
 	AdharContext string `json:"adharContext"`
 	DefaultHost  string `json:"defaultHost"`
 	EnableHAMode bool   `json:"enableHAMode"`
+	Email        string `json:"email"`
 }
 
 // ClusterConfig represents a key-value cluster configuration
@@ -612,6 +613,7 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 		AdharContext: c.GlobalSettings.AdharContext,
 		DefaultHost:  c.GlobalSettings.DefaultHost,
 		EnableHAMode: c.GlobalSettings.EnableHAMode,
+		Email:        c.GlobalSettings.Email,
 	}
 
 	return resolved, nil
