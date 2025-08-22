@@ -9,10 +9,13 @@ metadata:
     app.kubernetes.io/component: server
     app.kubernetes.io/part-of: argocd
   annotations:
-    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - adhar.localtest.me
+      secretName: adhar-localtest-tls
   rules:
     - host: adhar.localtest.me
       http:

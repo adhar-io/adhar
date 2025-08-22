@@ -811,7 +811,7 @@ func getClusterInfo(cmd *cobra.Command) {
 		// Show additional Kind-specific information
 		fmt.Printf("\n%s\n", getBoldStyle.Render("Kind Cluster Details:"))
 		fmt.Printf("  • Local development cluster running in Docker\n")
-		fmt.Printf("  • Access services via: https://adhar.localtest.me:8443\n")
+		fmt.Printf("  • Access services via: https://adhar.localtest.me\n")
 		fmt.Printf("  • Get service passwords with: %s\n", getCodeStyle.Render("adhar get secrets -p <provider>"))
 	} else {
 		// Try to detect other providers

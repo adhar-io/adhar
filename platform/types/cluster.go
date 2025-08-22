@@ -136,6 +136,8 @@ type NetworkingSpec struct {
 	ServiceCIDR string `json:"serviceCIDR"`
 	ClusterDNS  string `json:"clusterDNS"`
 	IPv6        bool   `json:"ipv6,omitempty"`
+	HTTPPort    int    `json:"httpPort,omitempty"`  // Host port for HTTP traffic (default: 80)
+	HTTPSPort   int    `json:"httpsPort,omitempty"` // Host port for HTTPS traffic (default: 443)
 }
 
 // SecuritySpec defines security configuration

@@ -88,7 +88,7 @@ curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/hack/install.sh
 adhar up
 
 # Access the platform
-open https://adhar.localtest.me:8443
+open https://adhar.localtest.me
 ```
 
 ### From Source
@@ -107,10 +107,10 @@ adhar version
 
 ### Access Platform Services (local)
 
-- Adhar Console: https://adhar.localtest.me:8443/
-- ArgoCD: https://adhar.localtest.me:8443/argocd/
-- Gitea: https://adhar.localtest.me:8443/gitea/
-- Grafana: https://adhar.localtest.me:8443/grafana/
+- Adhar Console: https://adhar.localtest.me/
+- ArgoCD: https://adhar.localtest.me/argocd/
+- Gitea: https://adhar.localtest.me/gitea/
+- Grafana: https://adhar.localtest.me/grafana/
 
 Credentials: `adhar get secrets`
 

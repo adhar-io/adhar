@@ -201,7 +201,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		"Configure Networking",
 	}
 
-	progress := helpers.NewProgressTracker("🔧 Setting up Kind Cluster", stepNames)
+	progress := helpers.NewProgressTracker("🔧 Setting up Management Cluster", stepNames)
 	defer func() {
 		// Clear the progress display
 		fmt.Print("\r\033[K")
@@ -226,10 +226,20 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	// Add wait time (reduced for faster feedback)
 	args = append(args, "--wait", "120s")
 
-	// Add config file if we have custom node configuration
+	// Add config file if we have custom node configuration or port mappings
 	nodes := kindConfig["nodes"].([]map[string]interface{})
-	// For single-node clusters, skip config file to avoid port mapping issues
-	if len(nodes) > 1 {
+
+	// Check if any node has port mappings
+	hasPortMappings := false
+	for _, node := range nodes {
+		if _, exists := node["extraPortMappings"]; exists {
+			hasPortMappings = true
+			break
+		}
+	}
+
+	// Use config file for multi-node clusters or when port mappings are present
+	if len(nodes) > 1 || hasPortMappings {
 		args = append(args, "--config", configFile)
 	}
 
@@ -691,15 +701,27 @@ func generateKindConfig(spec *types.ClusterSpec) map[string]interface{} {
 		}
 		if i == 0 {
 			// First control plane node gets extra port mappings
+			// Map host ports 80/443 to nginx NodePorts 30080/30443
+			httpPort := 80
+			httpsPort := 443
+
+			// Allow override from cluster spec if specified
+			if spec.Networking.HTTPPort != 0 {
+				httpPort = spec.Networking.HTTPPort
+			}
+			if spec.Networking.HTTPSPort != 0 {
+				httpsPort = spec.Networking.HTTPSPort
+			}
+
 			node["extraPortMappings"] = []map[string]interface{}{
 				{
-					"containerPort": 80,
-					"hostPort":      80,
+					"containerPort": 30080, // nginx NodePort for HTTP
+					"hostPort":      httpPort,
 					"protocol":      "TCP",
 				},
 				{
-					"containerPort": 443,
-					"hostPort":      443,
+					"containerPort": 30443, // nginx NodePort for HTTPS
+					"hostPort":      httpsPort,
 					"protocol":      "TCP",
 				},
 			}

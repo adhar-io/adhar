@@ -667,7 +667,7 @@ func (p *ProgressTracker) Complete() {
 		}
 
 		// Show detailed completion summary
-		fmt.Printf("\n%s\n", successStyle.Render("✅ Platform Setup Complete!"))
+		fmt.Printf("\n%s\n", successStyle.Render("✅ Cluster Provisioning Complete!"))
 
 		// Count completed, failed, and skipped steps
 		completed, failed, skipped := 0, 0, 0

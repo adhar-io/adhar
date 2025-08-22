@@ -76,7 +76,7 @@ spec:
               gitServerURL:
                 description: |-
                   GitServerURL specifies the base URL for the git server for API calls.
-                  for example, https://gitea.adhar.localtest.me:8443
+                  for example, https://adhar.localtest.me/gitea
                 type: string
               internalGitServeURL:
                 description: |-

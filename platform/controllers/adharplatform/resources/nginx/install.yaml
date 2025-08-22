@@ -295,7 +295,7 @@ metadata:
   name: ingress-nginx-controller
   namespace: adhar-system
 spec:
-  type: LoadBalancer
+  type: NodePort
   ipFamilyPolicy: SingleStack
   ipFamilies: 
     - IPv4
@@ -304,11 +304,13 @@ spec:
       port: 80
       protocol: TCP
       targetPort: http
+      nodePort: 30080
       appProtocol: http
     - name: https
       port: 443
       protocol: TCP
       targetPort: https
+      nodePort: 30443
       appProtocol: https
   selector:
     app.kubernetes.io/name: ingress-nginx
