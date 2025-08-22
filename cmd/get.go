@@ -838,7 +838,7 @@ const (
 // Well known secrets that are part of the core packages
 var corePkgSecrets = map[string][]string{
 	"argocd": {argoCDInitialAdminSecretName},
-	"gitea":  {"gitea", "gitea-inline-config"},
+	"gitea":  {"gitea"},
 }
 
 // SecretInfo represents a secret with its details
@@ -995,6 +995,7 @@ func populateSecret(secret corev1.Secret, isCoreSecret bool) SecretInfo {
 
 	if isCoreSecret {
 		if secret.Data != nil {
+			// Handle standard username/password/token fields
 			if username, ok := secret.Data["username"]; ok {
 				secretInfo.Username = string(username)
 			}
@@ -1003,6 +1004,12 @@ func populateSecret(secret corev1.Secret, isCoreSecret bool) SecretInfo {
 			}
 			if token, ok := secret.Data["token"]; ok {
 				secretInfo.Token = string(token)
+			}
+
+			// Handle Gitea-specific secrets
+			if secret.Name == "gitea" {
+				// For the main gitea secret, indicate it contains configuration
+				secretInfo.Token = "Contains Gitea configuration scripts"
 			}
 		}
 	} else {
@@ -1041,6 +1048,12 @@ func displaySecrets(secrets []SecretInfo) {
 			}
 			if secret.Token != "" {
 				fmt.Printf("  %s %s\n", getListItemStyle.Render("Token:"), secret.Token)
+			}
+
+			// Add helpful notes for Gitea secrets
+			if strings.HasPrefix(secret.Name, "gitea") {
+				fmt.Printf("  %s %s\n", getListItemStyle.Render("Note:"), "Complete setup at https://adhar.localtest.me/gitea/")
+				fmt.Printf("  %s %s\n", getListItemStyle.Render("Web Setup:"), "No pre-configured admin user - complete initial setup via web interface")
 			}
 		} else if secret.Data != nil {
 			fmt.Printf("  %s\n", getListItemStyle.Render("Data:"))

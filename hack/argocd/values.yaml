@@ -416,9 +416,9 @@ configs:
     ## NOTE: This value should be set when you generate params by other means as it changes ports used by ingress template.
     server.insecure: false
     # -- Value for base href in index.html. Used if Argo CD is running behind reverse proxy under subpath different from /
-    server.basehref: /
+    server.basehref: /argocd
     # -- Used if Argo CD is running behind reverse proxy under subpath different from /
-    server.rootpath: ""
+    server.rootpath: /argocd
     # -- Directory path that contains additional static assets
     server.staticassets: /shared/app
     # -- Disable Argo CD RBAC for user authentication

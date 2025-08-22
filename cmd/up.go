@@ -318,6 +318,7 @@ func applyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
 		"Install Gitea",
 		"Install Crossplane",
 		"Install Nginx Ingress",
+		"Install Ingress Resources",
 		"Label Core Secrets",
 	}
 
@@ -328,6 +329,7 @@ func applyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
 		"Installing Gitea Git server from platform resources",
 		"Installing Crossplane infrastructure provider from platform resources",
 		"Installing Nginx Ingress controller from platform resources",
+		"Installing ingress resources for platform components",
 		"Adding Adhar labels to core secrets for CLI discovery",
 	}
 
@@ -391,14 +393,23 @@ func applyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
 	progress.CompleteStep(5)
 	time.Sleep(800 * time.Millisecond)
 
-	// Step 7: Label core secrets for CLI discovery
+	// Step 7: Install Ingress Resources for platform components
 	progress.StartStep(6, "")
+	if err := applyIngressManifests(); err != nil {
+		progress.FailStep(6, err)
+		return fmt.Errorf("failed to install ingress resources: %w", err)
+	}
+	progress.CompleteStep(6)
+	time.Sleep(800 * time.Millisecond)
+
+	// Step 8: Label core secrets for CLI discovery
+	progress.StartStep(7, "")
 	if err := labelCoreSecrets(); err != nil {
 		// Don't fail completely, just warn and skip
-		progress.SkipStep(6, "Failed to label secrets, continuing anyway")
+		progress.SkipStep(7, "Failed to label secrets, continuing anyway")
 		logger.Warnf("Secret labeling failed, continuing anyway: %v", err)
 	} else {
-		progress.CompleteStep(6)
+		progress.CompleteStep(7)
 	}
 	time.Sleep(800 * time.Millisecond)
 
@@ -418,11 +429,6 @@ func labelCoreSecrets() error {
 			"package-type": "core",
 		},
 		"gitea": {
-			"namespace":    "adhar-system",
-			"package-name": "gitea",
-			"package-type": "core",
-		},
-		"gitea-inline-config": {
 			"namespace":    "adhar-system",
 			"package-name": "gitea",
 			"package-type": "core",
@@ -552,6 +558,106 @@ func setPlatformHAMode(enableHA bool) {
 // getPlatformHAMode returns the current HA mode setting
 func getPlatformHAMode() bool {
 	return globalHAMode
+}
+
+// applyIngressManifests applies ingress manifests for platform components
+func applyIngressManifests() error {
+	// Wait for nginx admission webhook to be ready
+	if err := waitForNginxAdmissionWebhook(); err != nil {
+		return fmt.Errorf("failed to wait for nginx admission webhook: %w", err)
+	}
+
+	// Apply ArgoCD ingress with retry
+	if err := applyManifestsWithRetry("platform/controllers/adharplatform/resources/ingress/argocd-ingress.yaml", 3); err != nil {
+		return fmt.Errorf("failed to apply ArgoCD ingress: %w", err)
+	}
+	logger.Debugf("Applied ArgoCD ingress")
+
+	// Apply Gitea service (needed for proper ClusterIP)
+	if err := applyManifestsIfNotEmpty("platform/controllers/adharplatform/resources/ingress/gitea-service.yaml"); err != nil {
+		return fmt.Errorf("failed to apply Gitea service: %w", err)
+	}
+	logger.Debugf("Applied Gitea service")
+
+	// Apply Gitea ingress with retry
+	if err := applyManifestsWithRetry("platform/controllers/adharplatform/resources/ingress/gitea-ingress.yaml", 3); err != nil {
+		return fmt.Errorf("failed to apply Gitea ingress: %w", err)
+	}
+	logger.Debugf("Applied Gitea ingress")
+
+	// TODO: Add other component ingress manifests here when they're created
+	// Example: Crossplane UI, other services
+
+	return nil
+}
+
+// waitForNginxAdmissionWebhook waits for the nginx admission webhook to be ready
+func waitForNginxAdmissionWebhook() error {
+	logger.Debugf("Waiting for nginx admission webhook to be ready...")
+
+	timeout := 120 * time.Second
+	interval := 5 * time.Second
+	start := time.Now()
+
+	for time.Since(start) < timeout {
+		// Check if the nginx controller pod is ready
+		cmd := exec.Command("kubectl", "get", "pods", "-n", "adhar-system",
+			"-l", "app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller",
+			"-o", "jsonpath={.items[0].status.containerStatuses[0].ready}")
+		if output, err := cmd.Output(); err == nil && strings.TrimSpace(string(output)) == "true" {
+			logger.Debugf("Nginx controller pod is ready")
+
+			// Also check if the admission webhook jobs completed
+			jobCmd := exec.Command("kubectl", "get", "jobs", "-n", "adhar-system",
+				"-l", "app.kubernetes.io/name=ingress-nginx",
+				"-o", "jsonpath={.items[*].status.conditions[?(@.type=='Complete')].status}")
+			if jobOutput, jobErr := jobCmd.Output(); jobErr == nil {
+				completions := strings.Fields(string(jobOutput))
+				allComplete := true
+				for _, completion := range completions {
+					if completion != "True" {
+						allComplete = false
+						break
+					}
+				}
+				if allComplete && len(completions) > 0 {
+					logger.Debugf("Admission webhook jobs completed, giving extra time for webhook to be ready...")
+					// Give extra time for the webhook endpoint to be fully ready
+					time.Sleep(10 * time.Second)
+					return nil
+				}
+			}
+		}
+
+		logger.Debugf("Nginx admission webhook not ready yet, waiting...")
+		time.Sleep(interval)
+	}
+
+	return fmt.Errorf("nginx admission webhook did not become ready within %v", timeout)
+}
+
+// applyManifestsWithRetry applies manifests with retry logic for webhook readiness
+func applyManifestsWithRetry(manifestPath string, maxRetries int) error {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := applyManifestsIfNotEmpty(manifestPath)
+		if err == nil {
+			return nil
+		}
+
+		// Check if it's a webhook connection error
+		if strings.Contains(err.Error(), "connection refused") && strings.Contains(err.Error(), "admission") {
+			logger.Debugf("Admission webhook not ready (attempt %d/%d), waiting 15 seconds...", attempt, maxRetries)
+			if attempt < maxRetries {
+				time.Sleep(15 * time.Second)
+				continue
+			}
+		}
+
+		// For other errors or final attempt, return the error
+		return err
+	}
+
+	return fmt.Errorf("failed to apply manifests after %d attempts", maxRetries)
 }
 
 // createNamespaces creates the required namespaces for the platform

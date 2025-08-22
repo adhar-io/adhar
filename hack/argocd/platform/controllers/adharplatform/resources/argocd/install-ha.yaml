@@ -1191,7 +1191,7 @@ data:
   reposerver.log.format: text
   reposerver.log.level: info
   reposerver.parallelism.limit: "0"
-  server.basehref: /argocd
+  server.basehref: /
   server.dex.server: https://argo-cd-argocd-dex-server:5556
   server.dex.server.strict.tls: "false"
   server.disable.auth: "false"
@@ -1201,7 +1201,7 @@ data:
   server.log.format: text
   server.log.level: info
   server.repo.server.strict.tls: "false"
-  server.rootpath: /argocd
+  server.rootpath: ""
   server.staticassets: /shared/app
   server.x.frame.options: sameorigin
 ---
@@ -26413,7 +26413,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: bd16024dfbbbb8ee74ec42ab007c6d0c626c33e38bd24feb2ac4cb64530c60ea
+        checksum/cmd-params: 79b773bf0e08d856bd9dd6156a275e65289873a7242919a3cf534f9fef0ba65b
       labels:
         helm.sh/chart: argo-cd-8.3.0
         app.kubernetes.io/name: argocd-applicationset-controller
@@ -26824,7 +26824,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: bd16024dfbbbb8ee74ec42ab007c6d0c626c33e38bd24feb2ac4cb64530c60ea
+        checksum/cmd-params: 79b773bf0e08d856bd9dd6156a275e65289873a7242919a3cf534f9fef0ba65b
         checksum/cm: 1f06bb8ddeb44418482e0f6dc673b8c6696adb3f5d2397ab7f8deed1a8cd06eb
       labels:
         helm.sh/chart: argo-cd-8.3.0
@@ -27220,7 +27220,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: bd16024dfbbbb8ee74ec42ab007c6d0c626c33e38bd24feb2ac4cb64530c60ea
+        checksum/cmd-params: 79b773bf0e08d856bd9dd6156a275e65289873a7242919a3cf534f9fef0ba65b
         checksum/cm: 1f06bb8ddeb44418482e0f6dc673b8c6696adb3f5d2397ab7f8deed1a8cd06eb
       labels:
         helm.sh/chart: argo-cd-8.3.0
@@ -27683,7 +27683,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: bd16024dfbbbb8ee74ec42ab007c6d0c626c33e38bd24feb2ac4cb64530c60ea
+        checksum/cmd-params: 79b773bf0e08d856bd9dd6156a275e65289873a7242919a3cf534f9fef0ba65b
       labels:
         helm.sh/chart: argo-cd-8.3.0
         app.kubernetes.io/name: argocd-dex-server
@@ -28190,7 +28190,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: bd16024dfbbbb8ee74ec42ab007c6d0c626c33e38bd24feb2ac4cb64530c60ea
+        checksum/cmd-params: 79b773bf0e08d856bd9dd6156a275e65289873a7242919a3cf534f9fef0ba65b
         checksum/cm: 1f06bb8ddeb44418482e0f6dc673b8c6696adb3f5d2397ab7f8deed1a8cd06eb
       labels:
         helm.sh/chart: argo-cd-8.3.0
@@ -28557,6 +28557,36 @@ spec:
           - key: controller.profile.enabled
             path: profiler.enabled
       dnsPolicy: ClusterFirst
+---
+# Source: argo-cd/templates/argocd-server/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argo-cd-argocd-server
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: argo-cd-8.3.0
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/instance: argo-cd
+    app.kubernetes.io/component: server
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argocd
+    app.kubernetes.io/version: "v3.1.0"
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+spec:
+  rules:
+    - host: adhar.localtest.me
+      http:
+        paths:
+          - path: /argocd
+            pathType: Prefix
+            backend:
+              service:
+                name: argo-cd-argocd-server
+                port:
+                  number: 443
 ---
 # Source: argo-cd/templates/redis-secret-init/serviceaccount.yaml
 apiVersion: v1

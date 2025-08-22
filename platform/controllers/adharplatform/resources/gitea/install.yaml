@@ -139,7 +139,7 @@ metadata:
     helm.sh/chart: postgresql-16.4.14
 type: Opaque
 data:
-  postgres-password: "bk5zZVU3WTB0ZQ=="
+  postgres-password: "aWhHWUdBTlZSNw=="
   password: "Z2l0ZWE="
   # We don't auto-generate LDAP password when it's not provided as we do for other passwords
 ---
@@ -183,7 +183,7 @@ stringData:
     ENABLE_PPROF=false
     HTTP_PORT=3000
     PROTOCOL=http
-    ROOT_URL=http://git.example.com
+    ROOT_URL=https://adhar.localtest.me/gitea/
     SSH_DOMAIN=git.example.com
     SSH_LISTEN_PORT=2222
     SSH_PORT=22
@@ -3077,7 +3077,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: fe80bf011bba67f74200435817fa19130dd66c9dc3852835ef493a94bf6f00eb
+        checksum/config: 919fc00c295f7dc3473283ba939016f16c8c2af03fcd2788bc5c46411bb0ea63
       labels:
         helm.sh/chart: gitea-11.0.1
         app: gitea

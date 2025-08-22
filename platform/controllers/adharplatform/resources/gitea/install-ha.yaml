@@ -296,7 +296,7 @@ stringData:
     ENABLE_PPROF=false
     HTTP_PORT=3000
     PROTOCOL=http
-    ROOT_URL=http://git.example.com
+    ROOT_URL=https://adhar.localtest.me/gitea/
     SSH_DOMAIN=git.example.com
     SSH_LISTEN_PORT=2222
     SSH_PORT=22
@@ -3524,7 +3524,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 75343a884db94c77177c11522a7d1b9a3b2db72c3a05849edd2b8e8e0b44c1a9
+        checksum/config: 804ceb4ed8788d324bea0c7338834072f638752a6d11ad50593381c5c5d6bac0
       labels:
         helm.sh/chart: gitea-11.0.1
         app: gitea

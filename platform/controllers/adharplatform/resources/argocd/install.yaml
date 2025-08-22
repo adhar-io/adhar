@@ -289,7 +289,7 @@ data:
   reposerver.log.format: text
   reposerver.log.level: info
   reposerver.parallelism.limit: "0"
-  server.basehref: /
+  server.basehref: /argocd
   server.dex.server: https://argo-cd-argocd-dex-server:5556
   server.dex.server.strict.tls: "false"
   server.disable.auth: "false"
@@ -299,7 +299,7 @@ data:
   server.log.format: text
   server.log.level: info
   server.repo.server.strict.tls: "false"
-  server.rootpath: ""
+  server.rootpath: /argocd
   server.staticassets: /shared/app
   server.x.frame.options: sameorigin
 ---
@@ -25219,7 +25219,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: fe6235b3a30ab6fcbbe9f23a54000aeaeda0dec1a9e5de34464e97fe463dce59
+        checksum/cmd-params: 3e3d8b5d76238a7c002ed698e2faa6305613f5c9323706759c7252c7307187e2
       labels:
         helm.sh/chart: argo-cd-8.3.0
         app.kubernetes.io/name: argocd-applicationset-controller
@@ -25631,7 +25631,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: fe6235b3a30ab6fcbbe9f23a54000aeaeda0dec1a9e5de34464e97fe463dce59
+        checksum/cmd-params: 3e3d8b5d76238a7c002ed698e2faa6305613f5c9323706759c7252c7307187e2
         checksum/cm: 1f06bb8ddeb44418482e0f6dc673b8c6696adb3f5d2397ab7f8deed1a8cd06eb
       labels:
         helm.sh/chart: argo-cd-8.3.0
@@ -26028,7 +26028,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: fe6235b3a30ab6fcbbe9f23a54000aeaeda0dec1a9e5de34464e97fe463dce59
+        checksum/cmd-params: 3e3d8b5d76238a7c002ed698e2faa6305613f5c9323706759c7252c7307187e2
         checksum/cm: 1f06bb8ddeb44418482e0f6dc673b8c6696adb3f5d2397ab7f8deed1a8cd06eb
       labels:
         helm.sh/chart: argo-cd-8.3.0
@@ -26491,7 +26491,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: fe6235b3a30ab6fcbbe9f23a54000aeaeda0dec1a9e5de34464e97fe463dce59
+        checksum/cmd-params: 3e3d8b5d76238a7c002ed698e2faa6305613f5c9323706759c7252c7307187e2
       labels:
         helm.sh/chart: argo-cd-8.3.0
         app.kubernetes.io/name: argocd-dex-server
@@ -26732,7 +26732,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: fe6235b3a30ab6fcbbe9f23a54000aeaeda0dec1a9e5de34464e97fe463dce59
+        checksum/cmd-params: 3e3d8b5d76238a7c002ed698e2faa6305613f5c9323706759c7252c7307187e2
         checksum/cm: 1f06bb8ddeb44418482e0f6dc673b8c6696adb3f5d2397ab7f8deed1a8cd06eb
       labels:
         helm.sh/chart: argo-cd-8.3.0
