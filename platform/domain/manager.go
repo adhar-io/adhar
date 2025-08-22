@@ -58,6 +58,16 @@ func (m *Manager) SetupDomain(ctx context.Context, cluster *types.Cluster) error
 		return fmt.Errorf("failed to install ingress controller: %w", err)
 	}
 
+	// Configure CoreDNS for local resolution (Kind clusters)
+	if cluster.Provider == "kind" {
+		fmt.Printf("Configuring CoreDNS for local domain resolution...\n")
+		if err := m.setupCoreDNSForKind(ctx, domain); err != nil {
+			fmt.Printf("⚠️  Warning: Failed to configure CoreDNS: %v\n", err)
+		} else {
+			fmt.Printf("✓ CoreDNS configured for %s\n", domain)
+		}
+	}
+
 	// Store domain configuration in cluster
 	if err := m.storeClusterConfig(ctx, cluster, domain); err != nil {
 		return fmt.Errorf("failed to store cluster configuration: %w", err)
@@ -403,6 +413,60 @@ data:
 	}
 
 	fmt.Printf("✓ Stored domain configuration in cluster\n")
+	return nil
+}
+
+// setupCoreDNSForKind configures CoreDNS for local domain resolution in Kind clusters
+func (m *Manager) setupCoreDNSForKind(ctx context.Context, domain string) error {
+	// Get current CoreDNS ConfigMap
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "configmap", "coredns", "-n", "kube-system", "-o", "yaml")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to get CoreDNS ConfigMap: %w", err)
+	}
+
+	// Check if our custom configuration already exists
+	if strings.Contains(string(output), domain) {
+		fmt.Printf("CoreDNS already configured for %s\n", domain)
+		return nil
+	}
+
+	// Create custom CoreDNS configuration for local domain
+	coreDNSConfig := fmt.Sprintf(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  %s.server: |
+    %s:53 {
+        errors
+        cache 30
+        reload
+        loadbalance
+        rewrite name exact %s ingress-nginx-controller.ingress-nginx.svc.cluster.local
+        rewrite stop {
+            name regex (.*).%s ingress-nginx-controller.ingress-nginx.svc.cluster.local answer auto
+        }
+        forward . /etc/resolv.conf
+    }`, domain, domain, domain, domain)
+
+	// Apply the custom CoreDNS configuration
+	cmd = exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(coreDNSConfig)
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to apply CoreDNS configuration: %w\nOutput: %s", err, string(output))
+	}
+
+	// Restart CoreDNS to pick up the new configuration
+	cmd = exec.CommandContext(ctx, "kubectl", "rollout", "restart", "deployment/coredns", "-n", "kube-system")
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		// Don't fail if restart fails, just warn
+		fmt.Printf("⚠️  Warning: Failed to restart CoreDNS: %v\n", err)
+	}
+
 	return nil
 }
 

@@ -18,7 +18,7 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
+
 	"fmt"
 	"os"
 	"path/filepath"
@@ -828,6 +828,30 @@ func getClusterInfo(cmd *cobra.Command) {
 }
 
 // getSecrets retrieves and displays secrets from the cluster
+// Core package secrets mapping
+const (
+	argoCDAdminUsername          = "admin"
+	argoCDInitialAdminSecretName = "argocd-initial-admin-secret"
+	giteaAdminSecretName         = "gitea-credential"
+)
+
+// Well known secrets that are part of the core packages
+var corePkgSecrets = map[string][]string{
+	"argocd": {argoCDInitialAdminSecretName},
+	"gitea":  {"gitea", "gitea-inline-config"},
+}
+
+// SecretInfo represents a secret with its details
+type SecretInfo struct {
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	IsCore    bool              `json:"is_core"`
+	Username  string            `json:"username,omitempty"`
+	Password  string            `json:"password,omitempty"`
+	Token     string            `json:"token,omitempty"`
+	Data      map[string]string `json:"data,omitempty"`
+}
+
 func getSecrets(cmd *cobra.Command) {
 	fmt.Println(headerStyle.Render("Kubernetes Secrets"))
 
@@ -877,13 +901,11 @@ func getSpecificSecret(ctx context.Context, clientset *kubernetes.Clientset, sec
 	}
 
 	var foundSecret *corev1.Secret
-	var foundNamespace string
 
 	for _, ns := range namespaces {
 		secret, err := clientset.CoreV1().Secrets(ns).Get(ctx, secretName, metav1.GetOptions{})
 		if err == nil {
 			foundSecret = secret
-			foundNamespace = ns
 			break
 		}
 	}
@@ -893,295 +915,208 @@ func getSpecificSecret(ctx context.Context, clientset *kubernetes.Clientset, sec
 		return
 	}
 
-	displaySecret(foundSecret, foundNamespace)
+	// Display the found secret
+	secretInfo := populateSecret(*foundSecret, false)
+	displaySecrets([]SecretInfo{secretInfo})
 }
 
 // getProviderSecrets retrieves secrets for a specific provider
 func getProviderSecrets(ctx context.Context, clientset *kubernetes.Clientset, provider string) {
-	var secrets []secretInfo
-	var err error
+	secrets := []SecretInfo{}
 
-	switch strings.ToLower(provider) {
-	case "argocd":
-		secrets, err = getArgoCDSecrets(ctx, clientset)
-	case "gitea":
-		secrets, err = getGiteaSecrets(ctx, clientset)
-	case "nginx":
-		secrets, err = getNginxSecrets(ctx, clientset)
-	default:
-		fmt.Printf("%s Unknown provider: %s\n", errorStyle.Render("Error:"), provider)
-		fmt.Println("Supported providers: argocd, gitea, nginx")
-		return
-	}
-
-	if err != nil {
-		fmt.Printf("%s Failed to get %s secrets: %v\n", errorStyle.Render("Error:"), provider, err)
+	// Check if provider has core package secrets
+	if secretNames, ok := corePkgSecrets[provider]; ok {
+		for _, secretName := range secretNames {
+			secret, err := getCorePackageSecret(ctx, clientset, provider, secretName)
+			if err != nil {
+				if errors.IsNotFound(err) {
+					fmt.Printf("%s Secret '%s' not found for provider '%s'\n",
+						errorStyle.Render("Warning:"), secretName, provider)
+					continue
+				}
+				fmt.Printf("%s Error getting secret '%s' for provider '%s': %v\n",
+					errorStyle.Render("Error:"), secretName, provider, err)
+				continue
+			}
+			secrets = append(secrets, populateSecret(*secret, true))
+		}
+	} else {
+		fmt.Printf("%s Unknown provider '%s'. Available providers: %v\n",
+			errorStyle.Render("Error:"), provider, getAvailableProviders())
 		return
 	}
 
 	if len(secrets) == 0 {
-		fmt.Printf("No %s secrets found\n", provider)
+		fmt.Printf("No secrets found for provider '%s'\n", provider)
 		return
 	}
 
-	fmt.Printf("%s Secrets:\n", titleStyle.Render(strings.Title(provider)))
-	for _, secret := range secrets {
-		fmt.Printf("\n%s: %s (Namespace: %s)\n", getBoldStyle.Render("Secret"), secret.Name, secret.Namespace)
-		for key, value := range secret.Data {
-			fmt.Printf("  %s: %s\n", key, value)
+	displaySecrets(secrets)
+}
+
+// Helper functions for the secrets implementation
+
+// getCorePackageSecret retrieves a core package secret from the appropriate namespace
+func getCorePackageSecret(ctx context.Context, clientset *kubernetes.Clientset, packageName, secretName string) (*corev1.Secret, error) {
+	// Map package names to their namespaces
+	namespaceMap := map[string]string{
+		"argocd": "adhar-system",
+		"gitea":  "adhar-system",
+	}
+
+	namespace, ok := namespaceMap[packageName]
+	if !ok {
+		namespace = "adhar-system" // default namespace
+	}
+
+	secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Add username for ArgoCD admin secret
+	if secretName == argoCDInitialAdminSecretName && secret.Data != nil {
+		if secret.Data == nil {
+			secret.Data = make(map[string][]byte)
+		}
+		secret.Data["username"] = []byte(argoCDAdminUsername)
+	}
+
+	return secret, nil
+}
+
+// populateSecret converts a Kubernetes secret to SecretInfo
+func populateSecret(secret corev1.Secret, isCoreSecret bool) SecretInfo {
+	secretInfo := SecretInfo{
+		Name:      secret.Name,
+		Namespace: secret.Namespace,
+		IsCore:    isCoreSecret,
+	}
+
+	if isCoreSecret {
+		if secret.Data != nil {
+			if username, ok := secret.Data["username"]; ok {
+				secretInfo.Username = string(username)
+			}
+			if password, ok := secret.Data["password"]; ok {
+				secretInfo.Password = string(password)
+			}
+			if token, ok := secret.Data["token"]; ok {
+				secretInfo.Token = string(token)
+			}
+		}
+	} else {
+		if secret.Data != nil {
+			secretInfo.Data = make(map[string]string)
+			for key, value := range secret.Data {
+				secretInfo.Data[key] = string(value)
+			}
 		}
 	}
 
-	// Add helpful usage information
-	fmt.Printf("\n%s\n", infoStyle.Render("Usage Tips:"))
-	switch strings.ToLower(provider) {
-	case "argocd":
-		fmt.Printf("  • Access ArgoCD at: https://argocd.adhar.localtest.me:8443\n")
-		fmt.Printf("  • Username: admin\n")
-		fmt.Printf("  • Use the admin-password from above\n")
-	case "gitea":
-		fmt.Printf("  • Access Gitea at: https://gitea.adhar.localtest.me:8443\n")
-		fmt.Printf("  • Use the admin credentials from above\n")
-	case "nginx":
-		fmt.Printf("  • These are TLS certificates for Ingress\n")
-		fmt.Printf("  • Used for HTTPS termination\n")
+	return secretInfo
+}
+
+// getAvailableProviders returns list of available providers
+func getAvailableProviders() []string {
+	providers := make([]string, 0, len(corePkgSecrets))
+	for provider := range corePkgSecrets {
+		providers = append(providers, provider)
+	}
+	return providers
+}
+
+// displaySecrets displays a list of secrets with nice formatting
+func displaySecrets(secrets []SecretInfo) {
+	for _, secret := range secrets {
+		fmt.Printf("\n%s %s\n", getBoldStyle.Render("Secret:"), secret.Name)
+		fmt.Printf("  %s %s\n", getListItemStyle.Render("Namespace:"), secret.Namespace)
+
+		if secret.IsCore {
+			if secret.Username != "" {
+				fmt.Printf("  %s %s\n", getListItemStyle.Render("Username:"), secret.Username)
+			}
+			if secret.Password != "" {
+				fmt.Printf("  %s %s\n", getListItemStyle.Render("Password:"), secret.Password)
+			}
+			if secret.Token != "" {
+				fmt.Printf("  %s %s\n", getListItemStyle.Render("Token:"), secret.Token)
+			}
+		} else if secret.Data != nil {
+			fmt.Printf("  %s\n", getListItemStyle.Render("Data:"))
+			for key, value := range secret.Data {
+				// Truncate long values for display
+				displayValue := value
+				if len(value) > 50 {
+					displayValue = value[:47] + "..."
+				}
+				fmt.Printf("    %s: %s\n", key, displayValue)
+			}
+		}
 	}
 }
 
-// listAllSecrets lists all secrets in the cluster
+// listAllSecrets lists all core and labeled secrets in the cluster
 func listAllSecrets(ctx context.Context, clientset *kubernetes.Clientset) {
-	// Get secrets from common namespaces
-	namespaces := []string{"default", "adhar-system", "argocd", "gitea", "nginx-system"}
-	if allNamespaces {
-		// Get all namespaces
-		nsList, err := clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
-		if err != nil {
-			fmt.Printf("%s Failed to list namespaces: %v\n", errorStyle.Render("Error:"), err)
-			return
-		}
-		namespaces = []string{}
-		for _, ns := range nsList.Items {
-			namespaces = append(namespaces, ns.Name)
-		}
-	} else if namespace != "" {
-		namespaces = []string{namespace}
-	}
+	secrets := []SecretInfo{}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tTYPE\tDATA\tAGE")
-
-	for _, ns := range namespaces {
-		secrets, err := clientset.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			continue // Skip namespaces we can't access
-		}
-
-		for _, secret := range secrets.Items {
-			// Skip service account tokens unless specifically requested
-			if secret.Type == corev1.SecretTypeServiceAccountToken && secretProvider == "" {
+	// Get all core package secrets (known secrets)
+	for provider, secretNames := range corePkgSecrets {
+		for _, secretName := range secretNames {
+			secret, err := getCorePackageSecret(ctx, clientset, provider, secretName)
+			if err != nil {
+				if errors.IsNotFound(err) {
+					continue // Skip missing secrets
+				}
+				fmt.Printf("%s Error getting secret '%s' for provider '%s': %v\n",
+					errorStyle.Render("Warning:"), secretName, provider, err)
 				continue
 			}
-
-			age := "unknown"
-			if !secret.CreationTimestamp.Time.IsZero() {
-				age = duration.HumanDuration(time.Since(secret.CreationTimestamp.Time))
-			}
-
-			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
-				secret.Namespace,
-				secret.Name,
-				secret.Type,
-				len(secret.Data),
-				age)
-		}
-	}
-	w.Flush()
-}
-
-// secretInfo holds secret information for display
-type secretInfo struct {
-	Name      string
-	Namespace string
-	Data      map[string]string
-}
-
-// getArgoCDSecrets retrieves ArgoCD-related secrets
-func getArgoCDSecrets(ctx context.Context, clientset *kubernetes.Clientset) ([]secretInfo, error) {
-	var secrets []secretInfo
-
-	// Common ArgoCD namespaces
-	namespaces := []string{"argocd", "adhar-system"}
-
-	for _, ns := range namespaces {
-		// Get ArgoCD initial admin secret
-		secret, err := clientset.CoreV1().Secrets(ns).Get(ctx, "argocd-initial-admin-secret", metav1.GetOptions{})
-		if err == nil {
-			data := make(map[string]string)
-			if password, ok := secret.Data["password"]; ok {
-				data["admin-password"] = string(password)
-			}
-			secrets = append(secrets, secretInfo{
-				Name:      secret.Name,
-				Namespace: secret.Namespace,
-				Data:      data,
-			})
-		}
-
-		// Get ArgoCD server TLS secret
-		secret, err = clientset.CoreV1().Secrets(ns).Get(ctx, "argocd-server-tls", metav1.GetOptions{})
-		if err == nil {
-			data := make(map[string]string)
-			if cert, ok := secret.Data["tls.crt"]; ok {
-				data["tls-certificate"] = "*** CERTIFICATE DATA ***"
-				_ = cert // Use cert to avoid unused variable
-			}
-			if key, ok := secret.Data["tls.key"]; ok {
-				data["tls-private-key"] = "*** PRIVATE KEY DATA ***"
-				_ = key // Use key to avoid unused variable
-			}
-			secrets = append(secrets, secretInfo{
-				Name:      secret.Name,
-				Namespace: secret.Namespace,
-				Data:      data,
-			})
+			secrets = append(secrets, populateSecret(*secret, true))
 		}
 	}
 
-	return secrets, nil
-}
-
-// getGiteaSecrets retrieves Gitea-related secrets
-func getGiteaSecrets(ctx context.Context, clientset *kubernetes.Clientset) ([]secretInfo, error) {
-	var secrets []secretInfo
-
-	// Common Gitea namespaces
-	namespaces := []string{"gitea", "adhar-system"}
-
-	for _, ns := range namespaces {
-		// Get Gitea admin secret
-		secret, err := clientset.CoreV1().Secrets(ns).Get(ctx, "gitea-admin-secret", metav1.GetOptions{})
-		if err == nil {
-			data := make(map[string]string)
-			if username, ok := secret.Data["username"]; ok {
-				data["admin-username"] = string(username)
-			}
-			if password, ok := secret.Data["password"]; ok {
-				data["admin-password"] = string(password)
-			}
-			secrets = append(secrets, secretInfo{
-				Name:      secret.Name,
-				Namespace: secret.Namespace,
-				Data:      data,
-			})
-		}
-
-		// Get Gitea database secret
-		secret, err = clientset.CoreV1().Secrets(ns).Get(ctx, "gitea-db-secret", metav1.GetOptions{})
-		if err == nil {
-			data := make(map[string]string)
-			if password, ok := secret.Data["password"]; ok {
-				data["database-password"] = string(password)
-			}
-			secrets = append(secrets, secretInfo{
-				Name:      secret.Name,
-				Namespace: secret.Namespace,
-				Data:      data,
-			})
-		}
-	}
-
-	return secrets, nil
-}
-
-// getNginxSecrets retrieves Nginx-related secrets
-func getNginxSecrets(ctx context.Context, clientset *kubernetes.Clientset) ([]secretInfo, error) {
-	var secrets []secretInfo
-
-	// Common Nginx namespaces
-	namespaces := []string{"nginx-system", "ingress-nginx", "adhar-system"}
-
-	for _, ns := range namespaces {
-		// Get Nginx TLS secrets
-		secretList, err := clientset.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{
-			LabelSelector: "app.kubernetes.io/name=ingress-nginx",
-		})
-		if err == nil {
-			for _, secret := range secretList.Items {
-				if secret.Type == corev1.SecretTypeTLS {
-					data := make(map[string]string)
-					if cert, ok := secret.Data["tls.crt"]; ok {
-						data["tls-certificate"] = "*** CERTIFICATE DATA ***"
-						_ = cert
-					}
-					if key, ok := secret.Data["tls.key"]; ok {
-						data["tls-private-key"] = "*** PRIVATE KEY DATA ***"
-						_ = key
-					}
-					secrets = append(secrets, secretInfo{
-						Name:      secret.Name,
-						Namespace: secret.Namespace,
-						Data:      data,
-					})
+	// Also get secrets with Adhar labels
+	labeledSecrets, err := getSecretsByAdharLabel(ctx, clientset)
+	if err != nil {
+		fmt.Printf("%s Error getting labeled secrets: %v\n", errorStyle.Render("Warning:"), err)
+	} else {
+		for _, secret := range labeledSecrets.Items {
+			// Avoid duplicates by checking if we already have this secret
+			found := false
+			for _, existingSecret := range secrets {
+				if existingSecret.Name == secret.Name && existingSecret.Namespace == secret.Namespace {
+					found = true
+					break
 				}
 			}
-		}
-	}
-
-	return secrets, nil
-}
-
-// displaySecret displays a single secret with formatted output
-func displaySecret(secret *corev1.Secret, namespace string) {
-	fmt.Printf("%s: %s\n", getBoldStyle.Render("Name"), secret.Name)
-	fmt.Printf("%s: %s\n", getBoldStyle.Render("Namespace"), namespace)
-	fmt.Printf("%s: %s\n", getBoldStyle.Render("Type"), secret.Type)
-
-	age := "unknown"
-	if !secret.CreationTimestamp.Time.IsZero() {
-		age = duration.HumanDuration(time.Since(secret.CreationTimestamp.Time))
-	}
-	fmt.Printf("%s: %s\n", getBoldStyle.Render("Age"), age)
-
-	if len(secret.Data) > 0 {
-		fmt.Printf("\n%s:\n", getBoldStyle.Render("Data"))
-		for key, value := range secret.Data {
-			// For sensitive data, show only if it's clearly a password or token
-			if strings.Contains(strings.ToLower(key), "password") ||
-				strings.Contains(strings.ToLower(key), "token") ||
-				strings.Contains(strings.ToLower(key), "key") {
-				// Decode base64 if it's text data
-				if decoded, err := base64.StdEncoding.DecodeString(string(value)); err == nil {
-					// Check if it's printable text
-					if isPrintableText(decoded) {
-						fmt.Printf("  %s: %s\n", key, string(decoded))
-					} else {
-						fmt.Printf("  %s: *** BINARY DATA ***\n", key)
-					}
-				} else {
-					fmt.Printf("  %s: %s\n", key, string(value))
+			if !found {
+				isCore := false
+				if packageName, ok := secret.Labels["adhar.io/package-name"]; ok {
+					_, isCore = corePkgSecrets[packageName]
 				}
-			} else {
-				fmt.Printf("  %s: *** DATA ***\n", key)
+				secrets = append(secrets, populateSecret(secret, isCore))
 			}
 		}
 	}
 
-	if len(secret.StringData) > 0 {
-		fmt.Printf("\n%s:\n", getBoldStyle.Render("String Data"))
-		for key, value := range secret.StringData {
-			fmt.Printf("  %s: %s\n", key, value)
-		}
+	if len(secrets) == 0 {
+		fmt.Printf("No secrets found\n")
+		return
 	}
+
+	fmt.Printf("Found %d secrets:\n", len(secrets))
+	displaySecrets(secrets)
 }
 
-// isPrintableText checks if data contains printable text
-func isPrintableText(data []byte) bool {
-	for _, b := range data {
-		if b < 32 || b > 126 {
-			if b != '\n' && b != '\r' && b != '\t' {
-				return false
-			}
-		}
-	}
-	return true
+// getSecretsByAdharLabel gets secrets with Adhar labels
+func getSecretsByAdharLabel(ctx context.Context, clientset *kubernetes.Clientset) (*corev1.SecretList, error) {
+	// Look for secrets with the adhar.io/cli-secret=true label
+	labelSelector := "adhar.io/cli-secret=true"
+
+	secrets, err := clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+
+	return secrets, err
 }

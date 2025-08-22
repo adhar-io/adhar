@@ -5,8 +5,9 @@ import (
 	"embed"
 	"fmt"
 
-	"github.com/adhar-io/adhar/api/v1alpha1"
-	"github.com/adhar-io/adhar/pkg/k8s"
+	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/platform/k8s"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

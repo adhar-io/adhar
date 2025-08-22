@@ -143,7 +143,7 @@ func (pm *providerManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	logger.Infof("Cluster created successfully - ID: %s, Status: %s", cluster.ID, cluster.Status)
 
 	// Apply platform stack manifests for all providers
-	if err := applyPlatformStack(); err != nil {
+	if err := applyPlatformStack(envConfig); err != nil {
 		return fmt.Errorf("failed to apply platform stack: %w", err)
 	}
 
@@ -190,7 +190,7 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*ptypes.Clus
 	}
 
 	// Configure node groups
-	workerReplicas := 2
+	workerReplicas := 0 // Single-node cluster for local development
 	if isProduction {
 		workerReplicas = 3 // More workers for production
 	}
@@ -300,22 +300,35 @@ func buildCredentials(envConfig *config.ResolvedEnvironmentConfig) *ptypes.Crede
 }
 
 // applyPlatformStack applies the core platform components in the correct order with progress tracking
-func applyPlatformStack() error {
+func applyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
+	// Set HA mode for manifest selection
+	enableHA := false
+	if envConfig != nil && envConfig.GlobalSettings != nil {
+		enableHA = envConfig.GlobalSettings.EnableHAMode
+	}
+	setPlatformHAMode(enableHA)
+
+	logger.Debugf("Platform HA mode: %t", enableHA)
+
 	// Create progress tracker with detailed step descriptions
 	stepNames := []string{
 		"Install Platform CRDs",
 		"Create Required Namespaces",
 		"Install ArgoCD",
-		"Wait for ArgoCD Ready",
-		"Apply ApplicationSets",
+		"Install Gitea",
+		"Install Crossplane",
+		"Install Nginx Ingress",
+		"Label Core Secrets",
 	}
 
 	stepDescriptions := []string{
 		"Installing Custom Resource Definitions for platform components",
-		"Creating adhar-system and argocd namespaces",
-		"Installing ArgoCD GitOps controller and components",
-		"Waiting for ArgoCD ApplicationSet controller to be ready",
-		"Applying platform ApplicationSets and templates",
+		"Creating adhar-system namespace",
+		"Installing ArgoCD GitOps controller from platform resources",
+		"Installing Gitea Git server from platform resources",
+		"Installing Crossplane infrastructure provider from platform resources",
+		"Installing Nginx Ingress controller from platform resources",
+		"Adding Adhar labels to core secrets for CLI discovery",
 	}
 
 	progress := helpers.NewProgressTrackerWithDetails("Setting up Adhar Platform", stepNames, stepDescriptions)
@@ -342,44 +355,110 @@ func applyPlatformStack() error {
 	progress.CompleteStep(1)
 	time.Sleep(800 * time.Millisecond)
 
-	// Step 3: Install ArgoCD
+	// Step 3: Install ArgoCD from platform resources
 	progress.StartStep(2, "")
-	if err := applyManifests("platform/controllers/adharplatform/resources/argocd/install.yaml"); err != nil {
+	if err := applyPlatformManifest("argocd"); err != nil {
 		progress.FailStep(2, err)
 		return fmt.Errorf("failed to install ArgoCD: %w", err)
 	}
 	progress.CompleteStep(2)
 	time.Sleep(800 * time.Millisecond)
 
-	// Step 4: Wait for ArgoCD to be ready
+	// Step 4: Install Gitea from platform resources
 	progress.StartStep(3, "")
-	if err := waitForArgoCD(); err != nil {
+	if err := applyPlatformManifest("gitea"); err != nil {
+		progress.FailStep(3, err)
+		return fmt.Errorf("failed to install Gitea: %w", err)
+	}
+	progress.CompleteStep(3)
+	time.Sleep(800 * time.Millisecond)
+
+	// Step 5: Install Crossplane from platform resources
+	progress.StartStep(4, "")
+	if err := applyPlatformManifest("crossplane"); err != nil {
+		progress.FailStep(4, err)
+		return fmt.Errorf("failed to install Crossplane: %w", err)
+	}
+	progress.CompleteStep(4)
+	time.Sleep(800 * time.Millisecond)
+
+	// Step 6: Install Nginx Ingress from platform resources
+	progress.StartStep(5, "")
+	if err := applyPlatformManifest("nginx"); err != nil {
+		progress.FailStep(5, err)
+		return fmt.Errorf("failed to install Nginx Ingress: %w", err)
+	}
+	progress.CompleteStep(5)
+	time.Sleep(800 * time.Millisecond)
+
+	// Step 7: Label core secrets for CLI discovery
+	progress.StartStep(6, "")
+	if err := labelCoreSecrets(); err != nil {
 		// Don't fail completely, just warn and skip
-		progress.SkipStep(3, "ArgoCD not fully ready, continuing anyway")
-		logger.Warnf("ArgoCD readiness check failed, continuing anyway: %v", err)
+		progress.SkipStep(6, "Failed to label secrets, continuing anyway")
+		logger.Warnf("Secret labeling failed, continuing anyway: %v", err)
 	} else {
-		progress.CompleteStep(3)
+		progress.CompleteStep(6)
 	}
 	time.Sleep(800 * time.Millisecond)
 
-	// Step 5: Apply platform stack manifests
-	progress.StartStep(4, "")
-	manifests := []string{
-		"platform/stack/adhar-appset-charts.yaml",
-		"platform/stack/adhar-appset-manifests.yaml",
-		"platform/stack/adhar-templates.yaml",
-	}
-
-	for _, manifest := range manifests {
-		if err := applyManifests(manifest); err != nil {
-			progress.FailStep(4, err)
-			return fmt.Errorf("failed to apply platform stack: %w", err)
-		}
-	}
-	progress.CompleteStep(4)
-
 	// Complete the progress tracker
 	progress.Complete()
+
+	return nil
+}
+
+// labelCoreSecrets adds proper labels to core secrets for CLI discovery
+func labelCoreSecrets() error {
+	// Core secrets mapping with their namespaces
+	coreSecrets := map[string]map[string]string{
+		"argocd-initial-admin-secret": {
+			"namespace":    "adhar-system",
+			"package-name": "argocd",
+			"package-type": "core",
+		},
+		"gitea": {
+			"namespace":    "adhar-system",
+			"package-name": "gitea",
+			"package-type": "core",
+		},
+		"gitea-inline-config": {
+			"namespace":    "adhar-system",
+			"package-name": "gitea",
+			"package-type": "core",
+		},
+	}
+
+	for secretName, config := range coreSecrets {
+		// Check if secret exists before labeling
+		checkCmd := exec.Command("kubectl", "get", "secret", secretName, "-n", config["namespace"], "-o", "name")
+		if err := checkCmd.Run(); err != nil {
+			// Secret doesn't exist, skip it
+			logger.Debugf("Secret %s/%s not found, skipping labeling", config["namespace"], secretName)
+			continue
+		}
+
+		// Apply labels to the secret
+		labels := map[string]string{
+			"adhar.io/cli-secret":   "true",
+			"adhar.io/package-name": config["package-name"],
+			"adhar.io/package-type": config["package-type"],
+		}
+
+		var labelArgs []string
+		labelArgs = append(labelArgs, "label", "secret", secretName, "-n", config["namespace"], "--overwrite")
+		for key, value := range labels {
+			labelArgs = append(labelArgs, fmt.Sprintf("%s=%s", key, value))
+		}
+
+		cmd := exec.Command("kubectl", labelArgs...)
+		if err := cmd.Run(); err != nil {
+			logger.Warnf("Failed to label secret %s/%s: %v", config["namespace"], secretName, err)
+			continue
+		}
+
+		logger.Debugf("Successfully labeled secret %s/%s", config["namespace"], secretName)
+	}
 
 	return nil
 }
@@ -399,6 +478,80 @@ func applyManifests(path string) error {
 		return fmt.Errorf("kubectl apply failed for %s: %v\n%s", path, err, string(out))
 	}
 	return nil
+}
+
+// applyManifestsIfNotEmpty applies manifests only if the file is not empty
+func applyManifestsIfNotEmpty(path string) error {
+	// Check if file exists and is not empty
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to check file %s: %w", path, err)
+	}
+
+	if fileInfo.Size() == 0 {
+		logger.Debugf("Skipping empty manifest file: %s", path)
+		return nil
+	}
+
+	return applyManifests(path)
+}
+
+// applyPlatformManifest intelligently chooses between regular and HA manifests based on config
+func applyPlatformManifest(component string) error {
+	basePath := fmt.Sprintf("platform/controllers/adharplatform/resources/%s", component)
+
+	// Determine if HA mode is enabled
+	useHAMode := getPlatformHAMode()
+
+	var manifestPath string
+
+	if useHAMode {
+		// Try HA manifest first
+		haPath := fmt.Sprintf("%s/install-ha.yaml", basePath)
+		if fileExists(haPath) && !isFileEmpty(haPath) {
+			manifestPath = haPath
+			logger.Debugf("Using HA manifest for %s: %s", component, manifestPath)
+		} else {
+			// Fall back to regular manifest
+			manifestPath = fmt.Sprintf("%s/install.yaml", basePath)
+			logger.Debugf("HA manifest not available for %s, using regular manifest: %s", component, manifestPath)
+		}
+	} else {
+		// Use regular manifest for non-HA mode
+		manifestPath = fmt.Sprintf("%s/install.yaml", basePath)
+		logger.Debugf("Using non-HA manifest for %s: %s", component, manifestPath)
+	}
+
+	// Apply the chosen manifest
+	return applyManifestsIfNotEmpty(manifestPath)
+}
+
+// fileExists checks if a file exists
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// isFileEmpty checks if a file is empty
+func isFileEmpty(path string) bool {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return true
+	}
+	return fileInfo.Size() == 0
+}
+
+// Global variable to store HA mode setting (will be set by applyPlatformStack)
+var globalHAMode bool
+
+// setPlatformHAMode sets the global HA mode for manifest selection
+func setPlatformHAMode(enableHA bool) {
+	globalHAMode = enableHA
+}
+
+// getPlatformHAMode returns the current HA mode setting
+func getPlatformHAMode() bool {
+	return globalHAMode
 }
 
 // createNamespaces creates the required namespaces for the platform
@@ -531,7 +684,7 @@ func init() {
 	// cluster related flags
 	upCmd.PersistentFlags().BoolVar(&recreateCluster, "recreate", false, recreateClusterUsage)
 	upCmd.PersistentFlags().BoolVar(&devPassword, "dev-password", false, devPasswordUsage)
-	upCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.33.1", kubeVersionUsage)
+	upCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.33.2", kubeVersionUsage)
 	upCmd.PersistentFlags().StringVar(&extraPortsMapping, "extra-ports", "", extraPortsMappingUsage)
 	upCmd.PersistentFlags().StringVar(&kindConfigPath, "kind-config", "", kindConfigPathUsage)
 	upCmd.PersistentFlags().StringSliceVar(&registryConfig, "registry-config", []string{}, registryConfigUsage)
@@ -1104,7 +1257,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 	// Create environment config for Kind provider with CLI flags that uses template mode
 	var clusterConfig []config.KeyValueConfig
 
-	if kubeVersion != "" && kubeVersion != "v1.33.1" {
+	if kubeVersion != "" {
 		clusterConfig = append(clusterConfig, config.KeyValueConfig{
 			Key:   "kubeVersion",
 			Value: kubeVersion,

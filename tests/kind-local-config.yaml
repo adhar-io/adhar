@@ -17,18 +17,18 @@ environments:
     type: development
     provider: kind
     region: local
-    
+
     # Kind-specific cluster configuration
     clusterConfig:
       - key: name
         value: adhar-local
       - key: kubeVersion
-        value: v1.33.1
+        value: v1.33.2
       - key: nodeCount
         value: "1"
       - key: extraPorts
         value: "80:30080,443:30443,8080:30808"
-    
+
     # Core services for local development
     coreServices:
       cilium:
@@ -44,8 +44,8 @@ environments:
           - key: kubeProxyReplacement
             value: strict
           - key: hubble.enabled
-            value: false  # Disable for local development to save resources
-      
+            value: false # Disable for local development to save resources
+
       nginx:
         chart:
           repository: https://kubernetes.github.io/ingress-nginx
@@ -58,7 +58,7 @@ environments:
             value: 30080
           - key: controller.service.nodePorts.https
             value: 30443
-      
+
       gitea:
         chart:
           repository: https://dl.gitea.com/charts/
@@ -73,7 +73,7 @@ environments:
             value: developer
           - key: gitea.admin.password
             value: developer
-      
+
       argocd:
         chart:
           repository: https://argoproj.github.io/argo-helm

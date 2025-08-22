@@ -208,7 +208,12 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	}()
 
 	// Step 1: Create the actual Kind cluster
-	progress.StartStep(0, fmt.Sprintf("Creating Kubernetes cluster '%s' with %d nodes...", spec.Name, len(kindConfig["nodes"].([]map[string]interface{}))))
+	// Calculate total nodes (control plane + workers)
+	totalNodes := spec.ControlPlane.Replicas
+	for _, nodeGroup := range spec.NodeGroups {
+		totalNodes += nodeGroup.Replicas
+	}
+	progress.StartStep(0, fmt.Sprintf("Creating Kubernetes cluster '%s' with %d node(s)...", spec.Name, totalNodes))
 
 	// Build the command args
 	args := []string{"create", "cluster", "--name", spec.Name}
@@ -218,12 +223,13 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		args = append(args, "--image", fmt.Sprintf("kindest/node:%s", spec.Version))
 	}
 
-	// Add wait time
-	args = append(args, "--wait", "300s")
+	// Add wait time (reduced for faster feedback)
+	args = append(args, "--wait", "120s")
 
 	// Add config file if we have custom node configuration
 	nodes := kindConfig["nodes"].([]map[string]interface{})
-	if len(nodes) > 1 || (len(nodes) == 1 && len(nodes[0]) > 1) {
+	// For single-node clusters, skip config file to avoid port mapping issues
+	if len(nodes) > 1 {
 		args = append(args, "--config", configFile)
 	}
 
@@ -623,12 +629,12 @@ func (p *Provider) installCilium(ctx context.Context, clusterName string) error 
 		return fmt.Errorf("failed to install Cilium: %w\nOutput: %s", err, string(output))
 	}
 
-	// Wait for Cilium to be ready
-	cmd = exec.CommandContext(ctx, "cilium", "status", "--wait")
+	// Wait for Cilium to be ready (with timeout)
+	cmd = exec.CommandContext(ctx, "cilium", "status", "--wait", "--wait-duration=300s")
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		// Don't fail if status check fails, just warn
-		return fmt.Errorf("could not verify Cilium status: %v\nOutput: %s", err, string(output))
+		fmt.Printf("⚠️  Could not verify Cilium status, but continuing: %v\n", err)
 	}
 
 	return nil
@@ -636,8 +642,8 @@ func (p *Provider) installCilium(ctx context.Context, clusterName string) error 
 
 // installCiliumWithKubectl installs Cilium using kubectl when cilium CLI is not available
 func (p *Provider) installCiliumWithKubectl(ctx context.Context, clusterName string) error {
-	// Use the official Cilium YAML manifest
-	ciliumURL := "https://raw.githubusercontent.com/cilium/cilium/v1.14.5/install/kubernetes/quick-install.yaml"
+	// Use the official Cilium YAML manifest (updated for k8s 1.33+ compatibility)
+	ciliumURL := "https://raw.githubusercontent.com/cilium/cilium/v1.16.0/install/kubernetes/quick-install.yaml"
 
 	cmd := exec.CommandContext(ctx, p.config.KubectlPath, "apply", "-f", ciliumURL)
 	output, err := cmd.CombinedOutput()
@@ -650,7 +656,7 @@ func (p *Provider) installCiliumWithKubectl(ctx context.Context, clusterName str
 		"--namespace", "kube-system",
 		"--for=condition=ready", "pod",
 		"--selector=k8s-app=cilium",
-		"--timeout=300s")
+		"--timeout=180s")
 
 	output, err = cmd.CombinedOutput()
 	if err != nil {

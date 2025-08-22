@@ -14,9 +14,10 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/adhar-io/adhar/api/v1alpha1"
-	"github.com/adhar-io/adhar/globals"
-	"github.com/adhar-io/adhar/pkg/k8s"
+	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/k8s"
+
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -183,11 +184,11 @@ func createSelfSignedCertificate(sans []string) ([]byte, []byte, error) {
 }
 
 func setupSelfSignedCertificate(ctx context.Context, logger logr.Logger, kubeclient client.Client, config v1alpha1.BuildCustomizationSpec) ([]byte, error) {
-	if err := k8s.EnsureNamespace(ctx, kubeclient, globals.NginxNamespace); err != nil {
+	if err := k8s.EnsureNamespace(ctx, kubeclient, "ingress-nginx"); err != nil {
 		return nil, err
 	}
 
-	if err := k8s.EnsureNamespace(ctx, kubeclient, globals.ArgoCDNamespace); err != nil {
+	if err := k8s.EnsureNamespace(ctx, kubeclient, globals.AdharSystemNamespace); err != nil {
 		return nil, err
 	}
 
@@ -206,7 +207,7 @@ func setupSelfSignedCertificate(ctx context.Context, logger logr.Logger, kubecli
 	}
 
 	logger.V(1).Info("Creating/getting certificate", "host", config.Host, "sans", sans)
-	cert, privateKey, err := getOrCreateIngressCertificateAndKey(ctx, kubeclient, globals.SelfSignedCertSecretName, globals.NginxNamespace, sans)
+	cert, privateKey, err := getOrCreateIngressCertificateAndKey(ctx, kubeclient, globals.SelfSignedCertSecretName, "ingress-nginx", sans)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +219,7 @@ func setupSelfSignedCertificate(ctx context.Context, logger logr.Logger, kubecli
 	}
 
 	logger.V(1).Info("Creating secret for ArgoCD server", "host", config.Host)
-	err = createCertificateAndKeySecret(ctx, kubeclient, argocdTLSSecretName, globals.ArgoCDNamespace, cert, privateKey)
+	err = createCertificateAndKeySecret(ctx, kubeclient, argocdTLSSecretName, globals.AdharSystemNamespace, cert, privateKey)
 	if err != nil {
 		return nil, err
 	}

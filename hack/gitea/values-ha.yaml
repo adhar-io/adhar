@@ -273,7 +273,7 @@ persistence:
   claimName: gitea-shared-storage
   size: 10Gi
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   labels: {}
   storageClass:
   subPath:
