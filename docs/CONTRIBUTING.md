@@ -151,7 +151,7 @@ The content of the repositories can either be sourced from Embedded file system 
 
 #### CustomPackageReconciler
 
-`CustomPackageReconciler` parses the specified ArgoCD application files. If they specify repository URL with the scheme `adhar://`,
+`CustomPackageReconciler` parses the specified ArgoCD application files. If they specify repository URL with a custom scheme,
 it creates `GitRepository` CR with source specified as local, then creates ArgoCD application with the repository URL replaced.
 
 For example, if an ArgoCD application is specified as the following.
@@ -161,7 +161,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 spec:
   source:
-    repoURL: adhar://busybox
+    repoURL: http://gitea.example.com/user/busybox
 ```
 
 Then, the actual object created is this.

@@ -17,9 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -323,6 +328,9 @@ func applyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
 		"Install Nginx Ingress",
 		"Install Ingress Resources",
 		"Label Core Secrets",
+		"Wait for ArgoCD Ready",
+		"Apply Platform Stack",
+		"Setup GitOps Repositories",
 	}
 
 	stepDescriptions := []string{
@@ -334,6 +342,9 @@ func applyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
 		"Installing Nginx Ingress controller from platform resources",
 		"Installing ingress resources for platform components",
 		"Adding Adhar labels to core secrets for CLI discovery",
+		"Waiting for ArgoCD components to be ready",
+		"Applying platform ApplicationSets for ArgoCD management",
+		"Creating and populating GitOps repositories in Gitea",
 	}
 
 	progress := helpers.NewProgressTrackerWithDetails("Setting up Adhar Platform", stepNames, stepDescriptions)
@@ -416,8 +427,126 @@ func applyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
 	}
 	time.Sleep(800 * time.Millisecond)
 
+	// Step 9: Wait for ArgoCD to be ready
+	progress.StartStep(8, "")
+	if err := waitForArgoCD(); err != nil {
+		progress.FailStep(8, err)
+		return fmt.Errorf("failed to wait for ArgoCD: %w", err)
+	}
+	progress.CompleteStep(8)
+	time.Sleep(800 * time.Millisecond)
+
+	// Step 10: Apply platform stack ApplicationSets
+	progress.StartStep(9, "")
+	if err := applyPlatformApplicationSets(); err != nil {
+		progress.FailStep(9, err)
+		return fmt.Errorf("failed to apply platform ApplicationSets: %w", err)
+	}
+	progress.CompleteStep(9)
+	time.Sleep(800 * time.Millisecond)
+
+	// Step 11: Setup GitOps repositories
+	progress.StartStep(10, "")
+	if err := setupGitOpsRepositories(); err != nil {
+		progress.FailStep(10, err)
+		return fmt.Errorf("failed to setup GitOps repositories: %w", err)
+	}
+	progress.CompleteStep(10)
+
 	// Complete the progress tracker
 	progress.Complete()
+
+	return nil
+}
+
+// setupGitOpsRepositories creates and populates GitOps repositories in Gitea for ArgoCD
+func setupGitOpsRepositories() error {
+	logger.Debugf("Setting up GitOps repositories in Gitea...")
+
+	// Get Gitea admin credentials
+	giteaUsername, giteaPassword := getGiteaAdminCredentials()
+	if giteaUsername == "" || giteaPassword == "" {
+		return fmt.Errorf("failed to get Gitea admin credentials")
+	}
+
+	giteaBaseURL := "https://adhar.localtest.me/gitea"
+
+	// Wait for Gitea to be fully ready for API calls
+	if err := waitForGiteaReady(giteaBaseURL, giteaUsername, giteaPassword); err != nil {
+		return fmt.Errorf("failed to wait for Gitea readiness: %w", err)
+	}
+
+	// Configure Gitea for larger repository uploads via kubectl patch
+	if err := configureGiteaForLargeUploads(); err != nil {
+		logger.Warnf("Failed to configure Gitea for large uploads: %v", err)
+		// Continue anyway - this is not critical
+	}
+
+	// Define repositories to create
+	repositories := map[string]string{
+		"environments": "Platform environment configurations",
+		"packages":     "Platform component packages and charts",
+	}
+
+	// Create repositories in Gitea with retry logic
+	for repoName, description := range repositories {
+		logger.Debugf("Creating Gitea repository: %s", repoName)
+		if err := createGiteaRepositoryWithRetry(giteaBaseURL, giteaUsername, giteaPassword, repoName, description, 5); err != nil {
+			return fmt.Errorf("failed to create repository %s: %w", repoName, err)
+		}
+	}
+
+	// Populate repositories with content
+	if err := populateGiteaRepositories(giteaBaseURL, giteaUsername, giteaPassword); err != nil {
+		return fmt.Errorf("failed to populate repositories: %w", err)
+	}
+
+	// Configure ArgoCD to use Gitea repositories
+	if err := configureArgoCDRepositories(giteaBaseURL, giteaUsername, giteaPassword); err != nil {
+		return fmt.Errorf("failed to configure ArgoCD repositories: %w", err)
+	}
+
+	fmt.Printf("\n\n%s\n", boldStyle.Render("✅ GitOps Repositories Configured!"))
+	fmt.Printf("Platform repositories created in Gitea:\n")
+	fmt.Printf("  • Environments: %s/gitea_admin/environments\n", giteaBaseURL)
+	fmt.Printf("  • Packages: %s/gitea_admin/packages\n", giteaBaseURL)
+	fmt.Printf("ArgoCD is now configured to use these repositories for GitOps workflows.\n\n")
+
+	return nil
+}
+
+// applyPlatformApplicationSets applies the platform stack ApplicationSets for ArgoCD management
+func applyPlatformApplicationSets() error {
+	logger.Debugf("Applying platform ApplicationSets...")
+
+	// Define the ApplicationSet files to apply
+	applicationSets := []string{
+		"platform/stack/adhar-appset-charts.yaml",
+		"platform/stack/adhar-appset-manifests.yaml",
+		"platform/stack/adhar-templates.yaml",
+	}
+
+	for _, appSetPath := range applicationSets {
+		logger.Debugf("Applying ApplicationSet: %s", appSetPath)
+
+		// Check if file exists
+		if !fileExists(appSetPath) {
+			logger.Warnf("ApplicationSet file not found: %s, skipping", appSetPath)
+			continue
+		}
+
+		// Apply the ApplicationSet
+		if err := applyManifests(appSetPath); err != nil {
+			return fmt.Errorf("failed to apply ApplicationSet %s: %w", appSetPath, err)
+		}
+
+		logger.Debugf("Successfully applied ApplicationSet: %s", appSetPath)
+	}
+
+	fmt.Printf("\n\n%s\n", boldStyle.Render("✅ Platform ApplicationSets Applied!"))
+	fmt.Printf("ArgoCD is now managing the platform stack. You can monitor application deployments at:\n")
+	fmt.Printf("  • ArgoCD UI: https://adhar.localtest.me/argocd/\n")
+	fmt.Printf("  • Use: %s to view ArgoCD credentials\n\n", getCodeStyle.Render("adhar get secrets -p argocd"))
 
 	return nil
 }
@@ -728,6 +857,614 @@ func waitForArgoCD() error {
 			// Just continue waiting, the progress tracker will show the spinner
 		}
 	}
+}
+
+// waitForGiteaReady waits for Gitea to be ready to accept API calls
+func waitForGiteaReady(giteaBaseURL, username, password string) error {
+	logger.Debugf("Waiting for Gitea API to be ready...")
+
+	timeout := 300 * time.Second // 5 minutes timeout
+	interval := 10 * time.Second
+	start := time.Now()
+
+	// Create HTTP client with timeout and TLS skip
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Timeout: 15 * time.Second,
+	}
+
+	for time.Since(start) < timeout {
+		// Try to ping Gitea API
+		apiURL := fmt.Sprintf("%s/api/v1/user", giteaBaseURL)
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			logger.Debugf("Failed to create request for Gitea readiness check: %v", err)
+			time.Sleep(interval)
+			continue
+		}
+
+		req.SetBasicAuth(username, password)
+		resp, err := client.Do(req)
+		if err != nil {
+			logger.Debugf("Gitea API not ready yet (connection error): %v", err)
+			time.Sleep(interval)
+			continue
+		}
+		resp.Body.Close()
+
+		// Check if we get a successful response (200) or auth-related response (401, etc.)
+		// Both indicate the API is working, just auth might be wrong
+		if resp.StatusCode == 200 || resp.StatusCode == 401 || resp.StatusCode == 403 {
+			logger.Debugf("Gitea API is ready (status: %d)", resp.StatusCode)
+			return nil
+		}
+
+		// 503 means service unavailable, keep waiting
+		if resp.StatusCode == 503 {
+			logger.Debugf("Gitea API still unavailable (503), waiting...")
+			time.Sleep(interval)
+			continue
+		}
+
+		// Other status codes might indicate the service is up but having issues
+		logger.Debugf("Gitea API responded with status %d, considering ready", resp.StatusCode)
+		return nil
+	}
+
+	return fmt.Errorf("Gitea API did not become ready within %v", timeout)
+}
+
+// createGiteaRepositoryWithRetry creates a repository with retry logic
+func createGiteaRepositoryWithRetry(giteaBaseURL, username, password, repoName, description string, maxRetries int) error {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := createGiteaRepository(giteaBaseURL, username, password, repoName, description)
+		if err == nil {
+			return nil
+		}
+
+		// Check if it's a 503 error (service unavailable)
+		if strings.Contains(err.Error(), "status: 503") {
+			if attempt < maxRetries {
+				waitTime := time.Duration(attempt*5) * time.Second
+				logger.Debugf("Gitea API returned 503, retrying in %v (attempt %d/%d)", waitTime, attempt, maxRetries)
+				time.Sleep(waitTime)
+				continue
+			}
+		}
+
+		// For other errors, don't retry
+		return err
+	}
+
+	return fmt.Errorf("failed to create repository after %d attempts", maxRetries)
+}
+
+// createGiteaRepository creates a new repository in Gitea using the API
+func createGiteaRepository(giteaBaseURL, username, password, repoName, description string) error {
+	// Gitea API endpoint for creating repositories
+	apiURL := fmt.Sprintf("%s/api/v1/user/repos", giteaBaseURL)
+
+	// Repository payload
+	repoData := map[string]interface{}{
+		"name":           repoName,
+		"description":    description,
+		"private":        false,
+		"auto_init":      true,
+		"default_branch": "main", // Explicitly set default branch to main
+	}
+
+	jsonData, err := json.Marshal(repoData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal repo data: %w", err)
+	}
+
+	// Create HTTP client that skips TLS verification for self-signed certs
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Timeout: 30 * time.Second,
+	}
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.SetBasicAuth(username, password)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to create repository: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 409 {
+		// Repository already exists, this is fine
+		logger.Debugf("Repository %s already exists", repoName)
+		return nil
+	}
+
+	if resp.StatusCode != 201 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create repository, status: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	logger.Debugf("Successfully created repository: %s", repoName)
+	return nil
+}
+
+// populateGiteaRepositories populates the created repositories with platform content
+func populateGiteaRepositories(giteaBaseURL, username, password string) error {
+	// For now, we'll use git commands to populate the repositories
+	// This requires git to be available on the system
+
+	// Check if git is available
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("git command not found. Please install git to populate repositories")
+	}
+
+	// Create temporary directory for git operations
+	tmpDir, err := os.MkdirTemp("", "adhar-gitops-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Populate environments repository
+	if err := populateEnvironmentsRepo(tmpDir, giteaBaseURL, username, password); err != nil {
+		return fmt.Errorf("failed to populate environments repository: %w", err)
+	}
+
+	// Populate packages repository
+	if err := populatePackagesRepo(tmpDir, giteaBaseURL, username, password); err != nil {
+		return fmt.Errorf("failed to populate packages repository: %w", err)
+	}
+
+	return nil
+}
+
+// populateEnvironmentsRepo populates the environments repository
+func populateEnvironmentsRepo(tmpDir, giteaBaseURL, username, password string) error {
+	envRepoDir := filepath.Join(tmpDir, "environments")
+
+	// Use credentials in URL for HTTPS authentication
+	authenticatedURL := buildAuthenticatedGitURL(giteaBaseURL, username, password, "environments")
+
+	// Clone the repository
+	logger.Debugf("Cloning environments repository from: %s", authenticatedURL)
+	cmd := exec.Command("git", "clone", authenticatedURL, envRepoDir)
+
+	// Use clean git environment without credential managers
+	cmd.Env = createCleanGitEnv()
+
+	// Capture output for debugging
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		logger.Debugf("Git clone failed. Stdout: %s, Stderr: %s", stdout.String(), stderr.String())
+		return fmt.Errorf("failed to clone environments repository: %w. Stderr: %s", err, stderr.String())
+	}
+	logger.Debugf("Successfully cloned environments repository")
+
+	// Copy environment configurations from platform/stack/environments/
+	srcDir := "platform/stack/environments"
+	if err := copyDir(srcDir, envRepoDir); err != nil {
+		return fmt.Errorf("failed to copy environment configs: %w", err)
+	}
+
+	// Git add, commit, and push
+	return commitAndPushRepo(envRepoDir, "Add platform environment configurations", username, password)
+}
+
+// populatePackagesRepo populates the packages repository
+func populatePackagesRepo(tmpDir, giteaBaseURL, username, password string) error {
+	pkgRepoDir := filepath.Join(tmpDir, "packages")
+
+	// Use credentials in URL for HTTPS authentication
+	authenticatedURL := buildAuthenticatedGitURL(giteaBaseURL, username, password, "packages")
+
+	// Clone the repository
+	logger.Debugf("Cloning packages repository from: %s", authenticatedURL)
+	cmd := exec.Command("git", "clone", authenticatedURL, pkgRepoDir)
+
+	// Use clean git environment without credential managers
+	cmd.Env = createCleanGitEnv()
+
+	// Capture output for debugging
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		logger.Debugf("Git clone failed. Stdout: %s, Stderr: %s", stdout.String(), stderr.String())
+		return fmt.Errorf("failed to clone packages repository: %w. Stderr: %s", err, stderr.String())
+	}
+	logger.Debugf("Successfully cloned packages repository")
+
+	// Copy packages from platform/stack/packages/
+	srcDir := "platform/stack/packages"
+	if err := copyDir(srcDir, pkgRepoDir); err != nil {
+		return fmt.Errorf("failed to copy package configs: %w", err)
+	}
+
+	// Git add, commit, and push
+	return commitAndPushRepo(pkgRepoDir, "Add platform component packages", username, password)
+}
+
+// copyDir recursively copies a directory
+func copyDir(src, dst string) error {
+	return exec.Command("cp", "-r", src+"/.", dst+"/").Run()
+}
+
+// createCleanGitEnv creates a clean Git environment without credential managers
+func createCleanGitEnv() []string {
+	return []string{
+		"HOME=" + os.Getenv("HOME"),     // Keep HOME for basic functionality
+		"PATH=" + os.Getenv("PATH"),     // Keep PATH for git binary
+		"TMPDIR=" + os.Getenv("TMPDIR"), // Keep TMPDIR for temp files
+		"GIT_TERMINAL_PROMPT=0",         // Disable interactive prompts
+		"GIT_CONFIG_GLOBAL=/dev/null",   // Disable global git config
+		"GIT_CONFIG_SYSTEM=/dev/null",   // Disable system git config
+		"GIT_CREDENTIAL_HELPER=",        // Disable all credential helpers
+		"GIT_ASKPASS=",                  // Disable askpass
+		"SSH_ASKPASS=",                  // Disable SSH askpass
+		"GIT_CONFIG_NOSYSTEM=1",         // Skip system config
+		"GCM_CREDENTIAL_STORE=",         // Disable Git Credential Manager store
+		"GCM_CREDENTIAL_CACHE=",         // Disable Git Credential Manager cache
+	}
+}
+
+// configureGiteaForLargeUploads configures Gitea to handle larger repository uploads
+func configureGiteaForLargeUploads() error {
+	// Patch Gitea deployment to increase client_max_body_size and related configs
+	patchJSON := `{
+		"spec": {
+			"template": {
+				"metadata": {
+					"annotations": {
+						"kubectl.kubernetes.io/restartedAt": "` + time.Now().Format(time.RFC3339) + `"
+					}
+				},
+				"spec": {
+					"containers": [
+						{
+							"name": "gitea",
+							"env": [
+								{
+									"name": "GITEA__server__LFS_MAX_FILE_SIZE",
+									"value": "1024"
+								},
+								{
+									"name": "GITEA__repository__MAX_CREATION_LIMIT",
+									"value": "100"
+								},
+								{
+									"name": "GITEA__repository__UPLOAD_MAX_SIZE",
+									"value": "1024"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}`
+
+	cmd := exec.Command("kubectl", "patch", "deployment", "gitea", "-n", "adhar-system",
+		"--type", "strategic", "--patch", patchJSON)
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to patch Gitea deployment: %w", err)
+	}
+
+	// Also configure nginx to handle larger uploads
+	nginxPatchJSON := `{
+		"data": {
+			"client-max-body-size": "1024m",
+			"client-body-buffer-size": "16m",
+			"proxy-body-size": "1024m",
+			"proxy-buffer-size": "16k",
+			"proxy-buffers-number": "8"
+		}
+	}`
+
+	nginxCmd := exec.Command("kubectl", "patch", "configmap", "ingress-nginx-controller",
+		"-n", "adhar-system", "--type", "merge", "--patch", nginxPatchJSON)
+	nginxCmd.Run() // Ignore errors for nginx config
+
+	logger.Debugf("Configured Gitea and Nginx for large uploads")
+	return nil
+}
+
+// addFilesInBatches adds files to git in smaller batches to avoid HTTP 413 errors
+func addFilesInBatches(repoDir string, gitEnv []string) error {
+	// Get list of all files to add
+	listCmd := exec.Command("find", ".", "-type", "f", "-not", "-path", "./.git/*")
+	listCmd.Dir = repoDir
+	output, err := listCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to list files: %w", err)
+	}
+
+	files := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(files) == 0 || (len(files) == 1 && files[0] == "") {
+		return nil // No files to add
+	}
+
+	// Sort files by size (add smaller files first)
+	type fileInfo struct {
+		path string
+		size int64
+	}
+
+	var fileInfos []fileInfo
+	for _, file := range files {
+		if file == "" {
+			continue
+		}
+		fullPath := filepath.Join(repoDir, file)
+		if stat, err := os.Stat(fullPath); err == nil {
+			fileInfos = append(fileInfos, fileInfo{path: file, size: stat.Size()})
+		}
+	}
+
+	// Sort by size (smallest first)
+	for i := 0; i < len(fileInfos)-1; i++ {
+		for j := i + 1; j < len(fileInfos); j++ {
+			if fileInfos[i].size > fileInfos[j].size {
+				fileInfos[i], fileInfos[j] = fileInfos[j], fileInfos[i]
+			}
+		}
+	}
+
+	// Add files in batches
+	batchSize := 50 // Add 50 files at a time
+	for i := 0; i < len(fileInfos); i += batchSize {
+		end := i + batchSize
+		if end > len(fileInfos) {
+			end = len(fileInfos)
+		}
+
+		batch := make([]string, end-i)
+		for j := i; j < end; j++ {
+			batch[j-i] = fileInfos[j].path
+		}
+
+		// Add this batch of files
+		addArgs := append([]string{"add"}, batch...)
+		addCmd := exec.Command("git", addArgs...)
+		addCmd.Dir = repoDir
+		addCmd.Env = gitEnv
+
+		if err := addCmd.Run(); err != nil {
+			// If batch fails, try adding files one by one
+			for _, file := range batch {
+				singleAddCmd := exec.Command("git", "add", file)
+				singleAddCmd.Dir = repoDir
+				singleAddCmd.Env = gitEnv
+				singleAddCmd.Run() // Ignore individual file errors
+			}
+		}
+	}
+
+	return nil
+}
+
+// buildAuthenticatedGitURL builds a Git URL with embedded credentials
+func buildAuthenticatedGitURL(giteaBaseURL, username, password, repoName string) string {
+	// Parse the base URL properly
+	baseURL, err := url.Parse(giteaBaseURL)
+	if err != nil {
+		// Fallback to simple concatenation if parsing fails
+		return fmt.Sprintf("%s/%s/%s.git", giteaBaseURL, username, repoName)
+	}
+
+	// Create a new URL with embedded credentials
+	repoURL := &url.URL{
+		Scheme: baseURL.Scheme,
+		User:   url.UserPassword(username, password), // This properly encodes special characters
+		Host:   baseURL.Host,
+		Path:   fmt.Sprintf("%s/%s/%s.git", baseURL.Path, username, repoName),
+	}
+
+	return repoURL.String()
+}
+
+// updateRemoteURLWithCredentials updates the remote URL to include credentials
+func updateRemoteURLWithCredentials(repoDir, username, password string) error {
+	// Use clean git environment
+	gitEnv := createCleanGitEnv()
+
+	// Get current remote URL
+	getURLCmd := exec.Command("git", "remote", "get-url", "origin")
+	getURLCmd.Dir = repoDir
+	getURLCmd.Env = gitEnv
+	currentURL, err := getURLCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get remote URL: %w", err)
+	}
+
+	urlStr := strings.TrimSpace(string(currentURL))
+
+	// Parse the URL to extract components
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse remote URL: %w", err)
+	}
+
+	// Add credentials to the URL using proper encoding
+	parsedURL.User = url.UserPassword(username, password) // url.UserPassword handles encoding properly
+
+	// Update the remote URL
+	setURLCmd := exec.Command("git", "remote", "set-url", "origin", parsedURL.String())
+	setURLCmd.Dir = repoDir
+	setURLCmd.Env = gitEnv
+
+	if err := setURLCmd.Run(); err != nil {
+		return fmt.Errorf("failed to set remote URL: %w", err)
+	}
+
+	return nil
+}
+
+// commitAndPushRepo commits and pushes changes to a git repository
+func commitAndPushRepo(repoDir, commitMessage, username, password string) error {
+	// Disable credential manager and configure git properly
+	gitEnv := createCleanGitEnv()
+
+	// Set git config and perform operations
+	configCmds := [][]string{
+		{"git", "config", "user.name", "Adhar Platform"},
+		{"git", "config", "user.email", "platform@adhar.io"},
+		{"git", "config", "credential.helper", ""},           // Disable credential helper explicitly
+		{"git", "config", "credential.useHttpPath", "false"}, // Disable HTTP path credential matching
+		{"git", "config", "credential.modalPrompt", "false"}, // Disable modal prompts
+		{"git", "config", "core.askPass", ""},                // Disable askpass
+	}
+
+	// Execute config commands
+	for _, cmdArgs := range configCmds {
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		cmd.Dir = repoDir
+		cmd.Env = gitEnv
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed git command %v: %w", cmdArgs, err)
+		}
+	}
+
+	// Add files in smaller batches to avoid HTTP 413 errors
+	if err := addFilesInBatches(repoDir, gitEnv); err != nil {
+		return fmt.Errorf("failed to add files: %w", err)
+	}
+
+	// Check if there are changes to commit
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = repoDir
+	statusOutput, err := statusCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to check git status: %w", err)
+	}
+
+	// Only commit and push if there are changes
+	if len(strings.TrimSpace(string(statusOutput))) > 0 {
+		// Commit changes
+		commitCmd := exec.Command("git", "commit", "-m", commitMessage)
+		commitCmd.Dir = repoDir
+		commitCmd.Env = gitEnv
+		if err := commitCmd.Run(); err != nil {
+			return fmt.Errorf("failed to commit changes: %w", err)
+		}
+
+		// Update the remote URL to include credentials for push
+		if err := updateRemoteURLWithCredentials(repoDir, username, password); err != nil {
+			return fmt.Errorf("failed to update remote URL: %w", err)
+		}
+
+		// Get the current branch name
+		branchCmd := exec.Command("git", "branch", "--show-current")
+		branchCmd.Dir = repoDir
+		branchOutput, err := branchCmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to get current branch: %w", err)
+		}
+		currentBranch := strings.TrimSpace(string(branchOutput))
+		if currentBranch == "" {
+			currentBranch = "main" // fallback to main
+		}
+
+		logger.Debugf("Pushing to branch: %s", currentBranch)
+
+		// Configure git for larger pushes to handle HTTP 413 errors
+		configLargePushCmds := [][]string{
+			{"git", "config", "http.postBuffer", "524288000"},   // 500MB buffer
+			{"git", "config", "http.lowSpeedLimit", "0"},        // Disable low speed limit
+			{"git", "config", "http.lowSpeedTime", "999999"},    // Set high timeout
+			{"git", "config", "core.compression", "9"},          // Maximum compression
+			{"git", "config", "core.deltaBaseCacheLimit", "2g"}, // Increase delta cache
+			{"git", "config", "pack.windowMemory", "2g"},        // Increase pack window memory
+			{"git", "config", "pack.packSizeLimit", "2g"},       // Increase pack size limit
+			{"git", "config", "pack.threads", "1"},              // Single thread for stability
+		}
+
+		for _, cmdArgs := range configLargePushCmds {
+			cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+			cmd.Dir = repoDir
+			cmd.Env = gitEnv
+			cmd.Run() // Ignore errors for these config settings
+		}
+
+		// Push changes to the current branch
+		pushCmd := exec.Command("git", "push", "origin", currentBranch)
+		pushCmd.Dir = repoDir
+		pushCmd.Env = gitEnv
+
+		// Capture both stdout and stderr for better debugging
+		var stdout, stderr bytes.Buffer
+		pushCmd.Stdout = &stdout
+		pushCmd.Stderr = &stderr
+
+		if err := pushCmd.Run(); err != nil {
+			// Log detailed error information
+			logger.Debugf("Git push failed. Stdout: %s, Stderr: %s", stdout.String(), stderr.String())
+			return fmt.Errorf("failed to push changes to branch %s: %w. Stderr: %s", currentBranch, err, stderr.String())
+		}
+	} else {
+		logger.Debugf("No changes to commit in repository: %s", repoDir)
+	}
+
+	return nil
+}
+
+// configureArgoCDRepositories configures ArgoCD to use the Gitea repositories
+func configureArgoCDRepositories(giteaBaseURL, username, password string) error {
+	// Create ArgoCD repository secrets for the Gitea repositories
+	repositories := []string{"environments", "packages"}
+
+	for _, repoName := range repositories {
+		repoURL := fmt.Sprintf("%s/%s/%s", giteaBaseURL, username, repoName)
+		secretName := fmt.Sprintf("repo-%s", repoName)
+
+		if err := createArgoCDRepoSecret(secretName, repoURL, username, password); err != nil {
+			return fmt.Errorf("failed to create ArgoCD repo secret for %s: %w", repoName, err)
+		}
+	}
+
+	return nil
+}
+
+// createArgoCDRepoSecret creates a repository secret for ArgoCD
+func createArgoCDRepoSecret(secretName, repoURL, username, password string) error {
+	secretData := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: git
+  url: %s
+  username: %s
+  password: %s
+  insecure: "true"
+`, secretName, repoURL, username, password)
+
+	// Apply the secret using kubectl
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(secretData)
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create ArgoCD repository secret: %w", err)
+	}
+
+	logger.Debugf("Created ArgoCD repository secret: %s", secretName)
+	return nil
 }
 
 var (

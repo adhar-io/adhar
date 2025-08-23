@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	argocdapplication "github.com/cnoe-io/argocd-api/api/argo/application"
@@ -33,7 +32,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -306,115 +304,9 @@ func (r *CustomPackageReconciler) reconcileArgoCDAppSet(ctx context.Context, res
 
 // create a gitrepository custom resource, then let the git repository controller take care of the rest
 func (r *CustomPackageReconciler) reconcileArgoCDSource(ctx context.Context, resource *v1alpha1.CustomPackage, repoUrl, appName string) (ctrl.Result, *v1alpha1.GitRepository, error) {
-	if isADHARScheme(repoUrl) {
-		if resource.Spec.RemoteRepository.Url == "" {
-			return r.reconcileArgoCDSourceFromLocal(ctx, resource, appName, repoUrl)
-		}
-		return r.reconcileArgoCDSourceFromRemote(ctx, resource, appName, repoUrl)
-	}
+	// Since we're no longer using adhar:// scheme, treat all URLs as regular Git URLs
+	// Return nil to indicate no special processing needed
 	return ctrl.Result{}, nil, nil
-}
-
-func (r *CustomPackageReconciler) reconcileArgoCDSourceFromRemote(ctx context.Context, resource *v1alpha1.CustomPackage, appName, repoURL string) (ctrl.Result, *v1alpha1.GitRepository, error) {
-	relativePath := strings.TrimPrefix(repoURL, v1alpha1.ADHARURIScheme)
-	// no guarantee that this path exists
-	dirPath := filepath.Join(resource.Spec.RemoteRepository.Path, relativePath)
-
-	repo := &v1alpha1.GitRepository{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      remoteRepoName(appName, dirPath, resource.Spec.RemoteRepository),
-			Namespace: resource.Namespace,
-		},
-	}
-
-	cliStartTime, _ := utils.GetCLIStartTimeAnnotationValue(resource.ObjectMeta.Annotations)
-
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, repo, func() error {
-		if err := controllerutil.SetControllerReference(resource, repo, r.Scheme); err != nil {
-			return err
-		}
-
-		if repo.ObjectMeta.Annotations == nil {
-			repo.ObjectMeta.Annotations = make(map[string]string)
-		}
-		utils.SetCLIStartTimeAnnotationValue(repo.ObjectMeta.Annotations, cliStartTime)
-
-		repo.Spec = v1alpha1.GitRepositorySpec{
-			Source: v1alpha1.GitRepositorySource{
-				Type:             v1alpha1.SourceTypeRemote,
-				RemoteRepository: resource.Spec.RemoteRepository,
-				Path:             dirPath,
-			},
-			Provider: v1alpha1.Provider{
-				Name:             v1alpha1.GitProviderGitea,
-				GitURL:           resource.Spec.GitServerURL,
-				InternalGitURL:   resource.Spec.InternalGitServeURL,
-				OrganizationName: v1alpha1.GiteaAdminUserName,
-			},
-			SecretRef: resource.Spec.GitServerAuthSecretRef,
-		}
-
-		return nil
-	})
-
-	if err != nil && !errors.IsAlreadyExists(err) {
-		return ctrl.Result{}, nil, err
-	}
-
-	return ctrl.Result{}, repo, nil
-}
-
-func (r *CustomPackageReconciler) reconcileArgoCDSourceFromLocal(ctx context.Context, resource *v1alpha1.CustomPackage, appName, repoURL string) (ctrl.Result, *v1alpha1.GitRepository, error) {
-	logger := log.FromContext(ctx)
-
-	absPath, err := getADHARAbsPath(resource.Spec.ArgoCD.ApplicationFile, repoURL)
-	if err != nil {
-		logger.Error(err, "processing argocd app source", "dir", resource.Spec.ArgoCD.ApplicationFile, "repoURL", repoURL)
-		return ctrl.Result{}, nil, err
-	}
-
-	repo := &v1alpha1.GitRepository{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      localRepoName(appName, absPath),
-			Namespace: resource.Namespace,
-		},
-	}
-
-	cliStartTime, _ := utils.GetCLIStartTimeAnnotationValue(resource.ObjectMeta.Annotations)
-
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, repo, func() error {
-		if err := controllerutil.SetControllerReference(resource, repo, r.Scheme); err != nil {
-			return err
-		}
-
-		if repo.ObjectMeta.Annotations == nil {
-			repo.ObjectMeta.Annotations = make(map[string]string)
-		}
-		utils.SetCLIStartTimeAnnotationValue(repo.ObjectMeta.Annotations, cliStartTime)
-
-		repo.Spec = v1alpha1.GitRepositorySpec{
-			Source: v1alpha1.GitRepositorySource{
-				Type: v1alpha1.SourceTypeLocal,
-				Path: absPath,
-			},
-			Provider: v1alpha1.Provider{
-				Name:             v1alpha1.GitProviderGitea,
-				GitURL:           resource.Spec.GitServerURL,
-				InternalGitURL:   resource.Spec.InternalGitServeURL,
-				OrganizationName: v1alpha1.GiteaAdminUserName,
-			},
-			SecretRef: resource.Spec.GitServerAuthSecretRef,
-		}
-
-		return nil
-	})
-	// it's possible for an application to specify the same directory multiple times in the spec.
-	// if there is a repository already created for this package, no further action is necessary.
-	if !errors.IsAlreadyExists(err) {
-		return ctrl.Result{}, repo, err
-	}
-
-	return ctrl.Result{}, repo, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -510,26 +402,4 @@ func localRepoName(appName, dir string) string {
 
 func remoteRepoName(appName, pathToPkg string, repo v1alpha1.RemoteRepositorySpec) string {
 	return fmt.Sprintf("%s-%s", appName, filepath.Base(pathToPkg))
-}
-
-func isADHARScheme(repoURL string) bool {
-	return strings.HasPrefix(repoURL, v1alpha1.ADHARURIScheme)
-}
-
-func getADHARAbsPath(fPath, repoURL string) (string, error) {
-	parentDir := filepath.Dir(fPath)
-	relativePath := strings.TrimPrefix(repoURL, v1alpha1.ADHARURIScheme)
-	absPath, err := filepath.Abs(filepath.Join(parentDir, relativePath))
-	if err != nil {
-		return "", err
-	}
-
-	f, err := os.Stat(absPath)
-	if err != nil {
-		return "", err
-	}
-	if !f.IsDir() {
-		return "", fmt.Errorf("path not a directory: %s", absPath)
-	}
-	return absPath, err
 }

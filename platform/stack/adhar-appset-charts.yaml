@@ -2,19 +2,16 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: helm-charts
-  namespace: argocd
+  namespace: adhar-system
 spec:
-  goTemplate: true
-  goTemplateOptions:
-    - missingkey=error
   generators:
     - matrix:
         generators:
           - git:
-              repoURL: "adhar://environments"
-              revision: HEAD
               files:
                 - path: "**/config.yaml"
+              repoURL: http://gitea-http-clusterip.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+              revision: HEAD
           - list:
               elementsYaml: "{{ .packages | toJson }}"
             selector:
@@ -27,37 +24,40 @@ spec:
                   operator: In
                   values:
                     - "true"
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
   template:
     metadata:
-      name: "{{ .name }}"
-      labels:
-        environment: "{{ .environment }}"
-        adhar.io/package-name: adhar-stack
       finalizers:
         - resources-finalizer.argocd.argoproj.io
+      labels:
+        adhar.io/package-name: adhar-stack
+        environment: "{{ .environment }}"
+      name: "{{ .name }}"
     spec:
+      destination:
+        namespace: "{{ .namespace }}"
+        server: https://kubernetes.default.svc
       project: default
       sources:
-        - repoURL: "adhar://packages"
-          targetRevision: HEAD
-          path: "{{ .manifestPath }}"
-          helm:
+        - helm:
             valueFiles:
               - values.yaml
-      destination:
-        server: https://kubernetes.default.svc
-        namespace: "{{ .namespace }}"
+          path: "{{ .manifestPath }}"
+          repoURL: http://gitea-http-clusterip.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+          targetRevision: HEAD
       syncPolicy:
-        syncOptions:
-          - Replace=true
-          - CreateNamespace=true
-          - ServerSideApply=true
         automated:
-          selfHeal: true
           prune: true
+          selfHeal: true
         retry:
-          limit: 30
           backoff:
             duration: 5s
             factor: 2
             maxDuration: 3m0s
+          limit: 30
+        syncOptions:
+          - Replace=true
+          - CreateNamespace=true
+          - ServerSideApply=true

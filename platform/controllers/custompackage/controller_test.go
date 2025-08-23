@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -228,17 +227,7 @@ func TestReconcileCustomPkg(t *testing.T) {
 			t.Fatalf("label %s not set", v1alpha1.PackageNameLabelKey)
 		}
 
-		if app.Spec.Sources == nil {
-			if strings.HasPrefix(app.Spec.Source.RepoURL, v1alpha1.ADHARURIScheme) {
-				t.Fatalf("%s prefix should be removed", v1alpha1.ADHARURIScheme)
-			}
-			continue
-		}
-		for _, s := range app.Spec.Sources {
-			if strings.HasPrefix(s.RepoURL, v1alpha1.ADHARURIScheme) {
-				t.Fatalf("%s prefix should be removed", v1alpha1.ADHARURIScheme)
-			}
-		}
+		// URL scheme validation removed since we no longer use custom schemes
 
 	}
 }
@@ -563,11 +552,9 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 			for j := range tc.expectedApplicationSet.Spec.Template.Spec.Sources {
 				exs := tc.expectedApplicationSet.Spec.Template.Spec.Sources[j]
 				assert.Equal(t, exs.RepoURL, appset.Spec.Template.Spec.Sources[j].RepoURL)
-				assert.False(t, strings.HasPrefix(appset.Spec.Template.Spec.Sources[j].RepoURL, v1alpha1.ADHARURIScheme))
 			}
 		} else {
 			assert.Equal(t, tc.expectedApplicationSet.Spec.Template.Spec.Source.RepoURL, appset.Spec.Template.Spec.Source.RepoURL)
-			assert.False(t, strings.HasPrefix(appset.Spec.Template.Spec.Source.RepoURL, v1alpha1.ADHARURIScheme))
 		}
 
 		if len(tc.expectedApplicationSet.Spec.Generators) > 0 {

@@ -41,3 +41,4 @@ backup/*
 platform.log
 .adhar/
 adhar
+adhar_debug.log

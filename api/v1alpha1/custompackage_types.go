@@ -20,10 +20,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	ADHARURIScheme = "adhar://"
-)
-
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // CustomPackage is the Schema for the custompackages API.

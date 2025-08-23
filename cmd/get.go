@@ -47,6 +47,43 @@ var (
 	getBoldStyle     = lipgloss.NewStyle().Bold(true)
 	getListItemStyle = lipgloss.NewStyle().SetString("• ")
 	getCodeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Background(lipgloss.Color("236")).Padding(0, 1)
+
+	// Simple elegant listing styles
+	secretsHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("99")). // Purple
+				Background(lipgloss.Color("234")).
+				Padding(0, 2).
+				MarginBottom(1)
+
+	secretNameStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("86")). // Cyan
+			Width(25)
+
+	namespaceStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245")). // Gray
+			Width(15)
+
+	usernameStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252")). // Light gray
+			Width(20)
+
+	passwordStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("154")). // Light green
+			Bold(true)
+
+	tokenStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("220")). // Yellow
+			Bold(true)
+
+	secretUrlStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("75")). // Light blue
+			Underline(true)
+
+	separatorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			SetString("─")
 )
 
 var (
@@ -120,7 +157,7 @@ func init() {
 	getEnvironmentCmd.Flags().StringVarP(&configFilePath, "file", "f", "", "Path to configuration file to list available environments")
 
 	// Add provider flag specifically to secrets command
-	getSecretsCmd.Flags().StringVarP(&secretProvider, "provider", "p", "", "Filter secrets by provider (e.g., argocd, gitea, nginx)")
+	getSecretsCmd.Flags().StringVarP(&secretProvider, "provider", "p", "", "Filter secrets by provider (e.g., argocd, gitea, keycloak, harbor, grafana, minio, jupyterhub, vault, redis)")
 }
 
 // getKubeconfigPath determines the path to the kubeconfig file based on flag, env var, or default
@@ -420,6 +457,18 @@ Examples:
   
   # Get Gitea admin password  
   adhar get secrets -p gitea
+  
+  # Get Keycloak admin credentials
+  adhar get secrets -p keycloak
+  
+  # Get Harbor admin credentials
+  adhar get secrets -p harbor
+  
+  # Get Grafana admin credentials
+  adhar get secrets -p grafana
+  
+  # Get MinIO admin credentials
+  adhar get secrets -p minio
   
   # Get specific secret
   adhar get secrets my-secret`,
@@ -837,8 +886,20 @@ const (
 
 // Well known secrets that are part of the core packages
 var corePkgSecrets = map[string][]string{
-	"argocd": {argoCDInitialAdminSecretName},
-	"gitea":  {"gitea"},
+	"argocd":           {argoCDInitialAdminSecretName},
+	"gitea":            {"gitea"},
+	"cert-manager":     {"cert-manager-webhook-ca", "letsencrypt-private-key"},
+	"keycloak":         {"keycloak", "keycloak-admin"},
+	"harbor":           {"harbor-core", "harbor-admin"},
+	"grafana":          {"grafana", "grafana-admin"},
+	"prometheus":       {"prometheus-server"},
+	"minio":            {"minio", "minio-root-secret"},
+	"jupyterhub":       {"jupyterhub", "hub-secret", "proxy-secret"},
+	"headlamp":         {"headlamp"},
+	"vault":            {"vault-unseal-keys", "vault-root-token"},
+	"external-secrets": {"external-secrets-webhook"},
+	"crossplane":       {"crossplane-root-ca"},
+	"redis":            {"redis", "redis-auth"},
 }
 
 // SecretInfo represents a secret with its details
@@ -853,7 +914,7 @@ type SecretInfo struct {
 }
 
 func getSecrets(cmd *cobra.Command) {
-	fmt.Println(headerStyle.Render("Kubernetes Secrets"))
+	fmt.Println("🔍 Discovering platform secrets...")
 
 	// Determine kubeconfig path
 	kubeconfigPath := getKubeconfigPath(cmd)
@@ -867,6 +928,8 @@ func getSecrets(cmd *cobra.Command) {
 		return
 	}
 
+	fmt.Println("📋 Retrieving secrets from cluster...")
+
 	// Create standard clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -878,17 +941,20 @@ func getSecrets(cmd *cobra.Command) {
 
 	// If a specific secret name is provided, get that secret
 	if resourceName != "" {
+		fmt.Println("🔍 Getting specific secret...")
 		getSpecificSecret(ctx, clientset, resourceName)
 		return
 	}
 
 	// If provider filter is specified, get secrets for that provider
 	if secretProvider != "" {
+		fmt.Println("🔍 Filtering secrets by provider...")
 		getProviderSecrets(ctx, clientset, secretProvider)
 		return
 	}
 
 	// Otherwise, list all secrets
+	fmt.Println("📊 Compiling secrets list...")
 	listAllSecrets(ctx, clientset)
 }
 
@@ -911,9 +977,12 @@ func getSpecificSecret(ctx context.Context, clientset *kubernetes.Clientset, sec
 	}
 
 	if foundSecret == nil {
-		fmt.Printf("%s Secret '%s' not found in any namespace\n", errorStyle.Render("Error:"), secretName)
+		fmt.Printf("❌ Error: Secret '%s' not found in any namespace\n", secretName)
 		return
 	}
+
+	// Clean specific secret header without boxes
+	fmt.Printf("🔐 SECRET: %s\n\n", secretName)
 
 	// Display the found secret
 	secretInfo := populateSecret(*foundSecret, false)
@@ -941,16 +1010,17 @@ func getProviderSecrets(ctx context.Context, clientset *kubernetes.Clientset, pr
 			secrets = append(secrets, populateSecret(*secret, true))
 		}
 	} else {
-		fmt.Printf("%s Unknown provider '%s'. Available providers: %v\n",
-			errorStyle.Render("Error:"), provider, getAvailableProviders())
+		fmt.Printf("❌ Error: Unknown provider '%s'. Available providers: %v\n", provider, getAvailableProviders())
 		return
 	}
 
 	if len(secrets) == 0 {
-		fmt.Printf("No secrets found for provider '%s'\n", provider)
+		fmt.Printf("🔍 No secrets found for provider '%s'\n", provider)
 		return
 	}
 
+	// Clean provider header without boxes
+	fmt.Printf("🔐 %s SECRETS • Found %d secrets\n\n", strings.ToUpper(provider), len(secrets))
 	displaySecrets(secrets)
 }
 
@@ -960,8 +1030,20 @@ func getProviderSecrets(ctx context.Context, clientset *kubernetes.Clientset, pr
 func getCorePackageSecret(ctx context.Context, clientset *kubernetes.Clientset, packageName, secretName string) (*corev1.Secret, error) {
 	// Map package names to their namespaces
 	namespaceMap := map[string]string{
-		"argocd": "adhar-system",
-		"gitea":  "adhar-system",
+		"argocd":           "adhar-system",
+		"gitea":            "adhar-system",
+		"cert-manager":     "cert-manager",
+		"keycloak":         "adhar-system", // Most services are in adhar-system
+		"harbor":           "adhar-system",
+		"grafana":          "adhar-system",
+		"prometheus":       "adhar-system",
+		"minio":            "adhar-system",
+		"jupyterhub":       "adhar-system",
+		"headlamp":         "adhar-system",
+		"vault":            "adhar-system",
+		"external-secrets": "external-secrets",
+		"crossplane":       "crossplane-system",
+		"redis":            "adhar-system",
 	}
 
 	namespace, ok := namespaceMap[packageName]
@@ -969,9 +1051,18 @@ func getCorePackageSecret(ctx context.Context, clientset *kubernetes.Clientset, 
 		namespace = "adhar-system" // default namespace
 	}
 
+	// Try to get the secret from the primary namespace
 	secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
-		return nil, err
+		// If primary namespace fails, try adhar-system as fallback
+		if namespace != "adhar-system" {
+			secret, err = clientset.CoreV1().Secrets("adhar-system").Get(ctx, secretName, metav1.GetOptions{})
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 
 	// Add username for ArgoCD admin secret
@@ -983,6 +1074,58 @@ func getCorePackageSecret(ctx context.Context, clientset *kubernetes.Clientset, 
 	}
 
 	return secret, nil
+}
+
+// getGiteaAdminCredentials extracts Gitea admin credentials from the deployment environment variables
+func getGiteaAdminCredentials() (string, string) {
+	// Determine kubeconfig path (similar to getKubeconfigPath but without cmd parameter)
+	kubeconfigPath := os.Getenv("KUBECONFIG")
+	if kubeconfigPath == "" {
+		// Default path
+		if home, err := os.UserHomeDir(); err == nil {
+			kubeconfigPath = filepath.Join(home, ".kube", "config")
+		}
+	}
+
+	// Get kubernetes config
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	if err != nil {
+		return "", ""
+	}
+
+	// Create clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return "", ""
+	}
+
+	ctx := context.Background()
+
+	// Get Gitea deployment
+	deployment, err := clientset.AppsV1().Deployments("adhar-system").Get(ctx, "gitea", metav1.GetOptions{})
+	if err != nil {
+		return "", ""
+	}
+
+	// Look for admin credentials in init containers (configure-gitea)
+	for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+		if initContainer.Name == "configure-gitea" {
+			var username, password string
+			for _, env := range initContainer.Env {
+				if env.Name == "GITEA_ADMIN_USERNAME" {
+					username = env.Value
+				}
+				if env.Name == "GITEA_ADMIN_PASSWORD" {
+					password = env.Value
+				}
+			}
+			if username != "" && password != "" {
+				return username, password
+			}
+		}
+	}
+
+	return "", ""
 }
 
 // populateSecret converts a Kubernetes secret to SecretInfo
@@ -1006,17 +1149,107 @@ func populateSecret(secret corev1.Secret, isCoreSecret bool) SecretInfo {
 				secretInfo.Token = string(token)
 			}
 
-			// Handle Gitea-specific secrets
-			if secret.Name == "gitea" {
-				// For the main gitea secret, indicate it contains configuration
-				secretInfo.Token = "Contains Gitea configuration scripts"
+			// Handle platform-specific secrets
+			switch secret.Name {
+			case "gitea":
+				// For the main gitea secret, get actual admin credentials from deployment
+				if giteaUsername, giteaPassword := getGiteaAdminCredentials(); giteaUsername != "" && giteaPassword != "" {
+					secretInfo.Username = giteaUsername
+					secretInfo.Password = giteaPassword
+					secretInfo.Token = "Admin credentials for Gitea web interface"
+				} else {
+					secretInfo.Token = "Contains Gitea configuration scripts"
+				}
+			case "keycloak-admin":
+				// Extract Keycloak admin credentials
+				if adminUser, ok := secret.Data["admin-user"]; ok {
+					secretInfo.Username = string(adminUser)
+				} else if adminUser, ok := secret.Data["username"]; ok {
+					secretInfo.Username = string(adminUser)
+				}
+				if adminPassword, ok := secret.Data["admin-password"]; ok {
+					secretInfo.Password = string(adminPassword)
+				}
+				secretInfo.Token = "Keycloak admin credentials"
+			case "harbor-admin", "harbor-core":
+				// Extract Harbor admin credentials
+				if secret.Name == "harbor-admin" {
+					if adminPassword, ok := secret.Data["HARBOR_ADMIN_PASSWORD"]; ok {
+						secretInfo.Username = "admin"
+						secretInfo.Password = string(adminPassword)
+						secretInfo.Token = "Harbor admin credentials"
+					}
+				} else {
+					secretInfo.Token = "Harbor core configuration"
+				}
+			case "grafana", "grafana-admin":
+				// Extract Grafana admin credentials
+				if adminUser, ok := secret.Data["admin-user"]; ok {
+					secretInfo.Username = string(adminUser)
+				} else {
+					secretInfo.Username = "admin" // default
+				}
+				if adminPassword, ok := secret.Data["admin-password"]; ok {
+					secretInfo.Password = string(adminPassword)
+				}
+				secretInfo.Token = "Grafana admin credentials"
+			case "minio", "minio-root-secret":
+				// Extract MinIO root credentials
+				if rootUser, ok := secret.Data["rootUser"]; ok {
+					secretInfo.Username = string(rootUser)
+				} else if accessKey, ok := secret.Data["accesskey"]; ok {
+					secretInfo.Username = string(accessKey)
+				}
+				if rootPassword, ok := secret.Data["rootPassword"]; ok {
+					secretInfo.Password = string(rootPassword)
+				} else if secretKey, ok := secret.Data["secretkey"]; ok {
+					secretInfo.Password = string(secretKey)
+				}
+				secretInfo.Token = "MinIO root credentials"
+			case "jupyterhub":
+				// Extract JupyterHub admin token
+				if _, ok := secret.Data["values.yaml"]; ok {
+					// For JupyterHub, the secret often contains YAML config
+					secretInfo.Token = "JupyterHub configuration (check data for admin token)"
+				} else if proxyToken, ok := secret.Data["proxy.secretToken"]; ok {
+					secretInfo.Token = string(proxyToken)
+				}
+			case "vault-root-token":
+				// Extract Vault root token
+				if rootToken, ok := secret.Data["root-token"]; ok {
+					secretInfo.Token = string(rootToken)
+				}
+			case "redis-auth", "redis":
+				// Extract Redis auth
+				if redisPassword, ok := secret.Data["redis-password"]; ok {
+					secretInfo.Password = string(redisPassword)
+					secretInfo.Token = "Redis authentication password"
+				} else if auth, ok := secret.Data["auth"]; ok {
+					secretInfo.Password = string(auth)
+					secretInfo.Token = "Redis authentication"
+				}
 			}
 		}
 	} else {
 		if secret.Data != nil {
+			// For generic secrets, show the first few key-value pairs
 			secretInfo.Data = make(map[string]string)
 			for key, value := range secret.Data {
 				secretInfo.Data[key] = string(value)
+			}
+			// Set a descriptive token for generic secrets
+			if len(secret.Data) > 0 {
+				keys := make([]string, 0, len(secret.Data))
+				for k := range secret.Data {
+					keys = append(keys, k)
+				}
+				if len(keys) > 0 {
+					limit := 3
+					if len(keys) < limit {
+						limit = len(keys)
+					}
+					secretInfo.Token = fmt.Sprintf("Contains: %s", strings.Join(keys[:limit], ", "))
+				}
 			}
 		}
 	}
@@ -1033,40 +1266,132 @@ func getAvailableProviders() []string {
 	return providers
 }
 
+// getSecretIcon returns the appropriate icon for a secret
+func getSecretIcon(secretName string) string {
+	switch {
+	case strings.Contains(secretName, "argocd"):
+		return "🚀"
+	case strings.HasPrefix(secretName, "gitea"):
+		return "📦"
+	case strings.HasPrefix(secretName, "gitea"):
+		return "🔐"
+	case strings.HasPrefix(secretName, "harbor"):
+		return "🐳"
+	case strings.HasPrefix(secretName, "grafana"):
+		return "📊"
+	case strings.HasPrefix(secretName, "minio"):
+		return "🗄️"
+	case strings.HasPrefix(secretName, "vault"):
+		return "🔒"
+	case strings.HasPrefix(secretName, "jupyterhub"):
+		return "🔬"
+	case strings.HasPrefix(secretName, "prometheus"):
+		return "📈"
+	case strings.HasPrefix(secretName, "redis"):
+		return "💾"
+	case strings.HasPrefix(secretName, "postgresql"):
+		return "🗃️"
+	default:
+		return "⚙️"
+	}
+}
+
 // displaySecrets displays a list of secrets with nice formatting
-func displaySecrets(secrets []SecretInfo) {
-	for _, secret := range secrets {
-		fmt.Printf("\n%s %s\n", getBoldStyle.Render("Secret:"), secret.Name)
-		fmt.Printf("  %s %s\n", getListItemStyle.Render("Namespace:"), secret.Namespace)
+// getSecretType determines the type/category of a secret for better display
+func getSecretType(secretName string) (secretType, icon, url string) {
+	switch {
+	case strings.Contains(secretName, "argocd"):
+		return "GitOps Platform", "🚀", "https://adhar.localtest.me/argocd/"
+	case strings.HasPrefix(secretName, "gitea"):
+		return "Git Repository", "📦", "https://adhar.localtest.me/gitea/"
+	case strings.HasPrefix(secretName, "keycloak"):
+		return "Identity Provider", "🔑", "https://adhar.localtest.me/keycloak/"
+	case strings.HasPrefix(secretName, "harbor"):
+		return "Container Registry", "🐳", "https://adhar.localtest.me/harbor/"
+	case strings.HasPrefix(secretName, "grafana"):
+		return "Monitoring Dashboard", "📊", "https://adhar.localtest.me/grafana/"
+	case strings.HasPrefix(secretName, "minio"):
+		return "Object Storage", "🗄️", "https://adhar.localtest.me/minio/"
+	case strings.HasPrefix(secretName, "vault"):
+		return "Secrets Management", "🔒", "https://adhar.localtest.me/vault/"
+	case strings.HasPrefix(secretName, "jupyterhub"):
+		return "Data Science Platform", "🔬", "https://adhar.localtest.me/jupyterhub/"
+	case strings.HasPrefix(secretName, "prometheus"):
+		return "Metrics Collection", "📈", ""
+	case strings.HasPrefix(secretName, "redis"):
+		return "In-Memory Database", "💾", ""
+	case strings.HasPrefix(secretName, "postgresql"):
+		return "SQL Database", "🗃️", ""
+	default:
+		return "Platform Component", "⚙️", ""
+	}
+}
 
-		if secret.IsCore {
-			if secret.Username != "" {
-				fmt.Printf("  %s %s\n", getListItemStyle.Render("Username:"), secret.Username)
-			}
-			if secret.Password != "" {
-				fmt.Printf("  %s %s\n", getListItemStyle.Render("Password:"), secret.Password)
-			}
-			if secret.Token != "" {
-				fmt.Printf("  %s %s\n", getListItemStyle.Render("Token:"), secret.Token)
-			}
+// formatSecretValue applies appropriate formatting based on field type
+func formatSecretValue(key, value string) string {
+	sensitiveFields := []string{"password", "token", "key", "secret", "credential"}
 
-			// Add helpful notes for Gitea secrets
-			if strings.HasPrefix(secret.Name, "gitea") {
-				fmt.Printf("  %s %s\n", getListItemStyle.Render("Note:"), "Complete setup at https://adhar.localtest.me/gitea/")
-				fmt.Printf("  %s %s\n", getListItemStyle.Render("Web Setup:"), "No pre-configured admin user - complete initial setup via web interface")
-			}
-		} else if secret.Data != nil {
-			fmt.Printf("  %s\n", getListItemStyle.Render("Data:"))
-			for key, value := range secret.Data {
-				// Truncate long values for display
-				displayValue := value
-				if len(value) > 50 {
-					displayValue = value[:47] + "..."
-				}
-				fmt.Printf("    %s: %s\n", key, displayValue)
-			}
+	for _, field := range sensitiveFields {
+		if strings.Contains(strings.ToLower(key), field) {
+			return passwordStyle.Render(value)
 		}
 	}
+
+	return value
+}
+
+func displaySecrets(secrets []SecretInfo) {
+	// Create clean header with proper column widths
+	headerContent := lipgloss.JoinHorizontal(
+		lipgloss.Left,
+		lipgloss.NewStyle().Width(35).Bold(true).Foreground(lipgloss.Color("99")).Render("🔐 SECRET"),
+		lipgloss.NewStyle().Width(25).Bold(true).Foreground(lipgloss.Color("99")).Render("👤 USERNAME"),
+		lipgloss.NewStyle().Width(35).Bold(true).Foreground(lipgloss.Color("99")).Render("🔑 PASSWORD"),
+	)
+
+	fmt.Println(headerContent)
+	fmt.Println(strings.Repeat("─", 95)) // Simple separator line
+
+	// Create clean rows without boxes
+	for _, secret := range secrets {
+		// Format secret name with icon and proper truncation
+		secretName := getSecretIcon(secret.Name) + " " + secret.Name
+		if len(secretName) > 33 {
+			secretName = secretName[:30] + "..."
+		}
+
+		// Format username with proper truncation
+		username := secret.Username
+		if len(username) > 23 {
+			username = username[:20] + "..."
+		}
+
+		// Format password with proper truncation
+		password := secret.Password
+		if len(password) > 33 {
+			password = password[:30] + "..."
+		}
+
+		secretRow := lipgloss.JoinHorizontal(
+			lipgloss.Left,
+			lipgloss.NewStyle().Width(35).Render(secretName),
+			lipgloss.NewStyle().Width(25).Render(username),
+			lipgloss.NewStyle().Width(35).Render(password),
+		)
+		fmt.Println(secretRow)
+	}
+}
+
+// hiddenSecrets are internal/technical secrets that should be hidden from user display
+var hiddenSecrets = map[string]bool{
+	"external-secrets-webhook": true,
+	"crossplane-root-ca":       true,
+	"cert-manager-webhook-ca":  true,
+	"letsencrypt-private-key":  true,
+	"argocd-secret":            true, // Hide internal ArgoCD config
+	"argocd-server-tls":        true,
+	"argocd-repo-server-tls":   true,
+	"gitea-admin-secret":       true, // Hide if it's a duplicate
 }
 
 // listAllSecrets lists all core and labeled secrets in the cluster
@@ -1081,20 +1406,27 @@ func listAllSecrets(ctx context.Context, clientset *kubernetes.Clientset) {
 				if errors.IsNotFound(err) {
 					continue // Skip missing secrets
 				}
-				fmt.Printf("%s Error getting secret '%s' for provider '%s': %v\n",
-					errorStyle.Render("Warning:"), secretName, provider, err)
+				fmt.Printf("⚠️  Warning: Error getting secret '%s' for provider '%s': %v\n", secretName, provider, err)
 				continue
 			}
-			secrets = append(secrets, populateSecret(*secret, true))
+			// Skip hidden secrets
+			if !hiddenSecrets[secret.Name] {
+				secrets = append(secrets, populateSecret(*secret, true))
+			}
 		}
 	}
 
 	// Also get secrets with Adhar labels
 	labeledSecrets, err := getSecretsByAdharLabel(ctx, clientset)
 	if err != nil {
-		fmt.Printf("%s Error getting labeled secrets: %v\n", errorStyle.Render("Warning:"), err)
+		fmt.Printf("⚠️  Warning: Error getting labeled secrets: %v\n", err)
 	} else {
 		for _, secret := range labeledSecrets.Items {
+			// Skip hidden secrets
+			if hiddenSecrets[secret.Name] {
+				continue
+			}
+
 			// Avoid duplicates by checking if we already have this secret
 			found := false
 			for _, existingSecret := range secrets {
@@ -1114,11 +1446,13 @@ func listAllSecrets(ctx context.Context, clientset *kubernetes.Clientset) {
 	}
 
 	if len(secrets) == 0 {
-		fmt.Printf("No secrets found\n")
+		fmt.Println("🔍 No secrets found in the cluster")
 		return
 	}
 
-	fmt.Printf("Found %d secrets:\n", len(secrets))
+	// Clean title without boxes
+	fmt.Printf("🔐 PLATFORM SECRETS • Found %d secrets\n\n", len(secrets))
+
 	displaySecrets(secrets)
 }
 

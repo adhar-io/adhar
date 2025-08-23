@@ -201,7 +201,10 @@ adhar cluster restore backup-id target-cluster
 # Health and metrics
 adhar cluster health my-cluster
 adhar cluster metrics my-cluster
-```
+
+# Get platform secrets
+adhar get secrets -p argocd     # ArgoCD admin credentials
+adhar get secrets -p gitea      # Gitea admin credentials
 
 ### Provider-Specific
 
