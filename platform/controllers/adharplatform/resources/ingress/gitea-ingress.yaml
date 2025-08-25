@@ -25,6 +25,6 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: gitea-http-clusterip
+                name: gitea-http
                 port:
                   number: 3000

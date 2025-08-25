@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -25,15 +26,24 @@ func NewManager(domainConfig *types.DomainConfig, kubeconfig string) *Manager {
 
 // SetupDomain sets up domain management for a cluster
 func (m *Manager) SetupDomain(ctx context.Context, cluster *types.Cluster) error {
-	fmt.Printf("Setting up domain management for cluster '%s'...\n", cluster.Name)
+	// Check if we should suppress output (called from platform setup)
+	suppressOutput := os.Getenv("ADHAR_PLATFORM_SETUP") == "true"
+
+	if !suppressOutput {
+		fmt.Printf("Setting up domain management for cluster '%s'...\n", cluster.Name)
+	}
 
 	// Determine domain based on provider type
 	domain := m.getDomainForCluster(cluster)
-	fmt.Printf("Using domain: %s\n", domain)
+	if !suppressOutput {
+		fmt.Printf("Using domain: %s\n", domain)
+	}
 
 	// Install cert-manager if TLS is enabled
 	if m.config.TLS.Enabled {
-		fmt.Printf("Installing cert-manager...\n")
+		if !suppressOutput {
+			fmt.Printf("Installing cert-manager...\n")
+		}
 		if err := m.installCertManager(ctx); err != nil {
 			return fmt.Errorf("failed to install cert-manager: %w", err)
 		}
@@ -53,18 +63,26 @@ func (m *Manager) SetupDomain(ctx context.Context, cluster *types.Cluster) error
 	}
 
 	// Install and configure ingress controller
-	fmt.Printf("Installing %s ingress controller...\n", m.config.Ingress.Provider)
+	if !suppressOutput {
+		fmt.Printf("Installing %s ingress controller...\n", m.config.Ingress.Provider)
+	}
 	if err := m.installIngressController(ctx, cluster); err != nil {
 		return fmt.Errorf("failed to install ingress controller: %w", err)
 	}
 
 	// Configure CoreDNS for local resolution (Kind clusters)
 	if cluster.Provider == "kind" {
-		fmt.Printf("Configuring CoreDNS for local domain resolution...\n")
+		if !suppressOutput {
+			fmt.Printf("Configuring CoreDNS for local domain resolution...\n")
+		}
 		if err := m.setupCoreDNSForKind(ctx, domain); err != nil {
-			fmt.Printf("⚠️  Warning: Failed to configure CoreDNS: %v\n", err)
+			if !suppressOutput {
+				fmt.Printf("⚠️  Warning: Failed to configure CoreDNS: %v\n", err)
+			}
 		} else {
-			fmt.Printf("✓ CoreDNS configured for %s\n", domain)
+			if !suppressOutput {
+				fmt.Printf("✓ CoreDNS configured for %s\n", domain)
+			}
 		}
 	}
 
@@ -73,7 +91,9 @@ func (m *Manager) SetupDomain(ctx context.Context, cluster *types.Cluster) error
 		return fmt.Errorf("failed to store cluster configuration: %w", err)
 	}
 
-	fmt.Printf("✓ Domain management setup completed for %s\n", domain)
+	if !suppressOutput {
+		fmt.Printf("✓ Domain management setup completed for %s\n", domain)
+	}
 	return nil
 }
 

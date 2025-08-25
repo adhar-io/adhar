@@ -194,18 +194,21 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	}
 	defer os.Remove(configFile) // Clean up config file
 
-	// Create progress tracker for cluster creation steps
-	stepNames := []string{
-		"Create Kind Cluster",
-		"Install CNI (Cilium)",
-		"Configure Networking",
-	}
+	// Create progress tracker for cluster creation steps only if not called from platform setup
+	var progress *helpers.ProgressTracker
+	if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {
+		stepNames := []string{
+			"Create Kind Cluster",
+			"Install CNI (Cilium)",
+			"Configure Networking",
+		}
 
-	progress := helpers.NewProgressTracker("🔧 Setting up Management Cluster", stepNames)
-	defer func() {
-		// Clear the progress display
-		fmt.Print("\r\033[K")
-	}()
+		progress = helpers.NewProgressTracker("🔧 Setting up Management Cluster", stepNames)
+		defer func() {
+			// Clear the progress display
+			fmt.Print("\r\033[K")
+		}()
+	}
 
 	// Step 1: Create the actual Kind cluster
 	// Calculate total nodes (control plane + workers)
@@ -213,7 +216,9 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	for _, nodeGroup := range spec.NodeGroups {
 		totalNodes += nodeGroup.Replicas
 	}
-	progress.StartStep(0, fmt.Sprintf("Creating Kubernetes cluster '%s' with %d node(s)...", spec.Name, totalNodes))
+	if progress != nil {
+		progress.StartStep(0, fmt.Sprintf("Creating Kubernetes cluster '%s' with %d node(s)...", spec.Name, totalNodes))
+	}
 
 	// Build the command args
 	args := []string{"create", "cluster", "--name", spec.Name}
@@ -246,7 +251,9 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	cmd := exec.CommandContext(ctx, p.config.KindPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		progress.FailStep(0, err)
+		if progress != nil {
+			progress.FailStep(0, err)
+		}
 
 		// Check for common error scenarios and provide helpful messages
 		outputStr := string(output)
@@ -278,47 +285,70 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		// Generic error with output
 		return nil, fmt.Errorf("failed to create Kind cluster: %w\nOutput: %s", err, outputStr)
 	}
-	progress.CompleteStep(0)
+	if progress != nil {
+		progress.CompleteStep(0)
+	}
 	time.Sleep(500 * time.Millisecond) // Brief pause for visual feedback
 
 	// Step 2: Install CNI if specified
 	if spec.Networking.CNI == "cilium" {
-		progress.StartStep(1, "Installing Cilium CNI for secure networking...")
+		if progress != nil {
+			progress.StartStep(1, "Installing Cilium CNI for secure networking...")
+		}
 		err = p.installCilium(ctx, spec.Name)
 		if err != nil {
 			// Don't fail cluster creation if CNI installation fails, just warn and skip
-			progress.SkipStep(1, "CNI installation failed, continuing anyway")
+			if progress != nil {
+				progress.SkipStep(1, "CNI installation failed, continuing anyway")
+			}
 			fmt.Printf("⚠️  Warning: Failed to install Cilium CNI: %v\n", err)
 			fmt.Printf("You can install Cilium manually with: cilium install\n")
 		} else {
-			progress.CompleteStep(1)
+			if progress != nil {
+				progress.CompleteStep(1)
+			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	} else {
-		progress.SkipStep(1, "No CNI specified")
+		if progress != nil {
+			progress.SkipStep(1, "No CNI specified")
+		}
 		time.Sleep(500 * time.Millisecond)
 	}
 
 	// Step 3: Configure networking (placeholder for now)
-	progress.StartStep(2, "Configuring cluster networking...")
+	if progress != nil {
+		progress.StartStep(2, "Configuring cluster networking...")
+	}
 	// For now, this is just a placeholder - in the future we could add network policy setup, etc.
 	time.Sleep(1 * time.Second) // Simulate some networking setup
-	progress.CompleteStep(2)
+	if progress != nil {
+		progress.CompleteStep(2)
+	}
 
-	// Complete the progress tracker
-	progress.Complete()
+	// Complete the progress tracker normally - but we'll let it handle the display
+	if progress != nil {
+		progress.Complete()
+	}
 
 	// Set up domain management if domain configuration is available
 	if spec.Domain != nil {
-		fmt.Printf("Setting up domain management...\n")
+		// Check if we should suppress output
+		if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {
+			fmt.Printf("Setting up domain management...\n")
+		}
 		domainManager := domain.NewManager(spec.Domain, "")
 		err = domainManager.SetupDomain(ctx, cluster)
 		if err != nil {
 			// Don't fail cluster creation if domain setup fails, just warn
-			fmt.Printf("⚠️  Warning: Failed to setup domain management: %v\n", err)
-			fmt.Printf("You can set up domain management manually later\n")
+			if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {
+				fmt.Printf("⚠️  Warning: Failed to setup domain management: %v\n", err)
+				fmt.Printf("You can set up domain management manually later\n")
+			}
 		} else {
-			fmt.Printf("✓ Domain management configured!\n")
+			if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {
+				fmt.Printf("✓ Domain management configured!\n")
+			}
 		}
 	}
 

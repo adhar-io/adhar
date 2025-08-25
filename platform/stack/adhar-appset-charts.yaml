@@ -10,8 +10,8 @@ spec:
           - git:
               files:
                 - path: "**/config.yaml"
-              repoURL: http://gitea-http-clusterip.adhar-system.svc.cluster.local:3000/gitea_admin/environments
-              revision: HEAD
+              repoURL: https://github.com/adhar-platform/platform-stack
+              revision: main
           - list:
               elementsYaml: "{{ .packages | toJson }}"
             selector:
@@ -45,8 +45,8 @@ spec:
             valueFiles:
               - values.yaml
           path: "{{ .manifestPath }}"
-          repoURL: http://gitea-http-clusterip.adhar-system.svc.cluster.local:3000/gitea_admin/packages
-          targetRevision: HEAD
+          repoURL: https://github.com/adhar-platform/platform-stack
+          targetRevision: main
       syncPolicy:
         automated:
           prune: true

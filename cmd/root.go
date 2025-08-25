@@ -136,6 +136,15 @@ func printHeader() {
 	fmt.Println() // Add a blank line for spacing
 }
 
+// printFooter prints the standard Adhar Platform footer
+func printFooter() {
+	fmt.Println() // Add a blank line for spacing
+	fmt.Println(lipgloss.NewStyle().Align(lipgloss.Center).Render(
+		subtitleStyle.Render("Adhar • Built with ❤️ for developers!"),
+	))
+	fmt.Println() // Add a blank line for spacing
+}
+
 // renderCommandHeader prints a standardized header for any command with ASCII art and command-specific title
 func renderCommandHeader(commandName, description string) {
 	fmt.Println(renderAsciiArt())
@@ -171,7 +180,40 @@ Built for developer productivity with enterprise-grade security and governance.`
 			// Check if the --help flag was used
 			helpFlag, _ := cmd.Flags().GetBool("help")
 			if !helpFlag {
-				printHeader()
+				// Check if header should be hidden
+				noHeader, _ := cmd.Flags().GetBool("no-header")
+
+				// Special case: hide header for version command with --short flag
+				if cmd.Name() == "version" {
+					shortFlag, _ := cmd.Flags().GetBool("short")
+					if shortFlag {
+						noHeader = true
+					}
+				}
+
+				if !noHeader {
+					printHeader()
+				}
+			}
+		}
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		// Print footer after any command runs
+		// Skip footer for help command itself to avoid duplication
+		if cmd.Name() != "help" && cmd.Name() != "__complete" && cmd.Name() != "__completeNoDesc" {
+			// Check if footer should be hidden
+			noFooter, _ := cmd.Flags().GetBool("no-footer")
+
+			// Special case: hide footer for version command with --short flag
+			if cmd.Name() == "version" {
+				shortFlag, _ := cmd.Flags().GetBool("short")
+				if shortFlag {
+					noFooter = true
+				}
+			}
+
+			if !noFooter {
+				printFooter()
 			}
 		}
 	},
@@ -200,6 +242,8 @@ func init() {
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug mode")
 	rootCmd.PersistentFlags().String("theme", "auto", "Theme for markdown rendering (auto, dark, light)")
 	rootCmd.PersistentFlags().String("kubeconfig", "", "Path to the kubeconfig file to use for Platform requests")
+	rootCmd.PersistentFlags().Bool("no-header", false, "Hide the Adhar Platform header")
+	rootCmd.PersistentFlags().Bool("no-footer", false, "Hide the Adhar Platform footer")
 
 	// Added log level and colored output flags
 	rootCmd.PersistentFlags().StringVar(&logger.CLILogLevel, "log-level", "info", logger.LogLevelMsg)
@@ -209,4 +253,98 @@ func init() {
 // AddCommand adds one or more commands to the root command
 func AddCommand(cmd ...*cobra.Command) {
 	rootCmd.AddCommand(cmd...)
+}
+
+// renderRootCommandContent renders the content for the root command
+func renderRootCommandContent(cmd *cobra.Command) {
+	// Print welcome message
+	fmt.Println(infoStyle.Render("🚀 Welcome to Adhar Platform!"))
+	fmt.Println()
+	fmt.Println(infoStyle.Render("Adhar Platform is a comprehensive Internal Developer Platform (IDP) that provides"))
+	fmt.Println(infoStyle.Render("unified Kubernetes-native approach for the entire software development lifecycle."))
+	fmt.Println()
+
+	// Platform Lifecycle
+	fmt.Println(titleStyle.Render("📋 Platform Lifecycle"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("up") + "       - Create and start the Adhar platform (local or cloud)")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("down") + "     - Stop and destroy the Adhar platform")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("status") + "   - Check platform health and status")
+	fmt.Println()
+
+	// Resource Management
+	fmt.Println(titleStyle.Render("🔍 Resource Management"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("get") + "       - Display platform resources (apps, secrets, clusters, etc.)")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("apps") + "     - Manage application lifecycle and deployments")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("cluster") + "  - Manage Kubernetes clusters and configurations")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("config") + "   - Manage platform configuration and settings")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("env") + "      - Manage platform environments (dev, staging, prod)")
+	fmt.Println()
+
+	// Operations & Monitoring
+	fmt.Println(titleStyle.Render("⚡ Operations & Monitoring"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("health") + "   - Check platform health, services, and dependencies")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("logs") + "     - View centralized platform logs and events")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("metrics") + "  - Access platform metrics and performance data")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("traces") + "   - View distributed tracing information")
+	fmt.Println()
+
+	// Security & Compliance
+	fmt.Println(titleStyle.Render("🔒 Security & Compliance"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("security") + " - Security scanning, vulnerability management, and policies")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("auth") + "     - Authentication, authorization, and user management")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("secrets") + "  - Manage secrets, certificates, and sensitive data")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("policy") + "   - Platform policy management and governance")
+	fmt.Println()
+
+	// GitOps & DevOps
+	fmt.Println(titleStyle.Render("🔄 GitOps & DevOps"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("gitops") + "  - GitOps operations, ArgoCD management, and workflows")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("pipeline") + " - CI/CD pipeline creation, execution, and management")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("webhook") + " - Webhook management and integration endpoints")
+	fmt.Println()
+
+	// Infrastructure & Data
+	fmt.Println(titleStyle.Render("🏗️ Infrastructure & Data"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("network") + " - Network diagnostics, policies, and connectivity testing")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("db") + "      - Database management, operations, and monitoring")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("storage") + " - Storage management, volumes, and data persistence")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("service") + " - Service management, load balancing, and API endpoints")
+	fmt.Println()
+
+	// Resource Management & Optimization
+	fmt.Println(titleStyle.Render("📊 Resource Management & Optimization"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("scale") + "   - Resource scaling, auto-scaling, and optimization")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("backup") + "  - Platform backup creation and management")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("restore") + " - Platform restoration from backups")
+	fmt.Println()
+
+	// Utilities
+	fmt.Println(titleStyle.Render("🛠️ Utilities"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("help") + "     - Get help about commands (this command)")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("version") + "  - Show version information and build details")
+	fmt.Println()
+
+	// Quick Start Examples
+	fmt.Println(titleStyle.Render("🚀 Quick Start Examples"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("adhar up") + "                    - Create local development platform")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("adhar up -f config.yaml") + "   - Deploy production platform")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("adhar get status") + "          - Check platform health")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("adhar get secrets") + "         - View platform credentials")
+	fmt.Println("  " + bulletStyle.Render("•") + " " + cmdDescStyle.Render("adhar down") + "                - Clean up local platform")
+	fmt.Println()
+
+	// Help Information
+	fmt.Println(titleStyle.Render("📚 Getting More Help"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + infoStyle.Render("Command-specific help:") + " " + highlightStyle.Render("adhar help <command>"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + infoStyle.Render("Detailed documentation:") + " " + highlightStyle.Render("https://docs.adhar.io"))
+	fmt.Println("  " + bulletStyle.Render("•") + " " + infoStyle.Render("Community support:") + " " + highlightStyle.Render("https://github.com/adhar-io/adhar"))
+	fmt.Println()
+
+	// Tips
+	fmt.Println(titleStyle.Render("💡 Pro Tips"))
+	fmt.Println("  " + bulletStyle.Render("•") + " Use " + highlightStyle.Render("--dry-run") + " flag to preview changes without applying them")
+	fmt.Println("  " + bulletStyle.Render("•") + " Use " + highlightStyle.Render("--verbose") + " flag for detailed output and debugging")
+	fmt.Println("  " + bulletStyle.Render("•") + " Use " + highlightStyle.Render("--no-color") + " flag to disable colored output")
+	fmt.Println("  " + bulletStyle.Render("•") + " Use " + highlightStyle.Render("--kubeconfig") + " to specify custom kubeconfig path")
+	fmt.Println()
 }
