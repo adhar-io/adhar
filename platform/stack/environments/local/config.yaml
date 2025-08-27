@@ -2,147 +2,176 @@ environment: local
 type: nonprod
 packages:
   - name: external-secrets
+    enabled: true
     namespace: external-secrets
-    install: "true"
+    category: security
     manifestPath: "security/external-secrets/manifests"
-    isChart: "false"
+    isChart: false
   - name: cert-manager
+    enabled: true
     namespace: cert-manager
-    install: "true"
+    category: security
     manifestPath: "security/cert-manager/manifests"
-    isChart: "false"
+    isChart: false
   - name: cnpg
+    enabled: true
     namespace: cnpg-system
-    install: "true"
+    category: data
     manifestPath: "data/cnpg/manifests"
-    isChart: "false"
+    isChart: false
   - name: kyverno
+    enabled: true
     namespace: kyverno
-    install: "true"
+    category: security
     manifestPath: "security/kyverno/manifests"
-    isChart: "false"
+    isChart: false
   - name: kyverno-policies
+    enabled: true
     namespace: kyverno
-    install: "true"
+    category: security
     manifestPath: "security/kyverno-policies/manifests"
-    isChart: "false"
+    isChart: false
   - name: jupyterhub
+    enabled: true
     namespace: jupyterhub
-    install: "true"
+    category: data
     manifestPath: "data/jupyterhub/manifests"
-    isChart: "false"
+    isChart: false
   - name: headlamp
+    enabled: true
     namespace: adhar-system
-    install: "true"
+    category: observability
     manifestPath: "observability/headlamp/manifests"
-    isChart: "false"
+    isChart: false
   - name: keycloak
+    enabled: true
     namespace: keycloak
-    install: "true"
+    category: security
     manifestPath: "security/keycloak/manifests"
-    isChart: "false"
+    isChart: false
   - name: argo-workflows
+    enabled: true
     namespace: argo
-    install: "true"
+    category: application
     manifestPath: "application/argo-workflows/manifests/dev"
-    isChart: "false"
+    isChart: false
   - name: adhar-console
+    enabled: true
     namespace: backstage
-    install: "true"
+    category: core
     manifestPath: "core/adhar-console/manifests"
-    isChart: "false"
+    isChart: false
   - name: harbor
+    enabled: true
     namespace: harbor
-    install: "true"
+    category: application
     manifestPath: "application/harbor/manifests"
-    isChart: "false"
+    isChart: false
   - name: kargo
+    enabled: true
     namespace: argocd
-    install: "true"
+    category: application
     manifestPath: "application/kargo/manifests"
-    isChart: "false"
+    isChart: false
   - name: minio
+    enabled: true
     namespace: minio
-    install: "true"
+    category: data
     manifestPath: "data/minio/manifests"
-    isChart: "false"
+    isChart: false
   - name: velero
+    enabled: true
     namespace: velero
-    install: "true"
+    category: core
     manifestPath: "core/velero/manifests"
-    isChart: "false"
+    isChart: false
   - name: spark-operator
+    enabled: true
     namespace: spark-operator
-    install: "true"
+    category: data
     manifestPath: "data/spark-operator/manifests"
-    isChart: "false"
+    isChart: false
   - name: metrics-server
+    enabled: true
     namespace: kube-system
-    install: "true"
+    category: observability
     manifestPath: "observability/metrics-server/manifests"
-    isChart: "false"
+    isChart: false
   - name: kube-prometheus
+    enabled: true
     namespace: monitoring
-    install: "true"
+    category: observability
     manifestPath: "observability/kube-prometheus/manifests"
-    isChart: "false"
+    isChart: false
   - name: loki
+    enabled: true
     namespace: monitoring
-    install: "true"
+    category: observability
     manifestPath: "observability/loki-stack/manifests"
-    isChart: "false"
+    isChart: false
   - name: opencost
+    enabled: true
     namespace: monitoring
-    install: "true"
+    category: observability
     manifestPath: "observability/opencost/manifests"
-    isChart: "false"
+    isChart: false
   - name: alloy
+    enabled: true
     namespace: monitoring
-    install: "true"
+    category: observability
     manifestPath: "observability/alloy/manifests"
-    isChart: "false"
+    isChart: false
   - name: oncall
+    enabled: true
     namespace: monitoring
-    install: "true"
+    category: observability
     manifestPath: "observability/oncall/manifests"
-    isChart: "false"
+    isChart: false
   - name: tempo
+    enabled: true
     namespace: monitoring
-    install: "true"
+    category: observability
     manifestPath: "observability/tempo/manifests"
-    isChart: "false"
+    isChart: false
   - name: mimir
+    enabled: true
     namespace: monitoring
-    install: "true"
+    category: observability
     manifestPath: "observability/mimir/manifests"
-    isChart: "false"
+    isChart: false
   - name: k6
+    enabled: true
     namespace: adhar-system
-    install: "true"
+    category: application
     manifestPath: "application/k6/manifests"
-    isChart: "false"
+    isChart: false
   - name: crossplane
+    enabled: true
     namespace: crossplane-system
-    install: "true"
+    category: infrastructure
     manifestPath: "infrastructure/crossplane/manifests"
-    isChart: "false"
+    isChart: false
   - name: terraform
+    enabled: true
     namespace: adhar-system
-    install: "true"
+    category: infrastructure
     manifestPath: "infrastructure/terraform/manifests"
-    isChart: "false"
+    isChart: false
   - name: dapr
+    enabled: true
     namespace: dapr-system
-    install: "true"
+    category: application
     manifestPath: "application/dapr/manifests"
-    isChart: "false"
+    isChart: false
   - name: redis
+    enabled: true
     namespace: redis-operator
-    install: "true"
+    category: data
     manifestPath: "data/redis/manifests"
-    isChart: "false"
+    isChart: false
   - name: keda
+    enabled: true
     namespace: keda
-    install: "true"
+    category: application
     manifestPath: "application/keda/manifests"
-    isChart: "false"
+    isChart: false

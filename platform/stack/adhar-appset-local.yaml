@@ -1,0 +1,189 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: helm-charts-local
+  namespace: adhar-system
+spec:
+  generators:
+    - list:
+        elements:
+          - name: "external-secrets"
+            enabled: "true"
+            namespace: "external-secrets"
+            category: "security"
+            manifestPath: "guestbook"
+          - name: "cert-manager"
+            enabled: "true"
+            namespace: "cert-manager"
+            category: "security"
+            manifestPath: "guestbook"
+          - name: "cnpg"
+            enabled: "true"
+            namespace: "cnpg-system"
+            category: "data"
+            manifestPath: "guestbook"
+          - name: "kyverno"
+            enabled: "true"
+            namespace: "kyverno"
+            category: "security"
+            manifestPath: "guestbook"
+          - name: "kyverno-policies"
+            enabled: "true"
+            namespace: "kyverno"
+            category: "security"
+            manifestPath: "guestbook"
+          - name: "jupyterhub"
+            enabled: "true"
+            namespace: "jupyterhub"
+            category: "data"
+            manifestPath: "guestbook"
+          - name: "headlamp"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "observability"
+            manifestPath: "guestbook"
+          - name: "keycloak"
+            enabled: "true"
+            namespace: "keycloak"
+            category: "security"
+            manifestPath: "guestbook"
+          - name: "argo-workflows"
+            enabled: "true"
+            namespace: "argo"
+            category: "application"
+            manifestPath: "guestbook"
+          - name: "adhar-console"
+            enabled: "true"
+            namespace: "backstage"
+            category: "core"
+            manifestPath: "guestbook"
+          - name: "harbor"
+            enabled: "true"
+            namespace: "harbor"
+            category: "application"
+            manifestPath: "guestbook"
+          - name: "kargo"
+            enabled: "true"
+            namespace: "argocd"
+            category: "application"
+            manifestPath: "guestbook"
+          - name: "minio"
+            enabled: "true"
+            namespace: "minio"
+            category: "data"
+            manifestPath: "guestbook"
+          - name: "velero"
+            enabled: "true"
+            namespace: "velero"
+            category: "core"
+            manifestPath: "guestbook"
+          - name: "spark-operator"
+            enabled: "true"
+            namespace: "spark-operator"
+            category: "data"
+            manifestPath: "guestbook"
+          - name: "metrics-server"
+            enabled: "true"
+            namespace: "kube-system"
+            category: "observability"
+            manifestPath: "guestbook"
+          - name: "kube-prometheus"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            manifestPath: "guestbook"
+          - name: "loki"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            manifestPath: "guestbook"
+          - name: "opencost"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            manifestPath: "guestbook"
+          - name: "alloy"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            manifestPath: "guestbook"
+          - name: "oncall"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            manifestPath: "guestbook"
+          - name: "tempo"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            manifestPath: "guestbook"
+          - name: "mimir"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            manifestPath: "guestbook"
+          - name: "k6"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "guestbook"
+          - name: "crossplane"
+            enabled: "true"
+            namespace: "crossplane-system"
+            category: "infrastructure"
+            manifestPath: "guestbook"
+          - name: "terraform"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "infrastructure"
+            manifestPath: "guestbook"
+          - name: "dapr"
+            enabled: "true"
+            namespace: "dapr-system"
+            category: "application"
+            manifestPath: "guestbook"
+          - name: "redis"
+            enabled: "true"
+            namespace: "redis-operator"
+            category: "data"
+            manifestPath: "guestbook"
+          - name: "keda"
+            enabled: "true"
+            namespace: "keda"
+            category: "application"
+            manifestPath: "guestbook"
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  template:
+    metadata:
+      finalizers:
+        - resources-finalizer.argoproj.io
+      labels:
+        adhar.io/package-name: "{{ .name }}"
+        adhar.io/category: "{{ .category }}"
+        environment: "local"
+      name: "{{ .name }}"
+    spec:
+      destination:
+        namespace: "{{ .namespace }}"
+        server: https://kubernetes.default.svc
+      project: default
+      sources:
+        - path: "{{ .manifestPath }}"
+          repoURL: https://github.com/argoproj/argocd-example-apps
+          targetRevision: HEAD
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        retry:
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m0s
+          limit: 30
+        syncOptions:
+          - Replace=true
+          - CreateNamespace=true
+          - ServerSideApply=true

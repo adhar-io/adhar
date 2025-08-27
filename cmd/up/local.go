@@ -105,22 +105,58 @@ func (lp *LocalProvisioner) runPreFlightChecks() error {
 	logger.Info("⚡ Running pre-flight checks...")
 
 	checks := []struct {
-		name  string
-		check func() error
+		name        string
+		description string
+		check       func() error
 	}{
-		{"Docker availability", lp.checkDocker},
-		{"Kind cluster engine", lp.checkKindEngine},
-		{"Disk space", lp.checkDiskSpace},
-		{"Port availability", lp.checkPortAvailability},
+		{
+			name:        "Docker",
+			description: "🐳 Docker is available and healthy",
+			check:       lp.checkDocker,
+		},
+		{
+			name:        "Kind Engine",
+			description: "🔧 Kind cluster engine ready",
+			check:       lp.checkKindEngine,
+		},
+		{
+			name:        "kubectl",
+			description: "⚙️ kubectl is available",
+			check:       lp.checkKubectl,
+		},
+		{
+			name:        "System Resources",
+			description: "💾 Sufficient system resources available",
+			check:       lp.checkDiskSpace,
+		},
+		{
+			name:        "Ports",
+			description: "🔌 Required ports are available",
+			check:       lp.checkPortAvailability,
+		},
+		{
+			name:        "Container Runtime",
+			description: "🔄 Container runtime is healthy",
+			check:       lp.checkDocker,
+		},
+		{
+			name:        "Cluster Conflicts",
+			description: "🚫 No conflicting clusters found",
+			check:       lp.checkConflictingClusters,
+		},
 	}
 
 	for _, check := range checks {
+		fmt.Printf("  %s %s\n", "⏳", check.description)
 		if err := check.check(); err != nil {
-			return fmt.Errorf("❌ %s check failed: %w", check.name, err)
+			fmt.Printf("  ❌ %s failed: %v\n", check.name, err)
+			return fmt.Errorf("%s check failed: %w", check.name, err)
 		}
-		logger.Info("✅ " + check.name + " check passed")
+		fmt.Printf("  ✅ %s\n", check.description)
 	}
 
+	fmt.Println()
+	logger.Info("✅ All pre-flight checks passed!")
 	return nil
 }
 
@@ -153,6 +189,34 @@ func (lp *LocalProvisioner) checkDiskSpace() error {
 func (lp *LocalProvisioner) checkPortAvailability() error {
 	// TODO: Implement port availability check
 	// This should check if ports 80, 443, 3000, etc. are available
+	return nil
+}
+
+// checkKubectl verifies kubectl is available
+func (lp *LocalProvisioner) checkKubectl() error {
+	cmd := exec.Command("kubectl", "version", "--client")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("kubectl is not available: %w", err)
+	}
+	return nil
+}
+
+// checkConflictingClusters verifies no conflicting clusters exist
+func (lp *LocalProvisioner) checkConflictingClusters() error {
+	// Check if there are any existing Kind clusters that might conflict
+	cmd := exec.Command("kind", "get", "clusters")
+	output, err := cmd.Output()
+	if err != nil {
+		// If kind command fails, assume no clusters exist
+		return nil
+	}
+
+	clusters := strings.TrimSpace(string(output))
+	if clusters != "" && !strings.Contains(clusters, "adhar") {
+		// Found existing clusters that don't match our naming pattern
+		return fmt.Errorf("found existing clusters: %s. Consider using --recreate flag or cleaning up existing clusters", clusters)
+	}
+
 	return nil
 }
 

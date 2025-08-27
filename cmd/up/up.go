@@ -27,20 +27,20 @@ import (
 )
 
 const (
-	recreateClusterUsage           = "Delete cluster first if it already exists"
-	devPasswordUsage               = "Set password 'developer' for admin users (argocd & gitea)"
-	kubeVersionUsage               = "Kubernetes version for the kind cluster"
-	extraPortsMappingUsage         = "Extra ports to expose (e.g., '22:32222,9090:39090')"
-	registryConfigUsage            = "Registry config paths (uses first existing one)"
-	kindConfigPathUsage            = "Custom kind config file path or URL"
-	hostUsage                      = "Host name for cluster resources"
-	ingressHostUsage               = "Custom ingress host name (for proxy setups)"
-	protocolUsage                  = "Protocol for web UIs (http or https)"
-	portUsage                      = "Port for web UIs"
-	pathRoutingUsage               = "Use single domain with path routing"
-	extraPackagesUsage             = "Paths to custom package locations"
-	packageCustomizationFilesUsage = "Package customization files (e.g., argocd:/tmp/argocd.yaml)"
-	noExitUsage                    = "Keep running to continuously sync directories"
+	recreateClusterUsage           = "🗑️ Delete existing cluster before creating new one"
+	devPasswordUsage               = "🔑 Set password 'developer' for admin users (ArgoCD & Gitea)"
+	kubeVersionUsage               = "🐳 Kubernetes version for Kind cluster (e.g., v1.33.2)"
+	extraPortsMappingUsage         = "🔌 Extra ports to expose (e.g., '22:32222,9090:39090')"
+	registryConfigUsage            = "📦 Container registry config paths (uses first existing one)"
+	kindConfigPathUsage            = "⚙️ Custom Kind configuration file path or URL"
+	hostUsage                      = "🌐 Host name for cluster resources (default: adhar.localtest.me)"
+	ingressHostUsage               = "🚪 Custom ingress host name for proxy setups"
+	protocolUsage                  = "🔒 Protocol for web UIs (http or https)"
+	portUsage                      = "🚪 Port for web UIs (default: 8443)"
+	pathRoutingUsage               = "🛣️ Use single domain with path routing"
+	extraPackagesUsage             = "📦 Paths to custom package locations"
+	packageCustomizationFilesUsage = "⚙️ Package customization files (e.g., argocd:/tmp/argocd.yaml)"
+	noExitUsage                    = "🔄 Keep running to continuously sync directories"
 )
 
 var (
@@ -71,58 +71,74 @@ var (
 // UpCmd represents the up command
 var UpCmd = &cobra.Command{
 	Use:     "up",
-	Aliases: []string{"create"},
-	Short:   "Create an Adhar IDP",
-	Long: `The "adhar up" command is used to create and configure an Adhar Internal Developer Platform (IDP).
+	Aliases: []string{"create", "launch", "start"},
+	Short:   "🚀 Launch Adhar Internal Developer Platform",
+	Long: `🚀 **Adhar Internal Developer Platform Launcher**
 
-This command supports two primary use cases:
+The "adhar up" command spins up a complete internal developer platform using industry 
+standard technologies like Kubernetes, ArgoCD, Gitea, and Crossplane with only Docker 
+required as a dependency.
 
-1. Local Development: Developers can use 'adhar up' to quickly spin up a local Adhar cluster 
-   for testing and development purposes. By default, it sets up a Kubernetes cluster using 
-   Kind (Kubernetes in Docker) and provisions essential platform components like ArgoCD, 
-   Gitea, and Nginx.
+This can be useful in several ways:
 
-   Example:
-     adhar up
-     # List available environments: adhar get envs -f config.yaml
+• **Local Development**: Platform engineers can use 'adhar up' to quickly spin up a 
+  local Adhar cluster for testing and development purposes
+• **Reference Implementation**: Create a single binary which demonstrates a complete 
+  IDP reference implementation
+• **CI Integration**: Use within CI to perform integration testing
+• **Demo Environment**: Perfect for demonstrating platform capabilities to stakeholders
 
-2. Production Setup: For production environments, 'adhar up' can be used with a 
-   configuration file to deploy the Adhar platform on cloud infrastructure. The 
-   configuration file allows customization of cluster settings, package configurations, 
-   and resource allocations.
-
-   Example:
-     adhar up -f config.yaml
-     adhar up -f config.yaml --env prod  # Deploy specific environment
-
-Key Features:
-• Supports local development with minimal setup
-• Configures Kubernetes clusters in your favorite cloud vendor with custom settings
-• Provisions core platform components like Cilium, ArgoCD, Gitea, Grafana, Keycloak, Backstage, Nginx and more
-• Allows customization of packages and configurations
-• Supports local development with rapid iteration
-• Brings holistic governance to your development environment
-• Enables developers to continuously sync local directories for rapid iteration
-• Supports cloud-based production deployments with configuration files
-
-For more information, visit the documentation at https://adhar.io/docs`,
-	Example: `  # Create local development cluster
+**Local Development Mode (Default):**
   adhar up
+  # Creates Kind cluster with ArgoCD, Gitea, Crossplane, and 48+ platform tools
 
-  # Deploy production platform with configuration
+**Production Setup:**
   adhar up -f config.yaml
-
-  # Deploy specific environment
   adhar up -f config.yaml --env prod
 
-  # Preview changes without applying
+**Custom Configuration:**
+  adhar up --kube-version v1.33.2 --host mydomain.com --port 8443
+
+**Key Features:**
+• 🐳 Docker-only dependency (no external tools required)
+• 🚀 Single command to spin up complete platform
+• 🔧 Industry standard stack (Kubernetes, ArgoCD, Gitea, Crossplane)
+• 📦 48+ integrated platform tools and services
+• 🌐 Multi-cloud provider support (Kind, DigitalOcean, GCP, AWS, Azure, Civo)
+• 🔒 Security by default with zero-trust networking
+• 📊 GitOps-driven operations with ArgoCD
+• 🎯 Perfect for platform engineers and DevOps teams
+
+**What Gets Installed:**
+• Core Platform: ArgoCD, Gitea, Crossplane, Nginx Ingress
+• Security: Vault, Keycloak, Kyverno, Falco, Trivy
+• Observability: Prometheus, Grafana, Loki, Jaeger, Hubble
+• Data & Analytics: PostgreSQL, Redis, MinIO, Kafka, Jupyter
+• Application Development: Harbor, Argo Workflows, Knative
+
+For more information, visit: https://github.com/adhar-io/adhar`,
+	Example: `  # 🚀 Quick Start - Local Development
+  adhar up
+  # Spins up complete platform with Kind cluster
+
+  # 🏭 Production Deployment
+  adhar up -f config.yaml
+  adhar up -f config.yaml --env prod
+
+  # 🔧 Custom Configuration
+  adhar up --kube-version v1.33.2
+  adhar up --host mydomain.com --port 8443
+  adhar up --extra-ports "22:32222,9090:39090"
+
+  # 📦 Package Customization
+  adhar up -p /path/to/custom/packages
+  adhar up -e argocd:/tmp/argocd.yaml
+
+  # 👀 Preview Mode
   adhar up --dry-run
 
-  # Customize packages
-  adhar up -p /path/to/custom/packages
-
-  # Set custom host and port
-  adhar up --host mydomain.com --port 8080`,
+  # 🔄 Development Mode
+  adhar up --watch --verbose`,
 	RunE:         create,
 	PreRunE:      preCreateE,
 	SilenceUsage: true,
@@ -179,14 +195,19 @@ func create(cmd *cobra.Command, args []string) error {
 	ctx, ctxCancel := context.WithCancel(cmd.Context())
 	defer ctxCancel()
 
+	// Show Adhar banner
+	fmt.Printf("\n🚀 %s\n", helpers.BoldStyle.Render("Adhar Internal Developer Platform"))
+	fmt.Printf("🎯 Spinning up complete IDP with industry standard technologies\n")
+	fmt.Printf("🐳 Docker-only dependency • Single command • 48+ platform tools\n\n")
+
 	// Check if this is a production setup (config file provided)
 	if configFile != "" {
 		fmt.Printf("🏭 %s\n", helpers.BoldStyle.Render("Production Platform Provisioning Mode"))
-		fmt.Printf("Configuration file: %s\n", configFile)
+		fmt.Printf("📁 Configuration file: %s\n", configFile)
 		if environment != "" {
-			fmt.Printf("Target environment: %s\n", environment)
+			fmt.Printf("🎯 Target environment: %s\n", environment)
 		} else {
-			fmt.Printf("Mode: Complete platform provisioning (all environments)\n")
+			fmt.Printf("🌐 Mode: Complete platform provisioning (all environments)\n")
 		}
 		fmt.Println()
 		return createProductionCluster(ctx, cmd, args)
@@ -194,7 +215,8 @@ func create(cmd *cobra.Command, args []string) error {
 
 	// Local development mode
 	fmt.Printf("🏠 %s\n", helpers.BoldStyle.Render("Local Development Mode"))
-	fmt.Printf("Creating Kind-based Kubernetes cluster with essential platform components\n")
+	fmt.Printf("🐳 Creating Kind-based Kubernetes cluster with complete platform stack\n")
+	fmt.Printf("⚡ Perfect for development, testing, and demonstrations\n\n")
 
 	// Perform pre-flight checks
 	if err := performLocalPreflightChecks(); err != nil {

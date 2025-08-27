@@ -293,6 +293,9 @@ func applyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
 	os.Setenv("ADHAR_PLATFORM_SETUP", "true")
 	defer os.Unsetenv("ADHAR_PLATFORM_SETUP")
 
+	// Note: Kind provider progress is shown separately above
+	// This progress tracker shows platform-specific installation steps
+
 	// Set HA mode for manifest selection
 	enableHA := false
 	if envConfig != nil && envConfig.GlobalSettings != nil {
@@ -774,8 +777,7 @@ func applyPlatformApplicationSets() error {
 
 	// Apply platform stack ApplicationSets
 	appsetManifests := []string{
-		"platform/stack/adhar-appset-manifests.yaml",
-		"platform/stack/adhar-appset-charts.yaml",
+		"platform/stack/adhar-appset-local.yaml",
 	}
 
 	for _, manifest := range appsetManifests {
@@ -848,27 +850,45 @@ func setupGitOpsRepositories() error {
 	return nil
 }
 
-// createGiteaRepository creates a new repository in Gitea
+// createGiteaRepository creates a new repository in Gitea using the API
 func createGiteaRepository(name, description string) error {
 	logger.Infof("Creating Gitea repository: %s", name)
 
-	// Create repository using Gitea API
-	createRepoCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", "deployment/gitea", "--",
-		"gitea", "admin", "repo", "create", "--name", name, "--description", description,
-		"--private", "--owner", "gitea_admin")
+	// First, check if repository already exists
+	checkCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", "deployment/gitea", "--",
+		"ls", "-la", "/data/git/repositories/gitea_admin/")
 
 	var stderr bytes.Buffer
+	checkCmd.Stderr = &stderr
+
+	if err := checkCmd.Run(); err == nil {
+		// Repository directory exists, check if it's a git repo
+		gitCheckCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", "deployment/gitea", "--",
+			"ls", "-la", fmt.Sprintf("/data/git/repositories/gitea_admin/%s.git/", name))
+
+		if gitCheckCmd.Run() == nil {
+			logger.Infof("Repository %s already exists", name)
+			return nil
+		}
+	}
+
+	// Create repository using Gitea API via curl from within the pod
+	// We'll use the Gitea API to create the repository
+	createRepoCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", "deployment/gitea", "--",
+		"curl", "-X", "POST", "http://localhost:3000/api/v1/admin/users/gitea_admin/repos",
+		"-H", "Content-Type: application/json",
+		"-d", fmt.Sprintf(`{"name":"%s","description":"%s","private":false}`, name, description),
+		"-u", "gitea_admin:r8sA8CPHD9!bt6d")
+
 	createRepoCmd.Stdout = io.Discard
 	createRepoCmd.Stderr = &stderr
 
 	if err := createRepoCmd.Run(); err != nil {
-		// If repository already exists, that's fine
-		if strings.Contains(stderr.String(), "already exists") {
-			logger.Infof("Repository %s already exists", name)
-			return nil
-		}
-		return fmt.Errorf("failed to create repository %s: %w\nStderr: %s", name, err, stderr.String())
+		return fmt.Errorf("failed to create repository %s via API: %w\nStderr: %s", name, err, stderr.String())
 	}
+
+	// Wait a moment for the repository to be fully created
+	time.Sleep(2 * time.Second)
 
 	logger.Infof("Successfully created repository: %s", name)
 	return nil
@@ -902,54 +922,110 @@ func pushPlatformStackContent() error {
 // pushToRepository clones a repository and pushes content to it
 func pushToRepository(repoName, sourcePath, tempDir string) error {
 	logger.Infof("Pushing content to repository: %s", repoName)
+	logger.Infof("Source path: %s", sourcePath)
 
-	repoDir := filepath.Join(tempDir, repoName)
+	// Verify source path exists and convert to absolute path
+	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+		return fmt.Errorf("source path does not exist: %s", sourcePath)
+	}
 
-	// Initialize git repository
-	initCmd := exec.Command("git", "init", repoDir)
-	initCmd.Dir = tempDir
+	// Convert to absolute path to avoid working directory issues
+	absSourcePath, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for %s: %w", sourcePath, err)
+	}
+
+	logger.Infof("Using absolute source path: %s", absSourcePath)
+
+	// Get the Gitea pod name
+	podNameCmd := exec.Command("kubectl", "get", "pods", "-n", "adhar-system", "-l", "app.kubernetes.io/name=gitea", "-o", "jsonpath={.items[0].metadata.name}")
+	podNameBytes, err := podNameCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get Gitea pod name: %w", err)
+	}
+	podName := strings.TrimSpace(string(podNameBytes))
+	if podName == "" {
+		return fmt.Errorf("no Gitea pod found")
+	}
+
+	logger.Infof("Using Gitea pod: %s", podName)
+
+	// Run Git operations from within the Gitea pod to access internal services
+	// First, copy the source content to a temporary location in the Gitea pod
+	copyCmd := exec.Command("kubectl", "cp", absSourcePath, fmt.Sprintf("adhar-system/%s:/tmp/%s", podName, repoName))
+
+	// Capture both stdout and stderr for debugging
+	var copyStdout, copyStderr bytes.Buffer
+	copyCmd.Stdout = &copyStdout
+	copyCmd.Stderr = &copyStderr
+
+	if err := copyCmd.Run(); err != nil {
+		return fmt.Errorf("failed to copy source content to Gitea pod: %w\nStdout: %s\nStderr: %s", err, copyStdout.String(), copyStderr.String())
+	}
+
+	// Verify the copy succeeded by checking if the directory exists in the pod
+	verifyCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "ls", "-la", fmt.Sprintf("/tmp/%s", repoName))
+	var verifyStderr bytes.Buffer
+	verifyCmd.Stderr = &verifyStderr
+
+	if err := verifyCmd.Run(); err != nil {
+		return fmt.Errorf("copy verification failed - directory not found in pod: %w\nStderr: %s", err, verifyStderr.String())
+	}
+
+	logger.Infof("Successfully copied %s to Gitea pod at /tmp/%s", sourcePath, repoName)
+
+	// Initialize git repository inside the Gitea pod
+	initCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--",
+		"git", "init", fmt.Sprintf("/tmp/%s", repoName))
 	if err := initCmd.Run(); err != nil {
 		return fmt.Errorf("failed to initialize git repository: %w", err)
 	}
 
-	// Copy source content
-	if err := copyDirectory(sourcePath, repoDir); err != nil {
-		return fmt.Errorf("failed to copy source content: %w", err)
+	// Configure Git user
+	configUserCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--",
+		"git", "-C", fmt.Sprintf("/tmp/%s", repoName), "config", "user.name", "Adhar Platform")
+	if err := configUserCmd.Run(); err != nil {
+		return fmt.Errorf("failed to configure Git user: %w", err)
 	}
 
-	// Add remote origin (using external Gitea URL)
-	remoteCmd := exec.Command("git", "remote", "add", "origin",
-		fmt.Sprintf("http://adhar.localtest.me:3000/gitea_admin/%s.git", repoName))
-	remoteCmd.Dir = repoDir
+	configEmailCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--",
+		"git", "-C", fmt.Sprintf("/tmp/%s", repoName), "config", "user.email", "admin@adhar.io")
+	if err := configEmailCmd.Run(); err != nil {
+		return fmt.Errorf("failed to configure Git email: %w", err)
+	}
+
+	// Add remote origin using localhost with embedded credentials (since we're inside the pod)
+	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--",
+		"git", "-C", fmt.Sprintf("/tmp/%s", repoName), "remote", "add", "origin", fmt.Sprintf("http://gitea_admin:r8sA8CPHD9!bt6d@localhost:3000/gitea_admin/%s.git", repoName))
 	if err := remoteCmd.Run(); err != nil {
 		return fmt.Errorf("failed to add remote origin: %w", err)
 	}
 
 	// Create and checkout main branch before first commit
-	checkoutCmd := exec.Command("git", "checkout", "-b", "main")
-	checkoutCmd.Dir = repoDir
+	checkoutCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--",
+		"git", "-C", fmt.Sprintf("/tmp/%s", repoName), "checkout", "-b", "main")
 	if err := checkoutCmd.Run(); err != nil {
 		return fmt.Errorf("failed to create main branch: %w", err)
 	}
 
 	// Add all files
-	addCmd := exec.Command("git", "add", ".")
-	addCmd.Dir = repoDir
+	addCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--",
+		"git", "-C", fmt.Sprintf("/tmp/%s", repoName), "add", ".")
 	if err := addCmd.Run(); err != nil {
 		return fmt.Errorf("failed to add files: %w", err)
 	}
 
 	// Commit
-	commitCmd := exec.Command("git", "commit", "-m", "Initial platform stack content")
-	commitCmd.Dir = repoDir
+	commitCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--",
+		"git", "-C", fmt.Sprintf("/tmp/%s", repoName), "commit", "-m", "Initial platform stack content")
 	commitCmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Adhar Platform", "GIT_AUTHOR_EMAIL=admin@adhar.io")
 	if err := commitCmd.Run(); err != nil {
 		return fmt.Errorf("failed to commit files: %w", err)
 	}
 
 	// Push to Gitea
-	pushCmd := exec.Command("git", "push", "-u", "origin", "main")
-	pushCmd.Dir = repoDir
+	pushCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--",
+		"git", "-C", fmt.Sprintf("/tmp/%s", repoName), "push", "-u", "origin", "main")
 	pushCmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Adhar Platform", "GIT_AUTHOR_EMAIL=admin@adhar.io")
 
 	var stderr bytes.Buffer
