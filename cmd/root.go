@@ -17,9 +17,9 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
@@ -58,19 +58,6 @@ func printFooter() {
 	fmt.Println(lipgloss.NewStyle().Align(lipgloss.Center).Render(
 		helpers.SubtitleStyle.Render("Adhar • Built with ❤️ for developers!"),
 	))
-	fmt.Println()
-}
-
-// renderCommandHeader prints a standardized header for any command with ASCII art and command-specific title
-func renderCommandHeader(commandName, description string) {
-	fmt.Println(renderAsciiArt())
-	fmt.Println(helpers.SubtitleStyle.Render(" Platform " + globals.Version + " - The Open Foundation"))
-	if commandName != "" {
-		fmt.Println(helpers.HeaderStyle.Render("ADHAR " + strings.ToUpper(commandName)))
-		if description != "" {
-			fmt.Println(helpers.SubtitleStyle.Render(description))
-		}
-	}
 	fmt.Println()
 }
 
@@ -142,8 +129,8 @@ Built for developer productivity with enterprise-grade security and governance.`
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() error {
-	if err := rootCmd.Execute(); err != nil {
+func Execute(ctx context.Context) error {
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "%s %v\n", helpers.ErrorStyle.Render("Error:"), err)
 		os.Exit(1)
 	}

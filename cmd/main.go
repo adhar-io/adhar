@@ -17,7 +17,11 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"adhar-io/adhar/cmd/apps"
 	"adhar-io/adhar/cmd/auth"
@@ -74,11 +78,25 @@ func main() {
 	globals.BuildDate = buildDate
 
 	// Initialize platform logger with default configuration
-	// This provides consistent logging throughout the platform
 	logger.Init(logger.DefaultConfig())
 
+	// Handle Graceful Shutdown
+	interrupted := make(chan os.Signal, 1)
+	defer close(interrupted)
+	signal.Notify(interrupted, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(interrupted)
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+
+	go func() {
+		select {
+		case <-interrupted:
+			cancel(fmt.Errorf("command interrupted"))
+		}
+	}()
+
 	// Execute the root command
-	if err := Execute(); err != nil {
+	if err := Execute(ctx); err != nil {
 		logger.Error("Command execution failed", err, map[string]interface{}{
 			"command": os.Args,
 		})
