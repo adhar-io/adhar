@@ -22,92 +22,104 @@ import (
 
 // Common styles for CLI commands
 var (
-	// Title style for section headers
-	TitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#8b5cf6")).
-			Bold(true).
-			MarginRight(1)
+	// Define common base colors
+	PrimaryColor   = lipgloss.AdaptiveColor{Light: "#0366d6", Dark: "#58a6ff"}
+	SecondaryColor = lipgloss.AdaptiveColor{Light: "#28a745", Dark: "#3fb950"}
+	AccentColor    = lipgloss.AdaptiveColor{Light: "#6f42c1", Dark: "#8957e5"}
+	ErrorColor     = lipgloss.AdaptiveColor{Light: "#cb2431", Dark: "#f85149"}
+	WarningColor   = lipgloss.AdaptiveColor{Light: "#f66a0a", Dark: "#f0883e"}
+	InfoColor      = lipgloss.AdaptiveColor{Light: "#0090ff", Dark: "#00b4ff"}
+	HighlightColor = lipgloss.AdaptiveColor{Light: "#e36209", Dark: "#ffab70"}
+	SuccessColor   = lipgloss.AdaptiveColor{Light: "#10b981", Dark: "#3fb950"}
 
-	// Header style for main headers
+	// Define common styles
 	HeaderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#8b5cf6")).
+			Foreground(PrimaryColor).
 			Bold(true).
-			MarginRight(1)
+			MarginBottom(1)
 
-	// Highlight style for important information
-	HighlightStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#06b6d4")).
+	TitleStyle = lipgloss.NewStyle().
+			Foreground(AccentColor).
+			Bold(true).
+			MarginLeft(1)
+
+	SubtitleStyle = lipgloss.NewStyle().
+			Foreground(SecondaryColor).
+			Italic(true).
+			MarginLeft(2)
+
+	SuccessStyle = lipgloss.NewStyle().
+			Foreground(SecondaryColor).
 			Bold(true)
 
-	// Subtitle style for secondary headers
-	SubtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#64748b")).
-			Bold(true).
+	ErrorStyle = lipgloss.NewStyle().
+			Foreground(ErrorColor).
+			Bold(true)
+
+	WarningStyle = lipgloss.NewStyle().
+			Foreground(WarningColor).
+			Bold(true)
+
+	InfoStyle = lipgloss.NewStyle().
+			Foreground(InfoColor).
+			Italic(true)
+
+	HighlightStyle = lipgloss.NewStyle().
+			Foreground(HighlightColor).
+			Bold(true)
+
+	BulletStyle = lipgloss.NewStyle().
+			Foreground(InfoColor)
+
+	CmdDescStyle = lipgloss.NewStyle().
+			Foreground(SecondaryColor).
+			Italic(true)
+
+	BorderStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(PrimaryColor).
+			Padding(1).
 			MarginTop(1).
 			MarginBottom(1)
 
-	// Command description style
-	CmdDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#64748b")).
-			Italic(true)
-
-	// Bullet style for bullet points
-	BulletStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#8b5cf6")).
-			Bold(true)
-
-	// Info style for additional information
-	InfoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#64748b")).
-			Italic(true)
-
-	// Success style for positive status
-	SuccessStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#10b981")).
-			Bold(true)
-
-	// Error style for error messages
-	ErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ef4444")).
-			Bold(true)
-
-	// Warning style for warnings
-	WarningStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#f59e0b")).
-			Bold(true)
-
-	// Border style for boxes and containers
-	BorderStyle = lipgloss.NewStyle().
+	FocusedStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#8b5cf6")).
-			Padding(1, 2).
-			Margin(1, 0)
+			BorderForeground(HighlightColor).
+			Padding(1).
+			MarginTop(1).
+			MarginBottom(1)
 
-	// Code style for technical information
+	TableHeaderStyle = lipgloss.NewStyle().
+				Foreground(PrimaryColor).
+				Bold(true).
+				Padding(0, 1)
+
+	TableCellStyle = lipgloss.NewStyle().
+			Padding(0, 1)
+
+	TableRowStyle = lipgloss.NewStyle().
+			Padding(0, 0, 0, 2)
+
 	CodeStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#f1f5f9")).
-			Background(lipgloss.Color("#1e293b")).
+			Foreground(PrimaryColor).
+			Background(AccentColor).
 			Padding(0, 1).
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#475569"))
+			BorderForeground(InfoColor)
 
-	// Link style for URLs and references
 	LinkStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#3b82f6")).
+			Foreground(SecondaryColor).
 			Underline(true)
 
-	// Muted style for less important text
 	MutedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#64748b")).
+			Foreground(AccentColor).
 			Italic(true)
 
-	// Bold style for emphasis
 	BoldStyle = lipgloss.NewStyle().
 			Bold(true)
 
-	// URL style for links
 	UrlStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#3b82f6")).
+			Foreground(InfoColor).
 			Underline(true)
 )
 
