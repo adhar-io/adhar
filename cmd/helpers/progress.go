@@ -207,6 +207,47 @@ func NewProgressTracker(title string, stepNames []string) *ProgressTracker {
 	}
 }
 
+// NewStyledProgressTracker creates a new progress tracker with styled single-box display
+func NewStyledProgressTracker(title string, stepNames []string, descriptions []string) *ProgressTracker {
+	steps := make([]ProgressStep, len(stepNames))
+	for i, name := range stepNames {
+		desc := ""
+		if i < len(descriptions) {
+			desc = descriptions[i]
+		}
+		steps[i] = ProgressStep{
+			Name:        name,
+			Description: desc,
+			Status:      StatusPending,
+		}
+	}
+
+	// Initialize spinner with enhanced frames for smooth animation
+	s := spinner.New()
+	s.Spinner = spinner.Spinner{
+		Frames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
+		FPS:    time.Millisecond * 100, // Smooth animation
+	}
+	s.Style = highlightStyle
+
+	return &ProgressTracker{
+		Title:          title,
+		Steps:          steps,
+		CurrentStep:    0,
+		StartTime:      time.Now(),
+		Width:          50,
+		ShowSpinner:    true,
+		Spinner:        s,
+		Quiet:          false,
+		spinnerIdx:     0,
+		linesPrinted:   0,
+		stopChan:       make(chan bool),
+		animating:      false,
+		ExpandedView:   false, // Use single line mode to prevent multiple progress bars
+		headerRendered: false,
+	}
+}
+
 // getCurrentSpinnerFrame returns the current spinner frame with animation
 func (p *ProgressTracker) getCurrentSpinnerFrame() string {
 	// Update spinner frame on each call for animation when rendering
@@ -282,8 +323,10 @@ func (p *ProgressTracker) StartStep(stepIndex int, description string) {
 		p.Steps[stepIndex].StartTime = time.Now()
 		p.CurrentStep = stepIndex
 
-		// Start continuous spinner animation for smooth animation
-		p.startSpinnerAnimation()
+		// Start continuous spinner animation for smooth animation only if enabled
+		if p.ShowSpinner {
+			p.startSpinnerAnimation()
+		}
 
 		if !p.Quiet {
 			if p.ExpandedView {
@@ -822,4 +865,143 @@ func RunWithProgress(message string, fn func() error) error {
 		renderProgressBar(1.0, 30, false),
 		successStyle.Render(message))
 	return nil
+}
+
+// RenderStyledDisplay renders the current state in a single bordered box
+func (pt *ProgressTracker) RenderStyledDisplay() {
+	elapsed := time.Since(pt.StartTime).Round(time.Second)
+	progressBar := pt.createStyledProgressBar()
+	taskList := pt.createStyledTaskList()
+	currentStatus := pt.getStyledCurrentStatus()
+
+	mainContent := fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s %s",
+		titleStyle.Render(pt.Title),
+		progressBar,
+		taskList,
+		currentStatus,
+		infoStyle.Render("Elapsed time:"),
+		elapsed)
+
+	box := highlightStyle.Width(80).Render(mainContent)
+	fmt.Print("\r\033[K")
+	fmt.Printf("\n%s\n", box)
+}
+
+// createStyledProgressBar creates a visual progress bar
+func (pt *ProgressTracker) createStyledProgressBar() string {
+	if len(pt.Steps) == 0 {
+		return ""
+	}
+
+	completedSteps := 0
+	for _, step := range pt.Steps {
+		if step.Status == StatusCompleted {
+			completedSteps++
+		}
+	}
+
+	progress := float64(completedSteps) / float64(len(pt.Steps))
+	barWidth := 60
+	filled := int(float64(barWidth) * progress)
+	bar := "["
+	for i := 0; i < barWidth; i++ {
+		if i < filled {
+			bar += "█"
+		} else {
+			bar += "░"
+		}
+	}
+	bar += "]"
+	percentage := int(progress * 100)
+	return fmt.Sprintf("%s %d%% (%d/%d steps)", bar, percentage, completedSteps, len(pt.Steps))
+}
+
+// createStyledTaskList creates a compact list of all tasks
+func (pt *ProgressTracker) createStyledTaskList() string {
+	if len(pt.Steps) == 0 {
+		return ""
+	}
+
+	var taskList strings.Builder
+	taskList.WriteString(titleStyle.Render("Tasks:"))
+	for _, step := range pt.Steps {
+		status := pt.getStyledStatusIcon(step.Status)
+		taskList.WriteString(fmt.Sprintf("\n  %s %s",
+			status,
+			subtitleStyle.Render(step.Name)))
+	}
+	return taskList.String()
+}
+
+// getStyledCurrentStatus returns the current status information
+func (pt *ProgressTracker) getStyledCurrentStatus() string {
+	if pt.CurrentStep < 0 || pt.CurrentStep >= len(pt.Steps) {
+		return infoStyle.Render("Status: Initializing...")
+	}
+
+	step := pt.Steps[pt.CurrentStep]
+	if step.Status == StatusInProgress {
+		return fmt.Sprintf("%s %s\n%s",
+			infoStyle.Render("Status:"),
+			subtitleStyle.Render(fmt.Sprintf("Working on: %s", step.Name)),
+			infoStyle.Render(step.Description))
+	}
+	return fmt.Sprintf("%s %s",
+		infoStyle.Render("Status:"),
+		subtitleStyle.Render("Ready for next step"))
+}
+
+// getStyledStatusIcon returns the appropriate icon for the task status
+func (pt *ProgressTracker) getStyledStatusIcon(status ProgressStatus) string {
+	switch status {
+	case StatusPending:
+		return "⏳"
+	case StatusInProgress:
+		return "🔄"
+	case StatusCompleted:
+		return "✅"
+	case StatusFailed:
+		return "❌"
+	case StatusSkipped:
+		return "⚠️"
+	default:
+		return "⏳"
+	}
+}
+
+// CompleteStyled marks all steps as completed and shows final message outside the box
+func (pt *ProgressTracker) CompleteStyled() {
+	elapsed := time.Since(pt.StartTime).Round(time.Second)
+
+	// Mark all pending steps as completed
+	for i := range pt.Steps {
+		if pt.Steps[i].Status == StatusPending {
+			pt.Steps[i].Status = StatusCompleted
+		}
+	}
+
+	pt.RenderStyledDisplay()
+
+	successBox := highlightStyle.Width(60).Render(
+		fmt.Sprintf("%s %s\n\n%s\n",
+			successStyle.Render("✓"),
+			successStyle.Render("Successfully set up Adhar platform!"),
+			subtitleStyle.Render("Your development environment is ready")))
+
+	nextSteps := fmt.Sprintf(`
+%s
+  → Run %s to view platform status
+  → Run %s to view applications
+  → Run %s for more commands
+
+%s %s
+`,
+		titleStyle.Render("Next Steps:"),
+		highlightStyle.Render("adhar get"),
+		highlightStyle.Render("adhar apps"),
+		highlightStyle.Render("adhar help"),
+		infoStyle.Render("Setup completed in:"),
+		successStyle.Render(elapsed.String()))
+
+	fmt.Printf("\n%s\n%s", successBox, nextSteps)
 }

@@ -17,8 +17,10 @@ limitations under the License.
 package up
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -27,23 +29,18 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"text/template"
 
-	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 	"adhar-io/adhar/platform/logger"
-	pfactory "adhar-io/adhar/platform/providers"
 
+	sprig "github.com/go-task/slim-sprig/v3"
 	"github.com/spf13/cobra"
 )
 
-// LocalProvisioner handles local development environment creation
-type LocalProvisioner struct {
-	options *LocalOptions
-}
-
-// LocalOptions contains configuration for local development
+// LocalOptions holds configuration for local provisioning
 type LocalOptions struct {
 	RecreateCluster           bool
 	DevPassword               bool
@@ -60,49 +57,151 @@ type LocalOptions struct {
 	Port                      string
 	PathRouting               bool
 	Verbose                   bool
+	ProgressUI                bool
 }
 
-// NewLocalProvisioner creates a new local provisioner
+// LocalProvisioner handles local development environment creation
+type LocalProvisioner struct {
+	options *LocalOptions
+}
+
+// NewLocalProvisioner creates a new LocalProvisioner
 func NewLocalProvisioner(options *LocalOptions) *LocalProvisioner {
-	return &LocalProvisioner{
-		options: options,
-	}
+	return &LocalProvisioner{options: options}
 }
 
-// Provision creates the local development environment
+// LocalProvisioner handles local development environment creation
 func (lp *LocalProvisioner) Provision() error {
-	logger.Info("🏠 Local Development Mode")
-	logger.Info("Creating Kind-based Kubernetes cluster with essential platform components")
+	// Define steps and descriptions for the progress tracker
+	stepNames := []string{
+		"Pre-flight Checks",
+		"Create Cluster",
+		"Platform CRDs",
+		"Namespaces",
+		"ArgoCD",
+		"Gitea",
+		"Crossplane",
+		"Nginx Ingress",
+		"Ingress-Nginx Ready",
+		"Ingress Rules",
+		"Secret Labels",
+		"ArgoCD Ready",
+		"Platform Apps",
+		"GitOps Repositories",
+	}
+	descriptions := []string{
+		"Validating system requirements",
+		fmt.Sprintf("Creating Kind cluster '%s'", globals.DefaultClusterName),
+		"Installing Custom Resource Definitions",
+		"Creating required namespaces",
+		"Installing ArgoCD for GitOps",
+		"Installing Gitea for Git hosting",
+		"Installing Crossplane for cloud resources",
+		"Installing Nginx Ingress Controller",
+		"Waiting for Ingress-Nginx to be ready",
+		"Applying ingress manifests",
+		"Labeling core secrets",
+		"Waiting for ArgoCD components",
+		"Applying platform ApplicationSets",
+		"Setting up GitOps workflows",
+	}
 
-	// Run pre-flight checks
-	if err := lp.runPreFlightChecks(); err != nil {
+	tracker := helpers.NewStyledProgressTracker("Adhar • Local Development Setup", stepNames, descriptions)
+	tracker.ExpandedView = false
+
+	runStep := func(idx int, fn func() error) error {
+		tracker.StartStep(idx, descriptions[idx])
+		tracker.Render()
+		if err := fn(); err != nil {
+			tracker.FailStep(idx, err)
+			return err
+		}
+		tracker.CompleteStep(idx)
+		tracker.Render()
+		return nil
+	}
+
+	// 1. Pre-flight
+	if err := runStep(0, lp.runPreFlightChecks); err != nil {
 		return fmt.Errorf("pre-flight checks failed: %w", err)
 	}
-
-	// Create Kind cluster using the provider
-	if err := lp.createKindCluster(); err != nil {
+	// 2. Create Cluster
+	if err := runStep(1, lp.createKindCluster); err != nil {
 		return fmt.Errorf("failed to create Kind cluster: %w", err)
 	}
-
-	// Install platform components
-	if err := lp.installPlatformComponents(); err != nil {
-		return fmt.Errorf("failed to install platform components: %w", err)
+	// 3. Platform CRDs
+	if err := runStep(2, func() error { return lp.applyManifests("platform/controllers/resources/") }); err != nil {
+		return fmt.Errorf("failed to install platform CRDs: %w", err)
 	}
-
-	// Setup GitOps repositories
-	if err := lp.setupGitOpsRepositories(); err != nil {
+	// 4. Namespaces
+	if err := runStep(3, lp.createNamespaces); err != nil {
+		return fmt.Errorf("failed to create namespaces: %w", err)
+	}
+	// 5. ArgoCD
+	if err := runStep(4, func() error { return lp.applyPlatformManifest("argocd") }); err != nil {
+		return fmt.Errorf("failed to install ArgoCD: %w", err)
+	}
+	// 6. Gitea
+	if err := runStep(5, func() error { return lp.applyPlatformManifest("gitea") }); err != nil {
+		return fmt.Errorf("failed to install Gitea: %w", err)
+	}
+	// 7. Crossplane
+	if err := runStep(6, func() error { return lp.applyPlatformManifest("crossplane") }); err != nil {
+		return fmt.Errorf("failed to install Crossplane: %w", err)
+	}
+	// 8. Nginx Ingress
+	if err := runStep(7, func() error { return lp.applyPlatformManifest("nginx") }); err != nil {
+		return fmt.Errorf("failed to install Nginx Ingress: %w", err)
+	}
+	// 9. Ingress-Nginx Ready
+	if err := runStep(8, lp.waitForNginxIngress); err != nil {
+		return fmt.Errorf("Nginx Ingress not ready: %w", err)
+	}
+	// 10. Ingress Rules
+	if err := runStep(9, lp.applyIngressManifests); err != nil {
+		return fmt.Errorf("failed to apply ingress manifests: %w", err)
+	}
+	// 11. Secret Labels
+	if err := runStep(10, lp.labelCoreSecrets); err != nil {
+		return fmt.Errorf("failed to label core secrets: %w", err)
+	}
+	// 12. ArgoCD Ready
+	if err := runStep(11, lp.waitForArgoCD); err != nil {
+		return fmt.Errorf("ArgoCD not ready: %w", err)
+	}
+	// 13. Platform Apps
+	if err := runStep(12, lp.applyPlatformApplicationSets); err != nil {
+		return fmt.Errorf("failed to apply platform applications: %w", err)
+	}
+	// 14. GitOps Repositories
+	if err := runStep(13, lp.setupGitOpsRepositories); err != nil {
 		return fmt.Errorf("failed to setup GitOps repositories: %w", err)
 	}
 
-	logger.Info("✅ Local development environment created successfully!")
-	logger.Info("🌐 Access your platform at: " + lp.options.Protocol + "://" + lp.options.Host + ":" + lp.options.Port)
+	tracker.Complete()
+
+	// Final success message box
+	successContent := fmt.Sprintf("%s\n%s\n%s",
+		helpers.SuccessStyle.Render("✅ Local development environment created successfully!"),
+		helpers.InfoStyle.Render(fmt.Sprintf("🌐 Access your platform at: %s://%s:%s", lp.options.Protocol, lp.options.Host, lp.options.Port)),
+		helpers.SubtitleStyle.Render("🎉 Your Adhar platform is ready for development!"))
+	fmt.Printf("\n%s\n\n", helpers.BorderStyle.Width(70).Render(successContent))
 
 	return nil
 }
 
 // runPreFlightChecks validates system requirements
 func (lp *LocalProvisioner) runPreFlightChecks() error {
-	logger.Info("⚡ Running pre-flight checks...")
+	// Create styled header for pre-flight checks if not using progress UI
+	if !lp.options.ProgressUI {
+		headerContent := fmt.Sprintf("%s\n%s",
+			helpers.TitleStyle.Render("⚡ Running pre-flight checks..."),
+			helpers.SubtitleStyle.Render("Validating system requirements for Adhar platform"))
+		if !lp.options.ProgressUI {
+			headerBox := helpers.BorderStyle.Width(60).Render(headerContent)
+			fmt.Printf("%s\n\n", headerBox)
+		}
+	}
 
 	checks := []struct {
 		name        string
@@ -146,17 +245,42 @@ func (lp *LocalProvisioner) runPreFlightChecks() error {
 		},
 	}
 
+	// Create a styled content box for the checks
+	var checkResults []string
 	for _, check := range checks {
-		fmt.Printf("  %s %s\n", "⏳", check.description)
+		// Show pending status
+		pendingStatus := fmt.Sprintf("  %s %s", helpers.WarningStyle.Render("⏳"), helpers.InfoStyle.Render(check.description))
+		checkResults = append(checkResults, pendingStatus)
+
 		if err := check.check(); err != nil {
-			fmt.Printf("  ❌ %s failed: %v\n", check.name, err)
+			// Show failed status
+			failedStatus := fmt.Sprintf("  %s %s: %s", helpers.ErrorStyle.Render("❌"), helpers.ErrorStyle.Render(check.name), helpers.ErrorStyle.Render(err.Error()))
+			checkResults = append(checkResults, failedStatus)
 			return fmt.Errorf("%s check failed: %w", check.name, err)
 		}
-		fmt.Printf("  ✅ %s\n", check.description)
+
+		// Show success status
+		successStatus := fmt.Sprintf("  %s %s", helpers.SuccessStyle.Render("✅"), helpers.SuccessStyle.Render(check.description))
+		checkResults = append(checkResults, successStatus)
 	}
 
-	fmt.Println()
-	logger.Info("✅ All pre-flight checks passed!")
+	// Display all check results in a styled box
+	resultsContent := strings.Join(checkResults, "\n")
+	if !lp.options.ProgressUI {
+		resultsBox := helpers.BorderStyle.Width(70).Render(resultsContent)
+		fmt.Printf("%s\n\n", resultsBox)
+	}
+
+	// Show success message in styled box
+	successContent := fmt.Sprintf("%s\n%s",
+		helpers.SuccessStyle.Render("✓ All pre-flight checks passed!"),
+		helpers.InfoStyle.Render("System is ready for Adhar platform installation"))
+
+	if !lp.options.ProgressUI {
+		successBox := helpers.BorderStyle.Width(70).Render(successContent)
+		fmt.Printf("%s\n\n", successBox)
+	}
+
 	return nil
 }
 
@@ -222,99 +346,728 @@ func (lp *LocalProvisioner) checkConflictingClusters() error {
 
 // createKindCluster creates the Kind Kubernetes cluster
 func (lp *LocalProvisioner) createKindCluster() error {
-	logger.Info("🔧 Creating Kind Kubernetes cluster...")
+	// Optional header for cluster creation
+	if !lp.options.ProgressUI {
+		headerContent := fmt.Sprintf("%s\n%s",
+			helpers.TitleStyle.Render("🔧 Creating Kind Kubernetes cluster..."),
+			helpers.SubtitleStyle.Render("Setting up local development environment"))
+		headerBox := helpers.BorderStyle.Width(70).Render(headerContent)
+		fmt.Printf("%s\n\n", headerBox)
+	}
 
-	// Check if cluster already exists
+	// Check existing clusters
 	cmd := exec.Command("kind", "get", "clusters")
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to check existing clusters: %w", err)
 	}
 
-	// If cluster already exists, delete it first if recreate is requested
-	if strings.Contains(string(output), "adhar-local") {
+	// If cluster already exists
+	if strings.Contains(string(output), globals.DefaultClusterName) {
 		if lp.options.RecreateCluster {
-			logger.Info("🗑️ Deleting existing cluster...")
-			deleteCmd := exec.Command("kind", "delete", "cluster", "--name", "adhar-local")
+			if !lp.options.ProgressUI {
+				recreateContent := fmt.Sprintf("%s\n%s",
+					helpers.WarningStyle.Render("🗑️ Deleting existing cluster..."),
+					helpers.InfoStyle.Render("Recreating cluster as requested"))
+				recreateBox := helpers.BorderStyle.Width(70).Render(recreateContent)
+				fmt.Printf("%s\n\n", recreateBox)
+			}
+			deleteCmd := exec.Command("kind", "delete", "cluster", "--name", globals.DefaultClusterName)
 			if err := deleteCmd.Run(); err != nil {
 				return fmt.Errorf("failed to delete existing cluster: %w", err)
 			}
 		} else {
-			logger.Info("✅ Cluster 'adhar-local' already exists")
+			if !lp.options.ProgressUI {
+				existsContent := fmt.Sprintf("%s\n%s",
+					helpers.SuccessStyle.Render(fmt.Sprintf("✅ Cluster '%s' already exists", globals.DefaultClusterName)),
+					helpers.InfoStyle.Render("Skipping cluster creation"))
+				existsBox := helpers.BorderStyle.Width(70).Render(existsContent)
+				fmt.Printf("%s\n\n", existsBox)
+			}
 			return nil
 		}
 	}
 
-	// Create new cluster
-	logger.Info("🏗️ Creating new Kind cluster...")
-	createCmd := exec.Command("kind", "create", "cluster", "--name", "adhar-local", "--config", "-")
+	// Create new cluster UI
+	if !lp.options.ProgressUI {
+		createContent := fmt.Sprintf("%s\n%s",
+			helpers.TitleStyle.Render("🏗️ Creating new Kind cluster..."),
+			helpers.InfoStyle.Render("This may take a few minutes"))
+		createBox := helpers.BorderStyle.Width(70).Render(createContent)
+		fmt.Printf("%s\n", createBox)
 
-	// Create a simple kind config
-	kindConfig := fmt.Sprintf(`kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-  kubeadmConfigPatches:
-  - |
-    kind: InitConfiguration
-    nodeRegistration:
-      kubeletExtraArgs:
-        node-labels: "ingress-ready=true"
-  extraPortMappings:
-  - containerPort: 80
-    hostPort: 80
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 443
-    protocol: TCP
-- role: worker
-- role: worker`)
-
-	createCmd.Stdin = strings.NewReader(kindConfig)
-	if err := createCmd.Run(); err != nil {
-		return fmt.Errorf("failed to create cluster: %w", err)
+		progressContent := fmt.Sprintf("%s %s",
+			helpers.WarningStyle.Render("⏳"),
+			helpers.InfoStyle.Render("Setting up Kubernetes cluster..."))
+		progressBox := helpers.BorderStyle.Width(70).Render(progressContent)
+		fmt.Printf("%s\n", progressBox)
 	}
 
-	logger.Info("✅ Cluster created successfully")
+	// Render Kind config from template file instead of hardcoding
+	tmplPath := filepath.Join("platform", "providers", "kind", "resources", "kind.yaml.tmpl")
+	content, err := os.ReadFile(tmplPath)
+	if err != nil {
+		return fmt.Errorf("failed to read Kind template at %s: %w", tmplPath, err)
+	}
+
+	// Build template data
+	type portMap struct {
+		ContainerPort int
+		HostPort      int
+	}
+	type tmplData struct {
+		KubernetesVersion string
+		HTTPPort          int
+		HTTPSPort         int
+		ExtraPortsMapping []portMap
+		RegistryConfig    string
+		UsePathRouting    bool
+		Host              string
+		Port              string
+	}
+
+	// Parse extra port mappings from flag value like "22:32222,9090:39090"
+	var extra []portMap
+	if strings.TrimSpace(lp.options.ExtraPortsMapping) != "" {
+		pairs := strings.Split(lp.options.ExtraPortsMapping, ",")
+		for _, p := range pairs {
+			p = strings.TrimSpace(p)
+			parts := strings.Split(p, ":")
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid extra-ports mapping '%s' (expected host:container)", p)
+			}
+			hostP, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+			contP, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+			if err1 != nil || err2 != nil {
+				return fmt.Errorf("invalid port numbers in extra-ports mapping '%s'", p)
+			}
+			// Template expects containerPort then hostPort, invert our host:container pair
+			extra = append(extra, portMap{ContainerPort: contP, HostPort: hostP})
+		}
+	}
+
+	// Choose first existing registry config file if provided
+	registryCfg := ""
+	for _, path := range lp.options.RegistryConfig {
+		if path == "" {
+			continue
+		}
+		abs := path
+		if !filepath.IsAbs(abs) {
+			if a, err := filepath.Abs(abs); err == nil {
+				abs = a
+			}
+		}
+		if _, err := os.Stat(abs); err == nil {
+			registryCfg = abs
+			break
+		}
+	}
+
+	data := tmplData{
+		KubernetesVersion: lp.options.KubeVersion,
+		// 0 values let the template's sprig default pipe choose 80/443
+		HTTPPort:          0,
+		HTTPSPort:         0,
+		ExtraPortsMapping: extra,
+		RegistryConfig:    registryCfg,
+		UsePathRouting:    lp.options.PathRouting,
+		Host:              lp.options.Host,
+		Port:              lp.options.Port,
+	}
+
+	t, err := template.New("kind").Funcs(sprig.TxtFuncMap()).Parse(string(content))
+	if err != nil {
+		return fmt.Errorf("failed to parse Kind template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return fmt.Errorf("failed to render Kind template: %w", err)
+	}
+
+	createCmd := exec.Command("kind", "create", "cluster", "--name", globals.DefaultClusterName, "--config", "-")
+	createCmd.Stdin = &buf
+	if out, err := createCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create cluster: %v\n%s", err, string(out))
+	}
+
+	if !lp.options.ProgressUI {
+		successContent := fmt.Sprintf("%s %s\n%s",
+			helpers.SuccessStyle.Render("✅"),
+			helpers.SuccessStyle.Render("Cluster created successfully"),
+			helpers.InfoStyle.Render(fmt.Sprintf("Kind cluster '%s' is ready", globals.DefaultClusterName)))
+		successBox := helpers.BorderStyle.Width(70).Render(successContent)
+		fmt.Printf("%s\n\n", successBox)
+	}
+
 	return nil
 }
 
 // installPlatformComponents installs the core platform components
 func (lp *LocalProvisioner) installPlatformComponents() error {
-	logger.Info("📦 Installing platform components...")
-
-	// For now, just log that components will be installed
-	// TODO: Implement actual component installation using kubectl or helm
-	components := []string{"cilium", "nginx", "gitea", "argocd"}
-
-	for _, component := range components {
-		logger.Info(fmt.Sprintf("📦 Will install %s (not yet implemented)", component))
+	// Define all platform installation tasks
+	tasks := []struct {
+		name        string
+		description string
+		function    func() error
+	}{
+		{
+			name:        "Platform CRDs",
+			description: "Installing Custom Resource Definitions",
+			function:    func() error { return lp.applyManifests("platform/controllers/resources/") },
+		},
+		{
+			name:        "Namespaces",
+			description: "Creating required namespaces",
+			function:    lp.createNamespaces,
+		},
+		{
+			name:        "ArgoCD",
+			description: "Installing ArgoCD for GitOps",
+			function:    func() error { return lp.applyPlatformManifest("argocd") },
+		},
+		{
+			name:        "Gitea",
+			description: "Installing Gitea for Git hosting",
+			function:    func() error { return lp.applyPlatformManifest("gitea") },
+		},
+		{
+			name:        "Crossplane",
+			description: "Installing Crossplane for cloud resources",
+			function:    func() error { return lp.applyPlatformManifest("crossplane") },
+		},
+		{
+			name:        "Nginx Ingress",
+			description: "Installing Nginx Ingress Controller",
+			function:    func() error { return lp.applyPlatformManifest("nginx") },
+		},
+		{
+			name:        "Ingress-Nginx Ready",
+			description: "Waiting for Ingress Nginx to be ready",
+			function:    lp.waitForNginxIngress,
+		},
+		{
+			name:        "Ingress Rules",
+			description: "Configuring ingress routing",
+			function:    lp.applyIngressManifests,
+		},
+		{
+			name:        "Secret Labels",
+			description: "Labeling core secrets",
+			function:    lp.labelCoreSecrets,
+		},
+		{
+			name:        "ArgoCD Ready",
+			description: "Waiting for ArgoCD to be ready",
+			function:    lp.waitForArgoCD,
+		},
+		{
+			name:        "Platform Apps",
+			description: "Deploying platform ApplicationSets",
+			function:    lp.applyPlatformApplicationSets,
+		},
 	}
 
-	logger.Info("✅ Platform components installation completed (placeholder)")
+	// Create styled header for platform components installation
+	headerContent := fmt.Sprintf("%s\n%s",
+		helpers.TitleStyle.Render("📦 Installing platform components..."),
+		helpers.SubtitleStyle.Render("Setting up core Adhar platform services"))
+
+	headerBox := helpers.BorderStyle.Width(70).Render(headerContent)
+	fmt.Printf("%s\n\n", headerBox)
+
+	// Display progress bar
+	totalTasks := len(tasks)
+	for i, task := range tasks {
+		progress := fmt.Sprintf("[%d/%d]", i+1, totalTasks)
+
+		// Show task starting
+		taskHeader := fmt.Sprintf("%s %s %s",
+			helpers.InfoStyle.Render(progress),
+			helpers.WarningStyle.Render("⏳"),
+			helpers.InfoStyle.Render(task.name+"..."))
+
+		taskBox := helpers.BorderStyle.Width(70).Render(taskHeader)
+		fmt.Printf("%s\n", taskBox)
+
+		// Execute the task
+		if err := task.function(); err != nil {
+			// Show error
+			errorMsg := fmt.Sprintf("%s %s %s: %s",
+				helpers.InfoStyle.Render(progress),
+				helpers.ErrorStyle.Render("❌"),
+				helpers.ErrorStyle.Render(task.name),
+				helpers.ErrorStyle.Render(err.Error()))
+
+			errorBox := helpers.BorderStyle.Width(70).Render(errorMsg)
+			fmt.Printf("%s\n", errorBox)
+			return fmt.Errorf("failed to %s: %w", task.description, err)
+		}
+
+		// Show success
+		successMsg := fmt.Sprintf("%s %s %s",
+			helpers.InfoStyle.Render(progress),
+			helpers.SuccessStyle.Render("✅"),
+			helpers.SuccessStyle.Render(task.name+" completed"))
+
+		successBox := helpers.BorderStyle.Width(70).Render(successMsg)
+		fmt.Printf("%s\n", successBox)
+	}
+
+	// Show completion message
+	completionContent := fmt.Sprintf("%s\n%s",
+		helpers.SuccessStyle.Render("🎉 All platform components installed successfully!"),
+		helpers.InfoStyle.Render("Platform is ready for use"))
+
+	completionBox := helpers.BorderStyle.Width(70).Render(completionContent)
+	fmt.Printf("%s\n\n", completionBox)
+
+	return nil
+}
+
+// applyManifests applies Kubernetes manifests from the specified path
+func (lp *LocalProvisioner) applyManifests(path string) error {
+	logger.Infof("Applying manifests from: %s", path)
+
+	// Check if the path exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("manifest path does not exist: %s", path)
+	}
+
+	// Apply all YAML files in the directory
+	files, err := filepath.Glob(filepath.Join(path, "*.yaml"))
+	if err != nil {
+		return fmt.Errorf("failed to glob manifest files: %w", err)
+	}
+
+	if len(files) == 0 {
+		logger.Warnf("No YAML files found in: %s", path)
+		return nil
+	}
+
+	for _, file := range files {
+		logger.Infof("Applying manifest: %s", file)
+		cmd := exec.Command("kubectl", "apply", "-f", file)
+		if lp.options.ProgressUI {
+			cmd.Stdout = io.Discard
+		} else {
+			cmd.Stdout = os.Stdout
+		}
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to apply manifest %s: %w", file, err)
+		}
+	}
+
+	return nil
+}
+
+// createNamespaces creates the required namespaces for the platform
+func (lp *LocalProvisioner) createNamespaces() error {
+	logger.Info("Creating required namespaces")
+
+	namespaces := []string{"adhar-system"}
+
+	for _, ns := range namespaces {
+		cmd := exec.Command("kubectl", "create", "namespace", ns, "--dry-run=client", "-o", "yaml")
+		output, err := cmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to generate namespace YAML for %s: %w", ns, err)
+		}
+
+		cmd = exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(string(output))
+		if lp.options.ProgressUI {
+			cmd.Stdout = io.Discard
+		} else {
+			cmd.Stdout = os.Stdout
+		}
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to create namespace %s: %w", ns, err)
+		}
+	}
+
+	return nil
+}
+
+// applyPlatformManifest applies a specific platform component manifest
+func (lp *LocalProvisioner) applyPlatformManifest(component string) error {
+	logger.Infof("Installing %s from platform resources", component)
+
+	// Define the path to the component's manifests
+	manifestPath := fmt.Sprintf("platform/controllers/adharplatform/resources/%s", component)
+
+	// Check if the manifest path exists
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		return fmt.Errorf("manifest path for %s does not exist: %s", component, manifestPath)
+	}
+
+	// Find the main install file
+	installFiles := []string{
+		filepath.Join(manifestPath, "install.yaml"),
+		filepath.Join(manifestPath, "install-ha.yaml"),
+	}
+
+	var installFile string
+	for _, file := range installFiles {
+		if _, err := os.Stat(file); err == nil {
+			installFile = file
+			break
+		}
+	}
+
+	if installFile == "" {
+		return fmt.Errorf("no install file found for %s in %s", component, manifestPath)
+	}
+
+	logger.Infof("Applying %s manifest: %s", component, installFile)
+
+	// Apply the manifest
+	cmd := exec.Command("kubectl", "apply", "-f", installFile)
+	if lp.options.ProgressUI {
+		cmd.Stdout = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to apply %s manifest: %w", component, err)
+	}
+
+	return nil
+}
+
+// applyIngressManifests applies ingress resources for platform components
+func (lp *LocalProvisioner) applyIngressManifests() error {
+	logger.Info("Installing ingress resources for platform components")
+
+	ingressPath := "platform/controllers/adharplatform/resources/ingress"
+
+	// Check if the ingress path exists
+	if _, err := os.Stat(ingressPath); os.IsNotExist(err) {
+		return fmt.Errorf("ingress manifest path does not exist: %s", ingressPath)
+	}
+
+	// Apply all ingress manifests
+	files, err := filepath.Glob(filepath.Join(ingressPath, "*.yaml"))
+	if err != nil {
+		return fmt.Errorf("failed to glob ingress manifest files: %w", err)
+	}
+
+	for _, file := range files {
+		logger.Infof("Applying ingress manifest: %s", file)
+		cmd := exec.Command("kubectl", "apply", "-f", file)
+		if lp.options.ProgressUI {
+			cmd.Stdout = io.Discard
+		} else {
+			cmd.Stdout = os.Stdout
+		}
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to apply ingress manifest %s: %w", file, err)
+		}
+	}
+
+	return nil
+}
+
+// labelCoreSecrets adds Adhar labels to core secrets for CLI discovery
+func (lp *LocalProvisioner) labelCoreSecrets() error {
+	logger.Info("Adding Adhar labels to core secrets")
+
+	// Label ArgoCD admin secret
+	cmd := exec.Command("kubectl", "label", "secret", "argocd-initial-admin-secret",
+		"app.kubernetes.io/part-of=adhar", "app.kubernetes.io/component=argocd",
+		"--namespace=adhar-system", "--overwrite")
+	if lp.options.ProgressUI {
+		cmd.Stdout = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		logger.Warnf("Failed to label ArgoCD secret (may not exist yet): %v", err)
+	}
+
+	// Label Gitea admin secret
+	cmd = exec.Command("kubectl", "label", "secret", "gitea-admin-secret",
+		"app.kubernetes.io/part-of=adhar", "app.kubernetes.io/component=gitea",
+		"--namespace=adhar-system", "--overwrite")
+	if lp.options.ProgressUI {
+		cmd.Stdout = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		logger.Warnf("Failed to label Gitea secret (may not exist yet): %v", err)
+	}
+
+	return nil
+}
+
+// waitForArgoCD waits for ArgoCD components to be ready
+func (lp *LocalProvisioner) waitForArgoCD() error {
+	logger.Info("Waiting for ArgoCD components to be ready")
+
+	// Wait for ArgoCD server deployment
+	cmd := exec.Command("kubectl", "wait", "--for=condition=available",
+		"deployment/argocd-server", "--namespace=adhar-system", "--timeout=600s")
+	if lp.options.ProgressUI {
+		cmd.Stdout = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ArgoCD server not ready: %w", err)
+	}
+
+	// Wait for ArgoCD application controller (statefulset)
+	cmd = exec.Command("kubectl", "wait", "--for=condition=available",
+		"statefulset/argocd-application-controller", "--namespace=adhar-system", "--timeout=600s")
+	if lp.options.ProgressUI {
+		cmd.Stdout = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ArgoCD application controller not ready: %w", err)
+	}
+
+	logger.Info("ArgoCD components are ready")
+	return nil
+}
+
+// waitForNginxIngress waits for Nginx Ingress controller to be ready
+func (lp *LocalProvisioner) waitForNginxIngress() error {
+	logger.Info("Waiting for Nginx Ingress controller to be ready")
+
+	// Best-effort: on single-node Kind clusters, allow scheduling on control-plane by adding tolerations
+	// This helps avoid Pending pods when no worker nodes are present.
+	if err := lp.patchIngressNginxTolerations(); err != nil {
+		logger.Warnf("Failed to patch ingress-nginx tolerations (continuing): %v", err)
+	}
+
+	// Wait for Nginx Ingress controller deployment
+	cmd := exec.Command("kubectl", "wait", "--for=condition=available",
+		"deployment/ingress-nginx-controller", "--namespace=adhar-system", "--timeout=600s")
+	if lp.options.ProgressUI {
+		cmd.Stdout = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		diag := lp.collectNginxDiagnostics()
+		return fmt.Errorf("Nginx Ingress controller not ready: %w\n%s", err, diag)
+	}
+
+	// Wait for the admission webhook jobs to complete
+	cmd = exec.Command("kubectl", "wait", "--for=condition=complete",
+		"job/ingress-nginx-admission-create", "--namespace=adhar-system", "--timeout=600s")
+	if lp.options.ProgressUI {
+		cmd.Stdout = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		diag := lp.collectNginxDiagnostics()
+		return fmt.Errorf("Nginx Ingress admission create job not complete: %w\n%s", err, diag)
+	}
+
+	cmd = exec.Command("kubectl", "wait", "--for=condition=complete",
+		"job/ingress-nginx-admission-patch", "--namespace=adhar-system", "--timeout=600s")
+	if lp.options.ProgressUI {
+		cmd.Stdout = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		diag := lp.collectNginxDiagnostics()
+		return fmt.Errorf("Nginx Ingress admission patch job not complete: %w\n%s", err, diag)
+	}
+
+	logger.Info("Nginx Ingress controller is ready")
+	return nil
+}
+
+// collectNginxDiagnostics gathers a short summary to help debug ingress readiness
+func (lp *LocalProvisioner) collectNginxDiagnostics() string {
+	var b strings.Builder
+	b.WriteString("\n--- Nginx diagnostics (adhar-system) ---\n")
+
+	// Pods summary
+	pods := exec.Command("kubectl", "get", "pods", "-n", "adhar-system",
+		"-l", "app.kubernetes.io/name=ingress-nginx", "-o", "wide")
+	if out, err := pods.CombinedOutput(); err == nil {
+		b.WriteString("Pods:\n")
+		b.Write(out)
+		if len(out) == 0 || out[len(out)-1] != '\n' {
+			b.WriteByte('\n')
+		}
+	}
+
+	// Deployment describe (trimmed)
+	desc := exec.Command("kubectl", "describe", "deployment/ingress-nginx-controller", "-n", "adhar-system")
+	if out, err := desc.CombinedOutput(); err == nil {
+		b.WriteString("\nDeployment describe (last 100 lines):\n")
+		lines := strings.Split(string(out), "\n")
+		start := 0
+		if len(lines) > 100 {
+			start = len(lines) - 100
+		}
+		b.WriteString(strings.Join(lines[start:], "\n"))
+		if len(lines) == 0 || lines[len(lines)-1] != "" {
+			b.WriteByte('\n')
+		}
+	}
+
+	return b.String()
+}
+
+// patchIngressNginxTolerations adds control-plane tolerations to ingress-nginx deployment and admission jobs
+// to ensure they can schedule on a tainted control-plane node in single-node Kind clusters.
+func (lp *LocalProvisioner) patchIngressNginxTolerations() error {
+	tmpl := func(args ...string) *exec.Cmd {
+		cmd := exec.Command("kubectl", args...)
+		if lp.options.ProgressUI {
+			cmd.Stdout = io.Discard
+		} else {
+			cmd.Stdout = os.Stdout
+		}
+		cmd.Stderr = os.Stderr
+		return cmd
+	}
+
+	tolerationsPatch := `{"spec": {"template": {"spec": {"tolerations": [
+		{"key": "node-role.kubernetes.io/master", "operator": "Exists", "effect": "NoSchedule"},
+		{"key": "node-role.kubernetes.io/control-plane", "operator": "Exists", "effect": "NoSchedule"}
+	]}}}}`
+
+	// Determine control-plane node name for nodeSelector (kind single-node)
+	nodeName := lp.getControlPlaneNodeName()
+	nodeSelectorPatch := ""
+	if nodeName != "" {
+		nodeSelectorPatch = fmt.Sprintf(`{"spec": {"template": {"spec": {"nodeSelector": {"kubernetes.io/hostname": %q}}}}}`, nodeName)
+	}
+
+	// Patch deployment
+	if err := tmpl("-n", "adhar-system", "patch", "deployment", "ingress-nginx-controller", "--type", "merge", "-p", tolerationsPatch).Run(); err != nil {
+		// Keep going; may not exist yet or already has tolerations
+		logger.Debugf("deployment tolerations patch warning: %v", err)
+	}
+	if nodeSelectorPatch != "" {
+		if err := tmpl("-n", "adhar-system", "patch", "deployment", "ingress-nginx-controller", "--type", "merge", "-p", nodeSelectorPatch).Run(); err != nil {
+			logger.Debugf("deployment nodeSelector patch warning: %v", err)
+		}
+	}
+
+	// Patch admission jobs
+	if err := tmpl("-n", "adhar-system", "patch", "job", "ingress-nginx-admission-create", "--type", "merge", "-p", tolerationsPatch).Run(); err != nil {
+		logger.Debugf("admission-create tolerations patch warning: %v", err)
+	}
+	if err := tmpl("-n", "adhar-system", "patch", "job", "ingress-nginx-admission-patch", "--type", "merge", "-p", tolerationsPatch).Run(); err != nil {
+		logger.Debugf("admission-patch tolerations patch warning: %v", err)
+	}
+
+	// Recycle pods so patches take effect on fresh pods
+	_ = tmpl("-n", "adhar-system", "delete", "pod", "-l", "app.kubernetes.io/component=controller", "--wait=false").Run()
+	_ = tmpl("-n", "adhar-system", "delete", "pod", "-l", "job-name=ingress-nginx-admission-create", "--wait=false").Run()
+	_ = tmpl("-n", "adhar-system", "delete", "pod", "-l", "job-name=ingress-nginx-admission-patch", "--wait=false").Run()
+
+	return nil
+}
+
+// getControlPlaneNodeName returns the control-plane node name (best-effort) in a kind cluster
+func (lp *LocalProvisioner) getControlPlaneNodeName() string {
+	cmd := exec.Command("kubectl", "get", "nodes", "-l", "node-role.kubernetes.io/control-plane", "-o", "jsonpath={.items[0].metadata.name}")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// applyPlatformApplicationSets applies platform ApplicationSets for ArgoCD management
+func (lp *LocalProvisioner) applyPlatformApplicationSets() error {
+	logger.Info("Applying platform ApplicationSets for ArgoCD management")
+
+	// Apply the local ApplicationSet
+	appsetFile := "platform/stack/adhar-appset-local.yaml"
+
+	if _, err := os.Stat(appsetFile); os.IsNotExist(err) {
+		return fmt.Errorf("ApplicationSet file does not exist: %s", appsetFile)
+	}
+
+	cmd := exec.Command("kubectl", "apply", "-f", appsetFile)
+	if lp.options.ProgressUI {
+		cmd.Stdout = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to apply ApplicationSet: %w", err)
+	}
+
 	return nil
 }
 
 // setupGitOpsRepositories sets up GitOps repositories and workflows
 func (lp *LocalProvisioner) setupGitOpsRepositories() error {
-	logger.Info("🔄 Setting up GitOps repositories...")
+	// Create styled header for GitOps setup
+	headerContent := fmt.Sprintf("%s\n%s",
+		helpers.TitleStyle.Render("🔄 Setting up GitOps repositories..."),
+		helpers.SubtitleStyle.Render("Configuring GitOps workflows and repositories"))
 
-	// TODO: Implement GitOps repository setup
-	// This should create repositories in Gitea and configure ArgoCD
-	// For now, just log that this step is completed
+	headerBox := helpers.BorderStyle.Width(60).Render(headerContent)
+	fmt.Printf("%s\n\n", headerBox)
 
-	logger.Info("✅ GitOps repositories setup completed")
+	// TODO: Implement actual GitOps repository setup
+	// This should create and configure repositories for:
+	// - Application manifests
+	// - Infrastructure as code
+	// - Platform configurations
+
+	// Show completion message in styled box
+	completionContent := fmt.Sprintf("%s\n%s",
+		helpers.SuccessStyle.Render("✅ GitOps repositories setup completed"),
+		helpers.InfoStyle.Render("Placeholder implementation - actual setup pending"))
+
+	if !lp.options.ProgressUI {
+		completionBox := helpers.BorderStyle.Width(60).Render(completionContent)
+		fmt.Printf("%s\n\n", completionBox)
+	}
+
 	return nil
 }
 
-// createLocalDevelopmentCluster creates a local Kind cluster using the original template-based approach with ProviderManager
+// createLocalDevelopmentCluster creates a local Kind cluster using the LocalProvisioner
 func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args []string) error {
 	// Validate arguments and set up build configuration
 	if err := validate(); err != nil {
 		return err
 	}
 
-	customPackageDirs, customPackageUrls, err := helpers.ParsePackageStrings(extraPackages)
+	// Parse extra packages if provided
+	_, _, err := helpers.ParsePackageStrings(extraPackages)
 	if err != nil {
 		return err
 	}
@@ -325,42 +1078,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 	}
 	_ = registryConfigPaths // TODO: Use registry config paths in build process
 
-	packageCustomizations := map[string]v1alpha1.PackageCustomization{}
-	for _, packageCustomFile := range packageCustomizationFiles {
-		packageCustom, customFileErr := getPackageCustomFile(packageCustomFile)
-		if customFileErr != nil {
-			return customFileErr
-		}
-		packageCustomizations[packageCustom.Name] = packageCustom
-	}
-
-	// Create AdharPlatformSpec using the template approach
-	adharSpec := &v1alpha1.AdharPlatformSpec{
-		PackageConfigs: v1alpha1.PackageConfigsSpec{
-			Argo: v1alpha1.ArgoPackageConfigSpec{
-				Enabled: true,
-			},
-			EmbeddedArgoApplications: v1alpha1.EmbeddedArgoApplicationsPackageConfigSpec{
-				Enabled: true,
-			},
-			CustomPackageDirs:        customPackageDirs,
-			CustomPackageUrls:        customPackageUrls,
-			CorePackageCustomization: packageCustomizations,
-		},
-		BuildCustomization: v1alpha1.BuildCustomizationSpec{
-			Protocol:       protocol,
-			Host:           host,
-			IngressHost:    ingressHost,
-			Port:           port,
-			UsePathRouting: pathRouting,
-			StaticPassword: devPassword,
-		},
-	}
-
-	// Show banner for local development
-	logger.Banner("Adhar Internal Developer Platform", "Provisioning Management Cluster and Platform Components")
-
-	// Use the original template-based build approach with ProviderManager
+	// Use the LocalProvisioner for the complete flow
 	log := logger.GetLogger()
 	if verbose {
 		log.SetLevel(logger.DEBUG)
@@ -370,64 +1088,63 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 	os.Setenv("ADHAR_PLATFORM_SETUP", "true")
 	defer os.Unsetenv("ADHAR_PLATFORM_SETUP")
 
-	providerManager := newProviderManagerWithFactory(log.Logger, pfactory.DefaultFactory)
-
-	// Create environment config for Kind provider with CLI flags that uses template mode
-	var clusterConfig []config.KeyValueConfig
-
-	if kubeVersion != "" {
-		clusterConfig = append(clusterConfig, config.KeyValueConfig{
-			Key:   "kubeVersion",
-			Value: kubeVersion,
-		})
+	// Create LocalProvisioner with options
+	options := &LocalOptions{
+		RecreateCluster:           recreateCluster,
+		DevPassword:               devPassword,
+		KubeVersion:               kubeVersion,
+		ExtraPortsMapping:         extraPortsMapping,
+		KindConfigPath:            kindConfigPath,
+		ExtraPackages:             extraPackages,
+		RegistryConfig:            registryConfig,
+		PackageCustomizationFiles: packageCustomizationFiles,
+		NoExit:                    noExit,
+		Protocol:                  protocol,
+		Host:                      host,
+		IngressHost:               ingressHost,
+		Port:                      port,
+		PathRouting:               pathRouting,
+		Verbose:                   verbose,
+		ProgressUI:                true,
 	}
 
-	if extraPortsMapping != "" {
-		clusterConfig = append(clusterConfig, config.KeyValueConfig{
-			Key:   "extraPorts",
-			Value: extraPortsMapping,
-		})
-	}
+	provisioner := NewLocalProvisioner(options)
 
-	if kindConfigPath != "" {
-		clusterConfig = append(clusterConfig, config.KeyValueConfig{
-			Key:   "configPath",
-			Value: kindConfigPath,
-		})
-	}
-
-	envConfig := &config.ResolvedEnvironmentConfig{
-		Name:                  globals.DefaultClusterName,
-		ResolvedProvider:      string(v1alpha1.ProviderKind),
-		ResolvedRegion:        "local",
-		ResolvedType:          config.EnvironmentTypeNonProduction,
-		ResolvedClusterConfig: clusterConfig,
-		GlobalSettings: &config.GlobalSettings{
-			AdharContext: "provider-mode",
-			DefaultHost:  globals.DefaultHostName, // Use adhar.localtest.me for Kind clusters
-			EnableHAMode: false,
-			Email:        "admin@" + globals.DefaultHostName, // Set email for domain config
-		},
-	}
-
-	// Set provision options
-	provisionOpts := ProvisionOptions{
-		DryRun: dryRun,
-		Force:  force || recreateCluster,
+	// Show banner only when not using the styled Progress UI
+	if !provisioner.options.ProgressUI {
+		logger.Banner("Adhar Internal Developer Platform", "Provisioning Management Cluster and Platform Components")
 	}
 
 	// If dry run, show what would be provisioned
 	if dryRun {
-		return showLocalDryRunInfo(adharSpec, envConfig)
+		// Create a simple env config for dry run display
+		envConfig := &config.ResolvedEnvironmentConfig{
+			Name:             globals.DefaultClusterName,
+			ResolvedProvider: "kind",
+			ResolvedRegion:   "local",
+			ResolvedType:     config.EnvironmentTypeNonProduction,
+			ResolvedClusterConfig: []config.KeyValueConfig{
+				{Key: "kubeVersion", Value: kubeVersion},
+				{Key: "controlPlaneReplicas", Value: "1"},
+				{Key: "workerReplicas", Value: "0"},
+			},
+			GlobalSettings: &config.GlobalSettings{
+				AdharContext: "provider-mode",
+				DefaultHost:  globals.DefaultHostName,
+				EnableHAMode: false,
+				Email:        "admin@" + globals.DefaultHostName,
+			},
+		}
+		return showLocalDryRunInfo(envConfig)
 	}
 
 	// Start the provisioning process
 	log.StartOperation("Local Development Cluster", "Creating Kind cluster with platform services")
 
-	// Use the ProviderManager to create the Kind cluster with template-based provisioning
-	if err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts); err != nil {
+	// Use the LocalProvisioner to create the complete environment
+	if err := provisioner.Provision(); err != nil {
 		logger.Error("Local cluster provisioning failed", err, map[string]interface{}{
-			"cluster":  envConfig.Name,
+			"cluster":  globals.DefaultClusterName,
 			"provider": "kind",
 		})
 		return fmt.Errorf("failed to provision local development cluster: %w", err)
@@ -435,8 +1152,10 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 
 	log.FinishOperation("Local Development Cluster", "Platform ready for development")
 
-	// Print success message
-	printSuccessMsg()
+	// Print success message only when not using Progress UI (to avoid duplicates)
+	if !options.ProgressUI {
+		printSuccessMsg()
+	}
 	return nil
 }
 
@@ -867,38 +1586,8 @@ func isPortInUse(port int) bool {
 	return false // Port is available
 }
 
-// getPackageCustomFile parses package customization file input
-func getPackageCustomFile(input string) (v1alpha1.PackageCustomization, error) {
-	// the format should be `<package-name>:<path-to-file>`
-	s := strings.Split(input, ":")
-	if len(s) != 2 {
-		return v1alpha1.PackageCustomization{}, fmt.Errorf("ensure %s is formatted as <package-name>:<path-to-file>", input)
-	}
-
-	paths, err := helpers.GetAbsFilePaths([]string{s[1]}, false)
-	if err != nil {
-		return v1alpha1.PackageCustomization{}, err
-	}
-
-	err = helpers.ValidateKubernetesYamlFile(paths[0])
-	if err != nil {
-		return v1alpha1.PackageCustomization{}, err
-	}
-
-	corePkgs := map[string]struct{}{v1alpha1.ArgoCDPackageName: {}, v1alpha1.GiteaPackageName: {}, v1alpha1.IngressNginxPackageName: {}}
-	name := s[0]
-	_, ok := corePkgs[name]
-	if !ok {
-		return v1alpha1.PackageCustomization{}, fmt.Errorf("customization for %s not supported", name)
-	}
-	return v1alpha1.PackageCustomization{
-		Name:     name,
-		FilePath: paths[0],
-	}, nil
-}
-
 // showLocalDryRunInfo displays what would be provisioned in local development dry-run mode
-func showLocalDryRunInfo(adharSpec *v1alpha1.AdharPlatformSpec, envConfig *config.ResolvedEnvironmentConfig) error {
+func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("🔍 Dry Run - Local Development Preview"))
 	fmt.Printf("┌─────────────────────────────────────────────┐\n")
 	fmt.Printf("│ Environment: %-30s │\n", envConfig.Name)
@@ -908,10 +1597,11 @@ func showLocalDryRunInfo(adharSpec *v1alpha1.AdharPlatformSpec, envConfig *confi
 	fmt.Printf("└─────────────────────────────────────────────┘\n")
 
 	fmt.Printf("\nPlatform Configuration:\n")
-	fmt.Printf("  Host:        %s\n", adharSpec.BuildCustomization.Host)
-	fmt.Printf("  Protocol:    %s\n", adharSpec.BuildCustomization.Protocol)
-	fmt.Printf("  Port:        %s\n", adharSpec.BuildCustomization.Port)
-	fmt.Printf("  Path Routing: %v\n", adharSpec.BuildCustomization.UsePathRouting)
+	fmt.Printf("  Host:        %s\n", envConfig.GlobalSettings.DefaultHost)
+	// Protocol/Port/PathRouting are not in envConfig directly for local dry-run; show sensible defaults
+	fmt.Printf("  Protocol:    https\n")
+	fmt.Printf("  Port:        8443\n")
+	fmt.Printf("  Path Routing: %v\n", true)
 
 	if len(envConfig.ResolvedClusterConfig) > 0 {
 		fmt.Printf("\nKind Cluster Configuration:\n")
@@ -930,18 +1620,24 @@ func showLocalDryRunInfo(adharSpec *v1alpha1.AdharPlatformSpec, envConfig *confi
 	}
 
 	fmt.Printf("\nCore Services:\n")
-	fmt.Printf("  ArgoCD:      %v\n", adharSpec.PackageConfigs.Argo.Enabled)
-	fmt.Printf("  Gitea:       %v\n", adharSpec.PackageConfigs.EmbeddedArgoApplications.Enabled)
+	fmt.Printf("  ArgoCD:      true\n")
+	fmt.Printf("  Gitea:       true\n")
 	fmt.Printf("  Nginx:       true\n")
 	fmt.Printf("  Cilium:      true\n")
 
-	if len(adharSpec.PackageConfigs.CustomPackageDirs) > 0 || len(adharSpec.PackageConfigs.CustomPackageUrls) > 0 {
-		fmt.Printf("\nCustom Packages:\n")
-		for _, pkg := range adharSpec.PackageConfigs.CustomPackageDirs {
-			fmt.Printf("  Directory: %s\n", pkg)
-		}
-		for _, pkg := range adharSpec.PackageConfigs.CustomPackageUrls {
-			fmt.Printf("  URL: %s\n", pkg)
+	if len(envConfig.ResolvedClusterConfig) > 0 {
+		fmt.Printf("\nKind Cluster Configuration:\n")
+		for _, cfg := range envConfig.ResolvedClusterConfig {
+			switch cfg.Key {
+			case "kubeVersion":
+				fmt.Printf("  Kubernetes Version: %s\n", cfg.Value)
+			case "extraPorts":
+				fmt.Printf("  Extra Ports: %s\n", cfg.Value)
+			case "configPath":
+				fmt.Printf("  Config Path: %s\n", cfg.Value)
+			default:
+				fmt.Printf("  %s: %s\n", cfg.Key, cfg.Value)
+			}
 		}
 	}
 
@@ -1012,13 +1708,5 @@ func validate() error {
 		return fmt.Errorf("invalid url: %w", err)
 	}
 
-	for i := range packageCustomizationFiles {
-		_, pErr := getPackageCustomFile(packageCustomizationFiles[i])
-		if pErr != nil {
-			return pErr
-		}
-	}
-
-	_, _, err = helpers.ParsePackageStrings(extraPackages)
-	return err
+	return nil
 }

@@ -314,20 +314,33 @@ func startClusterTeardown() tea.Cmd {
 		send(logger.StepMsg("Deleting Kind cluster"))
 		send(logger.StatusMsg("removing '" + globals.DefaultClusterName + "'"))
 
-		deleteArgs := []string{"delete", "cluster", "--name", globals.DefaultClusterName}
+		// Try to delete both possible cluster names (for backward compatibility)
+		clusterNames := []string{globals.DefaultClusterName, "adhar-local"}
+		var deleteOutput string
 
-		deleteCmd := exec.Command("kind", deleteArgs...)
-		output, err := deleteCmd.CombinedOutput()
+		for _, clusterName := range clusterNames {
+			deleteArgs := []string{"delete", "cluster", "--name", clusterName}
+			deleteCmd := exec.Command("kind", deleteArgs...)
+			output, err := deleteCmd.CombinedOutput()
 
-		// Always capture output regardless of verbosity when there's an error
-		if err != nil {
-			send(logger.ExtraOutputMsg(string(output)))
-			return logger.ErrorMsg{Err: fmt.Errorf("failed to delete cluster: %w", err)}
+			if err == nil {
+				// Successfully deleted a cluster
+				deleteOutput = string(output)
+				break
+			} else {
+				// Try the next cluster name
+				continue
+			}
+		}
+
+		// If we couldn't delete any cluster, return an error
+		if deleteOutput == "" {
+			return logger.ErrorMsg{Err: fmt.Errorf("failed to delete any cluster. Tried: %v", clusterNames)}
 		}
 
 		// Add the command output for verbose mode on success
 		if verboseDown {
-			send(logger.ExtraOutputMsg(string(output)))
+			send(logger.ExtraOutputMsg(deleteOutput))
 		}
 
 		// Remove any cluster-related files
@@ -388,7 +401,13 @@ func kindClusterExists() (bool, error) {
 		return false, fmt.Errorf("failed to run 'kind get clusters': %w\nOutput: %s", err, string(output))
 	}
 
-	return strings.Contains(string(output), globals.DefaultClusterName), nil
+	// Check for both possible cluster names (for backward compatibility)
+	clusterOutput := string(output)
+	if strings.Contains(clusterOutput, globals.DefaultClusterName) || strings.Contains(clusterOutput, "adhar-local") {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // updateElapsedTime creates a command that updates the elapsed time every second

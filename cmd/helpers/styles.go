@@ -98,43 +98,10 @@ var (
 
 	// Muted style for less important text
 	MutedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#94a3b8")).
+			Foreground(lipgloss.Color("#64748b")).
 			Italic(true)
 
-	// Cluster status styles
-	ClusterStatusStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#10b981")).
-				Bold(true)
-
-	ClusterErrorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#ef4444")).
-				Bold(true)
-
-	ClusterWarningStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#f59e0b")).
-				Bold(true)
-
-	// Provider styles
-	ProviderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#8b5cf6")).
-			Bold(true)
-
-	// Region style
-	RegionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#06b6d4")).
-			Italic(true)
-
-	// Version style
-	VersionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#f59e0b")).
-			Bold(true)
-
-	// Accent style for highlighting
-	AccentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ec4899")).
-			Bold(true)
-
-	// Bold style for emphasized text
+	// Bold style for emphasis
 	BoldStyle = lipgloss.NewStyle().
 			Bold(true)
 
@@ -194,7 +161,7 @@ func CreateMuted(text string) string {
 	return MutedStyle.Render(text)
 }
 
-// CreateAccent creates accent text
+// CreateAccent creates an accent text with highlight styling
 func CreateAccent(text string) string {
-	return AccentStyle.Render(text)
+	return HighlightStyle.Render(text)
 }

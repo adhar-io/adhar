@@ -13,7 +13,7 @@ global:
 # Environment definitions
 environments:
   local:
-    name: adhar-local
+    name: adhar
     type: development
     provider: kind
     region: local
@@ -21,7 +21,7 @@ environments:
     # Kind-specific cluster configuration
     clusterConfig:
       - key: name
-        value: adhar-local
+        value: adhar
       - key: kubeVersion
         value: v1.33.2
       - key: nodeCount
@@ -38,7 +38,7 @@ environments:
           version: 1.16.5
         values:
           - key: cluster.name
-            value: adhar-local
+            value: adhar
           - key: ipam.mode
             value: kubernetes
           - key: kubeProxyReplacement

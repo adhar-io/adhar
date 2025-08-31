@@ -17,12 +17,17 @@ limitations under the License.
 package provider
 
 import (
+	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
+	"adhar-io/adhar/platform/types"
 )
 
 // NewProviderCommand creates an updated provider command with actual functionality
@@ -262,4 +267,218 @@ func showPrimaryProvider(cmd *cobra.Command) error {
 	}
 
 	return nil
+}
+
+// ProviderManager manages cloud providers for cluster provisioning
+type ProviderManager struct {
+	factory ProviderFactory
+}
+
+// NewProviderManager creates a new provider manager
+func NewProviderManager(factory ProviderFactory) *ProviderManager {
+	return &ProviderManager{factory: factory}
+}
+
+// ProvisionOptions contains options for provisioning
+type ProvisionOptions struct {
+	DryRun bool
+	Force  bool
+}
+
+// ProvisionEnvironment provisions using the appropriate provider based on configuration
+func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
+	providerType := strings.ToLower(envConfig.ResolvedProvider)
+
+	// Build provider configuration from environment config
+	providerConfig := buildProviderConfig(envConfig)
+
+	// Create provider instance
+	prov, err := pm.factory.CreateProvider(providerType, providerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create %s provider: %w", providerType, err)
+	}
+
+	if opts.DryRun {
+		fmt.Printf("DRY-RUN: Would create %s cluster '%s' in region '%s'\n",
+			envConfig.ResolvedProvider, envConfig.Name, envConfig.ResolvedRegion)
+		return nil
+	}
+
+	// Build cluster specification based on provider and environment
+	spec, err := buildClusterSpec(envConfig)
+	if err != nil {
+		return fmt.Errorf("failed to build cluster specification: %w", err)
+	}
+
+	// Authenticate with the provider
+	if err := prov.Authenticate(ctx, buildCredentials(envConfig)); err != nil {
+		return fmt.Errorf("authentication failed for %s provider: %w", providerType, err)
+	}
+
+	// Validate permissions
+	if err := prov.ValidatePermissions(ctx); err != nil {
+		return fmt.Errorf("permission validation failed for %s provider: %w", providerType, err)
+	}
+
+	// Create the cluster
+	logger.Infof("Creating cluster '%s' using %s provider in region %s", envConfig.Name, providerType, envConfig.ResolvedRegion)
+
+	cluster, err := prov.CreateCluster(ctx, spec)
+	if err != nil {
+		return fmt.Errorf("failed to create %s cluster: %w", providerType, err)
+	}
+
+	logger.Infof("Cluster created successfully - ID: %s, Status: %s", cluster.ID, cluster.Status)
+
+	return nil
+}
+
+// buildProviderConfig creates provider-specific configuration from environment config
+func buildProviderConfig(envConfig *config.ResolvedEnvironmentConfig) map[string]interface{} {
+	providerConfig := make(map[string]interface{})
+
+	// Add region
+	if envConfig.ResolvedRegion != "" {
+		providerConfig["region"] = envConfig.ResolvedRegion
+	}
+
+	// Add cluster-specific configuration
+	for _, kv := range envConfig.ResolvedClusterConfig {
+		providerConfig[kv.Key] = kv.Value
+	}
+
+	return providerConfig
+}
+
+// buildClusterSpec creates a cluster specification based on environment configuration
+func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.ClusterSpec, error) {
+	spec := &types.ClusterSpec{
+		Provider: envConfig.ResolvedProvider,
+		Region:   envConfig.ResolvedRegion,
+		ObjectMeta: types.ObjectMeta{
+			Name: envConfig.Name,
+		},
+	}
+
+	// Set defaults based on environment type
+	isProduction := envConfig.ResolvedType == config.EnvironmentTypeProduction
+
+	// Configure control plane
+	controlPlaneReplicas := 1
+	if isProduction {
+		controlPlaneReplicas = 3 // HA for production
+	}
+	spec.ControlPlane = types.ControlPlaneSpec{
+		Replicas: controlPlaneReplicas,
+	}
+
+	// Configure node groups
+	workerReplicas := 0 // Single-node cluster for local development
+	if isProduction {
+		workerReplicas = 3 // More workers for production
+	}
+	spec.NodeGroups = []types.NodeGroupSpec{
+		{
+			Name:     "workers",
+			Replicas: workerReplicas,
+		},
+	}
+
+	// Configure networking
+	spec.Networking = types.NetworkingSpec{
+		CNI:         "cilium",
+		PodCIDR:     "10.244.0.0/16",
+		ServiceCIDR: "10.96.0.0/12",
+	}
+
+	// Configure domain management
+	spec.Domain = buildDomainConfig(envConfig)
+
+	// Apply cluster-specific configuration
+	for _, kv := range envConfig.ResolvedClusterConfig {
+		switch kv.Key {
+		case "kubeVersion", "version":
+			spec.Version = kv.Value
+		case "controlPlaneReplicas":
+			if replicas := parseIntOrDefault(kv.Value, controlPlaneReplicas); replicas > 0 {
+				spec.ControlPlane.Replicas = replicas
+			}
+		case "workerReplicas":
+			if replicas := parseIntOrDefault(kv.Value, workerReplicas); replicas > 0 {
+				spec.NodeGroups[0].Replicas = replicas
+			}
+		case "nodeInstanceType", "instanceType":
+			spec.NodeGroups[0].InstanceType = kv.Value
+		case "diskSize":
+			// Note: DiskSize not available in current NodeGroupSpec
+			// This could be added to the spec if needed in the future
+		}
+	}
+
+	return spec, nil
+}
+
+// buildDomainConfig creates domain configuration based on environment and provider
+func buildDomainConfig(envConfig *config.ResolvedEnvironmentConfig) *types.DomainConfig {
+	// Get domain configuration from global settings or use defaults
+	var baseDomain string
+	var email string
+
+	if envConfig.GlobalSettings != nil {
+		if envConfig.GlobalSettings.DefaultHost != "" {
+			baseDomain = envConfig.GlobalSettings.DefaultHost
+		}
+		if envConfig.GlobalSettings.Email != "" {
+			email = envConfig.GlobalSettings.Email
+		}
+	}
+
+	// Use defaults if not specified
+	if baseDomain == "" {
+		baseDomain = "adhar.localtest.me"
+	}
+	if email == "" {
+		email = "admin@adhar.localtest.me"
+	}
+
+	return &types.DomainConfig{
+		BaseDomain: baseDomain,
+		TLS: types.TLSConfig{
+			Enabled: true,
+			Email:   email,
+		},
+	}
+}
+
+// buildCredentials creates provider credentials from environment configuration
+func buildCredentials(envConfig *config.ResolvedEnvironmentConfig) *types.Credentials {
+	credentials := &types.Credentials{
+		Type: envConfig.ResolvedProvider,
+		Data: make(map[string]interface{}),
+	}
+
+	// Add provider-specific credentials based on environment config
+	// Note: This is a simplified version - in practice, credentials would come from
+	// environment variables, config files, or secret management systems
+	if envConfig.ResolvedProvider == "aws" {
+		credentials.Data["accessKeyId"] = "placeholder"
+		credentials.Data["secretAccessKey"] = "placeholder"
+	} else if envConfig.ResolvedProvider == "gcp" {
+		credentials.Data["serviceAccountKey"] = "placeholder"
+	} else if envConfig.ResolvedProvider == "azure" {
+		credentials.Data["subscriptionId"] = "placeholder"
+		credentials.Data["tenantId"] = "placeholder"
+		credentials.Data["clientId"] = "placeholder"
+		credentials.Data["clientSecret"] = "placeholder"
+	}
+
+	return credentials
+}
+
+// parseIntOrDefault parses a string to int with a default fallback
+func parseIntOrDefault(value string, defaultValue int) int {
+	if parsed, err := strconv.Atoi(value); err == nil {
+		return parsed
+	}
+	return defaultValue
 }

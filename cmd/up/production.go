@@ -700,9 +700,8 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 		log.SetLevel(logger.DEBUG)
 	}
 
-	// Initialize template engine
-	// Use platform/providers factory; register kind in factory to ensure availability
-	providerManager := newProviderManagerWithFactory(log.Logger, pfactory.DefaultFactory)
+	// Create provider manager for production operations
+	providerManager := pfactory.NewProviderManager(pfactory.DefaultFactory)
 
 	// Show banner
 	logger.Banner("Adhar Platform", "Provisioning Management Cluster and Platform Components")
@@ -726,7 +725,8 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	// Provision the environment
 	log.StartOperation("Environment Provisioning", fmt.Sprintf("Deploying %s environment", environment))
 
-	provisionOpts := ProvisionOptions{
+	// Set provision options
+	provisionOpts := pfactory.ProvisionOptions{
 		DryRun: dryRun,
 		Force:  force,
 	}
@@ -798,7 +798,7 @@ func printProductionSuccessMsg(envName string) {
 }
 
 // provisionCompletePlatformNew provisions the complete Adhar platform using the new provider system
-func provisionCompletePlatformNew(ctx context.Context, providerManager *providerManager, cfg *config.Config, dryRun bool, force bool) error {
+func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory.ProviderManager, cfg *config.Config, dryRun bool, force bool) error {
 	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("🚀 Starting Complete Adhar Platform Provisioning"))
 	fmt.Println()
 
@@ -824,7 +824,7 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *provider
 			continue
 		}
 
-		provisionOpts := ProvisionOptions{
+		provisionOpts := pfactory.ProvisionOptions{
 			DryRun: dryRun,
 			Force:  force,
 		}

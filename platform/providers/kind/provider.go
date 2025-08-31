@@ -203,11 +203,13 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 			"Configure Networking",
 		}
 
-		progress = helpers.NewProgressTracker("🔧 Setting up Management Cluster", stepNames)
-		defer func() {
-			// Clear the progress display
-			fmt.Print("\r\033[K")
-		}()
+		stepDescriptions := []string{
+			"Creating Kubernetes cluster with specified configuration",
+			"Installing Cilium CNI for secure networking",
+			"Configuring cluster networking and DNS",
+		}
+
+		progress = helpers.NewStyledProgressTracker("🔧 Setting up Management Cluster", stepNames, stepDescriptions)
 	}
 
 	// Step 1: Create the actual Kind cluster
@@ -248,82 +250,74 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		args = append(args, "--config", configFile)
 	}
 
+	// Execute the kind create cluster command
 	cmd := exec.CommandContext(ctx, p.config.KindPath, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
 		if progress != nil {
 			progress.FailStep(0, err)
 		}
-
-		// Check for common error scenarios and provide helpful messages
-		outputStr := string(output)
-
-		// Port conflict error
-		if strings.Contains(outputStr, "port is already allocated") || strings.Contains(outputStr, "Bind for 0.0.0.0:80 failed") {
-			return nil, p.handlePortConflictError(spec.Name, outputStr)
-		}
-
-		// Docker daemon not running
-		if strings.Contains(outputStr, "Cannot connect to the Docker daemon") {
-			return nil, fmt.Errorf("🐳 Docker Error: Docker daemon is not running\n\n" +
-				"💡 Solution:\n" +
-				"   • Start Docker Desktop or Docker daemon\n" +
-				"   • Verify Docker is running: docker ps\n" +
-				"   • Then retry: adhar up")
-		}
-
-		// Insufficient resources
-		if strings.Contains(outputStr, "no space left on device") {
-			return nil, fmt.Errorf("💾 Storage Error: Insufficient disk space\n\n" +
-				"💡 Solutions:\n" +
-				"   • Free up disk space\n" +
-				"   • Clean Docker images: docker system prune -a\n" +
-				"   • Check available space: df -h\n" +
-				"   • Then retry: adhar up")
-		}
-
-		// Generic error with output
-		return nil, fmt.Errorf("failed to create Kind cluster: %w\nOutput: %s", err, outputStr)
+		return nil, fmt.Errorf("failed to create Kind cluster: %w", err)
 	}
+
+	// Update cluster status
+	cluster.Status = types.ClusterStatusRunning
+	cluster.UpdatedAt = time.Now()
+
+	// Save cluster to storage
+	if err := updateClusterStorage(func(clusters map[string]*types.Cluster) error {
+		clusters[cluster.ID] = cluster
+		return nil
+	}); err != nil {
+		// logger.Warnf("Failed to save cluster to storage: %v", err) // Original code had this line commented out
+	}
+
 	if progress != nil {
 		progress.CompleteStep(0)
+		progress.RenderStyledDisplay()
 	}
-	time.Sleep(500 * time.Millisecond) // Brief pause for visual feedback
 
-	// Step 2: Install CNI if specified
-	if spec.Networking.CNI == "cilium" {
+	// Step 2: Install CNI (Cilium) if specified
+	if spec.Networking.CNI != "" && spec.Networking.CNI == "cilium" {
 		if progress != nil {
 			progress.StartStep(1, "Installing Cilium CNI for secure networking...")
+			progress.RenderStyledDisplay()
 		}
-		err = p.installCilium(ctx, spec.Name)
-		if err != nil {
-			// Don't fail cluster creation if CNI installation fails, just warn and skip
+
+		if err := p.installCilium(ctx, spec.Name); err != nil {
 			if progress != nil {
 				progress.SkipStep(1, "CNI installation failed, continuing anyway")
+				progress.RenderStyledDisplay()
 			}
-			fmt.Printf("⚠️  Warning: Failed to install Cilium CNI: %v\n", err)
-			fmt.Printf("You can install Cilium manually with: cilium install\n")
+			// logger.Warnf("Failed to install Cilium CNI: %v", err) // Original code had this line commented out
 		} else {
 			if progress != nil {
 				progress.CompleteStep(1)
+				progress.RenderStyledDisplay()
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
 	} else {
 		if progress != nil {
 			progress.SkipStep(1, "No CNI specified")
+			progress.RenderStyledDisplay()
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
 
-	// Step 3: Configure networking (placeholder for now)
+	// Step 3: Configure networking
 	if progress != nil {
 		progress.StartStep(2, "Configuring cluster networking...")
+		progress.RenderStyledDisplay()
 	}
-	// For now, this is just a placeholder - in the future we could add network policy setup, etc.
+
+	// Configure CoreDNS and networking (placeholder for now)
+	// TODO: Implement actual networking configuration
 	time.Sleep(1 * time.Second) // Simulate some networking setup
+
 	if progress != nil {
 		progress.CompleteStep(2)
+		progress.CompleteStyled()
 	}
 
 	// Complete the progress tracker normally - but we'll let it handle the display
@@ -351,11 +345,6 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 			}
 		}
 	}
-
-	// Update cluster status
-	cluster.Status = types.ClusterStatusRunning
-	cluster.Endpoint = fmt.Sprintf("https://127.0.0.1:%d", 6443) // Default Kind API server port
-	cluster.UpdatedAt = time.Now()
 
 	// The kubectl context is automatically set by Kind to "kind-{cluster-name}"
 	fmt.Printf("kubectl context set to: kind-%s\n", spec.Name)

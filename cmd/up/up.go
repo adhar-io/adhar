@@ -19,6 +19,7 @@ package up
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
@@ -195,35 +196,42 @@ func create(cmd *cobra.Command, args []string) error {
 	ctx, ctxCancel := context.WithCancel(cmd.Context())
 	defer ctxCancel()
 
-	// Show Adhar banner
-	fmt.Printf("\n🚀 %s\n", helpers.BoldStyle.Render("Adhar Internal Developer Platform"))
-	fmt.Printf("🎯 Spinning up complete IDP with industry standard technologies\n")
-	fmt.Printf("🐳 Docker-only dependency • Single command • 48+ platform tools\n\n")
+	// Build a single, merged banner box with global info and mode-specific details
+	lines := []string{
+		helpers.TitleStyle.Render("🚀 Adhar Internal Developer Platform"),
+		helpers.SubtitleStyle.Render("🎯 Spinning up complete IDP with industry standard technologies"),
+		helpers.InfoStyle.Render("🐳 Docker-only dependency • Single command • 48+ platform tools"),
+	}
 
-	// Check if this is a production setup (config file provided)
 	if configFile != "" {
-		fmt.Printf("🏭 %s\n", helpers.BoldStyle.Render("Production Platform Provisioning Mode"))
-		fmt.Printf("📁 Configuration file: %s\n", configFile)
+		// Production mode details
+		lines = append(lines, "") // blank separator
+		lines = append(lines,
+			helpers.TitleStyle.Render("🏭 Production Platform Provisioning Mode"),
+			helpers.InfoStyle.Render(fmt.Sprintf("📁 Configuration file: %s", configFile)),
+		)
 		if environment != "" {
-			fmt.Printf("🎯 Target environment: %s\n", environment)
+			lines = append(lines, helpers.InfoStyle.Render(fmt.Sprintf("🎯 Target environment: %s", environment)))
 		} else {
-			fmt.Printf("🌐 Mode: Complete platform provisioning (all environments)\n")
+			lines = append(lines, helpers.InfoStyle.Render("🌐 Mode: Complete platform provisioning (all environments)"))
 		}
-		fmt.Println()
+	} else {
+		// Local development mode details
+		lines = append(lines, "") // blank separator
+		lines = append(lines,
+			helpers.TitleStyle.Render("🏠 Local Development Mode"),
+			helpers.SubtitleStyle.Render("🐳 Creating Kind-based Kubernetes cluster with complete platform stack"),
+			helpers.InfoStyle.Render("⚡ Perfect for development, testing, and demonstrations"),
+		)
+	}
+
+	combinedBox := helpers.BorderStyle.Width(70).Render(fmt.Sprint(strings.Join(lines, "\n")))
+	fmt.Printf("\n%s\n\n", combinedBox)
+
+	// Proceed based on mode
+	if configFile != "" {
 		return createProductionCluster(ctx, cmd, args)
 	}
-
-	// Local development mode
-	fmt.Printf("🏠 %s\n", helpers.BoldStyle.Render("Local Development Mode"))
-	fmt.Printf("🐳 Creating Kind-based Kubernetes cluster with complete platform stack\n")
-	fmt.Printf("⚡ Perfect for development, testing, and demonstrations\n\n")
-
-	// Perform pre-flight checks
-	if err := performLocalPreflightChecks(); err != nil {
-		return fmt.Errorf("pre-flight checks failed: %w", err)
-	}
-
-	fmt.Println()
 
 	// Create local development cluster using new ProviderManager
 	return createLocalDevelopmentCluster(ctx, cmd, args)
