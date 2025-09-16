@@ -60,7 +60,7 @@ var (
 	ingressHost               string
 	port                      string
 	pathRouting               bool
-	verbose                   bool // Add verbose flag
+	verbose                   bool
 
 	// Production cluster provisioning flags
 	configFile  string
@@ -72,7 +72,7 @@ var (
 // UpCmd represents the up command
 var UpCmd = &cobra.Command{
 	Use:     "up",
-	Aliases: []string{"create", "launch", "start"},
+	Aliases: []string{"create"},
 	Short:   "🚀 Launch Adhar Internal Developer Platform",
 	Long: `🚀 **Adhar Internal Developer Platform Launcher**
 
@@ -95,27 +95,17 @@ This can be useful in several ways:
 
 **Production Setup:**
   adhar up -f config.yaml
-  adhar up -f config.yaml --env prod
-
-**Custom Configuration:**
-  adhar up --kube-version v1.33.2 --host mydomain.com --port 8443
+  # Creates production cluster with complete platform stack on your preferred Cloud provider
 
 **Key Features:**
 • 🐳 Docker-only dependency (no external tools required)
 • 🚀 Single command to spin up complete platform
 • 🔧 Industry standard stack (Kubernetes, ArgoCD, Gitea, Crossplane)
-• 📦 48+ integrated platform tools and services
+• 📦 60+ integrated platform tools and services
 • 🌐 Multi-cloud provider support (Kind, DigitalOcean, GCP, AWS, Azure, Civo)
 • 🔒 Security by default with zero-trust networking
 • 📊 GitOps-driven operations with ArgoCD
 • 🎯 Perfect for platform engineers and DevOps teams
-
-**What Gets Installed:**
-• Core Platform: ArgoCD, Gitea, Crossplane, Nginx Ingress
-• Security: Vault, Keycloak, Kyverno, Falco, Trivy
-• Observability: Prometheus, Grafana, Loki, Jaeger, Hubble
-• Data & Analytics: PostgreSQL, Redis, MinIO, Kafka, Jupyter
-• Application Development: Harbor, Argo Workflows, Knative
 
 For more information, visit: https://github.com/adhar-io/adhar`,
 	Example: `  # 🚀 Quick Start - Local Development
@@ -124,16 +114,6 @@ For more information, visit: https://github.com/adhar-io/adhar`,
 
   # 🏭 Production Deployment
   adhar up -f config.yaml
-  adhar up -f config.yaml --env prod
-
-  # 🔧 Custom Configuration
-  adhar up --kube-version v1.33.2
-  adhar up --host mydomain.com --port 8443
-  adhar up --extra-ports "22:32222,9090:39090"
-
-  # 📦 Package Customization
-  adhar up -p /path/to/custom/packages
-  adhar up -e argocd:/tmp/argocd.yaml
 
   # 👀 Preview Mode
   adhar up --dry-run
@@ -163,6 +143,7 @@ func init() {
 	UpCmd.PersistentFlags().BoolVar(&pathRouting, "use-path-routing", true, pathRoutingUsage)
 	UpCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{"platform/stack"}, extraPackagesUsage)
 	UpCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, packageCustomizationFilesUsage)
+	UpCmd.Flags().Bool("no-exit", false, "Keep running after initial sync (don't exit)")
 
 	// adhar related flags
 	UpCmd.Flags().BoolVarP(&noExit, "watch", "w", true, noExitUsage)
@@ -175,6 +156,7 @@ func init() {
 	UpCmd.Flags().BoolVarP(&force, "force", "F", false, "Force operation, ignoring warnings")
 }
 
+// preCreateE sets the log level based on the verbose flag or global debug flag
 func preCreateE(cmd *cobra.Command, args []string) error {
 	// Set log level based on verbose flag or global debug flag
 	debugFlag, _ := cmd.Root().PersistentFlags().GetBool("debug")
@@ -193,22 +175,19 @@ func preCreateE(cmd *cobra.Command, args []string) error {
 }
 
 func create(cmd *cobra.Command, args []string) error {
+	// Create a new context with cancel function to support graceful shutdown
 	ctx, ctxCancel := context.WithCancel(cmd.Context())
 	defer ctxCancel()
 
-	// Build a single, merged banner box with global info and mode-specific details
-	lines := []string{
-		helpers.TitleStyle.Render("🚀 Adhar Internal Developer Platform"),
-		helpers.SubtitleStyle.Render("🎯 Spinning up complete IDP with industry standard technologies"),
-		helpers.InfoStyle.Render("🐳 Docker-only dependency • Single command • 48+ platform tools"),
-	}
+	// Build a banner box with global info and mode-specific details
+	lines := []string{}
 
 	if configFile != "" {
 		// Production mode details
-		lines = append(lines, "") // blank separator
 		lines = append(lines,
-			helpers.TitleStyle.Render("🏭 Production Platform Provisioning Mode"),
-			helpers.InfoStyle.Render(fmt.Sprintf("📁 Configuration file: %s", configFile)),
+			helpers.TitleStyle.Render("🚀 Adhar Platform - Production Provisioning Mode"),
+			helpers.InfoStyle.Render(" 🎯 Spinning up complete IDP with industry standard technologies"),
+			helpers.InfoStyle.Render(fmt.Sprintf(" 📁 Configuration file: %s", configFile)),
 		)
 		if environment != "" {
 			lines = append(lines, helpers.InfoStyle.Render(fmt.Sprintf("🎯 Target environment: %s", environment)))
@@ -217,11 +196,10 @@ func create(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		// Local development mode details
-		lines = append(lines, "") // blank separator
 		lines = append(lines,
-			helpers.TitleStyle.Render("🏠 Local Development Mode"),
-			helpers.SubtitleStyle.Render("🐳 Creating Kind-based Kubernetes cluster with complete platform stack"),
-			helpers.InfoStyle.Render("⚡ Perfect for development, testing, and demonstrations"),
+			helpers.TitleStyle.Render("🚀 Adhar Platform - Local Development Mode"),
+			helpers.InfoStyle.Render(" 🎯 Spinning up complete IDP with industry standard technologies"),
+			helpers.InfoStyle.Render(" ⚡ Perfect for development, testing, and demonstrations"),
 		)
 	}
 
@@ -230,9 +208,9 @@ func create(cmd *cobra.Command, args []string) error {
 
 	// Proceed based on mode
 	if configFile != "" {
-		return createProductionCluster(ctx, cmd, args)
+		return createProductionCluster(ctx, cmd, args, ctxCancel)
 	}
 
 	// Create local development cluster using new ProviderManager
-	return createLocalDevelopmentCluster(ctx, cmd, args)
+	return createLocalDevelopmentCluster(ctx, cmd, args, ctxCancel)
 }

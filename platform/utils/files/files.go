@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	sprig "github.com/go-task/slim-sprig/v3"
 )
 
 func CopyDirectory(scrDir, dest string) error {
@@ -97,6 +99,10 @@ func CreateIfNotExists(dir string, perm os.FileMode) error {
 func ApplyTemplate(in []byte, templateData any) ([]byte, error) {
 	funcMap := template.FuncMap{
 		"indentNewLines": templateIndentNewlines,
+	}
+	// Add sprig template functions
+	for k, v := range sprig.TxtFuncMap() {
+		funcMap[k] = v
 	}
 	t, err := template.New("template").Funcs(funcMap).Parse(string(in))
 	if err != nil {

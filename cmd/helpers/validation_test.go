@@ -62,7 +62,7 @@ func TestParsePackageStrings(t *testing.T) {
 
 	for k := range cases {
 		c := cases[k]
-		remote, local, err := ParsePackageStrings(c.inputPaths)
+		remote, local, err, _ := ParsePackageStrings(c.inputPaths)
 		if cases[k].expectErr {
 			assert.NotNil(t, err)
 		} else {

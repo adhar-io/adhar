@@ -1,20 +1,12 @@
 package adharplatform
 
 import (
-	"bytes"
 	"context"
 	"embed"
 	"fmt"
-	"io"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -27,6 +19,7 @@ func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Cilium core package")
 
+	// Apply install.yaml
 	ciliumManifestPath := "resources/cilium/install.yaml"
 	manifestBytes, err := ciliumFS.ReadFile(ciliumManifestPath)
 	if err != nil {
@@ -34,81 +27,22 @@ func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.
 		return ctrl.Result{}, fmt.Errorf("reading cilium manifest %s: %w", ciliumManifestPath, err)
 	}
 
-	decoder := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifestBytes), 100)
-	var applyErrors []error
-
-	for {
-		obj := &unstructured.Unstructured{}
-		err := decoder.Decode(obj)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			logger.Error(err, "Failed to decode object from Cilium manifest")
-			applyErrors = append(applyErrors, fmt.Errorf("decoding object: %w", err))
-			continue
-		}
-
-		if obj.Object == nil {
-			continue
-		}
-
-		// Determine if the resource is cluster-scoped
-		groupVersionKind := obj.GroupVersionKind()
-		mapping, err := r.RESTMapper().RESTMapping(groupVersionKind.GroupKind(), groupVersionKind.Version)
-		isClusterScoped := false
-		if err == nil {
-			isClusterScoped = mapping.Scope.Name() == meta.RESTScopeNameRoot
-		} else {
-			knownClusterScopedKinds := map[schema.GroupKind]bool{
-				{Group: "", Kind: "Namespace"}:                                                  true,
-				{Group: "rbac.authorization.k8s.io", Kind: "ClusterRole"}:                       true,
-				{Group: "rbac.authorization.k8s.io", Kind: "ClusterRoleBinding"}:                true,
-				{Group: "apiextensions.k8s.io", Kind: "CustomResourceDefinition"}:               true,
-				{Group: "admissionregistration.k8s.io", Kind: "MutatingWebhookConfiguration"}:   true,
-				{Group: "admissionregistration.k8s.io", Kind: "ValidatingWebhookConfiguration"}: true,
-			}
-			if knownClusterScopedKinds[groupVersionKind.GroupKind()] {
-				isClusterScoped = true
-			}
-			logger.V(1).Info("Could not determine scope from RESTMapper, falling back", "gvk", groupVersionKind, "error", err, "assumed clusterScoped", isClusterScoped)
-		}
-
-		canSetOwnerRef := false
-		if !isClusterScoped {
-			resourceNamespace := obj.GetNamespace()
-			if resourceNamespace == "" {
-				resourceNamespace = resource.Namespace
-				obj.SetNamespace(resource.Namespace)
-			}
-
-			if resourceNamespace == resource.Namespace {
-				canSetOwnerRef = true
-			} else {
-				logger.V(1).Info("Skipping owner reference for resource in different namespace",
-					"resource", groupVersionKind.Kind+"/"+obj.GetName(), "resourceNamespace", resourceNamespace, "ownerNamespace", resource.Namespace)
-			}
-		} else {
-			logger.V(1).Info("Skipping owner reference for cluster-scoped resource", "resource", groupVersionKind.Kind+"/"+obj.GetName())
-		}
-
-		if canSetOwnerRef {
-			if err := controllerutil.SetControllerReference(resource, obj, r.Scheme); err != nil {
-				applyErrors = append(applyErrors, fmt.Errorf("setting owner ref on %s %s/%s: %w", groupVersionKind.Kind, obj.GetNamespace(), obj.GetName(), err))
-				continue
-			}
-		}
-
-		logger.V(1).Info("Applying Cilium resource", "kind", groupVersionKind.Kind, "name", obj.GetName(), "namespace", obj.GetNamespace())
-		if err := r.Patch(ctx, obj, client.Apply, client.FieldOwner(v1alpha1.FieldManager), client.ForceOwnership); err != nil {
-			applyErrors = append(applyErrors, fmt.Errorf("applying %s %s in namespace %s: %w", groupVersionKind.Kind, obj.GetName(), obj.GetNamespace(), err))
-		}
+	if err := r.applyManifest(ctx, manifestBytes, resource, "Cilium install"); err != nil {
+		logger.Error(err, "Failed to apply Cilium install manifest")
+		return ctrl.Result{}, err
 	}
 
-	if len(applyErrors) > 0 {
-		combinedErr := fmt.Errorf("encountered %d errors applying cilium manifest: %v", len(applyErrors), applyErrors)
-		logger.Error(combinedErr, "Failed to apply all Cilium resources")
-		return ctrl.Result{}, combinedErr
+	// Apply post-install.yaml
+	ciliumPostInstallPath := "resources/cilium/post-install.yaml"
+	postInstallBytes, err := ciliumFS.ReadFile(ciliumPostInstallPath)
+	if err != nil {
+		logger.Error(err, "Failed to read Cilium post-install manifest", "path", ciliumPostInstallPath)
+		return ctrl.Result{}, fmt.Errorf("reading cilium post-install manifest %s: %w", ciliumPostInstallPath, err)
+	}
+
+	if err := r.applyManifest(ctx, postInstallBytes, resource, "Cilium post-install"); err != nil {
+		logger.Error(err, "Failed to apply Cilium post-install manifest")
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("Successfully reconciled Cilium core package")

@@ -682,7 +682,7 @@ func (pp *ProductionProvisioner) createApplicationApplicationSet() error {
 }
 
 // createProductionCluster handles production cluster provisioning using the new ProviderManager
-func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []string) error {
+func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []string, ctxCancel context.CancelFunc) error {
 	// Validate config file exists
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		return fmt.Errorf("configuration file not found: %s", configFile)

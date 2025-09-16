@@ -156,6 +156,7 @@ func (r *AdharPlatformReconciler) ReconcileNginx(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, combinedErr
 	}
 
-	logger.Info("Successfully reconciled Nginx core package")
+	resource.Status.Nginx.Available = true
+	logger.Info("Nginx reconciliation completed successfully")
 	return ctrl.Result{}, nil
 }

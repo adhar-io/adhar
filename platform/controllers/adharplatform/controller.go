@@ -26,7 +26,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"code.gitea.io/sdk/gitea"
@@ -84,6 +83,20 @@ type subReconciler func(ctx context.Context, req ctrl.Request, resource *v1alpha
 // +kubebuilder:rbac:groups=platform.adhar.io,resources=adharplatforms,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=platform.adhar.io,resources=adharplatforms/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.adhar.io,resources=adharplatforms/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -110,19 +123,19 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	errChan := make(chan error, 3)
+	// Install core packages synchronously to ensure they complete
+	err = r.installCorePackagesSync(ctx, req, &localBuild)
+	if err != nil {
+		logger.V(1).Info("failed installing core packages. likely not fatal. will try again", "error", err)
+		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+	}
 
-	go r.installCorePackages(ctx, req, &localBuild, errChan)
-
-	select {
-	case <-ctx.Done():
-		logger.Info("Main context cancelled during core package installation")
-		return ctrl.Result{}, ctx.Err()
-	case instErr := <-errChan:
-		if instErr != nil {
-			logger.V(1).Info("failed installing core package. likely not fatal. will try again", "error", instErr)
-			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
-		}
+	// Apply platform stack ApplicationSet after core packages are installed
+	logger.Info("Applying platform stack ApplicationSet")
+	err = r.applyPlatformStack(ctx, req, &localBuild)
+	if err != nil {
+		logger.V(1).Info("failed applying platform stack. likely not fatal. will try again", "error", err)
+		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 	}
 
 	if r.Config.StaticPassword {
@@ -168,10 +181,8 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{RequeueAfter: defaultRequeueTime}, nil
 }
 
-func (r *AdharPlatformReconciler) installCorePackages(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform, errChan chan error) {
+func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
-	defer close(errChan)
-	var wg sync.WaitGroup
 
 	installers := map[string]subReconciler{
 		v1alpha1.IngressNginxPackageName: r.ReconcileNginx, // Added back ReconcileNginx
@@ -179,21 +190,49 @@ func (r *AdharPlatformReconciler) installCorePackages(ctx context.Context, req c
 		v1alpha1.CiliumPackageName:       r.ReconcileCilium,
 		v1alpha1.GiteaPackageName:        r.ReconcileGitea,
 	}
-	logger.V(1).Info("installing core packages")
-	for k, v := range installers {
-		wg.Add(1)
-		name := k
-		inst := v
-		go func() {
-			defer wg.Done()
-			_, iErr := inst(ctx, req, resource)
-			if iErr != nil {
-				logger.V(1).Info("failed installing", "name", name, "error", iErr)
-				errChan <- fmt.Errorf("failed installing %s: %w", name, iErr)
-			}
-		}()
+	logger.Info("installing core packages synchronously")
+
+	var errors []error
+	for name, installer := range installers {
+		logger.V(1).Info("installing core package", "name", name)
+		_, err := installer(ctx, req, resource)
+		if err != nil {
+			logger.V(1).Info("failed installing", "name", name, "error", err)
+			errors = append(errors, fmt.Errorf("failed installing %s: %w", name, err))
+		} else {
+			logger.V(1).Info("successfully installed", "name", name)
+		}
 	}
-	wg.Wait()
+
+	if len(errors) > 0 {
+		return fmt.Errorf("failed installing %d core packages: %v", len(errors), errors)
+	}
+
+	return nil
+}
+
+func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) error {
+	logger := log.FromContext(ctx)
+
+	// Apply the platform stack ApplicationSet
+	appSetPath := "platform/stack/adhar-appset-local.yaml"
+	appSetBytes, err := os.ReadFile(appSetPath)
+	if err != nil {
+		logger.Error(err, "Failed to read platform stack ApplicationSet", "path", appSetPath)
+		return fmt.Errorf("reading platform stack ApplicationSet %s: %w", appSetPath, err)
+	}
+
+	if err := r.applyManifest(ctx, appSetBytes, resource, "Platform stack ApplicationSet"); err != nil {
+		logger.Error(err, "Failed to apply platform stack ApplicationSet")
+		return err
+	}
+
+	logger.Info("Successfully applied platform stack ApplicationSet. Marking for shutdown if ExitOnSync")
+	// Exit early once the ApplicationSet has been applied (only when ExitOnSync is enabled)
+	if r.ExitOnSync {
+		r.shouldShutdown = true
+	}
+	return nil
 }
 
 func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) {
@@ -276,7 +315,8 @@ func (r *AdharPlatformReconciler) ReconcileArgoAppsWithGitea(ctx context.Context
 	if err != nil {
 		return ctrl.Result{Requeue: true}, err
 	}
-	r.shouldShutdown = shutdown
+	// Preserve any earlier shutdown decision (e.g., after applying ApplicationSet)
+	r.shouldShutdown = r.shouldShutdown || shutdown
 
 	return ctrl.Result{}, nil
 }
@@ -340,8 +380,10 @@ func (r *AdharPlatformReconciler) reconcileEmbeddedApp(ctx context.Context, appN
 
 func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *v1alpha1.AdharPlatform) (bool, error) {
 	logger := log.FromContext(ctx)
+	logger.Info("Checking if should shutdown", "ExitOnSync", r.ExitOnSync)
 
 	if !r.ExitOnSync {
+		logger.Info("ExitOnSync is false, not shutting down")
 		return false, nil
 	}
 
@@ -353,7 +395,7 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 	selector := labels.NewSelector()
 	req, err := labels.NewRequirement(v1alpha1.PackageTypeLabelKey, sel.Equals, []string{v1alpha1.PackageTypeLabelCore})
 	if err != nil {
-		return false, fmt.Errorf("building labels with key %s and value %s : %w", v1alpha1.PackageTypeLabelKey, v1alpha1.PackageTypeLabelCore, err)
+		return false, fmt.Errorf("building label selector for core packages: %w", err)
 	}
 
 	opts := client.ListOptions{
@@ -366,8 +408,11 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 		return false, fmt.Errorf("listing core packages: %w", err)
 	}
 
+	logger.Info("Found ArgoCD applications", "count", len(apps.Items))
 	for _, app := range apps.Items {
+		logger.Info("Checking ArgoCD application", "name", app.Name, "health", app.Status.Health.Status)
 		if app.Status.Health.Status != "Healthy" {
+			logger.Info("ArgoCD application not healthy, not shutting down", "name", app.Name, "health", app.Status.Health.Status)
 			return false, nil
 		}
 	}
@@ -414,7 +459,7 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 		}
 
 		if startTimeAnnotation != cliStartTime {
-			return false, nil
+			continue
 		}
 
 		observedTime, gErr := utils.GetLastObservedSyncTimeAnnotationValue(pkg.ObjectMeta.Annotations)
@@ -427,6 +472,7 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 		}
 	}
 
+	logger.Info("All checks passed, should shutdown")
 	return true, nil
 }
 
