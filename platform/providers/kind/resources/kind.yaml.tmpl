@@ -30,7 +30,7 @@ nodes:
 {{- end }}
 networking:
   disableDefaultCNI: true   # do not install kindnet
-  #kubeProxyMode: none       # do not run kube-proxy
+  kubeProxyMode: none       # do not run kube-proxy - Cilium will replace it
 containerdConfigPatches:
 - |-
   {{ if .UsePathRouting -}}

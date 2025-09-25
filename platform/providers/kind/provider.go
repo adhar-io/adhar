@@ -651,8 +651,13 @@ func (p *Provider) installCilium(ctx context.Context, clusterName string) error 
 		return p.installCiliumWithKubectl(ctx, clusterName)
 	}
 
-	// Install Cilium using cilium CLI
-	cmd := exec.CommandContext(ctx, "cilium", "install")
+	// Install Cilium using cilium CLI with kube-proxy replacement enabled
+	// The k8sServiceHost should match the control plane node name: <clusterName>-control-plane
+	controlPlaneHost := fmt.Sprintf("%s-control-plane", clusterName)
+	cmd := exec.CommandContext(ctx, "cilium", "install",
+		"--set", "kubeProxyReplacement=true",
+		"--set", fmt.Sprintf("k8sServiceHost=%s", controlPlaneHost),
+		"--set", "k8sServicePort=6443")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to install Cilium: %w\nOutput: %s", err, string(output))
@@ -671,13 +676,40 @@ func (p *Provider) installCilium(ctx context.Context, clusterName string) error 
 
 // installCiliumWithKubectl installs Cilium using kubectl when cilium CLI is not available
 func (p *Provider) installCiliumWithKubectl(ctx context.Context, clusterName string) error {
-	// Use the official Cilium YAML manifest (updated for k8s 1.33+ compatibility)
-	ciliumURL := "https://raw.githubusercontent.com/cilium/cilium/v1.16.0/install/kubernetes/quick-install.yaml"
+	// Install Cilium using the manifests from our platform stack
+	// This will include kube-proxy replacement configuration from our stack
+	ciliumManifestPath := "platform/stack/platform/cilium"
 
-	cmd := exec.CommandContext(ctx, p.config.KubectlPath, "apply", "-f", ciliumURL)
+	// Apply Cilium manifests from our platform stack which includes kube-proxy replacement
+	cmd := exec.CommandContext(ctx, p.config.KubectlPath, "apply", "-f", ciliumManifestPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to install Cilium with kubectl: %w\nOutput: %s", err, string(output))
+		// Fallback to external Cilium YAML if local manifests fail
+		ciliumURL := "https://raw.githubusercontent.com/cilium/cilium/v1.16.0/install/kubernetes/quick-install.yaml"
+		cmd = exec.CommandContext(ctx, p.config.KubectlPath, "apply", "-f", ciliumURL)
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to install Cilium with kubectl: %w\nOutput: %s", err, string(output))
+		}
+
+		// Create a ConfigMap patch to enable kube-proxy replacement
+		controlPlaneHost := fmt.Sprintf("%s-control-plane", clusterName)
+		configPatch := fmt.Sprintf(`
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cilium-config
+  namespace: kube-system
+data:
+  kube-proxy-replacement: "true"
+  k8s-service-host: "%s"
+  k8s-service-port: "6443"
+`, controlPlaneHost)
+
+		// Apply the config patch
+		cmd = exec.CommandContext(ctx, p.config.KubectlPath, "patch", "configmap", "cilium-config",
+			"-n", "kube-system", "--patch", configPatch)
+		cmd.CombinedOutput() // Ignore errors as this is a best-effort patch
 	}
 
 	// Wait for Cilium pods to be ready
@@ -704,10 +736,11 @@ func generateKindConfig(spec *types.ClusterSpec) map[string]interface{} {
 		"nodes":      []map[string]interface{}{},
 	}
 
-	// Disable default CNI if Cilium is specified
+	// Disable default CNI and kube-proxy if Cilium is specified
 	if spec.Networking.CNI == "cilium" {
 		config["networking"] = map[string]interface{}{
 			"disableDefaultCNI": true,
+			"kubeProxyMode":     "none", // Disable kube-proxy for Cilium replacement
 			"podSubnet":         spec.Networking.PodCIDR,
 			"serviceSubnet":     spec.Networking.ServiceCIDR,
 		}
