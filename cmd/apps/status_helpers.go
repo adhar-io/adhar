@@ -23,17 +23,17 @@ import (
 
 // ApplicationStatusView represents the information surfaced to CLI users.
 type ApplicationStatusView struct {
-	Name                string               `json:"name" yaml:"name"`
-	Namespace           string               `json:"namespace" yaml:"namespace"`
-	SyncStatus          string               `json:"syncStatus,omitempty" yaml:"syncStatus,omitempty"`
-	HealthStatus        string               `json:"healthStatus,omitempty" yaml:"healthStatus,omitempty"`
-	Revision            string               `json:"revision,omitempty" yaml:"revision,omitempty"`
-	Message             string               `json:"message,omitempty" yaml:"message,omitempty"`
-	LastSynced          string               `json:"lastSynced,omitempty" yaml:"lastSynced,omitempty"`
-	CreatedAt           string               `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
-	Labels              map[string]string    `json:"labels,omitempty" yaml:"labels,omitempty"`
-	EnvironmentStatuses []EnvironmentStatus  `json:"environmentStatuses,omitempty" yaml:"environmentStatuses,omitempty"`
-	Conditions          []StatusCondition    `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	Name                string              `json:"name" yaml:"name"`
+	Namespace           string              `json:"namespace" yaml:"namespace"`
+	SyncStatus          string              `json:"syncStatus,omitempty" yaml:"syncStatus,omitempty"`
+	HealthStatus        string              `json:"healthStatus,omitempty" yaml:"healthStatus,omitempty"`
+	Revision            string              `json:"revision,omitempty" yaml:"revision,omitempty"`
+	Message             string              `json:"message,omitempty" yaml:"message,omitempty"`
+	LastSynced          string              `json:"lastSynced,omitempty" yaml:"lastSynced,omitempty"`
+	CreatedAt           string              `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
+	Labels              map[string]string   `json:"labels,omitempty" yaml:"labels,omitempty"`
+	EnvironmentStatuses []EnvironmentStatus `json:"environmentStatuses,omitempty" yaml:"environmentStatuses,omitempty"`
+	Conditions          []StatusCondition   `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 
 // StatusCondition captures Crossplane condition data used for detailed views.
@@ -577,4 +577,4 @@ func isApplicationReady(status *ApplicationStatusView) bool {
 	return sync && health
 }
 
-*** End Patch
+// *** End Patch

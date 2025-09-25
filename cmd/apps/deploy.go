@@ -268,4 +268,4 @@ func loadApplicationFromFile(path string) (*unstructured.Unstructured, error) {
 	return nil, fmt.Errorf("no Application resource found in %s", path)
 }
 
-*** End Patch
+// *** End Patch
