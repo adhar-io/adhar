@@ -129,7 +129,7 @@ func init() {
 	// cluster related flags
 	UpCmd.PersistentFlags().BoolVar(&recreateCluster, "recreate", false, recreateClusterUsage)
 	UpCmd.PersistentFlags().BoolVar(&devPassword, "dev-password", false, devPasswordUsage)
-	UpCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.33.2", kubeVersionUsage)
+	UpCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.34.0", kubeVersionUsage)
 	UpCmd.PersistentFlags().StringVar(&extraPortsMapping, "extra-ports", "", extraPortsMappingUsage)
 	UpCmd.PersistentFlags().StringVar(&kindConfigPath, "kind-config", "", kindConfigPathUsage)
 	UpCmd.PersistentFlags().StringSliceVar(&registryConfig, "registry-config", []string{}, registryConfigUsage)
