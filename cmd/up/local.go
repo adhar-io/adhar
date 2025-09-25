@@ -1900,6 +1900,21 @@ func printSuccessMsg() {
 	fmt.Printf("  ✅ Platform observability stack\n\n")
 	fmt.Printf("%s\n", helpers.BoldStyle.Render("Quick Access:"))
 	fmt.Printf("ArgoCD Dashboard: %s\n", argoURL)
+
+	// Add Hubble URL for network observability
+	var hubbleURL string
+	if proxy {
+		hubbleURL = fmt.Sprintf("https://%s/hubble", host)
+	} else if host == globals.DefaultHostName {
+		hubbleURL = fmt.Sprintf("https://%s/hubble", host)
+	} else {
+		if pathRouting {
+			hubbleURL = fmt.Sprintf("%s://%s:%s/hubble", protocol, host, port)
+		} else {
+			hubbleURL = fmt.Sprintf("%s://hubble.%s:%s", protocol, host, port)
+		}
+	}
+	fmt.Printf("Hubble UI (Network Observability): %s\n", hubbleURL)
 	fmt.Printf("Username: admin\n")
 	fmt.Printf("Password: Run `adhar get secrets -p argocd`\n\n")
 	fmt.Printf("%s\n", helpers.BoldStyle.Render("Next Steps:"))
