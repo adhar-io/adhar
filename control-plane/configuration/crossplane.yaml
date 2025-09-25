@@ -1,0 +1,36 @@
+apiVersion: meta.pkg.crossplane.io/v1
+kind: Configuration
+metadata:
+  name: adhar-control-plane
+  annotations:
+    meta.crossplane.io/maintainer: Adhar Platform Team <team@adhar.io>
+    meta.crossplane.io/description: Crossplane v2 configuration powering the Adhar control plane.
+    meta.crossplane.io/license: Apache-2.0
+spec:
+  crossplane:
+    version: ">=v2.0.0-0"
+  dependsOn:
+    - type: Provider
+      package: xpkg.upbound.io/crossplane/provider-aws
+      version: ">=v0.48.0"
+    - type: Provider
+      package: xpkg.upbound.io/crossplane/provider-azure
+      version: ">=v0.38.0"
+    - type: Provider
+      package: xpkg.upbound.io/crossplane/provider-gcp
+      version: ">=v0.38.0"
+    - type: Provider
+      package: xpkg.upbound.io/crossplane-contrib/provider-digitalocean
+      version: ">=v0.5.0"
+    - type: Provider
+      package: xpkg.upbound.io/crossplane-contrib/provider-civo
+      version: ">=v0.2.0"
+    - type: Provider
+      package: xpkg.upbound.io/crossplane/provider-helm
+      version: ">=v0.16.0"
+    - type: Provider
+      package: xpkg.upbound.io/crossplane/provider-kubernetes
+      version: ">=v0.12.0"
+    - type: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-go-templating
+      version: ">=v0.5.0"

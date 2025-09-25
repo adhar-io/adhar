@@ -1,0 +1,163 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositegitops-argocd
+  labels:
+    feature: gitops
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeGitOps
+  mode: Pipeline
+  pipeline:
+    - step: render-gitops
+      functionRef:
+        name: fn-go-templating
+      input:
+        apiVersion: templating.fn.crossplane.io/v1beta1
+        kind: Template
+        spec:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $params := $xr.spec.parameters -}}
+            {{- $project := default (dict) $params.project -}}
+            {{- $appsets := default (list) $params.applicationSets -}}
+            {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
+            {{- $secretName := default (printf "%s-gitops" $xr.metadata.name) (get $conn "name") -}}
+            {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
+            {{- $providerConfig := get $xr.spec.providerConfigRef "name" -}}
+            {{- $observedResources := default (dict) .observed.resources -}}
+            {{- $projectObserved := default (dict) (get $observedResources "argocd-project") -}}
+            {{- $projectResource := default (dict) (get $projectObserved "resource") -}}
+            {{- $projectStatus := default (dict) (get $projectResource "status") -}}
+            {{- $projectConditions := default (list) (get $projectStatus "conditions") -}}
+            {{- $projectHealthy := eq (get (default (dict) (index $projectConditions 0)) "status") "True" -}}
+            {{- $messages := list }}
+            {{- range $projectConditions }}
+              {{- if (get . "message") }}
+                {{- $messages = append $messages (get . "message") -}}
+              {{- end }}
+            {{- end }}
+            {{- $joinedMessages := join "; " $messages -}}
+            apiVersion: fn.crossplane.io/v1beta1
+            kind: FunctionIO
+            desired:
+              connectionDetails:
+                project: {{ quote (get $project "name") }}
+                applicationSets: {{ quote (printf "%d" (len $appsets)) }}
+                projectSynced: {{ quote (ternary "True" "False" $projectHealthy) }}
+              status:
+                projectSynced: {{ $projectHealthy }}
+                managedApplicationSets: {{ len $appsets }}
+                message: {{ quote $joinedMessages }}
+              resources:
+                - name: argocd-project
+                  resource:
+                    apiVersion: kubernetes.crossplane.io/v1alpha1
+                    kind: Object
+                    metadata:
+                      labels:
+                        feature: gitops
+                        managed-by: adhar
+                    spec:
+                      forProvider:
+                        manifest:
+                          apiVersion: argoproj.io/v1alpha1
+                          kind: AppProject
+                          metadata:
+                            name: {{ quote (required "project.name must be provided" (get $project "name")) }}
+                            namespace: argocd
+                            labels:
+                              adhar.io/gitops: {{ quote $xr.metadata.name }}
+                          spec:
+                            description: {{ quote (default "" (get $project "description")) }}
+                            sourceRepos:
+                            {{- if (get $project "sourceRepos") }}
+                              {{- range (get $project "sourceRepos") }}
+                                - {{ quote . }}
+                              {{- end }}
+                            {{- else }}
+                              - '*'
+                            {{- end }}
+                            destinations:
+                            {{- if (get $project "destinations") }}
+                              {{- range (get $project "destinations") }}
+                                - namespace: {{ quote (default "*" .namespace) }}
+                                  server: {{ quote (default "*" .server) }}
+                              {{- end }}
+                            {{- else }}
+                              - namespace: '*'
+                                server: '*'
+                            {{- end }}
+                            {{- if (get $project "clusterResourceWhitelist") }}
+                            clusterResourceWhitelist:
+                            {{- range (get $project "clusterResourceWhitelist") }}
+                              - group: {{ quote (default '*' .group) }}
+                                kind: {{ quote (default '*' .kind) }}
+                            {{- end }}
+                            {{- end }}
+                            {{- if (get $project "namespaceResourceBlacklist") }}
+                            namespaceResourceBlacklist:
+                            {{- range (get $project "namespaceResourceBlacklist") }}
+                              - group: {{ quote (default '*' .group) }}
+                                kind: {{ quote (default '*' .kind) }}
+                            {{- end }}
+                            {{- end }}
+                            {{- if (get $project "roles") }}
+                            roles:
+                            {{- range (get $project "roles") }}
+                              - name: {{ quote (default "" .name) }}
+                                {{- if .policies }}
+                                policies:
+                                {{- range .policies }}
+                                  - {{ quote . }}
+                                {{- end }}
+                                {{- end }}
+                                {{- if .groups }}
+                                groups:
+                                {{- range .groups }}
+                                  - {{ quote . }}
+                                {{- end }}
+                                {{- end }}
+                            {{- end }}
+                            {{- end }}
+                      {{- if $providerConfig }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                      {{- end }}
+                      {{- if $secretName }}
+                      writeConnectionSecretToRef:
+                        name: {{ quote $secretName }}
+                        namespace: {{ quote $secretNamespace }}
+                      {{- end }}
+                {{- range $index, $appset := $appsets }}
+                - name: argocd-appset-{{ $index }}
+                  resource:
+                    apiVersion: kubernetes.crossplane.io/v1alpha1
+                    kind: Object
+                    metadata:
+                      labels:
+                        feature: gitops
+                        managed-by: adhar
+                    spec:
+                      forProvider:
+                        manifest:
+                          apiVersion: argoproj.io/v1alpha1
+                          kind: ApplicationSet
+                          metadata:
+                            name: {{ quote (default (printf "%s-appset-%d" $xr.metadata.name $index) (get $appset "name")) }}
+                            namespace: argocd
+                            labels:
+                              project: {{ quote (get $project "name") }}
+                              adhar.io/gitops: {{ quote $xr.metadata.name }}
+                          spec:
+                            generators:
+                              {{ toYaml (default (list) (get $appset "generators")) | nindent 30 }}
+                            template:
+                              {{ toYaml (default (dict) (get $appset "template")) | nindent 30 }}
+                      {{- if $providerConfig }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                      {{- end }}
+                      deletionPolicy: Delete
+                {{- end }}

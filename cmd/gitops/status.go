@@ -3,9 +3,10 @@ package gitops
 import (
 	"fmt"
 
-	"adhar-io/adhar/platform/logger"
-
 	"github.com/spf13/cobra"
+
+	"adhar-io/adhar/cmd/apps"
+	"adhar-io/adhar/platform/logger"
 )
 
 var statusCmd = &cobra.Command{
@@ -24,7 +25,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	logger.Info("📊 Checking GitOps status...")
 
 	if app != "" {
-		return showApplicationStatus(app)
+		return showApplicationStatus(cmd, app)
 	}
 
 	if namespace != "" {
@@ -34,19 +35,20 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	return showOverallStatus()
 }
 
-func showApplicationStatus(appName string) error {
+func showApplicationStatus(cmd *cobra.Command, appName string) error {
 	logger.Info(fmt.Sprintf("📊 Showing status for application: %s", appName))
 
-	// TODO: Implement application status display
-	// This should show:
-	// - Sync status
-	// - Health status
-	// - Last sync time
-	// - Git revision
-	// - Resource status
+	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
+	if err != nil {
+		return fmt.Errorf("read kubeconfig flag: %w", err)
+	}
 
-	logger.Info("✅ Application status displayed")
-	return nil
+	statusView, err := apps.GetApplicationStatus(cmd.Context(), kubeconfigPath, namespace, appName)
+	if err != nil {
+		return err
+	}
+
+	return apps.RenderApplicationStatus(statusView, output, true)
 }
 
 func showNamespaceStatus(namespaceName string) error {

@@ -46,24 +46,22 @@ var (
 
 func init() {
 	listCmd.Flags().BoolVarP(&allNamespaces, "all-namespaces", "A", false, "List applications across all namespaces")
-	listCmd.Flags().BoolVar(&showLabels, "show-labels", false, "Show labels in the output")
+	listCmd.Flags().BoolVar(&showLabels, "show-labels", false, "Include application labels in the output")
 	listCmd.Flags().StringVarP(&selector, "selector", "l", "", "Label selector to filter applications")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
 	logger.Info("📋 Listing applications...")
 
-	// TODO: Implement application listing
-	// This should query Kubernetes for applications and display them
+	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
+	if err != nil {
+		return fmt.Errorf("read kubeconfig flag: %w", err)
+	}
 
-	// For now, show a placeholder
-	fmt.Println("Applications listing not yet implemented")
-	fmt.Println("This will show:")
-	fmt.Println("  - Application names")
-	fmt.Println("  - Namespaces")
-	fmt.Println("  - Status")
-	fmt.Println("  - Replicas")
-	fmt.Println("  - Age")
+	statuses, err := ListApplications(cmd.Context(), kubeconfigPath, namespace, allNamespaces, selector)
+	if err != nil {
+		return err
+	}
 
-	return nil
+	return RenderApplicationStatusList(statuses, output, showLabels)
 }

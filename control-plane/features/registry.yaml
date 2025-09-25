@@ -1,0 +1,231 @@
+# Registry of CLI commands and their corresponding Crossplane composite resources.
+commands:
+  - name: apps
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeApplication
+    claimKind: Application
+    status: in-progress
+    compositions:
+      - name: argocd-application
+        file: configuration/compositions/apps/argocd-application.yaml
+        readiness: alpha
+    description: Declarative application lifecycle management.
+  - name: auth
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeAuthStack
+    claimKind: AuthStack
+    status: pending
+    compositions: []
+    description: Identity providers and RBAC orchestration.
+  - name: backup
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeBackupPolicy
+    claimKind: BackupPolicy
+    status: pending
+    compositions: []
+    description: Backup and archival policies.
+  - name: cluster
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeCluster
+    claimKind: Cluster
+    status: in-progress
+    compositions:
+      - name: aws-eks
+        file: configuration/compositions/cluster/aws-eks.yaml
+        readiness: beta
+      - name: gcp-gke
+        file: configuration/compositions/cluster/gcp-gke.yaml
+        readiness: alpha
+      - name: azure-aks
+        file: configuration/compositions/cluster/azure-aks.yaml
+        readiness: alpha
+      - name: digitalocean-doks
+        file: configuration/compositions/cluster/digitalocean-doks.yaml
+        readiness: alpha
+      - name: civo-k3s
+        file: configuration/compositions/cluster/civo-k3s.yaml
+        readiness: alpha
+    description: Kubernetes cluster provisioning across providers.
+  - name: config
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositePlatformConfig
+    claimKind: PlatformConfig
+    status: pending
+    compositions: []
+    description: Global platform configuration settings.
+  - name: db
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeDatabase
+    claimKind: Database
+    status: pending
+    compositions: []
+    description: Managed database instances and users.
+  - name: down
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeTeardown
+    claimKind: Teardown
+    status: pending
+    compositions: []
+    description: Idempotent teardown workflows for environments.
+  - name: env
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeEnvironment
+    claimKind: Environment
+    status: pending
+    compositions: []
+    description: Environment definitions and topology.
+  - name: get
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeQuery
+    claimKind: Query
+    status: pending
+    compositions: []
+    description: Materialized views for platform inventories.
+  - name: gitops
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeGitOps
+    claimKind: GitOps
+    status: in-progress
+    compositions:
+      - name: argocd-project
+        file: configuration/compositions/gitops/argocd-project.yaml
+        readiness: alpha
+    description: ArgoCD project and application lifecycle.
+  - name: health
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeHealthCheck
+    claimKind: HealthCheck
+    status: pending
+    compositions: []
+    description: Health monitoring orchestrations.
+  - name: logs
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeLogging
+    claimKind: Logging
+    status: pending
+    compositions: []
+    description: Log collection and routing pipelines.
+  - name: metrics
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeMetrics
+    claimKind: Metrics
+    status: pending
+    compositions: []
+    description: Metrics collection and dashboards.
+  - name: network
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeNetwork
+    claimKind: Network
+    status: pending
+    compositions: []
+    description: Networking constructs (VPCs, subnets, service meshes).
+  - name: pipeline
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositePipeline
+    claimKind: Pipeline
+    status: pending
+    compositions: []
+    description: CI/CD pipeline orchestration.
+  - name: policy
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositePolicyBundle
+    claimKind: PolicyBundle
+    status: pending
+    compositions: []
+    description: Policy bundles and compliance controls.
+  - name: restore
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeRestore
+    claimKind: Restore
+    status: pending
+    compositions: []
+    description: Restore operations for backup artefacts.
+  - name: scale
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeScalingPolicy
+    claimKind: ScalingPolicy
+    status: pending
+    compositions: []
+    description: Scaling policies for applications and infrastructure.
+  - name: secrets
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeSecretStore
+    claimKind: SecretStore
+    status: pending
+    compositions: []
+    description: Secret store instances and rotation policies.
+  - name: security
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeSecurityStack
+    claimKind: SecurityStack
+    status: pending
+    compositions: []
+    description: Security scanning and enforcement stacks.
+  - name: service
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeService
+    claimKind: Service
+    status: pending
+    compositions: []
+    description: Service catalog entries and dependencies.
+  - name: storage
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeStorage
+    claimKind: Storage
+    status: pending
+    compositions: []
+    description: Object/block storage resources.
+  - name: traces
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeTracing
+    claimKind: Tracing
+    status: pending
+    compositions: []
+    description: Distributed tracing pipelines.
+  - name: up
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeBootstrap
+    claimKind: Bootstrap
+    status: pending
+    compositions: []
+    description: Platform bootstrap orchestrations.
+  - name: version
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositePlatformVersion
+    claimKind: PlatformVersion
+    status: pending
+    compositions: []
+    description: Declarative control plane version pinning.
+  - name: webhook
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeWebhook
+    claimKind: Webhook
+    status: pending
+    compositions: []
+    description: External event hook integrations.
