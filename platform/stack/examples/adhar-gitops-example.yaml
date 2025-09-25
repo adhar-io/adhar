@@ -1,0 +1,84 @@
+# Example Application using adhar:// shorthand syntax
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: example-gitops-app
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: example-gitops
+    app.kubernetes.io/part-of: adhar-platform
+  annotations:
+    adhar.io/adhar-path: "adhar://packages/application/argo-workflows"
+    adhar.io/manifest-type: "dev"
+spec:
+  destination:
+    namespace: "argo"
+    server: https://kubernetes.default.svc
+  project: default
+  sources:
+    - path: "adhar://packages/application/argo-workflows/manifests/dev"
+      repoURL: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+      targetRevision: main
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m0s
+      limit: 30
+    syncOptions:
+      - Replace=true
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Example ApplicationSet using adhar:// shorthand syntax
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: example-gitops-appset
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: example-gitops-appset
+    app.kubernetes.io/part-of: adhar-platform
+spec:
+  generators:
+    - list:
+        elements:
+          - name: "cert-manager"
+            namespace: "cert-manager"
+            adharPath: "adhar://packages/security/cert-manager"
+            manifestType: "install"
+          - name: "vault"
+            namespace: "vault"
+            adharPath: "adhar://packages/security/vault"
+            manifestType: "install"
+          - name: "prometheus"
+            namespace: "monitoring"
+            adharPath: "adhar://packages/observability/kube-prometheus"
+            manifestType: "install"
+  goTemplate: true
+  template:
+    metadata:
+      name: "{{ .name }}"
+      annotations:
+        adhar.io/adhar-path: "{{ .adharPath }}"
+        adhar.io/manifest-type: "{{ .manifestType }}"
+    spec:
+      destination:
+        namespace: "{{ .namespace }}"
+        server: https://kubernetes.default.svc
+      project: default
+      sources:
+        - path: "{{ .adharPath }}/manifests"
+          repoURL: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+          targetRevision: main
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - Replace=true
+          - CreateNamespace=true

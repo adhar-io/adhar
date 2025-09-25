@@ -24,6 +24,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"code.gitea.io/sdk/gitea"
 	argocdapp "github.com/cnoe-io/argocd-api/api/argo/application"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -172,11 +174,7 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	logger.V(1).Info("done installing core packages. passing control to argocd")
-	_, err = r.ReconcileArgoAppsWithGitea(ctx, req, &localBuild)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	logger.V(1).Info("done installing core packages. GitOps ApplicationSet will handle platform applications")
 
 	return ctrl.Result{RequeueAfter: defaultRequeueTime}, nil
 }
@@ -214,6 +212,14 @@ func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, r
 func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
 
+	// Setup GitOps repositories first
+	logger.Info("Setting up GitOps repositories...")
+	if err := r.setupGitOpsRepositories(ctx, resource); err != nil {
+		logger.Error(err, "Failed to setup GitOps repositories")
+		// Don't fail completely, just warn and continue
+		logger.Info("Continuing without GitOps repositories setup")
+	}
+
 	// Apply the platform stack ApplicationSet
 	appSetPath := "platform/stack/adhar-appset-local.yaml"
 	appSetBytes, err := os.ReadFile(appSetPath)
@@ -232,6 +238,287 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 	if r.ExitOnSync {
 		r.shouldShutdown = true
 	}
+	return nil
+}
+
+// setupGitOpsRepositories creates and populates GitOps repositories in Gitea
+func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, resource *v1alpha1.AdharPlatform) error {
+	logger := log.FromContext(ctx)
+	logger.Info("🔄 Setting up GitOps repositories in Gitea")
+
+	// Wait for Gitea to be ready
+	if err := r.waitForGiteaReady(ctx); err != nil {
+		return fmt.Errorf("Gitea not ready: %w", err)
+	}
+
+	// Create environments repository
+	if err := r.createGiteaRepository(ctx, "environments"); err != nil {
+		return fmt.Errorf("failed to create environments repository: %w", err)
+	}
+
+	// Create packages repository
+	if err := r.createGiteaRepository(ctx, "packages"); err != nil {
+		return fmt.Errorf("failed to create packages repository: %w", err)
+	}
+
+	// Populate repositories with content
+	if err := r.populateRepositories(ctx); err != nil {
+		return fmt.Errorf("failed to populate repositories: %w", err)
+	}
+
+	logger.Info("✅ GitOps repositories setup completed successfully")
+	return nil
+}
+
+// waitForGiteaReady waits for Gitea to be ready
+func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Waiting for Gitea to be ready")
+
+	// Wait for Gitea deployment to be ready
+	// We'll use a simple retry mechanism since we can't use kubectl directly in the controller
+	for i := 0; i < 30; i++ {
+		// Check if Gitea deployment exists and is ready
+		var deployment appsv1.Deployment
+		err := r.Client.Get(ctx, types.NamespacedName{
+			Name:      "gitea",
+			Namespace: "adhar-system",
+		}, &deployment)
+
+		if err == nil && deployment.Status.ReadyReplicas > 0 {
+			logger.Info("Gitea is ready")
+			return nil
+		}
+
+		logger.V(1).Info("Gitea not ready yet, waiting...", "attempt", i+1)
+		time.Sleep(10 * time.Second)
+	}
+
+	return fmt.Errorf("Gitea not ready after 5 minutes")
+}
+
+// createGiteaRepository creates a repository in Gitea
+func (r *AdharPlatformReconciler) createGiteaRepository(ctx context.Context, name string) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Creating Gitea repository", "name", name)
+
+	// Get Gitea pod
+	var pods corev1.PodList
+	err := r.Client.List(ctx, &pods, client.InNamespace("adhar-system"), client.MatchingLabels{"app": "gitea"})
+	if err != nil || len(pods.Items) == 0 {
+		return fmt.Errorf("failed to find Gitea pod: %w", err)
+	}
+
+	podName := pods.Items[0].Name
+
+	// Create repository using Gitea API via kubectl exec
+	createCmd := fmt.Sprintf(`
+		curl -X POST "http://localhost:3000/api/v1/admin/users/gitea_admin/repos" \
+		-H "Content-Type: application/json" \
+		-d '{"name":"%s","description":"%s repository","private":false}' \
+		-u gitea_admin:r8sA8CPHD9!bt6d
+	`, name, name)
+
+	// Execute the command in the Gitea pod
+	cmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "sh", "-c", createCmd)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check if repository already exists (409 conflict)
+		if strings.Contains(string(output), "409") || strings.Contains(string(output), "already exists") {
+			logger.Info("Repository already exists, continuing", "name", name)
+			return nil
+		}
+		return fmt.Errorf("failed to create repository %s: %w, output: %s", name, err, string(output))
+	}
+
+	logger.Info("Successfully created repository", "name", name)
+	return nil
+}
+
+// populateRepositories populates the GitOps repositories with content
+func (r *AdharPlatformReconciler) populateRepositories(ctx context.Context) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Populating GitOps repositories with content")
+
+	// Get Gitea pod
+	var pods corev1.PodList
+	err := r.Client.List(ctx, &pods, client.InNamespace("adhar-system"), client.MatchingLabels{"app": "gitea"})
+	if err != nil || len(pods.Items) == 0 {
+		return fmt.Errorf("failed to find Gitea pod: %w", err)
+	}
+
+	podName := pods.Items[0].Name
+	logger.Info("Using Gitea pod", "podName", podName)
+
+	// Populate packages repository
+	if err := r.populatePackagesRepository(ctx, podName); err != nil {
+		return fmt.Errorf("failed to populate packages repository: %w", err)
+	}
+
+	// Populate environments repository
+	if err := r.populateEnvironmentsRepository(ctx, podName); err != nil {
+		return fmt.Errorf("failed to populate environments repository: %w", err)
+	}
+
+	logger.Info("Successfully populated all GitOps repositories")
+	return nil
+}
+
+// populatePackagesRepository populates the packages repository with platform stack content
+func (r *AdharPlatformReconciler) populatePackagesRepository(ctx context.Context, podName string) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Populating packages repository with platform stack content")
+
+	// Clean up any existing working directory
+	cleanupCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/packages-working")
+	cleanupCmd.Run()
+
+	// Clone the existing repository
+	cloneCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "clone",
+		"/data/git/gitea-repositories/gitea_admin/packages.git", "/tmp/packages-working")
+	if err := cloneCmd.Run(); err != nil {
+		logger.Info("Failed to clone packages repository (may not exist yet)", "error", err)
+		// Create the directory if it doesn't exist
+		createCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "mkdir", "-p", "/tmp/packages-working")
+		if err := createCmd.Run(); err != nil {
+			return fmt.Errorf("failed to create packages working directory: %w", err)
+		}
+		// Initialize git repository
+		initCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "init")
+		if err := initCmd.Run(); err != nil {
+			return fmt.Errorf("failed to initialize git repository: %w", err)
+		}
+	}
+
+	// Remove all existing content
+	removeCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/packages-working/*")
+	removeCmd.Run()
+
+	// Copy the packages content
+	logger.Info("Copying packages content to working directory")
+	copyCmd := exec.Command("kubectl", "cp", "platform/stack/packages", fmt.Sprintf("adhar-system/%s:/tmp/packages-working/", podName))
+	if err := copyCmd.Run(); err != nil {
+		return fmt.Errorf("failed to copy packages content: %w", err)
+	}
+
+	// Configure git
+	configUserCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "config", "user.name", "Adhar Platform")
+	if err := configUserCmd.Run(); err != nil {
+		return fmt.Errorf("failed to configure git user: %w", err)
+	}
+
+	configEmailCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "config", "user.email", "admin@adhar.io")
+	if err := configEmailCmd.Run(); err != nil {
+		return fmt.Errorf("failed to configure git email: %w", err)
+	}
+
+	// Add all files
+	addCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "add", ".")
+	if err := addCmd.Run(); err != nil {
+		return fmt.Errorf("failed to add files to git: %w", err)
+	}
+
+	// Commit
+	commitCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "commit", "-m", "Update: Add all platform packages")
+	if err := commitCmd.Run(); err != nil {
+		// If commit fails, it might be because there are no changes, which is okay
+		logger.Info("Git commit failed (may be no changes)", "error", err)
+	}
+
+	// Add remote origin if it doesn't exist
+	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "remote", "add", "origin", "/data/git/gitea-repositories/gitea_admin/packages.git")
+	remoteCmd.Run() // Ignore error if remote already exists
+
+	// Push changes
+	pushCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "push", "-u", "origin", "main")
+	if err := pushCmd.Run(); err != nil {
+		// Try pushing to master if main doesn't work
+		pushMasterCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "push", "-u", "origin", "master")
+		if err := pushMasterCmd.Run(); err != nil {
+			return fmt.Errorf("failed to push to packages repository: %w", err)
+		}
+	}
+
+	logger.Info("✅ Packages repository populated successfully!")
+	return nil
+}
+
+// populateEnvironmentsRepository populates the environments repository with environment configurations
+func (r *AdharPlatformReconciler) populateEnvironmentsRepository(ctx context.Context, podName string) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Populating environments repository with environment configurations")
+
+	// Clean up any existing working directory
+	cleanupCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/environments-working")
+	cleanupCmd.Run()
+
+	// Clone the existing repository
+	cloneCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "clone",
+		"/data/git/gitea-repositories/gitea_admin/environments.git", "/tmp/environments-working")
+	if err := cloneCmd.Run(); err != nil {
+		logger.Info("Failed to clone environments repository (may not exist yet)", "error", err)
+		// Create the directory if it doesn't exist
+		createCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "mkdir", "-p", "/tmp/environments-working")
+		if err := createCmd.Run(); err != nil {
+			return fmt.Errorf("failed to create environments working directory: %w", err)
+		}
+		// Initialize git repository
+		initCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "init")
+		if err := initCmd.Run(); err != nil {
+			return fmt.Errorf("failed to initialize git repository: %w", err)
+		}
+	}
+
+	// Remove all existing content
+	removeCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/environments-working/*")
+	removeCmd.Run()
+
+	// Copy the environments content
+	logger.Info("Copying environments content to working directory")
+	copyCmd := exec.Command("kubectl", "cp", "platform/stack/environments", fmt.Sprintf("adhar-system/%s:/tmp/environments-working/", podName))
+	if err := copyCmd.Run(); err != nil {
+		return fmt.Errorf("failed to copy environments content: %w", err)
+	}
+
+	// Configure git
+	configUserCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "config", "user.name", "Adhar Platform")
+	if err := configUserCmd.Run(); err != nil {
+		return fmt.Errorf("failed to configure git user: %w", err)
+	}
+
+	configEmailCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "config", "user.email", "admin@adhar.io")
+	if err := configEmailCmd.Run(); err != nil {
+		return fmt.Errorf("failed to configure git email: %w", err)
+	}
+
+	// Add all files
+	addCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "add", ".")
+	if err := addCmd.Run(); err != nil {
+		return fmt.Errorf("failed to add files to git: %w", err)
+	}
+
+	// Commit
+	commitCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "commit", "-m", "Update: Add environment configurations")
+	if err := commitCmd.Run(); err != nil {
+		// If commit fails, it might be because there are no changes, which is okay
+		logger.Info("Git commit failed (may be no changes)", "error", err)
+	}
+
+	// Add remote origin if it doesn't exist
+	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "remote", "add", "origin", "/data/git/gitea-repositories/gitea_admin/environments.git")
+	remoteCmd.Run() // Ignore error if remote already exists
+
+	// Push changes
+	pushCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "push", "-u", "origin", "main")
+	if err := pushCmd.Run(); err != nil {
+		// Try pushing to master if main doesn't work
+		pushMasterCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "push", "-u", "origin", "master")
+		if err := pushMasterCmd.Run(); err != nil {
+			return fmt.Errorf("failed to push to environments repository: %w", err)
+		}
+	}
+
+	logger.Info("✅ Environments repository populated successfully!")
 	return nil
 }
 
