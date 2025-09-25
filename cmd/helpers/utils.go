@@ -52,3 +52,23 @@ func FormatAge(timestamp metav1.Time) string {
 	}
 	return time.Since(timestamp.Time).Round(time.Second).String()
 }
+
+// PrintJSON prints an object as formatted JSON
+func PrintJSON(obj interface{}) error {
+	data, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal to JSON: %w", err)
+	}
+	fmt.Println(string(data))
+	return nil
+}
+
+// PrintYAML prints an object as formatted YAML
+func PrintYAML(obj interface{}) error {
+	data, err := yaml.Marshal(obj)
+	if err != nil {
+		return fmt.Errorf("failed to marshal to YAML: %w", err)
+	}
+	fmt.Println(string(data))
+	return nil
+}

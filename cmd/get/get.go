@@ -64,9 +64,12 @@ func init() {
 	// Add subcommands
 	GetCmd.AddCommand(secretsCmd)
 	GetCmd.AddCommand(clusterCmd)
-	// TODO: These will be implemented in separate files
-	// GetCmd.AddCommand(applicationsCmd)
-	// GetCmd.AddCommand(statusCmd)
+	GetCmd.AddCommand(statusCmd)
+	GetCmd.AddCommand(applicationsCmd)
+	GetCmd.AddCommand(environmentsCmd)
+	GetCmd.AddCommand(allCmd)
+	// Note: databases, managedtools, and routes commands can be added as needed
+	// These would typically query specific CRDs or services specific to those domains
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

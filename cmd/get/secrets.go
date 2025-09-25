@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
@@ -121,7 +122,10 @@ func getSpecificProviderSecrets(clientset *kubernetes.Clientset, provider string
 	}
 
 	// Get secrets from adhar-system namespace
-	secrets, err := clientset.CoreV1().Secrets("adhar-system").List(context.Background(), metav1.ListOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	secrets, err := clientset.CoreV1().Secrets("adhar-system").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list secrets: %w", err)
 	}
@@ -161,7 +165,10 @@ func getAllPlatformSecrets(clientset *kubernetes.Clientset) error {
 	logger.Info("🔍 Retrieving all platform secrets...")
 
 	// Get secrets from adhar-system namespace
-	secrets, err := clientset.CoreV1().Secrets("adhar-system").List(context.Background(), metav1.ListOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	secrets, err := clientset.CoreV1().Secrets("adhar-system").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list secrets: %w", err)
 	}
@@ -213,7 +220,10 @@ func isPlatformSecret(secretName string) bool {
 // createGiteaAdminSecret creates a virtual secret for Gitea admin credentials from deployment
 func createGiteaAdminSecret(clientset *kubernetes.Clientset) (*corev1.Secret, error) {
 	// Get Gitea deployment to extract admin credentials
-	deployments, err := clientset.AppsV1().Deployments("adhar-system").List(context.Background(), metav1.ListOptions{
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	deployments, err := clientset.AppsV1().Deployments("adhar-system").List(ctx, metav1.ListOptions{
 		LabelSelector: "app=gitea",
 	})
 	if err != nil {
@@ -279,16 +289,16 @@ func displaySecrets(secrets []corev1.Secret, provider string) error {
 	// Create bordered table content
 	var tableContent strings.Builder
 
-	// Create header with proper spacing
-	headerContent := fmt.Sprintf("%-35s %-25s %-35s",
-		helpers.CreateHighlight("🔐 SECRET"),
-		helpers.CreateHighlight("👤 USERNAME"),
-		helpers.CreateHighlight("🔑 PASSWORD"))
-	tableContent.WriteString(headerContent)
+	// Create simple, clean header without complex styling
+	headerContent := fmt.Sprintf("%-40s %-30s %-40s",
+		"🔐 SECRET",
+		"👤 USERNAME",
+		"🔑 PASSWORD")
+	tableContent.WriteString(helpers.CreateHighlight(headerContent))
 	tableContent.WriteString("\n")
 
-	// Add separator line
-	tableContent.WriteString(strings.Repeat("─", 95))
+	// Add separator line with proper width
+	tableContent.WriteString(strings.Repeat("─", 110))
 	tableContent.WriteString("\n")
 
 	// Add secret rows with proper formatting
@@ -297,24 +307,24 @@ func displaySecrets(secrets []corev1.Secret, provider string) error {
 
 		// Get secret icon and truncate if needed
 		secretName := getSecretIcon(secretInfo.Name) + " " + secretInfo.Name
-		if len(secretName) > 33 {
-			secretName = secretName[:30] + "..."
+		if len(secretName) > 38 {
+			secretName = secretName[:35] + "..."
 		}
 
 		// Handle username
 		username := secretInfo.Username
-		if len(username) > 23 {
-			username = username[:20] + "..."
+		if len(username) > 28 {
+			username = username[:25] + "..."
 		}
 
 		// Handle password
 		password := secretInfo.Password
-		if len(password) > 33 {
-			password = password[:30] + "..."
+		if len(password) > 38 {
+			password = password[:35] + "..."
 		}
 
-		// Format the row with proper spacing
-		secretRow := fmt.Sprintf("%-35s %-25s %-35s",
+		// Format the row with proper spacing (matching header widths)
+		secretRow := fmt.Sprintf("%-40s %-30s %-40s",
 			secretName,
 			username,
 			password)
@@ -336,7 +346,7 @@ func displaySecrets(secrets []corev1.Secret, provider string) error {
 	}
 
 	// Create bordered box around the table
-	borderStyle := helpers.BorderStyle.Width(100)
+	borderStyle := helpers.BorderStyle.Width(115)
 	borderedTable := borderStyle.Render(tableContent.String())
 	fmt.Println(borderedTable)
 

@@ -75,7 +75,8 @@ func runGetCluster(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get Kubernetes client: %w", err)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	// Get cluster version
 	version, err := clientset.Discovery().ServerVersion()
