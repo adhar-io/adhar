@@ -25,7 +25,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,13 +35,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	sel "k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -575,99 +571,6 @@ func (r *AdharPlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *AdharPlatformReconciler) ReconcileArgoAppsWithGitea(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("installing bootstrap apps to ArgoCD")
-
-	bootStrapApps := []string{v1alpha1.ArgoCDPackageName, v1alpha1.IngressNginxPackageName, v1alpha1.GiteaPackageName}
-	for _, n := range bootStrapApps {
-		result, err := r.reconcileEmbeddedApp(ctx, n, resource)
-		if err != nil {
-			return result, fmt.Errorf("reconciling bootstrap apps %w", err)
-		}
-	}
-
-	for _, s := range resource.Spec.PackageConfigs.CustomPackageDirs {
-		result, err := r.reconcileCustomPkgDir(ctx, resource, s)
-		if err != nil {
-			return result, err
-		}
-	}
-
-	for _, s := range resource.Spec.PackageConfigs.CustomPackageUrls {
-		result, err := r.reconcileCustomPkgUrl(ctx, resource, s)
-		if err != nil {
-			return result, err
-		}
-	}
-
-	shutdown, err := r.shouldShutDown(ctx, resource)
-	if err != nil {
-		return ctrl.Result{Requeue: true}, err
-	}
-	// Preserve any earlier shutdown decision (e.g., after applying ApplicationSet)
-	r.shouldShutdown = r.shouldShutdown || shutdown
-
-	return ctrl.Result{}, nil
-}
-
-func (r *AdharPlatformReconciler) reconcileEmbeddedApp(ctx context.Context, appName string, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
-	logger.V(1).Info("Ensuring embedded ArgoCD Application", "name", appName)
-	repo, err := r.reconcileGitRepo(ctx, resource, "embedded", appName, appName, "")
-
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("creating %s repo CR: %w", appName, err)
-	}
-
-	app := &argov1alpha1.Application{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      appName,
-			Namespace: globals.AdharSystemNamespace,
-		},
-	}
-
-	utils.SetPackageLabels(app)
-
-	if err := controllerutil.SetControllerReference(resource, app, r.Scheme); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	var targetRevision *string
-
-	err = r.Client.Get(ctx, client.ObjectKeyFromObject(app), app)
-	if err != nil && k8serrors.IsNotFound(err) {
-		utils.SetApplicationSpec(
-			app,
-			repo.Status.InternalGitRepositoryUrl,
-			".",
-			defaultArgoCDProjectName,
-			appName,
-			targetRevision,
-		)
-		err = r.Client.Create(ctx, app)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("creating %s app CR: %w", appName, err)
-		}
-	}
-
-	utils.SetApplicationSpec(
-		app,
-		repo.Status.InternalGitRepositoryUrl,
-		".",
-		defaultArgoCDProjectName,
-		appName,
-		targetRevision,
-	)
-	err = r.Client.Update(ctx, app)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("updating argoapp: %w", err)
-	}
-
-	return ctrl.Result{}, nil
-}
-
 func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *v1alpha1.AdharPlatform) (bool, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Checking if should shutdown", "ExitOnSync", r.ExitOnSync)
@@ -764,204 +667,6 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 
 	logger.Info("All checks passed, should shutdown")
 	return true, nil
-}
-
-func (r *AdharPlatformReconciler) reconcileCustomPkg(
-	ctx context.Context,
-	resource *v1alpha1.AdharPlatform,
-	b []byte,
-	filePath string,
-	remote *utils.KustomizeRemote,
-) error {
-	o := &unstructured.Unstructured{}
-	_, gvk, fErr := scheme.Codecs.UniversalDeserializer().Decode(b, nil, o)
-	if fErr != nil {
-		return fErr
-	}
-
-	if isSupportedArgoCDTypes(gvk) {
-		kind := o.GetKind()
-		appName := o.GetName()
-		appNS := o.GetNamespace()
-		customPkg := &v1alpha1.CustomPackage{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      getCustomPackageName(filepath.Base(filePath), appName),
-				Namespace: globals.GetProjectNamespace(resource.Name),
-			},
-		}
-
-		cliStartTime, _ := utils.GetCLIStartTimeAnnotationValue(resource.ObjectMeta.Annotations)
-
-		_, fErr = controllerutil.CreateOrUpdate(ctx, r.Client, customPkg, func() error {
-			if err := controllerutil.SetControllerReference(resource, customPkg, r.Scheme); err != nil {
-				return err
-			}
-			if customPkg.ObjectMeta.Annotations == nil {
-				customPkg.ObjectMeta.Annotations = make(map[string]string)
-			}
-
-			utils.SetCLIStartTimeAnnotationValue(customPkg.ObjectMeta.Annotations, cliStartTime)
-
-			customPkg.Spec = v1alpha1.CustomPackageSpec{
-				Replicate:           true,
-				GitServerURL:        resource.Status.Gitea.ExternalURL,
-				InternalGitServeURL: resource.Status.Gitea.InternalURL,
-				GitServerAuthSecretRef: v1alpha1.SecretReference{
-					Name:      resource.Status.Gitea.AdminUserSecretName,
-					Namespace: resource.Status.Gitea.AdminUserSecretNamespace,
-				},
-				ArgoCD: v1alpha1.ArgoCDPackageSpec{
-					ApplicationFile: filePath,
-					Name:            appName,
-					Namespace:       appNS,
-					Type:            kind,
-				},
-			}
-
-			if remote != nil {
-				customPkg.Spec.RemoteRepository = v1alpha1.RemoteRepositorySpec{
-					Url:             remote.CloneUrl(),
-					Ref:             remote.Ref,
-					CloneSubmodules: remote.Submodules,
-					Path:            remote.Path(),
-				}
-			}
-
-			return nil
-		})
-		return fErr
-	}
-	return nil
-}
-
-func (r *AdharPlatformReconciler) reconcileCustomPkgUrl(ctx context.Context, resource *v1alpha1.AdharPlatform, pkgUrl string) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
-	remote, err := utils.NewKustomizeRemote(pkgUrl)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("parsing url, %s: %w", pkgUrl, err)
-	}
-	rs := v1alpha1.RemoteRepositorySpec{
-		Url:             remote.CloneUrl(),
-		Ref:             remote.Ref,
-		CloneSubmodules: remote.Submodules,
-		Path:            remote.Path(),
-	}
-
-	cloneDir := utils.RepoDir(rs.Url, r.TempDir)
-	st := r.RepoMap.LoadOrStore(rs.Url, cloneDir)
-	st.MU.Lock()
-	defer st.MU.Unlock()
-	wt, _, err := utils.CloneRemoteRepoToDir(ctx, rs, 1, false, cloneDir, "")
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("cloning repo, %s: %w", pkgUrl, err)
-	}
-
-	yamlFiles, err := utils.GetWorktreeYamlFiles(remote.Path(), wt, false)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("getting yaml files from repo, %s: %w", pkgUrl, err)
-	}
-
-	for _, yamlFile := range yamlFiles {
-		b, fErr := utils.ReadWorktreeFile(wt, yamlFile)
-		if fErr != nil {
-			logger.V(1).Info("processing", "file", yamlFile, "err", fErr)
-			continue
-		}
-
-		rErr := r.reconcileCustomPkg(ctx, resource, b, yamlFile, remote)
-		if rErr != nil {
-			logger.Error(rErr, "reconciling custom pkg", "file", yamlFile, "pkgUrl", pkgUrl)
-		}
-	}
-	return ctrl.Result{}, nil
-}
-
-func (r *AdharPlatformReconciler) reconcileCustomPkgDir(ctx context.Context, resource *v1alpha1.AdharPlatform, pkgDir string) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
-	files, err := os.ReadDir(pkgDir)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("reading dir, %s: %w", pkgDir, err)
-	}
-
-	for i := range files {
-		file := files[i]
-		if !file.Type().IsRegular() || !utils.IsYamlFile(file.Name()) {
-			continue
-		}
-
-		filePath := filepath.Join(pkgDir, file.Name())
-		b, fErr := os.ReadFile(filePath)
-		if fErr != nil {
-			logger.Error(fErr, "reading file", "file", filePath)
-			continue
-		}
-
-		rErr := r.reconcileCustomPkg(ctx, resource, b, filePath, nil)
-		if rErr != nil {
-			logger.Error(rErr, "reconciling custom pkg", "file", filePath, "pkgDir", pkgDir)
-		}
-	}
-
-	return ctrl.Result{}, nil
-}
-
-func (r *AdharPlatformReconciler) reconcileGitRepo(ctx context.Context, resource *v1alpha1.AdharPlatform, repoType, repoName, embeddedName, absPath string) (*v1alpha1.GitRepository, error) {
-	repo := &v1alpha1.GitRepository{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      repoName,
-			Namespace: globals.GetProjectNamespace(resource.Name),
-		},
-	}
-
-	cliStartTime, err := utils.GetCLIStartTimeAnnotationValue(resource.Annotations)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, repo, func() error {
-		if err := controllerutil.SetControllerReference(resource, repo, r.Scheme); err != nil {
-			return err
-		}
-
-		if repo.ObjectMeta.Annotations == nil {
-			repo.ObjectMeta.Annotations = make(map[string]string)
-		}
-		utils.SetCLIStartTimeAnnotationValue(repo.ObjectMeta.Annotations, cliStartTime)
-
-		repo.Spec = v1alpha1.GitRepositorySpec{
-			Source: v1alpha1.GitRepositorySource{
-				Type: repoType,
-			},
-			Provider: v1alpha1.Provider{
-				Name:             v1alpha1.GitProviderGitea,
-				GitURL:           resource.Status.Gitea.ExternalURL,
-				InternalGitURL:   resource.Status.Gitea.InternalURL,
-				OrganizationName: v1alpha1.GiteaAdminUserName,
-			},
-			SecretRef: v1alpha1.SecretReference{
-				Name:      resource.Status.Gitea.AdminUserSecretName,
-				Namespace: resource.Status.Gitea.AdminUserSecretNamespace,
-			},
-		}
-
-		if repoType == v1alpha1.SourceTypeEmbedded {
-			repo.Spec.Source.EmbeddedAppName = embeddedName
-		} else {
-			repo.Spec.Source.Path = absPath
-		}
-		f, ok := resource.Spec.PackageConfigs.CorePackageCustomization[embeddedName]
-		if ok {
-			repo.Spec.Customization = v1alpha1.PackageCustomization{
-				Name:     embeddedName,
-				FilePath: f.FilePath,
-			}
-		}
-		return nil
-	})
-
-	return repo, err
 }
 
 func (r *AdharPlatformReconciler) requestArgoCDAppRefresh(ctx context.Context) error {
@@ -1187,18 +892,6 @@ func (r *AdharPlatformReconciler) applyArgoCDAnnotation(ctx context.Context, obj
 		}
 	}
 	return nil
-}
-
-func getCustomPackageName(fileName, appName string) string {
-	s := strings.Split(fileName, ".")
-	return fmt.Sprintf("%s-%s", strings.ToLower(s[0]), appName)
-}
-
-func isSupportedArgoCDTypes(gvk *schema.GroupVersionKind) bool {
-	if gvk == nil {
-		return false
-	}
-	return gvk.Group == argocdapp.Group && (gvk.Kind == argocdapp.ApplicationKind || gvk.Kind == argocdapp.ApplicationSetKind)
 }
 
 func GetEmbeddedRawInstallResources(name string, templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
