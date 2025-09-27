@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: helm-charts-local
-  namespace: argocd
+  namespace: adhar-system
 spec:
   generators:
     - list:

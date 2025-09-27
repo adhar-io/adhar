@@ -212,13 +212,16 @@ func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, r
 func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
 
-	// Setup GitOps repositories first
+	// Setup GitOps repositories first (non-blocking)
 	logger.Info("Setting up GitOps repositories...")
-	if err := r.setupGitOpsRepositories(ctx, resource); err != nil {
-		logger.Error(err, "Failed to setup GitOps repositories")
-		// Don't fail completely, just warn and continue
-		logger.Info("Continuing without GitOps repositories setup")
-	}
+	go func() {
+		if err := r.setupGitOpsRepositories(ctx, resource); err != nil {
+			logger.Error(err, "Failed to setup GitOps repositories")
+			logger.Info("GitOps repositories setup failed, but ApplicationSet will handle applications")
+		} else {
+			logger.Info("GitOps repositories setup completed successfully")
+		}
+	}()
 
 	// Apply the platform stack ApplicationSet
 	appSetPath := "platform/stack/adhar-appset-local.yaml"

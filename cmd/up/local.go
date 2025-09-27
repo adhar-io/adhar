@@ -1485,7 +1485,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 
 	// Check if no-exit flag is set (defined in up.go)
 	noExit, _ := cmd.Flags().GetBool("no-exit")
-	exitOnSync := true
+	exitOnSync := true // Exit after ApplicationSet is applied, GitOps will continue via ArgoCD
 	if cmd.Flags().Changed("no-exit") {
 		exitOnSync = !noExit
 	}
