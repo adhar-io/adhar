@@ -208,18 +208,16 @@ func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, r
 func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
 
-	// Setup GitOps repositories first (non-blocking)
-	logger.Info("Setting up GitOps repositories...")
-	go func() {
-		if err := r.setupGitOpsRepositories(ctx, resource); err != nil {
-			logger.Error(err, "Failed to setup GitOps repositories")
-			logger.Info("GitOps repositories setup failed, but ApplicationSet will handle applications")
-		} else {
-			logger.Info("GitOps repositories setup completed successfully")
-		}
-	}()
+	// CRITICAL: Setup GitOps repositories SYNCHRONOUSLY - must succeed before ApplicationSets
+	logger.Info("Setting up GitOps repositories (this may take a few minutes)...")
+	if err := r.setupGitOpsRepositories(ctx, resource); err != nil {
+		logger.Error(err, "Failed to setup GitOps repositories - this is REQUIRED for GitOps workflow")
+		return fmt.Errorf("GitOps repositories setup failed: %w", err)
+	}
+	logger.Info("✅ GitOps repositories setup completed successfully")
 
-	// Apply the platform stack ApplicationSet
+	// Only apply the platform stack ApplicationSet after GitOps is ready
+	logger.Info("Applying platform stack ApplicationSet")
 	appSetPath := "platform/stack/adhar-appset-local.yaml"
 	appSetBytes, err := os.ReadFile(appSetPath)
 	if err != nil {
@@ -269,31 +267,87 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 	return nil
 }
 
-// waitForGiteaReady waits for Gitea to be ready
+// waitForGiteaReady waits for Gitea to be fully ready with comprehensive checks
 func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Waiting for Gitea to be ready")
+	logger.Info("Waiting for Gitea to be fully ready (comprehensive checks)...")
 
-	// Wait for Gitea deployment to be ready
-	// We'll use a simple retry mechanism since we can't use kubectl directly in the controller
-	for i := 0; i < 30; i++ {
-		// Check if Gitea deployment exists and is ready
+	// Step 1: Wait for Gitea deployment to be ready (up to 10 minutes)
+	logger.Info("1/4: Waiting for Gitea deployment to be ready")
+	maxAttempts := 60 // 10 minutes (60 * 10 seconds)
+	for i := 0; i < maxAttempts; i++ {
 		var deployment appsv1.Deployment
 		err := r.Client.Get(ctx, types.NamespacedName{
 			Name:      "gitea",
 			Namespace: "adhar-system",
 		}, &deployment)
 
-		if err == nil && deployment.Status.ReadyReplicas > 0 {
-			logger.Info("Gitea is ready")
-			return nil
+		if err == nil && deployment.Status.ReadyReplicas > 0 && deployment.Status.AvailableReplicas > 0 {
+			logger.Info("Gitea deployment is ready")
+			break
 		}
 
-		logger.V(1).Info("Gitea not ready yet, waiting...", "attempt", i+1)
+		if i == maxAttempts-1 {
+			return fmt.Errorf("Gitea deployment not ready after 10 minutes")
+		}
+
+		if i%6 == 0 { // Log every minute
+			logger.V(1).Info("Gitea deployment not ready yet, waiting...", "attempt", i+1, "maxAttempts", maxAttempts)
+		}
 		time.Sleep(10 * time.Second)
 	}
 
-	return fmt.Errorf("Gitea not ready after 5 minutes")
+	// Step 2: Wait for Gitea pods to be running
+	logger.Info("2/4: Waiting for Gitea pods to be running")
+	for i := 0; i < 30; i++ {
+		var podList corev1.PodList
+		err := r.Client.List(ctx, &podList, &client.ListOptions{
+			Namespace: "adhar-system",
+			LabelSelector: labels.SelectorFromSet(labels.Set{
+				"app": "gitea",
+			}),
+		})
+
+		if err == nil && len(podList.Items) > 0 {
+			allRunning := true
+			for _, pod := range podList.Items {
+				if pod.Status.Phase != corev1.PodRunning {
+					allRunning = false
+					break
+				}
+				// Check that all containers in the pod are ready
+				for _, condition := range pod.Status.Conditions {
+					if condition.Type == corev1.PodReady && condition.Status != corev1.ConditionTrue {
+						allRunning = false
+						break
+					}
+				}
+			}
+
+			if allRunning {
+				logger.Info("Gitea pods are running")
+				break
+			}
+		}
+
+		if i == 29 {
+			return fmt.Errorf("Gitea pods not running after 5 minutes")
+		}
+
+		logger.V(1).Info("Gitea pods not ready yet, waiting...", "attempt", i+1)
+		time.Sleep(10 * time.Second)
+	}
+
+	// Step 3: Wait for Gitea dependencies (PostgreSQL and Redis) to be ready
+	logger.Info("3/4: Waiting for Gitea dependencies (PostgreSQL, Redis)")
+	time.Sleep(15 * time.Second) // Give dependencies time to initialize
+
+	// Step 4: Additional time for Gitea API to fully initialize
+	logger.Info("4/4: Waiting for Gitea database and API initialization (30 seconds)")
+	time.Sleep(30 * time.Second)
+
+	logger.Info("✅ Gitea is fully ready for repository operations")
+	return nil
 }
 
 // createGiteaRepository creates a repository in Gitea

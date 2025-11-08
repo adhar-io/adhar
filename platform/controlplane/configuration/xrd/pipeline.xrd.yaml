@@ -1,0 +1,200 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositepipelines.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositePipeline
+    plural: compositepipelines
+  claimNames:
+    kind: Pipeline
+    plural: pipelines
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Pipeline name
+              type:
+                type: string
+                description: Pipeline type (build, deploy, test, release)
+                enum:
+                  - build
+                  - deploy
+                  - test
+                  - release
+                  - integration
+              stages:
+                type: array
+                description: Pipeline stages
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    steps:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          image:
+                            type: string
+                          command:
+                            type: array
+                            items:
+                              type: string
+                          env:
+                            type: object
+                            additionalProperties:
+                              type: string
+              triggers:
+                type: object
+                description: Pipeline triggers
+                properties:
+                  git:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: true
+                      branch:
+                        type: string
+                        default: main
+                      events:
+                        type: array
+                        items:
+                          type: string
+                  schedule:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      cron:
+                        type: string
+                  manual:
+                    type: boolean
+                    default: true
+              artifacts:
+                type: object
+                description: Artifact storage configuration
+                properties:
+                  enabled:
+                    type: boolean
+                    default: true
+                  retention:
+                    type: string
+                    default: 30d
+                  storage:
+                    type: string
+                    description: Storage backend (s3, gcs, azureblob, minio)
+              notifications:
+                type: object
+                description: Notification configuration
+                properties:
+                  slack:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      webhook:
+                        type: string
+                  email:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      recipients:
+                        type: array
+                        items:
+                          type: string
+              timeout:
+                type: string
+                description: Pipeline timeout
+                default: 30m
+              namespace:
+                type: string
+                description: Kubernetes namespace for pipeline execution
+                default: default
+              providerConfigRef:
+                type: object
+                description: Reference to provider configuration
+                properties:
+                  name:
+                    type: string
+                    description: Name of ProviderConfig
+            required:
+              - name
+              - type
+          status:
+            type: object
+            properties:
+              pipelineId:
+                type: string
+                description: Unique pipeline identifier
+              lastRun:
+                type: object
+                description: Last pipeline run details
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                  startedAt:
+                    type: string
+                  finishedAt:
+                    type: string
+                  duration:
+                    type: string
+              totalRuns:
+                type: integer
+                description: Total number of pipeline runs
+              successRate:
+                type: string
+                description: Pipeline success rate percentage
+              artifacts:
+                type: array
+                description: Generated artifacts
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    url:
+                      type: string
+                    size:
+                      type: string
+              conditions:
+                description: Freeform field containing additional information
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+    additionalPrinterColumns:
+    - name: Type
+      type: string
+      jsonPath: ".spec.type"
+    - name: Status
+      type: string
+      jsonPath: ".status.lastRun.status"
+    - name: Last Run
+      type: string
+      jsonPath: ".status.lastRun.startedAt"
+    - name: Success Rate
+      type: string
+      jsonPath: ".status.successRate"
+    - name: Age
+      type: date
+      jsonPath: ".metadata.creationTimestamp"
+

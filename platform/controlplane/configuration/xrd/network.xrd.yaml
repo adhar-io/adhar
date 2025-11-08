@@ -1,0 +1,293 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositenetworks.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeNetwork
+    plural: compositenetworks
+  claimNames:
+    kind: Network
+    plural: networks
+  connectionSecretKeys:
+    - vpcId
+    - subnetIds
+  defaultCompositionRef:
+    name: compositenetwork-aws-vpc
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - compositionSelector
+                - parameters
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: network
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                parameters:
+                  type: object
+                  required:
+                    - provider
+                    - region
+                    - cidrBlock
+                  properties:
+                    displayName:
+                      type: string
+                    provider:
+                      type: string
+                      enum:
+                        - AWS_VPC
+                        - GCP_VPC
+                        - AZURE_VNET
+                        - DIGITALOCEAN_VPC
+                        - CIVO_NETWORK
+                    region:
+                      type: string
+                    cidrBlock:
+                      type: string
+                      description: "Primary CIDR block for the network"
+                    additionalCidrBlocks:
+                      type: array
+                      items:
+                        type: string
+                    enableDnsHostnames:
+                      type: boolean
+                      default: true
+                    enableDnsSupport:
+                      type: boolean
+                      default: true
+                    subnets:
+                      type: array
+                      minItems: 1
+                      items:
+                        type: object
+                        required:
+                          - name
+                          - cidrBlock
+                          - availabilityZone
+                        properties:
+                          name:
+                            type: string
+                          cidrBlock:
+                            type: string
+                          availabilityZone:
+                            type: string
+                          type:
+                            type: string
+                            enum:
+                              - public
+                              - private
+                              - isolated
+                            default: private
+                          mapPublicIpOnLaunch:
+                            type: boolean
+                          tags:
+                            type: object
+                            additionalProperties:
+                              type: string
+                    internetGateway:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                    natGateways:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        strategy:
+                          type: string
+                          enum:
+                            - single
+                            - per-az
+                          default: single
+                    networkAcls:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          subnetIds:
+                            type: array
+                            items:
+                              type: string
+                          ingressRules:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                ruleNumber:
+                                  type: integer
+                                protocol:
+                                  type: string
+                                fromPort:
+                                  type: integer
+                                toPort:
+                                  type: integer
+                                cidrBlock:
+                                  type: string
+                                action:
+                                  type: string
+                                  enum:
+                                    - allow
+                                    - deny
+                          egressRules:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                ruleNumber:
+                                  type: integer
+                                protocol:
+                                  type: string
+                                fromPort:
+                                  type: integer
+                                toPort:
+                                  type: integer
+                                cidrBlock:
+                                  type: string
+                                action:
+                                  type: string
+                                  enum:
+                                    - allow
+                                    - deny
+                    routeTables:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          subnetIds:
+                            type: array
+                            items:
+                              type: string
+                          routes:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                destinationCidrBlock:
+                                  type: string
+                                target:
+                                  type: string
+                                targetType:
+                                  type: string
+                                  enum:
+                                    - internet-gateway
+                                    - nat-gateway
+                                    - vpc-peering
+                                    - transit-gateway
+                    vpcPeering:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          peerVpcId:
+                            type: string
+                          peerRegion:
+                            type: string
+                          peerAccountId:
+                            type: string
+                    flowLogs:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        trafficType:
+                          type: string
+                          enum:
+                            - ACCEPT
+                            - REJECT
+                            - ALL
+                        logDestinationType:
+                          type: string
+                          enum:
+                            - cloud-watch-logs
+                            - s3
+                        logDestination:
+                          type: string
+                    tags:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    deletionPolicy:
+                      type: string
+                      enum:
+                        - Delete
+                        - Orphan
+                      default: Delete
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                      default: crossplane-system
+                    name:
+                      type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+                ready:
+                  type: boolean
+                vpcId:
+                  type: string
+                cidrBlock:
+                  type: string
+                subnets:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      id:
+                        type: string
+                      cidrBlock:
+                        type: string
+                      availabilityZone:
+                        type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string

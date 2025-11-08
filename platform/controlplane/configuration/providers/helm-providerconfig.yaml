@@ -1,0 +1,23 @@
+---
+# Helm Provider Configuration - For application deployment
+apiVersion: helm.crossplane.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: helm-provider
+spec:
+  # Uses in-cluster configuration by default
+  credentials:
+    source: InjectedIdentity
+---
+# Alternative: External cluster Helm configuration
+apiVersion: helm.crossplane.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: helm-external
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: helm-credentials
+      key: kubeconfig

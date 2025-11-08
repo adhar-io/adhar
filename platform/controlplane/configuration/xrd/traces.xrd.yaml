@@ -1,0 +1,57 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositetraces.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeTrace
+    plural: compositetraces
+  claimNames:
+    kind: Trace
+    plural: traces
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              name:
+                type: string
+              backend:
+                type: string
+                enum: [jaeger, tempo, zipkin, datadog]
+              sampling:
+                type: object
+                properties:
+                  rate:
+                    type: number
+                  strategy:
+                    type: string
+              retention:
+                type: string
+              providerConfigRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+            required: [name, backend]
+          status:
+            type: object
+            properties:
+              endpoint:
+                type: string
+              tracesCollected:
+                type: integer
+              conditions:
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+

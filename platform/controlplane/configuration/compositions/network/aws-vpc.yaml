@@ -1,0 +1,459 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositenetwork-aws-vpc
+  labels:
+    feature: network
+    provider: aws
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeNetwork
+  mode: Pipeline
+  pipeline:
+    - step: render-vpc
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            oxr = option("params").oxr
+            ocds = option("params").ocds
+
+            params = oxr.spec.parameters
+            metadata = oxr.metadata
+            conn = oxr.spec.writeConnectionSecretToRef or {}
+            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+
+            # Network configuration
+            cidrBlock = params.cidrBlock or "10.0.0.0/16"
+            region = params.region or "us-west-2"
+            enableDnsHostnames = params.enableDnsHostnames or True
+            enableDnsSupport = params.enableDnsSupport or True
+            subnets = params.subnets or []
+
+            # Gateway configuration
+            internetGateway = params.internetGateway or {}
+            enableIGW = internetGateway.enabled or True
+
+            natGateways = params.natGateways or {}
+            enableNAT = natGateways.enabled or True
+            natStrategy = natGateways.strategy or "single"  # single or per-az
+
+            # Flow logs
+            flowLogs = params.flowLogs or {}
+            enableFlowLogs = flowLogs.enabled or False
+
+            tags = params.tags or {}
+            deletionPolicy = params.deletionPolicy or "Delete"
+
+            secretName = conn.name or "${metadata.name}-network"
+            secretNamespace = conn.namespace or "crossplane-system"
+
+            _items = [
+                {
+                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    kind: "VPC"
+                    metadata.name: "vpc"
+                    metadata.labels: {
+                        feature: "network"
+                        provider: "aws"
+                    }
+                    spec: {
+                        forProvider: {
+                            region: region
+                            cidrBlock: cidrBlock
+                            enableDnsHostnames: enableDnsHostnames
+                            enableDnsSupport: enableDnsSupport
+                            if tags:
+                                tags: tags | {"Name": metadata.name}
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }
+            ]
+
+            # Add Internet Gateway if enabled
+            if enableIGW:
+                _items += [{
+                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    kind: "InternetGateway"
+                    metadata.name: "igw"
+                    metadata.labels: {
+                        feature: "network"
+                        provider: "aws"
+                    }
+                    spec: {
+                        forProvider: {
+                            region: region
+                            vpcIdSelector: {
+                                matchControllerRef: True
+                            }
+                            if tags:
+                                tags: tags | {"Name": "${metadata.name}-igw"}
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }]
+
+            # Add subnets
+            _publicSubnets = []
+            _privateSubnets = []
+            _isolatedSubnets = []
+
+            for idx, subnet in subnets:
+                _subnetType = subnet.type or "private"
+                _subnetName = "subnet-${subnet.name or idx}"
+                
+                _items += [{
+                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    kind: "Subnet"
+                    metadata.name: _subnetName
+                    metadata.labels: {
+                        feature: "network"
+                        provider: "aws"
+                        type: _subnetType
+                    }
+                    spec: {
+                        forProvider: {
+                            region: region
+                            vpcIdSelector: {
+                                matchControllerRef: True
+                            }
+                            cidrBlock: subnet.cidrBlock
+                            availabilityZone: subnet.availabilityZone
+                            mapPublicIpOnLaunch: subnet.mapPublicIpOnLaunch or (_subnetType == "public")
+                            if tags:
+                                tags: tags | subnet.get("tags", {}) | {
+                                    "Name": "${metadata.name}-${_subnetName}"
+                                    "Type": _subnetType
+                                }
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }]
+                
+                # Track subnet types for routing
+                if _subnetType == "public":
+                    _publicSubnets += [_subnetName]
+                elif _subnetType == "private":
+                    _privateSubnets += [_subnetName]
+                elif _subnetType == "isolated":
+                    _isolatedSubnets += [_subnetName]
+
+            # Add NAT Gateway(s) if enabled
+            _natGatewayNames = []
+            if enableNAT and len(_publicSubnets) > 0:
+                if natStrategy == "single":
+                    # Create one NAT gateway in first public subnet
+                    _items += [
+                        {
+                            apiVersion: "ec2.aws.upbound.io/v1beta1"
+                            kind: "EIP"
+                            metadata.name: "nat-eip-0"
+                            metadata.labels: {
+                                feature: "network"
+                                provider: "aws"
+                            }
+                            spec: {
+                                forProvider: {
+                                    region: region
+                                    vpc: True
+                                    if tags:
+                                        tags: tags | {"Name": "${metadata.name}-nat-eip-0"}
+                                }
+                                providerConfigRef.name: providerConfigName
+                                deletionPolicy: deletionPolicy
+                            }
+                        },
+                        {
+                            apiVersion: "ec2.aws.upbound.io/v1beta1"
+                            kind: "NATGateway"
+                            metadata.name: "nat-gateway-0"
+                            metadata.labels: {
+                                feature: "network"
+                                provider: "aws"
+                            }
+                            spec: {
+                                forProvider: {
+                                    region: region
+                                    allocationIdSelector: {
+                                        matchLabels: {
+                                            "crossplane.io/claim-name": metadata.name
+                                        }
+                                    }
+                                    subnetIdSelector: {
+                                        matchLabels: {
+                                            "crossplane.io/claim-name": metadata.name
+                                            type: "public"
+                                        }
+                                    }
+                                    if tags:
+                                        tags: tags | {"Name": "${metadata.name}-nat-0"}
+                                }
+                                providerConfigRef.name: providerConfigName
+                                deletionPolicy: deletionPolicy
+                            }
+                        }
+                    ]
+                    _natGatewayNames = ["nat-gateway-0"]
+                elif natStrategy == "per-az":
+                    # Create NAT gateway per public subnet
+                    for idx, subnetName in _publicSubnets:
+                        _items += [
+                            {
+                                apiVersion: "ec2.aws.upbound.io/v1beta1"
+                                kind: "EIP"
+                                metadata.name: "nat-eip-{}".format(idx)
+                                metadata.labels: {
+                                    feature: "network"
+                                    provider: "aws"
+                                }
+                                spec: {
+                                    forProvider: {
+                                        region: region
+                                        vpc: True
+                                        if tags:
+                                            tags: tags | {"Name": "${metadata.name}-nat-eip-{}".format(idx)}
+                                    }
+                                    providerConfigRef.name: providerConfigName
+                                    deletionPolicy: deletionPolicy
+                                }
+                            },
+                            {
+                                apiVersion: "ec2.aws.upbound.io/v1beta1"
+                                kind: "NATGateway"
+                                metadata.name: "nat-gateway-{}".format(idx)
+                                metadata.labels: {
+                                    feature: "network"
+                                    provider: "aws"
+                                    subnet: subnetName
+                                }
+                                spec: {
+                                    forProvider: {
+                                        region: region
+                                        allocationIdSelector: {
+                                            matchControllerRef: True
+                                        }
+                                        subnetIdSelector: {
+                                            matchControllerRef: True
+                                            matchLabels: {
+                                                "crossplane.io/claim-name": metadata.name
+                                            }
+                                        }
+                                        if tags:
+                                            tags: tags | {"Name": "${metadata.name}-nat-{}".format(idx)}
+                                    }
+                                    providerConfigRef.name: providerConfigName
+                                    deletionPolicy: deletionPolicy
+                                }
+                            }
+                        ]
+                        _natGatewayNames += ["nat-gateway-{}".format(idx)]
+
+            # Create route tables
+            # Public route table
+            if len(_publicSubnets) > 0 and enableIGW:
+                _items += [
+                    {
+                        apiVersion: "ec2.aws.upbound.io/v1beta1"
+                        kind: "RouteTable"
+                        metadata.name: "public-rt"
+                        metadata.labels: {
+                            feature: "network"
+                            provider: "aws"
+                            type: "public"
+                        }
+                        spec: {
+                            forProvider: {
+                                region: region
+                                vpcIdSelector: {
+                                    matchControllerRef: True
+                                }
+                                if tags:
+                                    tags: tags | {"Name": "${metadata.name}-public", "Type": "public"}
+                            }
+                            providerConfigRef.name: providerConfigName
+                            deletionPolicy: deletionPolicy
+                        }
+                    },
+                    {
+                        apiVersion: "ec2.aws.upbound.io/v1beta1"
+                        kind: "Route"
+                        metadata.name: "public-route-igw"
+                        metadata.labels: {
+                            feature: "network"
+                            provider: "aws"
+                        }
+                        spec: {
+                            forProvider: {
+                                region: region
+                                routeTableIdSelector: {
+                                    matchControllerRef: True
+                                    matchLabels: {type: "public"}
+                                }
+                                destinationCidrBlock: "0.0.0.0/0"
+                                gatewayIdSelector: {
+                                    matchControllerRef: True
+                                }
+                            }
+                            providerConfigRef.name: providerConfigName
+                            deletionPolicy: deletionPolicy
+                        }
+                    }
+                ]
+                
+                # Associate public subnets with public route table
+                for subnetName in _publicSubnets:
+                    _items += [{
+                        apiVersion: "ec2.aws.upbound.io/v1beta1"
+                        kind: "RouteTableAssociation"
+                        metadata.name: "rta-{}".format(subnetName)
+                        metadata.labels: {
+                            feature: "network"
+                            provider: "aws"
+                        }
+                        spec: {
+                            forProvider: {
+                                region: region
+                                routeTableIdSelector: {
+                                    matchControllerRef: True
+                                    matchLabels: {type: "public"}
+                                }
+                                subnetIdSelector: {
+                                    matchControllerRef: True
+                                    matchLabels: {
+                                        "crossplane.io/claim-name": metadata.name
+                                    }
+                                }
+                            }
+                            providerConfigRef.name: providerConfigName
+                            deletionPolicy: deletionPolicy
+                        }
+                    }]
+
+            # Private route table with NAT gateway
+            if len(_privateSubnets) > 0 and len(_natGatewayNames) > 0:
+                _items += [{
+                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    kind: "RouteTable"
+                    metadata.name: "private-rt"
+                    metadata.labels: {
+                        feature: "network"
+                        provider: "aws"
+                        type: "private"
+                    }
+                    spec: {
+                        forProvider: {
+                            region: region
+                            vpcIdSelector: {
+                                matchControllerRef: True
+                            }
+                            if tags:
+                                tags: tags | {"Name": "${metadata.name}-private", "Type": "private"}
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }, {
+                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    kind: "Route"
+                    metadata.name: "private-route-nat"
+                    metadata.labels: {
+                        feature: "network"
+                        provider: "aws"
+                    }
+                    spec: {
+                        forProvider: {
+                            region: region
+                            routeTableIdSelector: {
+                                matchControllerRef: True
+                                matchLabels: {type: "private"}
+                            }
+                            destinationCidrBlock: "0.0.0.0/0"
+                            natGatewayIdSelector: {
+                                matchControllerRef: True
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }]
+                
+                # Associate private subnets
+                for subnetName in _privateSubnets:
+                    _items += [{
+                        apiVersion: "ec2.aws.upbound.io/v1beta1"
+                        kind: "RouteTableAssociation"
+                        metadata.name: "rta-{}".format(subnetName)
+                        metadata.labels: {
+                            feature: "network"
+                            provider: "aws"
+                        }
+                        spec: {
+                            forProvider: {
+                                region: region
+                                routeTableIdSelector: {
+                                    matchControllerRef: True
+                                    matchLabels: {type: "private"}
+                                }
+                                subnetIdSelector: {
+                                    matchControllerRef: True
+                                    matchLabels: {
+                                        "crossplane.io/claim-name": metadata.name
+                                    }
+                                }
+                            }
+                            providerConfigRef.name: providerConfigName
+                            deletionPolicy: deletionPolicy
+                        }
+                    }]
+
+            # Get observed state
+            _observedResources = ocds or {}
+            _vpcObserved = _observedResources.get("vpc", {}).get("resource", {})
+            _vpcStatus = _vpcObserved.get("status", {}).get("atProvider", {})
+
+            _phase = "Pending"
+            _message = "Network provisioning initiated"
+            _ready = False
+            _vpcId = ""
+
+            if _vpcStatus:
+                _state = _vpcStatus.get("state", "")
+                _vpcId = _vpcStatus.get("id", "")
+                
+                if _state == "available" and _vpcId:
+                    _phase = "Available"
+                    _message = "Network is ready"
+                    _ready = True
+                elif _state == "pending":
+                    _phase = "Creating"
+                    _message = "Network is being provisioned"
+                else:
+                    _phase = "Modifying"
+                    _message = "Network status: {}".format(_state)
+
+            items = _items + [{
+                apiVersion: "platform.adhar.io/v1alpha1"
+                kind: "CompositeNetwork"
+                metadata: oxr.metadata
+                status: {
+                    phase: _phase
+                    message: _message
+                    ready: _ready
+                    if _vpcId:
+                        vpcId: _vpcId
+                    cidrBlock: cidrBlock
+                    subnets: [{
+                        name: subnet.name or str(idx)
+                        cidrBlock: subnet.cidrBlock
+                        availabilityZone: subnet.availabilityZone
+                    } for idx, subnet in subnets]
+                }
+            }]

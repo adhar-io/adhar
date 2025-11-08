@@ -1,0 +1,13 @@
+---
+# DigitalOcean Provider Configuration
+apiVersion: v1alpha1
+kind: ProviderConfig
+metadata:
+  name: digitalocean
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: digitalocean-credentials
+      key: token

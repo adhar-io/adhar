@@ -1,0 +1,39 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: traces-jaeger
+  labels:
+    feature: traces
+    provider: jaeger
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeTrace
+  mode: Pipeline
+  pipeline:
+    - step: render-traces
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            xr = option("params").oxr
+            spec = xr.spec
+            
+            jaegerConfig = {
+                apiVersion = "v1"
+                kind = "ConfigMap"
+                metadata = {name = "${spec.name}-config"}
+                data = {
+                    "sampling.rate" = str(spec.get("sampling", {}).get("rate", 1.0))
+                    "backend" = spec.backend
+                }
+            }
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [jaegerConfig]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

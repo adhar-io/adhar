@@ -1,0 +1,205 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositedatabases.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeDatabase
+    plural: compositedatabases
+  claimNames:
+    kind: Database
+    plural: databases
+  connectionSecretKeys:
+    - endpoint
+    - port
+    - username
+    - password
+    - database
+  defaultCompositionRef:
+    name: compositedatabase-postgresql
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - compositionSelector
+                - parameters
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: database
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                parameters:
+                  type: object
+                  required:
+                    - engine
+                    - engineVersion
+                  properties:
+                    displayName:
+                      type: string
+                    engine:
+                      type: string
+                      enum:
+                        - postgresql
+                        - mysql
+                        - mariadb
+                        - mongodb
+                        - redis
+                    engineVersion:
+                      type: string
+                    instanceClass:
+                      type: string
+                      description: "Instance size/type for the database"
+                    storageSize:
+                      type: string
+                      description: "Storage size (e.g., 20Gi, 100Gi)"
+                    storageType:
+                      type: string
+                      enum:
+                        - gp2
+                        - gp3
+                        - io1
+                        - standard
+                    region:
+                      type: string
+                    availabilityZones:
+                      type: array
+                      items:
+                        type: string
+                    multiAZ:
+                      type: boolean
+                      default: false
+                    backupRetentionDays:
+                      type: integer
+                      minimum: 0
+                      maximum: 35
+                      default: 7
+                    backupWindow:
+                      type: string
+                      description: "Preferred backup window (e.g., 02:00-03:00)"
+                    maintenanceWindow:
+                      type: string
+                      description: "Preferred maintenance window (e.g., sun:05:00-sun:06:00)"
+                    enableBackup:
+                      type: boolean
+                      default: true
+                    enableEncryption:
+                      type: boolean
+                      default: true
+                    kmsKeyId:
+                      type: string
+                    publiclyAccessible:
+                      type: boolean
+                      default: false
+                    networkConfig:
+                      type: object
+                      properties:
+                        vpcId:
+                          type: string
+                        subnetIds:
+                          type: array
+                          items:
+                            type: string
+                        securityGroupIds:
+                          type: array
+                          items:
+                            type: string
+                    credentials:
+                      type: object
+                      properties:
+                        masterUsername:
+                          type: string
+                        masterPasswordSecretRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                            key:
+                              type: string
+                    performanceInsights:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        retentionDays:
+                          type: integer
+                    monitoring:
+                      type: object
+                      properties:
+                        enableEnhancedMonitoring:
+                          type: boolean
+                        monitoringInterval:
+                          type: integer
+                          enum: [0, 1, 5, 10, 15, 30, 60]
+                    tags:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    deletionPolicy:
+                      type: string
+                      enum:
+                        - Delete
+                        - Orphan
+                      default: Delete
+                    skipFinalSnapshot:
+                      type: boolean
+                      default: false
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                      default: crossplane-system
+                    name:
+                      type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: "Overall phase (Pending, Creating, Available, Modifying, Failed)"
+                message:
+                  type: string
+                ready:
+                  type: boolean
+                endpoint:
+                  type: string
+                port:
+                  type: integer
+                status:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string

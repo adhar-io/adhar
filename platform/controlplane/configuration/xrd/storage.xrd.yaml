@@ -1,0 +1,70 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositestorages.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeStorage
+    plural: compositestorages
+  claimNames:
+    kind: Storage
+    plural: storages
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                enum: [block, file, object, database]
+              size:
+                type: string
+              storageClass:
+                type: string
+              accessModes:
+                type: array
+                items:
+                  type: string
+              backup:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  schedule:
+                    type: string
+              encryption:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+              providerConfigRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+            required: [name, type, size]
+          status:
+            type: object
+            properties:
+              storageId:
+                type: string
+              capacity:
+                type: string
+              used:
+                type: string
+              conditions:
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+

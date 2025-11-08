@@ -458,11 +458,12 @@ gitea:
   ## @param gitea.livenessProbe.successThreshold Success threshold for liveness probe
   ## @param gitea.livenessProbe.failureThreshold Failure threshold for liveness probe
   # Modify the liveness probe for your needs or completely disable it by commenting out.
+  ## LOCAL DEV: Reduced delay for faster startup with SQLite
   livenessProbe:
     enabled: true
     tcpSocket:
       port: http
-    initialDelaySeconds: 200
+    initialDelaySeconds: 30
     timeoutSeconds: 1
     periodSeconds: 10
     successThreshold: 1
@@ -542,8 +543,9 @@ valkey-cluster:
 ## @descriptionStart
 ## Valkey and [Valkey cluster](#valkey-cluster) cannot be enabled at the same time.
 ## @descriptionEnd
+## LOCAL DEV: Disabled to simplify deployment and reduce resource usage
 valkey:
-  enabled: true
+  enabled: false
   architecture: standalone
   global:
     valkey:
@@ -593,8 +595,9 @@ postgresql-ha:
 ## @param postgresql.global.postgresql.auth.username Name for a custom user to create (overrides `auth.username`)
 ## @param postgresql.global.postgresql.service.ports.postgresql PostgreSQL service port (overrides `service.ports.postgresql`)
 ## @param postgresql.primary.persistence.size PVC Storage Request for PostgreSQL volume
+## LOCAL DEV: Disabled to use SQLite for faster startup and simpler setup
 postgresql:
-  enabled: true
+  enabled: false
   global:
     postgresql:
       auth:

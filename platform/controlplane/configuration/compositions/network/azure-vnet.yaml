@@ -1,0 +1,141 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositenetwork-azure-vnet
+  labels:
+    feature: network
+    provider: azure
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeNetwork
+  mode: Pipeline
+  pipeline:
+    - step: render-vnet
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            oxr = option("params").oxr
+            ocds = option("params").ocds
+
+            params = oxr.spec.parameters
+            metadata = oxr.metadata
+            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+
+            cidrBlock = params.cidrBlock or "10.0.0.0/16"
+            region = params.region or "eastus"
+            subnets = params.subnets or []
+            tags = params.tags or {}
+            deletionPolicy = params.deletionPolicy or "Delete"
+
+            resourceGroupName = params.resourceGroupName or "${metadata.name}-rg"
+
+            _items = [
+                {
+                    apiVersion: "azure.upbound.io/v1beta1"
+                    kind: "ResourceGroup"
+                    metadata.name: "resource-group"
+                    metadata.labels: {
+                        feature: "network"
+                        provider: "azure"
+                    }
+                    spec: {
+                        forProvider: {
+                            location: region
+                            if tags:
+                                tags: tags
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                },
+                {
+                    apiVersion: "network.azure.upbound.io/v1beta1"
+                    kind: "VirtualNetwork"
+                    metadata.name: "vnet"
+                    metadata.labels: {
+                        feature: "network"
+                        provider: "azure"
+                    }
+                    spec: {
+                        forProvider: {
+                            resourceGroupNameSelector: {
+                                matchControllerRef: True
+                            }
+                            location: region
+                            addressSpace: [cidrBlock]
+                            if tags:
+                                tags: tags | {"Name": metadata.name}
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }
+            ]
+
+            # Add subnets
+            for idx, subnet in subnets:
+                _subnetName = subnet.name or "subnet-{}".format(idx)
+                _items += [{
+                    apiVersion: "network.azure.upbound.io/v1beta1"
+                    kind: "Subnet"
+                    metadata.name: "subnet-{}".format(_subnetName)
+                    metadata.labels: {
+                        feature: "network"
+                        provider: "azure"
+                        type: subnet.type or "private"
+                    }
+                    spec: {
+                        forProvider: {
+                            resourceGroupNameSelector: {
+                                matchControllerRef: True
+                            }
+                            virtualNetworkNameSelector: {
+                                matchControllerRef: True
+                            }
+                            addressPrefixes: [subnet.cidrBlock]
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }]
+
+            # Get observed state
+            _observedResources = ocds or {}
+            _vnetObserved = _observedResources.get("vnet", {}).get("resource", {})
+            _vnetStatus = _vnetObserved.get("status", {}).get("atProvider", {})
+
+            _phase = "Pending"
+            _message = "Network provisioning initiated"
+            _ready = False
+            _vnetId = ""
+
+            if _vnetStatus:
+                _vnetId = _vnetStatus.get("id", "")
+                if _vnetId:
+                    _phase = "Available"
+                    _message = "Network is ready"
+                    _ready = True
+
+            items = _items + [{
+                apiVersion: "platform.adhar.io/v1alpha1"
+                kind: "CompositeNetwork"
+                metadata: oxr.metadata
+                status: {
+                    phase: _phase
+                    message: _message
+                    ready: _ready
+                    if _vnetId:
+                        vpcId: _vnetId
+                    cidrBlock: cidrBlock
+                    subnets: [{
+                        name: subnet.name or str(idx)
+                        cidrBlock: subnet.cidrBlock
+                        availabilityZone: subnet.availabilityZone or region
+                    } for idx, subnet in subnets]
+                }
+            }]

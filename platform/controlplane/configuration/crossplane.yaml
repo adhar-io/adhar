@@ -1,0 +1,89 @@
+apiVersion: meta.pkg.crossplane.io/v1
+kind: Configuration
+metadata:
+  name: adhar-control-plane
+  annotations:
+    meta.crossplane.io/maintainer: Adhar Platform Team <team@adhar.io>
+    meta.crossplane.io/description: Crossplane v2.1 configuration powering the Adhar control plane with multi-cloud support.
+    meta.crossplane.io/license: Apache-2.0
+    meta.crossplane.io/readme: |
+      Comprehensive control plane for Adhar platform supporting AWS, Azure, GCP, DigitalOcean, Civo, Kind, and on-premises Kubernetes clusters.
+spec:
+  crossplane:
+    version: ">=v2.1.0"
+  dependsOn:
+    # AWS Provider - Complete AWS resource support
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-aws-eks
+      version: ">=v1.7.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-aws-ec2
+      version: ">=v1.7.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-aws-rds
+      version: ">=v1.7.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-aws-iam
+      version: ">=v1.7.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-aws-s3
+      version: ">=v1.7.0"
+
+    # Azure Provider - Complete Azure resource support
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-azure-containerservice
+      version: ">=v1.3.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-azure-network
+      version: ">=v1.3.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-azure-sql
+      version: ">=v1.3.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-azure-storage
+      version: ">=v1.3.0"
+
+    # GCP Provider - Complete GCP resource support
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-gcp-container
+      version: ">=v1.7.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-gcp-compute
+      version: ">=v1.7.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-gcp-sql
+      version: ">=v1.7.0"
+    - type: Provider
+      package: xpkg.upbound.io/upbound/provider-gcp-storage
+      version: ">=v1.7.0"
+
+    # DigitalOcean Provider
+    - type: Provider
+      package: xpkg.upbound.io/crossplane-contrib/provider-digitalocean
+      version: ">=v0.7.0"
+
+    # Civo Provider
+    - type: Provider
+      package: xpkg.upbound.io/crossplane-contrib/provider-civo
+      version: ">=v0.3.0"
+
+    # Kubernetes Provider - For Kind and on-prem clusters
+    - type: Provider
+      package: xpkg.upbound.io/crossplane-contrib/provider-kubernetes
+      version: ">=v0.14.0"
+
+    # Helm Provider - For application deployment
+    - type: Provider
+      package: xpkg.upbound.io/crossplane-contrib/provider-helm
+      version: ">=v0.19.0"
+
+    # Functions
+    - type: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-go-templating
+      version: ">=v0.6.0"
+    - type: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform
+      version: ">=v0.6.0"
+    - type: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-kcl
+      version: ">=v0.9.0"

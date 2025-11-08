@@ -1,0 +1,253 @@
+---
+# Pipeline Composition using Tekton
+# Provides CI/CD pipeline capabilities using Tekton Pipelines
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: pipeline-tekton
+  labels:
+    feature: pipeline
+    provider: tekton
+    cicd.adhar.io/type: native
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositePipeline
+  mode: Pipeline
+  pipeline:
+    - step: render-pipeline-resources
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            # Get the composite resource
+            xr = option("params").oxr
+            spec = xr.spec
+            name = spec.name
+            pipelineType = spec.type
+            stages = spec.get("stages", [])
+            triggers = spec.get("triggers", {})
+            artifacts = spec.get("artifacts", {})
+            timeout = spec.get("timeout", "30m")
+            namespace = spec.get("namespace", "default")
+            
+            # Convert timeout to seconds
+            timeoutSeconds = 1800
+            if "m" in timeout:
+                timeoutSeconds = "${int(timeout.replace('m', '')) * 60}s"
+            elif "h" in timeout:
+                timeoutSeconds = "${int(timeout.replace('h', '')) * 3600}s"
+            
+            # Generate Tekton Pipeline
+            pipeline = {
+                apiVersion = "tekton.dev/v1beta1"
+                kind = "Pipeline"
+                metadata = {
+                    name = name
+                    namespace = namespace
+                    labels = {
+                        "app.kubernetes.io/name" = name
+                        "app.kubernetes.io/component" = "pipeline"
+                        "app.kubernetes.io/managed-by" = "crossplane"
+                        "pipeline.adhar.io/type" = pipelineType
+                    }
+                }
+                spec = {
+                    # Convert stages to Tekton tasks
+                    tasks = [
+                        {
+                            name = stage.name
+                            taskSpec = {
+                                steps = [
+                                    {
+                                        name = step.get("name", "step-${idx}")
+                                        image = step.get("image", "alpine:latest")
+                                        command = step.get("command", ["/bin/sh"])
+                                        env = [
+                                            {name = k, value = v}
+                                            for k, v in step.get("env", {}).items()
+                                        ]
+                                    }
+                                    for idx, step in enumerate(stage.get("steps", []))
+                                ]
+                            }
+                        }
+                        for stage in stages
+                    ]
+                    
+                    # Finally clause for cleanup
+                    finally = [{
+                        name = "cleanup"
+                        taskSpec = {
+                            steps = [{
+                                name = "cleanup"
+                                image = "alpine:latest"
+                                command = ["/bin/sh"]
+                                args = ["-c", "echo 'Pipeline completed'"]
+                            }]
+                        }
+                    }]
+                }
+            }
+            
+            # Generate PipelineRun template for manual triggers
+            pipelineRun = {
+                apiVersion = "tekton.dev/v1beta1"
+                kind = "PipelineRun"
+                metadata = {
+                    generateName = "${name}-"
+                    namespace = namespace
+                    labels = {
+                        "pipeline.adhar.io/name" = name
+                    }
+                }
+                spec = {
+                    pipelineRef = {
+                        name = name
+                    }
+                    timeout = timeoutSeconds
+                    serviceAccountName = "tekton-pipeline"
+                }
+            }
+            
+            # Generate Tekton Trigger if Git triggers are enabled
+            triggerTemplate = None
+            triggerBinding = None
+            eventListener = None
+            
+            if triggers.get("git", {}).get("enabled", False):
+                gitConfig = triggers.get("git", {})
+                
+                triggerTemplate = {
+                    apiVersion = "triggers.tekton.dev/v1beta1"
+                    kind = "TriggerTemplate"
+                    metadata = {
+                        name = "${name}-trigger-template"
+                        namespace = namespace
+                    }
+                    spec = {
+                        resourcetemplates = [{
+                            apiVersion = "tekton.dev/v1beta1"
+                            kind = "PipelineRun"
+                            metadata = {
+                                generateName = "${name}-"
+                            }
+                            spec = {
+                                pipelineRef = {
+                                    name = name
+                                }
+                                serviceAccountName = "tekton-pipeline"
+                            }
+                        }]
+                    }
+                }
+                
+                triggerBinding = {
+                    apiVersion = "triggers.tekton.dev/v1beta1"
+                    kind = "TriggerBinding"
+                    metadata = {
+                        name = "${name}-trigger-binding"
+                        namespace = namespace
+                    }
+                    spec = {
+                        params = [{
+                            name = "gitrevision"
+                            value = "$(body.head_commit.id)"
+                        }, {
+                            name = "gitrepository"
+                            value = "$(body.repository.url)"
+                        }]
+                    }
+                }
+                
+                eventListener = {
+                    apiVersion = "triggers.tekton.dev/v1beta1"
+                    kind = "EventListener"
+                    metadata = {
+                        name = "${name}-listener"
+                        namespace = namespace
+                    }
+                    spec = {
+                        serviceAccountName = "tekton-triggers-sa"
+                        triggers = [{
+                            name = "${name}-trigger"
+                            bindings = [{
+                                ref = "${name}-trigger-binding"
+                            }]
+                            template = {
+                                ref = "${name}-trigger-template"
+                            }
+                        }]
+                    }
+                }
+            
+            # Generate CronJob for scheduled triggers
+            cronJob = None
+            if triggers.get("schedule", {}).get("enabled", False):
+                scheduleConfig = triggers.get("schedule", {})
+                cronJob = {
+                    apiVersion = "batch/v1"
+                    kind = "CronJob"
+                    metadata = {
+                        name = "${name}-schedule"
+                        namespace = namespace
+                    }
+                    spec = {
+                        schedule = scheduleConfig.get("cron", "0 0 * * *")
+                        jobTemplate = {
+                            spec = {
+                                template = {
+                                    spec = {
+                                        serviceAccountName = "tekton-pipeline"
+                                        restartPolicy = "OnFailure"
+                                        containers = [{
+                                            name = "trigger"
+                                            image = "bitnami/kubectl:latest"
+                                            command = ["/bin/sh"]
+                                            args = [
+                                                "-c",
+                                                "kubectl create -f - <<EOF\n" +
+                                                "apiVersion: tekton.dev/v1beta1\n" +
+                                                "kind: PipelineRun\n" +
+                                                "metadata:\n" +
+                                                "  generateName: ${name}-\n" +
+                                                "  namespace: ${namespace}\n" +
+                                                "spec:\n" +
+                                                "  pipelineRef:\n" +
+                                                "    name: ${name}\n" +
+                                                "  serviceAccountName: tekton-pipeline\n" +
+                                                "EOF"
+                                            ]
+                                        }]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            
+            # Collect all resources
+            items = [pipeline, pipelineRun]
+            if triggerTemplate:
+                items.append(triggerTemplate)
+            if triggerBinding:
+                items.append(triggerBinding)
+            if eventListener:
+                items.append(eventListener)
+            if cronJob:
+                items.append(cronJob)
+            
+            # Return resources
+            {
+                apiVersion = "krm.kcl.dev/v1alpha1"
+                kind = "ResourceList"
+                items = items
+            }
+    
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

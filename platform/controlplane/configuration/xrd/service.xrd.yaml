@@ -1,0 +1,72 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositeservices.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeService
+    plural: compositeservices
+  claimNames:
+    kind: Service
+    plural: services
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                enum: [ClusterIP, NodePort, LoadBalancer, ExternalName]
+              ports:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    port:
+                      type: integer
+                    targetPort:
+                      type: integer
+                    protocol:
+                      type: string
+              selector:
+                type: object
+                additionalProperties:
+                  type: string
+              monitoring:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  scrapeInterval:
+                    type: string
+              providerConfigRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+            required: [name, type, ports]
+          status:
+            type: object
+            properties:
+              serviceId:
+                type: string
+              endpoints:
+                type: array
+                items:
+                  type: string
+              conditions:
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+

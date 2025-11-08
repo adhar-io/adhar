@@ -1,0 +1,64 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositescales.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeScale
+    plural: compositescales
+  claimNames:
+    kind: Scale
+    plural: scales
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              name:
+                type: string
+              targetRef:
+                type: object
+                properties:
+                  apiVersion:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+              minReplicas:
+                type: integer
+              maxReplicas:
+                type: integer
+              metrics:
+                type: array
+                items:
+                  type: object
+              behavior:
+                type: object
+              providerConfigRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+            required: [name, targetRef]
+          status:
+            type: object
+            properties:
+              currentReplicas:
+                type: integer
+              desiredReplicas:
+                type: integer
+              conditions:
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+

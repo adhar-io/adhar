@@ -1,0 +1,305 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositebackuppolicies.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeBackupPolicy
+    plural: compositebackuppolicies
+  claimNames:
+    kind: BackupPolicy
+    plural: backuppolicies
+  connectionSecretKeys:
+    - repository
+    - credentials
+  defaultCompositionRef:
+    name: compositebackuppolicy-velero
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - compositionSelector
+                - parameters
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: backup
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                parameters:
+                  type: object
+                  required:
+                    - schedule
+                    - retentionDays
+                  properties:
+                    displayName:
+                      type: string
+                    backupTool:
+                      type: string
+                      enum:
+                        - velero
+                        - stash
+                        - native
+                      default: velero
+                    schedule:
+                      type: string
+                      description: "Cron schedule for backups (e.g., '0 2 * * *')"
+                    retentionDays:
+                      type: integer
+                      minimum: 1
+                      description: "Number of days to retain backups"
+                    paused:
+                      type: boolean
+                      default: false
+                      description: "Pause scheduled backups"
+                    storageLocation:
+                      type: object
+                      required:
+                        - provider
+                        - bucket
+                      properties:
+                        provider:
+                          type: string
+                          enum:
+                            - aws
+                            - gcp
+                            - azure
+                            - minio
+                        bucket:
+                          type: string
+                        prefix:
+                          type: string
+                        region:
+                          type: string
+                        credentialsSecretRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                            key:
+                              type: string
+                        config:
+                          type: object
+                          additionalProperties:
+                            type: string
+                    includedNamespaces:
+                      type: array
+                      items:
+                        type: string
+                      description: "Namespaces to include in backup"
+                    excludedNamespaces:
+                      type: array
+                      items:
+                        type: string
+                      description: "Namespaces to exclude from backup"
+                    includedResources:
+                      type: array
+                      items:
+                        type: string
+                      description: "Resource types to include (e.g., 'pods', 'persistentvolumes')"
+                    excludedResources:
+                      type: array
+                      items:
+                        type: string
+                      description: "Resource types to exclude"
+                    labelSelector:
+                      type: object
+                      properties:
+                        matchLabels:
+                          type: object
+                          additionalProperties:
+                            type: string
+                        matchExpressions:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              key:
+                                type: string
+                              operator:
+                                type: string
+                              values:
+                                type: array
+                                items:
+                                  type: string
+                    snapshotVolumes:
+                      type: boolean
+                      default: true
+                      description: "Create volume snapshots"
+                    defaultVolumesToRestic:
+                      type: boolean
+                      default: false
+                      description: "Use Restic for volume backups by default"
+                    hooks:
+                      type: object
+                      properties:
+                        preBackup:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              exec:
+                                type: object
+                                properties:
+                                  container:
+                                    type: string
+                                  command:
+                                    type: array
+                                    items:
+                                      type: string
+                                  onError:
+                                    type: string
+                                    enum:
+                                      - Continue
+                                      - Fail
+                              annotations:
+                                type: object
+                                additionalProperties:
+                                  type: string
+                        postBackup:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              exec:
+                                type: object
+                                properties:
+                                  container:
+                                    type: string
+                                  command:
+                                    type: array
+                                    items:
+                                      type: string
+                                  onError:
+                                    type: string
+                                    enum:
+                                      - Continue
+                                      - Fail
+                    encryption:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        kmsKeyId:
+                          type: string
+                        encryptionKeySecretRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                            key:
+                              type: string
+                    notifications:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        onSuccess:
+                          type: boolean
+                        onFailure:
+                          type: boolean
+                        channels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              type:
+                                type: string
+                                enum:
+                                  - slack
+                                  - email
+                                  - webhook
+                              config:
+                                type: object
+                                additionalProperties:
+                                  type: string
+                    verification:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        schedule:
+                          type: string
+                        restoreNamespace:
+                          type: string
+                    tags:
+                      type: object
+                      additionalProperties:
+                        type: string
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                      default: crossplane-system
+                    name:
+                      type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: "Overall phase (Pending, Active, Paused, Failed)"
+                message:
+                  type: string
+                ready:
+                  type: boolean
+                lastBackupTime:
+                  type: string
+                  format: date-time
+                lastBackupStatus:
+                  type: string
+                  enum:
+                    - Completed
+                    - Failed
+                    - PartiallyFailed
+                nextScheduledBackup:
+                  type: string
+                  format: date-time
+                totalBackups:
+                  type: integer
+                successfulBackups:
+                  type: integer
+                failedBackups:
+                  type: integer
+                backupSizeBytes:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string

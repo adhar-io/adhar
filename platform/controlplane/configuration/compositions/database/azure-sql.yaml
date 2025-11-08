@@ -1,0 +1,236 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositedatabase-azure-sql
+  labels:
+    feature: database
+    provider: azure
+    engine: mssql
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeDatabase
+  mode: Pipeline
+  pipeline:
+    - step: render-azure-sql
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            import regex
+
+            oxr = option("params").oxr
+            ocds = option("params").ocds
+
+            params = oxr.spec.parameters
+            metadata = oxr.metadata
+            conn = oxr.spec.writeConnectionSecretToRef or {}
+            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+
+            # Database configuration
+            engineVersion = params.engineVersion or "12.0"
+            instanceClass = params.instanceClass or "GP_S_Gen5_2"
+            storageSize = int(regex.replace(params.storageSize or "32Gi", "Gi", ""))
+            region = params.region or "eastus"
+            enableBackup = params.enableBackup or True
+            backupRetentionDays = params.backupRetentionDays or 7
+            enableEncryption = params.enableEncryption or True
+            publiclyAccessible = params.publiclyAccessible or False
+            deletionPolicy = params.deletionPolicy or "Delete"
+
+            # Network configuration
+            networkConfig = params.networkConfig or {}
+            subnetIds = networkConfig.subnetIds or []
+
+            # Credentials
+            credentials = params.credentials or {}
+            masterUsername = credentials.masterUsername or "sqladmin"
+            masterPasswordSecretRef = credentials.masterPasswordSecretRef or {}
+
+            # Resource group (required for Azure)
+            resourceGroupName = params.resourceGroupName or "${metadata.name}-rg"
+
+            # Tags
+            tags = params.tags or {}
+
+            # Connection secret
+            secretName = conn.name or "${metadata.name}-db"
+            secretNamespace = conn.namespace or "crossplane-system"
+
+            # Server name
+            serverName = metadata.name
+
+            _items = [
+                {
+                    apiVersion: "azure.upbound.io/v1beta1"
+                    kind: "ResourceGroup"
+                    metadata.name: "resource-group"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "azure"
+                    }
+                    spec: {
+                        forProvider: {
+                            location: region
+                            if tags:
+                                tags: tags
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                },
+                {
+                    apiVersion: "sql.azure.upbound.io/v1beta1"
+                    kind: "MSSQLServer"
+                    metadata.name: "sql-server"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "azure"
+                    }
+                    spec: {
+                        forProvider: {
+                            resourceGroupNameSelector: {
+                                matchControllerRef: True
+                            }
+                            location: region
+                            version: engineVersion
+                            administratorLogin: masterUsername
+                            if masterPasswordSecretRef:
+                                administratorLoginPasswordSecretRef: {
+                                    name: masterPasswordSecretRef.name
+                                    namespace: masterPasswordSecretRef.namespace or "crossplane-system"
+                                    key: masterPasswordSecretRef.key or "password"
+                                }
+                            publicNetworkAccessEnabled: publiclyAccessible
+                            if tags:
+                                tags: tags
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                },
+                {
+                    apiVersion: "sql.azure.upbound.io/v1beta1"
+                    kind: "MSSQLDatabase"
+                    metadata.name: "sql-database"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "azure"
+                    }
+                    spec: {
+                        forProvider: {
+                            serverIdSelector: {
+                                matchControllerRef: True
+                            }
+                            skuName: instanceClass
+                            maxSizeGb: storageSize
+                            readScale: False
+                            zoneRedundant: False
+                            if tags:
+                                tags: tags
+                        }
+                        providerConfigRef.name: providerConfigName
+                        writeConnectionSecretToRef: {
+                            name: secretName
+                            namespace: secretNamespace
+                        }
+                        deletionPolicy: deletionPolicy
+                    }
+                }
+            ]
+
+            # Add backup policy if enabled
+            if enableBackup:
+                _items += [{
+                    apiVersion: "sql.azure.upbound.io/v1beta1"
+                    kind: "MSSQLDatabaseExtendedAuditingPolicy"
+                    metadata.name: "audit-policy"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "azure"
+                    }
+                    spec: {
+                        forProvider: {
+                            databaseIdSelector: {
+                                matchControllerRef: True
+                            }
+                            retentionInDays: backupRetentionDays
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }]
+
+            # Add virtual network rule if subnet is specified
+            if subnetIds and len(subnetIds) > 0:
+                for idx, subnetId in subnetIds:
+                    _items += [{
+                        apiVersion: "sql.azure.upbound.io/v1beta1"
+                        kind: "MSSQLVirtualNetworkRule"
+                        metadata.name: "vnet-rule-{}".format(idx)
+                        metadata.labels: {
+                            feature: "database"
+                            provider: "azure"
+                        }
+                        spec: {
+                            forProvider: {
+                                serverIdSelector: {
+                                    matchControllerRef: True
+                                }
+                                subnetId: subnetId
+                            }
+                            providerConfigRef.name: providerConfigName
+                            deletionPolicy: deletionPolicy
+                        }
+                    }]
+
+            # Get observed state for status
+            _observedResources = ocds or {}
+            _dbObserved = _observedResources.get("sql-database", {}).get("resource", {})
+            _dbStatus = _dbObserved.get("status", {}).get("atProvider", {})
+            _serverObserved = _observedResources.get("sql-server", {}).get("resource", {})
+            _serverStatus = _serverObserved.get("status", {}).get("atProvider", {})
+
+            _phase = "Pending"
+            _message = "Database provisioning initiated"
+            _ready = False
+            _endpoint = ""
+            _port = 1433
+
+            if _dbStatus and _serverStatus:
+                _state = _serverStatus.get("state", "")
+                _fullyQualifiedDomainName = _serverStatus.get("fullyQualifiedDomainName", "")
+                
+                if _state == "Ready" and _fullyQualifiedDomainName:
+                    _phase = "Available"
+                    _message = "Database is ready"
+                    _ready = True
+                    _endpoint = _fullyQualifiedDomainName
+                elif _state == "Creating":
+                    _phase = "Creating"
+                    _message = "Database is being provisioned"
+                elif _state == "Disabled":
+                    _phase = "Failed"
+                    _message = "Database is disabled"
+                else:
+                    _phase = "Modifying"
+                    _message = "Database status: {}".format(_state)
+
+            items = _items + [{
+                apiVersion: "platform.adhar.io/v1alpha1"
+                kind: "CompositeDatabase"
+                metadata: oxr.metadata
+                status: {
+                    phase: _phase
+                    message: _message
+                    ready: _ready
+                    if _endpoint:
+                        endpoint: _endpoint
+                    port: _port
+                    if _state:
+                        status: _state
+                }
+            }]

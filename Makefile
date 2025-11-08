@@ -105,8 +105,14 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build adhar binary.
+build: manifests generate fmt vet build-control-plane ## Build adhar binary and control-plane package.
 	go build $(LD_FLAGS) -o $(OUT_FILE) ./cmd
+
+.PHONY: build-control-plane
+build-control-plane: ## Build Crossplane control-plane configuration package
+	@echo "› Building Crossplane control-plane package..."
+	@tar -czf platform/controlplane/adhar-control-plane-$(VERSION).xpkg -C platform/controlplane/configuration .
+	@echo "✓ Control-plane package ready: platform/controlplane/adhar-control-plane-$(VERSION).xpkg"
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -266,6 +272,11 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: embedded-resources
 embedded-resources: kustomize helm
 	export PATH=$(LOCALBIN):$$PATH; ./hack/embedded-resources.sh;
+
+.PHONY: clean-control-plane
+clean-control-plane: ## Clean control-plane build artifacts
+	@rm -rf platform/controlplane/dist
+	@echo "✓ Control-plane build artifacts cleaned"
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.

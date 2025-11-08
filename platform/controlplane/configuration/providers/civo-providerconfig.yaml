@@ -1,0 +1,15 @@
+---
+# Civo Provider Configuration
+apiVersion: v1alpha1
+kind: ProviderConfig
+metadata:
+  name: civo
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: civo-credentials
+      key: token
+  # Default region for Civo clusters
+  region: NYC1

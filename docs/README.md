@@ -83,6 +83,8 @@ This documentation suite provides complete guidance for users, developers, and p
 - ✅ Implementation Timeline → [Implementation History](IMPLEMENTATION_HISTORY.md)
 - ✅ Provider Architecture → [Provider System Guide](PROVIDER_SYSTEM_GUIDE.md)  
 - ✅ Migration Process → [Migration Guide](MIGRATION_GUIDE.md)
+- ✅ Control Plane Integration → [Control Plane Integration](CONTROL_PLANE_INTEGRATION.md)
+- ✅ Crossplane v2.1 Upgrade → [Crossplane Upgrade Guide](crossplane-v2.1-upgrade.md)
 - ✅ Technical Achievements → All guides above
 
 ### Community Documentation ✅ Available

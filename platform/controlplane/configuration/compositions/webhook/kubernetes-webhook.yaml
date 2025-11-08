@@ -1,0 +1,39 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: webhook-k8s
+  labels:
+    feature: webhook
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeWebhook
+  mode: Pipeline
+  pipeline:
+    - step: render-webhook
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            xr = option("params").oxr
+            spec = xr.spec
+            
+            webhookConfig = {
+                apiVersion = "v1"
+                kind = "ConfigMap"
+                metadata = {name = spec.name}
+                data = {
+                    "endpoint" = spec.endpoint
+                    "events" = ",".join(spec.get("events", []))
+                }
+            }
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [webhookConfig]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

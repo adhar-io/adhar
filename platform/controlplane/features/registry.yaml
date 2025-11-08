@@ -1,0 +1,339 @@
+# Registry of CLI commands and their corresponding Crossplane composite resources.
+commands:
+  - name: apps
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeApplication
+    claimKind: Application
+    status: in-progress
+    compositions:
+      - name: argocd-application
+        file: configuration/compositions/apps/argocd-application.yaml
+        readiness: alpha
+    description: Declarative application lifecycle management.
+  - name: auth
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeAuthStack
+    claimKind: AuthStack
+    status: pending
+    compositions: []
+    description: Identity providers and RBAC orchestration.
+  - name: backup
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeBackupPolicy
+    claimKind: BackupPolicy
+    status: pending
+    compositions: []
+    description: Backup and archival policies.
+  - name: cluster
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeCluster
+    claimKind: Cluster
+    status: in-progress
+    compositions:
+      - name: aws-eks
+        file: configuration/compositions/cluster/aws-eks.yaml
+        readiness: beta
+      - name: gcp-gke
+        file: configuration/compositions/cluster/gcp-gke.yaml
+        readiness: alpha
+      - name: azure-aks
+        file: configuration/compositions/cluster/azure-aks.yaml
+        readiness: alpha
+      - name: digitalocean-doks
+        file: configuration/compositions/cluster/digitalocean-doks.yaml
+        readiness: alpha
+      - name: civo-k3s
+        file: configuration/compositions/cluster/civo-k3s.yaml
+        readiness: alpha
+    description: Kubernetes cluster provisioning across providers.
+  - name: config
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositePlatformConfig
+    claimKind: PlatformConfig
+    status: pending
+    compositions: []
+    description: Global platform configuration settings.
+  - name: db
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeDatabase
+    claimKind: Database
+    status: pending
+    compositions: []
+    description: Managed database instances and users.
+  - name: down
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeTeardown
+    claimKind: Teardown
+    status: pending
+    compositions: []
+    description: Idempotent teardown workflows for environments.
+  - name: env
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeEnvironment
+    claimKind: Environment
+    status: pending
+    compositions: []
+    description: Environment definitions and topology.
+  - name: get
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeQuery
+    claimKind: Query
+    status: pending
+    compositions: []
+    description: Materialized views for platform inventories.
+  - name: gitops
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeGitOps
+    claimKind: GitOps
+    status: in-progress
+    compositions:
+      - name: argocd-project
+        file: configuration/compositions/gitops/argocd-project.yaml
+        readiness: alpha
+    description: ArgoCD project and application lifecycle.
+  - name: health
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeHealth
+    claimKind: Health
+    status: production-ready
+    compositions:
+      - name: healthcheck
+        file: configuration/compositions/health/healthcheck.yaml
+        readiness: production
+    description: Health monitoring orchestrations with periodic health checks.
+  - name: logs
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeLogging
+    claimKind: Logging
+    status: pending
+    compositions: []
+    description: Log collection and routing pipelines.
+  - name: metrics
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeMetrics
+    claimKind: Metrics
+    status: production-ready
+    compositions:
+      - name: prometheus-servicemonitor
+        file: configuration/compositions/metrics/prometheus-servicemonitor.yaml
+        readiness: production
+    description: Metrics collection and dashboards with Prometheus ServiceMonitors.
+  - name: network
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeNetwork
+    claimKind: Network
+    status: pending
+    compositions: []
+    description: Networking constructs (VPCs, subnets, service meshes).
+  - name: pipeline
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositePipeline
+    claimKind: Pipeline
+    status: production-ready
+    compositions:
+      - name: argo-workflows
+        file: configuration/compositions/pipeline/argo-workflows.yaml
+        readiness: production
+      - name: tekton
+        file: configuration/compositions/pipeline/tekton.yaml
+        readiness: production
+    description: CI/CD pipeline orchestration with Argo Workflows and Tekton.
+  - name: policy
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeCompliancePolicy
+    claimKind: CompliancePolicy
+    status: production-ready
+    compositions:
+      - name: kyverno
+        file: configuration/compositions/policy/kyverno.yaml
+        readiness: production
+      - name: opa-gatekeeper
+        file: configuration/compositions/policy/opa-gatekeeper.yaml
+        readiness: production
+    description: Policy bundles and compliance controls with Kyverno and OPA Gatekeeper.
+  - name: restore
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeRestore
+    claimKind: Restore
+    status: production-ready
+    compositions:
+      - name: velero-restore
+        file: configuration/compositions/restore/velero-restore.yaml
+        readiness: production
+    description: Restore operations for backup artefacts with Velero.
+  - name: scale
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeScale
+    claimKind: Scale
+    status: production-ready
+    compositions:
+      - name: hpa
+        file: configuration/compositions/scale/hpa.yaml
+        readiness: production
+    description: Scaling policies with Horizontal Pod Autoscaler and KEDA.
+  - name: secrets
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeSecret
+    claimKind: Secret
+    status: production-ready
+    compositions:
+      - name: external-secrets
+        file: configuration/compositions/secrets/external-secrets.yaml
+        readiness: production
+      - name: aws-secrets-manager
+        file: configuration/compositions/secretrotation/aws-secrets-manager.yaml
+        readiness: production
+    description: Secret management with External Secrets Operator and automated rotation.
+  - name: security
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeSecurityStack
+    claimKind: SecurityStack
+    status: pending
+    compositions: []
+    description: Security scanning and enforcement stacks.
+  - name: service
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeService
+    claimKind: Service
+    status: production-ready
+    compositions:
+      - name: kubernetes-service
+        file: configuration/compositions/service/kubernetes-service.yaml
+        readiness: production
+    description: Service catalog entries and Kubernetes service management.
+  - name: storage
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeStorage
+    claimKind: Storage
+    status: production-ready
+    compositions:
+      - name: persistent-volume
+        file: configuration/compositions/storage/persistent-volume.yaml
+        readiness: production
+    description: Object/block storage resources with PersistentVolumes.
+  - name: traces
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeTrace
+    claimKind: Trace
+    status: production-ready
+    compositions:
+      - name: jaeger
+        file: configuration/compositions/traces/jaeger.yaml
+        readiness: production
+    description: Distributed tracing pipelines with Jaeger and Tempo.
+  - name: up
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeBootstrap
+    claimKind: Bootstrap
+    status: pending
+    compositions: []
+    description: Platform bootstrap orchestrations.
+  - name: version
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositePlatformVersion
+    claimKind: PlatformVersion
+    status: pending
+    compositions: []
+    description: Declarative control plane version pinning.
+  - name: webhook
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeWebhook
+    claimKind: Webhook
+    status: production-ready
+    compositions:
+      - name: kubernetes-webhook
+        file: configuration/compositions/webhook/kubernetes-webhook.yaml
+        readiness: production
+    description: External event hook integrations with Kubernetes admission webhooks.
+  - name: costtracker
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeCostTracker
+    claimKind: CostTracker
+    status: production-ready
+    compositions:
+      - name: opencost
+        file: configuration/compositions/costtracker/opencost.yaml
+        readiness: production
+    description: Cost tracking and optimization with OpenCost, budget alerts, and recommendations.
+  - name: compliance
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeCompliancePolicy
+    claimKind: CompliancePolicy
+    status: production-ready
+    compositions:
+      - name: kyverno
+        file: configuration/compositions/compliance/kyverno.yaml
+        readiness: production
+    description: Compliance policy enforcement with Kyverno/OPA for CIS, NIST, PCI-DSS, HIPAA.
+  - name: servicemesh
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeServiceMesh
+    claimKind: ServiceMesh
+    status: production-ready
+    compositions:
+      - name: cilium
+        file: configuration/compositions/servicemesh/cilium.yaml
+        readiness: production
+    description: eBPF-based service mesh with Cilium for L7 load balancing and encryption.
+  - name: observability
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeObservabilityStack
+    claimKind: ObservabilityStack
+    status: production-ready
+    compositions:
+      - name: prometheus-grafana-loki
+        file: configuration/compositions/observability/full-stack.yaml
+        readiness: production
+    description: Complete observability with Prometheus, Grafana, Loki, and AlertManager.
+  - name: disasterrecovery
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeDisasterRecovery
+    claimKind: DisasterRecovery
+    status: production-ready
+    compositions:
+      - name: velero-dr
+        file: configuration/compositions/dr/velero.yaml
+        readiness: production
+    description: Disaster recovery automation with Velero, cross-region replication, and DR drills.
+  - name: federation
+    group: platform.adhar.io
+    version: v1alpha1
+    compositeKind: CompositeClusterFederation
+    claimKind: ClusterFederation
+    status: production-ready
+    compositions:
+      - name: multi-cloud-federation
+        file: configuration/compositions/federation/kubefed.yaml
+        readiness: production
+    description: Cross-cloud cluster federation with unified control plane and global load balancing.

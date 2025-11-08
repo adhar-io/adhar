@@ -1,0 +1,40 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: storage-pv
+  labels:
+    feature: storage
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeStorage
+  mode: Pipeline
+  pipeline:
+    - step: render-storage
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            xr = option("params").oxr
+            spec = xr.spec
+            
+            pvc = {
+                apiVersion = "v1"
+                kind = "PersistentVolumeClaim"
+                metadata = {name = spec.name}
+                spec = {
+                    accessModes = spec.get("accessModes", ["ReadWriteOnce"])
+                    resources = {requests = {storage = spec.size}}
+                    storageClassName = spec.get("storageClass", "")
+                }
+            }
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [pvc]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

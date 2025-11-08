@@ -1,0 +1,70 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositemetrics.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeMetrics
+    plural: compositemetrics
+  claimNames:
+    kind: Metrics
+    plural: metrics
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                enum: [prometheus, datadog, newrelic, custom]
+              scrapeInterval:
+                type: string
+              targets:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    endpoints:
+                      type: array
+                      items:
+                        type: string
+              alerting:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  rules:
+                    type: array
+                    items:
+                      type: object
+              providerConfigRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+            required: [name, type]
+          status:
+            type: object
+            properties:
+              metricsEndpoint:
+                type: string
+              scrapedTargets:
+                type: integer
+              conditions:
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+

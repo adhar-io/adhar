@@ -4,7 +4,7 @@
 INSTALL_YAML="platform/controllers/adharplatform/resources/crossplane/install.yaml"
 INSTALL_HA_YAML="platform/controllers/adharplatform/resources/crossplane/install-ha.yaml"
 HACK_DIR="$(cd "$(dirname "$0")" && pwd)"
-CROSSPLANE_VERSION="v2.0.2"
+CROSSPLANE_VERSION="v2.1.0"
 CROSSPLANE_NAMESPACE="adhar-system"
 
 # Use Helm to generate the Crossplane manifest including CRDs

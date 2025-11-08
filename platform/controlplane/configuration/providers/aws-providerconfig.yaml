@@ -1,0 +1,65 @@
+---
+# AWS EKS Provider Configuration
+apiVersion: eks.aws.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: aws-eks
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: aws-credentials
+      key: credentials
+---
+# AWS EC2 Provider Configuration
+apiVersion: ec2.aws.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: aws-ec2
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: aws-credentials
+      key: credentials
+---
+# AWS RDS Provider Configuration
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: aws-rds
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: aws-credentials
+      key: credentials
+---
+# AWS IAM Provider Configuration
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: aws-iam
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: aws-credentials
+      key: credentials
+---
+# AWS S3 Provider Configuration
+apiVersion: s3.aws.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: aws-s3
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: aws-credentials
+      key: credentials

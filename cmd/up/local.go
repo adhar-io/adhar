@@ -274,16 +274,6 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	}
 	lp.options.TemplateData.SelfSignedCert = string(cert)
 
-	logger.Info("Checking for incompatible options from a previous run")
-	ok, err := lp.isCompatible(ctx, kubeClient)
-	if err != nil {
-		logger.Error("Error while checking incompatible flags", err, map[string]interface{}{})
-		return err
-	}
-	if !ok {
-		return err
-	}
-
 	managerExit := make(chan error)
 
 	logger.Info("Running controllers")

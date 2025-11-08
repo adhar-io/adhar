@@ -1,0 +1,424 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositecosttracker-opencost
+  labels:
+    feature: costtracker
+    engine: opencost
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCostTracker
+  mode: Pipeline
+  pipeline:
+    - step: render-opencost
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            oxr = option("params").oxr
+            ocds = option("params").ocds
+
+            params = oxr.spec.parameters
+            metadata = oxr.metadata
+            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+
+            # Configuration
+            providers = params.providers or ["aws"]
+            aggregationLevel = params.aggregationLevel or "namespace"
+            currency = params.currency or "USD"
+            budgets = params.budgets or []
+            optimizationRules = params.optimizationRules or []
+            retentionDays = params.retentionDays or 90
+
+            # Dashboard and export
+            dashboard = params.dashboard or {}
+            enableDashboard = dashboard.enabled or True
+            dashboardPort = dashboard.port or 9090
+
+            exportConfig = params.exportConfig or {}
+            enableExport = exportConfig.enabled or False
+
+            alerting = params.alerting or {}
+            enableAlerting = alerting.enabled or True
+
+            opencostNamespace = "opencost"
+
+            _items = [
+                {
+                    apiVersion: "v1"
+                    kind: "Namespace"
+                    metadata.name: opencostNamespace
+                    metadata.labels: {
+                        "app.kubernetes.io/name": "opencost"
+                        "app.kubernetes.io/managed-by": "adhar"
+                    }
+                },
+                {
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "opencost-deployment"
+                    metadata.labels: {
+                        feature: "costtracker"
+                        engine: "opencost"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "apps/v1"
+                                kind: "Deployment"
+                                metadata: {
+                                    name: "opencost"
+                                    namespace: opencostNamespace
+                                    labels: {
+                                        app: "opencost"
+                                    }
+                                }
+                                spec: {
+                                    replicas: 1
+                                    selector: {
+                                        matchLabels: {
+                                            app: "opencost"
+                                        }
+                                    }
+                                    template: {
+                                        metadata: {
+                                            labels: {
+                                                app: "opencost"
+                                            }
+                                        }
+                                        spec: {
+                                            serviceAccountName: "opencost"
+                                            containers: [
+                                                {
+                                                    name: "opencost"
+                                                    image: "quay.io/kubecost1/kubecost-cost-model:latest"
+                                                    ports: [{
+                                                        containerPort: dashboardPort
+                                                        name: "http"
+                                                    }]
+                                                    env: [
+                                                        {
+                                                            name: "PROMETHEUS_SERVER_ENDPOINT"
+                                                            value: "http://prometheus-server.prometheus.svc:80"
+                                                        },
+                                                        {
+                                                            name: "CLOUD_PROVIDER_API_KEY"
+                                                            value: "AIzaSyDXQPG_MHUEy9neR7stolq97IRR"
+                                                        },
+                                                        {
+                                                            name: "CLUSTER_ID"
+                                                            value: metadata.name
+                                                        },
+                                                        {
+                                                            name: "CURRENCY_CODE"
+                                                            value: currency
+                                                        }
+                                                    ]
+                                                    resources: {
+                                                        requests: {
+                                                            cpu: "200m"
+                                                            memory: "256Mi"
+                                                        }
+                                                        limits: {
+                                                            cpu: "1"
+                                                            memory: "1Gi"
+                                                        }
+                                                    }
+                                                    readinessProbe: {
+                                                        httpGet: {
+                                                            path: "/healthz"
+                                                            port: dashboardPort
+                                                        }
+                                                        initialDelaySeconds: 30
+                                                        periodSeconds: 10
+                                                    }
+                                                },
+                                                {
+                                                    name: "opencost-ui"
+                                                    image: "quay.io/kubecost1/opencost-ui:latest"
+                                                    ports: [{
+                                                        containerPort: 9003
+                                                        name: "http-ui"
+                                                    }]
+                                                    resources: {
+                                                        requests: {
+                                                            cpu: "100m"
+                                                            memory: "128Mi"
+                                                        }
+                                                        limits: {
+                                                            cpu: "500m"
+                                                            memory: "512Mi"
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                },
+                {
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "opencost-service"
+                    metadata.labels: {
+                        feature: "costtracker"
+                        engine: "opencost"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "v1"
+                                kind: "Service"
+                                metadata: {
+                                    name: "opencost"
+                                    namespace: opencostNamespace
+                                }
+                                spec: {
+                                    selector: {
+                                        app: "opencost"
+                                    }
+                                    ports: [
+                                        {
+                                            name: "http"
+                                            port: 9003
+                                            targetPort: 9003
+                                        },
+                                        {
+                                            name: "metrics"
+                                            port: 9090
+                                            targetPort: dashboardPort
+                                        }
+                                    ]
+                                    type: "ClusterIP"
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                },
+                {
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "opencost-serviceaccount"
+                    metadata.labels: {
+                        feature: "costtracker"
+                        engine: "opencost"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "v1"
+                                kind: "ServiceAccount"
+                                metadata: {
+                                    name: "opencost"
+                                    namespace: opencostNamespace
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                },
+                {
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "opencost-clusterrole"
+                    metadata.labels: {
+                        feature: "costtracker"
+                        engine: "opencost"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "rbac.authorization.k8s.io/v1"
+                                kind: "ClusterRole"
+                                metadata: {
+                                    name: "opencost"
+                                }
+                                rules: [
+                                    {
+                                        apiGroups: [""]
+                                        resources: ["pods", "nodes", "services", "namespaces", "persistentvolumes", "persistentvolumeclaims"]
+                                        verbs: ["get", "list", "watch"]
+                                    },
+                                    {
+                                        apiGroups: ["apps"]
+                                        resources: ["deployments", "statefulsets", "daemonsets"]
+                                        verbs: ["get", "list", "watch"]
+                                    },
+                                    {
+                                        apiGroups: ["batch"]
+                                        resources: ["jobs", "cronjobs"]
+                                        verbs: ["get", "list", "watch"]
+                                    },
+                                    {
+                                        apiGroups: ["storage.k8s.io"]
+                                        resources: ["storageclasses"]
+                                        verbs: ["get", "list", "watch"]
+                                    }
+                                ]
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                },
+                {
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "opencost-clusterrolebinding"
+                    metadata.labels: {
+                        feature: "costtracker"
+                        engine: "opencost"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "rbac.authorization.k8s.io/v1"
+                                kind: "ClusterRoleBinding"
+                                metadata: {
+                                    name: "opencost"
+                                }
+                                roleRef: {
+                                    apiGroup: "rbac.authorization.k8s.io"
+                                    kind: "ClusterRole"
+                                    name: "opencost"
+                                }
+                                subjects: [{
+                                    kind: "ServiceAccount"
+                                    name: "opencost"
+                                    namespace: opencostNamespace
+                                }]
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                }
+            ]
+
+            # Add ingress if dashboard is enabled
+            if enableDashboard and dashboard.ingress?.enabled:
+                _items += [{
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "opencost-ingress"
+                    metadata.labels: {
+                        feature: "costtracker"
+                        engine: "opencost"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "networking.k8s.io/v1"
+                                kind: "Ingress"
+                                metadata: {
+                                    name: "opencost"
+                                    namespace: opencostNamespace
+                                    annotations: {
+                                        "nginx.ingress.kubernetes.io/ssl-redirect": "true"
+                                    }
+                                }
+                                spec: {
+                                    ingressClassName: "nginx"
+                                    rules: [{
+                                        host: dashboard.ingress.hostname or "opencost.${metadata.name}.local"
+                                        http: {
+                                            paths: [{
+                                                path: "/"
+                                                pathType: "Prefix"
+                                                backend: {
+                                                    service: {
+                                                        name: "opencost"
+                                                        port: {
+                                                            number: 9003
+                                                        }
+                                                    }
+                                                }
+                                            }]
+                                        }
+                                    }]
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                }]
+
+            # Add budget alert ConfigMap
+            if budgets and len(budgets) > 0:
+                _budgetConfig = {budget.name: {
+                    "amount": budget.amount
+                    "period": budget.period or "monthly"
+                    "threshold": budget.threshold or 80
+                } for budget in budgets}
+                
+                _items += [{
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "budget-config"
+                    metadata.labels: {
+                        feature: "costtracker"
+                        component: "budget"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "v1"
+                                kind: "ConfigMap"
+                                metadata: {
+                                    name: "budget-config"
+                                    namespace: opencostNamespace
+                                }
+                                data: {
+                                    "budgets.json": str(_budgetConfig)
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                }]
+
+            # Get observed state
+            _observedResources = ocds or {}
+            _deploymentObserved = _observedResources.get("opencost-deployment", {}).get("resource", {})
+            _deploymentStatus = _deploymentObserved.get("status", {})
+
+            _phase = "Pending"
+            _message = "Cost tracking provisioning initiated"
+            _ready = False
+            _dashboardUrl = ""
+
+            if _deploymentStatus:
+                _availableReplicas = _deploymentStatus.get("availableReplicas", 0)
+                _replicas = _deploymentStatus.get("replicas", 1)
+                
+                if _availableReplicas == _replicas and _availableReplicas > 0:
+                    _phase = "Available"
+                    _message = "Cost tracking is ready"
+                    _ready = True
+                    if dashboard.ingress?.hostname:
+                        _dashboardUrl = "https://{}".format(dashboard.ingress.hostname)
+                    else:
+                        _dashboardUrl = "http://opencost.${opencostNamespace}.svc:9003"
+                else:
+                    _phase = "Creating"
+                    _message = "Cost tracking is being provisioned"
+
+            items = _items + [{
+                apiVersion: "platform.adhar.io/v1alpha1"
+                kind: "CompositeCostTracker"
+                metadata: oxr.metadata
+                status: {
+                    phase: _phase
+                    message: _message
+                    ready: _ready
+                    if _dashboardUrl:
+                        dashboardUrl: _dashboardUrl
+                }
+            }]

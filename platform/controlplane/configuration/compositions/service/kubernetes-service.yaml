@@ -1,0 +1,40 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: service-k8s
+  labels:
+    feature: service
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeService
+  mode: Pipeline
+  pipeline:
+    - step: render-service
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            xr = option("params").oxr
+            spec = xr.spec
+            
+            svc = {
+                apiVersion = "v1"
+                kind = "Service"
+                metadata = {name = spec.name}
+                spec = {
+                    type = spec.type
+                    ports = spec.ports
+                    selector = spec.get("selector", {})
+                }
+            }
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [svc]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

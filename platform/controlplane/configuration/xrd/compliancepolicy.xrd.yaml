@@ -1,0 +1,334 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositecompliancepolicies.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeCompliancePolicy
+    plural: compositecompliancepolicies
+  claimNames:
+    kind: CompliancePolicy
+    plural: compliancepolicies
+  connectionSecretKeys:
+    - reportUrl
+  defaultCompositionRef:
+    name: compositecompliancepolicy-kyverno
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - compositionSelector
+                - parameters
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: compliance
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                parameters:
+                  type: object
+                  properties:
+                    displayName:
+                      type: string
+                    policyEngine:
+                      type: string
+                      enum:
+                        - kyverno
+                        - opa-gatekeeper
+                        - both
+                      default: kyverno
+                    complianceStandards:
+                      type: array
+                      description: "Compliance frameworks to enforce"
+                      items:
+                        type: string
+                        enum:
+                          - pod-security-standard
+                          - cis-kubernetes
+                          - nist-800-190
+                          - pci-dss
+                          - hipaa
+                          - soc2
+                          - gdpr
+                          - custom
+                    enforcementMode:
+                      type: string
+                      enum:
+                        - audit
+                        - enforce
+                      default: audit
+                      description: "Audit reports violations, enforce blocks them"
+                    policies:
+                      type: array
+                      description: "Individual policy rules"
+                      items:
+                        type: object
+                        required:
+                          - name
+                          - type
+                        properties:
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          type:
+                            type: string
+                            enum:
+                              - security
+                              - resource-limits
+                              - naming
+                              - labels
+                              - network
+                              - storage
+                              - rbac
+                          severity:
+                            type: string
+                            enum:
+                              - low
+                              - medium
+                              - high
+                              - critical
+                            default: medium
+                          enabled:
+                            type: boolean
+                            default: true
+                          action:
+                            type: string
+                            enum:
+                              - audit
+                              - enforce
+                              - warn
+                            default: audit
+                          scope:
+                            type: object
+                            properties:
+                              namespaces:
+                                type: array
+                                items:
+                                  type: string
+                              excludeNamespaces:
+                                type: array
+                                items:
+                                  type: string
+                              resources:
+                                type: array
+                                items:
+                                  type: string
+                    predefinedPolicies:
+                      type: object
+                      description: "Enable predefined policy sets"
+                      properties:
+                        requireResourceLimits:
+                          type: boolean
+                          default: true
+                        disallowPrivilegedContainers:
+                          type: boolean
+                          default: true
+                        requireNonRootUser:
+                          type: boolean
+                          default: true
+                        disallowHostPath:
+                          type: boolean
+                          default: true
+                        requireReadOnlyRootFS:
+                          type: boolean
+                          default: false
+                        requireLabels:
+                          type: array
+                          items:
+                            type: string
+                        requireNetworkPolicy:
+                          type: boolean
+                          default: false
+                        limitImageRegistries:
+                          type: array
+                          items:
+                            type: string
+                        requirePodSecurityPolicy:
+                          type: boolean
+                          default: false
+                    scanning:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        schedule:
+                          type: string
+                          default: "0 2 * * *"
+                        imageScanning:
+                          type: boolean
+                          default: true
+                        configScanning:
+                          type: boolean
+                          default: true
+                    reporting:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        format:
+                          type: array
+                          items:
+                            type: string
+                            enum:
+                              - json
+                              - html
+                              - pdf
+                        destination:
+                          type: string
+                          enum:
+                            - dashboard
+                            - s3
+                            - gcs
+                            - email
+                        schedule:
+                          type: string
+                        retentionDays:
+                          type: integer
+                          default: 90
+                    exceptions:
+                      type: array
+                      description: "Policy exceptions"
+                      items:
+                        type: object
+                        properties:
+                          policy:
+                            type: string
+                          namespace:
+                            type: string
+                          reason:
+                            type: string
+                          approvedBy:
+                            type: string
+                          expiresAt:
+                            type: string
+                            format: date-time
+                    notifications:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        channels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              type:
+                                type: string
+                                enum:
+                                  - slack
+                                  - email
+                                  - pagerduty
+                                  - webhook
+                              config:
+                                type: object
+                                additionalProperties:
+                                  type: string
+                        onViolation:
+                          type: boolean
+                          default: true
+                        onRemediation:
+                          type: boolean
+                          default: false
+                    remediation:
+                      type: object
+                      properties:
+                        autoRemediate:
+                          type: boolean
+                          default: false
+                        requireApproval:
+                          type: boolean
+                          default: true
+                    tags:
+                      type: object
+                      additionalProperties:
+                        type: string
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                      default: crossplane-system
+                    name:
+                      type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+                ready:
+                  type: boolean
+                reportUrl:
+                  type: string
+                complianceScore:
+                  type: number
+                  description: "Overall compliance score (0-100)"
+                violations:
+                  type: object
+                  properties:
+                    total:
+                      type: integer
+                    critical:
+                      type: integer
+                    high:
+                      type: integer
+                    medium:
+                      type: integer
+                    low:
+                      type: integer
+                policiesEnforced:
+                  type: integer
+                lastScanTime:
+                  type: string
+                  format: date-time
+                standardsCompliance:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      standard:
+                        type: string
+                      compliant:
+                        type: boolean
+                      score:
+                        type: number
+                      violations:
+                        type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
