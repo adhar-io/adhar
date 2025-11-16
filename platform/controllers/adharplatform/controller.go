@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,7 +40,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	sel "k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -118,6 +118,12 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	defer r.postProcessReconcile(ctx, req, &localBuild)
 
+	// If we already decided to shutdown, don't process any more reconciliations
+	if r.shouldShutdown {
+		logger.Info("Shutdown already initiated, skipping reconciliation")
+		return ctrl.Result{}, nil
+	}
+
 	_, err := r.ReconcileProjectNamespace(ctx, req, &localBuild)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -149,11 +155,22 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 	}
 
-	// If ExitOnSync is enabled, return immediately without requeuing
-	// postProcessReconcile (deferred) will handle the shutdown
-	if r.shouldShutdown {
-		logger.Info("Platform stack applied successfully. Exiting as requested (ExitOnSync=true)")
-		return ctrl.Result{}, nil
+	// If ExitOnSync is enabled, determine if we should shut down (all apps healthy, repos synced)
+	if r.ExitOnSync {
+		logger.Info("ExitOnSync enabled - checking if platform is fully synced and healthy")
+		ready, checkErr := r.shouldShutDown(ctx, &localBuild)
+		if checkErr != nil {
+			logger.Error(checkErr, "Failed to evaluate platform readiness - will requeue")
+			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+		}
+		if ready {
+			logger.Info("✅ All applications are healthy and synced! Platform deployment complete")
+			r.shouldShutdown = true
+			return ctrl.Result{}, nil
+		}
+
+		logger.Info("⏳ Platform is still converging, will check again shortly...")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	if r.Config.StaticPassword {
@@ -236,6 +253,13 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 	}
 	logger.Info("✅ GitOps repositories setup completed successfully")
 
+	logger.Info("Applying ArgoCD repository authentication and service for Gitea access")
+	if err := r.applyArgoCDRepoAuth(ctx, resource); err != nil {
+		logger.Error(err, "Failed to configure ArgoCD repository authentication")
+		return err
+	}
+	logger.Info("✅ ArgoCD repository authentication applied successfully")
+
 	// Only apply the platform stack ApplicationSet after GitOps is ready
 	logger.Info("Applying platform stack ApplicationSet")
 	appSetPath := "platform/stack/adhar-appset-local.yaml"
@@ -250,11 +274,9 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 		return err
 	}
 
-	logger.Info("Successfully applied platform stack ApplicationSet. Marking for shutdown if ExitOnSync")
-	// Exit early once the ApplicationSet has been applied (only when ExitOnSync is enabled)
-	if r.ExitOnSync {
-		r.shouldShutdown = true
-	}
+	logger.Info("✅ Successfully applied platform stack ApplicationSet")
+	// Don't shut down yet - we need to wait for applications to become healthy
+	// The next reconciliation will check if everything is ready
 	return nil
 }
 
@@ -298,6 +320,20 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 	}
 
 	logger.Info("✅ GitOps repositories setup completed successfully")
+	return nil
+}
+
+// applyArgoCDRepoAuth configures ArgoCD with credentials and a stable service for accessing Gitea
+func (r *AdharPlatformReconciler) applyArgoCDRepoAuth(ctx context.Context, resource *v1alpha1.AdharPlatform) error {
+	authPath := filepath.Join("platform", "stack", "argocd-auth.yaml")
+	authBytes, err := os.ReadFile(authPath)
+	if err != nil {
+		return fmt.Errorf("reading ArgoCD repo auth manifest %s: %w", authPath, err)
+	}
+
+	if err := r.applyManifest(ctx, authBytes, resource, "ArgoCD repo auth"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -614,7 +650,9 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 
 	logger.Info("Checking if we should shutdown")
 	if r.shouldShutdown {
-		logger.Info("Shutting Down")
+		logger.Info("🎉 Platform deployment completed successfully! Shutting down...")
+
+		// Refresh ArgoCD applications to ensure they're in sync
 		err := r.requestArgoCDAppRefresh(ctx)
 		if err != nil {
 			logger.V(1).Info("failed requesting argocd application refresh", "error", err)
@@ -623,6 +661,9 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 		if err != nil {
 			logger.V(1).Info("failed requesting argocd application set refresh", "error", err)
 		}
+
+		logger.Info("Triggering graceful shutdown...")
+		// Cancel the context to trigger manager shutdown
 		r.CancelFunc()
 		return
 	}
@@ -668,9 +709,9 @@ func (r *AdharPlatformReconciler) isPlatformAlreadyDeployed(ctx context.Context)
 		name      string
 		namespace string
 	}{
-		{"gitea", "adhar-system"},
-		{"argocd-server", "argocd"},
-		{"ingress-nginx-controller", "ingress-nginx"},
+		{"gitea", globals.AdharSystemNamespace},
+		{"argocd-server", globals.AdharSystemNamespace},
+		{"ingress-nginx-controller", globals.AdharSystemNamespace},
 	}
 
 	for _, dep := range coreDeployments {
@@ -700,7 +741,7 @@ func (r *AdharPlatformReconciler) isPlatformAlreadyDeployed(ctx context.Context)
 	})
 
 	err := r.Client.List(ctx, &appSetList, &client.ListOptions{
-		Namespace: "argocd",
+		Namespace: globals.AdharSystemNamespace,
 	})
 
 	if err != nil || len(appSetList.Items) == 0 {
@@ -721,92 +762,21 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 		return false, nil
 	}
 
-	cliStartTime, err := utils.GetCLIStartTimeAnnotationValue(resource.Annotations)
-	if err != nil {
+	if _, err := utils.GetCLIStartTimeAnnotationValue(resource.Annotations); err != nil {
 		return false, err
 	}
 
-	selector := labels.NewSelector()
-	req, err := labels.NewRequirement(v1alpha1.PackageTypeLabelKey, sel.Equals, []string{v1alpha1.PackageTypeLabelCore})
-	if err != nil {
-		return false, fmt.Errorf("building label selector for core packages: %w", err)
+	if !resource.Status.Gitea.RepositoriesCreated {
+		logger.Info("GitOps repositories still being prepared, not shutting down yet")
+		return false, nil
 	}
 
-	opts := client.ListOptions{
-		LabelSelector: selector.Add(*req),
-		Namespace:     "",
-	}
-	apps := argov1alpha1.ApplicationList{}
-	err = r.Client.List(ctx, &apps, &opts)
-	if err != nil {
-		return false, fmt.Errorf("listing core packages: %w", err)
+	if !r.isPlatformAlreadyDeployed(ctx) {
+		logger.Info("Core platform services are not fully available yet, waiting...")
+		return false, nil
 	}
 
-	logger.Info("Found ArgoCD applications", "count", len(apps.Items))
-	for _, app := range apps.Items {
-		logger.Info("Checking ArgoCD application", "name", app.Name, "health", app.Status.Health.Status)
-		if app.Status.Health.Status != "Healthy" {
-			logger.Info("ArgoCD application not healthy, not shutting down", "name", app.Name, "health", app.Status.Health.Status)
-			return false, nil
-		}
-	}
-
-	repos := &v1alpha1.GitRepositoryList{}
-	err = r.Client.List(ctx, repos, client.InNamespace(resource.Namespace))
-	if err != nil {
-		return false, fmt.Errorf("listing repositories %w", err)
-	}
-
-	for i := range repos.Items {
-		repo := repos.Items[i]
-
-		startTimeAnnotation, gErr := utils.GetCLIStartTimeAnnotationValue(repo.ObjectMeta.Annotations)
-		if gErr != nil {
-			continue
-		}
-
-		if startTimeAnnotation != cliStartTime {
-			continue
-		}
-
-		observedTime, gErr := utils.GetLastObservedSyncTimeAnnotationValue(repo.ObjectMeta.Annotations)
-		if gErr != nil {
-			logger.Info(gErr.Error())
-			return false, nil
-		}
-
-		if !repo.Status.Synced || cliStartTime != observedTime {
-			return false, nil
-		}
-	}
-
-	pkgs := &v1alpha1.CustomPackageList{}
-	err = r.Client.List(ctx, pkgs, client.InNamespace(resource.Namespace))
-	if err != nil {
-		return false, fmt.Errorf("listing custom packages %w", err)
-	}
-	for i := range pkgs.Items {
-		pkg := pkgs.Items[i]
-		startTimeAnnotation, gErr := utils.GetCLIStartTimeAnnotationValue(pkg.ObjectMeta.Annotations)
-		if gErr != nil {
-			continue
-		}
-
-		if startTimeAnnotation != cliStartTime {
-			continue
-		}
-
-		observedTime, gErr := utils.GetLastObservedSyncTimeAnnotationValue(pkg.ObjectMeta.Annotations)
-		if gErr != nil {
-			logger.Info(gErr.Error())
-			return false, nil
-		}
-		if !pkg.Status.Synced || cliStartTime != observedTime {
-			return false, nil
-		}
-	}
-
-	logger.Info("All checks passed, should shutdown")
+	logger.Info("All GitOps readiness checks passed, should shutdown")
 	return true, nil
 }
 

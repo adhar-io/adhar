@@ -22,7 +22,7 @@ nodes:
     protocol: TCP
   {{- end }}
   extraMounts:
-  - hostPath: ./backup # replace with your own path
+  - hostPath: .adhar/backup
     containerPath: /backup
 {{- if .RegistryConfig }}
   - containerPath: /var/lib/kubelet/config.json

@@ -116,12 +116,13 @@ stringData:
   security: INSTALL_LOCK=true
   server: |-
     APP_DATA_PATH=/data
-    DOMAIN=git.example.com
+    DOMAIN=adhar.localtest.me
     ENABLE_PPROF=false
+    HTTP_ADDR=0.0.0.0
     HTTP_PORT=3000
     PROTOCOL=http
-    ROOT_URL=http://git.example.com
-    SSH_DOMAIN=git.example.com
+    ROOT_URL=https://adhar.localtest.me/gitea/
+    SSH_DOMAIN=adhar.localtest.me
     SSH_LISTEN_PORT=2222
     SSH_PORT=22
     START_SSH_SERVER=true
@@ -344,12 +345,17 @@ stringData:
 
     echo '==== BEGIN GITEA CONFIGURATION ===='
 
-    { # try
-      gitea migrate
-    } || { # catch
-      echo "Gitea migrate might fail due to database connection...This init-container will try again in a few seconds"
-      exit 1
-    }
+    retry=0
+    max_retries=30
+    until gitea migrate; do
+      retry=$((retry+1))
+      if [[ "${retry}" -ge "${max_retries}" ]]; then
+        echo "Gitea migrate still failing after ${max_retries} attempts, giving up"
+        exit 1
+      fi
+      echo "Gitea migrate failed (attempt ${retry}/${max_retries}). Waiting for database to be ready..."
+      sleep 5
+    done
     function configure_admin_user() {
       local full_admin_list=$(gitea admin user list --admin)
       local actual_user_table=''
@@ -513,11 +519,10 @@ metadata:
     {}
 spec:
   type: ClusterIP
-  clusterIP: None
   ports:
   - name: http
     port: 3000
-    targetPort: 
+    targetPort: http
   selector:
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
@@ -540,11 +545,10 @@ metadata:
     {}
 spec:
   type: ClusterIP
-  clusterIP: None
   ports:
   - name: ssh
     port: 22
-    targetPort: 2222
+    targetPort: ssh
     protocol: TCP
   selector:
     app.kubernetes.io/name: gitea
@@ -724,22 +728,28 @@ spec:
               containerPort: 2222
             - name: http
               containerPort: 3000
+          startupProbe:
+            failureThreshold: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
           livenessProbe:
             failureThreshold: 10
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          readinessProbe:
+            failureThreshold: 5
             initialDelaySeconds: 30
             periodSeconds: 10
             successThreshold: 1
             tcpSocket:
               port: http
-            timeoutSeconds: 1
-          readinessProbe:
-            failureThreshold: 3
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            successThreshold: 1
-            tcpSocket:
-              port: http
-            timeoutSeconds: 1
+            timeoutSeconds: 3
           resources:
             limits:
               cpu: 200m

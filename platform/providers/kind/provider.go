@@ -194,6 +194,12 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	}
 	defer os.Remove(configFile) // Clean up config file
 
+	// Ensure .adhar/backup directory exists for Kind cluster mount
+	backupDir := ".adhar/backup"
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create backup directory: %w", err)
+	}
+
 	// Create progress tracker for cluster creation steps only if not called from platform setup
 	var progress *helpers.ProgressTracker
 	if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {

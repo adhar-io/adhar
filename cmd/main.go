@@ -65,17 +65,11 @@ import (
 	_ "adhar-io/adhar/platform/providers/kind"
 )
 
-var (
-	buildVersion string // Set at build time by ldflags
-	gitCommit    string // Set at build time by ldflags
-	buildDate    string // Set at build time by ldflags
-)
-
 func main() {
-	// Set the globals from the build-time variables
-	globals.Version = buildVersion
-	globals.GitCommit = gitCommit
-	globals.BuildDate = buildDate
+	// Set the globals from the version package (which is set via ldflags)
+	globals.Version = version.Version
+	globals.GitCommit = version.GitCommit
+	globals.BuildDate = version.BuildDate
 
 	// Initialize platform logger with default configuration
 	logger.Init(logger.DefaultConfig())
