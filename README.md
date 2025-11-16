@@ -1,6 +1,6 @@
 <div align="center">
 
-![Adhar Logo](docs/images/branding/path60.png)
+<img src="docs/images/branding/path60.png" alt="Adhar Logo" width="520" style="margin: 16px auto; display: block;" />
 
 **Sanskrit: अधार (Adhāra) – Foundation**
 
@@ -90,20 +90,9 @@ adhar down
 #1. Install Adhar CLI
 curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/scripts/install.sh | bash
 
-#2. Create configuration file (see Configuration Examples below)
-cat > adhar-config.yaml <<EOF
-clusterName: adhar-prod
-provider: AWS_EKS  # Supports: AWS_EKS, GCP_GKE, AZURE_AKS, DIGITALOCEAN_DOKS, CIVO_K3S
-region: us-east-1
-enableHAMode: true
-
-nodePools:
-  - name: system
-    instanceType: t3.large
-    count: 3
-    minCount: 3
-    maxCount: 5
-EOF
+#2. Download the configuration template
+curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/config.yaml -o adhar-config.yaml
+# Edit adhar-config.yaml with your cloud provider settings
 
 #3. Adhar platform production setup
 adhar up -f adhar-config.yaml
@@ -186,12 +175,11 @@ adhar get secrets -p argocd
 <summary><b>Application Development & Delivery (22)</b></summary>
 
 - **ArgoCD** - GitOps continuous delivery
-- **Argo Workflows** - Container-native workflow engine
+- **Argo Workflows** - Cloud-native CI/CD pipelines
 - **Argo Rollouts** - Progressive delivery with canary/blue-green
 - **Argo Events** - Event-driven workflow automation
 - **Gitea** - Self-hosted Git service
 - **Harbor** - Container registry & artifact repository
-- **Tekton** - Cloud-native CI/CD pipelines
 - **FluxCD** - GitOps toolkit for Kubernetes
 - **Knative** - Kubernetes-based serverless platform
 - **OpenFaaS** - Functions as a Service framework
@@ -242,18 +230,6 @@ adhar get secrets -p argocd
 | [Provider Guide](docs/PROVIDER_GUIDE.md) | Multi-cloud provider implementation guide |
 | [Advanced Guide](docs/ADVANCED.md) | HA mode, production deployment, and best practices |
 | [Contributing Guide](CONTRIBUTING.md) | How to contribute to the Adhar project |
-
----
-
-## 🤝 Community & Support
-
-| Channel | Purpose | Link |
-|---------|---------|------|
-| 💬 **Slack** | Real-time chat & support | [Join Workspace](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) |
-| 🐛 **GitHub Issues** | Bug reports & feature requests | [Open Issue](https://github.com/adhar-io/adhar/issues) |
-| 📖 **Documentation** | Comprehensive guides | [docs/README.md](docs/README.md) |
-| 💡 **Discussions** | Ideas, questions & feedback | [GitHub Discussions](https://github.com/adhar-io/adhar/discussions) |
-| 📦 **Examples** | Sample configs & apps | [examples/](examples/) |
 
 ---
 
@@ -366,9 +342,9 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 </tr>
 <tr>
 <td align="center" width="20%">
-<a href="https://aquasecurity.github.io/trivy">
-<img src="https://logo.svgcdn.com/simple-icons/trivy-dark.svg" width="80px" alt="Trivy"/>
-<br/><b>Trivy</b>
+<a href="https://backstage.io">
+<img src="https://raw.githubusercontent.com/cncf/artwork/master/projects/backstage/icon/color/backstage-icon-color.svg" width="80px" alt="Backstage"/>
+<br/><b>Backstage</b>
 </a>
 </td>
 <td align="center" width="20%">
@@ -384,15 +360,15 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 </a>
 </td>
 <td align="center" width="20%">
-<a href="https://cert-manager.io">
-<img src="https://raw.githubusercontent.com/cncf/artwork/master/projects/cert-manager/icon/color/cert-manager-icon-color.svg" width="80px" alt="cert-manager"/>
-<br/><b>cert-manager</b>
+<a href="https://kargo.io">
+<img src="https://raw.githubusercontent.com/akuity/kargo/main/docs/static/img/kargo.png" width="80px" alt="Kargo"/>
+<br/><b>Kargo</b>
 </a>
 </td>
 <td align="center" width="20%">
-<a href="https://helm.sh">
-<img src="https://raw.githubusercontent.com/cncf/artwork/master/projects/helm/icon/color/helm-icon-color.svg" width="80px" alt="Helm"/>
-<br/><b>Helm</b>
+<a href="https://cloudnative-pg.io">
+<img src="https://raw.githubusercontent.com/cncf/artwork/refs/heads/main/projects/cloudnativepg/icon/color/cloudnativepg-icon-color.svg" width="80px" alt="CloudNativePG"/>
+<br/><b>CloudNativePG</b>
 </a>
 </td>
 </tr>
@@ -408,7 +384,7 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 
 ### ⭐ Star us on GitHub — it helps the project grow!
 
-**Adhar Platform v0.3.8** • Built with ❤️ for Developers
+**Adhar Platform** • Built with ❤️ for Developers
 
 [🎯 Get Started](docs/GETTING_STARTED.md) • [💬 Join Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) • [📖 Documentation](docs/README.md) • [🤝 Contribute](CONTRIBUTING.md) • [🐛 Report Issue](https://github.com/adhar-io/adhar/issues)
 
