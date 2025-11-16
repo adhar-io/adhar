@@ -1,0 +1,235 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositeapplications.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeApplication
+    plural: compositeapplications
+  claimNames:
+    kind: Application
+    plural: applications
+  connectionSecretKeys:
+    - applicationName
+    - project
+    - destination
+  defaultCompositionRef:
+    name: compositeapplication-argocd
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - compositionSelector
+                - parameters
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: apps
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                parameters:
+                  type: object
+                  required:
+                    - source
+                    - destination
+                    - project
+                  properties:
+                    displayName:
+                      type: string
+                    project:
+                      type: string
+                    description:
+                      type: string
+                    source:
+                      type: object
+                      required:
+                        - repoURL
+                      properties:
+                        repoURL:
+                          type: string
+                        path:
+                          type: string
+                        chart:
+                          type: string
+                        targetRevision:
+                          type: string
+                        helm:
+                          type: object
+                          properties:
+                            releaseName:
+                              type: string
+                            valueFiles:
+                              type: array
+                              items:
+                                type: string
+                            values:
+                              type: string
+                        directory:
+                          type: object
+                          properties:
+                            recurse:
+                              type: boolean
+                        kustomize:
+                          type: object
+                          properties:
+                            images:
+                              type: array
+                              items:
+                                type: string
+                    destination:
+                      type: object
+                      properties:
+                        server:
+                          type: string
+                        namespace:
+                          type: string
+                        clusterRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                        clusterSelector:
+                          type: object
+                          properties:
+                            matchLabels:
+                              type: object
+                              additionalProperties:
+                                type: string
+                    syncPolicy:
+                      type: object
+                      properties:
+                        automated:
+                          type: object
+                          properties:
+                            prune:
+                              type: boolean
+                            selfHeal:
+                              type: boolean
+                            allowEmpty:
+                              type: boolean
+                        retry:
+                          type: object
+                          properties:
+                            limit:
+                              type: integer
+                        syncOptions:
+                          type: array
+                          items:
+                            type: string
+                    ignoreDifferences:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          kind:
+                            type: string
+                          name:
+                            type: string
+                          jsonPointers:
+                            type: array
+                            items:
+                              type: string
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                      default: crossplane-system
+                    name:
+                      type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: "Overall phase of the application (Pending, Syncing, Healthy, Degraded, Failed)"
+                message:
+                  type: string
+                  description: "Human-readable message describing current status"
+                healthStatus:
+                  type: string
+                  description: "ArgoCD health status (Healthy, Progressing, Degraded, Suspended, Missing, Unknown)"
+                syncStatus:
+                  type: string
+                  description: "ArgoCD sync status (Synced, OutOfSync, Unknown)"
+                lastSynced:
+                  type: string
+                  format: date-time
+                  description: "Timestamp of last successful sync"
+                revision:
+                  type: string
+                  description: "Git revision or chart version currently deployed"
+                operationState:
+                  type: object
+                  description: "Details of the current or most recent sync operation"
+                  properties:
+                    phase:
+                      type: string
+                      description: "Operation phase (Running, Succeeded, Failed, Error, Terminating)"
+                    message:
+                      type: string
+                    startedAt:
+                      type: string
+                      format: date-time
+                    finishedAt:
+                      type: string
+                      format: date-time
+                conditions:
+                  type: array
+                  description: "Structured conditions from ArgoCD"
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        description: "Condition type (e.g., InvalidSpec, ComparisonError, SyncError)"
+                      status:
+                        type: string
+                        description: "Status of condition (True, False, Unknown)"
+                      reason:
+                        type: string
+                        description: "Machine-readable reason for condition"
+                      message:
+                        type: string
+                        description: "Human-readable message"
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                resources:
+                  type: array
+                  description: "Summary of managed resources"
+                  items:
+                    type: object
+                    properties:
+                      group:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                      status:
+                        type: string
+                      health:
+                        type: string

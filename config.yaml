@@ -1,0 +1,575 @@
+# Adhar Platform Configuration
+#
+# IMPORTANT: This is a template configuration file with placeholder values.
+# Replace all placeholders (YOUR_*) with your actual credentials and settings.
+#
+# DEFAULT CONFIGURATION:
+# - Kind (local Kubernetes) is enabled by default for development
+# - All cloud providers are commented out - uncomment and configure as needed
+# - Never commit real tokens/credentials to version control
+#
+# This file demonstrates how to configure production Kubernetes clusters
+# across multiple cloud providers with Cilium CNI and platform components
+
+# Global Settings
+globalSettings:
+  adharContext: "adhar-mgmt"
+  defaultHost: "cloud.adhar.io"
+  defaultHttpPort: 80
+  defaultHttpsPort: 443
+  enableHAMode: false
+  email: "YOUR_EMAIL@example.com"
+
+# Provider configurations
+# Only configure the providers you plan to use
+# For development, Kind is enabled by default
+providers:
+  # Kind - Local development clusters (enabled by default)
+  kind:
+    type: kind
+    region: local
+    primary: true # Management cluster provider for local development
+  #   config:
+  #     kind_path: kind
+  #     kubectl_path: kubectl
+  #     registry:
+  #       enabled: false
+  #       name: "kind-registry"
+  #       port: 5001
+  #     cluster_config:
+  #       api_version: kind.x-k8s.io/v1alpha4
+  #       kind: Cluster
+  #       networking:
+  #         disable_default_cni: false
+  #         kube_proxy_mode: iptables
+  #       nodes:
+  #         - role: control-plane
+  #           extra_port_mappings:
+  #             - container_port: 80
+  #               host_port: 80
+  #             - container_port: 443
+  #               host_port: 443
+  #         - role: worker
+  #         - role: worker
+
+  # AWS Provider (enabled for production workloads)
+  # aws:
+  #   type: aws
+  #   region: ap-south-1
+  #   primary: true  # Set to true if you want provider to handle management cluster
+  #   credentials_file: "~/.aws/credentials"
+  #   # accessKeyId: "YOUR_AWS_ACCESS_KEY_ID"
+  #   # secretAccessKey: "YOUR_AWS_SECRET_ACCESS_KEY"
+  #   # useEnvironment: true # Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+  #   config:
+  #     vpc_cidr: "10.0.0.0/16"
+  #     subnet_cidrs:
+  #       - "10.0.1.0/24"
+  #       - "10.0.2.0/24"
+  #       - "10.0.3.0/24"
+  #     instance_types:
+  #       control_plane: "t3.medium"
+  #       worker: "t3.medium"
+  #     ebs:
+  #       volume_type: "gp3"
+  #       volume_size: 50
+  #       iops: 3000
+  #     security_groups:
+  #       - name: "adhar-cluster-sg"
+  #         rules:
+  #           - protocol: tcp
+  #             from_port: 22
+  #             to_port: 22
+  #             cidr_blocks: ["0.0.0.0/0"]
+  #           - protocol: tcp
+  #             from_port: 6443
+  #             to_port: 6443
+  #             cidr_blocks: ["0.0.0.0/0"]
+  #     tags:
+  #       Environment: "production"
+  #       Project: "adhar"
+  #       ManagedBy: "adhar-platform"
+
+  # Azure Provider (commented - uncomment and configure to use)
+  # azure:
+  #   type: azure
+  #   region: westindia
+  #   primary: true
+  #   credentials_file: "~/.azure/accessTokens.json"
+  #   # clientId: "YOUR_AZURE_CLIENT_ID"
+  #   # clientSecret: "YOUR_AZURE_CLIENT_SECRET"
+  #   # tenantId: "YOUR_AZURE_TENANT_ID"
+  #   # useEnvironment: true # Environment variables (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID)
+  #   config:
+  #     subscriptionId: "YOUR_AZURE_SUBSCRIPTION_ID"
+  #     resource_group: "adhar-rg"
+  #     vnet_cidr: "10.1.0.0/16"
+  #     subnet_cidr: "10.1.1.0/24"
+  #     vm_size: "Standard_B2s"
+  #     disk_type: "Standard_LRS"
+  #     disk_size_gb: 50
+  #     network_security_group:
+  #       rules:
+  #         - name: "SSH"
+  #           priority: 1001
+  #           protocol: "Tcp"
+  #           access: "Allow"
+  #           direction: "Inbound"
+  #           source_port_range: "*"
+  #           destination_port_range: "22"
+  #           source_address_prefix: "*"
+  #           destination_address_prefix: "*"
+  #         - name: "Kubernetes-API"
+  #           priority: 1002
+  #           protocol: "Tcp"
+  #           access: "Allow"
+  #           direction: "Inbound"
+  #           source_port_range: "*"
+  #           destination_port_range: "6443"
+  #           source_address_prefix: "*"
+  #           destination_address_prefix: "*"
+  #     tags:
+  #       Environment: "development"
+  #       Project: "adhar"
+
+  # Google Cloud Provider (commented - uncomment and configure to use)
+  # gcp:
+  #   type: gcp
+  #   region: asia-south1
+  #   primary: true
+  #   credentials_file: "~/.config/gcloud/YOUR_GCP_SERVICE_ACCOUNT.json"
+  #   config:
+  #     project_id: "YOUR_GCP_PROJECT_ID"
+  #     zone: "asia-south1-b"
+  #     vpc_name: "adhar-vpc-new"
+  #     subnet_name: "adhar-subnet-new"
+  #     subnet_cidr: "10.3.0.0/24"
+  #     machine_type: "e2-medium"
+  #     disk_type: "pd-ssd"
+  #     disk_size_gb: 50
+  #     firewall_rules:
+  #       - name: "allow-ssh"
+  #         direction: "INGRESS"
+  #         priority: 1000
+  #         source_ranges: ["0.0.0.0/0"]
+  #         allowed:
+  #           - ip_protocol: "tcp"
+  #             ports: ["22"]
+  #       - name: "allow-k8s-api"
+  #         direction: "INGRESS"
+  #         priority: 1000
+  #         source_ranges: ["0.0.0.0/0"]
+  #         allowed:
+  #           - ip_protocol: "tcp"
+  #             ports: ["6443"]
+  #     labels:
+  #       environment: "development"
+  #       project: "adhar"
+
+  # DigitalOcean Provider (configured for dynamic operation)
+  # digitalocean:
+  #   type: digitalocean
+  #   region: blr1
+  #   primary: true
+  #   token: "YOUR_DIGITALOCEAN_TOKEN"
+  #   # useEnvironment: true #Environment variable (DIGITALOCEAN_TOKEN)
+  #   # credentials_file: "~/.digitalocean/credentials"
+  #   config:
+  #     vpc_uuid: ""  # Leave empty to create new VPC or specify UUID to use existing
+  #     vpc_cidr: "10.3.0.0/16"  # CIDR for new VPC (conflicts will be auto-resolved)
+  #     reuse_existing_vpc: true  # Set to true to reuse compatible existing VPCs
+  #     droplet_size: "s-2vcpu-2gb"
+  #     image: "ubuntu-22-04-x64"
+  #     ssh_keys: []  # Add your SSH key fingerprints like ["aa:bb:cc:dd:..."]
+  #     firewall_rules:
+  #       - name: "adhar-cluster-fw"
+  #         inbound_rules:
+  #           - protocol: "tcp"
+  #             ports: "22"
+  #             sources:
+  #               addresses: ["0.0.0.0/0"]
+  #           - protocol: "tcp"
+  #             ports: "6443"
+  #             sources:
+  #               addresses: ["0.0.0.0/0"]
+  #         outbound_rules:
+  #           - protocol: "tcp"
+  #             ports: "all"
+  #             destinations:
+  #               addresses: ["0.0.0.0/0"]
+  #     tags:
+  #       - "adhar"
+  #       - "kubernetes"
+  #       - "development"
+
+  # Civo Provider (commented - uncomment and configure to use)
+  # civo:
+  #   type: civo
+  #   region: MUM1
+  #   primary: false
+  #   token: "YOUR_CIVO_API_TOKEN"
+  #   # credentials_file: "~/.civo/credentials"
+  #   # useEnvironment: true #Environment variable (CIVO_TOKEN)
+  #   config:
+  #     network_id: "YOUR_CIVO_NETWORK_ID"
+  #     size: "g4s.kube.medium"
+  #     disk_image: "ubuntu-22.04-x64"
+  #     firewall_rules:
+  #       - label: "adhar-cluster"
+  #         rules:
+  #           - protocol: "tcp"
+  #             start_port: "22"
+  #             end_port: "22"
+  #             cidr: ["0.0.0.0/0"]
+  #             direction: "ingress"
+  #           - protocol: "tcp"
+  #             start_port: "6443"
+  #             end_port: "6443"
+  #             cidr: ["0.0.0.0/0"]
+  #             direction: "ingress"
+
+  # Custom/On-Premises Provider (commented - uncomment and configure to use)
+  # custom:
+  #   type: custom
+  #   region: on-premises
+  #   primary: false  # Development workload provider
+  #   config:
+  #     # Authentication Configuration
+  #     username: "ubuntu"                    # SSH username for all nodes
+  #     password: ""                          # SSH password (optional if using key)
+  #     sshKeyPath: "~/.ssh/id_rsa"          # Path to SSH private key
+  #     sshPort: 22                          # SSH port (default 22)
+  #
+  #     # Cluster Configuration
+  #     isExisting: false                     # Set to true for existing clusters
+  #     discoveryMode: false                  # Auto-discover existing clusters
+  #     clusterType: "kubeadm"               # kubeadm, rke2, k3s, etc.
+  #     kubeadmPath: "/usr/bin/kubeadm"     # Path to kubeadm binary
+  #     containerEngine: "containerd"        # docker, containerd, cri-o
+  #     cni: "cilium"                        # calico, flannel, weave, cilium
+  #     storageClass: "local-path"           # local-path, nfs, ceph
+  #     kubeconfigPath: ""                   # Path to existing kubeconfig
+  #
+  #     # Node Configuration
+  #     nodeIPs:                             # IP addresses of all nodes
+  #       - "192.168.1.10"                  # Master node IP
+  #       - "192.168.1.11"                  # Worker node IP
+  #       - "192.168.1.12"                  # Worker node IP
+  #
+  #     # Network Configuration
+  #     endpoint: "192.168.1.10"            # Control plane endpoint (optional)
+  #     podCIDR: "10.244.0.0/16"           # Pod network CIDR
+  #     serviceCIDR: "10.96.0.0/12"        # Service network CIDR
+  #
+  #     # Load Balancer Configuration (optional)
+  #     loadBalancer:
+  #       enabled: true
+  #       type: "haproxy"                    # haproxy, nginx, metallb
+  #       vip: "192.168.1.100"              # Virtual IP for load balancer
+  #
+  #     # Storage Configuration (optional)
+  #     storage:
+  #       type: "local-path"                 # local-path, nfs, ceph
+  #       nfsServer: ""                      # NFS server IP (if using NFS)
+  #       nfsPath: ""                        # NFS export path
+  #
+  #     # Monitoring and Logging
+  #     monitoring:
+  #       enabled: true
+  #       prometheus: true
+  #       grafana: true
+  #       alertmanager: true
+  #
+  #     # Security Configuration
+  #     security:
+  #       networkPolicies: true
+  #       podSecurityStandards: "restricted"
+  #       rbac:
+  #         enabled: true
+  #         adminUsers: ["admin"]
+  #
+  #     # Backup Configuration
+  #     backup:
+  #       enabled: true
+  #       schedule: "0 2 * * *"             # Daily at 2 AM
+  #       retention: 30                      # Days to retain backups
+  #       storage:
+  #         type: "local"                    # local, s3, nfs
+  #         path: "/backups"                 # Backup storage path
+  #
+  #     # Add-ons Configuration
+  #     addons:
+  #       ingress:
+  #         enabled: true
+  #         type: "nginx"                    # nginx, traefik, haproxy
+  #       certManager:
+  #         enabled: true
+  #         email: "admin@example.com"
+  #       dashboard:
+  #         enabled: true
+  #         type: "kubernetes-dashboard"     # kubernetes-dashboard, octant
+  #       logging:
+  #         enabled: true
+  #         type: "fluentd"                  # fluentd, filebeat
+  #       metrics:
+  #         enabled: true
+  #         type: "prometheus"               # prometheus, datadog
+  #
+  #   # Example configurations for different scenarios:
+  #
+  #   # 1. Import Existing Cluster
+  #   # custom-existing:
+  #   #   type: custom
+  #   #   region: on-premises
+  #   #   primary: false
+  #   #   config:
+  #   #     username: "ubuntu"
+  #   #     sshKeyPath: "~/.ssh/id_rsa"
+  #   #     isExisting: true
+  #   #     discoveryMode: true
+  #   #     kubeconfigPath: "/path/to/existing/kubeconfig"
+  #   #     nodeIPs:
+  #   #       - "192.168.1.10"
+  #   #       - "192.168.1.11"
+  #   #       - "192.168.1.12"
+  #
+  #   # 2. Create New Cluster
+  #   # custom-new:
+  #   #   type: custom
+  #   #   region: on-premises
+  #   #   primary: false
+  #   #   config:
+  #   #     username: "ubuntu"
+  #   #     sshKeyPath: "~/.ssh/id_rsa"
+  #   #     isExisting: false
+  #   #     clusterType: "kubeadm"
+  #   #     containerEngine: "containerd"
+  #   #     cni: "calico"
+  #   #     storageClass: "local-path"
+  #   #     nodeIPs:
+  #   #       - "192.168.1.10"
+  #   #       - "192.168.1.11"
+  #   #       - "192.168.1.12"
+  #
+  #   # 3. High Availability Cluster
+  #   # custom-ha:
+  #   #   type: custom
+  #   #   region: on-premises
+  #   #   primary: false
+  #   #   config:
+  #   #     username: "ubuntu"
+  #   #     sshKeyPath: "~/.ssh/id_rsa"
+  #   #     isExisting: false
+  #   #     clusterType: "kubeadm"
+  #   #     nodeIPs:
+  #   #       - "192.168.1.10"
+  #   #       - "192.168.1.20"
+  #   #       - "192.168.1.30"
+  #   #       - "192.168.1.11"
+  #   #       - "192.168.1.12"
+  #   #       - "192.168.1.13"
+  #   #     loadBalancer:
+  #   #       enabled: true
+  #   #       type: "haproxy"
+  #   #       vip: "192.168.1.100"
+
+# Environment Templates for reusable configurations
+environmentTemplates:
+  # Production template with high availability and security
+  prod-defaults:
+    clusterConfig:
+      - key: "autoScale"
+        value: "true"
+      - key: "minNodes"
+        value: "3"
+      - key: "maxNodes"
+        value: "10"
+    coreServices:
+      cilium:
+        chart:
+          repoURL: "https://helm.cilium.io/"
+          name: "cilium"
+          version: "1.15.7"
+        values:
+          - key: "cluster.name"
+            value: "production-cluster"
+          - key: "kubeProxyReplacement"
+            value: "strict"
+          - key: "hubble.enabled"
+            value: "true"
+          - key: "hubble.relay.enabled"
+            value: "true"
+          - key: "hubble.ui.enabled"
+            value: "true"
+          - key: "encryption.enabled"
+            value: "true"
+          - key: "encryption.type"
+            value: "wireguard"
+          - key: "operator.replicas"
+            value: "2"
+      nginx:
+        chart:
+          repoURL: "https://kubernetes.github.io/ingress-nginx"
+          name: "ingress-nginx"
+          version: "4.10.1"
+        values:
+          - key: "controller.replicaCount"
+            value: "3"
+          - key: "controller.service.type"
+            value: "LoadBalancer"
+      gitea:
+        chart:
+          repoURL: "https://dl.gitea.com/charts/"
+          name: "gitea"
+          version: "10.3.0"
+        values:
+          - key: "postgresql.enabled"
+            value: "true"
+          - key: "redis.enabled"
+            value: "true"
+          - key: "persistence.enabled"
+            value: "true"
+      argocd:
+        chart:
+          repoURL: "https://argoproj.github.io/argo-helm"
+          name: "argo-cd"
+          version: "6.11.1"
+        values:
+          - key: "server.replicas"
+            value: "2"
+          - key: "controller.replicas"
+            value: "2"
+          - key: "repoServer.replicas"
+            value: "2"
+    addons:
+      - name: prometheus
+        chart:
+          repoURL: "https://prometheus-community.github.io/helm-charts"
+          name: "kube-prometheus-stack"
+          version: "59.0.0"
+        targetNamespace: monitoring
+        createNamespace: true
+        values:
+          - key: "grafana.enabled"
+            value: "true"
+          - key: "prometheus.prometheusSpec.retention"
+            value: "30d"
+
+      - name: cert-manager
+        chart:
+          repoURL: "https://charts.jetstack.io"
+          name: "cert-manager"
+          version: "v1.15.0"
+        targetNamespace: cert-manager
+        createNamespace: true
+        values:
+          - key: "installCRDs"
+            value: "true"
+          - key: "global.leaderElection.namespace"
+            value: "cert-manager"
+
+      - name: external-dns
+        chart:
+          repoURL: "https://kubernetes-sigs.github.io/external-dns/"
+          name: "external-dns"
+          version: "1.14.5"
+        targetNamespace: external-dns
+        createNamespace: true
+
+  # Development template with cost optimization
+  nonprod-defaults:
+    clusterConfig:
+      - key: "autoScale"
+        value: "true"
+      - key: "minNodes"
+        value: "1"
+      - key: "maxNodes"
+        value: "5"
+    coreServices:
+      cilium:
+        chart:
+          repoURL: "https://helm.cilium.io/"
+          name: "cilium"
+          version: "1.15.7"
+      nginx:
+        chart:
+          repoURL: "https://kubernetes.github.io/ingress-nginx"
+          name: "ingress-nginx"
+          version: "4.10.1"
+      gitea:
+        chart:
+          repoURL: "https://dl.gitea.com/charts/"
+          name: "gitea"
+          version: "10.3.0"
+      argocd:
+        chart:
+          repoURL: "https://argoproj.github.io/argo-helm"
+          name: "argo-cd"
+          version: "6.11.1"
+    addons:
+      - name: metrics-server
+        chart:
+          repoURL: "https://kubernetes-sigs.github.io/metrics-server/"
+          name: "metrics-server"
+          version: "3.12.1"
+        targetNamespace: kube-system
+
+# Environment Definitions
+environments:
+  # Development environments (auto-assigned to non-production provider: DigitalOcean)
+  dev:
+    type: non-production
+    template: development-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-dev"
+      - key: "nodeSize"
+        value: "s-2vcpu-4gb"
+      - key: "nodeCount"
+        value: "2"
+
+  # Testing environment (auto-assigned to non-production provider: DigitalOcean)
+  test:
+    type: non-production
+    template: development-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-test"
+      - key: "nodeSize"
+        value: "s-2vcpu-4gb"
+      - key: "nodeCount"
+        value: "2"
+
+  # Staging environment (auto-assigned to production provider: GKE for production-like testing)
+  staging:
+    type: production
+    template: production-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-staging"
+      - key: "machineType"
+        value: "e2-standard-4"
+      - key: "numNodes"
+        value: "3"
+      - key: "projectID"
+        value: "YOUR_STAGING_PROJECT_ID"
+
+  # Production environment (auto-assigned to production provider: GKE)
+  production:
+    type: production
+    template: production-defaults
+    clusterConfig:
+      - key: "name"
+        value: "adhar-production"
+      - key: "machineType"
+        value: "n2-standard-8"
+      - key: "numNodes"
+        value: "5"
+      - key: "projectID"
+        value: "YOUR_PRODUCTION_PROJECT_ID"
+      - key: "releaseChannel"
+        value: "STABLE"
+      - key: "enableNetworkPolicy"
+        value: "true"
+      - key: "enablePodSecurityPolicy"
+        value: "true"

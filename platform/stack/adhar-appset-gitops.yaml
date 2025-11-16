@@ -1,0 +1,236 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: adhar-gitops-platform
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-gitops
+    app.kubernetes.io/part-of: adhar-platform
+spec:
+  generators:
+    - list:
+        elements:
+          # Security packages
+          - name: "external-secrets"
+            enabled: "true"
+            namespace: "external-secrets"
+            category: "security"
+            adharPath: "adhar://packages/security/external-secrets"
+            manifestType: "install"
+          - name: "cert-manager"
+            enabled: "true"
+            namespace: "cert-manager"
+            category: "security"
+            adharPath: "adhar://packages/security/cert-manager"
+            manifestType: "install"
+          - name: "kyverno"
+            enabled: "true"
+            namespace: "kyverno"
+            category: "security"
+            adharPath: "adhar://packages/security/kyverno"
+            manifestType: "install"
+          - name: "kyverno-policies"
+            enabled: "true"
+            namespace: "kyverno"
+            category: "security"
+            adharPath: "adhar://packages/security/kyverno-policies"
+            manifestType: "install"
+          - name: "keycloak"
+            enabled: "true"
+            namespace: "keycloak"
+            category: "security"
+            adharPath: "adhar://packages/security/keycloak"
+            manifestType: "install"
+
+          # Data packages
+          - name: "cnpg"
+            enabled: "true"
+            namespace: "cnpg-system"
+            category: "data"
+            adharPath: "adhar://packages/data/cnpg"
+            manifestType: "install"
+          - name: "jupyterhub"
+            enabled: "true"
+            namespace: "jupyterhub"
+            category: "data"
+            adharPath: "adhar://packages/data/jupyterhub"
+            manifestType: "install"
+          - name: "minio"
+            enabled: "true"
+            namespace: "minio"
+            category: "data"
+            adharPath: "adhar://packages/data/minio"
+            manifestType: "install"
+          - name: "redis"
+            enabled: "true"
+            namespace: "redis-operator"
+            category: "data"
+            adharPath: "adhar://packages/data/redis"
+            manifestType: "install"
+          - name: "spark-operator"
+            enabled: "true"
+            namespace: "spark-operator"
+            category: "data"
+            adharPath: "adhar://packages/data/spark-operator"
+            manifestType: "install"
+
+          # Observability packages
+          - name: "headlamp"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "observability"
+            adharPath: "adhar://packages/observability/headlamp"
+            manifestType: "install"
+          - name: "metrics-server"
+            enabled: "true"
+            namespace: "kube-system"
+            category: "observability"
+            adharPath: "adhar://packages/observability/metrics-server"
+            manifestType: "install"
+          - name: "kube-prometheus"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            adharPath: "adhar://packages/observability/kube-prometheus"
+            manifestType: "install"
+          - name: "loki"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            adharPath: "adhar://packages/observability/loki-stack"
+            manifestType: "install"
+          - name: "opencost"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            adharPath: "adhar://packages/observability/opencost"
+            manifestType: "install"
+          - name: "alloy"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            adharPath: "adhar://packages/observability/alloy"
+            manifestType: "install"
+          - name: "oncall"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            adharPath: "adhar://packages/observability/oncall"
+            manifestType: "install"
+          - name: "tempo"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            adharPath: "adhar://packages/observability/tempo"
+            manifestType: "install"
+          - name: "mimir"
+            enabled: "true"
+            namespace: "monitoring"
+            category: "observability"
+            adharPath: "adhar://packages/observability/mimir"
+            manifestType: "install"
+
+          # Application packages
+          - name: "argo-workflows"
+            enabled: "true"
+            namespace: "argo"
+            category: "application"
+            adharPath: "adhar://packages/application/argo-workflows"
+            manifestType: "dev"
+          - name: "adhar-console"
+            enabled: "true"
+            namespace: "backstage"
+            category: "core"
+            adharPath: "adhar://packages/core/adhar-console"
+            manifestType: "install"
+          - name: "harbor"
+            enabled: "true"
+            namespace: "harbor"
+            category: "application"
+            adharPath: "adhar://packages/application/harbor"
+            manifestType: "install"
+          - name: "kargo"
+            enabled: "true"
+            namespace: "argocd"
+            category: "application"
+            adharPath: "adhar://packages/application/kargo"
+            manifestType: "install"
+          - name: "k6"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            adharPath: "adhar://packages/application/k6"
+            manifestType: "install"
+          - name: "dapr"
+            enabled: "true"
+            namespace: "dapr-system"
+            category: "application"
+            adharPath: "adhar://packages/application/dapr"
+            manifestType: "install"
+          - name: "keda"
+            enabled: "true"
+            namespace: "keda"
+            category: "application"
+            adharPath: "adhar://packages/application/keda"
+            manifestType: "install"
+
+          # Infrastructure packages
+          - name: "crossplane"
+            enabled: "true"
+            namespace: "crossplane-system"
+            category: "infrastructure"
+            adharPath: "adhar://packages/infrastructure/crossplane"
+            manifestType: "install"
+          - name: "terraform"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "infrastructure"
+            adharPath: "adhar://packages/infrastructure/terraform"
+            manifestType: "install"
+
+          # Core packages
+          - name: "velero"
+            enabled: "true"
+            namespace: "velero"
+            category: "core"
+            adharPath: "adhar://packages/core/velero"
+            manifestType: "install"
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  template:
+    metadata:
+      finalizers:
+        - resources-finalizer.argoproj.io
+      labels:
+        adhar.io/package-name: "{{ .name }}"
+        adhar.io/category: "{{ .category }}"
+        adhar.io/gitops: "true"
+        environment: "local"
+      name: "{{ .name }}"
+      annotations:
+        adhar.io/adhar-path: "{{ .adharPath }}"
+        adhar.io/manifest-type: "{{ .manifestType }}"
+    spec:
+      destination:
+        namespace: "{{ .namespace }}"
+        server: https://kubernetes.default.svc
+      project: default
+      sources:
+        - path: "{{ .adharPath }}/manifests"
+          repoURL: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+          targetRevision: main
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        retry:
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m0s
+          limit: 30
+        syncOptions:
+          - Replace=true
+          - CreateNamespace=true
+          - ServerSideApply=true

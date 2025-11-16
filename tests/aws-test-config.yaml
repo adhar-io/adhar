@@ -1,0 +1,38 @@
+apiVersion: v1alpha1
+kind: Config
+
+# AWS test environment configuration
+environments:
+  aws-test:
+    name: adhar-aws-test
+    type: production
+    provider: aws
+    region: us-west-2
+
+    # AWS-specific cluster configuration
+    clusterConfig:
+      - key: service_role_arn
+        value: arn:aws:iam::123456789012:role/EKSServiceRole
+      - key: instance_type
+        value: t3.medium
+      - key: min_size
+        value: "1"
+      - key: max_size
+        value: "5"
+      - key: desired_capacity
+        value: "3"
+      - key: "kubernetes_version"
+        value: "1.33"
+    coreServices:
+      argocd:
+        values:
+          - key: "server.replicas"
+            value: "1"
+      gitea:
+        values:
+          - key: "replicaCount"
+            value: "1"
+      nginx:
+        enabled: true
+      cilium:
+        enabled: true

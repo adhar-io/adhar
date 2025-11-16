@@ -1,0 +1,114 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositenetwork-gcp-vpc
+  labels:
+    feature: network
+    provider: gcp
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeNetwork
+  mode: Pipeline
+  pipeline:
+    - step: render-vpc
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            oxr = option("params").oxr
+            ocds = option("params").ocds
+
+            params = oxr.spec.parameters
+            metadata = oxr.metadata
+            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+
+            cidrBlock = params.cidrBlock or "10.0.0.0/16"
+            region = params.region or "us-central1"
+            subnets = params.subnets or []
+            tags = params.tags or {}
+            deletionPolicy = params.deletionPolicy or "Delete"
+
+            _items = [{
+                apiVersion: "compute.gcp.upbound.io/v1beta1"
+                kind: "Network"
+                metadata.name: "vpc"
+                metadata.labels: {
+                    feature: "network"
+                    provider: "gcp"
+                }
+                spec: {
+                    forProvider: {
+                        autoCreateSubnetworks: False
+                        routingMode: "REGIONAL"
+                    }
+                    providerConfigRef.name: providerConfigName
+                    deletionPolicy: deletionPolicy
+                }
+            }]
+
+            # Add subnets
+            for idx, subnet in subnets:
+                _subnetName = subnet.name or "subnet-{}".format(idx)
+                _items += [{
+                    apiVersion: "compute.gcp.upbound.io/v1beta1"
+                    kind: "Subnetwork"
+                    metadata.name: "subnet-{}".format(_subnetName)
+                    metadata.labels: {
+                        feature: "network"
+                        provider: "gcp"
+                        type: subnet.type or "private"
+                    }
+                    spec: {
+                        forProvider: {
+                            networkSelector: {
+                                matchControllerRef: True
+                            }
+                            ipCidrRange: subnet.cidrBlock
+                            region: region
+                            privateIpGoogleAccess: True
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }]
+
+            # Get observed state
+            _observedResources = ocds or {}
+            _vpcObserved = _observedResources.get("vpc", {}).get("resource", {})
+            _vpcStatus = _vpcObserved.get("status", {}).get("atProvider", {})
+
+            _phase = "Pending"
+            _message = "Network provisioning initiated"
+            _ready = False
+            _vpcId = ""
+
+            if _vpcStatus:
+                _vpcId = _vpcStatus.get("id", "")
+                _selfLink = _vpcStatus.get("selfLink", "")
+                if _vpcId or _selfLink:
+                    _phase = "Available"
+                    _message = "Network is ready"
+                    _ready = True
+
+            items = _items + [{
+                apiVersion: "platform.adhar.io/v1alpha1"
+                kind: "CompositeNetwork"
+                metadata: oxr.metadata
+                status: {
+                    phase: _phase
+                    message: _message
+                    ready: _ready
+                    if _vpcId:
+                        vpcId: _vpcId
+                    cidrBlock: cidrBlock
+                    subnets: [{
+                        name: subnet.name or str(idx)
+                        cidrBlock: subnet.cidrBlock
+                        availabilityZone: subnet.availabilityZone or region
+                    } for idx, subnet in subnets]
+                }
+            }]

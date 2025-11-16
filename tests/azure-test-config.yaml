@@ -1,0 +1,27 @@
+apiVersion: v1alpha1
+kind: Config
+
+# Azure test environment configuration
+environments:
+  azure-test:
+    name: adhar-azure-test
+    type: production
+    provider: azure
+    region: eastus
+    
+    # Azure-specific cluster configuration
+    clusterConfig:
+      - key: resource_group
+        value: adhar-azure-test-rg
+      - key: kubernetes_version
+        value: "1.28.0"
+      - key: node_count
+        value: "3"
+      - key: node_vm_size
+        value: Standard_DS2_v2
+      - key: enable_auto_scaling
+        value: "true"
+      - key: min_node_count
+        value: "1"
+      - key: max_node_count
+        value: "10"

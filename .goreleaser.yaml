@@ -3,6 +3,8 @@ project_name: adhar
 before:
   hooks:
     - go mod tidy
+    - go generate ./...
+
 release:
   # Mark nightly build as prerelease based on tag
   prerelease: auto
@@ -10,22 +12,26 @@ release:
 builds:
   - env:
       - CGO_ENABLED=0
+    main: ./cmd
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
     ldflags:
-      - -X github.com/adhar-io/adhar/pkg/cmd/version.adharVersion={{ .Version }}
-      - -X github.com/adhar-io/adhar/pkg/cmd/version.gitCommit={{ .FullCommit }}
-      - -X github.com/adhar-io/adhar/pkg/cmd/version.buildDate={{ .CommitDate }}
+      - -X adhar-io/adhar/cmd/version.Version={{ .Version }}
+      - -X adhar-io/adhar/cmd/version.GitCommit={{ .FullCommit }}
+      - -X adhar-io/adhar/cmd/version.BuildDate={{ .CommitDate }}
       - -w
       - -s
     binary: adhar
     ignore:
       - goos: linux
-        goarch: '386'
+        goarch: "386"
+      - goos: windows
+        goarch: arm64
 brews:
   - name: adhar
     homepage: "https://adhar.io"
@@ -44,15 +50,26 @@ brews:
 archives:
   - format: tar.gz
     name_template: >-
-      {{ .ProjectName }}-{{ .Os }}-{{ .Arch }}
+      {{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - docs/**/*
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
+  algorithm: sha256
 snapshot:
-  version_template: "{{ incpatch .Version }}-next"
+  name_template: "{{ incpatch .Version }}-next"
 changelog:
   sort: asc
+  use: github
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch

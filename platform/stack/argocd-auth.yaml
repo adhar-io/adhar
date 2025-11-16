@@ -1,0 +1,80 @@
+# ArgoCD Repository Authentication Configuration
+# This file contains the repository secrets that allow ArgoCD to authenticate
+# with the internal Gitea repositories for GitOps operations.
+#
+# RESILIENT DESIGN:
+# 1. Dedicated service (gitea-argocd) for ArgoCD access
+# 2. ConfigMap for service discovery and configuration
+# 3. Service names instead of IP addresses
+# 4. Automatic fallback mechanisms
+#
+# The secrets are configured to use internal service URLs and admin credentials
+# to access the environments and packages repositories within the cluster.
+#
+# These secrets are applied during platform setup to enable ArgoCD to:
+# - Access the environments repository for environment management
+# - Access the packages repository for application templates and manifests
+
+---
+# ConfigMap for service discovery and configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-argocd-config
+  namespace: adhar-system
+  labels:
+    app: gitea
+    component: argocd-config
+data:
+  gitea-service: "gitea-argocd.adhar-system.svc.cluster.local:3000"
+  gitea-admin-user: "gitea_admin"
+  gitea-admin-password: "r8sA8CPHD9!bt6d"
+  environments-repo: "environments"
+  packages-repo: "packages"
+---
+# Dedicated service for ArgoCD to ensure stable connectivity
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-argocd
+  namespace: adhar-system
+  labels:
+    app: gitea
+    component: argocd-access
+spec:
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: gitea
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-environments
+  namespace: adhar-system
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: git
+  url: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+  username: gitea_admin
+  password: r8sA8CPHD9!bt6d
+  insecure: "true"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-packages
+  namespace: adhar-system
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: git
+  url: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+  username: gitea_admin
+  password: r8sA8CPHD9!bt6d
+  insecure: "true"

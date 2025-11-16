@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DIRECTORIES='argo-cd gitea ingress-nginx'
+DIRECTORIES='argocd gitea ingress-nginx cilium crossplane'
 
 for dir in $DIRECTORIES; do
     ./hack/$dir/generate-manifests.sh;

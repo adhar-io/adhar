@@ -1,0 +1,18 @@
+apiVersion: platform.adhar.io/v1alpha1
+kind: Organisation
+metadata:
+  name: acme-corp
+  labels:
+    platform.adhar.io/tier: enterprise
+spec:
+  displayName: "ACME Corporation"
+  description: "Example organization for ACME Corp"
+  contactEmail: "platform@acme.com"
+  billing:
+    enabled: true
+    billingEmail: "billing@acme.com"
+  quotas:
+    maxClusters: 10
+    maxApplications: 100
+    maxTeams: 20
+

@@ -1,0 +1,39 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: metrics-prometheus
+  labels:
+    feature: metrics
+    provider: prometheus
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeMetrics
+  mode: Pipeline
+  pipeline:
+    - step: render-metrics
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            xr = option("params").oxr
+            spec = xr.spec
+            
+            serviceMonitor = {
+                apiVersion = "monitoring.coreos.com/v1"
+                kind = "ServiceMonitor"
+                metadata = {name = spec.name}
+                spec = {
+                    selector = {matchLabels = {"app": spec.name}}
+                    endpoints = [{port = "metrics", interval = spec.get("scrapeInterval", "30s")}]
+                }
+            }
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [serviceMonitor]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

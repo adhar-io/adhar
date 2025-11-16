@@ -1,0 +1,29 @@
+globalSettings:
+  adharContext: "test"
+  enableHAMode: false
+  defaultRegion: "nyc3"
+  
+environments:
+  test-do:
+    provider: "do"
+    region: "nyc3"
+    clusterConfig:
+      - key: "node_size"
+        value: "s-2vcpu-4gb"
+      - key: "node_count"
+        value: "2"
+      - key: "auto_scale"
+        value: "true"
+      - key: "min_nodes"
+        value: "1"
+      - key: "max_nodes"
+        value: "5"
+    coreServices:
+      gitea:
+        values:
+          - key: "replicaCount"
+            value: "1"
+      argocd:
+        values:
+          - key: "server.replicas"
+            value: "1"

@@ -1,0 +1,21 @@
+apiVersion: platform.adhar.io/v1alpha1
+kind: Team
+metadata:
+  name: platform-team
+  namespace: acme-corp
+  labels:
+    platform.adhar.io/organization: acme-corp
+spec:
+  displayName: "Platform Engineering Team"
+  description: "Team responsible for platform infrastructure"
+  organizationRef:
+    name: acme-corp
+  members:
+    - username: "john.doe@acme.com"
+      role: "admin"
+    - username: "jane.smith@acme.com"
+      role: "developer"
+  resourceQuota:
+    requests.cpu: "50"
+    requests.memory: "100Gi"
+

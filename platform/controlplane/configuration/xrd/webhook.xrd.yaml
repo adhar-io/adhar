@@ -1,0 +1,67 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositewebhooks.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeWebhook
+    plural: compositewebhooks
+  claimNames:
+    kind: Webhook
+    plural: webhooks
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              name:
+                type: string
+              endpoint:
+                type: string
+              events:
+                type: array
+                items:
+                  type: string
+              authentication:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  secretRef:
+                    type: string
+              retryPolicy:
+                type: object
+                properties:
+                  attempts:
+                    type: integer
+                  backoff:
+                    type: string
+              providerConfigRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+            required: [name, endpoint]
+          status:
+            type: object
+            properties:
+              webhookId:
+                type: string
+              lastTriggered:
+                type: string
+              successRate:
+                type: string
+              conditions:
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+

@@ -1,0 +1,38 @@
+apiVersion: platform.adhar.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: sample-app-pipeline
+  namespace: acme-corp
+spec:
+  displayName: "Sample App CI/CD Pipeline"
+  applicationRef:
+    name: sample-app
+    namespace: acme-corp
+  repositoryRef:
+    name: sample-app-repo
+    namespace: acme-corp
+  triggers:
+    - type: "push"
+      branches: ["main", "develop"]
+    - type: "pull_request"
+  stages:
+    - name: "build"
+      steps:
+        - name: "install-deps"
+          image: "node:20"
+          command: ["npm", "install"]
+        - name: "test"
+          image: "node:20"
+          command: ["npm", "test"]
+        - name: "build"
+          image: "node:20"
+          command: ["npm", "run", "build"]
+    - name: "docker"
+      steps:
+        - name: "build-image"
+          image: "gcr.io/kaniko-project/executor:latest"
+          args:
+            - "--dockerfile=Dockerfile"
+            - "--context=dir://."
+            - "--destination=harbor.adhar.local/acme-corp/sample-app:${GIT_COMMIT}"
+

@@ -1,0 +1,116 @@
+# Local development configuration using Kind provider
+# Use this with: adhar up -f kind-local-config.yaml
+
+apiVersion: v1alpha1
+kind: Config
+
+# Global defaults for local development
+global:
+  provider: kind
+  region: local
+  type: development
+
+# Environment definitions
+environments:
+  local:
+    name: adhar
+    type: development
+    provider: kind
+    region: local
+
+    # Kind-specific cluster configuration
+    clusterConfig:
+      - key: name
+        value: adhar
+      - key: kubeVersion
+        value: v1.33.2
+      - key: nodeCount
+        value: "1"
+      - key: extraPorts
+        value: "80:30080,443:30443,8080:30808"
+
+    # Core services for local development
+    coreServices:
+      cilium:
+        chart:
+          repository: https://helm.cilium.io/
+          name: cilium
+          version: 1.16.5
+        values:
+          - key: cluster.name
+            value: adhar
+          - key: ipam.mode
+            value: kubernetes
+          - key: kubeProxyReplacement
+            value: strict
+          - key: hubble.enabled
+            value: false # Disable for local development to save resources
+
+      nginx:
+        chart:
+          repository: https://kubernetes.github.io/ingress-nginx
+          name: ingress-nginx
+          version: 4.11.3
+        values:
+          - key: controller.service.type
+            value: NodePort
+          - key: controller.service.nodePorts.http
+            value: 30080
+          - key: controller.service.nodePorts.https
+            value: 30443
+
+      gitea:
+        chart:
+          repository: https://dl.gitea.com/charts/
+          name: gitea
+          version: 10.6.0
+        values:
+          - key: service.http.type
+            value: NodePort
+          - key: service.http.nodePort
+            value: 30300
+          - key: gitea.admin.username
+            value: developer
+          - key: gitea.admin.password
+            value: developer
+
+      argocd:
+        chart:
+          repository: https://argoproj.github.io/argo-helm
+          name: argo-cd
+          version: 7.7.11
+        values:
+          - key: server.service.type
+            value: NodePort
+          - key: server.service.nodePortHttp
+            value: 30200
+          - key: configs.secret.argocdServerAdminPassword
+            value: developer
+
+# Template definitions
+templates:
+  development-defaults:
+    provider: kind
+    region: local
+    type: development
+    coreServices:
+      cilium:
+        chart:
+          repository: https://helm.cilium.io/
+          name: cilium
+          version: 1.16.5
+      nginx:
+        chart:
+          repository: https://kubernetes.github.io/ingress-nginx
+          name: ingress-nginx
+          version: 4.11.3
+      gitea:
+        chart:
+          repository: https://dl.gitea.com/charts/
+          name: gitea
+          version: 10.6.0
+      argocd:
+        chart:
+          repository: https://argoproj.github.io/argo-helm
+          name: argo-cd
+          version: 7.7.11

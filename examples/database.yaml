@@ -1,0 +1,34 @@
+apiVersion: platform.adhar.io/v1alpha1
+kind: Database
+metadata:
+  name: app-database
+  namespace: dev-apps
+  labels:
+    platform.adhar.io/environment: development
+spec:
+  displayName: "Application Database"
+  type: "postgresql"
+  version: "15.0"
+  environmentRef:
+    name: development
+  teamRef:
+    name: platform-team
+    namespace: acme-corp
+  provisioner:
+    type: "CloudNativePG"
+  cloudNativePGConfig:
+    instances: 1
+    storage:
+      size: "10Gi"
+      storageClass: "standard"
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1"
+  backupPolicy:
+    schedule: "0 2 * * *"
+    retentionDays: 7
+

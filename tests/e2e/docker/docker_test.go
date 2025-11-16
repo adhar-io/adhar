@@ -12,7 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adhar-io/adhar/tests/e2e"
+	"adhar-io/adhar/tests/e2e"
+
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -44,9 +45,9 @@ func Test_CreateDocker(t *testing.T) {
 	slogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctrl.SetLogger(logr.FromSlogHandler(slogger.Handler()))
 
-	// testCreate(t)
+	testCreate(t)
 	testCreatePath(t)
-	// testCreatePort(t)
+	testCreatePort(t)
 	testCustomPkg(t)
 }
 

@@ -14,13 +14,13 @@ permissions:
 
 jobs:
   code-analysis:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: ls -al
       - name: Scan current project
         id: scan
-        uses: anchore/scan-action@v3
+        uses: anchore/scan-action@v6
         with:
           fail-build: false
           path: "."

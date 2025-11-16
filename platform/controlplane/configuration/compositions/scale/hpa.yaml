@@ -1,0 +1,47 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: scale-hpa
+  labels:
+    feature: scale
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeScale
+  mode: Pipeline
+  pipeline:
+    - step: render-hpa
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            xr = option("params").oxr
+            spec = xr.spec
+            
+            hpa = {
+                apiVersion = "autoscaling/v2"
+                kind = "HorizontalPodAutoscaler"
+                metadata = {name = spec.name}
+                spec = {
+                    scaleTargetRef = spec.targetRef
+                    minReplicas = spec.get("minReplicas", 1)
+                    maxReplicas = spec.get("maxReplicas", 10)
+                    metrics = spec.get("metrics", [{
+                        type = "Resource"
+                        resource = {
+                            name = "cpu"
+                            target = {type = "Utilization", averageUtilization = 80}
+                        }
+                    }])
+                }
+            }
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [hpa]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

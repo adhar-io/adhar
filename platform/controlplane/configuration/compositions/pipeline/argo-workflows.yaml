@@ -1,0 +1,229 @@
+---
+# Pipeline Composition using Argo Workflows
+# Provides CI/CD pipeline capabilities using Argo Workflows
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: pipeline-argo-workflows
+  labels:
+    feature: pipeline
+    provider: argo-workflows
+    cicd.adhar.io/type: workflows
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositePipeline
+  mode: Pipeline
+  pipeline:
+    - step: render-pipeline-resources
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            # Get the composite resource
+            xr = option("params").oxr
+            ocds = option("params").ocds
+            dxr = option("params").dxr
+            
+            # Extract spec
+            spec = xr.spec
+            name = spec.name
+            pipelineType = spec.type
+            stages = spec.get("stages", [])
+            triggers = spec.get("triggers", {})
+            artifacts = spec.get("artifacts", {})
+            notifications = spec.get("notifications", {})
+            timeout = spec.get("timeout", "30m")
+            namespace = spec.get("namespace", "default")
+            
+            # Generate Argo Workflow Template
+            workflowTemplate = {
+                apiVersion = "argoproj.io/v1alpha1"
+                kind = "WorkflowTemplate"
+                metadata = {
+                    name = name
+                    namespace = namespace
+                    labels = {
+                        "app.kubernetes.io/name" = name
+                        "app.kubernetes.io/component" = "pipeline"
+                        "app.kubernetes.io/managed-by" = "crossplane"
+                        "pipeline.adhar.io/type" = pipelineType
+                    }
+                }
+                spec = {
+                    entrypoint = "main"
+                    serviceAccountName = "argo-workflow"
+                    
+                    # Convert stages to Argo workflow steps
+                    templates = [{
+                        name = "main"
+                        steps = [[{
+                            name = stage.name
+                            template = stage.name
+                        }] for stage in stages]
+                    }] + [
+                        {
+                            name = stage.name
+                            container = {
+                                image = step.image if step.image else "alpine:latest"
+                                command = step.get("command", ["/bin/sh"])
+                                env = [
+                                    {name = k, value = v}
+                                    for k, v in step.get("env", {}).items()
+                                ]
+                            }
+                        }
+                        for stage in stages
+                        for step in stage.get("steps", [])
+                    ]
+                    
+                    # Artifact configuration
+                    if artifacts.get("enabled", True):
+                        archiveLogs = True
+                        artifactRepositoryRef = {
+                            configMap = "artifact-repositories"
+                            key = artifacts.get("storage", "default")
+                        }
+                    
+                    # Active deadline
+                    activeDeadlineSeconds = 1800  # 30 minutes default
+                    if "m" in timeout:
+                        activeDeadlineSeconds = int(timeout.replace("m", "")) * 60
+                    elif "h" in timeout:
+                        activeDeadlineSeconds = int(timeout.replace("h", "")) * 3600
+                }
+            }
+            
+            # Generate EventSource for Git triggers if enabled
+            eventSource = None
+            if triggers.get("git", {}).get("enabled", False):
+                gitConfig = triggers.get("git", {})
+                eventSource = {
+                    apiVersion = "argoproj.io/v1alpha1"
+                    kind = "EventSource"
+                    metadata = {
+                        name = "${name}-git"
+                        namespace = namespace
+                        labels = {
+                            "app.kubernetes.io/name" = name
+                            "eventsource.adhar.io/type" = "git"
+                        }
+                    }
+                    spec = {
+                        service = {
+                            ports = [{
+                                port = 8080
+                                targetPort = 8080
+                            }]
+                        }
+                        webhook = {
+                            "git-webhook" = {
+                                port = "8080"
+                                endpoint = "/webhook"
+                                method = "POST"
+                            }
+                        }
+                    }
+                }
+            
+            # Generate Sensor for workflow triggers
+            sensor = None
+            if triggers.get("git", {}).get("enabled", False) or triggers.get("schedule", {}).get("enabled", False):
+                sensor = {
+                    apiVersion = "argoproj.io/v1alpha1"
+                    kind = "Sensor"
+                    metadata = {
+                        name = "${name}-trigger"
+                        namespace = namespace
+                        labels = {
+                            "app.kubernetes.io/name" = name
+                            "sensor.adhar.io/type" = "pipeline"
+                        }
+                    }
+                    spec = {
+                        template = {
+                            serviceAccountName = "argo-events-sa"
+                        }
+                        dependencies = []
+                        triggers = [{
+                            template = {
+                                name = "workflow-trigger"
+                                argoWorkflow = {
+                                    operation = "submit"
+                                    source = {
+                                        resource = {
+                                            apiVersion = "argoproj.io/v1alpha1"
+                                            kind = "Workflow"
+                                            metadata = {
+                                                generateName = "${name}-"
+                                                namespace = namespace
+                                            }
+                                            spec = {
+                                                workflowTemplateRef = {
+                                                    name = name
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                }
+                
+                # Add git trigger dependency
+                if triggers.get("git", {}).get("enabled", False):
+                    sensor.spec.dependencies.append({
+                        name = "git-dep"
+                        eventSourceName = "${name}-git"
+                        eventName = "git-webhook"
+                    })
+                
+                # Add schedule trigger dependency
+                if triggers.get("schedule", {}).get("enabled", False):
+                    scheduleConfig = triggers.get("schedule", {})
+                    sensor.spec.dependencies.append({
+                        name = "cron-dep"
+                        eventSourceName = "${name}-cron"
+                        eventName = "schedule"
+                    })
+            
+            # Notification ConfigMap if enabled
+            notificationConfig = None
+            if notifications.get("slack", {}).get("enabled", False) or notifications.get("email", {}).get("enabled", False):
+                notificationConfig = {
+                    apiVersion = "v1"
+                    kind = "ConfigMap"
+                    metadata = {
+                        name = "${name}-notifications"
+                        namespace = namespace
+                    }
+                    data = {
+                        "slack-webhook" = notifications.get("slack", {}).get("webhook", "")
+                        "email-recipients" = ",".join(notifications.get("email", {}).get("recipients", []))
+                    }
+                }
+            
+            # Collect all resources
+            items = [workflowTemplate]
+            if eventSource:
+                items.append(eventSource)
+            if sensor:
+                items.append(sensor)
+            if notificationConfig:
+                items.append(notificationConfig)
+            
+            # Return resources
+            {
+                apiVersion = "krm.kcl.dev/v1alpha1"
+                kind = "ResourceList"
+                items = items
+            }
+    
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

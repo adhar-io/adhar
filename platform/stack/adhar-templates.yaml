@@ -1,23 +1,23 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: backstage-templates
-  namespace: argocd
   labels:
     env: dev
+  name: backstage-templates
+  namespace: adhar-system
 spec:
+  destination:
+    namespace: backstage
+    server: https://kubernetes.default.svc
   project: default
   source:
-    repoURL: adhar://packages/application/adhar-templates
-    targetRevision: HEAD
-    path: "."
     directory:
-      exclude: 'catalog-info.yaml'
-  destination:
-    server: "https://kubernetes.default.svc"
-    namespace: backstage
+      exclude: catalog-info.yaml
+    path: application/adhar-templates
+    repoURL: http://gitea-http-clusterip.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+    targetRevision: HEAD
   syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
     automated:
       selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,52 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: health-probe
+  labels:
+    feature: health
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeHealth
+  mode: Pipeline
+  pipeline:
+    - step: render-health
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            xr = option("params").oxr
+            spec = xr.spec
+            
+            cronJob = {
+                apiVersion = "batch/v1"
+                kind = "CronJob"
+                metadata = {name = spec.name}
+                spec = {
+                    schedule = "*/5 * * * *"
+                    jobTemplate = {
+                        spec = {
+                            template = {
+                                spec = {
+                                    restartPolicy = "OnFailure"
+                                    containers = [{
+                                        name = "health-check"
+                                        image = "curlimages/curl:latest"
+                                        command = ["/bin/sh", "-c", "curl -f http://example.com/health || exit 1"]
+                                    }]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [cronJob]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

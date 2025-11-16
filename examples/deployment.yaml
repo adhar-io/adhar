@@ -1,0 +1,31 @@
+apiVersion: platform.adhar.io/v1alpha1
+kind: Deployment
+metadata:
+  name: sample-app-dev
+  namespace: dev-apps
+spec:
+  displayName: "Sample App Development Deployment"
+  applicationRef:
+    name: sample-app
+    namespace: acme-corp
+  environmentRef:
+    name: development
+  gitOps:
+    enabled: true
+    tool: "ArgoCD"
+    configRepoURL: "https://gitea.adhar.local/acme-corp/app-configs"
+    path: "apps/sample-app/dev"
+    syncPolicy:
+      automated:
+        prune: true
+        selfHeal: true
+  version: "latest"
+  replicas: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+

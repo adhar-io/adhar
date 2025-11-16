@@ -1,0 +1,288 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositecosttrackers.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeCostTracker
+    plural: compositecosttrackers
+  claimNames:
+    kind: CostTracker
+    plural: costtrackers
+  connectionSecretKeys:
+    - dashboardUrl
+  defaultCompositionRef:
+    name: compositecosttracker-opencost
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - compositionSelector
+                - parameters
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: costtracker
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                parameters:
+                  type: object
+                  properties:
+                    displayName:
+                      type: string
+                    providers:
+                      type: array
+                      description: "Cloud providers to track"
+                      items:
+                        type: string
+                        enum:
+                          - aws
+                          - gcp
+                          - azure
+                          - digitalocean
+                          - civo
+                    costEngine:
+                      type: string
+                      enum:
+                        - opencost
+                        - kubecost
+                        - cloudhealth
+                      default: opencost
+                    aggregationLevel:
+                      type: string
+                      enum:
+                        - cluster
+                        - namespace
+                        - pod
+                        - label
+                      default: namespace
+                    currency:
+                      type: string
+                      default: USD
+                    budgets:
+                      type: array
+                      description: "Budget alerts"
+                      items:
+                        type: object
+                        required:
+                          - name
+                          - amount
+                        properties:
+                          name:
+                            type: string
+                          amount:
+                            type: number
+                          period:
+                            type: string
+                            enum:
+                              - daily
+                              - weekly
+                              - monthly
+                              - quarterly
+                            default: monthly
+                          threshold:
+                            type: number
+                            description: "Alert when reaching this percentage (e.g., 80)"
+                            minimum: 1
+                            maximum: 100
+                            default: 80
+                          scope:
+                            type: object
+                            properties:
+                              namespaces:
+                                type: array
+                                items:
+                                  type: string
+                              labels:
+                                type: object
+                                additionalProperties:
+                                  type: string
+                    optimizationRules:
+                      type: array
+                      description: "Cost optimization recommendations"
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          type:
+                            type: string
+                            enum:
+                              - rightsize
+                              - spot-instances
+                              - reserved-instances
+                              - idle-resources
+                              - storage-optimization
+                          enabled:
+                            type: boolean
+                            default: true
+                          autoApply:
+                            type: boolean
+                            default: false
+                          threshold:
+                            type: number
+                    exportConfig:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        destination:
+                          type: string
+                          enum:
+                            - s3
+                            - gcs
+                            - azure-blob
+                            - prometheus
+                        schedule:
+                          type: string
+                        format:
+                          type: string
+                          enum:
+                            - csv
+                            - json
+                            - parquet
+                          default: csv
+                    alerting:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        channels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              type:
+                                type: string
+                                enum:
+                                  - slack
+                                  - email
+                                  - pagerduty
+                                  - webhook
+                              config:
+                                type: object
+                                additionalProperties:
+                                  type: string
+                    dashboard:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        port:
+                          type: integer
+                          default: 9090
+                        ingress:
+                          type: object
+                          properties:
+                            enabled:
+                              type: boolean
+                            hostname:
+                              type: string
+                            tls:
+                              type: boolean
+                    retentionDays:
+                      type: integer
+                      minimum: 1
+                      maximum: 730
+                      default: 90
+                      description: "How long to retain cost data"
+                    tags:
+                      type: object
+                      additionalProperties:
+                        type: string
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                      default: crossplane-system
+                    name:
+                      type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+                ready:
+                  type: boolean
+                dashboardUrl:
+                  type: string
+                currentCosts:
+                  type: object
+                  properties:
+                    daily:
+                      type: number
+                    monthly:
+                      type: number
+                    currency:
+                      type: string
+                budgetStatus:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      current:
+                        type: number
+                      limit:
+                        type: number
+                      percentage:
+                        type: number
+                      status:
+                        type: string
+                        enum:
+                          - healthy
+                          - warning
+                          - critical
+                optimizations:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      description:
+                        type: string
+                      potentialSavings:
+                        type: number
+                      applied:
+                        type: boolean
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string

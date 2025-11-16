@@ -1,0 +1,19 @@
+# Hubble UI Ingress Configuration
+# This package configures ingress access to Hubble UI for network observability
+
+ingress:
+  enabled: true
+  className: nginx
+  host: adhar.localtest.me
+  path: /hubble
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+
+service:
+  name: hubble-ui
+  port: 80
+  namespace: adhar-system

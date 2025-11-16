@@ -1,0 +1,31 @@
+# Gitea Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gitea-server-ingress
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: gitea
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: gitea
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - adhar.localtest.me
+      secretName: adhar-localtest-tls
+  rules:
+    - host: adhar.localtest.me
+      http:
+        paths:
+          - path: /gitea/?(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: gitea-http
+                port:
+                  number: 3000

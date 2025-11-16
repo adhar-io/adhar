@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hubble-ui
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "100"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    nginx.ingress.kubernetes.io/upstream-vhost: $service_name.$namespace.svc.cluster.local
+  labels:
+    app.kubernetes.io/name: hubble-ui
+    app.kubernetes.io/part-of: cilium
+spec:
+  ingressClassName: "nginx"
+  rules:
+    - host: adhar.localtest.me
+      http:
+        paths:
+          - path: /hubble(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: hubble-ui
+                port:
+                  number: 80

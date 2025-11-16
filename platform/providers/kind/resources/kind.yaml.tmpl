@@ -1,0 +1,46 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  image: "kindest/node:{{ .KubernetesVersion }}"
+  labels:
+    ingress-ready: "true"
+  extraPortMappings:
+  # Map host ports to nginx NodePorts for direct access without port forwarding
+  - containerPort: 30080  # nginx NodePort for HTTP
+    hostPort: {{ .HTTPPort | default 80 }}
+    protocol: TCP
+  - containerPort: 30443  # nginx NodePort for HTTPS  
+    hostPort: {{ .HTTPSPort | default 443 }}
+    protocol: TCP
+  - containerPort: 32222
+    hostPort: 32222
+    protocol: TCP
+  {{- range .ExtraPortsMapping }}
+  - containerPort: {{ .ContainerPort }}
+    hostPort: {{ .HostPort }}
+    protocol: TCP
+  {{- end }}
+  extraMounts:
+  - hostPath: .adhar/backup
+    containerPath: /backup
+{{- if .RegistryConfig }}
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: {{ .RegistryConfig }}
+{{- end }}
+networking:
+  disableDefaultCNI: true   # do not install kindnet
+  kubeProxyMode: none       # do not run kube-proxy - Cilium will replace it
+containerdConfigPatches:
+- |-
+  {{ if .UsePathRouting -}}
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."{{ .Host }}:{{ .Port }}"]
+    endpoint = ["https://{{ .Host }}"]
+  [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .Host }}".tls]
+    insecure_skip_verify = true
+  {{- else -}}
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gitea.{{ .Host }}:{{ .Port }}"]
+    endpoint = ["https://gitea.{{ .Host }}"]
+  [plugins."io.containerd.grpc.v1.cri".registry.configs."gitea.{{ .Host }}".tls]
+    insecure_skip_verify = true
+  {{- end -}}

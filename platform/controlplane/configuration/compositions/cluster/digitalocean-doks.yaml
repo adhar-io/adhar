@@ -1,0 +1,182 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositecluster-digitalocean-doks
+  labels:
+    feature: cluster
+    provider: digitalocean
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCluster
+  mode: Pipeline
+  pipeline:
+    - step: render-doks
+      functionRef:
+        name: fn-go-templating
+      input:
+        apiVersion: templating.fn.crossplane.io/v1beta1
+        kind: Template
+        spec:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $params := $xr.spec.parameters -}}
+            {{- $providerSettings := default (dict) $params.providerSettings -}}
+            {{- $doks := default (dict) (get $providerSettings "digitalocean") -}}
+            {{- $network := default (dict) $params.networkConfig -}}
+            {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
+            {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
+            {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
+            {{- $providerConfig := get $xr.spec.providerConfigRef "name" -}}
+            {{- $clusterTags := list }}
+            {{- range (default (list) (get $doks "tags")) }}
+              {{- $clusterTags = append $clusterTags . -}}
+            {{- end }}
+            {{- range $k, $v := (default (dict) $params.tags) }}
+              {{- $clusterTags = append $clusterTags (printf "%s:%s" $k $v) -}}
+            {{- end }}
+            {{- $firstPool := index $params.nodePools 0 -}}
+            {{- $maintenance := get $doks "maintenancePolicy" -}}
+            {{- $autoUpgrade := get $doks "autoUpgrade" -}}
+            {{- $surgeUpgrade := get $doks "surgeUpgrade" -}}
+            {{- $clusterSubnet := get $doks "clusterSubnet" -}}
+            {{- $serviceSubnet := get $doks "serviceSubnet" -}}
+            {{- $vpcUuid := default (get $doks "vpcUuid") $network.vpcId -}}
+            apiVersion: fn.crossplane.io/v1beta1
+            kind: FunctionIO
+            desired:
+              resources:
+                - name: doks-cluster
+                  resource:
+                    apiVersion: kubernetes.digitalocean.crossplane.io/v1alpha1
+                    kind: Cluster
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: digitalocean
+                    spec:
+                      forProvider:
+                        name: {{ quote (default $xr.metadata.name $params.displayName) }}
+                        region: {{ quote $params.region }}
+                        version: {{ quote $params.version }}
+                        {{- if $clusterSubnet }}
+                        clusterSubnet: {{ quote $clusterSubnet }}
+                        {{- end }}
+                        {{- if $serviceSubnet }}
+                        serviceSubnet: {{ quote $serviceSubnet }}
+                        {{- end }}
+                        {{- if (ne $autoUpgrade nil) }}
+                        autoUpgrade: {{ $autoUpgrade }}
+                        {{- end }}
+                        {{- if (ne $surgeUpgrade nil) }}
+                        surgeUpgrade: {{ $surgeUpgrade }}
+                        {{- end }}
+                        {{- if $maintenance }}
+                        maintenancePolicy:
+                          - day: {{ quote (get $maintenance "day") }}
+                            startTime: {{ quote (get $maintenance "startTime") }}
+                        {{- end }}
+                        {{- if $vpcUuid }}
+                        vpcUuid: {{ quote $vpcUuid }}
+                        {{- end }}
+                        {{- if $clusterTags }}
+                        tags:
+                        {{- range $clusterTags }}
+                          - {{ quote . }}
+                        {{- end }}
+                        {{- end }}
+                        nodePool:
+                          name: {{ quote (default $firstPool.name "default") }}
+                          size: {{ quote $firstPool.instanceType }}
+                          nodeCount: {{ default 1 $firstPool.count }}
+                          {{- if and $firstPool.minCount $firstPool.maxCount }}
+                          autoScale: true
+                          minNodes: {{ $firstPool.minCount }}
+                          maxNodes: {{ $firstPool.maxCount }}
+                          {{- else if $firstPool.minCount }}
+                          minNodes: {{ $firstPool.minCount }}
+                          {{- else if $firstPool.maxCount }}
+                          maxNodes: {{ $firstPool.maxCount }}
+                          {{- end }}
+                          {{- if $firstPool.labels }}
+                          labels:
+                          {{- range $k, $v := $firstPool.labels }}
+                            {{ $k }}: {{ quote $v }}
+                          {{- end }}
+                          {{- end }}
+                          {{- if $firstPool.taints }}
+                          taint:
+                          {{- range $firstPool.taints }}
+                            - key: {{ quote .key }}
+                              value: {{ quote (default "" .value) }}
+                              effect: {{ quote .effect }}
+                          {{- end }}
+                          {{- end }}
+                          {{- if $firstPool.tags }}
+                          tags:
+                          {{- range $k, $v := $firstPool.tags }}
+                            - {{ quote (printf "%s:%s" $k $v) }}
+                          {{- end }}
+                          {{- end }}
+                      writeConnectionSecretToRef:
+                        name: {{ quote $secretName }}
+                        namespace: {{ quote $secretNamespace }}
+                      {{- if $providerConfig }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                      {{- end }}
+                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                {{- range $index, $pool := $params.nodePools }}
+                {{- if gt $index 0 }}
+                - name: doks-nodepool-{{ $index }}
+                  resource:
+                    apiVersion: kubernetes.digitalocean.crossplane.io/v1alpha1
+                    kind: NodePool
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: digitalocean
+                        cluster-name: {{ quote $xr.metadata.name }}
+                    spec:
+                      forProvider:
+                        clusterIdSelector:
+                          matchControllerRef: true
+                        name: {{ quote $pool.name }}
+                        size: {{ quote $pool.instanceType }}
+                        nodeCount: {{ default 1 $pool.count }}
+                        {{- if and $pool.minCount $pool.maxCount }}
+                        autoScale: true
+                        minNodes: {{ $pool.minCount }}
+                        maxNodes: {{ $pool.maxCount }}
+                        {{- else if $pool.minCount }}
+                        minNodes: {{ $pool.minCount }}
+                        {{- else if $pool.maxCount }}
+                        maxNodes: {{ $pool.maxCount }}
+                        {{- end }}
+                        {{- if $pool.labels }}
+                        labels:
+                        {{- range $k, $v := $pool.labels }}
+                          {{ $k }}: {{ quote $v }}
+                        {{- end }}
+                        {{- end }}
+                        {{- if $pool.taints }}
+                        taint:
+                        {{- range $pool.taints }}
+                          - key: {{ quote .key }}
+                            value: {{ quote (default "" .value) }}
+                            effect: {{ quote .effect }}
+                        {{- end }}
+                        {{- end }}
+                        {{- if $pool.tags }}
+                        tags:
+                        {{- range $k, $v := $pool.tags }}
+                          - {{ quote (printf "%s:%s" $k $v) }}
+                        {{- end }}
+                        {{- end }}
+                      {{- if $providerConfig }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                      {{- end }}
+                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                {{- end }}
+                {{- end }}

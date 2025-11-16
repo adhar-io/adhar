@@ -1,0 +1,316 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositeauthstack-keycloak
+  labels:
+    feature: auth
+    provider: keycloak
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeAuthStack
+  mode: Pipeline
+  pipeline:
+    - step: render-keycloak
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            oxr = option("params").oxr
+            ocds = option("params").ocds
+
+            params = oxr.spec.parameters
+            metadata = oxr.metadata
+            conn = oxr.spec.writeConnectionSecretToRef or {}
+            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+
+            # Auth configuration
+            realm = params.realm or "master"
+            clients = params.clients or []
+            users = params.users or []
+            groups = params.groups or []
+            identityProviders = params.identityProviders or []
+
+            # MFA and policies
+            mfaConfig = params.mfaConfig or {}
+            enableMFA = mfaConfig.enabled or False
+
+            passwordPolicy = params.passwordPolicy or {}
+            sessionConfig = params.sessionConfig or {}
+
+            deletionPolicy = params.deletionPolicy or "Delete"
+
+            secretName = conn.name or "${metadata.name}-auth"
+            secretNamespace = conn.namespace or "crossplane-system"
+
+            # Keycloak namespace
+            keycloakNamespace = params.namespace or "keycloak"
+
+            _items = [
+                {
+                    apiVersion: "v1"
+                    kind: "Namespace"
+                    metadata.name: keycloakNamespace
+                    metadata.labels: {
+                        feature: "auth"
+                        "app.kubernetes.io/managed-by": "adhar"
+                    }
+                },
+                {
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "keycloak-deployment"
+                    metadata.labels: {
+                        feature: "auth"
+                        component: "keycloak"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "apps/v1"
+                                kind: "Deployment"
+                                metadata: {
+                                    name: "keycloak"
+                                    namespace: keycloakNamespace
+                                    labels: {
+                                        app: "keycloak"
+                                    }
+                                }
+                                spec: {
+                                    replicas: 1
+                                    selector: {
+                                        matchLabels: {
+                                            app: "keycloak"
+                                        }
+                                    }
+                                    template: {
+                                        metadata: {
+                                            labels: {
+                                                app: "keycloak"
+                                            }
+                                        }
+                                        spec: {
+                                            containers: [{
+                                                name: "keycloak"
+                                                image: "quay.io/keycloak/keycloak:23.0"
+                                                args: ["start-dev"]
+                                                env: [
+                                                    {
+                                                        name: "KEYCLOAK_ADMIN"
+                                                        value: "admin"
+                                                    },
+                                                    {
+                                                        name: "KEYCLOAK_ADMIN_PASSWORD"
+                                                        valueFrom: {
+                                                            secretKeyRef: {
+                                                                name: params.adminCredentialsSecretRef?.name or "keycloak-admin"
+                                                                key: "password"
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        name: "KC_PROXY"
+                                                        value: "edge"
+                                                    }
+                                                ]
+                                                ports: [{
+                                                    name: "http"
+                                                    containerPort: 8080
+                                                }]
+                                                readinessProbe: {
+                                                    httpGet: {
+                                                        path: "/realms/master"
+                                                        port: 8080
+                                                    }
+                                                    initialDelaySeconds: 30
+                                                    periodSeconds: 10
+                                                }
+                                            }]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                },
+                {
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "keycloak-service"
+                    metadata.labels: {
+                        feature: "auth"
+                        component: "keycloak"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "v1"
+                                kind: "Service"
+                                metadata: {
+                                    name: "keycloak"
+                                    namespace: keycloakNamespace
+                                }
+                                spec: {
+                                    selector: {
+                                        app: "keycloak"
+                                    }
+                                    ports: [{
+                                        name: "http"
+                                        port: 80
+                                        targetPort: 8080
+                                    }]
+                                    type: "ClusterIP"
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                }
+            ]
+
+            # Add Ingress for external access
+            _items += [{
+                apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                kind: "Object"
+                metadata.name: "keycloak-ingress"
+                metadata.labels: {
+                    feature: "auth"
+                    component: "keycloak"
+                }
+                spec: {
+                    forProvider: {
+                        manifest: {
+                            apiVersion: "networking.k8s.io/v1"
+                            kind: "Ingress"
+                            metadata: {
+                                name: "keycloak"
+                                namespace: keycloakNamespace
+                                annotations: {
+                                    "nginx.ingress.kubernetes.io/ssl-redirect": "true"
+                                }
+                            }
+                            spec: {
+                                ingressClassName: "nginx"
+                                rules: [{
+                                    host: params.hostname or "keycloak.${metadata.name}.local"
+                                    http: {
+                                        paths: [{
+                                            path: "/"
+                                            pathType: "Prefix"
+                                            backend: {
+                                                service: {
+                                                    name: "keycloak"
+                                                    port: {
+                                                        number: 80
+                                                    }
+                                                }
+                                            }
+                                        }]
+                                    }
+                                }]
+                            }
+                        }
+                    }
+                    providerConfigRef.name: providerConfigName
+                }
+            }]
+
+            # Create realm configuration ConfigMap
+            if realm != "master":
+                _realmConfig = {
+                    realm: realm
+                    enabled: True
+                    displayName: params.displayName or realm
+                    if enableMFA:
+                        otpPolicy: {
+                            type: mfaConfig.otpPolicy?.type or "totp"
+                            algorithm: mfaConfig.otpPolicy?.algorithm or "HmacSHA1"
+                            digits: mfaConfig.otpPolicy?.digits or 6
+                            period: mfaConfig.otpPolicy?.period or 30
+                        }
+                    if passwordPolicy:
+                        passwordPolicy: " and ".join([
+                            "length({})".format(passwordPolicy.minimumLength or 8) if passwordPolicy.minimumLength else "",
+                            "upperCase(1)" if passwordPolicy.requireUppercase else "",
+                            "lowerCase(1)" if passwordPolicy.requireLowercase else "",
+                            "digits(1)" if passwordPolicy.requireDigits else "",
+                            "specialChars(1)" if passwordPolicy.requireSpecialChars else "",
+                            "passwordHistory(3)"
+                        ])
+                    if sessionConfig:
+                        ssoSessionIdleTimeout: sessionConfig.ssoSessionIdleTimeout or 1800
+                        ssoSessionMaxLifespan: sessionConfig.ssoSessionMaxLifespan or 36000
+                        accessTokenLifespan: sessionConfig.accessTokenLifespan or 300
+                }
+                
+                _items += [{
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "realm-config"
+                    metadata.labels: {
+                        feature: "auth"
+                        component: "keycloak"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "v1"
+                                kind: "ConfigMap"
+                                metadata: {
+                                    name: "realm-config"
+                                    namespace: keycloakNamespace
+                                }
+                                data: {
+                                    "realm.json": str(_realmConfig)
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                }]
+
+            # Get observed state
+            _observedResources = ocds or {}
+            _deploymentObserved = _observedResources.get("keycloak-deployment", {}).get("resource", {})
+            _deploymentStatus = _deploymentObserved.get("status", {})
+
+            _phase = "Pending"
+            _message = "Auth stack provisioning initiated"
+            _ready = False
+            _issuer = ""
+
+            if _deploymentStatus:
+                _availableReplicas = _deploymentStatus.get("availableReplicas", 0)
+                _replicas = _deploymentStatus.get("replicas", 1)
+                
+                if _availableReplicas == _replicas and _availableReplicas > 0:
+                    _phase = "Available"
+                    _message = "Auth stack is ready"
+                    _ready = True
+                    _issuer = "https://{}/realms/{}".format(
+                        params.hostname or "keycloak.${metadata.name}.local",
+                        realm
+                    )
+                else:
+                    _phase = "Creating"
+                    _message = "Auth stack is being provisioned"
+
+            items = _items + [{
+                apiVersion: "platform.adhar.io/v1alpha1"
+                kind: "CompositeAuthStack"
+                metadata: oxr.metadata
+                status: {
+                    phase: _phase
+                    message: _message
+                    ready: _ready
+                    if _issuer:
+                        issuer: _issuer
+                    realm: realm
+                    clientsConfigured: len(clients)
+                    usersConfigured: len(users)
+                }
+            }]

@@ -1,0 +1,23 @@
+---
+# Kubernetes Provider Configuration - For Kind and on-prem clusters
+apiVersion: kubernetes.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: kubernetes-provider
+spec:
+  # Uses in-cluster configuration by default
+  credentials:
+    source: InjectedIdentity
+---
+# Alternative: External Kubernetes cluster configuration
+apiVersion: kubernetes.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: kubernetes-external
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: kubernetes-credentials
+      key: kubeconfig

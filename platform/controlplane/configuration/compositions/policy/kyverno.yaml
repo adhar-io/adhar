@@ -1,0 +1,281 @@
+---
+# Policy Composition using Kyverno
+# Provides compliance and security policy enforcement using Kyverno
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: policy-kyverno
+  labels:
+    feature: compliance
+    provider: kyverno
+    policy.adhar.io/engine: kyverno
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCompliancePolicy
+  mode: Pipeline
+  pipeline:
+    - step: render-kyverno-policies
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            # Get composite resource
+            xr = option("params").oxr
+            spec = xr.spec
+            params = spec.parameters
+            displayName = params.get("displayName", xr.metadata.name)
+            enforcementMode = params.get("enforcementMode", "audit")
+            standards = params.get("complianceStandards", [])
+            policies = params.get("policies", [])
+            predefined = params.get("predefinedPolicies", {})
+            scanning = params.get("scanning", {})
+            reporting = params.get("reporting", {})
+            notifications = params.get("notifications", {})
+            
+            # Convert enforcement mode to Kyverno validation failure action
+            validationFailureAction = "Audit" if enforcementMode == "audit" else "Enforce"
+            
+            # Generate predefined policies if enabled
+            predefinedPolicies = []
+            
+            # Require resource limits
+            if predefined.get("requireResourceLimits", True):
+                predefinedPolicies.append({
+                    apiVersion = "kyverno.io/v1"
+                    kind = "ClusterPolicy"
+                    metadata = {
+                        name = "${displayName}-require-limits"
+                        annotations = {
+                            "policies.kyverno.io/title" = "Require Resource Limits"
+                            "policies.kyverno.io/category" = "Best Practices"
+                            "policies.kyverno.io/severity" = "medium"
+                            "policies.kyverno.io/subject" = "Pod"
+                            "policies.kyverno.io/description" = "All containers must have resource limits defined"
+                        }
+                    }
+                    spec = {
+                        validationFailureAction = validationFailureAction
+                        background = True
+                        rules = [{
+                            name = "require-cpu-limits"
+                            match = {
+                                any = [{
+                                    resources = {
+                                        kinds = ["Pod"]
+                                    }
+                                }]
+                            }
+                            validate = {
+                                message = "CPU limits are required for all containers"
+                                pattern = {
+                                    spec = {
+                                        containers = [{
+                                            resources = {
+                                                limits = {
+                                                    cpu = "?*"
+                                                }
+                                            }
+                                        }]
+                                    }
+                                }
+                            }
+                        }, {
+                            name = "require-memory-limits"
+                            match = {
+                                any = [{
+                                    resources = {
+                                        kinds = ["Pod"]
+                                    }
+                                }]
+                            }
+                            validate = {
+                                message = "Memory limits are required for all containers"
+                                pattern = {
+                                    spec = {
+                                        containers = [{
+                                            resources = {
+                                                limits = {
+                                                    memory = "?*"
+                                                }
+                                            }
+                                        }]
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                })
+            
+            # Disallow privileged containers
+            if predefined.get("disallowPrivilegedContainers", True):
+                predefinedPolicies.append({
+                    apiVersion = "kyverno.io/v1"
+                    kind = "ClusterPolicy"
+                    metadata = {
+                        name = "${displayName}-disallow-privileged"
+                        annotations = {
+                            "policies.kyverno.io/title" = "Disallow Privileged Containers"
+                            "policies.kyverno.io/category" = "Pod Security Standards (Baseline)"
+                            "policies.kyverno.io/severity" = "high"
+                            "policies.kyverno.io/subject" = "Pod"
+                            "policies.kyverno.io/description" = "Privileged mode disables most security mechanisms"
+                        }
+                    }
+                    spec = {
+                        validationFailureAction = validationFailureAction
+                        background = True
+                        rules = [{
+                            name = "disallow-privileged-containers"
+                            match = {
+                                any = [{
+                                    resources = {
+                                        kinds = ["Pod"]
+                                    }
+                                }]
+                            }
+                            validate = {
+                                message = "Privileged mode is not allowed. Set privileged to false"
+                                pattern = {
+                                    spec = {
+                                        containers = [{
+                                            securityContext = {
+                                                privileged = False
+                                            }
+                                        }]
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                })
+            
+            # Require non-root user
+            if predefined.get("requireNonRootUser", True):
+                predefinedPolicies.append({
+                    apiVersion = "kyverno.io/v1"
+                    kind = "ClusterPolicy"
+                    metadata = {
+                        name = "${displayName}-require-non-root"
+                        annotations = {
+                            "policies.kyverno.io/title" = "Require Non-Root User"
+                            "policies.kyverno.io/category" = "Pod Security Standards (Restricted)"
+                            "policies.kyverno.io/severity" = "medium"
+                            "policies.kyverno.io/subject" = "Pod"
+                            "policies.kyverno.io/description" = "Containers must run as non-root user"
+                        }
+                    }
+                    spec = {
+                        validationFailureAction = validationFailureAction
+                        background = True
+                        rules = [{
+                            name = "require-run-as-non-root"
+                            match = {
+                                any = [{
+                                    resources = {
+                                        kinds = ["Pod"]
+                                    }
+                                }]
+                            }
+                            validate = {
+                                message = "Containers must run as non-root user"
+                                pattern = {
+                                    spec = {
+                                        securityContext = {
+                                            runAsNonRoot = True
+                                        }
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                })
+            
+            # Disallow host path
+            if predefined.get("disallowHostPath", True):
+                predefinedPolicies.append({
+                    apiVersion = "kyverno.io/v1"
+                    kind = "ClusterPolicy"
+                    metadata = {
+                        name = "${displayName}-disallow-host-path"
+                        annotations = {
+                            "policies.kyverno.io/title" = "Disallow hostPath"
+                            "policies.kyverno.io/category" = "Pod Security Standards (Baseline)"
+                            "policies.kyverno.io/severity" = "medium"
+                            "policies.kyverno.io/subject" = "Pod,Volume"
+                            "policies.kyverno.io/description" = "HostPath volumes present security risks"
+                        }
+                    }
+                    spec = {
+                        validationFailureAction = validationFailureAction
+                        background = True
+                        rules = [{
+                            name = "disallow-host-path"
+                            match = {
+                                any = [{
+                                    resources = {
+                                        kinds = ["Pod"]
+                                    }
+                                }]
+                            }
+                            validate = {
+                                message = "HostPath volumes are not allowed"
+                                pattern = {
+                                    spec = {
+                                        "=(volumes)" = [{
+                                            "X(hostPath)" = "null"
+                                        }]
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                })
+            
+            # Generate PolicyReport CRD for reporting
+            policyReport = {
+                apiVersion = "wgpolicyk8s.io/v1alpha2"
+                kind = "PolicyReport"
+                metadata = {
+                    name = displayName
+                    labels = {
+                        "app.kubernetes.io/managed-by" = "crossplane"
+                        "policy.adhar.io/name" = displayName
+                    }
+                }
+                results = []
+            }
+            
+            # Generate ConfigMap for policy configuration
+            policyConfig = {
+                apiVersion = "v1"
+                kind = "ConfigMap"
+                metadata = {
+                    name = "${displayName}-config"
+                    namespace = "kyverno"
+                }
+                data = {
+                    "enforcementMode" = enforcementMode
+                    "standards" = ",".join(standards)
+                    "scanSchedule" = scanning.get("schedule", "0 2 * * *") if scanning.get("enabled", True) else ""
+                    "reportingEnabled" = str(reporting.get("enabled", True))
+                }
+            }
+            
+            # Collect all resources
+            items = predefinedPolicies + [policyConfig]
+            
+            # Return resources
+            {
+                apiVersion = "krm.kcl.dev/v1alpha1"
+                kind = "ResourceList"
+                items = items
+            }
+    
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

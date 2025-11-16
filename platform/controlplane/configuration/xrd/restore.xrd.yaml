@@ -1,0 +1,58 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositerestores.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeRestore
+    plural: compositerestores
+  claimNames:
+    kind: Restore
+    plural: restores
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              name:
+                type: string
+              backupName:
+                type: string
+              restoreType:
+                type: string
+                enum: [full, selective, database, config]
+              targetNamespace:
+                type: string
+              resources:
+                type: array
+                items:
+                  type: string
+              providerConfigRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+            required: [name, backupName, restoreType]
+          status:
+            type: object
+            properties:
+              restoreId:
+                type: string
+              phase:
+                type: string
+              completedAt:
+                type: string
+              conditions:
+                type: array
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+

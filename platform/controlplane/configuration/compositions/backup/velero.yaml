@@ -1,0 +1,229 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositebackuppolicy-velero
+  labels:
+    feature: backup
+    tool: velero
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeBackupPolicy
+  mode: Pipeline
+  pipeline:
+    - step: render-velero
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            oxr = option("params").oxr
+            ocds = option("params").ocds
+
+            params = oxr.spec.parameters
+            metadata = oxr.metadata
+            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+
+            # Backup configuration
+            schedule = params.schedule or "0 2 * * *"
+            retentionDays = params.retentionDays or 7
+            paused = params.paused or False
+
+            # Storage location
+            storageLocation = params.storageLocation
+            provider = storageLocation.provider
+            bucket = storageLocation.bucket
+            prefix = storageLocation.prefix or metadata.name
+            region = storageLocation.region or "us-west-2"
+
+            # Resource filtering
+            includedNamespaces = params.includedNamespaces or ["*"]
+            excludedNamespaces = params.excludedNamespaces or []
+            includedResources = params.includedResources or []
+            excludedResources = params.excludedResources or []
+            labelSelector = params.labelSelector or {}
+
+            # Backup options
+            snapshotVolumes = params.snapshotVolumes or True
+            defaultVolumesToRestic = params.defaultVolumesToRestic or False
+
+            # Encryption
+            encryption = params.encryption or {}
+            enableEncryption = encryption.enabled or True
+
+            deletionPolicy = params.deletionPolicy or "Delete"
+
+            veleroNamespace = "velero"
+
+            # Provider-specific configuration
+            _providerConfig = {}
+            if provider == "aws":
+                _providerConfig = {
+                    provider: "aws"
+                    bucket: bucket
+                    region: region
+                    config: {
+                        region: region
+                    }
+                }
+            elif provider == "gcp":
+                _providerConfig = {
+                    provider: "gcp"
+                    bucket: bucket
+                }
+            elif provider == "azure":
+                _providerConfig = {
+                    provider: "azure"
+                    bucket: bucket
+                    config: {
+                        resourceGroup: storageLocation.config?.resourceGroup or ""
+                        storageAccount: storageLocation.config?.storageAccount or ""
+                    }
+                }
+
+            _items = [
+                {
+                    apiVersion: "v1"
+                    kind: "Namespace"
+                    metadata.name: veleroNamespace
+                    metadata.labels: {
+                        feature: "backup"
+                        "app.kubernetes.io/managed-by": "adhar"
+                    }
+                },
+                {
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "backup-storage-location"
+                    metadata.labels: {
+                        feature: "backup"
+                        component: "velero"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "velero.io/v1"
+                                kind: "BackupStorageLocation"
+                                metadata: {
+                                    name: metadata.name
+                                    namespace: veleroNamespace
+                                }
+                                spec: {
+                                    provider: _providerConfig.provider
+                                    objectStorage: {
+                                        bucket: bucket
+                                        prefix: prefix
+                                    }
+                                    if _providerConfig.region:
+                                        config: {
+                                            region: _providerConfig.region
+                                        }
+                                    if storageLocation.credentialsSecretRef:
+                                        credential: {
+                                            name: storageLocation.credentialsSecretRef.name
+                                            key: storageLocation.credentialsSecretRef.key or "cloud"
+                                        }
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                },
+                {
+                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    kind: "Object"
+                    metadata.name: "backup-schedule"
+                    metadata.labels: {
+                        feature: "backup"
+                        component: "velero"
+                    }
+                    spec: {
+                        forProvider: {
+                            manifest: {
+                                apiVersion: "velero.io/v1"
+                                kind: "Schedule"
+                                metadata: {
+                                    name: metadata.name
+                                    namespace: veleroNamespace
+                                }
+                                spec: {
+                                    schedule: schedule
+                                    paused: paused
+                                    template: {
+                                        includedNamespaces: includedNamespaces
+                                        if excludedNamespaces and len(excludedNamespaces) > 0:
+                                            excludedNamespaces: excludedNamespaces
+                                        if includedResources and len(includedResources) > 0:
+                                            includedResources: includedResources
+                                        if excludedResources and len(excludedResources) > 0:
+                                            excludedResources: excludedResources
+                                        if labelSelector and labelSelector.matchLabels:
+                                            labelSelector: labelSelector
+                                        snapshotVolumes: snapshotVolumes
+                                        defaultVolumesToRestic: defaultVolumesToRestic
+                                        storageLocation: metadata.name
+                                        ttl: "{}h0m0s".format(retentionDays * 24)
+                                        if params.hooks:
+                                            hooks: {
+                                                if params.hooks.preBackup:
+                                                    resources: [{
+                                                        name: hook.name or "pre-backup-{}".format(idx)
+                                                        includedNamespaces: hook.includedNamespaces or ["*"]
+                                                        pre: [{
+                                                            exec: {
+                                                                container: hook.exec.container
+                                                                command: hook.exec.command
+                                                                onError: hook.exec.onError or "Continue"
+                                                            }
+                                                        }]
+                                                    } for idx, hook in params.hooks.preBackup]
+                                            }
+                                    }
+                                }
+                            }
+                        }
+                        providerConfigRef.name: providerConfigName
+                    }
+                }
+            ]
+
+            # Get observed state
+            _observedResources = ocds or {}
+            _scheduleObserved = _observedResources.get("backup-schedule", {}).get("resource", {})
+            _scheduleStatus = _scheduleObserved.get("status", {})
+
+            _phase = "Pending"
+            _message = "Backup policy provisioning initiated"
+            _ready = False
+            _lastBackupTime = ""
+            _lastBackupStatus = ""
+
+            if _scheduleStatus:
+                _phase = "Paused" if paused else "Active"
+                _lastBackup = _scheduleStatus.get("lastBackup", "")
+                _lastBackupTime = _lastBackup
+                
+                if _lastBackup:
+                    _message = "Backup policy is active"
+                    _ready = True
+                    _lastBackupStatus = "Completed"
+                else:
+                    _message = "Waiting for first backup"
+                    _ready = True
+
+            items = _items + [{
+                apiVersion: "platform.adhar.io/v1alpha1"
+                kind: "CompositeBackupPolicy"
+                metadata: oxr.metadata
+                status: {
+                    phase: _phase
+                    message: _message
+                    ready: _ready
+                    if _lastBackupTime:
+                        lastBackupTime: _lastBackupTime
+                    if _lastBackupStatus:
+                        lastBackupStatus: _lastBackupStatus
+                }
+            }]

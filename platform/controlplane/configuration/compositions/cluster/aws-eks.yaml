@@ -1,0 +1,219 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositecluster-aws-eks
+  labels:
+    feature: cluster
+    provider: aws
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCluster
+  mode: Pipeline
+  pipeline:
+    - step: render-eks
+      functionRef:
+        name: fn-go-templating
+      input:
+        apiVersion: templating.fn.crossplane.io/v1beta1
+        kind: Template
+        spec:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $params := $xr.spec.parameters -}}
+            {{- $cp := default (dict) $params.controlPlane -}}
+            {{- $iam := default (dict) $cp.iamRoles -}}
+            {{- $network := default (dict) $params.networkConfig -}}
+            {{- $providerSettings := default (dict) $params.providerSettings -}}
+            {{- $aws := default (dict) (get $providerSettings "aws") -}}
+            {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
+            {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (index $conn "name") -}}
+            {{- $secretNamespace := default "crossplane-system" (index $conn "namespace") -}}
+            {{- $access := default "Public" $cp.endpointAccess -}}
+            {{- $providerConfig := index $xr.spec.providerConfigRef "name" -}}
+            {{- $tags := default (dict) $params.tags -}}
+            {{- $loggingTypes := default (list) (get $aws "loggingTypes") -}}
+            {{- $securityGroups := default (list) (get $aws "securityGroupIds") -}}
+            {{- $enableIRSA := default false (get $aws "enableIRSA") -}}
+            {{- $kmsKeyArn := default "" (get $aws "kmsKeyArn") -}}
+            {{- $addonConfigs := default (list) (get $aws "addonConfigs") -}}
+            apiVersion: fn.crossplane.io/v1beta1
+            kind: FunctionIO
+            desired:
+              resources:
+                - name: eks-cluster
+                  resource:
+                    apiVersion: eks.aws.crossplane.io/v1beta1
+                    kind: Cluster
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: aws
+                    spec:
+                      forProvider:
+                        region: {{ quote $params.region }}
+                        version: {{ quote $params.version }}
+                        {{- if (index $iam "clusterRoleARN") }}
+                        roleArn: {{ quote (index $iam "clusterRoleARN") }}
+                        {{- end }}
+                        {{- if $loggingTypes }}
+                        logging:
+                          clusterLogging:
+                            {{- range $loggingTypes }}
+                            - types:
+                                - {{ quote . }}
+                              enabled: true
+                            {{- end }}
+                        {{- end }}
+                        {{- if $kmsKeyArn }}
+                        encryptionConfig:
+                          - provider:
+                              keyArn: {{ quote $kmsKeyArn }}
+                            resources:
+                              - secrets
+                        {{- end }}
+                        resourcesVpcConfig:
+                          endpointPublicAccess: {{ or (eq $access "Public") (eq $access "PublicAndPrivate") }}
+                          endpointPrivateAccess: {{ ne $access "Public" }}
+                          {{- if $network.subnetIds }}
+                          subnetIds:
+                          {{- range $network.subnetIds }}
+                            - {{ quote . }}
+                          {{- end }}
+                          {{- end }}
+                          {{- if $network.vpcId }}
+                          vpcId: {{ quote $network.vpcId }}
+                          {{- end }}
+                          {{- if $securityGroups }}
+                          securityGroupIds:
+                          {{- range $securityGroups }}
+                            - {{ quote . }}
+                          {{- end }}
+                          {{- end }}
+                      writeConnectionSecretToRef:
+                        name: {{ quote $secretName }}
+                        namespace: {{ quote $secretNamespace }}
+                      {{- if $providerConfig }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                      {{- end }}
+                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                      {{- if $tags }}
+                      tags:
+                      {{- range $k, $v := $tags }}
+                        {{ $k }}: {{ quote $v }}
+                      {{- end }}
+                      {{- end }}
+                {{- range $index, $pool := $params.nodePools }}
+                - name: eks-nodegroup-{{ $index }}
+                  resource:
+                    apiVersion: eks.aws.crossplane.io/v1beta1
+                    kind: NodeGroup
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: aws
+                        cluster-name: {{ $xr.metadata.name | quote }}
+                    spec:
+                      forProvider:
+                        region: {{ quote $params.region }}
+                        clusterNameSelector:
+                          matchControllerRef: true
+                        {{- if $network.subnetIds }}
+                        subnetIds:
+                        {{- range $network.subnetIds }}
+                          - {{ quote . }}
+                        {{- end }}
+                        {{- end }}
+                        scalingConfig:
+                          desiredSize: {{ default 1 $pool.count }}
+                          minSize: {{ default (default 1 $pool.count) $pool.minCount }}
+                          maxSize: {{ default (default 1 $pool.count) $pool.maxCount }}
+                        {{- if $pool.availabilityZones }}
+                        availabilityZones:
+                        {{- range $pool.availabilityZones }}
+                          - {{ quote . }}
+                        {{- end }}
+                        {{- end }}
+                        instanceTypes:
+                          - {{ quote $pool.instanceType }}
+                        {{- if $pool.taints }}
+                        taints:
+                        {{- range $pool.taints }}
+                          - key: {{ quote .key }}
+                            {{- if .value }}
+                            value: {{ quote .value }}
+                            {{- end }}
+                            effect: {{ quote .effect }}
+                        {{- end }}
+                        {{- end }}
+                        {{- if $pool.labels }}
+                        labels:
+                        {{- range $k, $v := $pool.labels }}
+                          {{ $k }}: {{ quote $v }}
+                        {{- end }}
+                        {{- end }}
+                        {{- if $pool.tags }}
+                        tags:
+                        {{- range $k, $v := $pool.tags }}
+                          {{ $k }}: {{ quote $v }}
+                        {{- end }}
+                        {{- end }}
+                        {{- if $pool.storageSize }}
+                        {{- $disk := trimSuffix "Gi" $pool.storageSize -}}
+                        {{- if $disk }}
+                        diskSize: {{ atoi $disk }}
+                        {{- end }}
+                        {{- end }}
+                        {{- if $pool.spot }}
+                        capacityType: SPOT
+                        {{- else }}
+                        capacityType: ON_DEMAND
+                        {{- end }}
+                        {{- if $pool.machineImage }}
+                        launchTemplate:
+                          name: {{ quote $pool.machineImage }}
+                        {{- end }}
+                        {{- if (index $iam "nodeRoleARN") }}
+                        nodeRoleArn: {{ quote (index $iam "nodeRoleARN") }}
+                        {{- end }}
+                      {{- if $providerConfig }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                      {{- end }}
+                      {{- if $tags }}
+                      tags:
+                      {{- range $k, $v := $tags }}
+                        {{ $k }}: {{ quote $v }}
+                      {{- end }}
+                      {{- end }}
+                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                {{- end }}
+                {{- range $index, $addon := $addonConfigs }}
+                - name: eks-addon-{{ $index }}
+                  resource:
+                    apiVersion: eks.aws.crossplane.io/v1alpha1
+                    kind: Addon
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: aws
+                        cluster-name: {{ $xr.metadata.name | quote }}
+                    spec:
+                      forProvider:
+                        region: {{ quote $params.region }}
+                        clusterNameSelector:
+                          matchControllerRef: true
+                        addonName: {{ quote $addon.name }}
+                        {{- if $addon.version }}
+                        addonVersion: {{ quote $addon.version }}
+                        {{- end }}
+                        {{- if $addon.resolveConflicts }}
+                        resolveConflicts: {{ quote $addon.resolveConflicts }}
+                        {{- end }}
+                      {{- if $providerConfig }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                      {{- end }}
+                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                {{- end }}

@@ -1,3 +1,128 @@
 environment: dev
 type: nonprod
 packages:
+  - name: adhar-console
+    enabled: true
+    namespace: adhar-system
+    category: core
+    manifestPath: core/adhar-console
+  - name: Kamaji
+    enabled: true
+    namespace: adhar-system
+    category: core
+    manifestPath: core/Kamaji
+  - name: vcluster
+    enabled: true
+    namespace: adhar-system
+    category: core
+    manifestPath: core/vcluster
+  - name: velero
+    enabled: true
+    namespace: adhar-system
+    category: core
+    manifestPath: core/velero
+  - name: cert-manager
+    enabled: true
+    namespace: adhar-system
+    category: security
+    manifestPath: security/cert-manager
+  - name: external-secrets
+    enabled: true
+    namespace: adhar-system
+    category: security
+    manifestPath: security/external-secrets
+  - name: keycloak
+    enabled: true
+    namespace: adhar-system
+    category: security
+    manifestPath: security/keycloak
+  - name: kyverno
+    enabled: true
+    namespace: adhar-system
+    category: security
+    manifestPath: security/kyverno
+  - name: vault
+    enabled: true
+    namespace: adhar-system
+    category: security
+    manifestPath: security/vault
+  - name: trivy
+    enabled: true
+    namespace: adhar-system
+    category: security
+    manifestPath: security/trivy
+  - name: kube-prometheus
+    enabled: true
+    namespace: adhar-system
+    category: observability
+    manifestPath: observability/kube-prometheus
+  - name: loki-stack
+    enabled: true
+    namespace: adhar-system
+    category: observability
+    manifestPath: observability/loki-stack
+  - name: metrics-server
+    enabled: true
+    namespace: adhar-system
+    category: observability
+    manifestPath: observability/metrics-server
+  - name: opencost
+    enabled: true
+    namespace: adhar-system
+    category: observability
+    manifestPath: observability/opencost
+  - name: headlamp
+    enabled: true
+    namespace: adhar-system
+    category: observability
+    manifestPath: observability/headlamp
+  - name: minio
+    enabled: true
+    namespace: adhar-system
+    category: data
+    manifestPath: data/minio
+  - name: redis
+    enabled: true
+    namespace: adhar-system
+    category: data
+    manifestPath: data/redis
+  - name: jupyterhub
+    enabled: true
+    namespace: adhar-system
+    category: data
+    manifestPath: data/jupyterhub
+  - name: argo-workflows
+    enabled: true
+    namespace: adhar-system
+    category: application
+    manifestPath: application/argo-workflows
+  - name: argo-events
+    enabled: true
+    namespace: adhar-system
+    category: application
+    manifestPath: application/argo-events
+  - name: harbor
+    enabled: true
+    namespace: adhar-system
+    category: application
+    manifestPath: application/harbor
+  - name: knative
+    enabled: true
+    namespace: adhar-system
+    category: application
+    manifestPath: application/knative
+  - name: kargo
+    enabled: true
+    namespace: adhar-system
+    category: application
+    manifestPath: application/kargo
+  - name: crossplane
+    enabled: true
+    namespace: adhar-system
+    category: infrastructure
+    manifestPath: infrastructure/crossplane
+  - name: terraform
+    enabled: true
+    namespace: adhar-system
+    category: infrastructure
+    manifestPath: infrastructure/terraform

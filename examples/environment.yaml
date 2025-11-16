@@ -1,0 +1,24 @@
+apiVersion: platform.adhar.com/v1alpha1
+kind: Environment
+metadata:
+  name: development
+  labels:
+    platform.adhar.com/env-type: non-prod
+spec:
+  displayName: "Development Environment"
+  type: "development"
+  description: "Development environment for testing and iteration"
+  organizationRef:
+    name: acme-corp
+  namespaceName: "dev-apps"
+  clusterAffinity:
+    clusterName: "dev-cluster"
+  configurations:
+    debugLoggingEnabled: "true"
+    mockExternalServices: "true"
+  resourceQuota:
+    hard:
+      requests.cpu: "50"
+      requests.memory: "256Gi"
+      pods: "200"
+

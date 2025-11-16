@@ -1,0 +1,246 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositedatabase-aws-rds-postgresql
+  labels:
+    feature: database
+    provider: aws
+    engine: postgresql
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeDatabase
+  mode: Pipeline
+  pipeline:
+    - step: render-rds
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            import regex
+
+            # Get composite resource
+            oxr = option("params").oxr
+            ocds = option("params").ocds
+
+            # Extract parameters
+            params = oxr.spec.parameters
+            metadata = oxr.metadata
+            conn = oxr.spec.writeConnectionSecretToRef or {}
+            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+
+            # Database configuration
+            engine = params.engine
+            engineVersion = params.engineVersion
+            instanceClass = params.instanceClass or "db.t3.micro"
+            storageSize = int(regex.replace(params.storageSize or "20Gi", "Gi", ""))
+            storageType = params.storageType or "gp3"
+            region = params.region or "us-west-2"
+            multiAZ = params.multiAZ or False
+            backupRetentionDays = params.backupRetentionDays or 7
+            enableBackup = params.enableBackup or True
+            enableEncryption = params.enableEncryption or True
+            publiclyAccessible = params.publiclyAccessible or False
+            deletionPolicy = params.deletionPolicy or "Delete"
+            skipFinalSnapshot = params.skipFinalSnapshot or False
+
+            # Network configuration
+            networkConfig = params.networkConfig or {}
+            vpcSecurityGroupIds = networkConfig.securityGroupIds or []
+            subnetIds = networkConfig.subnetIds or []
+
+            # Credentials
+            credentials = params.credentials or {}
+            masterUsername = credentials.masterUsername or "postgres"
+            masterPasswordSecretRef = credentials.masterPasswordSecretRef or {}
+
+            # Performance and monitoring
+            performanceInsights = params.performanceInsights or {}
+            enablePerformanceInsights = performanceInsights.enabled or False
+            piRetentionDays = performanceInsights.retentionDays or 7
+
+            monitoring = params.monitoring or {}
+            enableEnhancedMonitoring = monitoring.enableEnhancedMonitoring or False
+            monitoringInterval = monitoring.monitoringInterval or 0
+
+            # KMS encryption
+            kmsKeyId = params.kmsKeyId or ""
+
+            # Tags
+            tags = params.tags or {}
+
+            # Connection secret
+            secretName = conn.name or "${metadata.name}-db"
+            secretNamespace = conn.namespace or "crossplane-system"
+
+            # Generate DB identifier
+            dbIdentifier = metadata.name
+
+            # Build the desired resources
+            _items = [
+                {
+                    apiVersion: "rds.aws.upbound.io/v1beta1"
+                    kind: "Instance"
+                    metadata.name: "rds-instance"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "aws"
+                        engine: engine
+                    }
+                    spec: {
+                        forProvider: {
+                            region: region
+                            engine: engine
+                            engineVersion: engineVersion
+                            instanceClass: instanceClass
+                            allocatedStorage: storageSize
+                            storageType: storageType
+                            storageEncrypted: enableEncryption
+                            if kmsKeyId:
+                                kmsKeyId: kmsKeyId
+                            username: masterUsername
+                            if masterPasswordSecretRef:
+                                passwordSecretRef: {
+                                    name: masterPasswordSecretRef.name
+                                    namespace: masterPasswordSecretRef.namespace or "crossplane-system"
+                                    key: masterPasswordSecretRef.key or "password"
+                                }
+                            dbName: "${metadata.name}db"
+                            identifier: dbIdentifier
+                            multiAz: multiAZ
+                            publiclyAccessible: publiclyAccessible
+                            if vpcSecurityGroupIds:
+                                vpcSecurityGroupIds: vpcSecurityGroupIds
+                            if subnetIds and len(subnetIds) > 0:
+                                dbSubnetGroupNameSelector: {
+                                    matchControllerRef: True
+                                }
+                            backupRetentionPeriod: backupRetentionDays if enableBackup else 0
+                            if params.backupWindow:
+                                preferredBackupWindow: params.backupWindow
+                            if params.maintenanceWindow:
+                                preferredMaintenanceWindow: params.maintenanceWindow
+                            enabledCloudwatchLogsExports: ["postgresql", "upgrade"] if engine == "postgresql" else []
+                            if enablePerformanceInsights:
+                                enablePerformanceInsights: True
+                                performanceInsightsRetentionPeriod: piRetentionDays
+                            if enableEnhancedMonitoring and monitoringInterval > 0:
+                                monitoringInterval: monitoringInterval
+                                monitoringRoleArnSelector: {
+                                    matchControllerRef: True
+                                }
+                            skipFinalSnapshot: skipFinalSnapshot
+                            if not skipFinalSnapshot:
+                                finalSnapshotIdentifier: "${dbIdentifier}-final-snapshot"
+                            if tags:
+                                tags: tags
+                        }
+                        providerConfigRef.name: providerConfigName
+                        writeConnectionSecretToRef: {
+                            name: secretName
+                            namespace: secretNamespace
+                        }
+                        deletionPolicy: deletionPolicy
+                    }
+                }
+            ]
+
+            # Add DB Subnet Group if subnets are specified
+            if subnetIds and len(subnetIds) > 0:
+                _items += [{
+                    apiVersion: "rds.aws.upbound.io/v1beta1"
+                    kind: "SubnetGroup"
+                    metadata.name: "db-subnet-group"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "aws"
+                    }
+                    spec: {
+                        forProvider: {
+                            region: region
+                            subnetIds: subnetIds
+                            if tags:
+                                tags: tags
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }]
+
+            # Add monitoring IAM role if enhanced monitoring is enabled
+            if enableEnhancedMonitoring and monitoringInterval > 0:
+                _items += [{
+                    apiVersion: "iam.aws.upbound.io/v1beta1"
+                    kind: "Role"
+                    metadata.name: "monitoring-role"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "aws"
+                    }
+                    spec: {
+                        forProvider: {
+                            assumeRolePolicy: """{
+                              "Version": "2012-10-17",
+                              "Statement": [{
+                                "Effect": "Allow",
+                                "Principal": {"Service": "monitoring.rds.amazonaws.com"},
+                                "Action": "sts:AssumeRole"
+                              }]
+                            }"""
+                            managedPolicyArns: ["arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"]
+                            if tags:
+                                tags: tags
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }]
+
+            # Get observed state for status
+            _observedResources = ocds or {}
+            _rdsObserved = _observedResources.get("rds-instance", {}).get("resource", {})
+            _rdsStatus = _rdsObserved.get("status", {}).get("atProvider", {})
+
+            _phase = "Pending"
+            _message = "Database provisioning initiated"
+            _ready = False
+            _endpoint = ""
+            _port = 0
+
+            if _rdsStatus:
+                _dbStatus = _rdsStatus.get("dbInstanceStatus", "")
+                if _dbStatus == "available":
+                    _phase = "Available"
+                    _message = "Database is ready"
+                    _ready = True
+                    _endpoint = _rdsStatus.get("endpoint", {}).get("address", "")
+                    _port = _rdsStatus.get("endpoint", {}).get("port", 5432)
+                elif _dbStatus in ["creating", "backing-up", "modifying"]:
+                    _phase = "Creating"
+                    _message = "Database is being provisioned"
+                elif _dbStatus in ["failed", "storage-full", "incompatible-parameters"]:
+                    _phase = "Failed"
+                    _message = "Database provisioning failed: {}".format(_dbStatus)
+                else:
+                    _phase = "Modifying"
+                    _message = "Database status: {}".format(_dbStatus)
+
+            items = _items + [{
+                apiVersion: "platform.adhar.io/v1alpha1"
+                kind: "CompositeDatabase"
+                metadata: oxr.metadata
+                status: {
+                    phase: _phase
+                    message: _message
+                    ready: _ready
+                    if _endpoint:
+                        endpoint: _endpoint
+                    if _port > 0:
+                        port: _port
+                    if _dbStatus:
+                        status: _dbStatus
+                }
+            }]

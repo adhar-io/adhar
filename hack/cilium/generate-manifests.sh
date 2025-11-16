@@ -1,13 +1,21 @@
 #!/bin/bash
-set -e
 
-INSTALL_YAML="pkg/controllers/localbuild/resources/cilium/k8s/install.yaml"
-CILIUM_DIR="./hack/cilium"
-CHART_VERSION="v1.16.4"
+# Update Cilium manifest using Helm
+INSTALL_YAML="platform/controllers/adharplatform/resources/cilium/install.yaml"
+HACK_DIR="$(cd "$(dirname "$0")" && pwd)"
+CILIUM_VERSION="v1.17.4"
+CILIUM_NAMESPACE="adhar-system"
 
-echo "# CILIUM INSTALL RESOURCES" >${INSTALL_YAML}
-echo "# This file is auto-generated with 'hack/cilium/generate-manifests.sh'" >>${INSTALL_YAML}
+# Use Helm to generate the Cilium manifest including CRDs
+helm repo add cilium https://helm.cilium.io/
+helm repo update cilium
+helm template cilium cilium/cilium --namespace $CILIUM_NAMESPACE --version "$CILIUM_VERSION" --include-crds -f "$HACK_DIR/values.yaml" > "$INSTALL_YAML"
 
-helm repo add cilium --force-update https://helm.cilium.io/
-helm repo update
-helm template cilium cilium/cilium -f ${CILIUM_DIR}/values.yaml --version ${CHART_VERSION} --namespace kube-system --set hubble.relay.enabled=true --set hubble.ui.enabled=true --include-crds >> ${INSTALL_YAML}
+if [ -f "$INSTALL_YAML" ]; then
+    echo "Cilium manifest with CRDs generated successfully."
+else
+    echo "Failed to generate Cilium manifest with CRDs."
+    exit 1
+fi
+
+echo "Cilium manifest updated to version $CILIUM_VERSION."

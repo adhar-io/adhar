@@ -38,7 +38,7 @@ Ensure your docker daemon is running and available. e.g. `docker images` command
 
 ### Testing basic functionalities
 
-To test the very basic functionality of adhar, Run the following command: `./adhar create`
+To test the very basic functionality of adhar, Run the following command: `./adhar up`
 
 This command creates a kind cluster, expose associated endpoints to your local machine using an ingress controller and deploy the following packages:
 
@@ -50,9 +50,9 @@ This command creates a kind cluster, expose associated endpoints to your local m
 They are deployed as ArgoCD Applications with the Gitea repositories set as their sources. 
 
 UIs for Backstage, Gitea, and ArgoCD are accessible on the machine:
-* Gitea: https://gitea.adhar.localtest.me:8443/explore/repos
-* Backstage: https://backstage.adhar.localtest.me:8443/
-* ArgoCD: https://argocd.adhar.localtest.me:8443/applications
+* Gitea: https://adhar.localtest.me/gitea/explore/repos
+* Backstage: https://adhar.localtest.me/console/
+* ArgoCD: https://adhar.localtest.me/argocd/applications
 
 #### Getting credentials for packages
 
@@ -73,24 +73,6 @@ All ArgoCD applications should be synced and healthy. You can check them in the 
 ```
 kubectl get application -n argocd
 ```
-
-### Upgrading a core component
-
-The process to upgrade a core component: Argo CD, Gitea, Ingress is not so complex but requires to take care about the following points:
-
-- Select the core component to be upgraded and get its current version. See the kustomization file under the `hack/<core-component>` folder and the resource YAML file of the resources to be installed
-- Create a ticket describing the new sibling version of the core component to be bumped
-- Bump the version part of the kustomization file. Example for argocd: https://github.com/adhar-io/adhar/blob/main/hack/argo-cd/kustomization.yaml#L4
-- Review the patched files to see if changes are needed (new file(s), files to be deleted or files to be changed). Example for argocd: https://github.com/adhar-io/adhar/blob/main/hack/argo-cd/kustomization.yaml#L7-L16
-- Generate the new resources YAML files using the bash script: `generate-manifests.sh`
-- Build a new idpbuilder binary
-- Test it locally like also using the e2e integration test: `make e2e`
-- Review the test cases if changes are needed too
-- Update the documentation to detail which version of the core component has been bumped like also for which version (or range of versions) of adhar the new version of the component apply for.
-
-**NOTES**: 
-- For some components, it could be possible that you also have to upgrade the version of the go library within the `go.mod` file. Example for gitea: `adhar.gitea.io/sdk/gitea v0.16.0` 
-- For Argo CD, we use a separate GitHub project (till a better solution is implemented) packaging a subset of the Argo CD API. Review carefully this file please: https://github.com/adhar-io/argocd-api?tab=readme-ov-file#read-this-first
 
 ## Preparing a Pull Request
 
@@ -131,7 +113,7 @@ Adhar is made of two phases: CLI and Kubernetes controllers.
 
 ### CLI
 
-When the `adhar` binary is executed, it starts with the CLI phase.
+When the adhar binary is executed, it starts with the CLI phase.
 
 1. This is the phase where command flags are parsed and translated into relevant Go structs' fields. Most notably the [`LocalBuild`](https://github.com/adhar-io/adhar/blob/main/api/v1alpha1/localbuild_types.go) struct.
 2. Create a Kind cluster, then update the kubeconfig file.
@@ -169,7 +151,7 @@ The content of the repositories can either be sourced from Embedded file system 
 
 #### CustomPackageReconciler
 
-`CustomPackageReconciler` parses the specified ArgoCD application files. If they specify repository URL with the scheme `adhar://`,
+`CustomPackageReconciler` parses the specified ArgoCD application files. If they specify repository URL with a custom scheme,
 it creates `GitRepository` CR with source specified as local, then creates ArgoCD application with the repository URL replaced.
 
 For example, if an ArgoCD application is specified as the following.
@@ -179,7 +161,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 spec:
   source:
-    repoURL: adhar://busybox
+    repoURL: http://gitea.example.com/user/busybox
 ```
 
 Then, the actual object created is this.

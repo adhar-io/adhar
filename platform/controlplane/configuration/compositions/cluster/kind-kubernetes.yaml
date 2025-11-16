@@ -1,0 +1,175 @@
+---
+# Kind and On-Premises Kubernetes Cluster Composition
+# This composition manages existing Kubernetes clusters (Kind, on-prem, etc.) using provider-kubernetes
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: kind-kubernetes
+  labels:
+    provider: kind
+    cluster.adhar.io/managed: "false" # This is for existing clusters
+    cluster.adhar.io/type: development
+spec:
+  compositeTypeRef:
+    apiVersion: adhar.io/v1alpha1
+    kind: CompositeCluster
+
+  mode: Pipeline
+  pipeline:
+    - step: render-templates
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            ---
+            # Namespace for cluster resources
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: {{ .observed.composite.resource.spec.clusterName }}
+              labels:
+                cluster.adhar.io/name: {{ .observed.composite.resource.spec.clusterName }}
+                cluster.adhar.io/provider: kind
+            ---
+            # ConfigMap to store cluster metadata
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: {{ .observed.composite.resource.spec.clusterName }}-info
+              namespace: {{ .observed.composite.resource.spec.clusterName }}
+            data:
+              clusterName: {{ .observed.composite.resource.spec.clusterName }}
+              provider: kind
+              type: {{ .observed.composite.resource.spec.clusterType | default "development" }}
+              region: local
+              {{ if .observed.composite.resource.spec.kubeconfig }}
+              kubeconfigSecret: {{ .observed.composite.resource.spec.clusterName }}-kubeconfig
+              {{ end }}
+            ---
+            {{ if .observed.composite.resource.spec.kubeconfig }}
+            # Secret to store kubeconfig for external cluster access
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ .observed.composite.resource.spec.clusterName }}-kubeconfig
+              namespace: {{ .observed.composite.resource.spec.clusterName }}
+            type: Opaque
+            data:
+              kubeconfig: {{ .observed.composite.resource.spec.kubeconfig }}
+            {{ end }}
+            ---
+            # ProviderConfig for this specific cluster
+            apiVersion: kubernetes.crossplane.io/v1alpha1
+            kind: ProviderConfig
+            metadata:
+              name: {{ .observed.composite.resource.spec.clusterName }}
+            spec:
+              {{ if .observed.composite.resource.spec.kubeconfig }}
+              credentials:
+                source: Secret
+                secretRef:
+                  namespace: {{ .observed.composite.resource.spec.clusterName }}
+                  name: {{ .observed.composite.resource.spec.clusterName }}-kubeconfig
+                  key: kubeconfig
+              {{ else }}
+              # Use in-cluster configuration (for local Kind clusters)
+              credentials:
+                source: InjectedIdentity
+              {{ end }}
+            ---
+            # Object to verify cluster connectivity
+            apiVersion: kubernetes.crossplane.io/v1alpha2
+            kind: Object
+            metadata:
+              name: {{ .observed.composite.resource.spec.clusterName }}-healthcheck
+            spec:
+              providerConfigRef:
+                name: {{ .observed.composite.resource.spec.clusterName }}
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ConfigMap
+                  metadata:
+                    name: cluster-healthcheck
+                    namespace: kube-system
+                    labels:
+                      managed-by: adhar
+                  data:
+                    status: healthy
+                    lastCheck: {{ now | date "2006-01-02T15:04:05Z07:00" }}
+            ---
+            {{ if .observed.composite.resource.spec.installAddons }}
+            # Install core addons via Helm
+            {{ if has "cilium" .observed.composite.resource.spec.addons }}
+            apiVersion: helm.crossplane.io/v1beta1
+            kind: Release
+            metadata:
+              name: {{ .observed.composite.resource.spec.clusterName }}-cilium
+            spec:
+              providerConfigRef:
+                name: {{ .observed.composite.resource.spec.clusterName }}
+              forProvider:
+                chart:
+                  name: cilium
+                  repository: https://helm.cilium.io/
+                  version: "1.15.0"
+                namespace: kube-system
+                values:
+                  operator:
+                    replicas: 1
+                  hubble:
+                    enabled: true
+                    relay:
+                      enabled: true
+                    ui:
+                      enabled: true
+            {{ end }}
+            {{ if has "nginx-ingress" .observed.composite.resource.spec.addons }}
+            ---
+            apiVersion: helm.crossplane.io/v1beta1
+            kind: Release
+            metadata:
+              name: {{ .observed.composite.resource.spec.clusterName }}-nginx
+            spec:
+              providerConfigRef:
+                name: {{ .observed.composite.resource.spec.clusterName }}
+              forProvider:
+                chart:
+                  name: ingress-nginx
+                  repository: https://kubernetes.github.io/ingress-nginx
+                  version: "4.9.0"
+                namespace: ingress-nginx
+                values:
+                  controller:
+                    service:
+                      type: NodePort
+            {{ end }}
+            {{ if has "metrics-server" .observed.composite.resource.spec.addons }}
+            ---
+            apiVersion: helm.crossplane.io/v1beta1
+            kind: Release
+            metadata:
+              name: {{ .observed.composite.resource.spec.clusterName }}-metrics-server
+            spec:
+              providerConfigRef:
+                name: {{ .observed.composite.resource.spec.clusterName }}
+              forProvider:
+                chart:
+                  name: metrics-server
+                  repository: https://kubernetes-sigs.github.io/metrics-server/
+                  version: "3.11.0"
+                namespace: kube-system
+                values:
+                  args:
+                    - --kubelet-insecure-tls
+                    - --kubelet-preferred-address-types=InternalIP
+            {{ end }}
+            {{ end }}
+
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready

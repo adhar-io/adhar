@@ -1,0 +1,41 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: restore-velero
+  labels:
+    feature: restore
+    provider: velero
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeRestore
+  mode: Pipeline
+  pipeline:
+    - step: render-restore
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            xr = option("params").oxr
+            spec = xr.spec
+            
+            restore = {
+                apiVersion = "velero.io/v1"
+                kind = "Restore"
+                metadata = {name = spec.name}
+                spec = {
+                    backupName = spec.backupName
+                    includedNamespaces = [spec.get("targetNamespace", "*")]
+                    includedResources = spec.get("resources", ["*"])
+                    restorePVs = True
+                }
+            }
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [restore]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

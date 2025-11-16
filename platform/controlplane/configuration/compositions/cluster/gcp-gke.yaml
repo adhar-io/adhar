@@ -1,0 +1,158 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositecluster-gcp-gke
+  labels:
+    feature: cluster
+    provider: gcp
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCluster
+  mode: Pipeline
+  pipeline:
+    - step: render-gke
+      functionRef:
+        name: fn-go-templating
+      input:
+        apiVersion: templating.fn.crossplane.io/v1beta1
+        kind: Template
+        spec:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $params := $xr.spec.parameters -}}
+            {{- $providerSettings := default (dict) $params.providerSettings -}}
+            {{- $gcp := default (dict) (get $providerSettings "gcp") -}}
+            {{- $network := default (dict) $params.networkConfig -}}
+            {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
+            {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
+            {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
+            {{- $providerConfig := get $xr.spec.providerConfigRef "name" -}}
+            {{- $tags := default (dict) $params.tags -}}
+            {{- $releaseChannel := upper (default "REGULAR" (get $gcp "releaseChannel")) -}}
+            {{- $removeDefault := default true (get $gcp "removeDefaultNodePool") -}}
+            {{- $loggingService := get $gcp "loggingService" -}}
+            {{- $monitoringService := get $gcp "monitoringService" -}}
+            apiVersion: fn.crossplane.io/v1beta1
+            kind: FunctionIO
+            desired:
+              resources:
+                - name: gke-cluster
+                  resource:
+                    apiVersion: container.gcp.upbound.io/v1beta1
+                    kind: Cluster
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: gcp
+                    spec:
+                      forProvider:
+                        location: {{ quote $params.region }}
+                        initialClusterVersion: {{ quote $params.version }}
+                        removeDefaultNodePool: {{ $removeDefault }}
+                        {{- if (get $gcp "projectId") }}
+                        project: {{ quote (get $gcp "projectId") }}
+                        {{- end }}
+                        {{- if (get $gcp "network") }}
+                        network: {{ quote (get $gcp "network") }}
+                        {{- end }}
+                        {{- if (get $gcp "subnetwork") }}
+                        subnetwork: {{ quote (get $gcp "subnetwork") }}
+                        {{- else if $network.subnetIds }}
+                        subnetwork: {{ quote (index $network.subnetIds 0) }}
+                        {{- end }}
+                        releaseChannel:
+                          - channel: {{ quote $releaseChannel }}
+                        {{- if $loggingService }}
+                        loggingService: {{ quote $loggingService }}
+                        {{- end }}
+                        {{- if $monitoringService }}
+                        monitoringService: {{ quote $monitoringService }}
+                        {{- end }}
+                        {{- if $network.clusterIPv4CIDR }}
+                        clusterIpv4Cidr: {{ quote $network.clusterIPv4CIDR }}
+                        {{- end }}
+                        {{- if $network.serviceCidrBlock }}
+                        servicesIpv4Cidr: {{ quote $network.serviceCidrBlock }}
+                        {{- end }}
+                        {{- if $tags }}
+                        resourceLabels:
+                        {{- range $k, $v := $tags }}
+                          {{ $k }}: {{ quote $v }}
+                        {{- end }}
+                        {{- end }}
+                      writeConnectionSecretToRef:
+                        name: {{ quote $secretName }}
+                        namespace: {{ quote $secretNamespace }}
+                      {{- if $providerConfig }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                      {{- end }}
+                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                {{- range $index, $pool := $params.nodePools }}
+                - name: gke-nodepool-{{ $index }}
+                  resource:
+                    apiVersion: container.gcp.upbound.io/v1beta1
+                    kind: NodePool
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: gcp
+                        cluster-name: {{ $xr.metadata.name | quote }}
+                    spec:
+                      forProvider:
+                        location: {{ quote $params.region }}
+                        clusterRef:
+                          name: {{ quote $xr.metadata.name }}
+                        initialNodeCount: {{ default 1 $pool.count }}
+                        {{- if or $pool.minCount $pool.maxCount }}
+                        autoscaling:
+                          - minNodeCount: {{ default (default 1 $pool.count) $pool.minCount }}
+                            maxNodeCount: {{ default (default 1 $pool.count) $pool.maxCount }}
+                        {{- end }}
+                        {{- if $pool.availabilityZones }}
+                        nodeLocations:
+                        {{- range $pool.availabilityZones }}
+                          - {{ quote . }}
+                        {{- end }}
+                        {{- end }}
+                        {{- if $pool.kubernetesVersion }}
+                        version: {{ quote $pool.kubernetesVersion }}
+                        {{- end }}
+                        nodeConfig:
+                          - machineType: {{ quote $pool.instanceType }}
+                            {{- if $pool.storageSize }}
+                            {{- $disk := trimSuffix "Gi" $pool.storageSize -}}
+                            {{- if $disk }}
+                            diskSizeGb: {{ atoi $disk }}
+                            {{- end }}
+                            {{- end }}
+                            {{- if $pool.labels }}
+                            labels:
+                            {{- range $k, $v := $pool.labels }}
+                              {{ $k }}: {{ quote $v }}
+                            {{- end }}
+                            {{- end }}
+                            {{- if $pool.taints }}
+                            taints:
+                            {{- range $pool.taints }}
+                              - key: {{ quote .key }}
+                                {{- if .value }}
+                                value: {{ quote .value }}
+                                {{- end }}
+                                effect: {{ quote .effect }}
+                            {{- end }}
+                            {{- end }}
+                            {{- if $params.addons.enableClusterAutoscaler }}
+                            oauthScopes:
+                              - https://www.googleapis.com/auth/cloud-platform
+                            {{- end }}
+                            {{- if $pool.spot }}
+                            preemptible: true
+                            {{- end }}
+                        {{- if $providerConfig }}
+                        providerConfigRef:
+                          name: {{ quote $providerConfig }}
+                        {{- end }}
+                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                {{- end }}

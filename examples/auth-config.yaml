@@ -1,0 +1,48 @@
+# Adhar Platform Authentication Configuration
+# This file configures Keycloak integration and Kubernetes RBAC
+
+authentication:
+  # Keycloak Configuration
+  keycloak:
+    url: "https://keycloak.adhar.local"
+    realm: "adhar"
+    client_id: "adhar-admin"
+    client_secret: "your-client-secret-here"
+
+  # Kubernetes Configuration
+  kubernetes:
+    kubeconfig: "" # Leave empty to use in-cluster config
+    default_namespace: "default"
+
+  # Default Roles
+  default_roles:
+    - name: "adhar-admin"
+      description: "Full platform access"
+      permissions:
+        - api_groups: ["*"]
+          resources: ["*"]
+          verbs: ["*"]
+
+    - name: "adhar-developer"
+      description: "Developer access to applications"
+      permissions:
+        - api_groups: [""]
+          resources: ["pods", "services", "configmaps", "secrets"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        - api_groups: ["apps"]
+          resources: ["deployments", "replicasets", "statefulsets"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+    - name: "adhar-viewer"
+      description: "Read-only access"
+      permissions:
+        - api_groups: [""]
+          resources: ["pods", "services", "configmaps"]
+          verbs: ["get", "list", "watch"]
+        - api_groups: ["apps"]
+          resources: ["deployments", "replicasets", "statefulsets"]
+          verbs: ["get", "list", "watch"]
+# Example usage:
+# 1. Update the Keycloak URL and credentials
+# 2. Apply this configuration: adhar auth configure -f auth-config.yaml
+# 3. Sync Keycloak to Kubernetes: adhar auth sync

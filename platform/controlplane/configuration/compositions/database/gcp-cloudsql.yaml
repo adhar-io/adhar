@@ -1,0 +1,246 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositedatabase-gcp-cloudsql
+  labels:
+    feature: database
+    provider: gcp
+    engine: postgresql
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeDatabase
+  mode: Pipeline
+  pipeline:
+    - step: render-cloudsql
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            import regex
+
+            oxr = option("params").oxr
+            ocds = option("params").ocds
+
+            params = oxr.spec.parameters
+            metadata = oxr.metadata
+            conn = oxr.spec.writeConnectionSecretToRef or {}
+            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+
+            # Database configuration
+            engine = params.engine
+            engineVersion = params.engineVersion or "POSTGRES_14"
+            instanceClass = params.instanceClass or "db-f1-micro"
+            region = params.region or "us-central1"
+            availabilityZones = params.availabilityZones or []
+            availabilityType = "REGIONAL" if (params.multiAZ or len(availabilityZones) > 1) else "ZONAL"
+
+            # Storage
+            storageSize = int(regex.replace(params.storageSize or "10Gi", "Gi", ""))
+            storageType = params.storageType or "PD_SSD"
+
+            # Backup
+            enableBackup = params.enableBackup or True
+            backupRetentionDays = params.backupRetentionDays or 7
+            backupStartTime = params.backupWindow or "03:00"
+
+            # Encryption
+            enableEncryption = params.enableEncryption or True
+            kmsKeyId = params.kmsKeyId or ""
+
+            # Network
+            publiclyAccessible = params.publiclyAccessible or False
+            networkConfig = params.networkConfig or {}
+            privateNetwork = networkConfig.get("vpcId", "")
+            ipv4Enabled = publiclyAccessible
+
+            # Credentials
+            credentials = params.credentials or {}
+            masterUsername = credentials.masterUsername or "postgres"
+            masterPasswordSecretRef = credentials.masterPasswordSecretRef or {}
+
+            # Monitoring and insights
+            performanceInsights = params.performanceInsights or {}
+            enablePerformanceInsights = performanceInsights.enabled or False
+
+            # Tags
+            tags = params.tags or {}
+
+            # Connection secret
+            secretName = conn.name or "${metadata.name}-db"
+            secretNamespace = conn.namespace or "crossplane-system"
+
+            # Instance name
+            instanceName = metadata.name
+
+            deletionPolicy = params.deletionPolicy or "Delete"
+
+            _items = [
+                {
+                    apiVersion: "sql.gcp.upbound.io/v1beta1"
+                    kind: "DatabaseInstance"
+                    metadata.name: "cloudsql-instance"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "gcp"
+                        engine: engine
+                    }
+                    spec: {
+                        forProvider: {
+                            databaseVersion: engineVersion
+                            region: region
+                            settings: [{
+                                tier: instanceClass
+                                availabilityType: availabilityType
+                                diskSize: storageSize
+                                diskType: storageType
+                                if enableBackup:
+                                    backupConfiguration: [{
+                                        enabled: True
+                                        startTime: backupStartTime
+                                        pointInTimeRecoveryEnabled: True
+                                        transactionLogRetentionDays: backupRetentionDays
+                                        backupRetentionSettings: [{
+                                            retainedBackups: backupRetentionDays
+                                            retentionUnit: "COUNT"
+                                        }]
+                                    }]
+                                ipConfiguration: [{
+                                    ipv4Enabled: ipv4Enabled
+                                    if privateNetwork:
+                                        privateNetwork: privateNetwork
+                                    if not publiclyAccessible:
+                                        requireSsl: True
+                                }]
+                                if enablePerformanceInsights:
+                                    insightsConfig: [{
+                                        queryInsightsEnabled: True
+                                        queryPlansPerMinute: 5
+                                        queryStringLength: 1024
+                                        recordApplicationTags: True
+                                        recordClientAddress: True
+                                    }]
+                                if tags:
+                                    userLabels: tags
+                            }]
+                            deletionProtection: not params.skipFinalSnapshot
+                        }
+                        providerConfigRef.name: providerConfigName
+                        writeConnectionSecretToRef: {
+                            name: secretName
+                            namespace: secretNamespace
+                        }
+                        deletionPolicy: deletionPolicy
+                    }
+                },
+                {
+                    apiVersion: "sql.gcp.upbound.io/v1beta1"
+                    kind: "Database"
+                    metadata.name: "database"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "gcp"
+                    }
+                    spec: {
+                        forProvider: {
+                            instanceSelector: {
+                                matchControllerRef: True
+                            }
+                            name: "${metadata.name}db"
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                },
+                {
+                    apiVersion: "sql.gcp.upbound.io/v1beta1"
+                    kind: "User"
+                    metadata.name: "db-user"
+                    metadata.labels: {
+                        feature: "database"
+                        provider: "gcp"
+                    }
+                    spec: {
+                        forProvider: {
+                            instanceSelector: {
+                                matchControllerRef: True
+                            }
+                            name: masterUsername
+                            if masterPasswordSecretRef:
+                                passwordSecretRef: {
+                                    name: masterPasswordSecretRef.name
+                                    namespace: masterPasswordSecretRef.namespace or "crossplane-system"
+                                    key: masterPasswordSecretRef.key or "password"
+                                }
+                        }
+                        providerConfigRef.name: providerConfigName
+                        deletionPolicy: deletionPolicy
+                    }
+                }
+            ]
+
+            # Get observed state for status
+            _observedResources = ocds or {}
+            _instanceObserved = _observedResources.get("cloudsql-instance", {}).get("resource", {})
+            _instanceStatus = _instanceObserved.get("status", {}).get("atProvider", {})
+
+            _phase = "Pending"
+            _message = "Database provisioning initiated"
+            _ready = False
+            _endpoint = ""
+            _port = 5432
+
+            if _instanceStatus:
+                _state = _instanceStatus.get("state", "")
+                _connectionName = _instanceStatus.get("connectionName", "")
+                _ipAddress = ""
+                
+                # Get IP addresses
+                _ipAddresses = _instanceStatus.get("ipAddress", [])
+                if _ipAddresses and len(_ipAddresses) > 0:
+                    if publiclyAccessible:
+                        # Get public IP
+                        for _ip in _ipAddresses:
+                            if _ip.get("type") == "PRIMARY":
+                                _ipAddress = _ip.get("ipAddress", "")
+                                break
+                    else:
+                        # Get private IP
+                        for _ip in _ipAddresses:
+                            if _ip.get("type") == "PRIVATE":
+                                _ipAddress = _ip.get("ipAddress", "")
+                                break
+                
+                if _state == "RUNNABLE":
+                    _phase = "Available"
+                    _message = "Database is ready"
+                    _ready = True
+                    _endpoint = _ipAddress or _connectionName
+                elif _state in ["PENDING_CREATE", "MAINTENANCE"]:
+                    _phase = "Creating"
+                    _message = "Database is being provisioned"
+                elif _state in ["FAILED", "UNKNOWN_STATE"]:
+                    _phase = "Failed"
+                    _message = "Database provisioning failed: {}".format(_state)
+                else:
+                    _phase = "Modifying"
+                    _message = "Database status: {}".format(_state)
+
+            items = _items + [{
+                apiVersion: "platform.adhar.io/v1alpha1"
+                kind: "CompositeDatabase"
+                metadata: oxr.metadata
+                status: {
+                    phase: _phase
+                    message: _message
+                    ready: _ready
+                    if _endpoint:
+                        endpoint: _endpoint
+                    port: _port
+                    if _state:
+                        status: _state
+                }
+            }]

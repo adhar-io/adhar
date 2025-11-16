@@ -1,0 +1,39 @@
+apiVersion: platform.adhar.com/v1alpha1
+kind: Cluster
+metadata:
+  name: local-dev-cluster
+  namespace: platform-admin
+  labels:
+    platform.adhar.com/environment-type: development
+    platform.adhar.com/local: "true"
+spec:
+  displayName: "Local Development Cluster"
+  organizationRef:
+    name: acme-corp
+  environmentType: "development"
+  provider: "Kind"
+  version: "1.28.0"
+  controlPlane:
+    endpointAccess: "Public"
+  nodePools:
+    - name: "control-plane"
+      instanceType: "kind-control-plane"
+      count: 1
+    - name: "worker-nodes"
+      instanceType: "kind-worker"
+      count: 2
+  networkConfig:
+    podCidrBlock: "10.244.0.0/16"
+    serviceCidrBlock: "10.96.0.0/12"
+    cniPlugin: "kindnet"
+  kindConfig:
+    clusterNameOverride: "adhar-dev"
+    nodeImage: "kindest/node:v1.28.0"
+    exposePortMappings:
+      - containerPort: 80
+        hostPort: 8080
+        protocol: "TCP"
+      - containerPort: 443
+        hostPort: 8443
+        protocol: "TCP"
+

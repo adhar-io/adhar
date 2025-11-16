@@ -1,0 +1,551 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositeclusters.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeCluster
+    plural: compositeclusters
+  claimNames:
+    kind: Cluster
+    plural: clusters
+  connectionSecretKeys:
+    - kubeconfig
+    - endpoint
+    - caCertificate
+    - clusterName
+  defaultCompositionRef:
+    name: compositecluster-aws-eks
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - compositionSelector
+                - parameters
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: cluster
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                parameters:
+                  type: object
+                  required:
+                    - provider
+                    - region
+                    - version
+                    - controlPlane
+                    - nodePools
+                  properties:
+                    displayName:
+                      type: string
+                    organizationRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                    environmentType:
+                      type: string
+                    provider:
+                      type: string
+                      enum:
+                        - AWS_EKS
+                        - GCP_GKE
+                        - AZURE_AKS
+                        - DIGITALOCEAN_DOKS
+                        - CIVO_K3S
+                        - KIND
+                    region:
+                      type: string
+                    version:
+                      type: string
+                    controlPlane:
+                      type: object
+                      properties:
+                        highAvailability:
+                          type: boolean
+                        endpointAccess:
+                          type: string
+                          enum:
+                            - Public
+                            - Private
+                            - PublicAndPrivate
+                          default: Public
+                        kubernetesVersion:
+                          type: string
+                        iamRoles:
+                          type: object
+                          properties:
+                            clusterRoleARN:
+                              type: string
+                            nodeRoleARN:
+                              type: string
+                        identity:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              enum:
+                                - SystemAssigned
+                                - UserAssigned
+                                - SystemAssigned,UserAssigned
+                            userAssignedIdentityIDs:
+                              type: array
+                              items:
+                                type: string
+                            servicePrincipalClientID:
+                              type: string
+                            servicePrincipalSecretRef:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                namespace:
+                                  type: string
+                    providerSettings:
+                      type: object
+                      properties:
+                        aws:
+                          type: object
+                          properties:
+                            encryptionConfigKeyArn:
+                              type: string
+                            loggingTypes:
+                              type: array
+                              items:
+                                type: string
+                                enum:
+                                  - api
+                                  - audit
+                                  - authenticator
+                                  - controllerManager
+                                  - scheduler
+                            securityGroupIds:
+                              type: array
+                              items:
+                                type: string
+                            enablePrivateAccess:
+                              type: boolean
+                            enablePublicAccess:
+                              type: boolean
+                            publicAccessCidrs:
+                              type: array
+                              items:
+                                type: string
+                            enableIRSA:
+                              type: boolean
+                            oidcProviderArn:
+                              type: string
+                            kmsKeyArn:
+                              type: string
+                            addonConfigs:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  name:
+                                    type: string
+                                  version:
+                                    type: string
+                                  resolveConflicts:
+                                    type: string
+                                    enum:
+                                      - OVERWRITE
+                                      - PRESERVE
+                          additionalProperties: false
+                        gcp:
+                          type: object
+                          properties:
+                            projectId:
+                              type: string
+                            network:
+                              type: string
+                            subnetwork:
+                              type: string
+                            loggingService:
+                              type: string
+                            monitoringService:
+                              type: string
+                            removeDefaultNodePool:
+                              type: boolean
+                            releaseChannel:
+                              type: string
+                              enum:
+                                - RAPID
+                                - REGULAR
+                                - STABLE
+                            enableStackdriverLogging:
+                              type: boolean
+                            enableStackdriverMonitoring:
+                              type: boolean
+                            enableCloudLogging:
+                              type: boolean
+                            enableCloudMonitoring:
+                              type: boolean
+                            masterAuthorizedNetworks:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  cidrBlock:
+                                    type: string
+                                  displayName:
+                                    type: string
+                            workloadIdentityConfig:
+                              type: object
+                              properties:
+                                workloadPool:
+                                  type: string
+                            binaryAuthorization:
+                              type: object
+                              properties:
+                                enabled:
+                                  type: boolean
+                                evaluationMode:
+                                  type: string
+                            enableShieldedNodes:
+                              type: boolean
+                            enableIntranodeVisibility:
+                              type: boolean
+                            addonsConfig:
+                              type: object
+                              properties:
+                                httpLoadBalancing:
+                                  type: boolean
+                                horizontalPodAutoscaling:
+                                  type: boolean
+                                networkPolicyConfig:
+                                  type: boolean
+                          additionalProperties: false
+                        azure:
+                          type: object
+                          required:
+                            - resourceGroupName
+                            - dnsPrefix
+                          properties:
+                            resourceGroupName:
+                              type: string
+                            dnsPrefix:
+                              type: string
+                            kubernetesVersion:
+                              type: string
+                            networkPlugin:
+                              type: string
+                              enum:
+                                - azure
+                                - kubenet
+                            networkPolicy:
+                              type: string
+                            outboundType:
+                              type: string
+                              enum:
+                                - loadBalancer
+                                - userDefinedRouting
+                            loadBalancerSku:
+                              type: string
+                              enum:
+                                - basic
+                                - standard
+                            privateClusterEnabled:
+                              type: boolean
+                            authorizedIPRanges:
+                              type: array
+                              items:
+                                type: string
+                            userAssignedIdentityIDs:
+                              type: array
+                              items:
+                                type: string
+                            enableAzurePolicy:
+                              type: boolean
+                            enableOmsAgent:
+                              type: boolean
+                            logAnalyticsWorkspaceId:
+                              type: string
+                            enableManagedIdentity:
+                              type: boolean
+                            enablePodSecurityPolicy:
+                              type: boolean
+                            enableAzureRBAC:
+                              type: boolean
+                            aadProfile:
+                              type: object
+                              properties:
+                                managed:
+                                  type: boolean
+                                enableAzureRBAC:
+                                  type: boolean
+                                adminGroupObjectIDs:
+                                  type: array
+                                  items:
+                                    type: string
+                                tenantId:
+                                  type: string
+                            addonProfiles:
+                              type: object
+                              properties:
+                                omsAgent:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    config:
+                                      type: object
+                                      properties:
+                                        logAnalyticsWorkspaceResourceID:
+                                          type: string
+                                azurePolicy:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                httpApplicationRouting:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                            autoScalerProfile:
+                              type: object
+                              properties:
+                                scaleDownDelayAfterAdd:
+                                  type: string
+                                scaleDownDelayAfterDelete:
+                                  type: string
+                                scaleDownDelayAfterFailure:
+                                  type: string
+                                scaleDownUnneededTime:
+                                  type: string
+                          additionalProperties: false
+                        digitalocean:
+                          type: object
+                          properties:
+                            vpcUuid:
+                              type: string
+                            clusterSubnet:
+                              type: string
+                            serviceSubnet:
+                              type: string
+                            autoUpgrade:
+                              type: boolean
+                            surgeUpgrade:
+                              type: boolean
+                            maintenancePolicy:
+                              type: object
+                              properties:
+                                day:
+                                  type: string
+                                startTime:
+                                  type: string
+                              additionalProperties: false
+                            tags:
+                              type: array
+                              items:
+                                type: string
+                            ha:
+                              type: boolean
+                            registryIntegration:
+                              type: string
+                            firewallIds:
+                              type: array
+                              items:
+                                type: string
+                            enableMonitoring:
+                              type: boolean
+                            enableAlertManager:
+                              type: boolean
+                            credentialSecretRef:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                namespace:
+                                  type: string
+                                key:
+                                  type: string
+                          additionalProperties: false
+                        civo:
+                          type: object
+                          properties:
+                            applications:
+                              type: array
+                              items:
+                                type: string
+                            cni:
+                              type: string
+                              enum:
+                                - flannel
+                                - cilium
+                            connectionSecretNamePrefix:
+                              type: string
+                            connectionSecretNamespace:
+                              type: string
+                            publicIPNodePool:
+                              type: boolean
+                            firewallId:
+                              type: string
+                            region:
+                              type: string
+                            networkId:
+                              type: string
+                            credentialSecretRef:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                namespace:
+                                  type: string
+                                key:
+                                  type: string
+                          additionalProperties: false
+                      additionalProperties: false
+                    nodePools:
+                      type: array
+                      minItems: 1
+                      items:
+                        type: object
+                        required:
+                          - name
+                          - instanceType
+                          - count
+                        properties:
+                          name:
+                            type: string
+                          instanceType:
+                            type: string
+                          count:
+                            type: integer
+                            minimum: 1
+                          minCount:
+                            type: integer
+                          maxCount:
+                            type: integer
+                          availabilityZones:
+                            type: array
+                            items:
+                              type: string
+                          storageSize:
+                            type: string
+                          osDiskSizeGb:
+                            type: integer
+                          mode:
+                            type: string
+                            enum:
+                              - System
+                              - User
+                          kubernetesVersion:
+                            type: string
+                          labels:
+                            type: object
+                            additionalProperties:
+                              type: string
+                          tags:
+                            type: object
+                            additionalProperties:
+                              type: string
+                          taints:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                value:
+                                  type: string
+                                effect:
+                                  type: string
+                                  enum:
+                                    - NoSchedule
+                                    - PreferNoSchedule
+                                    - NoExecute
+                          spot:
+                            type: boolean
+                          machineImage:
+                            type: string
+                          publicIPNodePool:
+                            type: boolean
+                          regionOverride:
+                            type: string
+                    networkConfig:
+                      type: object
+                      properties:
+                        vpcId:
+                          type: string
+                        subnetIds:
+                          type: array
+                          items:
+                            type: string
+                        podCidrBlock:
+                          type: string
+                        serviceCidrBlock:
+                          type: string
+                        cniPlugin:
+                          type: string
+                        privateDNS:
+                          type: boolean
+                        dnsServiceIP:
+                          type: string
+                        dockerBridgeCidr:
+                          type: string
+                    addons:
+                      type: object
+                      properties:
+                        enableClusterAutoscaler:
+                          type: boolean
+                        enableMetricsServer:
+                          type: boolean
+                        enableIngress:
+                          type: boolean
+                    deletionPolicy:
+                      type: string
+                      enum:
+                        - Delete
+                        - Orphan
+                      default: Delete
+                    tags:
+                      type: object
+                      additionalProperties:
+                        type: string
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                      default: crossplane-system
+                    name:
+                      type: string
+                managementPolicy:
+                  type: string
+                  enum:
+                    - Observe
+                    - ObserveAndDelete
+                    - FullControl
+                  default: FullControl
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+                ready:
+                  type: boolean

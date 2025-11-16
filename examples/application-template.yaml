@@ -1,0 +1,54 @@
+apiVersion: platform.adhar.io/v1alpha1
+kind: ApplicationTemplate
+metadata:
+  name: nodejs-express-template
+  namespace: platform-templates
+spec:
+  displayName: "Node.js Express API Template"
+  description: "Template for creating Node.js Express REST API services"
+  type: "backend"
+  language: "javascript"
+  framework: "express"
+  parameters:
+    - name: "serviceName"
+      displayName: "Service Name"
+      description: "Name of the service"
+      type: "string"
+      required: true
+    - name: "nodeVersion"
+      displayName: "Node.js Version"
+      description: "Node.js runtime version"
+      type: "string"
+      default: "20"
+    - name: "port"
+      displayName: "Service Port"
+      description: "Port the service will listen on"
+      type: "integer"
+      default: 3000
+  scaffolding:
+    repositoryTemplate: "https://github.com/adhar-io/templates/nodejs-express"
+    files:
+      - path: "package.json"
+        template: |
+          {
+            "name": "{{ .serviceName }}",
+            "version": "1.0.0",
+            "main": "index.js",
+            "dependencies": {
+              "express": "^4.18.0"
+            }
+          }
+      - path: "index.js"
+        template: |
+          const express = require('express');
+          const app = express();
+          const PORT = {{ .port }};
+          
+          app.get('/health', (req, res) => {
+            res.json({ status: 'healthy' });
+          });
+          
+          app.listen(PORT, () => {
+            console.log(`{{ .serviceName }} listening on port ${PORT}`);
+          });
+

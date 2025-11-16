@@ -1,0 +1,19 @@
+apiVersion: v1alpha1
+kind: Config
+
+# Civo test environment configuration
+environments:
+  civo-test:
+    name: adhar-civo-test
+    type: production
+    provider: civo
+    region: LON1
+    
+    # Civo-specific cluster configuration
+    clusterConfig:
+      - key: node_size
+        value: g4s.kube.medium
+      - key: node_count
+        value: "3"
+      - key: kubernetes_version
+        value: "1.28.2-k3s1"

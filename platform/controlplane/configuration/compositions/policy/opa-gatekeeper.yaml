@@ -1,0 +1,163 @@
+---
+# Policy Composition using OPA Gatekeeper
+# Provides compliance and security policy enforcement using OPA Gatekeeper
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: policy-opa-gatekeeper
+  labels:
+    feature: compliance
+    provider: opa-gatekeeper
+    policy.adhar.io/engine: gatekeeper
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCompliancePolicy
+  mode: Pipeline
+  pipeline:
+    - step: render-gatekeeper-policies
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            # Get composite resource
+            xr = option("params").oxr
+            spec = xr.spec
+            params = spec.parameters
+            displayName = params.get("displayName", xr.metadata.name)
+            enforcementMode = params.get("enforcementMode", "audit")
+            predefined = params.get("predefinedPolicies", {})
+            
+            # Convert enforcement mode to Gatekeeper enforcement action
+            enforcementAction = "dryrun" if enforcementMode == "audit" else "deny"
+            
+            # Generate ConstraintTemplate for resource limits
+            resourceLimitsTemplate = {
+                apiVersion = "templates.gatekeeper.sh/v1"
+                kind = "ConstraintTemplate"
+                metadata = {
+                    name = "k8srequireresourcelimits"
+                    annotations = {
+                        "description" = "Requires resource limits on containers"
+                    }
+                }
+                spec = {
+                    crd = {
+                        spec = {
+                            names = {
+                                kind = "K8sRequireResourceLimits"
+                            }
+                        }
+                    }
+                    targets = [{
+                        target = "admission.k8s.gatekeeper.sh"
+                        rego = """
+package k8srequireresourcelimits
+
+violation[{"msg": msg}] {
+  container := input.review.object.spec.containers[_]
+  not container.resources.limits.cpu
+  msg := sprintf("Container %v is missing CPU limits", [container.name])
+}
+
+violation[{"msg": msg}] {
+  container := input.review.object.spec.containers[_]
+  not container.resources.limits.memory
+  msg := sprintf("Container %v is missing memory limits", [container.name])
+}
+"""
+                    }]
+                }
+            }
+            
+            # Generate Constraint for resource limits
+            resourceLimitsConstraint = None
+            if predefined.get("requireResourceLimits", True):
+                resourceLimitsConstraint = {
+                    apiVersion = "constraints.gatekeeper.sh/v1beta1"
+                    kind = "K8sRequireResourceLimits"
+                    metadata = {
+                        name = "${displayName}-require-limits"
+                    }
+                    spec = {
+                        enforcementAction = enforcementAction
+                        match = {
+                            kinds = [{
+                                apiGroups = [""]
+                                kinds = ["Pod"]
+                            }]
+                        }
+                    }
+                }
+            
+            # Generate ConstraintTemplate for privileged containers
+            privilegedTemplate = {
+                apiVersion = "templates.gatekeeper.sh/v1"
+                kind = "ConstraintTemplate"
+                metadata = {
+                    name = "k8sdisallowprivileged"
+                }
+                spec = {
+                    crd = {
+                        spec = {
+                            names = {
+                                kind = "K8sDisallowPrivileged"
+                            }
+                        }
+                    }
+                    targets = [{
+                        target = "admission.k8s.gatekeeper.sh"
+                        rego = """
+package k8sdisallowprivileged
+
+violation[{"msg": msg}] {
+  container := input.review.object.spec.containers[_]
+  container.securityContext.privileged == true
+  msg := sprintf("Container %v is running in privileged mode", [container.name])
+}
+"""
+                    }]
+                }
+            }
+            
+            # Generate Constraint for privileged containers
+            privilegedConstraint = None
+            if predefined.get("disallowPrivilegedContainers", True):
+                privilegedConstraint = {
+                    apiVersion = "constraints.gatekeeper.sh/v1beta1"
+                    kind = "K8sDisallowPrivileged"
+                    metadata = {
+                        name = "${displayName}-disallow-privileged"
+                    }
+                    spec = {
+                        enforcementAction = enforcementAction
+                        match = {
+                            kinds = [{
+                                apiGroups = [""]
+                                kinds = ["Pod"]
+                            }]
+                        }
+                    }
+                }
+            
+            # Collect all resources
+            items = [resourceLimitsTemplate, privilegedTemplate]
+            if resourceLimitsConstraint:
+                items.append(resourceLimitsConstraint)
+            if privilegedConstraint:
+                items.append(privilegedConstraint)
+            
+            # Return resources
+            {
+                apiVersion = "krm.kcl.dev/v1alpha1"
+                kind = "ResourceList"
+                items = items
+            }
+    
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready
+

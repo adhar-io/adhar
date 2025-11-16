@@ -1,0 +1,109 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositecluster-civo-k3s
+  labels:
+    feature: cluster
+    provider: civo
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCluster
+  mode: Pipeline
+  pipeline:
+    - step: render-civo
+      functionRef:
+        name: fn-go-templating
+      input:
+        apiVersion: templating.fn.crossplane.io/v1beta1
+        kind: Template
+        spec:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $params := $xr.spec.parameters -}}
+            {{- $providerSettings := default (dict) $params.providerSettings -}}
+            {{- $civo := default (dict) (get $providerSettings "civo") -}}
+            {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
+            {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
+            {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
+            {{- $providerConfig := get $xr.spec.providerConfigRef "name" -}}
+            {{- $pools := $params.nodePools -}}
+            {{- $applications := default (list) (get $civo "applications") -}}
+            {{- $cni := get $civo "cni" -}}
+            {{- $publicIPDefault := get $civo "publicIPNodePool" -}}
+            {{- $clusterVersion := default $params.version (get $civo "version") -}}
+            {{- $secretPrefix := default $xr.metadata.name (get $civo "connectionSecretNamePrefix") -}}
+            {{- $secretNS := default $secretNamespace (get $civo "connectionSecretNamespace") -}}
+            apiVersion: fn.crossplane.io/v1beta1
+            kind: FunctionIO
+            desired:
+              resources:
+                - name: civo-cluster
+                  resource:
+                    apiVersion: cluster.civo.crossplane.io/v1alpha1
+                    kind: CivoKubernetes
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: civo
+                    spec:
+                      forProvider:
+                        name: {{ quote (default $xr.metadata.name $params.displayName) }}
+                        pools:
+                        {{- range $index, $pool := $pools }}
+                          - size: {{ quote $pool.instanceType }}
+                            count: {{ default 1 $pool.count }}
+                            {{- if $pool.regionOverride }}
+                            region: {{ quote $pool.regionOverride }}
+                            {{- else }}
+                            region: {{ quote $params.region }}
+                            {{- end }}
+                            {{- if (or $pool.taints $publicIPDefault $pool.publicIPNodePool $pool.labels) }}
+                            {{- if $pool.labels }}
+                            labels:
+                            {{- range $k, $v := $pool.labels }}
+                              {{ $k }}: {{ quote $v }}
+                            {{- end }}
+                            {{- end }}
+                            {{- if $pool.taints }}
+                            taints:
+                            {{- range $pool.taints }}
+                              - key: {{ quote .key }}
+                                value: {{ quote (default "" .value) }}
+                                effect: {{ quote .effect }}
+                            {{- end }}
+                            {{- else }}
+                            taints: []
+                            {{- end }}
+                            {{- if $pool.publicIPNodePool }}
+                            public_ip_node_pool: true
+                            {{- else if $publicIPDefault }}
+                            public_ip_node_pool: true
+                            {{- end }}
+                            {{- else }}
+                            taints: []
+                            {{- end }}
+                        {{- end }}
+                        {{- if $applications }}
+                        applications:
+                        {{- range $applications }}
+                          - {{ quote . }}
+                        {{- end }}
+                        {{- end }}
+                        {{- if $clusterVersion }}
+                        version: {{ quote $clusterVersion }}
+                        {{- end }}
+                        {{- if $cni }}
+                        cni: {{ quote $cni }}
+                        {{- end }}
+                        connectionDetails:
+                          connectionSecretNamePrefix: {{ quote $secretPrefix }}
+                          connectionSecretNamespace: {{ quote $secretNS }}
+                      {{- if $providerConfig }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                      {{- end }}
+                      writeConnectionSecretToRef:
+                        name: {{ quote $secretName }}
+                        namespace: {{ quote $secretNamespace }}
+                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}

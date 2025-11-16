@@ -1,0 +1,138 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: compositegitops.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  names:
+    kind: CompositeGitOps
+    plural: compositegitops
+  claimNames:
+    kind: GitOps
+    plural: gitops
+  connectionSecretKeys:
+    - project
+    - appset
+  defaultCompositionRef:
+    name: compositegitops-argocd
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - compositionSelector
+                - parameters
+              properties:
+                compositionSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  default:
+                    matchLabels:
+                      feature: gitops
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                parameters:
+                  type: object
+                  required:
+                    - project
+                  properties:
+                    project:
+                      type: object
+                      required:
+                        - name
+                      properties:
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        sourceRepos:
+                          type: array
+                          items:
+                            type: string
+                        destinations:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              namespace:
+                                type: string
+                              server:
+                                type: string
+                        clusterResourceWhitelist:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              group:
+                                type: string
+                              kind:
+                                type: string
+                        namespaceResourceBlacklist:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              group:
+                                type: string
+                              kind:
+                                type: string
+                        roles:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              policies:
+                                type: array
+                                items:
+                                  type: string
+                              groups:
+                                type: array
+                                items:
+                                  type: string
+                    applicationSets:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          generators:
+                            type: array
+                            items:
+                              type: object
+                              additionalProperties: true
+                          template:
+                            type: object
+                            additionalProperties: true
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                      default: crossplane-system
+                    name:
+                      type: string
+            status:
+              type: object
+              properties:
+                projectSynced:
+                  type: boolean
+                managedApplicationSets:
+                  type: integer

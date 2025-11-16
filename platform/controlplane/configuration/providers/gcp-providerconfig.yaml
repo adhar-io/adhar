@@ -1,0 +1,56 @@
+---
+# GCP Container (GKE) Provider Configuration
+apiVersion: container.gcp.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: gcp-container
+spec:
+  projectID: "" # Will be set from secret or environment
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: gcp-credentials
+      key: credentials
+---
+# GCP Compute Provider Configuration
+apiVersion: compute.gcp.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: gcp-compute
+spec:
+  projectID: "" # Will be set from secret or environment
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: gcp-credentials
+      key: credentials
+---
+# GCP SQL Provider Configuration
+apiVersion: sql.gcp.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: gcp-sql
+spec:
+  projectID: "" # Will be set from secret or environment
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: gcp-credentials
+      key: credentials
+---
+# GCP Storage Provider Configuration
+apiVersion: storage.gcp.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: gcp-storage
+spec:
+  projectID: "" # Will be set from secret or environment
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: gcp-credentials
+      key: credentials
