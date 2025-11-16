@@ -158,6 +158,7 @@ type GiteaStatus struct {
 	InternalURL              string `json:"internalURL,omitempty"`
 	AdminUserSecretName      string `json:"adminUserSecretNameecret,omitempty"`
 	AdminUserSecretNamespace string `json:"adminUserSecretNamespace,omitempty"`
+	RepositoriesCreated      bool   `json:"repositoriesCreated,omitempty"`
 }
 
 type ArgoCDStatus struct {

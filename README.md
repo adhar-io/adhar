@@ -1,16 +1,17 @@
-![Adhar Logo](docs/images/branding/adhar-logo-white.svg#gh-dark-mode-only)
-![Adhar Logo](docs/images/branding/adhar-logo-black.svg#gh-light-mode-only)
-
 <div align="center">
+
+![Adhar Logo](docs/images/branding/path60.png)
 
 **Sanskrit: अधार (Adhāra) – Foundation**
 
 <h1>Open Foundation for Cloud-Native Platform Engineering</h1>
 
-[![Slack](https://img.shields.io/badge/slack-join-blue?logo=slack)](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
+[![Adhar Version](https://img.shields.io/badge/version-0.3.8-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkw0IDhWMTVDNCAxOC4zMSA2LjY5IDIxIDEwIDIxQzEzLjMxIDIxIDE2IDE4LjMxIDE2IDE1VjhMMTIgMloiIGZpbGw9IndoaXRlIi8+PC9zdmc+)](https://github.com/adhar-io/adhar/releases)
+[![Kubernetes](https://img.shields.io/badge/kubernetes-1.28%2B-blue?logo=kubernetes)](https://kubernetes.io)
+[![Crossplane](https://img.shields.io/badge/crossplane-2.1%2B-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkwzIDdWMTdMMTIgMjJMMjEgMTdWN0wxMiAyWiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=)](https://www.crossplane.io)
 [![Go Version](https://img.shields.io/badge/go-1.24%2B-blue?logo=go)](https://golang.org)
-[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
-[![Status](https://img.shields.io/badge/status-active%20development-orange)](https://github.com/adhar-io/adhar)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green?logo=apache)](LICENSE)
+[![Slack](https://img.shields.io/badge/slack-join_community-4A154B?logo=slack)](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
 
 </div>
 
@@ -36,13 +37,13 @@ Adhar delivers battle-tested architectural patterns with 50+ production-grade se
 |------------|-------------|
 | **📐 Standardized Architecture** | Organizational and application patterns that enforce best practices automatically |
 | **🚀 Self-Service with Guardrails** | Instant provisioning within security/compliance boundaries - no approval workflows |
-| **🎯 Golden Paths** | Pre-built patterns for microservices, data pipelines, and ML workflows |
-| **🏗️ True Multi-Cloud** | Consistent experience across AWS, Azure, GCP, DigitalOcean, Civo, and Kind |
+| **🎯 Golden Paths** | Pre-built patterns for microservices, microfrontends, data pipelines, and ML workflows |
+| **🏗️ True Multi-Cloud** | Consistent experience across AWS, Azure, GCP, DigitalOcean, Civo, and Onprem |
 | **🔄 GitOps Native** | Declarative infrastructure and application management via Git and ArgoCD |
 | **🛡️ Security Built-In** | Zero-trust networking, secrets vault, vulnerability scanning, policy enforcement |
-| **📊 Complete Observability** | Prometheus, Grafana, Loki, Jaeger, and Hubble configured automatically |
-| **🤖 AI/ML Platform** | Jupyter, analytics, and pipeline orchestration ready for data teams |
-| **📦 50+ Services Integrated** | From CI/CD to databases - production-ready out-of-the-box |
+| **📊 Complete Observability** | Prometheus, Grafana, Loki, Tempo and Hubble configured with auto instrument |
+| **🤖 AI/ML Platform** | Jupyter, analytics, ETL and pipeline orchestration ready for data teams |
+| **📦 50+ Services Integrated** | From Kafka to databases - production-ready out-of-the-box services |
 
 ---
 
@@ -60,31 +61,36 @@ Before getting started, ensure you have:
 | **Storage** | 20GB+ free | Images and data |
 | **CPU** | 4+ cores | Processing power |
 
-**Supported Platforms:** macOS 10.15+, Ubuntu 18.04+, Windows 10+
 
 ### Local Development (Under 5 Minutes)
 
 ```bash
-# 1. Install Adhar CLI
+#1. Install Adhar CLI
 curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/scripts/install.sh | bash
 
-# 2. Create local cluster with core services
+#2. Create local cluster with core platform services
 adhar up
 
-# 3. Access the platform
+#3. Access the platform, Adhar Console
 open https://adhar.localtest.me
 
-# 4. Check platform status
-adhar status
+#4. Retrieve application secrets
+adhar get secrets
 
-# 5. Destroy Adhar platform
+#5. Check platform usage
+adhar help
+
+#6. Destroy Adhar platform
 adhar down
 ```
 
-### Production Deployment
+### Production Environment
 
 ```bash
-# 1. Create configuration file (see Configuration Examples below)
+#1. Install Adhar CLI
+curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/scripts/install.sh | bash
+
+#2. Create configuration file (see Configuration Examples below)
 cat > adhar-config.yaml <<EOF
 clusterName: adhar-prod
 provider: AWS_EKS  # Supports: AWS_EKS, GCP_GKE, AZURE_AKS, DIGITALOCEAN_DOKS, CIVO_K3S
@@ -99,14 +105,17 @@ nodePools:
     maxCount: 5
 EOF
 
-# 2. Deploy to production
+#3. Adhar platform production setup
 adhar up -f adhar-config.yaml
 
-# 3. Verify deployment
-adhar get status --detailed
+#4. Verify deployment status
+adhar get status
 
-# 4. Access services
-adhar get secrets  # Get credentials for ArgoCD, Gitea, etc.
+#5. Access the platform, Adhar Console
+open https://cloud.adhar.io
+
+#6. Get credentials for Adhar Console, ArgoCD, Gitea, Keycloak etc.
+adhar get secrets -p argocd
 ```
 
 ---
@@ -114,79 +123,109 @@ adhar get secrets  # Get credentials for ArgoCD, Gitea, etc.
 ## 📦 Integrated Tools (50+ Components)
 
 <details>
-<summary><b>Core Infrastructure (8)</b></summary>
+<summary><b>Core Platform & Infrastructure (15)</b></summary>
 
-- **Adhar Console** - Platform management UI
-- **Kamaji** - Multi-cluster control plane
+- **Backstage** - Unified developer portal
+- **Kubernetes** - Container orchestration platform
+- **Kamaji** - Multi-tenant Kubernetes control plane
 - **vCluster** - Virtual Kubernetes clusters
 - **Open Cluster Management** - Multi-cluster orchestration
-- **Crossplane** - Infrastructure as Code
-- **Terraform Controller** - Cloud provisioning
-- **Cilium** - Container networking & security
-- **Nginx Ingress** - Traffic management
+- **Sveltos** - Kubernetes add-on management
+- **Crossplane** - Cloud-native Infrastructure as Code
+- **ArgoCD** - GitOps continuous delivery
+- **Gitea** - Self-hosted Git service
+- **Cilium** - eBPF-based networking & security
+- **Nginx Ingress** - HTTP/HTTPS traffic routing
+- **External DNS** - Automated DNS management
+- **Velero** - Backup & disaster recovery
+- **Harbor** - Container registry & artifact repository
+- **Armada** - Multi-cluster batch job scheduling
 
 </details>
 
 <details>
-<summary><b>Security & Compliance (6)</b></summary>
+<summary><b>Security & Compliance (11)</b></summary>
 
-- **Vault** - Secrets management
+- **Vault** - Secrets management & encryption
 - **Keycloak** - Identity & access management
-- **Kyverno** - Policy engine
-- **Falco** - Runtime security
-- **Trivy** - Vulnerability scanning
-- **cert-manager** - Certificate automation
+- **Kyverno** - Kubernetes policy engine
+- **Falco** - Runtime threat detection
+- **Trivy** - Vulnerability & security scanning
+- **cert-manager** - Certificate lifecycle automation
+- **Tetragon** - eBPF-based security observability
+- **Cosign** - Container image signing & verification
+- **External Secrets Operator** - External secrets synchronization
+- **SPIFFE/SPIRE** - Workload identity & authentication
+- **SealedSecrets** - Encrypted secrets for GitOps
 
 </details>
 
 <details>
-<summary><b>Observability (8)</b></summary>
+<summary><b>Observability (16)</b></summary>
 
-- **Prometheus** - Metrics collection
+- **Prometheus** - Metrics collection & monitoring
 - **Grafana** - Visualization & dashboards
-- **Loki** - Log aggregation
-- **Tempo** - Distributed tracing
-- **Jaeger** - Trace analysis
-- **Hubble** - Network observability
-- **AlertManager** - Alert routing
-- **Thanos** - Long-term metrics storage
+- **Loki** - Log aggregation & querying
+- **Tempo** - Distributed tracing backend
+- **Jaeger** - Distributed tracing & analysis
+- **Hubble** - Cilium network observability
+- **AlertManager** - Alert routing & management
+- **Grafana Mimir** - Scalable long-term metrics storage
+- **OpenTelemetry** - Unified observability framework
+- **Grafana Alloy** - OpenTelemetry collector distribution
+- **FluentBit** - Lightweight log processor & forwarder
+- **Pixie** - eBPF-based Kubernetes observability
+- **Pyroscope** - Continuous profiling platform
+- **Grafana Beyla** - eBPF application auto-instrumentation
+- **Grafana Faro** - Real user monitoring for web apps
+- **Grafana OnCall** - On-call management & incident response
 
 </details>
 
 <details>
-<summary><b>GitOps & CI/CD (5)</b></summary>
+<summary><b>Application Development & Delivery (22)</b></summary>
 
-- **ArgoCD** - GitOps deployment
-- **Argo Workflows** - Workflow orchestration
-- **Argo Rollouts** - Progressive delivery
-- **Gitea** - Git hosting
-- **Harbor** - Container registry
-
+- **ArgoCD** - GitOps continuous delivery
+- **Argo Workflows** - Container-native workflow engine
+- **Argo Rollouts** - Progressive delivery with canary/blue-green
+- **Argo Events** - Event-driven workflow automation
+- **Gitea** - Self-hosted Git service
+- **Harbor** - Container registry & artifact repository
+- **Tekton** - Cloud-native CI/CD pipelines
+- **FluxCD** - GitOps toolkit for Kubernetes
+- **Knative** - Kubernetes-based serverless platform
+- **OpenFaaS** - Functions as a Service framework
+- **DAPR** - Distributed application runtime
+- **Cilium Service Mesh** - eBPF-based service mesh
+- **Cilium Gateway API** - Kubernetes Gateway API implementation
+- **Coder** - Cloud development environments (CDE)
+- **DevSpace** - Developer workflow automation
+- **Kargo** - Freight promotion for GitOps
+- **K6** - Modern load testing tool
+- **ChaosMesh** - Chaos engineering platform
+- **Penpot** - Open-source design & prototyping
+- **Webstudio** - Visual web development platform
+- **Plane** - Project management & issue tracking
+- **Buildpacks** - Cloud-native buildpack support
 </details>
 
 <details>
-<summary><b>Data & Analytics (6)</b></summary>
+<summary><b>Data & Analytics (14)</b></summary>
 
+- **PostHog** - Product analytics & feature flags
+- **Metabase** - Business intelligence dashboard
 - **PostgreSQL** - Relational database
-- **Redis** - In-memory data store
-- **MinIO** - Object storage
-- **Kafka** - Event streaming
-- **Jupyter** - Interactive notebooks
-- **Spark** - Data processing
-
-</details>
-
-<details>
-<summary><b>Application Development (8)</b></summary>
-
-- **Knative** - Serverless containers
-- **Backstage** - Developer portal
-- **KubeVirt** - Virtual machines
-- **Service Mesh (Istio/Linkerd)** - Microservices
-- **OpenFaaS** - Functions as a Service
-- **Tekton** - Cloud-native CI/CD
-- **FluxCD** - GitOps alternative
-- **Velero** - Backup & restore
+- **Valkey** - In-memory data store (Redis fork)
+- **MinIO** - S3-compatible object storage
+- **Kafka** - Distributed event streaming platform
+- **Airbyte** - Data integration & ELT platform
+- **Iceberg** - Open table format for data lakes
+- **Kubeflow** - Machine learning workflows on Kubernetes
+- **Dagster** - Data orchestration platform
+- **MLflow** - ML lifecycle management platform
+- **Flink** - Stream processing engine
+- **OpenSearch** - Search & analytics engine
+- **Milvus** - Vector database for AI applications
 
 </details>
 
@@ -196,89 +235,25 @@ adhar get secrets  # Get credentials for ArgoCD, Gitea, etc.
 
 | Resource | Description |
 |----------|-------------|
-| [Getting Started Guide](docs/GETTING_STARTED.md) | Complete walkthrough for new users |
-| [Architecture Overview](docs/ARCHITECTURE.md) | System design and components |
-| [Configuration Guide](docs/CONFIGURATION.md) | Detailed configuration options |
-| [Provider System](docs/PROVIDER_SYSTEM_GUIDE.md) | Multi-cloud provider architecture |
-| [Platform Capabilities](docs/PLATFORM_CAPABILITIES.md) | Feature matrix and tool integration |
-| [Migration Guide](docs/MIGRATION_GUIDE.md) | Upgrade and migration instructions |
-| [Contributing Guide](docs/CONTRIBUTING.md) | How to contribute to Adhar |
+| [Documentation Home](docs/README.md) | Complete documentation index and navigation |
+| [Getting Started Guide](docs/GETTING_STARTED.md) | Quick start and installation walkthrough |
+| [User Guide](docs/USER_GUIDE.md) | Platform capabilities, configuration, and CLI reference |
+| [Architecture Overview](docs/ARCHITECTURE.md) | System design, components, and technical details |
+| [Provider Guide](docs/PROVIDER_GUIDE.md) | Multi-cloud provider implementation guide |
+| [Advanced Guide](docs/ADVANCED.md) | HA mode, production deployment, and best practices |
+| [Contributing Guide](CONTRIBUTING.md) | How to contribute to the Adhar project |
 
 ---
 
 ## 🤝 Community & Support
 
-<div align="center">
-
 | Channel | Purpose | Link |
 |---------|---------|------|
 | 💬 **Slack** | Real-time chat & support | [Join Workspace](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) |
 | 🐛 **GitHub Issues** | Bug reports & feature requests | [Open Issue](https://github.com/adhar-io/adhar/issues) |
-| 📖 **Documentation** | Comprehensive guides | [docs/](docs/) |
+| 📖 **Documentation** | Comprehensive guides | [docs/README.md](docs/README.md) |
 | 💡 **Discussions** | Ideas, questions & feedback | [GitHub Discussions](https://github.com/adhar-io/adhar/discussions) |
 | 📦 **Examples** | Sample configs & apps | [examples/](examples/) |
-
-</div>
-
----
-
-## 🎯 Implementation Status
-
-Adhar Platform v0.3.8 represents a **complete, production-ready Internal Developer Platform** with full multi-cloud capabilities:
-
-### ✅ Core Platform (100% Complete)
-- **6 Production-Ready Providers**: Kind (local), DigitalOcean, GCP, AWS, Azure, Civo
-- **Real API Integrations**: Direct cloud provider SDK integrations (no mocks)
-- **Management Cluster First**: Production-grade Kubernetes with Cilium CNI
-- **Unified CLI Experience**: Single `adhar up` command works across all platforms
-- **Template Engine**: KCL-based manifest generation with fallback support
-
-### ✅ Crossplane v2.1 Control Plane (100% Complete)
-- **14 Composite Resource Definitions**: Cluster, Application, Database, Network, Auth, Backup, and more
-- **19+ Compositions**: Multi-cloud infrastructure compositions using KCL
-- **Multi-Cloud Orchestration**: Unified resource management across all providers
-- **Policy Enforcement**: Automated compliance and governance
-- **Cost Optimization**: Multi-cloud cost analysis and optimization
-- **Disaster Recovery**: Automated backup and recovery mechanisms
-
-### ✅ Core Services (100% Complete)
-1. **Cilium CNI** - Container Network Interface (must be first for networking)
-2. **Nginx Ingress** - Traffic routing and ingress control
-3. **Gitea** - Git repository hosting with resilient services
-4. **ArgoCD** - GitOps continuous deployment with multi-repo support
-5. **Crossplane v2.1** - Infrastructure as Code control plane
-6. **Vault** - Secrets management
-7. **Keycloak** - Identity and access management
-8. **Prometheus** - Metrics collection
-9. **Grafana** - Visualization and dashboards
-10. **Loki** - Log aggregation
-
-### ✅ Advanced Features (100% Complete)
-- **Multi-Tenancy**: Namespace isolation with resource quotas and RBAC
-- **Secret Rotation**: Automated secret rotation with AWS Secrets Manager, Azure KeyVault, GCP Secret Manager
-- **Cost Tracking**: Real-time cost monitoring with OpenCost and budget alerts
-- **Compliance**: Policy enforcement with Kyverno and OPA Gatekeeper
-- **Service Mesh**: Cilium eBPF-based service mesh with Hubble observability
-- **Disaster Recovery**: Velero integration with automated DR drills
-- **Cluster Federation**: Multi-cluster management with cross-cloud federation
-
-### 📊 Platform Metrics
-- **Total Services**: 50+ integrated tools
-- **Lines of Code**: ~12,000 for control plane
-- **Test Coverage**: 85%+
-- **Setup Time**: < 10 minutes from zero to production
-- **Supported Clouds**: 6 providers (AWS, Azure, GCP, DigitalOcean, Civo, Kind)
-- **XRDs**: 14 composite resource definitions
-- **Compositions**: 19+ multi-cloud compositions
-
-### 🎉 Production Ready
-- ✅ All planned features implemented
-- ✅ Comprehensive testing with 85%+ coverage
-- ✅ Multi-cloud native with true provider abstraction
-- ✅ Enterprise security and compliance ready
-- ✅ Cost-optimized with built-in tracking
-- ✅ Fully documented with 2,000+ lines of docs
-- ✅ Battle-tested at scale (1000+ clusters, 500+ nodes, 50,000+ pods)
 
 ---
 
@@ -305,13 +280,13 @@ make test
 # Run linter
 make lint
 
-# Generate manifests
-make manifests
+# Test Adhar platform
+./adhar up
 ```
 
 ### Contributing Guidelines
 
-- **Code Contributions:** See our [Contributing Guide](docs/CONTRIBUTING.md) for detailed instructions
+- **Code Contributions:** See our [Contributing Guide](CONTRIBUTING.md) for detailed instructions
 - **Bug Reports:** Open an issue with detailed reproduction steps
 - **Feature Requests:** Discuss new ideas in [GitHub Discussions](https://github.com/adhar-io/adhar/discussions)
 - **Documentation:** Help improve our docs - PRs welcome!
@@ -429,22 +404,16 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 
 ---
 
-## 📄 License
-
-This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details.
-
----
-
 <div align="center">
 
 ### ⭐ Star us on GitHub — it helps the project grow!
 
 **Adhar Platform v0.3.8** • Built with ❤️ for Developers
 
-[🎯 Get Started](docs/GETTING_STARTED.md) • [💬 Join Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) • [📖 Documentation](docs/) • [🤝 Contribute](docs/CONTRIBUTING.md) • [🐛 Report Issue](https://github.com/adhar-io/adhar/issues)
+[🎯 Get Started](docs/GETTING_STARTED.md) • [💬 Join Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) • [📖 Documentation](docs/README.md) • [🤝 Contribute](CONTRIBUTING.md) • [🐛 Report Issue](https://github.com/adhar-io/adhar/issues)
 
 ---
 
-© 2025 Adhar Platform • Licensed under [Apache License 2.0](LICENSE)
+© 2025 Adharlabs Pte Ltd • Licensed under [Apache License 2.0](LICENSE)
 
 </div>

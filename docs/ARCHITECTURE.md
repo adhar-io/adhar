@@ -302,4 +302,4 @@ globalSettings:
 - **Security Enhancements**: Zero-trust networking improvements
 - **Developer Experience**: Enhanced IDE integrations and tooling
 
-For detailed implementation guides and operational procedures, refer to the [Platform Guide](./PLATFORM_GUIDE.md) and [Getting Started Guide](./GETTING_STARTED.md).
+For detailed implementation guides and operational procedures, refer to the [User Guide](USER_GUIDE.md) and [Getting Started Guide](GETTING_STARTED.md).

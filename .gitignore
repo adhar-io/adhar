@@ -42,3 +42,4 @@ platform.log
 .adhar/
 adhar
 adhar_debug.log
+.devbox/

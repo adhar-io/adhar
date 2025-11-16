@@ -192,10 +192,10 @@ After getting started with Adhar:
 
 ## Getting Help
 
-- **Documentation**: Check the [comprehensive guides](./PLATFORM_GUIDE.md)
+- **Documentation**: Check the [comprehensive guides](README.md)
 - **Community**: Join our [Slack channel](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
 - **Issues**: Report bugs or request features on [GitHub](https://github.com/adhar-io/adhar/issues)
-- **Contribution**: See our [contribution guidelines](./CONTRIBUTING.md)
+- **Contribution**: See our [contribution guidelines](../CONTRIBUTING.md)
 
 ## Troubleshooting
 
@@ -226,4 +226,4 @@ kubectl cluster-info
 adhar get secrets
 ```
 
-For more detailed troubleshooting, see the [Platform Guide](./PLATFORM_GUIDE.md#troubleshooting).
+For more detailed troubleshooting, see the [Advanced Guide](ADVANCED.md#troubleshooting).

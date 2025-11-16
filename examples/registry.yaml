@@ -1,0 +1,16 @@
+apiVersion: platform.adhar.io/v1alpha1
+kind: Registry
+metadata:
+  name: harbor-registry
+spec:
+  displayName: "Harbor Container Registry"
+  type: "Harbor"
+  url: "https://harbor.adhar.local"
+  credentialsSecretRef:
+    name: "harbor-credentials"
+    namespace: "platform-system"
+  settings:
+    public: false
+    autoScan: true
+    preventVulnerableImages: true
+

@@ -1,7 +1,4 @@
 LD_FLAGS=-ldflags " \
-    -X main.buildVersion=$(VERSION) \
-    -X main.gitCommit=$(shell git rev-parse --short HEAD) \
-    -X main.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \
     -X adhar-io/adhar/cmd/version.Version=$(VERSION) \
     -X adhar-io/adhar/cmd/version.GitCommit=$(shell git rev-parse --short HEAD) \
     -X adhar-io/adhar/cmd/version.BuildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') \

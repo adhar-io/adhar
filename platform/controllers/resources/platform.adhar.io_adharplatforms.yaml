@@ -129,6 +129,8 @@ spec:
                     type: string
                   internalURL:
                     type: string
+                  repositoriesCreated:
+                    type: boolean
                 type: object
               nginx:
                 properties:

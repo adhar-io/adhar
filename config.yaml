@@ -1,15 +1,24 @@
-# Production Adhar Platform Configuration
+# Adhar Platform Configuration
+#
+# IMPORTANT: This is a template configuration file with placeholder values.
+# Replace all placeholders (YOUR_*) with your actual credentials and settings.
+#
+# DEFAULT CONFIGURATION:
+# - Kind (local Kubernetes) is enabled by default for development
+# - All cloud providers are commented out - uncomment and configure as needed
+# - Never commit real tokens/credentials to version control
+#
 # This file demonstrates how to configure production Kubernetes clusters
 # across multiple cloud providers with Cilium CNI and platform components
 
 # Global Settings
 globalSettings:
   adharContext: "adhar-mgmt"
-  defaultHost: "platform.adhar.io"
+  defaultHost: "cloud.adhar.io"
   defaultHttpPort: 80
   defaultHttpsPort: 443
   enableHAMode: false
-  email: "admin@adhar.io"
+  email: "YOUR_EMAIL@example.com"
 
 # Provider configurations
 # Only configure the providers you plan to use
@@ -49,8 +58,8 @@ providers:
   #   region: ap-south-1
   #   primary: true  # Set to true if you want provider to handle management cluster
   #   credentials_file: "~/.aws/credentials"
-  #   # accessKeyId: "AKIAIOSFODNN7EXAMPLE"
-  #   # secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+  #   # accessKeyId: "YOUR_AWS_ACCESS_KEY_ID"
+  #   # secretAccessKey: "YOUR_AWS_SECRET_ACCESS_KEY"
   #   # useEnvironment: true # Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
   #   config:
   #     vpc_cidr: "10.0.0.0/16"
@@ -87,12 +96,12 @@ providers:
   #   region: westindia
   #   primary: true
   #   credentials_file: "~/.azure/accessTokens.json"
-  #   # clientId: "12345678-1234-1234-1234-123456789012"
-  #   # clientSecret: "your-client-secret"
-  #   # tenantId: "12345678-1234-1234-1234-123456789012"
+  #   # clientId: "YOUR_AZURE_CLIENT_ID"
+  #   # clientSecret: "YOUR_AZURE_CLIENT_SECRET"
+  #   # tenantId: "YOUR_AZURE_TENANT_ID"
   #   # useEnvironment: true # Environment variables (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID)
   #   config:
-  #     subscriptionId: "d59e79c5-f575-404e-89e3-b98947296c68"
+  #     subscriptionId: "YOUR_AZURE_SUBSCRIPTION_ID"
   #     resource_group: "adhar-rg"
   #     vnet_cidr: "10.1.0.0/16"
   #     subnet_cidr: "10.1.1.0/24"
@@ -128,9 +137,9 @@ providers:
   #   type: gcp
   #   region: asia-south1
   #   primary: true
-  #   credentials_file: "~/.config/gcloud/anitech-cloud-cfd4b206dfa6.json"
+  #   credentials_file: "~/.config/gcloud/YOUR_GCP_SERVICE_ACCOUNT.json"
   #   config:
-  #     project_id: "anitech-cloud"
+  #     project_id: "YOUR_GCP_PROJECT_ID"
   #     zone: "asia-south1-b"
   #     vpc_name: "adhar-vpc-new"
   #     subnet_name: "adhar-subnet-new"
@@ -162,9 +171,9 @@ providers:
   #   type: digitalocean
   #   region: blr1
   #   primary: true
-  #   token: "dop_v1_443412a391d2d2e81b85532a876affc689cad1ad1dbc3123d858635e07e72093"
+  #   token: "YOUR_DIGITALOCEAN_TOKEN"
   #   # useEnvironment: true #Environment variable (DIGITALOCEAN_TOKEN)
-  #   # credentials_file: "~/.civo/credentials"
+  #   # credentials_file: "~/.digitalocean/credentials"
   #   config:
   #     vpc_uuid: ""  # Leave empty to create new VPC or specify UUID to use existing
   #     vpc_cidr: "10.3.0.0/16"  # CIDR for new VPC (conflicts will be auto-resolved)
@@ -198,11 +207,11 @@ providers:
   #   type: civo
   #   region: MUM1
   #   primary: false
-  #   token: "lOnAEP9p4XTEF7C3oIASs8s7oBAd4Of6PNRFkAXMBUrqCoLaRL"
+  #   token: "YOUR_CIVO_API_TOKEN"
   #   # credentials_file: "~/.civo/credentials"
   #   # useEnvironment: true #Environment variable (CIVO_TOKEN)
   #   config:
-  #     network_id: "5f035c8b-98f7-4fac-a036-077828ca00ef"
+  #     network_id: "YOUR_CIVO_NETWORK_ID"
   #     size: "g4s.kube.medium"
   #     disk_image: "ubuntu-22.04-x64"
   #     firewall_rules:
@@ -456,6 +465,8 @@ environmentTemplates:
         values:
           - key: "installCRDs"
             value: "true"
+          - key: "global.leaderElection.namespace"
+            value: "cert-manager"
 
       - name: external-dns
         chart:
@@ -541,7 +552,7 @@ environments:
       - key: "numNodes"
         value: "3"
       - key: "projectID"
-        value: "my-staging-project"
+        value: "YOUR_STAGING_PROJECT_ID"
 
   # Production environment (auto-assigned to production provider: GKE)
   production:
@@ -555,7 +566,7 @@ environments:
       - key: "numNodes"
         value: "5"
       - key: "projectID"
-        value: "my-production-project"
+        value: "YOUR_PRODUCTION_PROJECT_ID"
       - key: "releaseChannel"
         value: "STABLE"
       - key: "enableNetworkPolicy"

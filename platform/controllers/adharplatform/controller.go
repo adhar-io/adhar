@@ -35,8 +35,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	sel "k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -107,7 +109,7 @@ type subReconciler func(ctx context.Context, req ctrl.Request, resource *v1alpha
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
 func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.V(1).Info("Reconciling", "resource", req.NamespacedName)
+	logger.Info("Reconciling AdharPlatform", "resource", req.NamespacedName)
 
 	var localBuild v1alpha1.AdharPlatform
 	if err := r.Get(ctx, req.NamespacedName, &localBuild); err != nil {
@@ -121,10 +123,21 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// If ExitOnSync is enabled, check if platform is already deployed
+	if r.ExitOnSync {
+		logger.Info("ExitOnSync enabled - checking if platform is already deployed")
+		if r.isPlatformAlreadyDeployed(ctx) {
+			logger.Info("✅ Platform is already fully deployed - marking for immediate shutdown")
+			r.shouldShutdown = true
+			return ctrl.Result{}, nil
+		}
+	}
+
 	// Install core packages synchronously to ensure they complete
+	logger.Info("Installing core packages")
 	err = r.installCorePackagesSync(ctx, req, &localBuild)
 	if err != nil {
-		logger.V(1).Info("failed installing core packages. likely not fatal. will try again", "error", err)
+		logger.Error(err, "failed installing core packages")
 		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 	}
 
@@ -132,8 +145,15 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	logger.Info("Applying platform stack ApplicationSet")
 	err = r.applyPlatformStack(ctx, req, &localBuild)
 	if err != nil {
-		logger.V(1).Info("failed applying platform stack. likely not fatal. will try again", "error", err)
+		logger.Error(err, "failed applying platform stack")
 		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+	}
+
+	// If ExitOnSync is enabled, return immediately without requeuing
+	// postProcessReconcile (deferred) will handle the shutdown
+	if r.shouldShutdown {
+		logger.Info("Platform stack applied successfully. Exiting as requested (ExitOnSync=true)")
+		return ctrl.Result{}, nil
 	}
 
 	if r.Config.StaticPassword {
@@ -241,6 +261,13 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 // setupGitOpsRepositories creates and populates GitOps repositories in Gitea
 func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
+
+	// Check if repositories are already created to avoid unnecessary API calls
+	if resource.Status.Gitea.RepositoriesCreated {
+		logger.V(1).Info("GitOps repositories already created, skipping")
+		return nil
+	}
+
 	logger.Info("🔄 Setting up GitOps repositories in Gitea")
 
 	// Wait for Gitea to be ready
@@ -261,6 +288,13 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 	// Populate repositories with content
 	if err := r.populateRepositories(ctx); err != nil {
 		return fmt.Errorf("failed to populate repositories: %w", err)
+	}
+
+	// Mark repositories as created to avoid recreating on every reconciliation
+	resource.Status.Gitea.RepositoriesCreated = true
+	if err := r.Status().Update(ctx, resource); err != nil {
+		logger.Error(err, "Failed to update Gitea status")
+		// Don't return error as repositories are already created
 	}
 
 	logger.Info("✅ GitOps repositories setup completed successfully")
@@ -623,6 +657,59 @@ func (r *AdharPlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.AdharPlatform{}).
 		Complete(r)
+}
+
+// isPlatformAlreadyDeployed checks if the platform is already fully deployed
+func (r *AdharPlatformReconciler) isPlatformAlreadyDeployed(ctx context.Context) bool {
+	logger := log.FromContext(ctx)
+
+	// Check for core deployments: ArgoCD, Gitea, Nginx
+	coreDeployments := []struct {
+		name      string
+		namespace string
+	}{
+		{"gitea", "adhar-system"},
+		{"argocd-server", "argocd"},
+		{"ingress-nginx-controller", "ingress-nginx"},
+	}
+
+	for _, dep := range coreDeployments {
+		var deployment appsv1.Deployment
+		err := r.Client.Get(ctx, types.NamespacedName{
+			Name:      dep.name,
+			Namespace: dep.namespace,
+		}, &deployment)
+
+		if err != nil {
+			logger.Info("Deployment not found", "name", dep.name, "namespace", dep.namespace)
+			return false
+		}
+
+		if deployment.Status.ReadyReplicas == 0 || deployment.Status.AvailableReplicas == 0 {
+			logger.Info("Deployment not ready", "name", dep.name, "readyReplicas", deployment.Status.ReadyReplicas)
+			return false
+		}
+	}
+
+	// Check for ApplicationSet
+	var appSetList unstructured.UnstructuredList
+	appSetList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "argoproj.io",
+		Version: "v1alpha1",
+		Kind:    "ApplicationSet",
+	})
+
+	err := r.Client.List(ctx, &appSetList, &client.ListOptions{
+		Namespace: "argocd",
+	})
+
+	if err != nil || len(appSetList.Items) == 0 {
+		logger.Info("ApplicationSet not found or error listing", "error", err)
+		return false
+	}
+
+	logger.Info("Platform appears to be fully deployed", "applicationSets", len(appSetList.Items))
+	return true
 }
 
 func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *v1alpha1.AdharPlatform) (bool, error) {

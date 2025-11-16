@@ -241,12 +241,16 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	// Set up controller-runtime logger
 	ctrl.SetLogger(logr.Discard())
 
-	// Create controller manager
+	// Create controller manager with graceful shutdown timeout
 	mgr, err := manager.New(kubeConfig, manager.Options{
 		Scheme: lp.options.Scheme,
 		Metrics: server.Options{
 			BindAddress: "0",
 		},
+		GracefulShutdownTimeout: func() *time.Duration {
+			d := 5 * time.Second
+			return &d
+		}(),
 	})
 	if err != nil {
 		logger.Error("Error creating controller manager", err, map[string]interface{}{})
@@ -326,6 +330,11 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 			return mgrErr
 		}
 	case <-ctx.Done():
+		// Context was cancelled - wait for manager to finish cleanly
+		logger.Info("Context cancelled - waiting for controller manager to finish")
+		if mgrErr := <-managerExit; mgrErr != nil && mgrErr != context.Canceled {
+			return mgrErr
+		}
 		return nil
 	}
 	return nil
@@ -1598,9 +1607,13 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 
 	logger.GetLogger().FinishOperation("Local Development Cluster", "Platform ready for development")
 
-	// Check if the context has been cancelled, graceful shutdown
+	// Check if the context has been cancelled
 	if cmd.Context().Err() != nil {
-		return context.Cause(cmd.Context())
+		// Context was cancelled - this is expected when ExitOnSync is enabled
+		// and the controller has finished provisioning. Return success.
+		logger.Info("Context cancelled - platform provisioning completed successfully")
+		printSuccessMsg()
+		return nil
 	}
 
 	// Print success message

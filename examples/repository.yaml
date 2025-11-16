@@ -1,0 +1,18 @@
+apiVersion: platform.adhar.io/v1alpha1
+kind: Repository
+metadata:
+  name: sample-app-repo
+  namespace: acme-corp
+spec:
+  displayName: "Sample Application Repository"
+  provider: "gitea"
+  url: "https://gitea.adhar.local/acme-corp/sample-app"
+  defaultBranch: "main"
+  credentialsSecretRef:
+    name: "git-credentials"
+    namespace: "acme-corp"
+  settings:
+    visibility: "private"
+    enableIssues: true
+    enablePullRequests: true
+

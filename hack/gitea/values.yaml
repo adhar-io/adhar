@@ -509,6 +509,11 @@ gitea:
     successThreshold: 1
     failureThreshold: 10
 
+## @section redis-cluster (used by Gitea chart)
+## LOCAL DEV: Disabled - using standalone valkey instead
+redis-cluster:
+  enabled: false
+
 ## @section valkey-cluster
 ## @param valkey-cluster.enabled Enable valkey cluster
 # ⚠️ The valkey charts do not work well with special characters in the password (<https://gitea.com/gitea/helm-chart/issues/690>).
@@ -543,9 +548,13 @@ valkey-cluster:
 ## @descriptionStart
 ## Valkey and [Valkey cluster](#valkey-cluster) cannot be enabled at the same time.
 ## @descriptionEnd
-## LOCAL DEV: Disabled to simplify deployment and reduce resource usage
+## LOCAL DEV: Enabled standalone for caching (production-like but single instance)
 valkey:
-  enabled: false
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnami/valkey
+    tag: "latest"
   architecture: standalone
   global:
     valkey:
@@ -595,9 +604,13 @@ postgresql-ha:
 ## @param postgresql.global.postgresql.auth.username Name for a custom user to create (overrides `auth.username`)
 ## @param postgresql.global.postgresql.service.ports.postgresql PostgreSQL service port (overrides `service.ports.postgresql`)
 ## @param postgresql.primary.persistence.size PVC Storage Request for PostgreSQL volume
-## LOCAL DEV: Disabled to use SQLite for faster startup and simpler setup
+## LOCAL DEV: Enabled single instance (production-like but not HA)
 postgresql:
-  enabled: false
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    tag: "latest"
   global:
     postgresql:
       auth:
