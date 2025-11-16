@@ -39,7 +39,7 @@ var debugCmd = &cobra.Command{
 	},
 }
 
-func debugCluster(cmd *cobra.Command, clusterName string) error {
+func debugCluster(_ *cobra.Command, clusterName string) error {
 	fmt.Printf("🔍 Attempting to debug cluster: %s\n", clusterName)
 
 	// This is a Civo-specific debug implementation for now.

@@ -93,12 +93,16 @@ func interactiveLogin() error {
 
 	// Get username
 	fmt.Print("Username: ")
-	fmt.Scanln(&username)
+	if _, err := fmt.Scanln(&username); err != nil {
+		return fmt.Errorf("failed to read username: %w", err)
+	}
 
 	// Get password (hidden input)
 	fmt.Print("Password: ")
 	// TODO: Implement hidden password input
-	fmt.Scanln(&password)
+	if _, err := fmt.Scanln(&password); err != nil {
+		return fmt.Errorf("failed to read password: %w", err)
+	}
 
 	if username == "" || password == "" {
 		return fmt.Errorf("username and password are required")
@@ -107,7 +111,7 @@ func interactiveLogin() error {
 	return loginWithCredentials(username, password)
 }
 
-func loginWithCredentials(username, password string) error {
+func loginWithCredentials(username string, _ string) error {
 	fmt.Printf("🔐 Authenticating user: %s\n", username)
 
 	// TODO: Implement credential authentication

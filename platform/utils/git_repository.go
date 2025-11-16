@@ -68,9 +68,7 @@ func FirstRemoteURL(repo *git.Repository) (string, error) {
 
 // returns all files with yaml or yml suffix from a worktree
 func GetWorktreeYamlFiles(parent string, wt billy.Filesystem, recurse bool) ([]string, error) {
-	if strings.HasSuffix(parent, "/") {
-		parent = strings.TrimSuffix(parent, "/")
-	}
+	parent = strings.TrimSuffix(parent, "/")
 	paths := make([]string, 0, 10)
 	ents, err := wt.ReadDir(parent)
 	if err != nil {
@@ -98,7 +96,9 @@ func ReadWorktreeFile(wt billy.Filesystem, path string) ([]byte, error) {
 	if fErr != nil {
 		return nil, fmt.Errorf("opening %s", path)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	b := new(bytes.Buffer)
 	_, fErr = b.ReadFrom(f)
@@ -217,13 +217,17 @@ func CopyWTFile(srcWT, dstWT billy.Filesystem, srcFile, dstFile string) error {
 	if err != nil {
 		return fmt.Errorf("creating file %s: %w", dstFile, err)
 	}
-	defer newFile.Close()
+	defer func() {
+		_ = newFile.Close()
+	}()
 
 	srcF, err := srcWT.Open(srcFile)
 	if err != nil {
 		return fmt.Errorf("reading file %s: %w", srcFile, err)
 	}
-	defer srcF.Close()
+	defer func() {
+		_ = srcF.Close()
+	}()
 
 	_, err = io.Copy(newFile, srcF)
 	if err != nil {

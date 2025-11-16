@@ -116,7 +116,9 @@ func createCluster(cmd *cobra.Command, name string) error {
 		}
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Creating cluster '%s' with provider '%s'...\n", name, providerName)
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Creating cluster '%s' with provider '%s'...\n", name, providerName); err != nil {
+		return fmt.Errorf("failed to write status: %w", err)
+	}
 
 	// Get provider config
 	providerCfg, exists := cfg.Providers[providerName]
@@ -225,36 +227,68 @@ func createCluster(cmd *cobra.Command, name string) error {
 		return fmt.Errorf("failed to create cluster: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Cluster '%s' created successfully!\n", cluster.Name)
-	fmt.Fprintf(cmd.OutOrStdout(), "  ID: %s\n", cluster.ID)
-	fmt.Fprintf(cmd.OutOrStdout(), "  Provider: %s\n", cluster.Provider)
-	fmt.Fprintf(cmd.OutOrStdout(), "  Region: %s\n", cluster.Region)
-	fmt.Fprintf(cmd.OutOrStdout(), "  Version: %s\n", cluster.Version)
-	fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", cluster.Status)
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "✓ Cluster '%s' created successfully!\n", cluster.Name); err != nil {
+		return fmt.Errorf("failed to write success message: %w", err)
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  ID: %s\n", cluster.ID); err != nil {
+		return fmt.Errorf("failed to write cluster ID: %w", err)
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Provider: %s\n", cluster.Provider); err != nil {
+		return fmt.Errorf("failed to write provider: %w", err)
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Region: %s\n", cluster.Region); err != nil {
+		return fmt.Errorf("failed to write region: %w", err)
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Version: %s\n", cluster.Version); err != nil {
+		return fmt.Errorf("failed to write version: %w", err)
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", cluster.Status); err != nil {
+		return fmt.Errorf("failed to write status: %w", err)
+	}
 	if cluster.Endpoint != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "  Endpoint: %s\n", cluster.Endpoint)
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Endpoint: %s\n", cluster.Endpoint); err != nil {
+			return fmt.Errorf("failed to write endpoint: %w", err)
+		}
 	}
 
 	// Automatically setup kubeconfig if requested
 	setupKubeconfig, _ := cmd.Flags().GetBool("setup-kubeconfig")
 	if setupKubeconfig {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n🔧 Setting up kubeconfig...\n")
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "\n🔧 Setting up kubeconfig...\n"); err != nil {
+			return fmt.Errorf("failed to write kubeconfig message: %w", err)
+		}
 		err = setupClusterKubeconfig(cmd, cluster, p)
 		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "⚠️  Warning: Failed to setup kubeconfig: %v\n", err)
-			fmt.Fprintf(cmd.OutOrStderr(), "You can manually setup kubeconfig later with: adhar cluster kubeconfig %s\n", cluster.Name)
+			if _, err := fmt.Fprintf(cmd.OutOrStderr(), "⚠️  Warning: Failed to setup kubeconfig: %v\n", err); err != nil {
+				return fmt.Errorf("failed to write kubeconfig warning: %w", err)
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStderr(), "You can manually setup kubeconfig later with: adhar cluster kubeconfig %s\n", cluster.Name); err != nil {
+				return fmt.Errorf("failed to write manual kubeconfig instruction: %w", err)
+			}
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "✓ Kubeconfig configured successfully!\n")
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "✓ Kubeconfig configured successfully!\n"); err != nil {
+				return fmt.Errorf("failed to write kubeconfig success: %w", err)
+			}
 
 			// Show next steps
-			fmt.Fprintf(cmd.OutOrStdout(), "\n🎉 Cluster is ready! Next steps:\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "  • Check cluster status: kubectl get nodes\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "  • Deploy applications: kubectl apply -f your-app.yaml\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "  • View cluster info: kubectl cluster-info\n")
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "\n🎉 Cluster is ready! Next steps:\n"); err != nil {
+				return fmt.Errorf("failed to write next steps header: %w", err)
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  • Check cluster status: kubectl get nodes\n"); err != nil {
+				return fmt.Errorf("failed to write next steps detail: %w", err)
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  • Deploy applications: kubectl apply -f your-app.yaml\n"); err != nil {
+				return fmt.Errorf("failed to write next steps detail: %w", err)
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  • View cluster info: kubectl cluster-info\n"); err != nil {
+				return fmt.Errorf("failed to write next steps detail: %w", err)
+			}
 
 			setCurrentContext, _ := cmd.Flags().GetBool("set-current-context")
 			if setCurrentContext {
-				fmt.Fprintf(cmd.OutOrStdout(), "  • Current kubectl context set to: %s\n", cluster.Name)
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  • Current kubectl context set to: %s\n", cluster.Name); err != nil {
+					return fmt.Errorf("failed to write context info: %w", err)
+				}
 			}
 		}
 	}

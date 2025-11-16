@@ -49,7 +49,9 @@ func deleteSingleBackup(backupName string) error {
 	if !forceDelete {
 		fmt.Printf("🗑️  Are you sure you want to delete backup: %s? (y/N): ", backupName)
 		var response string
-		fmt.Scanln(&response)
+		if _, err := fmt.Scanln(&response); err != nil {
+			return fmt.Errorf("failed to read confirmation: %w", err)
+		}
 		if response != "y" && response != "Y" {
 			fmt.Println("❌ Deletion cancelled")
 			return nil
@@ -106,7 +108,9 @@ func deleteBackupsByPattern(pattern string) error {
 	if !forceDelete {
 		fmt.Printf("\n🗑️  Are you sure you want to delete these %d backups? (y/N): ", len(matchingBackups))
 		var response string
-		fmt.Scanln(&response)
+		if _, err := fmt.Scanln(&response); err != nil {
+			return fmt.Errorf("failed to read confirmation: %w", err)
+		}
 		if response != "y" && response != "Y" {
 			fmt.Println("❌ Deletion cancelled")
 			return nil

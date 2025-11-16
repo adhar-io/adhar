@@ -23,13 +23,23 @@ func TestCloneRemoteRepoToDir(t *testing.T) {
 		Url:             "https://github.com/adhar-io/adhar",
 		Ref:             "v0.1.0",
 	}
-	dir, _ := os.MkdirTemp("", "TestCopyToDir")
-	defer os.RemoveAll(dir)
+	dir, err := os.MkdirTemp("", "TestCopyToDir")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(dir)
+	}()
 	// new clone
-	_, _, err := CloneRemoteRepoToDir(context.Background(), spec, 0, false, dir, "")
+	_, _, err = CloneRemoteRepoToDir(context.Background(), spec, 0, false, dir, "")
 	assert.Nil(t, err)
-	testDir, _ := os.MkdirTemp("", "TestCopyToDir")
-	defer os.RemoveAll(testDir)
+	testDir, err := os.MkdirTemp("", "TestCopyToDir")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(testDir)
+	}()
 
 	repo, err := git.PlainClone(testDir, false, &git.CloneOptions{URL: dir})
 	assert.Nil(t, err)
@@ -39,17 +49,21 @@ func TestCloneRemoteRepoToDir(t *testing.T) {
 
 	// existing
 	spec.Ref = "v0.4.0"
-	testDir2, _ := os.MkdirTemp("", "TestCopyToDir")
-	defer os.RemoveAll(testDir2)
+	testDir2, err := os.MkdirTemp("", "TestCopyToDir")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(testDir2)
+	}()
 
 	_, _, err = CloneRemoteRepoToDir(context.Background(), spec, 0, false, dir, "")
+	assert.Nil(t, err)
 	repo, err = git.PlainClone(testDir2, false, &git.CloneOptions{URL: dir})
 	assert.Nil(t, err)
 	ref, err = repo.Head()
 	assert.Nil(t, err)
 	assert.Equal(t, "dd975dbead810b80c1221f62beb51f4cee729618", ref.Hash().String())
-
-	assert.Nil(t, err)
 }
 
 func TestCopyTreeToTree(t *testing.T) {

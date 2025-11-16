@@ -59,14 +59,18 @@ func Copy(srcFile, dstFile string) error {
 		return err
 	}
 
-	defer out.Close()
+	defer func() {
+		_ = out.Close()
+	}()
 
 	in, err := os.Open(srcFile)
 	if err != nil {
 		return err
 	}
 
-	defer in.Close()
+	defer func() {
+		_ = in.Close()
+	}()
 
 	_, err = io.Copy(out, in)
 	if err != nil {

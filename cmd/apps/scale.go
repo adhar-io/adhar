@@ -44,7 +44,7 @@ var (
 
 func init() {
 	scaleCmd.Flags().Int32VarP(&replicas, "replicas", "r", 1, "Number of replicas")
-	scaleCmd.MarkFlagRequired("replicas")
+	cobra.CheckErr(scaleCmd.MarkFlagRequired("replicas"))
 }
 
 func runScale(cmd *cobra.Command, args []string) error {

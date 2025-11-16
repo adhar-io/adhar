@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
@@ -130,11 +129,7 @@ Built for developer productivity with enterprise-grade security and governance.`
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute(ctx context.Context) error {
-	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "%s %v\n", helpers.ErrorStyle.Render("Error:"), err)
-		os.Exit(1)
-	}
-	return nil
+	return rootCmd.ExecuteContext(ctx)
 }
 
 func init() {
@@ -160,7 +155,7 @@ func AddCommand(cmd ...*cobra.Command) {
 }
 
 // renderRootCommandContent renders the content for the root command
-func renderRootCommandContent(cmd *cobra.Command) {
+func renderRootCommandContent(_ *cobra.Command) {
 	// Print welcome message
 	fmt.Println(helpers.InfoStyle.Render("🚀 Welcome to Adhar Platform!"))
 	fmt.Println()

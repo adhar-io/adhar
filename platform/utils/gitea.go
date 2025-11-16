@@ -61,7 +61,7 @@ func PatchPasswordSecret(ctx context.Context, kubeClient client.Client, config v
 			return fmt.Errorf("getting giteaurl: %w", err)
 		}
 
-		t, err := GetGiteaToken(ctx, giteaUrl, string(username), string(pass))
+		t, err := GetGiteaToken(ctx, giteaUrl, username, pass)
 		if err != nil {
 			return fmt.Errorf("getting gitea token: %w", err)
 		}

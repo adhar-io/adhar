@@ -242,7 +242,7 @@ func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, r
 	return nil
 }
 
-func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) error {
+func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, _ ctrl.Request, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
 
 	// CRITICAL: Setup GitOps repositories SYNCHRONOUSLY - must succeed before ApplicationSets
@@ -494,7 +494,9 @@ func (r *AdharPlatformReconciler) populatePackagesRepository(ctx context.Context
 
 	// Clean up any existing working directory
 	cleanupCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/packages-working")
-	cleanupCmd.Run()
+	if err := cleanupCmd.Run(); err != nil {
+		logger.V(1).Info("failed to clean packages workspace", "error", err)
+	}
 
 	// Clone the existing repository
 	cloneCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "clone",
@@ -515,7 +517,9 @@ func (r *AdharPlatformReconciler) populatePackagesRepository(ctx context.Context
 
 	// Remove all existing content
 	removeCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/packages-working/*")
-	removeCmd.Run()
+	if err := removeCmd.Run(); err != nil {
+		logger.V(1).Info("failed to remove existing packages content", "error", err)
+	}
 
 	// Copy the packages content
 	logger.Info("Copying packages content to working directory")
@@ -550,7 +554,9 @@ func (r *AdharPlatformReconciler) populatePackagesRepository(ctx context.Context
 
 	// Add remote origin if it doesn't exist
 	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "remote", "add", "origin", "/data/git/gitea-repositories/gitea_admin/packages.git")
-	remoteCmd.Run() // Ignore error if remote already exists
+	if err := remoteCmd.Run(); err != nil {
+		logger.V(1).Info("failed to add packages remote", "error", err)
+	}
 
 	// Push changes
 	pushCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "push", "-u", "origin", "main")
@@ -573,7 +579,9 @@ func (r *AdharPlatformReconciler) populateEnvironmentsRepository(ctx context.Con
 
 	// Clean up any existing working directory
 	cleanupCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/environments-working")
-	cleanupCmd.Run()
+	if err := cleanupCmd.Run(); err != nil {
+		logger.V(1).Info("failed to clean environments workspace", "error", err)
+	}
 
 	// Clone the existing repository
 	cloneCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "clone",
@@ -594,7 +602,9 @@ func (r *AdharPlatformReconciler) populateEnvironmentsRepository(ctx context.Con
 
 	// Remove all existing content
 	removeCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/environments-working/*")
-	removeCmd.Run()
+	if err := removeCmd.Run(); err != nil {
+		logger.V(1).Info("failed to remove existing environments content", "error", err)
+	}
 
 	// Copy the environments content
 	logger.Info("Copying environments content to working directory")
@@ -629,7 +639,9 @@ func (r *AdharPlatformReconciler) populateEnvironmentsRepository(ctx context.Con
 
 	// Add remote origin if it doesn't exist
 	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "remote", "add", "origin", "/data/git/gitea-repositories/gitea_admin/environments.git")
-	remoteCmd.Run() // Ignore error if remote already exists
+	if err := remoteCmd.Run(); err != nil {
+		logger.V(1).Info("failed to add environments remote", "error", err)
+	}
 
 	// Push changes
 	pushCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "push", "-u", "origin", "main")
@@ -645,7 +657,7 @@ func (r *AdharPlatformReconciler) populateEnvironmentsRepository(ctx context.Con
 	return nil
 }
 
-func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) {
+func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, _ ctrl.Request, resource *v1alpha1.AdharPlatform) {
 	logger := log.FromContext(ctx)
 
 	logger.Info("Checking if we should shutdown")
@@ -909,9 +921,11 @@ func (r *AdharPlatformReconciler) updateArgocdPassword(ctx context.Context, admi
 	if err != nil {
 		return fmt.Errorf("error sending request: %w", err)
 	}
-	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
+	if closeErr := resp.Body.Close(); closeErr != nil {
+		return fmt.Errorf("error closing response body: %w", closeErr)
+	}
 	if err != nil {
 		return fmt.Errorf("error reading response body: %w", err)
 	}
@@ -919,7 +933,7 @@ func (r *AdharPlatformReconciler) updateArgocdPassword(ctx context.Context, admi
 	if resp.StatusCode == 200 {
 		var argocdSession ArgocdSession
 
-		err := json.Unmarshal([]byte(body), &argocdSession)
+		err := json.Unmarshal(body, &argocdSession)
 		if err != nil {
 			return fmt.Errorf("error unmarshalling JSON: %w", err)
 		}
@@ -948,7 +962,9 @@ func (r *AdharPlatformReconciler) updateArgocdPassword(ctx context.Context, admi
 		if err != nil {
 			return fmt.Errorf("error sending password update request: %w", err)
 		}
-		defer resp.Body.Close()
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			return fmt.Errorf("error closing password update response: %w", closeErr)
+		}
 
 		payload = map[string]string{
 			"username": "admin",
@@ -969,7 +985,9 @@ func (r *AdharPlatformReconciler) updateArgocdPassword(ctx context.Context, admi
 		if err != nil {
 			return fmt.Errorf("error sending verification request: %w", err)
 		}
-		defer resp.Body.Close()
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			return fmt.Errorf("error closing verification response: %w", closeErr)
+		}
 
 		if resp.StatusCode == 200 {
 			err = utils.PatchPasswordSecret(ctx, r.Client, r.Config, utils.ArgocdNamespace, utils.ArgocdInitialAdminSecretName, utils.ArgocdAdminName, utils.StaticPassword)

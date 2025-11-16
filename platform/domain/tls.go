@@ -26,11 +26,12 @@ import (
 )
 
 const (
-	certificateOrgName     = "adhar.io"
-	certificateValidLength = time.Hour * 8766
-	argocdTLSSecretName    = "argocd-server-tls"
+	certificateOrgName     = "adhar.io"          //nolint:unused // Reserved for future certificate generation.
+	certificateValidLength = time.Hour * 8766    //nolint:unused // Reserved for future certificate generation.
+	argocdTLSSecretName    = "argocd-server-tls" //nolint:unused // Reserved for future certificate generation.
 )
 
+//nolint:unused // Certificate provisioning hooks are not wired into the CLI yet.
 func createCertificateAndKeySecret(ctx context.Context, kubeClient client.Client, name, namespace string, cert, key []byte) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -53,6 +54,7 @@ func createCertificateAndKeySecret(ctx context.Context, kubeClient client.Client
 	return nil
 }
 
+//nolint:unused // Certificate provisioning hooks are not wired into the CLI yet.
 func createIngressCertificateSecret(ctx context.Context, kubeClient client.Client, cert []byte) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -73,6 +75,7 @@ func createIngressCertificateSecret(ctx context.Context, kubeClient client.Clien
 	return nil
 }
 
+//nolint:unused // Certificate provisioning hooks are not wired into the CLI yet.
 func getIngressCertificateAndKey(ctx context.Context, kubeClient client.Client, name, namespace string) ([]byte, []byte, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -98,6 +101,7 @@ func getIngressCertificateAndKey(ctx context.Context, kubeClient client.Client, 
 	return cert, privateKey, nil
 }
 
+//nolint:unused // Certificate provisioning hooks are not wired into the CLI yet.
 func getOrCreateIngressCertificateAndKey(ctx context.Context, kubeClient client.Client, name, namespace string, sans []string) ([]byte, []byte, error) {
 	c, p, err := getIngressCertificateAndKey(ctx, kubeClient, name, namespace)
 	if err != nil {
@@ -119,6 +123,7 @@ func getOrCreateIngressCertificateAndKey(ctx context.Context, kubeClient client.
 	return c, p, nil
 }
 
+//nolint:unused // Certificate provisioning hooks are not wired into the CLI yet.
 func createSelfSignedCertificate(sans []string) ([]byte, []byte, error) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -183,6 +188,7 @@ func createSelfSignedCertificate(sans []string) ([]byte, []byte, error) {
 	return certOut, privateKeyOut, nil
 }
 
+//nolint:unused // Certificate provisioning hooks are not wired into the CLI yet.
 func setupSelfSignedCertificate(ctx context.Context, logger logr.Logger, kubeclient client.Client, config v1alpha1.BuildCustomizationSpec) ([]byte, error) {
 	if err := k8s.EnsureNamespace(ctx, kubeclient, "ingress-nginx"); err != nil {
 		return nil, err

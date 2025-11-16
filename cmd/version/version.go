@@ -105,7 +105,7 @@ func checkDependencies() {
 			info = "Required for platform functionality"
 		} else {
 			// Special handling for kubectl YAML output
-			if dep.command == "kubectl" && strings.Contains(string(dep.args[len(dep.args)-1]), "yaml") {
+			if dep.command == "kubectl" && strings.Contains(dep.args[len(dep.args)-1], "yaml") {
 				// Extract version from YAML output using regex
 				versionRegex := regexp.MustCompile(`gitVersion:\s*"?([^"\s]+)"?`)
 				if match := versionRegex.FindStringSubmatch(string(output)); len(match) > 1 {

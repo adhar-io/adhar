@@ -128,9 +128,10 @@ func SendAndParse(ctx context.Context, target any, httpClient *http.Client, req 
 				continue
 			}
 
-			defer resp.Body.Close()
-
 			respB, err := io.ReadAll(resp.Body)
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				fmt.Println("failed closing response body: ", closeErr)
+			}
 			if err != nil {
 				fmt.Println("failed reading http response body: ", err)
 				time.Sleep(httpRetryDelay)

@@ -27,6 +27,8 @@ func GetScheme() *runtime.Scheme {
 		argov1alpha1.AddToScheme,
 		v1alpha1.AddToScheme,
 	)
-	schemeBuilder.AddToScheme(scheme)
+	if err := schemeBuilder.AddToScheme(scheme); err != nil {
+		panic(err)
+	}
 	return scheme
 }

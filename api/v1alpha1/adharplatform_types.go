@@ -97,7 +97,7 @@ type BuildCustomizationSpec struct {
 // PackageCustomization defines how packages are customized
 type PackageCustomization struct {
 	// Name is the name of the package to be customized. e.g. argocd
-	Name string `json:"name,omitempty'"`
+	Name string `json:"name,omitempty"`
 	// FilePath is the absolute file path to a YAML file that contains Kubernetes manifests.
 	FilePath string `json:"filePath,omitempty"`
 }

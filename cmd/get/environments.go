@@ -225,10 +225,7 @@ func getEnvironments(clientset *kubernetes.Clientset, envNames []string) ([]Envi
 
 		// Get resource usage
 		if envResources {
-			usage, err := getEnvironmentUsage(clientset, ctx, ns.Name)
-			if err == nil {
-				env.ResourceUsage = usage
-			}
+			env.ResourceUsage = getEnvironmentUsage(clientset, ctx, ns.Name)
 		}
 
 		// Get resource quotas if requested
@@ -269,10 +266,7 @@ func getEnvironments(clientset *kubernetes.Clientset, envNames []string) ([]Envi
 		}
 
 		// Get workload summary
-		workloads, err := getWorkloadSummary(clientset, ctx, ns.Name)
-		if err == nil {
-			env.Workloads = workloads
-		}
+		env.Workloads = getWorkloadSummary(clientset, ctx, ns.Name)
 
 		environments = append(environments, env)
 	}
@@ -296,7 +290,7 @@ func getNamespaceStatus(ns corev1.Namespace) (string, string) {
 	}
 }
 
-func getEnvironmentUsage(clientset *kubernetes.Clientset, ctx context.Context, namespace string) (EnvironmentUsage, error) {
+func getEnvironmentUsage(clientset *kubernetes.Clientset, ctx context.Context, namespace string) EnvironmentUsage {
 	usage := EnvironmentUsage{}
 
 	// Count pods
@@ -350,7 +344,7 @@ func getEnvironmentUsage(clientset *kubernetes.Clientset, ctx context.Context, n
 		usage.PVCs = len(pvcs.Items)
 	}
 
-	return usage, nil
+	return usage
 }
 
 func getResourceQuotas(clientset *kubernetes.Clientset, ctx context.Context, namespace string) ([]ResourceQuotaInfo, error) {
@@ -508,7 +502,7 @@ func getSecrets(clientset *kubernetes.Clientset, ctx context.Context, namespace 
 	return secrets, nil
 }
 
-func getWorkloadSummary(clientset *kubernetes.Clientset, ctx context.Context, namespace string) (WorkloadSummary, error) {
+func getWorkloadSummary(clientset *kubernetes.Clientset, ctx context.Context, namespace string) WorkloadSummary {
 	summary := WorkloadSummary{}
 
 	// Count deployments
@@ -541,7 +535,7 @@ func getWorkloadSummary(clientset *kubernetes.Clientset, ctx context.Context, na
 		summary.Pods = len(pods.Items)
 	}
 
-	return summary, nil
+	return summary
 }
 
 func displayEnvironmentsTable(environments []EnvironmentInfo) error {

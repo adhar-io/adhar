@@ -44,7 +44,7 @@ func listClusters(cmd *cobra.Command) error {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Listing clusters across all providers...\n\n")
+	writeStdout(cmd, "Listing clusters across all providers...\n\n")
 
 	allClusters := []*ptypes.Cluster{}
 
@@ -52,13 +52,13 @@ func listClusters(cmd *cobra.Command) error {
 	for providerName, providerCfg := range cfg.Providers {
 		p, err := pfactory.DefaultFactory.CreateProvider(providerName, providerCfg.ToProviderMap())
 		if err != nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "Warning: Failed to create provider %s: %v\n", providerName, err)
+			writeStdout(cmd, "Warning: Failed to create provider %s: %v\n", providerName, err)
 			continue
 		}
 
 		clusters, err := p.ListClusters(context.Background())
 		if err != nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "Warning: Failed to list clusters for provider %s: %v\n", providerName, err)
+			writeStdout(cmd, "Warning: Failed to list clusters for provider %s: %v\n", providerName, err)
 			continue
 		}
 
@@ -88,18 +88,18 @@ func listClusters(cmd *cobra.Command) error {
 	}
 
 	if len(allClusters) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "No clusters found.\n")
+		writeStdout(cmd, "No clusters found.\n")
 		return nil
 	}
 
 	// Print clusters in table format
-	fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-15s %-10s %-15s\n",
+	writeStdout(cmd, "%-20s %-10s %-15s %-10s %-15s\n",
 		"NAME", "PROVIDER", "REGION", "VERSION", "STATUS")
-	fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-15s %-10s %-15s\n",
+	writeStdout(cmd, "%-20s %-10s %-15s %-10s %-15s\n",
 		"----", "--------", "------", "-------", "------")
 
 	for _, cluster := range allClusters {
-		fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %-15s %-10s %-15s\n",
+		writeStdout(cmd, "%-20s %-10s %-15s %-10s %-15s\n",
 			cluster.Name, cluster.Provider, cluster.Region, cluster.Version, cluster.Status)
 	}
 

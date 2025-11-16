@@ -43,7 +43,9 @@ func init() {
 
 // deleteCluster deletes a cluster
 func deleteCluster(cmd *cobra.Command, name string) error {
-	fmt.Fprintf(cmd.OutOrStdout(), "Deleting cluster: %s\n", name)
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Deleting cluster: %s\n", name); err != nil {
+		return fmt.Errorf("failed to write delete header: %w", err)
+	}
 
 	// Load configuration
 	cfg, err := config.LoadConfig("")
@@ -59,14 +61,14 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 	for providerName, providerCfg := range cfg.Providers {
 		p, err := pfactory.DefaultFactory.CreateProvider(providerName, providerCfg.ToProviderMap())
 		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to create provider %s: %v\n", providerName, err)
+			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to create provider %s: %v\n", providerName, err)
 			continue
 		}
 
 		// List clusters for this provider
 		clusters, err := p.ListClusters(context.Background())
 		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to list clusters for provider %s: %v\n", providerName, err)
+			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to list clusters for provider %s: %v\n", providerName, err)
 			continue
 		}
 
@@ -120,9 +122,15 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 		return fmt.Errorf("cluster '%s' not found in any configured provider", name)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Found cluster '%s' in provider '%s'\n", name, targetProviderName)
-	fmt.Fprintf(cmd.OutOrStdout(), "  ID: %s\n", targetCluster.ID)
-	fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", targetCluster.Status)
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Found cluster '%s' in provider '%s'\n", name, targetProviderName); err != nil {
+		return fmt.Errorf("failed to write cluster info: %w", err)
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  ID: %s\n", targetCluster.ID); err != nil {
+		return fmt.Errorf("failed to write cluster info: %w", err)
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", targetCluster.Status); err != nil {
+		return fmt.Errorf("failed to write cluster info: %w", err)
+	}
 
 	// Check if cluster is managed by Adhar
 	isAdharManaged := false
@@ -133,8 +141,12 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 	}
 
 	if !isAdharManaged {
-		fmt.Fprintf(cmd.OutOrStdout(), "⚠️  Warning: This cluster was not created by Adhar (missing adhar.io/managed-by tag)\n")
-		fmt.Fprintf(cmd.OutOrStdout(), "Proceeding with deletion anyway...\n")
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "⚠️  Warning: This cluster was not created by Adhar (missing adhar.io/managed-by tag)\n"); err != nil {
+			return fmt.Errorf("failed to write unmanaged warning: %w", err)
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Proceeding with deletion anyway...\n"); err != nil {
+			return fmt.Errorf("failed to write warning detail: %w", err)
+		}
 	}
 
 	// Check for force flag
@@ -142,22 +154,34 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 
 	// Confirm deletion unless force flag is used
 	if !force {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n🗑️  This action will permanently delete the cluster and all associated resources.\n")
-		fmt.Fprintf(cmd.OutOrStdout(), "Type 'yes' to confirm deletion: ")
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "\n🗑️  This action will permanently delete the cluster and all associated resources.\n"); err != nil {
+			return fmt.Errorf("failed to write confirmation prompt: %w", err)
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Type 'yes' to confirm deletion: "); err != nil {
+			return fmt.Errorf("failed to write confirmation prompt: %w", err)
+		}
 
 		var confirmation string
-		fmt.Scanln(&confirmation)
+		if _, err := fmt.Scanln(&confirmation); err != nil {
+			return fmt.Errorf("failed to read confirmation: %w", err)
+		}
 
 		if confirmation != "yes" {
-			fmt.Fprintf(cmd.OutOrStdout(), "Deletion cancelled.\n")
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Deletion cancelled.\n"); err != nil {
+				return fmt.Errorf("failed to write cancellation notice: %w", err)
+			}
 			return nil
 		}
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n🗑️  Force deletion enabled - proceeding without confirmation.\n")
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "\n🗑️  Force deletion enabled - proceeding without confirmation.\n"); err != nil {
+			return fmt.Errorf("failed to write force warning: %w", err)
+		}
 	}
 
 	// Start deletion process
-	fmt.Fprintf(cmd.OutOrStdout(), "\n🚀 Starting cluster deletion...\n")
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "\n🚀 Starting cluster deletion...\n"); err != nil {
+		return fmt.Errorf("failed to write deletion start: %w", err)
+	}
 
 	// Set cluster status to deleting if possible
 	ctx := context.Background()
@@ -168,9 +192,15 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 		return fmt.Errorf("failed to delete cluster: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✅ Cluster '%s' deletion initiated successfully!\n", name)
-	fmt.Fprintf(cmd.OutOrStdout(), "\nNote: It may take several minutes for all resources to be fully deleted.\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "You can check the status with: adhar cluster list\n")
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "✅ Cluster '%s' deletion initiated successfully!\n", name); err != nil {
+		return fmt.Errorf("failed to write deletion success: %w", err)
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "\nNote: It may take several minutes for all resources to be fully deleted.\n"); err != nil {
+		return fmt.Errorf("failed to write deletion note: %w", err)
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "You can check the status with: adhar cluster list\n"); err != nil {
+		return fmt.Errorf("failed to write status hint: %w", err)
+	}
 
 	return nil
 }

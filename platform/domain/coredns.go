@@ -17,12 +17,13 @@ import (
 )
 
 const (
-	coreDNSTemplatePath = "templates/coredns"
+	coreDNSTemplatePath = "templates/coredns" //nolint:unused // Reserved for future CoreDNS templating.
 )
 
 //go:embed templates
-var templates embed.FS
+var templates embed.FS //nolint:unused // Reserved for future CoreDNS templating.
 
+//nolint:unused // CoreDNS customization is disabled until the provisioning UX stabilizes.
 func setupCoreDNS(ctx context.Context, kubeClient client.Client, scheme *runtime.Scheme, templateData v1alpha1.BuildCustomizationSpec) error {
 	checkCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{

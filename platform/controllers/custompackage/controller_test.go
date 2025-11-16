@@ -36,7 +36,9 @@ func TestReconcileCustomPkg(t *testing.T) {
 		argov1alpha1.AddToScheme,
 		v1alpha1.AddToScheme,
 	)
-	sb.AddToScheme(s)
+	if err := sb.AddToScheme(s); err != nil {
+		t.Fatalf("failed to add scheme: %v", err)
+	}
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "resources"),
@@ -50,7 +52,11 @@ func TestReconcileCustomPkg(t *testing.T) {
 
 	cfg, err := testEnv.Start()
 	require.NoError(t, err)
-	defer testEnv.Stop()
+	defer func() {
+		if err := testEnv.Stop(); err != nil {
+			t.Fatalf("failed to stop test env: %v", err)
+		}
+	}()
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: s,
@@ -239,7 +245,9 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 		argov1alpha1.AddToScheme,
 		v1alpha1.AddToScheme,
 	)
-	sb.AddToScheme(s)
+	if err := sb.AddToScheme(s); err != nil {
+		t.Fatalf("failed to add scheme: %v", err)
+	}
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "resources"),
@@ -253,7 +261,11 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 
 	cfg, err := testEnv.Start()
 	assert.Nil(t, err)
-	defer testEnv.Stop()
+	defer func() {
+		if err := testEnv.Stop(); err != nil {
+			t.Fatalf("failed to stop test env: %v", err)
+		}
+	}()
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: s,
@@ -582,7 +594,9 @@ func TestReconcileHelmValueObject(t *testing.T) {
 		argov1alpha1.AddToScheme,
 		v1alpha1.AddToScheme,
 	)
-	sb.AddToScheme(s)
+	if err := sb.AddToScheme(s); err != nil {
+		t.Fatalf("failed to add scheme: %v", err)
+	}
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "resources"),
@@ -598,7 +612,11 @@ func TestReconcileHelmValueObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Starting testenv: %v", err)
 	}
-	defer testEnv.Stop()
+	defer func() {
+		if err := testEnv.Stop(); err != nil {
+			t.Fatalf("failed to stop test env: %v", err)
+		}
+	}()
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: s,

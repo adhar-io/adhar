@@ -25,7 +25,13 @@ var (
 )
 
 func init() {
-	incidentsCmd.Flags().StringVarP(&incidentType, "type", "t", "", "Type of incident (breach, vulnerability, policy-violation)")
+	incidentsCmd.Flags().StringVarP(
+		&incidentType,
+		"type",
+		"t",
+		"",
+		"Type of incident (breach, vulnerability, policy-violation)",
+	)
 	incidentsCmd.Flags().StringVarP(&incidentID, "id", "i", "", "Incident ID")
 	incidentsCmd.Flags().BoolVar(&respond, "respond", false, "Respond to incident")
 }

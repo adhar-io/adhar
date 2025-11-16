@@ -47,7 +47,6 @@ var (
 	// Global flags for apps command
 	namespace string
 	output    string
-	verbose   bool
 )
 
 func init() {

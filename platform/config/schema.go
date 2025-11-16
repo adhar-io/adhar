@@ -258,7 +258,7 @@ func (v *SchemaValidator) validateDigitalOceanConfig(providerName string, config
 }
 
 // validateCivoConfig validates Civo provider configuration
-func (v *SchemaValidator) validateCivoConfig(providerName string, config map[string]interface{}) {
+func (v *SchemaValidator) validateCivoConfig(_ string, config map[string]interface{}) {
 	// Civo has minimal required configuration validation
 	if config == nil {
 		return
@@ -282,7 +282,7 @@ func (v *SchemaValidator) validateCustomConfig(providerName string, config map[s
 }
 
 // validateKindConfig validates Kind provider configuration
-func (v *SchemaValidator) validateKindConfig(providerName string, config map[string]interface{}) {
+func (v *SchemaValidator) validateKindConfig(_ string, config map[string]interface{}) {
 	// Kind has minimal configuration requirements
 	if config == nil {
 		return
@@ -356,14 +356,13 @@ func (v *SchemaValidator) isValidString(value string, validValues []string) bool
 func (v *SchemaValidator) isValidCIDR(cidr string) bool {
 	// Simple CIDR validation - you might want to use a more robust validation
 	parts := strings.Split(cidr, "/")
-	if len(parts) != 2 {
-		return false
-	}
 	// Additional IP and subnet mask validation could be added here
-	return true
+	return len(parts) == 2
 }
 
 // validateRequired validates that a field is not empty
+//
+//nolint:unused // Utility retained for future schema validations.
 func (v *SchemaValidator) validateRequired(fieldPath string, value interface{}, fieldName string) {
 	val := reflect.ValueOf(value)
 
@@ -384,6 +383,8 @@ func (v *SchemaValidator) validateRequired(fieldPath string, value interface{}, 
 }
 
 // validateRange validates that a numeric value is within a specific range
+//
+//nolint:unused // Utility retained for future schema validations.
 func (v *SchemaValidator) validateRange(fieldPath string, value interface{}, min, max int, fieldName string) {
 	if intVal, ok := value.(int); ok {
 		if intVal < min || intVal > max {

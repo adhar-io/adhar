@@ -25,6 +25,7 @@ import (
 
 	"adhar-io/adhar/platform/config"
 	pfactory "adhar-io/adhar/platform/providers"
+	ptypes "adhar-io/adhar/platform/types"
 )
 
 var statusCmd = &cobra.Command{
@@ -39,7 +40,7 @@ var statusCmd = &cobra.Command{
 
 // getClusterStatus gets detailed cluster status
 func getClusterStatus(cmd *cobra.Command, name string) error {
-	fmt.Fprintf(cmd.OutOrStdout(), "Getting status for cluster: %s\n", name)
+	writeStdout(cmd, "Getting status for cluster: %s\n", name)
 
 	// Load configuration
 	cfg, err := config.LoadConfig("")
@@ -61,41 +62,9 @@ func getClusterStatus(cmd *cobra.Command, name string) error {
 			continue
 		}
 
-		// Found the cluster, display detailed status
-		fmt.Fprintf(cmd.OutOrStdout(), "\nCluster Information:\n")
-		fmt.Fprintf(cmd.OutOrStdout(), "  Name: %s\n", cluster.Name)
-		fmt.Fprintf(cmd.OutOrStdout(), "  ID: %s\n", cluster.ID)
-		fmt.Fprintf(cmd.OutOrStdout(), "  Provider: %s\n", cluster.Provider)
-		fmt.Fprintf(cmd.OutOrStdout(), "  Region: %s\n", cluster.Region)
-		fmt.Fprintf(cmd.OutOrStdout(), "  Version: %s\n", cluster.Version)
-		fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", cluster.Status)
-		if cluster.Endpoint != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "  Endpoint: %s\n", cluster.Endpoint)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "  Created: %s\n", cluster.CreatedAt.Format(time.RFC3339))
-		fmt.Fprintf(cmd.OutOrStdout(), "  Updated: %s\n", cluster.UpdatedAt.Format(time.RFC3339))
-
-		// Get health status
-		health, err := p.GetClusterHealth(context.Background(), cluster.ID)
-		if err == nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "\nHealth Status: %s\n", health.Status)
-			for component, componentHealth := range health.Components {
-				fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", component, componentHealth.Status)
-			}
-		}
-
-		// Get metrics
-		metrics, err := p.GetClusterMetrics(context.Background(), cluster.ID)
-		if err == nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "\nResource Usage:\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "  CPU: %s / %s (%.1f%%)\n",
-				metrics.CPU.Usage, metrics.CPU.Capacity, metrics.CPU.Percent)
-			fmt.Fprintf(cmd.OutOrStdout(), "  Memory: %s / %s (%.1f%%)\n",
-				metrics.Memory.Usage, metrics.Memory.Capacity, metrics.Memory.Percent)
-			fmt.Fprintf(cmd.OutOrStdout(), "  Disk: %s / %s (%.1f%%)\n",
-				metrics.Disk.Usage, metrics.Disk.Capacity, metrics.Disk.Percent)
-		}
-
+		printClusterDetails(cmd, cluster)
+		printClusterHealth(cmd, p, cluster.ID)
+		printClusterMetrics(cmd, p, cluster.ID)
 		return nil
 	}
 
@@ -117,45 +86,54 @@ func getClusterStatus(cmd *cobra.Command, name string) error {
 			clusterID := fmt.Sprintf("kind-%s", name)
 			cluster, err := kindProvider.GetCluster(context.Background(), clusterID)
 			if err == nil {
-				// Found the cluster, display detailed status
-				fmt.Fprintf(cmd.OutOrStdout(), "\nCluster Information:\n")
-				fmt.Fprintf(cmd.OutOrStdout(), "  Name: %s\n", cluster.Name)
-				fmt.Fprintf(cmd.OutOrStdout(), "  ID: %s\n", cluster.ID)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Provider: %s\n", cluster.Provider)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Region: %s\n", cluster.Region)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Version: %s\n", cluster.Version)
-				fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", cluster.Status)
-				if cluster.Endpoint != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), "  Endpoint: %s\n", cluster.Endpoint)
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  Created: %s\n", cluster.CreatedAt.Format(time.RFC3339))
-				fmt.Fprintf(cmd.OutOrStdout(), "  Updated: %s\n", cluster.UpdatedAt.Format(time.RFC3339))
-
-				// Get health status
-				health, err := kindProvider.GetClusterHealth(context.Background(), cluster.ID)
-				if err == nil {
-					fmt.Fprintf(cmd.OutOrStdout(), "\nHealth Status: %s\n", health.Status)
-					for component, componentHealth := range health.Components {
-						fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", component, componentHealth.Status)
-					}
-				}
-
-				// Get metrics
-				metrics, err := kindProvider.GetClusterMetrics(context.Background(), cluster.ID)
-				if err == nil {
-					fmt.Fprintf(cmd.OutOrStdout(), "\nResource Usage:\n")
-					fmt.Fprintf(cmd.OutOrStdout(), "  CPU: %s / %s (%.1f%%)\n",
-						metrics.CPU.Usage, metrics.CPU.Capacity, metrics.CPU.Percent)
-					fmt.Fprintf(cmd.OutOrStdout(), "  Memory: %s / %s (%.1f%%)\n",
-						metrics.Memory.Usage, metrics.Memory.Capacity, metrics.Memory.Percent)
-					fmt.Fprintf(cmd.OutOrStdout(), "  Disk: %s / %s (%.1f%%)\n",
-						metrics.Disk.Usage, metrics.Disk.Capacity, metrics.Disk.Percent)
-				}
-
+				printClusterDetails(cmd, cluster)
+				printClusterHealth(cmd, kindProvider, cluster.ID)
+				printClusterMetrics(cmd, kindProvider, cluster.ID)
 				return nil
 			}
 		}
 	}
 
 	return fmt.Errorf("cluster '%s' not found", name)
+}
+func printClusterDetails(cmd *cobra.Command, cluster *ptypes.Cluster) {
+	writeStdout(cmd, "\nCluster Information:\n")
+	writeStdout(cmd, "  Name: %s\n", cluster.Name)
+	writeStdout(cmd, "  ID: %s\n", cluster.ID)
+	writeStdout(cmd, "  Provider: %s\n", cluster.Provider)
+	writeStdout(cmd, "  Region: %s\n", cluster.Region)
+	writeStdout(cmd, "  Version: %s\n", cluster.Version)
+	writeStdout(cmd, "  Status: %s\n", cluster.Status)
+	if cluster.Endpoint != "" {
+		writeStdout(cmd, "  Endpoint: %s\n", cluster.Endpoint)
+	}
+	writeStdout(cmd, "  Created: %s\n", cluster.CreatedAt.Format(time.RFC3339))
+	writeStdout(cmd, "  Updated: %s\n", cluster.UpdatedAt.Format(time.RFC3339))
+}
+
+func printClusterHealth(cmd *cobra.Command, provider pfactory.Provider, clusterID string) {
+	health, err := provider.GetClusterHealth(context.Background(), clusterID)
+	if err != nil {
+		return
+	}
+
+	writeStdout(cmd, "\nHealth Status: %s\n", health.Status)
+	for component, componentHealth := range health.Components {
+		writeStdout(cmd, "  %s: %s\n", component, componentHealth.Status)
+	}
+}
+
+func printClusterMetrics(cmd *cobra.Command, provider pfactory.Provider, clusterID string) {
+	metrics, err := provider.GetClusterMetrics(context.Background(), clusterID)
+	if err != nil {
+		return
+	}
+
+	writeStdout(cmd, "\nResource Usage:\n")
+	writeStdout(cmd, "  CPU: %s / %s (%.1f%%)\n",
+		metrics.CPU.Usage, metrics.CPU.Capacity, metrics.CPU.Percent)
+	writeStdout(cmd, "  Memory: %s / %s (%.1f%%)\n",
+		metrics.Memory.Usage, metrics.Memory.Capacity, metrics.Memory.Percent)
+	writeStdout(cmd, "  Disk: %s / %s (%.1f%%)\n",
+		metrics.Disk.Usage, metrics.Disk.Capacity, metrics.Disk.Percent)
 }

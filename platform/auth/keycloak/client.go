@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -100,7 +101,11 @@ func (c *Client) AuthenticateClient() error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("authentication failed with status: %d", resp.StatusCode)
@@ -140,7 +145,11 @@ func (c *Client) CreateUser(user *User) error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("failed to create user with status: %d", resp.StatusCode)
@@ -168,7 +177,11 @@ func (c *Client) GetUser(username string) (*User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get user with status: %d", resp.StatusCode)
@@ -205,7 +218,11 @@ func (c *Client) ListUsers() ([]User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to list users with status: %d", resp.StatusCode)
@@ -248,7 +265,11 @@ func (c *Client) UpdateUser(user *User) error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("failed to update user with status: %d", resp.StatusCode)
@@ -276,7 +297,11 @@ func (c *Client) DeleteUser(userID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("failed to delete user with status: %d", resp.StatusCode)
@@ -310,7 +335,11 @@ func (c *Client) CreateGroup(group *Group) error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("failed to create group with status: %d", resp.StatusCode)
@@ -338,7 +367,11 @@ func (c *Client) ListGroups() ([]Group, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to list groups with status: %d", resp.StatusCode)
@@ -377,7 +410,11 @@ func (c *Client) CreateRole(role *Role) error {
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("failed to create role with status: %d", resp.StatusCode)
@@ -405,7 +442,11 @@ func (c *Client) ListRoles() ([]Role, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("failed to close Keycloak response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to list roles with status: %d", resp.StatusCode)

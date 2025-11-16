@@ -87,7 +87,7 @@ func (r *CustomPackageReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return result, err
 }
 
-func (r *CustomPackageReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, pkg *v1alpha1.CustomPackage) {
+func (r *CustomPackageReconciler) postProcessReconcile(ctx context.Context, _ ctrl.Request, pkg *v1alpha1.CustomPackage) {
 	logger := log.FromContext(ctx)
 
 	err := r.Status().Update(ctx, pkg)
@@ -400,6 +400,7 @@ func localRepoName(appName, dir string) string {
 	return fmt.Sprintf("%s-%s", appName, filepath.Base(dir))
 }
 
+//nolint:unparam,unused // Retained for future repository naming logic.
 func remoteRepoName(appName, pathToPkg string, repo v1alpha1.RemoteRepositorySpec) string {
 	return fmt.Sprintf("%s-%s", appName, filepath.Base(pathToPkg))
 }

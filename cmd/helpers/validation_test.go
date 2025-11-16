@@ -19,7 +19,7 @@ func TestValidateKubernetesYaml(t *testing.T) {
 		inputPath string
 	}{
 		"invalidPath": {expectErr: true, inputPath: fmt.Sprintf("%s/invalid/path", cwd)},
-		"notAbs":      {expectErr: true, inputPath: fmt.Sprintf("invalid/path")},
+		"notAbs":      {expectErr: true, inputPath: "invalid/path"},
 		"valid":       {expectErr: false, inputPath: fmt.Sprintf("%s/test-data/valid.yaml", cwd)},
 		"notYaml":     {expectErr: true, inputPath: fmt.Sprintf("%s/test-data/notyaml.yaml", cwd)},
 		"notk8s":      {expectErr: true, inputPath: fmt.Sprintf("%s/test-data/notk8s.yaml", cwd)},

@@ -67,7 +67,9 @@ spec:`,
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
-			tc.schemeBuilder.AddToScheme(scheme)
+			if err := tc.schemeBuilder.AddToScheme(scheme); err != nil {
+				t.Fatalf("failed to add scheme: %v", err)
+			}
 			objs, err := ConvertYamlToObjects(scheme, []byte(tc.input))
 
 			if err != tc.expectErr {

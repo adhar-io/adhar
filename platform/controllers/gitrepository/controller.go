@@ -72,7 +72,7 @@ type gitProviderFunc func(context.Context, *v1alpha1.GitRepository, client.Clien
 type notFoundError struct{}
 
 func (n notFoundError) Error() string {
-	return fmt.Sprintf("repo not found")
+	return "repo not found"
 }
 
 func getRepositoryName(repo v1alpha1.GitRepository) string {
@@ -146,7 +146,7 @@ func (r *GitRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return result, err
 }
 
-func (r *GitRepositoryReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, repo *v1alpha1.GitRepository) {
+func (r *GitRepositoryReconciler) postProcessReconcile(ctx context.Context, _ ctrl.Request, repo *v1alpha1.GitRepository) {
 	logger := log.FromContext(ctx)
 	err := r.Status().Update(ctx, repo)
 	if err != nil {
@@ -235,8 +235,11 @@ func addAllAndCommit(path string, gitRepo *git.Repository) (plumbing.Hash, bool,
 	}
 
 	if status.IsClean() {
-		h, _ := gitRepo.Head()
-		return h.Hash(), false, nil
+		head, headErr := gitRepo.Head()
+		if headErr != nil {
+			return plumbing.Hash{}, false, fmt.Errorf("get repository head: %w", headErr)
+		}
+		return head.Hash(), false, nil
 	}
 
 	h, err := tree.Commit(fmt.Sprintf("updated from %s", path), &git.CommitOptions{
@@ -248,6 +251,9 @@ func addAllAndCommit(path string, gitRepo *git.Repository) (plumbing.Hash, bool,
 			When:  time.Now(),
 		},
 	})
+	if err != nil {
+		return plumbing.Hash{}, false, fmt.Errorf("commit changes: %w", err)
+	}
 	return h, true, nil
 }
 

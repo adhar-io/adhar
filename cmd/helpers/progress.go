@@ -429,11 +429,6 @@ func renderProgressBar(percent float64, width int, showPercent bool) string {
 	}
 }
 
-// Legacy function for backward compatibility
-func renderSimpleProgressBar(percent float64, width int) string {
-	return renderProgressBar(percent, width, true)
-}
-
 // formatDuration formats duration in a user-friendly way
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {

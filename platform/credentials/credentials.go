@@ -364,7 +364,7 @@ func (cm *CredentialManager) ValidateCredentials(cred *Credential) error {
 		return fmt.Errorf("credential is nil")
 	}
 
-	if cred.Data == nil || len(cred.Data) == 0 {
+	if len(cred.Data) == 0 {
 		return fmt.Errorf("credential data is empty")
 	}
 

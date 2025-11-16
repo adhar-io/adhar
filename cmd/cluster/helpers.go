@@ -27,6 +27,18 @@ import (
 	ptypes "adhar-io/adhar/platform/types"
 )
 
+func writeStdout(cmd *cobra.Command, format string, args ...interface{}) {
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), format, args...); err != nil {
+		cmd.PrintErrf("output error: %v\n", err)
+	}
+}
+
+func writeStderr(cmd *cobra.Command, format string, args ...interface{}) {
+	if _, err := fmt.Fprintf(cmd.OutOrStderr(), format, args...); err != nil {
+		cmd.PrintErrf("output error: %v\n", err)
+	}
+}
+
 // setupClusterKubeconfig automatically downloads and configures kubeconfig for the cluster
 func setupClusterKubeconfig(cmd *cobra.Command, cluster *ptypes.Cluster, provider pfactory.Provider) error {
 	ctx := context.Background()
@@ -46,9 +58,9 @@ func setupClusterKubeconfig(cmd *cobra.Command, cluster *ptypes.Cluster, provide
 	// Create backup if existing config exists
 	backupPath, err := manager.BackupKubeconfig()
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStderr(), "  ⚠️  Warning: Failed to backup existing kubeconfig: %v\n", err)
+		writeStderr(cmd, "  ⚠️  Warning: Failed to backup existing kubeconfig: %v\n", err)
 	} else if backupPath != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "  • Existing kubeconfig backed up to: %s\n", backupPath)
+		writeStdout(cmd, "  • Existing kubeconfig backed up to: %s\n", backupPath)
 	}
 
 	// Merge the new kubeconfig
@@ -57,27 +69,27 @@ func setupClusterKubeconfig(cmd *cobra.Command, cluster *ptypes.Cluster, provide
 		return fmt.Errorf("failed to merge kubeconfig: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "  • Kubeconfig updated successfully\n")
+	writeStdout(cmd, "  • Kubeconfig updated successfully\n")
 
 	// Always set current context for the new cluster
 	err = manager.SetCurrentContext(cluster.Name)
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStderr(), "  ⚠️  Warning: Failed to set current context: %v\n", err)
+		writeStderr(cmd, "  ⚠️  Warning: Failed to set current context: %v\n", err)
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "  • Current context set to: %s\n", cluster.Name)
+		writeStdout(cmd, "  • Current context set to: %s\n", cluster.Name)
 	}
 
 	// Validate the kubeconfig
 	err = manager.ValidateKubeconfig()
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStderr(), "  ⚠️  Warning: Kubeconfig validation failed: %v\n", err)
+		writeStderr(cmd, "  ⚠️  Warning: Kubeconfig validation failed: %v\n", err)
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "  • Kubeconfig validation passed\n")
+		writeStdout(cmd, "  • Kubeconfig validation passed\n")
 	}
 
 	// Provide helpful next steps
-	fmt.Fprintf(cmd.OutOrStdout(), "  • You can now run: kubectl get nodes\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "  • To switch contexts: kubectl config use-context %s\n", cluster.Name)
+	writeStdout(cmd, "  • You can now run: kubectl get nodes\n")
+	writeStdout(cmd, "  • To switch contexts: kubectl config use-context %s\n", cluster.Name)
 
 	return nil
 }

@@ -18,7 +18,6 @@ package helpers
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -48,13 +47,13 @@ func (k *KubeconfigManager) BackupKubeconfig() (string, error) {
 	backupPath := fmt.Sprintf("%s.backup.%s", k.kubeconfigPath, timestamp)
 
 	// Read original file
-	data, err := ioutil.ReadFile(k.kubeconfigPath)
+	data, err := os.ReadFile(k.kubeconfigPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read kubeconfig: %w", err)
 	}
 
 	// Write backup
-	err = ioutil.WriteFile(backupPath, data, 0600)
+	err = os.WriteFile(backupPath, data, 0600)
 	if err != nil {
 		return "", fmt.Errorf("failed to write backup: %w", err)
 	}
@@ -72,7 +71,7 @@ func (k *KubeconfigManager) MergeKubeconfig(kubeconfig, clusterName string) erro
 
 	// For now, simple implementation - just write the new kubeconfig
 	// In a production environment, you'd want to properly merge contexts
-	err := ioutil.WriteFile(k.kubeconfigPath, []byte(kubeconfig), 0600)
+	err := os.WriteFile(k.kubeconfigPath, []byte(kubeconfig), 0600)
 	if err != nil {
 		return fmt.Errorf("failed to write kubeconfig: %w", err)
 	}

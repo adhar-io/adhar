@@ -450,18 +450,23 @@ func RenderApplicationStatusList(statuses []*ApplicationStatusView, format strin
 	}
 
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "NAME\tNAMESPACE\tSYNC\tHEALTH\tREVISION\tAGE")
+	if _, err := fmt.Fprintln(writer, "NAME\tNAMESPACE\tSYNC\tHEALTH\tREVISION\tAGE"); err != nil {
+		return fmt.Errorf("write table header: %w", err)
+	}
 	for _, status := range statuses {
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			status.Name,
 			status.Namespace,
 			displayOrUnknown(status.SyncStatus),
 			displayOrUnknown(status.HealthStatus),
 			valueOrDash(status.Revision),
-			formatAge(status.CreatedAt),
-		)
+			formatAge(status.CreatedAt)); err != nil {
+			return fmt.Errorf("write table row: %w", err)
+		}
 	}
-	writer.Flush()
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("flush table output: %w", err)
+	}
 
 	if showLabels {
 		fmt.Println()

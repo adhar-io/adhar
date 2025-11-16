@@ -252,9 +252,7 @@ func SaveConfig(config *Config, configFile string) error {
 	}
 
 	// Set values from config struct
-	if err := setConfigValues(v, config); err != nil {
-		return fmt.Errorf("failed to set config values: %w", err)
-	}
+	setConfigValues(v, config)
 
 	// Write config file
 	if err := v.WriteConfig(); err != nil {
@@ -265,13 +263,11 @@ func SaveConfig(config *Config, configFile string) error {
 }
 
 // setConfigValues sets viper values from config struct
-func setConfigValues(v *viper.Viper, config *Config) error {
+func setConfigValues(v *viper.Viper, config *Config) {
 	v.Set("globalSettings", config.GlobalSettings)
 	v.Set("providers", config.Providers)
 	v.Set("environmentTemplates", config.EnvironmentTemplates)
 	v.Set("environments", config.Environments)
-
-	return nil
 }
 
 // InitConfig initializes a new configuration file with defaults
@@ -498,18 +494,14 @@ func (c *Config) ResolveEnvironments() error {
 	}
 
 	for envName, envConfig := range c.Environments {
-		resolved, err := c.resolveEnvironment(envName, envConfig)
-		if err != nil {
-			return fmt.Errorf("failed to resolve environment %s: %w", envName, err)
-		}
-		c.ResolvedEnvironments[envName] = resolved
+		c.ResolvedEnvironments[envName] = c.resolveEnvironment(envName, envConfig)
 	}
 
 	return nil
 }
 
 // resolveEnvironment resolves a single environment configuration
-func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig) (*ResolvedEnvironmentConfig, error) {
+func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig) *ResolvedEnvironmentConfig {
 	resolved := &ResolvedEnvironmentConfig{
 		Name: envName,
 	}
@@ -616,5 +608,5 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 		Email:        c.GlobalSettings.Email,
 	}
 
-	return resolved, nil
+	return resolved
 }

@@ -314,7 +314,9 @@ func TestTenantConfig_Validation(t *testing.T) {
 
 			// Cleanup
 			if err == nil {
-				tm.DeleteTenant(ctx, tt.config.Name)
+				if delErr := tm.DeleteTenant(ctx, tt.config.Name); delErr != nil {
+					t.Fatalf("DeleteTenant() unexpected error: %v", delErr)
+				}
 			}
 		})
 	}

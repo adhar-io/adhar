@@ -302,24 +302,20 @@ func (pp *ProductionProvisioner) checkResourceQuotas() error {
 		}
 	} else {
 		// Fallback to basic resource validation
-		if err := pp.checkBasicResourceRequirements(targetEnv); err != nil {
-			return fmt.Errorf("basic resource requirements check failed: %w", err)
-		}
+		pp.checkBasicResourceRequirements(targetEnv)
 	}
 
 	return nil
 }
 
 // checkBasicResourceRequirements performs basic resource validation
-func (pp *ProductionProvisioner) checkBasicResourceRequirements(envConfig config.EnvironmentConfig) error {
+func (pp *ProductionProvisioner) checkBasicResourceRequirements(envConfig config.EnvironmentConfig) {
 	// Check cluster configuration for resource requirements
 	if len(envConfig.ClusterConfig) > 0 {
 		// For now, just validate that cluster config exists
 		// In a real implementation, this would parse specific keys like "controlPlaneReplicas"
 		logger.Info("Cluster configuration validation passed")
 	}
-
-	return nil
 }
 
 // checkNetworkConnectivity verifies network access
@@ -573,30 +569,16 @@ func (pp *ProductionProvisioner) installAddon(addon config.AddonConfig) error {
 func (pp *ProductionProvisioner) setupGitOpsRepositories() error {
 	logger.Info("🔄 Setting up GitOps repositories...")
 
-	// Get the target environment
-	var targetEnv config.EnvironmentConfig
-	if pp.options.Environment != "" {
-		targetEnv = pp.config.Environments[pp.options.Environment]
-	} else {
-		// Use first environment if none specified
-		for _, env := range pp.config.Environments {
-			targetEnv = env
-			break
-		}
-	}
-
 	// Wait for ArgoCD to be ready
 	if err := pp.waitForArgoCD(); err != nil {
 		return fmt.Errorf("ArgoCD not ready for GitOps setup: %w", err)
 	}
 
 	// Create GitOps repositories
-	if err := pp.createGitOpsRepositories(targetEnv); err != nil {
-		return fmt.Errorf("failed to create GitOps repositories: %w", err)
-	}
+	pp.createGitOpsRepositories()
 
 	// Configure ArgoCD applications
-	if err := pp.configureArgoCDApplications(targetEnv); err != nil {
+	if err := pp.configureArgoCDApplications(); err != nil {
 		return fmt.Errorf("failed to configure ArgoCD applications: %w", err)
 	}
 
@@ -618,7 +600,7 @@ func (pp *ProductionProvisioner) waitForArgoCD() error {
 }
 
 // createGitOpsRepositories creates GitOps repositories
-func (pp *ProductionProvisioner) createGitOpsRepositories(envConfig config.EnvironmentConfig) error {
+func (pp *ProductionProvisioner) createGitOpsRepositories() {
 	// Create repositories for different components
 	repositories := []string{
 		"platform-manifests",
@@ -632,8 +614,6 @@ func (pp *ProductionProvisioner) createGitOpsRepositories(envConfig config.Envir
 			// Continue with other repositories
 		}
 	}
-
-	return nil
 }
 
 // createRepository creates a single GitOps repository
@@ -645,7 +625,7 @@ func (pp *ProductionProvisioner) createRepository(repoName string) error {
 }
 
 // configureArgoCDApplications configures ArgoCD applications
-func (pp *ProductionProvisioner) configureArgoCDApplications(envConfig config.EnvironmentConfig) error {
+func (pp *ProductionProvisioner) configureArgoCDApplications() error {
 	// Create ApplicationSet for platform components
 	if err := pp.createPlatformApplicationSet(); err != nil {
 		return fmt.Errorf("failed to create platform ApplicationSet: %w", err)
@@ -682,7 +662,7 @@ func (pp *ProductionProvisioner) createApplicationApplicationSet() error {
 }
 
 // createProductionCluster handles production cluster provisioning using the new ProviderManager
-func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []string, ctxCancel context.CancelFunc) error {
+func createProductionCluster(ctx context.Context, _ *cobra.Command, _ []string, _ context.CancelFunc) error {
 	// Validate config file exists
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		return fmt.Errorf("configuration file not found: %s", configFile)
@@ -752,7 +732,9 @@ func loadConfigFromFile(configPath string) (*config.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open configuration file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	var cfg config.Config
 	decoder := yaml.NewDecoder(file)
@@ -887,6 +869,8 @@ func showDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 }
 
 // validateEnvironmentExists checks if the specified environment exists in the config file
+//
+//nolint:unused // Retained for future CLI validation
 func validateEnvironmentExists(configPath, envName string) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {

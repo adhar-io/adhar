@@ -45,6 +45,7 @@ func (e *EmbeddedInstallation) installResources(scheme *runtime.Scheme, template
 	return k8s.BuildCustomizedObjects(e.customization.FilePath, e.resourcePath, e.resourceFS, scheme, templateData)
 }
 
+//nolint:unused // helper retained for future customization flows
 func (e *EmbeddedInstallation) newNamespace(namespace string) *corev1.Namespace {
 	return &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -74,7 +75,9 @@ func (e *EmbeddedInstallation) Install(ctx context.Context, resource *v1alpha1.A
 	}
 
 	sch := runtime.NewScheme()
-	appsv1.AddToScheme(sch)
+	if err := appsv1.AddToScheme(sch); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to add scheme: %w", err)
+	}
 
 	for _, obj := range installObjs {
 		// Create object

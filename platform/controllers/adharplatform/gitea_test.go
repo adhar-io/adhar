@@ -46,7 +46,9 @@ func TestGetGiteaToken(t *testing.T) {
 
 func TestAdharPlatformReconciler_ReconcileGitea(t *testing.T) {
 	scheme := runtime.NewScheme()
-	v1alpha1.AddToScheme(scheme)
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add scheme: %v", err)
+	}
 
 	// Create a fake client with an AdharPlatform object
 	adharPlatform := &v1alpha1.AdharPlatform{

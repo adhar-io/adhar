@@ -37,7 +37,9 @@ func TestPatchPasswordSecret(t *testing.T) {
 			"password": []byte("old-password"),
 		},
 	}
-	kubeClient.Create(ctx, mockSecret)
+	if err := kubeClient.Create(ctx, mockSecret); err != nil {
+		t.Fatalf("failed to create mock secret: %v", err)
+	}
 
 	err := utils.PatchPasswordSecret(ctx, kubeClient, config, "default", "test-secret", "admin", "new-password")
 	assert.NoError(t, err)
@@ -59,8 +61,6 @@ func TestGetGiteaToken(t *testing.T) {
 }
 
 func TestGiteaBaseUrl(t *testing.T) {
-	ctx := context.TODO()
-
 	// Mock IDP configuration
 	mockIDPConfig := struct {
 		Protocol       string
@@ -75,17 +75,16 @@ func TestGiteaBaseUrl(t *testing.T) {
 	}
 
 	// Inline mock for GetConfig
-	getConfig := func(ctx context.Context) (struct {
+	getConfig := func() struct {
 		Protocol       string
 		Host           string
 		Port           string
 		UsePathRouting bool
-	}, error) {
-		return mockIDPConfig, nil
+	} {
+		return mockIDPConfig
 	}
 
-	idpConfig, err := getConfig(ctx)
-	assert.NoError(t, err)
+	idpConfig := getConfig()
 
 	var url string
 	if idpConfig.UsePathRouting {

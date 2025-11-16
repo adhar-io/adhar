@@ -45,7 +45,6 @@ Examples:
 var (
 	// Global flags for config command
 	configFile string
-	verbose    bool
 )
 
 func init() {

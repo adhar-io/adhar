@@ -54,7 +54,11 @@ func addRepository(url, name string) error {
 		return fmt.Errorf("--url is required for adding repository")
 	}
 
-	logger.Info(fmt.Sprintf("➕ Adding repository: %s", url))
+	if name != "" {
+		logger.Info(fmt.Sprintf("➕ Adding repository: %s (%s)", url, name))
+	} else {
+		logger.Info(fmt.Sprintf("➕ Adding repository: %s", url))
+	}
 
 	// TODO: Implement repository addition
 	// This should:

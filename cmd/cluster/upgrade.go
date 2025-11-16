@@ -19,7 +19,7 @@ var upgradeVersion string
 
 func init() {
 	upgradeCmd.Flags().StringVarP(&upgradeVersion, "version", "v", "", "Target Kubernetes version")
-	upgradeCmd.MarkFlagRequired("version")
+	cobra.CheckErr(upgradeCmd.MarkFlagRequired("version"))
 }
 
 func runUpgrade(cmd *cobra.Command, args []string) error {

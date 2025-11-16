@@ -59,8 +59,12 @@ func TestCredentialManager_DiscoverFromEnvironment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set environment variables
 			for key, value := range tt.envVars {
-				os.Setenv(key, value)
-				defer os.Unsetenv(key)
+				if err := os.Setenv(key, value); err != nil {
+					t.Fatalf("failed to set env %s: %v", key, err)
+				}
+				defer func(k string) {
+					_ = os.Unsetenv(k)
+				}(key)
 			}
 
 			cm := &CredentialManager{}

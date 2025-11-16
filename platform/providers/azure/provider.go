@@ -22,6 +22,11 @@ import (
 	"adhar-io/adhar/platform/types"
 )
 
+const (
+	statusHealthy   = "healthy"
+	statusUnhealthy = "unhealthy"
+)
+
 // ResourceTracker tracks all Azure resources for a cluster
 type ResourceTracker struct {
 	SubscriptionID        string    `json:"subscriptionId"`
@@ -168,6 +173,24 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	}
 	if useEnvironment, ok := config["useEnvironment"].(bool); ok {
 		azureConfig.UseEnvironment = useEnvironment
+	}
+
+	var missing []string
+	requiredFields := []struct {
+		value string
+		name  string
+	}{
+		{azureConfig.SubscriptionID, "subscriptionId"},
+		{azureConfig.ResourceGroup, "resourceGroup"},
+		{azureConfig.Location, "location"},
+	}
+	for _, field := range requiredFields {
+		if strings.TrimSpace(field.value) == "" {
+			missing = append(missing, field.name)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing required Azure config fields: %s", strings.Join(missing, ", "))
 	}
 
 	return azureConfig, nil
@@ -928,14 +951,18 @@ func toPtr[T any](v T) *T {
 }
 
 // Helper functions for Azure types
+//
+//nolint:unused // Helpers retained for future Azure ARM payload assembly.
 func toPtrString(s string) *string {
 	return &s
 }
 
+//nolint:unused // Helpers retained for future Azure ARM payload assembly.
 func toPtrInt32(i int32) *int32 {
 	return &i
 }
 
+//nolint:unused // Helpers retained for future Azure ARM payload assembly.
 func toPtrBool(b bool) *bool {
 	return &b
 }
@@ -1353,7 +1380,7 @@ func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Clu
 
 // ListClusters lists all manual Kubernetes clusters
 func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
-	var clusters []*types.Cluster
+	clusters := make([]*types.Cluster, 0, len(p.clusters))
 
 	// Add clusters from state (tracked clusters)
 	for _, cluster := range p.clusters {
@@ -1372,12 +1399,14 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 }
 
 // discoverExistingClusters scans Azure VMs to find clusters that aren't in our state
+//
+//nolint:gocyclo // Azure discovery requires many conditional checks; refactor tracked separately.
 func (p *Provider) discoverExistingClusters(ctx context.Context) ([]*types.Cluster, error) {
 	if p.virtualMachineClient == nil {
 		return nil, fmt.Errorf("virtual machine client not initialized")
 	}
 
-	var discoveredClusters []*types.Cluster
+	discoveredClusters := make([]*types.Cluster, 0, len(p.clusters))
 	trackedClusterNames := make(map[string]bool)
 
 	// First, get all cluster names that are already tracked
@@ -1831,7 +1860,7 @@ func (p *Provider) CreateLoadBalancer(ctx context.Context, spec *types.LoadBalan
 	}
 
 	// Create load balancing rules for each port
-	var loadBalancingRules []*armnetwork.LoadBalancingRule
+	loadBalancingRules := make([]*armnetwork.LoadBalancingRule, 0, len(spec.Ports))
 	for i, portSpec := range spec.Ports {
 		ruleName := fmt.Sprintf("rule-%d", portSpec.Port)
 		loadBalancingRules = append(loadBalancingRules, &armnetwork.LoadBalancingRule{
@@ -1996,16 +2025,6 @@ func (p *Provider) GetLoadBalancer(ctx context.Context, lbID string) (*types.Loa
 	}
 
 	lb := response.LoadBalancer
-
-	// Extract ports from load balancing rules
-	var ports []int
-	if lb.Properties != nil && lb.Properties.LoadBalancingRules != nil {
-		for _, rule := range lb.Properties.LoadBalancingRules {
-			if rule.Properties != nil && rule.Properties.FrontendPort != nil {
-				ports = append(ports, int(*rule.Properties.FrontendPort))
-			}
-		}
-	}
 
 	// Get public IP address
 	endpoint := ""
@@ -2337,18 +2356,18 @@ func (p *Provider) GetClusterHealth(ctx context.Context, clusterID string) (*typ
 	cluster, err := p.GetCluster(ctx, clusterID)
 	if err != nil {
 		return &types.HealthStatus{
-			Status: "unhealthy",
+			Status: statusUnhealthy,
 			Components: map[string]types.ComponentHealth{
-				"cluster": {Status: "unhealthy", Message: "Cluster not found"},
+				"cluster": {Status: statusUnhealthy, Message: "Cluster not found"},
 			},
 		}, nil
 	}
 
 	if cluster.Status != types.ClusterStatusRunning {
 		return &types.HealthStatus{
-			Status: "unhealthy",
+			Status: statusUnhealthy,
 			Components: map[string]types.ComponentHealth{
-				"cluster": {Status: "unhealthy", Message: fmt.Sprintf("Cluster status: %s", cluster.Status)},
+				"cluster": {Status: statusUnhealthy, Message: fmt.Sprintf("Cluster status: %s", cluster.Status)},
 			},
 		}, nil
 	}
@@ -2359,34 +2378,34 @@ func (p *Provider) GetClusterHealth(ctx context.Context, clusterID string) (*typ
 	// Check Azure VM status
 	vmHealth := p.checkVMHealth(ctx, clusterID)
 	components["azure-vms"] = vmHealth
-	if vmHealth.Status != "healthy" {
+	if vmHealth.Status != statusHealthy {
 		overallHealthy = false
 	}
 
 	// Check Azure networking
 	networkHealth := p.checkNetworkHealth(ctx, clusterID)
 	components["azure-network"] = networkHealth
-	if networkHealth.Status != "healthy" {
+	if networkHealth.Status != statusHealthy {
 		overallHealthy = false
 	}
 
 	// Check Kubernetes components (would require SSH to VMs)
 	k8sHealth := p.checkKubernetesHealth(ctx, clusterID)
 	components["kubernetes"] = k8sHealth
-	if k8sHealth.Status != "healthy" {
+	if k8sHealth.Status != statusHealthy {
 		overallHealthy = false
 	}
 
 	// Check Azure Load Balancer
 	lbHealth := p.checkLoadBalancerHealth(ctx, clusterID)
 	components["azure-loadbalancer"] = lbHealth
-	if lbHealth.Status != "healthy" {
+	if lbHealth.Status != statusHealthy {
 		overallHealthy = false
 	}
 
-	status := "healthy"
+	status := statusHealthy
 	if !overallHealthy {
-		status = "unhealthy"
+		status = statusUnhealthy
 	}
 
 	return &types.HealthStatus{
@@ -2396,7 +2415,7 @@ func (p *Provider) GetClusterHealth(ctx context.Context, clusterID string) (*typ
 }
 
 // checkVMHealth checks the health of Azure VMs
-func (p *Provider) checkVMHealth(ctx context.Context, clusterID string) types.ComponentHealth {
+func (p *Provider) checkVMHealth(_ context.Context, clusterID string) types.ComponentHealth {
 	// In a real implementation, this would query Azure VM status via ARM API
 	// For now, simulate VM health check
 
@@ -2407,37 +2426,37 @@ func (p *Provider) checkVMHealth(ctx context.Context, clusterID string) types.Co
 	log.Printf("Checking Azure VM health for cluster %s in resource group %s", clusterName, resourceGroupName)
 
 	return types.ComponentHealth{
-		Status:  "healthy",
+		Status:  statusHealthy,
 		Message: "All Azure VMs are running",
 	}
 }
 
 // checkNetworkHealth checks the health of Azure networking
-func (p *Provider) checkNetworkHealth(ctx context.Context, clusterID string) types.ComponentHealth {
+func (p *Provider) checkNetworkHealth(_ context.Context, clusterID string) types.ComponentHealth {
 	// In a real implementation, this would check VNet, NSG, Public IPs status
 
 	return types.ComponentHealth{
-		Status:  "healthy",
+		Status:  statusHealthy,
 		Message: "Azure networking is operational",
 	}
 }
 
 // checkKubernetesHealth checks the health of Kubernetes components
-func (p *Provider) checkKubernetesHealth(ctx context.Context, clusterID string) types.ComponentHealth {
+func (p *Provider) checkKubernetesHealth(_ context.Context, clusterID string) types.ComponentHealth {
 	// In a real implementation, this would SSH to VMs and check k8s components
 
 	return types.ComponentHealth{
-		Status:  "healthy",
+		Status:  statusHealthy,
 		Message: "Kubernetes components are running",
 	}
 }
 
 // checkLoadBalancerHealth checks the health of Azure Load Balancer
-func (p *Provider) checkLoadBalancerHealth(ctx context.Context, clusterID string) types.ComponentHealth {
+func (p *Provider) checkLoadBalancerHealth(_ context.Context, clusterID string) types.ComponentHealth {
 	// In a real implementation, this would check Azure LB status via ARM API
 
 	return types.ComponentHealth{
-		Status:  "healthy",
+		Status:  statusHealthy,
 		Message: "Azure Load Balancer is operational",
 	}
 }
@@ -2494,7 +2513,7 @@ func (p *Provider) GetClusterMetrics(ctx context.Context, clusterID string) (*ty
 }
 
 // getAzureCPUMetrics gets CPU metrics from Azure Monitor
-func (p *Provider) getAzureCPUMetrics(ctx context.Context, clusterID string) (types.MetricValue, error) {
+func (p *Provider) getAzureCPUMetrics(_ context.Context, clusterID string) (types.MetricValue, error) {
 	// In a real implementation, this would use Azure Monitor REST API or SDK
 	// to get actual CPU metrics from the VMs
 
@@ -2510,7 +2529,7 @@ func (p *Provider) getAzureCPUMetrics(ctx context.Context, clusterID string) (ty
 }
 
 // getAzureMemoryMetrics gets memory metrics from Azure Monitor
-func (p *Provider) getAzureMemoryMetrics(ctx context.Context, clusterID string) (types.MetricValue, error) {
+func (p *Provider) getAzureMemoryMetrics(_ context.Context, clusterID string) (types.MetricValue, error) {
 	// In a real implementation, this would query Azure Monitor for memory usage
 
 	clusterName := extractClusterName(clusterID)
@@ -2524,7 +2543,7 @@ func (p *Provider) getAzureMemoryMetrics(ctx context.Context, clusterID string) 
 }
 
 // getAzureDiskMetrics gets disk metrics from Azure Monitor
-func (p *Provider) getAzureDiskMetrics(ctx context.Context, clusterID string) (types.MetricValue, error) {
+func (p *Provider) getAzureDiskMetrics(_ context.Context, clusterID string) (types.MetricValue, error) {
 	// In a real implementation, this would query Azure Storage metrics
 
 	clusterName := extractClusterName(clusterID)
@@ -2622,6 +2641,8 @@ func (p *Provider) GetCostBreakdown(ctx context.Context, clusterID string) (map[
 }
 
 // Helper functions
+//
+//nolint:unused // Reserved for Azure region abbreviations when needed.
 func (p *Provider) getLocationCode() string {
 	locationCodes := map[string]string{
 		"East US":        "eastus",
@@ -2709,6 +2730,8 @@ users:
 }
 
 // generateKubeconfigContent generates the kubeconfig YAML content by fetching it from the master node
+//
+//nolint:unused // Kubeconfig generation is planned for future Azure providers.
 func (p *Provider) generateKubeconfigContent(cluster *types.Cluster) (string, error) {
 	if cluster.Endpoint == "" {
 		return "", fmt.Errorf("cluster endpoint is not available")
@@ -2760,6 +2783,8 @@ func (p *Provider) generateKubeconfigContent(cluster *types.Cluster) (string, er
 }
 
 // fetchKubeconfigFromMaster fetches the admin kubeconfig from the master node
+//
+//nolint:unused // SSH-based kubeconfig retrieval will be enabled when clusters support it.
 func (p *Provider) fetchKubeconfigFromMaster(masterNode NodeInfo, clusterName string) (string, error) {
 	if masterNode.PublicIP == "" {
 		return "", fmt.Errorf("master node has no public IP for SSH access")
@@ -2794,6 +2819,8 @@ users:
 }
 
 // generateBasicKubeconfig generates a basic kubeconfig as fallback
+//
+//nolint:unused // Simplified kubeconfig flow not yet wired into CLI workflows.
 func (p *Provider) generateBasicKubeconfig(cluster *types.Cluster) (string, error) {
 	clusterName := extractClusterName(cluster.ID)
 
@@ -2830,7 +2857,7 @@ users:
 }
 
 // getClusterInfrastructure discovers and returns the current cluster infrastructure
-func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName string) (*ClusterInfrastructure, error) {
+func (p *Provider) getClusterInfrastructure(_ context.Context, clusterName string) (*ClusterInfrastructure, error) {
 	// This would typically query Azure Resource Manager to get the actual infrastructure
 	// For now, return a basic structure based on stored cluster information
 
@@ -2859,6 +2886,8 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 }
 
 // installCiliumCNI installs Cilium CNI on the cluster
+//
+//nolint:unused // Placeholder for future on-cluster networking automation.
 func (p *Provider) installCiliumCNI(ctx context.Context, masterNode NodeInfo) error {
 	log.Printf("Installing Cilium CNI on master %s", masterNode.VMName)
 
@@ -2873,6 +2902,8 @@ func (p *Provider) installCiliumCNI(ctx context.Context, masterNode NodeInfo) er
 }
 
 // installCNI installs the Container Network Interface
+//
+//nolint:unused // Placeholder for future on-cluster networking automation.
 func (p *Provider) installCNI(ctx context.Context, masterNode NodeInfo, cniType string) error {
 	switch cniType {
 	case "cilium":

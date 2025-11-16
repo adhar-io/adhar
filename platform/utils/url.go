@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -173,7 +174,7 @@ func (g *KustomizeRemote) parsePath(path string) error {
 	// example kubernetes-sigs/kustomize//examples/multibases/dev/
 	index := strings.Index(path, RepoUrlDelimiter)
 	if index == -1 {
-		return fmt.Errorf(errMsgUrlUnsupported)
+		return errors.New(errMsgUrlUnsupported)
 	}
 
 	g.RepoPath = strings.TrimPrefix(path[:index], "/")

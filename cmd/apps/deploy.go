@@ -243,7 +243,11 @@ func loadApplicationFromFile(path string) (*unstructured.Unstructured, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Warnf("failed to close application file %s: %v", path, err)
+		}
+	}()
 
 	decoder := yaml.NewDecoder(file)
 	for {

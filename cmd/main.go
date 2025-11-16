@@ -83,10 +83,8 @@ func main() {
 	ctx, cancel := context.WithCancelCause(context.Background())
 
 	go func() {
-		select {
-		case <-interrupted:
-			cancel(fmt.Errorf("command interrupted"))
-		}
+		<-interrupted
+		cancel(fmt.Errorf("command interrupted"))
 	}()
 
 	// Execute the root command

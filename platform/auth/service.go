@@ -103,9 +103,7 @@ func (s *Service) CreateUser(user *keycloak.User) error {
 	}
 
 	// Create Kubernetes ServiceAccount for the user
-	if err := s.createUserServiceAccount(createdUser); err != nil {
-		logger.Warnf("Failed to create Kubernetes ServiceAccount for user %s: %v", user.Username, err)
-	}
+	s.createUserServiceAccount(createdUser)
 
 	// Assign default role based on user attributes
 	if err := s.assignDefaultRole(createdUser); err != nil {
@@ -117,7 +115,7 @@ func (s *Service) CreateUser(user *keycloak.User) error {
 }
 
 // createUserServiceAccount creates a Kubernetes ServiceAccount for the user
-func (s *Service) createUserServiceAccount(user *keycloak.User) error {
+func (s *Service) createUserServiceAccount(user *keycloak.User) {
 	// This would create a ServiceAccount and link it to the user
 	// For now, we'll just log the intention
 	logger.Infof("Creating ServiceAccount for user: %s", user.Username)
@@ -126,8 +124,6 @@ func (s *Service) createUserServiceAccount(user *keycloak.User) error {
 	// - Create ServiceAccount in the default namespace
 	// - Create role binding to appropriate role
 	// - Link ServiceAccount to Keycloak user via annotations
-
-	return nil
 }
 
 // assignDefaultRole assigns a default role to the user
@@ -250,9 +246,7 @@ func (s *Service) syncUserToKubernetes(user *keycloak.User) error {
 	logger.Infof("Syncing user %s to Kubernetes", user.Username)
 
 	// Create or update ServiceAccount
-	if err := s.createUserServiceAccount(user); err != nil {
-		return fmt.Errorf("failed to create ServiceAccount: %w", err)
-	}
+	s.createUserServiceAccount(user)
 
 	// Assign appropriate roles
 	if err := s.assignDefaultRole(user); err != nil {

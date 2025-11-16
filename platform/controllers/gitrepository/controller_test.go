@@ -107,7 +107,7 @@ func (f fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts ..
 }
 
 func setUpLocalRepo() (string, string, error) {
-	repoDir, err := os.MkdirTemp("", fmt.Sprintf("test"))
+	repoDir, err := os.MkdirTemp("", "test")
 	if err != nil {
 		return "", "", fmt.Errorf("creating temporary directory: %w", err)
 	}
@@ -120,25 +120,42 @@ func setUpLocalRepo() (string, string, error) {
 	// init it with a static file (in-memory), set default branch name, then get the hash
 	defaultBranchName := plumbing.ReferenceName(fmt.Sprintf("refs/heads/%s", DefaultBranchName))
 
-	repoConfig, _ := repo.Config()
+	repoConfig, err := repo.Config()
+	if err != nil {
+		return "", "", fmt.Errorf("get repo config: %w", err)
+	}
 	repoConfig.Init.DefaultBranch = DefaultBranchName
-	repo.SetConfig(repoConfig)
+	if err := repo.SetConfig(repoConfig); err != nil {
+		return "", "", fmt.Errorf("set repo config: %w", err)
+	}
 
 	h := plumbing.NewSymbolicReference(plumbing.HEAD, defaultBranchName)
-	repo.Storer.SetReference(h)
+	if err := repo.Storer.SetReference(h); err != nil {
+		return "", "", fmt.Errorf("set symbolic ref: %w", err)
+	}
 
 	fileObject := plumbing.MemoryObject{}
 	fileObject.SetType(plumbing.BlobObject)
-	w, _ := fileObject.Writer()
+	w, err := fileObject.Writer()
+	if err != nil {
+		return "", "", fmt.Errorf("create file writer: %w", err)
+	}
 
 	file, err := os.ReadFile("test/resources/file1")
 	if err != nil {
 		return "", "", fmt.Errorf("reading file from resources dir: %w", err)
 	}
-	w.Write(file)
-	w.Close()
+	if _, err := w.Write(file); err != nil {
+		return "", "", fmt.Errorf("write file contents: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return "", "", fmt.Errorf("close writer: %w", err)
+	}
 
-	fileHash, _ := repo.Storer.SetEncodedObject(&fileObject)
+	fileHash, err := repo.Storer.SetEncodedObject(&fileObject)
+	if err != nil {
+		return "", "", fmt.Errorf("store blob: %w", err)
+	}
 
 	treeEntry := object.TreeEntry{
 		Name: "file1",
@@ -151,9 +168,14 @@ func setUpLocalRepo() (string, string, error) {
 	}
 
 	treeObject := plumbing.MemoryObject{}
-	tree.Encode(&treeObject)
+	if err := tree.Encode(&treeObject); err != nil {
+		return "", "", fmt.Errorf("encode tree: %w", err)
+	}
 
-	initHash, _ := repo.Storer.SetEncodedObject(&treeObject)
+	initHash, err := repo.Storer.SetEncodedObject(&treeObject)
+	if err != nil {
+		return "", "", fmt.Errorf("store tree: %w", err)
+	}
 
 	commit := object.Commit{
 		Author: object.Signature{
@@ -166,17 +188,24 @@ func setUpLocalRepo() (string, string, error) {
 	}
 
 	commitObject := plumbing.MemoryObject{}
-	commit.Encode(&commitObject)
+	if err := commit.Encode(&commitObject); err != nil {
+		return "", "", fmt.Errorf("encode commit: %w", err)
+	}
 
-	commitHash, _ := repo.Storer.SetEncodedObject(&commitObject)
+	commitHash, err := repo.Storer.SetEncodedObject(&commitObject)
+	if err != nil {
+		return "", "", fmt.Errorf("store commit: %w", err)
+	}
 
-	repo.Storer.SetReference(plumbing.NewHashReference(defaultBranchName, commitHash))
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(defaultBranchName, commitHash)); err != nil {
+		return "", "", fmt.Errorf("set hash ref: %w", err)
+	}
 
 	return repoDir, commitHash.String(), nil
 }
 
 func setupDir() (string, error) {
-	tempDir, err := os.MkdirTemp("", fmt.Sprintf("test"))
+	tempDir, err := os.MkdirTemp("", "test")
 	if err != nil {
 		return "", fmt.Errorf("creating temporary directory: %w", err)
 	}
@@ -201,19 +230,28 @@ func setupDir() (string, error) {
 func TestGitRepositoryContentReconcile(t *testing.T) {
 	ctx := context.Background()
 	localRepoDir, _, err := setUpLocalRepo()
-	defer os.RemoveAll(localRepoDir)
+	defer func() {
+		_ = os.RemoveAll(localRepoDir)
+	}()
 	if err != nil {
 		t.Fatalf("failed setting up local git repo: %v", err)
 	}
 
 	srcDir, err := setupDir()
-	defer os.RemoveAll(srcDir)
+	defer func() {
+		_ = os.RemoveAll(srcDir)
+	}()
 	if err != nil {
 		t.Fatalf("failed to set up dirs: %v", err)
 	}
 
-	testCloneDir, _ := os.MkdirTemp("", "gitrepo-test")
-	defer os.RemoveAll(testCloneDir)
+	testCloneDir, err := os.MkdirTemp("", "gitrepo-test")
+	if err != nil {
+		t.Fatalf("failed to create clone dir: %v", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(testCloneDir)
+	}()
 
 	m := metav1.ObjectMeta{
 		Name:      "test",
@@ -280,13 +318,17 @@ func TestGitRepositoryContentReconcile(t *testing.T) {
 func TestGitRepositoryContentReconcileEmbedded(t *testing.T) {
 	ctx := context.Background()
 	localRepoDir, _, err := setUpLocalRepo()
-	defer os.RemoveAll(localRepoDir)
+	defer func() {
+		_ = os.RemoveAll(localRepoDir)
+	}()
 	if err != nil {
 		t.Fatalf("failed setting up local git repo: %v", err)
 	}
 
 	tmpDir, _ := os.MkdirTemp("", "add")
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	m := metav1.ObjectMeta{
 		Name:      "test",
@@ -319,7 +361,9 @@ func TestGitRepositoryContentReconcileEmbedded(t *testing.T) {
 
 func TestGitRepositoryReconcile(t *testing.T) {
 	localReoDir, hash, err := setUpLocalRepo()
-	defer os.RemoveAll(localReoDir)
+	defer func() {
+		_ = os.RemoveAll(localReoDir)
+	}()
 	if err != nil {
 		t.Fatalf("failed setting up local git repo: %v", err)
 	}
@@ -328,17 +372,23 @@ func TestGitRepositoryReconcile(t *testing.T) {
 		t.Fatalf("failed to get absolute path: %v", err)
 	}
 	updateDir, _, _ := setUpLocalRepo()
-	defer os.RemoveAll(updateDir)
+	defer func() {
+		_ = os.RemoveAll(updateDir)
+	}()
 
 	addDir, err := setupDir()
 	fmt.Println(addDir)
-	defer os.RemoveAll(addDir)
+	defer func() {
+		_ = os.RemoveAll(addDir)
+	}()
 	if err != nil {
 		t.Fatalf("failed to set up dirs: %v", err)
 	}
 
 	tmpDir, _ := os.MkdirTemp("", "gitrepo-test")
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	m := metav1.ObjectMeta{
 		Name:      "test",
@@ -430,7 +480,9 @@ func TestGitRepositoryReconcile(t *testing.T) {
 func TestGitRepositoryPostReconcile(t *testing.T) {
 	c := fakeClient{}
 	tmpDir, _ := os.MkdirTemp("", "repo-updates-test")
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 	reconciler := GitRepositoryReconciler{
 		Client:  &c,
 		TempDir: tmpDir,

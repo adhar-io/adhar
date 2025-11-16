@@ -142,8 +142,7 @@ func (m *Manager) installCertManager(ctx context.Context) error {
 		"--selector=app.kubernetes.io/instance=cert-manager",
 		"--timeout=300s")
 
-	output, err = cmd.CombinedOutput()
-	if err != nil {
+	if _, err = cmd.CombinedOutput(); err != nil {
 		fmt.Printf("⚠️  Warning: Timeout waiting for cert-manager: %v\n", err)
 	}
 
@@ -377,8 +376,7 @@ func (m *Manager) installNginxIngress(ctx context.Context, cluster *types.Cluste
 		"--selector=app.kubernetes.io/component=controller",
 		"--timeout=300s")
 
-	output, err = cmd.CombinedOutput()
-	if err != nil {
+	if _, err = cmd.CombinedOutput(); err != nil {
 		fmt.Printf("⚠️  Warning: Timeout waiting for NGINX ingress: %v\n", err)
 	}
 
@@ -481,8 +479,7 @@ data:
 
 	// Restart CoreDNS to pick up the new configuration
 	cmd = exec.CommandContext(ctx, "kubectl", "rollout", "restart", "deployment/coredns", "-n", "kube-system")
-	output, err = cmd.CombinedOutput()
-	if err != nil {
+	if _, err = cmd.CombinedOutput(); err != nil {
 		// Don't fail if restart fails, just warn
 		fmt.Printf("⚠️  Warning: Failed to restart CoreDNS: %v\n", err)
 	}

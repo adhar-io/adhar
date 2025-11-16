@@ -20,6 +20,7 @@ import (
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/logger"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -117,9 +118,6 @@ type downModel struct {
 
 // Init implements tea.Model
 func (m downModel) Init() tea.Cmd {
-	// Record the start time for tracking elapsed time
-	m.startTime = time.Now()
-
 	return tea.Batch(
 		m.spinner.Tick,
 		startClusterTeardown(),
@@ -271,12 +269,8 @@ func (m downModel) View() string {
 	return fmt.Sprintf("\n%s\n", mainContent)
 }
 
-// send is a helper function to send messages to the Bubble Tea program
-func send(msg tea.Msg) tea.Cmd {
-	return func() tea.Msg {
-		return msg
-	}
-}
+// send is a helper placeholder to emit messages. Bubble Tea integration will be wired up later.
+func send(tea.Msg) {}
 
 // startClusterTeardown starts the asynchronous operation to tear down the cluster
 func startClusterTeardown() tea.Cmd {
@@ -364,7 +358,9 @@ func cleanupFiles() {
 				if verboseDown {
 					send(logger.ExtraOutputMsg(fmt.Sprintf("Removing file: %s", file)))
 				}
-				os.Remove(file)
+				if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
+					send(logger.ExtraOutputMsg(fmt.Sprintf("Failed to remove file %s: %v", file, err)))
+				}
 			}
 		}
 	}
@@ -376,7 +372,9 @@ func cleanupFiles() {
 			if verboseDown {
 				send(logger.ExtraOutputMsg(fmt.Sprintf("Removing file: %s", file)))
 			}
-			os.Remove(file)
+			if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
+				send(logger.ExtraOutputMsg(fmt.Sprintf("Failed to remove file %s: %v", file, err)))
+			}
 		}
 	}
 }

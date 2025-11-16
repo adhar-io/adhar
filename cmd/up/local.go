@@ -141,7 +141,9 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		logger.Error("creating temp dir", err, map[string]interface{}{})
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		_ = os.RemoveAll(dir)
+	}()
 	logger.Info("Created temp directory for cloning repositories")
 
 	logger.Info("Setting up CoreDNS")
@@ -596,6 +598,7 @@ func (b *LocalProvisioner) RunControllers(ctx context.Context, mgr manager.Manag
 	return controllers.RunControllers(ctx, mgr, exitCh, b.options.CancelFunc, b.options.ExitOnSync, b.options.TemplateData, tmpDir)
 }
 
+//nolint:unused // Compatibility checks are part of planned UX improvements.
 func (b *LocalProvisioner) isCompatible(ctx context.Context, kubeClient client.Client) (bool, error) {
 	localBuild := v1alpha1.AdharPlatform{
 		ObjectMeta: metav1.ObjectMeta{
@@ -627,6 +630,7 @@ func (b *LocalProvisioner) isCompatible(ctx context.Context, kubeClient client.C
 		existing, given)
 }
 
+//nolint:unused // Helper retained for future configuration comparisons.
 func isBuildCustomizationSpecEqual(s1, s2 v1alpha1.BuildCustomizationSpec) bool {
 	// probably ok to use cmp.Equal but keeping it simple for now
 	return s1.Protocol == s2.Protocol &&

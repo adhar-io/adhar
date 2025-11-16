@@ -52,7 +52,9 @@ func TestWriteFS(t *testing.T) {
 			if err != nil {
 				t.Fatalf("creating tempdir: %v", err)
 			}
-			defer os.RemoveAll(workDir)
+			defer func() {
+				_ = os.RemoveAll(workDir)
+			}()
 
 			err = WriteFS(tc.srcFS, workDir)
 			if err != tc.expectErr {

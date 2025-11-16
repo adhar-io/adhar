@@ -45,8 +45,14 @@ func GetPlatformHAMode() bool {
 // ApplyPlatformStack applies the core platform components in the correct order with progress tracking
 func ApplyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
 	// Set environment variable to disable Kind provider progress display
-	os.Setenv("ADHAR_PLATFORM_SETUP", "true")
-	defer os.Unsetenv("ADHAR_PLATFORM_SETUP")
+	if err := os.Setenv("ADHAR_PLATFORM_SETUP", "true"); err != nil {
+		return fmt.Errorf("failed to set ADHAR_PLATFORM_SETUP: %w", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("ADHAR_PLATFORM_SETUP"); err != nil {
+			logger.Warnf("failed to unset ADHAR_PLATFORM_SETUP: %v", err)
+		}
+	}()
 
 	// Note: Kind provider progress is shown separately above
 	// This progress tracker shows platform-specific installation steps
@@ -180,40 +186,6 @@ func ApplyPlatformStack(envConfig *config.ResolvedEnvironmentConfig) error {
 	return nil
 }
 
-// applyManifests applies Kubernetes manifests from the specified path
-func applyManifests(path string) error {
-	logger.Infof("Applying manifests from: %s", path)
-
-	// Check if the path exists
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return fmt.Errorf("manifest path does not exist: %s", path)
-	}
-
-	// Apply all YAML files in the directory
-	files, err := filepath.Glob(filepath.Join(path, "*.yaml"))
-	if err != nil {
-		return fmt.Errorf("failed to glob manifest files: %w", err)
-	}
-
-	if len(files) == 0 {
-		logger.Warnf("No YAML files found in: %s", path)
-		return nil
-	}
-
-	for _, file := range files {
-		logger.Infof("Applying manifest: %s", file)
-		cmd := exec.Command("kubectl", "apply", "-f", file)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to apply manifest %s: %w", file, err)
-		}
-	}
-
-	return nil
-}
-
 // createNamespaces creates the required namespaces for the platform
 func createNamespaces() error {
 	logger.Info("Creating required namespaces")
@@ -237,66 +209,6 @@ func createNamespaces() error {
 		}
 	}
 
-	return nil
-}
-
-// applyPlatformManifest applies a specific platform component manifest
-// applyControlPlaneConfiguration installs the Adhar control-plane configuration package
-func applyControlPlaneConfiguration() error {
-	logger.Info("Installing Adhar control-plane configuration with multi-cloud providers")
-
-	// Wait for Crossplane to be ready first
-	if err := waitForCrossplaneReady(); err != nil {
-		return fmt.Errorf("Crossplane not ready: %w", err)
-	}
-
-	// Apply provider configurations
-	providerConfigPath := "platform/controlplane/configuration/providers"
-	if _, err := os.Stat(providerConfigPath); err == nil {
-		logger.Debug("Applying provider configurations...")
-		if err := applyManifests(providerConfigPath); err != nil {
-			logger.Warnf("Failed to apply provider configurations: %v", err)
-		}
-	}
-
-	// Apply XRDs (Composite Resource Definitions)
-	xrdPath := "platform/controlplane/configuration/xrd"
-	if _, err := os.Stat(xrdPath); err == nil {
-		logger.Debug("Applying Composite Resource Definitions...")
-		if err := applyManifests(xrdPath); err != nil {
-			return fmt.Errorf("failed to apply XRDs: %w", err)
-		}
-	}
-
-	// Apply compositions
-	compositionsPath := "platform/controlplane/configuration/compositions"
-	if _, err := os.Stat(compositionsPath); err == nil {
-		logger.Debug("Applying Crossplane compositions...")
-		if err := applyManifests(compositionsPath); err != nil {
-			return fmt.Errorf("failed to apply compositions: %w", err)
-		}
-	}
-
-	logger.Info("✅ Control-plane configuration installed successfully!")
-	return nil
-}
-
-// waitForCrossplaneReady waits for Crossplane to be ready before applying configurations
-func waitForCrossplaneReady() error {
-	logger.Debug("Waiting for Crossplane to be ready...")
-
-	// Wait for crossplane deployment to be ready
-	cmd := exec.Command("kubectl", "wait", "--for=condition=available", "--timeout=300s",
-		"deployment/crossplane", "-n", "adhar-system")
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Crossplane deployment not ready: %w", err)
-	}
-
-	// Give it a few more seconds for CRDs to be registered
-	time.Sleep(10 * time.Second)
-
-	logger.Debug("Crossplane is ready")
 	return nil
 }
 
@@ -341,69 +253,7 @@ func applyPlatformManifest(component string) error {
 	}
 
 	// Wait for the component to be ready
-	if err := waitForComponentReady(component); err != nil {
-		logger.Warnf("Component %s may not be fully ready: %v", component, err)
-	}
-
-	return nil
-}
-
-// applyIngressManifests applies ingress resources for platform components
-func applyIngressManifests() error {
-	logger.Info("Installing ingress resources for platform components")
-
-	ingressPath := "platform/controllers/adharplatform/resources/ingress"
-
-	// Check if the ingress path exists
-	if _, err := os.Stat(ingressPath); os.IsNotExist(err) {
-		return fmt.Errorf("ingress manifest path does not exist: %s", ingressPath)
-	}
-
-	// Apply all ingress manifests
-	files, err := filepath.Glob(filepath.Join(ingressPath, "*.yaml"))
-	if err != nil {
-		return fmt.Errorf("failed to glob ingress manifest files: %w", err)
-	}
-
-	for _, file := range files {
-		logger.Infof("Applying ingress manifest: %s", file)
-		cmd := exec.Command("kubectl", "apply", "-f", file)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to apply ingress manifest %s: %w", file, err)
-		}
-	}
-
-	return nil
-}
-
-// labelCoreSecrets adds Adhar labels to core secrets for CLI discovery
-func labelCoreSecrets() error {
-	logger.Info("Adding Adhar labels to core secrets")
-
-	// Label ArgoCD admin secret
-	cmd := exec.Command("kubectl", "label", "secret", "argocd-initial-admin-secret",
-		"app.kubernetes.io/part-of=adhar", "app.kubernetes.io/component=argocd",
-		"--namespace=adhar-system", "--overwrite")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		logger.Warnf("Failed to label ArgoCD secret (may not exist yet): %v", err)
-	}
-
-	// Label Gitea admin secret
-	cmd = exec.Command("kubectl", "label", "secret", "gitea-admin-secret",
-		"app.kubernetes.io/part-of=adhar", "app.kubernetes.io/component=gitea",
-		"--namespace=adhar-system", "--overwrite")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		logger.Warnf("Failed to label Gitea secret (may not exist yet): %v", err)
-	}
+	waitForComponentReady(component)
 
 	return nil
 }
@@ -436,28 +286,6 @@ func waitForArgoCD() error {
 	return nil
 }
 
-// applyPlatformApplicationSets applies platform ApplicationSets for ArgoCD management
-func applyPlatformApplicationSets() error {
-	logger.Info("Applying platform ApplicationSets for ArgoCD management")
-
-	// Apply the local ApplicationSet
-	appsetFile := "platform/stack/adhar-appset-local.yaml"
-
-	if _, err := os.Stat(appsetFile); os.IsNotExist(err) {
-		return fmt.Errorf("ApplicationSet file does not exist: %s", appsetFile)
-	}
-
-	cmd := exec.Command("kubectl", "apply", "-f", appsetFile)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to apply ApplicationSet: %w", err)
-	}
-
-	return nil
-}
-
 // applyPlatformApplicationSetsWithGitOps applies platform ApplicationSets with GitOps and adhar:// references
 func applyPlatformApplicationSetsWithGitOps() error {
 	logger.Info("Applying platform ApplicationSets with GitOps and adhar:// references")
@@ -485,49 +313,12 @@ func applyPlatformApplicationSetsWithGitOps() error {
 	return nil
 }
 
-// setupGitOpsRepositories creates and populates GitOps repositories in Gitea
-func setupGitOpsRepositories() error {
-	logger.Info("Setting up GitOps repositories in Gitea")
-
-	// Wait for Gitea to be ready
-	if err := waitForGiteaReady(); err != nil {
-		return fmt.Errorf("Gitea not ready: %w", err)
-	}
-
-	// Create environments repository
-	if err := createGiteaRepository("environments"); err != nil {
-		return fmt.Errorf("failed to create environments repository: %w", err)
-	}
-
-	// Create packages repository
-	if err := createGiteaRepository("packages"); err != nil {
-		return fmt.Errorf("failed to create packages repository: %w", err)
-	}
-
-	// Populate repositories with content
-	if err := populateRepositories(); err != nil {
-		return fmt.Errorf("failed to populate repositories: %w", err)
-	}
-
-	// Apply ArgoCD repository authentication so ArgoCD can access the repositories
-	logger.Info("Applying ArgoCD repository authentication")
-	if err := applyArgoCDRepoAuth(); err != nil {
-		logger.Warnf("Failed to apply ArgoCD repository authentication: %v", err)
-		// Non-fatal - ArgoCD might still be able to access repos
-	}
-
-	logger.Info("✅ GitOps repositories setup complete!")
-	return nil
-}
-
 // waitForComponentReady waits for a component to be ready
-func waitForComponentReady(component string) error {
+func waitForComponentReady(component string) {
 	logger.Infof("Waiting for %s to be ready", component)
 
 	// Simple wait - in production this would be more sophisticated
 	time.Sleep(10 * time.Second)
-
-	return nil
 }
 
 // waitForGiteaReady waits for Gitea to be ready with comprehensive checks
@@ -665,42 +456,15 @@ func createGiteaRepository(name string) error {
 	return fmt.Errorf("failed to create repository %s after %d attempts", name, maxRetries)
 }
 
-// populateRepositories populates the GitOps repositories with content
-func populateRepositories() error {
-	logger.Info("Populating GitOps repositories with content")
-
-	// Get Gitea pod name
-	cmd := exec.Command("kubectl", "get", "pods", "-n", "adhar-system",
-		"-l", "app=gitea", "-o", "jsonpath={.items[0].metadata.name}")
-	output, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to get Gitea pod name: %w", err)
-	}
-
-	podName := strings.TrimSpace(string(output))
-	logger.Infof("Using Gitea pod: %s", podName)
-
-	// Populate packages repository
-	if err := populatePackagesRepository(podName); err != nil {
-		return fmt.Errorf("failed to populate packages repository: %w", err)
-	}
-
-	// Populate environments repository
-	if err := populateEnvironmentsRepository(podName); err != nil {
-		return fmt.Errorf("failed to populate environments repository: %w", err)
-	}
-
-	logger.Info("Successfully populated all GitOps repositories")
-	return nil
-}
-
 // populatePackagesRepository populates the packages repository with platform stack content
 func populatePackagesRepository(podName string) error {
 	logger.Info("Populating packages repository with platform stack content")
 
 	// Clean up any existing working directory
 	cleanupCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/packages-working")
-	cleanupCmd.Run()
+	if err := cleanupCmd.Run(); err != nil {
+		logger.Debugf("failed to remove existing packages working dir: %v", err)
+	}
 
 	// Wait a moment for cleanup
 	time.Sleep(2 * time.Second)
@@ -726,7 +490,9 @@ func populatePackagesRepository(podName string) error {
 	// Remove all existing content (excluding .git)
 	logger.Info("Cleaning existing content")
 	removeCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "sh", "-c", "cd /tmp/packages-working && find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +")
-	removeCmd.Run()
+	if err := removeCmd.Run(); err != nil {
+		logger.Debugf("failed to clean packages directory contents: %v", err)
+	}
 
 	// Copy the packages content
 	logger.Info("Copying platform/stack/packages content to repository")
@@ -767,7 +533,9 @@ func populatePackagesRepository(podName string) error {
 
 	// Add remote origin if it doesn't exist
 	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "remote", "add", "origin", "/data/git/gitea-repositories/gitea_admin/packages.git")
-	remoteCmd.Run() // Ignore error if remote already exists
+	if err := remoteCmd.Run(); err != nil {
+		logger.Debugf("unable to add packages remote (likely exists): %v", err)
+	}
 
 	// Push changes with force to ensure it works
 	logger.Info("Pushing changes to packages repository")
@@ -794,7 +562,9 @@ func populateEnvironmentsRepository(podName string) error {
 
 	// Clean up any existing working directory
 	cleanupCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/environments-working")
-	cleanupCmd.Run()
+	if err := cleanupCmd.Run(); err != nil {
+		logger.Debugf("failed to remove environments working dir: %v", err)
+	}
 
 	// Wait a moment for cleanup
 	time.Sleep(2 * time.Second)
@@ -820,7 +590,9 @@ func populateEnvironmentsRepository(podName string) error {
 	// Remove all existing content (excluding .git)
 	logger.Info("Cleaning existing content")
 	removeCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "sh", "-c", "cd /tmp/environments-working && find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +")
-	removeCmd.Run()
+	if err := removeCmd.Run(); err != nil {
+		logger.Debugf("failed to clean environments directory contents: %v", err)
+	}
 
 	// Copy the environments content
 	logger.Info("Copying platform/stack/environments content to repository")
@@ -861,7 +633,9 @@ func populateEnvironmentsRepository(podName string) error {
 
 	// Add remote origin if it doesn't exist
 	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "remote", "add", "origin", "/data/git/gitea-repositories/gitea_admin/environments.git")
-	remoteCmd.Run() // Ignore error if remote already exists
+	if err := remoteCmd.Run(); err != nil {
+		logger.Debugf("unable to add environments remote (likely exists): %v", err)
+	}
 
 	// Push changes with force to ensure it works
 	logger.Info("Pushing changes to environments repository")
@@ -1044,7 +818,9 @@ func populateBootstrapRepository(podName string) error {
 
 	// Clean up any existing working directory
 	cleanupCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/bootstrap-working")
-	cleanupCmd.Run()
+	if err := cleanupCmd.Run(); err != nil {
+		logger.Debugf("failed to remove bootstrap working dir: %v", err)
+	}
 	time.Sleep(2 * time.Second)
 
 	// Create and initialize working directory
@@ -1089,10 +865,14 @@ func populateBootstrapRepository(podName string) error {
 
 	// Configure git
 	configUserCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/bootstrap-working", "config", "user.name", "Adhar Platform")
-	configUserCmd.Run()
+	if err := configUserCmd.Run(); err != nil {
+		logger.Warnf("failed to configure bootstrap git user: %v", err)
+	}
 
 	configEmailCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/bootstrap-working", "config", "user.email", "admin@adhar.io")
-	configEmailCmd.Run()
+	if err := configEmailCmd.Run(); err != nil {
+		logger.Warnf("failed to configure bootstrap git email: %v", err)
+	}
 
 	// Add all files
 	addCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/bootstrap-working", "add", ".")
@@ -1114,7 +894,9 @@ func populateBootstrapRepository(podName string) error {
 
 	// Add remote and push
 	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/bootstrap-working", "remote", "add", "origin", "/data/git/gitea-repositories/gitea_admin/bootstrap.git")
-	remoteCmd.Run()
+	if err := remoteCmd.Run(); err != nil {
+		logger.Debugf("unable to add bootstrap remote (likely exists): %v", err)
+	}
 
 	logger.Info("Pushing bootstrap manifests to Git")
 	pushCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/bootstrap-working", "push", "-u", "origin", "main", "--force")
@@ -1173,7 +955,11 @@ spec:
 	if err := os.WriteFile(tmpFile, []byte(bootstrapApp), 0644); err != nil {
 		return fmt.Errorf("failed to write bootstrap application manifest: %w", err)
 	}
-	defer os.Remove(tmpFile)
+	defer func() {
+		if err := os.Remove(tmpFile); err != nil && !os.IsNotExist(err) {
+			logger.Warnf("failed to remove temporary bootstrap manifest %s: %v", tmpFile, err)
+		}
+	}()
 
 	cmd := exec.Command("kubectl", "apply", "-f", tmpFile)
 	output, err := cmd.CombinedOutput()

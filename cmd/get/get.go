@@ -51,7 +51,6 @@ var (
 	outputFormat  string
 	namespace     string
 	allNamespaces bool
-	verbose       bool
 )
 
 func init() {

@@ -157,7 +157,8 @@ func getSpecificProviderSecrets(clientset *kubernetes.Clientset, provider string
 	}
 
 	// Display secrets
-	return displaySecrets(matchingSecrets, provider)
+	displaySecrets(matchingSecrets, provider)
+	return nil
 }
 
 // getAllPlatformSecrets gets all platform secrets
@@ -196,7 +197,8 @@ func getAllPlatformSecrets(clientset *kubernetes.Clientset) error {
 	}
 
 	// Display secrets
-	return displaySecrets(platformSecrets, "all")
+	displaySecrets(platformSecrets, "all")
+	return nil
 }
 
 // isPlatformSecret checks if a secret is a platform secret
@@ -283,7 +285,7 @@ func createGiteaAdminSecret(clientset *kubernetes.Clientset) (*corev1.Secret, er
 }
 
 // displaySecrets displays secrets in a formatted table
-func displaySecrets(secrets []corev1.Secret, provider string) error {
+func displaySecrets(secrets []corev1.Secret, provider string) {
 	logger.Info(fmt.Sprintf("📋 Found %d secrets for %s", len(secrets), provider))
 
 	// Create bordered table content
@@ -349,8 +351,6 @@ func displaySecrets(secrets []corev1.Secret, provider string) error {
 	borderStyle := helpers.BorderStyle.Width(115)
 	borderedTable := borderStyle.Render(tableContent.String())
 	fmt.Println(borderedTable)
-
-	return nil
 }
 
 // SecretInfo contains extracted secret information

@@ -146,14 +146,18 @@ func writeRepoContents(repo *v1alpha1.GitRepository, dstPath string, config v1al
 }
 
 func getBasicAuth(creds gitProviderCredentials) (githttp.BasicAuth, error) {
-	b := githttp.BasicAuth{
+	password := creds.password
+	if password == "" {
+		password = creds.accessToken
+	}
+	if password == "" {
+		return githttp.BasicAuth{}, fmt.Errorf("missing git credentials for %s", creds.username)
+	}
+
+	return githttp.BasicAuth{
 		Username: creds.username,
-		Password: creds.password,
-	}
-	if creds.password == "" {
-		b.Password = creds.accessToken
-	}
-	return b, nil
+		Password: password,
+	}, nil
 }
 
 func NewGiteaClient(url string, options ...gitea.ClientOption) (GiteaClient, error) {

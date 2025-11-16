@@ -96,7 +96,7 @@ func getNextBackupTime(interval, scheduleTime string) string {
 	// 1. Parsing the schedule time
 	// 2. Calculating next occurrence based on interval
 	// 3. Considering timezone and daylight saving time
-	return "Tomorrow at " + scheduleTime
+	return fmt.Sprintf("Next %s run at %s", interval, scheduleTime)
 }
 
 var (

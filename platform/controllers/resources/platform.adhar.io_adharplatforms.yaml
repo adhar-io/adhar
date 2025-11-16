@@ -101,8 +101,6 @@ spec:
                           description: Name is the name of the package to be customized.
                             e.g. argocd
                           type: string
-                      required:
-                      - name
                       type: object
                     type: object
                 type: object

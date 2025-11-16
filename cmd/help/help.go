@@ -300,6 +300,8 @@ func showRelatedCommands(commandName string) {
 }
 
 // getCommandDescription returns a user-friendly description for a command
+//
+//nolint:unused // Reserved for future interactive help output
 func getCommandDescription(commandName string) string {
 	descriptions := map[string]string{
 		"up":       "Create and start the Adhar platform (local or cloud-based)",
