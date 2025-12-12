@@ -24,7 +24,6 @@ global:
 namespace: "adhar-system"
 
 ## @param replicaCount number of replicas for the deployment
-## For local development: single instance only
 replicaCount: 1
 
 ## @section strategy
@@ -93,7 +92,6 @@ containerSecurityContext: {}
 securityContext: {}
 
 ## @param podDisruptionBudget Pod disruption budget
-## LOCAL DEV: Disabled for single instance deployment
 podDisruptionBudget: {}
 #  maxUnavailable: 1
 #  minAvailable: 1
@@ -159,45 +157,40 @@ service:
 
 ## @section Ingress
 ## @param ingress.enabled Enable ingress
-## @param ingress.className Ingress class name
+## @param ingress.className DEPRECATED: Ingress class name.
+## @param ingress.pathType Ingress Path Type
 ## @param ingress.annotations Ingress annotations
 ## @param ingress.hosts[0].host Default Ingress host
 ## @param ingress.hosts[0].paths[0].path Default Ingress path
-## @param ingress.hosts[0].paths[0].pathType Ingress path type
 ## @param ingress.tls Ingress tls settings
-## @extra ingress.apiVersion Specify APIVersion of ingress object. Mostly would only be used for argocd.
 ingress:
   enabled: false
-  # className: nginx
-  className:
-  annotations:
-    {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
+  className: ""
+  pathType: Prefix
+  annotations: {}
   hosts:
     - host: git.example.com
       paths:
         - path: /
-          pathType: Prefix
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:
   #      - git.example.com
-  # Mostly for argocd or any other CI that uses `helm template | kubectl apply` or similar
-  # If helm doesn't correctly detect your ingress API version you can set it here.
-  # apiVersion: networking.k8s.io/v1
 
 ## @section deployment
 #
 ## @param resources Kubernetes resources
-## LOCAL DEV: Minimal resource allocation for development environments
-resources:
-  limits:
-    cpu: 200m
-    memory: 512Mi
-  requests:
-    cpu: 50m
-    memory: 128Mi
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
 
 ## Use an alternate scheduler, e.g. "stork".
 ## ref: https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/
@@ -228,8 +221,7 @@ priorityClassName: ""
 ## @param deployment.labels Labels for the deployment
 ## @param deployment.annotations Annotations for the Gitea deployment to be created
 deployment:
-  env:
-    []
+  env: []
     # - name: VARIABLE
     #   value: my-value
   terminationGracePeriodSeconds: 60
@@ -285,7 +277,19 @@ persistence:
 extraContainers: []
 #  - name: sidecar-bob
 #    image: busybox
-#    command: [/bin/sh, -c, 'echo "Hello world"; sleep 86400']
+#    command: [/bin/sh, -c, 'echo "Hello world"']
+
+## @param preExtraInitContainers Additional init containers to run in the pod before gitea runs it owns init containers.
+preExtraInitContainers: []
+# - name: pre-init-container
+#   image: docker.io/library/busybox
+#   command: [ /bin/sh, -c, 'echo "Hello world! I am a pre init container."' ]
+
+## @param postExtraInitContainers Additional init containers to run in the pod after gitea runs it owns init containers.
+postExtraInitContainers: []
+# - name: post-init-container
+#   image: docker.io/library/busybox
+#   command: [ /bin/sh, -c, 'echo "Hello world! I am a post init container."' ]
 
 ## @param extraVolumes Additional volumes to mount to the Gitea deployment
 extraVolumes: []
@@ -373,7 +377,6 @@ gitea:
   ## @param gitea.metrics.serviceMonitor.scrapeTimeout Timeout after which the scrape is ended. If not specified, global Prometheus scrape timeout is used.
   ## @param gitea.metrics.serviceMonitor.tlsConfig TLS configuration to use when scraping the metric endpoint by Prometheus.
   metrics:
-    ## LOCAL DEV: Metrics disabled to reduce resource usage
     enabled: false
     token:
     serviceMonitor:
@@ -387,8 +390,7 @@ gitea:
       tlsConfig: {}
 
   ## @param gitea.ldap LDAP configuration
-  ldap:
-    []
+  ldap: []
     # - name: "LDAP 1"
     #  existingSecret:
     #  securityProtocol:
@@ -405,8 +407,7 @@ gitea:
 
   # Either specify inline `key` and `secret` or refer to them via `existingSecret`
   ## @param gitea.oauth OAuth configuration
-  oauth:
-    []
+  oauth: []
     # - name: 'OAuth 1'
     #   provider:
     #   key:
@@ -458,12 +459,11 @@ gitea:
   ## @param gitea.livenessProbe.successThreshold Success threshold for liveness probe
   ## @param gitea.livenessProbe.failureThreshold Failure threshold for liveness probe
   # Modify the liveness probe for your needs or completely disable it by commenting out.
-  ## LOCAL DEV: Reduced delay for faster startup with SQLite
   livenessProbe:
     enabled: true
     tcpSocket:
       port: http
-    initialDelaySeconds: 30
+    initialDelaySeconds: 200
     timeoutSeconds: 1
     periodSeconds: 10
     successThreshold: 1
@@ -509,108 +509,161 @@ gitea:
     successThreshold: 1
     failureThreshold: 10
 
-## @section redis-cluster (used by Gitea chart)
-## LOCAL DEV: Disabled - using standalone valkey instead
-redis-cluster:
-  enabled: false
-
 ## @section valkey-cluster
-## @param valkey-cluster.enabled Enable valkey cluster
-# ⚠️ The valkey charts do not work well with special characters in the password (<https://gitea.com/gitea/helm-chart/issues/690>).
-# Consider omitting such or open an issue in the Bitnami repo and let us know once this got fixed.
-## @param valkey-cluster.usePassword Whether to use password authentication
-## @param valkey-cluster.usePasswordFiles Whether to mount passwords as files instead of environment variables
-## @param valkey-cluster.cluster.nodes Number of valkey cluster master nodes
-## @param valkey-cluster.cluster.replicas Number of valkey cluster master node replicas
-## @param valkey-cluster.service.ports.valkey Port of Valkey service
 ## @descriptionStart
 ## Valkey cluster and [Valkey](#valkey) cannot be enabled at the same time.
 ## @descriptionEnd
 valkey-cluster:
+  ## @param valkey-cluster.enabled Enable valkey cluster
+  # ⚠️ The valkey charts do not work well with special characters in the password (<https://gitea.com/gitea/helm-chart/issues/690>).
+  # Consider omitting such or open an issue in the Bitnami repo and let us know once this got fixed.
+  ## @param valkey-cluster.usePassword Whether to use password authentication.
+  ## @param valkey-cluster.usePasswordFiles Whether to mount passwords as files instead of environment variables.
   enabled: false
   usePassword: false
   usePasswordFiles: false
+
+  ## @param valkey-cluster.image.repository Image repository, eg. `bitnamilegacy/valkey-cluster`.
+  image:
+    repository: bitnamilegacy/valkey-cluster
+
+  ## @param valkey-cluster.cluster.nodes Number of valkey cluster master nodes
+  ## @param valkey-cluster.cluster.replicas Number of valkey cluster master node replicas
   cluster:
-    nodes: 1
-    replicas: 0
+    nodes: 3 # default: 6
+    replicas: 0 # default: 1
+
+  ## @param valkey-cluster.metrics.image.repository Image repository, eg. `bitnamilegacy/redis-exporter`.
+  metrics:
+    image:
+      repository: bitnamilegacy/redis-exporter
+
+  ## @param valkey-cluster.service.ports.valkey Port of Valkey service
   service:
     ports:
       valkey: 6379
 
+  ## @param valkey-cluster.sysctlImage.repository Image repository, eg. `bitnamilegacy/os-shell`.
+  sysctlImage:
+    repository: bitnamilegacy/os-shell
+
+  ## @param valkey-cluster.volumePermissions.image.repository Image repository, eg. `bitnamilegacy/os-shell`.
+  volumePermissions:
+    image:
+      repository: bitnamilegacy/os-shell
+
 ## @section valkey
-## @param valkey.enabled Enable valkey standalone or replicated
-## @param valkey.architecture Whether to use standalone or replication
-# ⚠️ The valkey charts do not work well with special characters in the password (<https://gitea.com/gitea/helm-chart/issues/690>).
-# Consider omitting such or open an issue in the Bitnami repo and let us know once this got fixed.
-## @param valkey.global.valkey.password Required password
-## @param valkey.master.count Number of Valkey master instances to deploy
-## @param valkey.master.service.ports.valkey Port of Valkey service
+
 ## @descriptionStart
 ## Valkey and [Valkey cluster](#valkey-cluster) cannot be enabled at the same time.
 ## @descriptionEnd
-## LOCAL DEV: Enabled standalone for caching (production-like but single instance)
 valkey:
+  ## @param valkey.enabled Enable valkey standalone or replicated
+  ## @param valkey.architecture Whether to use standalone or replication
   enabled: true
-  image:
-    registry: docker.io
-    repository: bitnami/valkey
-    tag: "latest"
   architecture: standalone
+
+  ## @param valkey.kubectl.image.repository Image repository, eg. `bitnamilegacy/kubectl`.
+  kubectl:
+    image:
+      repository: bitnamilegacy/kubectl
+
+  ## @param valkey.image.repository Image repository, eg. `bitnamilegacy/valkey`.
+  image:
+    repository: bitnamilegacy/valkey
+
+  # ⚠️ The valkey charts do not work well with special characters in the password (<https://gitea.com/gitea/helm-chart/issues/690>).
+  # Consider omitting such or open an issue in the Bitnami repo and let us know once this got fixed.
+  ## @param valkey.global.valkey.password Required password
   global:
     valkey:
       password: changeme
+
+  ## @param valkey.master.count Number of Valkey master instances to deploy
+  ## @param valkey.master.service.ports.valkey Port of Valkey service
   master:
     count: 1
     service:
       ports:
         valkey: 6379
 
+  ## @param valkey.metrics.image.repository Image repository, eg. `bitnamilegacy/redis-exporter`.
+  metrics:
+    image:
+      repository: bitnamilegacy/redis-exporter
+
+  ## @param valkey.sentinel.image.repository Image repository, eg. `bitnamilegacy/sentinel`.
+  sentinel:
+    image:
+      repository: bitnamilegacy/valkey-sentinel
+
+  ## @param valkey.volumePermissions.image.repository Image repository, eg. `bitnamilegacy/os-shell`.
+  volumePermissions:
+    image:
+      repository: bitnamilegacy/os-shell
+
 ## @section PostgreSQL HA
-#
-## @param postgresql-ha.enabled Enable PostgreSQL HA
-## @param postgresql-ha.postgresql.password Password for the `gitea` user (overrides `auth.password`)
-## @param postgresql-ha.global.postgresql.database Name for a custom database to create (overrides `auth.database`)
-## @param postgresql-ha.global.postgresql.username Name for a custom user to create (overrides `auth.username`)
-## @param postgresql-ha.global.postgresql.password Name for a custom password to create (overrides `auth.password`)
-## @param postgresql-ha.postgresql.repmgrPassword Repmgr Password
-## @param postgresql-ha.postgresql.postgresPassword postgres Password
-## @param postgresql-ha.pgpool.adminPassword pgpool adminPassword
-## @param postgresql-ha.service.ports.postgresql PostgreSQL service port (overrides `service.ports.postgresql`)
-## @param postgresql-ha.persistence.size PVC Storage Request for PostgreSQL HA volume
 postgresql-ha:
+  ## @param postgresql-ha.enabled Enable PostgreSQL HA
+  enabled: false
+
+  ## @param postgresql-ha.global.postgresql.database Name for a custom database to create (overrides `auth.database`)
+  ## @param postgresql-ha.global.postgresql.username Name for a custom user to create (overrides `auth.username`)
+  ## @param postgresql-ha.global.postgresql.password Name for a custom password to create (overrides `auth.password`)
   global:
     postgresql:
       database: gitea
       password: gitea
       username: gitea
-  enabled: false
+
+  ## @param postgresql-ha.metrics.image.repository Image repository, eg. `bitnamilegacy/postgres-exporter`.
+  metrics:
+    image:
+      repository: bitnamilegacy/postgres-exporter
+
+  ## @param postgresql-ha.postgresql.image.repository Image repository, eg. `bitnamilegacy/postgresql-repmgr`.
+  ## @param postgresql-ha.postgresql.repmgrPassword Repmgr Password
+  ## @param postgresql-ha.postgresql.postgresPassword postgres Password
+  ## @param postgresql-ha.postgresql.password Password for the `gitea` user (overrides `auth.password`)
   postgresql:
+    image:
+      repository: bitnamilegacy/postgresql-repmgr
     repmgrPassword: changeme2
     postgresPassword: changeme1
     password: changeme4
+
+  ## @param postgresql-ha.pgpool.adminPassword pgpool adminPassword
+  ## @param postgresql-ha.pgpool.image.repository Image repository, eg. `bitnamilegacy/pgpool`.
+  ## @param postgresql-ha.pgpool.srCheckPassword pgpool srCheckPassword
   pgpool:
     adminPassword: changeme3
+    image:
+      repository: bitnamilegacy/pgpool
+    srCheckPassword: changeme4
+
+  ## @param postgresql-ha.service.ports.postgresql PostgreSQL service port (overrides `service.ports.postgresql`)
   service:
     ports:
       postgresql: 5432
+
+  ## @param postgresql-ha.persistence.size PVC Storage Request for PostgreSQL HA volume
   persistence:
     size: 10Gi
 
+  ## @param postgresql-ha.volumePermissions.image.repository Image repository, eg. `bitnamilegacy/os-shell`.
+  volumePermissions:
+    image:
+      repository: bitnamilegacy/os-shell
+
 ## @section PostgreSQL
-#
-## @param postgresql.enabled Enable PostgreSQL
-## @param postgresql.global.postgresql.auth.password Password for the `gitea` user (overrides `auth.password`)
-## @param postgresql.global.postgresql.auth.database Name for a custom database to create (overrides `auth.database`)
-## @param postgresql.global.postgresql.auth.username Name for a custom user to create (overrides `auth.username`)
-## @param postgresql.global.postgresql.service.ports.postgresql PostgreSQL service port (overrides `service.ports.postgresql`)
-## @param postgresql.primary.persistence.size PVC Storage Request for PostgreSQL volume
-## LOCAL DEV: Enabled single instance (production-like but not HA)
 postgresql:
+  ## @param postgresql.enabled Enable PostgreSQL
   enabled: true
-  image:
-    registry: docker.io
-    repository: bitnami/postgresql
-    tag: "latest"
+
+  ## @param postgresql.global.postgresql.auth.password Password for the `gitea` user (overrides `auth.password`)
+  ## @param postgresql.global.postgresql.auth.database Name for a custom database to create (overrides `auth.database`)
+  ## @param postgresql.global.postgresql.auth.username Name for a custom user to create (overrides `auth.username`)
+  ## @param postgresql.global.postgresql.service.ports.postgresql PostgreSQL service port (overrides `service.ports.postgresql`)
   global:
     postgresql:
       auth:
@@ -620,10 +673,25 @@ postgresql:
       service:
         ports:
           postgresql: 5432
+
+  ## @param postgresql.image.repository Image repository, eg. `bitnamilegacy/postgresql`.
+  image:
+    repository: bitnamilegacy/postgresql
+
+  ## @param postgresql.primary.persistence.size PVC Storage Request for PostgreSQL volume
   primary:
     persistence:
-      ## LOCAL DEV: Smaller storage for development
-      size: 5Gi
+      size: 10Gi
+
+  ## @param postgresql.metrics.image.repository Image repository, eg. `bitnamilegacy/postgres-exporter`.
+  metrics:
+    image:
+      repository: bitnamilegacy/postgres-exporter
+
+  ## @param postgresql.volumePermissions.image.repository Image repository, eg. `bitnamilegacy/os-shell`.
+  volumePermissions:
+    image:
+      repository: bitnamilegacy/os-shell
 
 # By default, removed or moved settings that still remain in a user defined values.yaml will cause Helm to fail running the install/update.
 # Set it to false to skip this basic validation check.

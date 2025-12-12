@@ -3,7 +3,9 @@ package adharplatform
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
+	"io/fs"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,13 +38,18 @@ func (r *AdharPlatformReconciler) ReconcileCilium(ctx context.Context, req ctrl.
 	ciliumPostInstallPath := "resources/cilium/post-install.yaml"
 	postInstallBytes, err := ciliumFS.ReadFile(ciliumPostInstallPath)
 	if err != nil {
-		logger.Error(err, "Failed to read Cilium post-install manifest", "path", ciliumPostInstallPath)
-		return ctrl.Result{}, fmt.Errorf("reading cilium post-install manifest %s: %w", ciliumPostInstallPath, err)
-	}
-
-	if err := r.applyManifest(ctx, postInstallBytes, resource, "Cilium post-install"); err != nil {
-		logger.Error(err, "Failed to apply Cilium post-install manifest")
-		return ctrl.Result{}, err
+		// post-install is optional (may not exist in embedded resources)
+		if errors.Is(err, fs.ErrNotExist) {
+			logger.V(1).Info("Cilium post-install manifest not found, skipping", "path", ciliumPostInstallPath)
+		} else {
+			logger.Error(err, "Failed to read Cilium post-install manifest", "path", ciliumPostInstallPath)
+			return ctrl.Result{}, fmt.Errorf("reading cilium post-install manifest %s: %w", ciliumPostInstallPath, err)
+		}
+	} else {
+		if err := r.applyManifest(ctx, postInstallBytes, resource, "Cilium post-install"); err != nil {
+			logger.Error(err, "Failed to apply Cilium post-install manifest")
+			return ctrl.Result{}, err
+		}
 	}
 
 	logger.Info("Successfully reconciled Cilium core package")

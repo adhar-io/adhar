@@ -3,7 +3,9 @@ package adharplatform
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
+	"io/fs"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/platform/k8s"
@@ -50,13 +52,18 @@ func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.R
 	giteaPostInstallPath := "resources/gitea/post-install.yaml"
 	postInstallBytes, err := giteaFS.ReadFile(giteaPostInstallPath)
 	if err != nil {
-		logger.Error(err, "Failed to read Gitea post-install manifest", "path", giteaPostInstallPath)
-		return ctrl.Result{}, fmt.Errorf("reading gitea post-install manifest %s: %w", giteaPostInstallPath, err)
-	}
-
-	if err := r.applyManifest(ctx, postInstallBytes, resource, "Gitea post-install"); err != nil {
-		logger.Error(err, "Failed to apply Gitea post-install manifest")
-		return ctrl.Result{}, err
+		// post-install is optional (may not exist in embedded resources)
+		if errors.Is(err, fs.ErrNotExist) {
+			logger.V(1).Info("Gitea post-install manifest not found, skipping", "path", giteaPostInstallPath)
+		} else {
+			logger.Error(err, "Failed to read Gitea post-install manifest", "path", giteaPostInstallPath)
+			return ctrl.Result{}, fmt.Errorf("reading gitea post-install manifest %s: %w", giteaPostInstallPath, err)
+		}
+	} else {
+		if err := r.applyManifest(ctx, postInstallBytes, resource, "Gitea post-install"); err != nil {
+			logger.Error(err, "Failed to apply Gitea post-install manifest")
+			return ctrl.Result{}, err
+		}
 	}
 
 	resource.Status.Gitea.Available = true

@@ -100,10 +100,10 @@ This script runs kustomize to modify the basic installation manifests provided b
 Gitea manifests are generated using a bash script available [here](./hack/gitea/generate-manifests.sh).
 This script runs helm template to generate most files. See the values file for more information.
 
-#### Ingress-nginx
+#### Cilium Gateway API
 
-ingress-nginx manifests are generated using a bash script available [here](./hack/ingress-nginx/generate-manifests.sh).
-This script runs kustomize to modify the basic installation manifests provided by ingress-nginx.
+Cilium Gateway API is used for ingress traffic management. The manifests are generated using a bash script available [here](./hack/cilium/generate-manifests.sh).
+This script uses Helm to generate Cilium manifests including Gateway API CRDs. Gateway API replaces the traditional NGINX Ingress controller.
 
 ## Architecture
 

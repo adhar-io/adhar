@@ -19,6 +19,7 @@ package up
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -37,12 +38,16 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/log"
@@ -85,6 +90,32 @@ type LocalProvisioner struct {
 	options *LocalOptions
 }
 
+func isLocalPlatformReady(ctx context.Context, kubeClient client.Client) (bool, error) {
+	requiredDeployments := []types.NamespacedName{
+		{Name: "gitea", Namespace: globals.AdharSystemNamespace},
+		{Name: "argo-cd-argocd-server", Namespace: globals.AdharSystemNamespace},
+		{Name: "cilium-operator", Namespace: globals.AdharSystemNamespace},
+	}
+
+	for _, nn := range requiredDeployments {
+		var dep appsv1.Deployment
+		if err := kubeClient.Get(ctx, nn, &dep); err != nil {
+			return false, nil
+		}
+		if dep.Status.ReadyReplicas < 1 || dep.Status.AvailableReplicas < 1 {
+			return false, nil
+		}
+	}
+
+	// Gateway service presence is required for UI access.
+	var gwSvc corev1.Service
+	if err := kubeClient.Get(ctx, types.NamespacedName{Name: "cilium-gateway-adhar-gateway", Namespace: globals.AdharSystemNamespace}, &gwSvc); err != nil {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 // NewLocalProvisioner creates a new LocalProvisioner
 func NewLocalProvisioner(options *LocalOptions) *LocalProvisioner {
 	return &LocalProvisioner{options: options}
@@ -119,6 +150,8 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 
 	// Set up controller-runtime logger
 	ctrl.SetLogger(logr.Discard())
+	// Silence client-go reflector warnings during planned shutdown (ExitOnSync cancels context)
+	klog.SetOutput(io.Discard)
 
 	// Create controller manager with graceful shutdown timeout
 	mgr, err := manager.New(kubeConfig, manager.Options{
@@ -127,7 +160,10 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 			BindAddress: "0",
 		},
 		GracefulShutdownTimeout: func() *time.Duration {
-			d := 5 * time.Second
+			// ExitOnSync cancels the manager context once the platform is usable.
+			// Some caches/watches can take a bit longer than 5s to shut down cleanly,
+			// so keep this reasonably high and treat shutdown timeout as non-fatal.
+			d := 30 * time.Second
 			return &d
 		}(),
 	})
@@ -167,6 +203,10 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		return err
 	}
 
+	// Wait a moment for the controller manager to start and be ready
+	logger.Info("Waiting for controller manager to start")
+	time.Sleep(1 * time.Second)
+
 	localBuild := v1alpha1.AdharPlatform{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      lp.options.Name,
@@ -177,7 +217,7 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	cliStartTime := time.Now().Format(time.RFC3339Nano)
 
 	logger.Info("Creating adharplatform resource")
-	_, err = controllerutil.CreateOrUpdate(ctx, kubeClient, &localBuild, func() error {
+	created, err := controllerutil.CreateOrUpdate(ctx, kubeClient, &localBuild, func() error {
 		if localBuild.ObjectMeta.Annotations == nil {
 			localBuild.ObjectMeta.Annotations = map[string]string{}
 		}
@@ -203,22 +243,70 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		return fmt.Errorf("creating AdharPlatform resource: %w", err)
 	}
 
+	if created == controllerutil.OperationResultCreated {
+		logger.Info("AdharPlatform resource created - controller will reconcile automatically")
+	} else if created == controllerutil.OperationResultUpdated {
+		logger.Info("AdharPlatform resource updated - controller will reconcile automatically")
+	} else {
+		logger.Info("AdharPlatform resource unchanged")
+	}
+
+	// The controller will automatically reconcile when it sees the resource
+	// Wait a moment to ensure the controller manager has started and the watch is active
+	// This ensures the resource change is picked up and triggers reconciliation
+	logger.Info("Waiting for controller to start watching and trigger reconciliation")
+	time.Sleep(3 * time.Second)
+
 	// GitOps repositories will be set up by the AdharPlatform controller
 
-	select {
-	case mgrErr := <-managerExit:
-		if mgrErr != nil {
-			return mgrErr
+	// Wait for the controller manager to either exit (error) or cancel the context (ExitOnSync).
+	// IMPORTANT: never block indefinitely waiting for manager shutdown; it can hang on cache shutdown
+	// depending on cluster conditions. `adhar up` should complete once the controller signals done.
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	shutdownTimeout := 20 * time.Second
+
+	for {
+		select {
+		case mgrErr := <-managerExit:
+			// If we cancelled the context intentionally (ExitOnSync), manager shutdown errors are non-fatal.
+			// controller-runtime may return "failed waiting for all runnables to end within grace period"
+			// if shutdown exceeds GracefulShutdownTimeout.
+			if ctx.Err() != nil && lp.options.ExitOnSync {
+				return nil
+			}
+			if mgrErr != nil && mgrErr != context.Canceled {
+				return mgrErr
+			}
+			return nil
+		case <-ctx.Done():
+			// Context was cancelled - this is expected when ExitOnSync is enabled.
+			// Give the manager a bounded window to exit cleanly, then return success.
+			select {
+			case mgrErr := <-managerExit:
+				if lp.options.ExitOnSync {
+					// Non-fatal in ExitOnSync mode (see comment above).
+					return nil
+				}
+				if mgrErr != nil && mgrErr != context.Canceled {
+					return mgrErr
+				}
+				return nil
+			case <-time.After(shutdownTimeout):
+				logger.Info("Controller shutdown timed out (non-fatal) - exiting CLI")
+				return nil
+			}
+		case <-ticker.C:
+			logger.Info("Waiting for platform controller to finish initial sync...")
+			// Root fix: don't rely solely on controller calling ctxCancel (it can fail to do so if reconcile stalls).
+			// If core services + gateway are ready, we can exit successfully.
+			ready, _ := isLocalPlatformReady(ctx, kubeClient)
+			if ready {
+				logger.Info("Platform is ready (detected by CLI); exiting")
+				lp.options.CancelFunc()
+			}
 		}
-	case <-ctx.Done():
-		// Context was cancelled - wait for manager to finish cleanly
-		logger.Info("Context cancelled - waiting for controller manager to finish")
-		if mgrErr := <-managerExit; mgrErr != nil && mgrErr != context.Canceled {
-			return mgrErr
-		}
-		return nil
 	}
-	return nil
 }
 
 // runPreFlightChecks validates system requirements
@@ -289,7 +377,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		ExtraPackages:             extraPackages,
 		RegistryConfig:            maybeRegistryConfig,
 		PackageCustomizationFiles: packageCustomizationFiles,
-		NoExit:                    exitOnSync,
+		NoExit:                    noExit,
 		Protocol:                  protocol,
 		Host:                      host,
 		IngressHost:               ingressHost,
@@ -403,8 +491,8 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 	fmt.Printf("\nCore Services:\n")
 	fmt.Printf("  ArgoCD:      true\n")
 	fmt.Printf("  Gitea:       true\n")
-	fmt.Printf("  Nginx:       true\n")
 	fmt.Printf("  Cilium:      true\n")
+	fmt.Printf("  Gateway API: true\n")
 
 	if len(envConfig.ResolvedClusterConfig) > 0 {
 		fmt.Printf("\nKind Cluster Configuration:\n")
@@ -451,9 +539,9 @@ func printSuccessMsg() {
 	fmt.Printf("Your Adhar platform includes:\n")
 	fmt.Printf("  ✅ Kind Kubernetes cluster\n")
 	fmt.Printf("  ✅ Cilium CNI for secure networking\n")
+	fmt.Printf("  ✅ Cilium Gateway API for traffic routing\n")
 	fmt.Printf("  ✅ ArgoCD for GitOps deployments\n")
 	fmt.Printf("  ✅ Gitea for Git repository hosting\n")
-	fmt.Printf("  ✅ Ingress-Nginx for traffic routing\n")
 	fmt.Printf("  ✅ Platform observability stack\n\n")
 	fmt.Printf("%s\n", helpers.BoldStyle.Render("Quick Access:"))
 	fmt.Printf("ArgoCD Dashboard: %s\n", argoURL)
@@ -533,7 +621,7 @@ func getPackageCustomFile(input string) (v1alpha1.PackageCustomization, error) {
 		return v1alpha1.PackageCustomization{}, err
 	}
 
-	corePkgs := map[string]struct{}{v1alpha1.ArgoCDPackageName: {}, v1alpha1.GiteaPackageName: {}, v1alpha1.IngressNginxPackageName: {}}
+	corePkgs := map[string]struct{}{v1alpha1.ArgoCDPackageName: {}, v1alpha1.GiteaPackageName: {}, v1alpha1.CiliumPackageName: {}}
 	name := s[0]
 	_, ok := corePkgs[name]
 	if !ok {
@@ -598,7 +686,7 @@ func (b *LocalProvisioner) RunControllers(ctx context.Context, mgr manager.Manag
 	return controllers.RunControllers(ctx, mgr, exitCh, b.options.CancelFunc, b.options.ExitOnSync, b.options.TemplateData, tmpDir)
 }
 
-//nolint:unused // Compatibility checks are part of planned UX improvements.
+//lint:ignore U1000 Compatibility checks are part of planned UX improvements.
 func (b *LocalProvisioner) isCompatible(ctx context.Context, kubeClient client.Client) (bool, error) {
 	localBuild := v1alpha1.AdharPlatform{
 		ObjectMeta: metav1.ObjectMeta{
@@ -630,7 +718,7 @@ func (b *LocalProvisioner) isCompatible(ctx context.Context, kubeClient client.C
 		existing, given)
 }
 
-//nolint:unused // Helper retained for future configuration comparisons.
+//lint:ignore U1000 Helper retained for future configuration comparisons.
 func isBuildCustomizationSpecEqual(s1, s2 v1alpha1.BuildCustomizationSpec) bool {
 	// probably ok to use cmp.Equal but keeping it simple for now
 	return s1.Protocol == s2.Protocol &&

@@ -671,7 +671,7 @@ func (p *Provider) installCilium(ctx context.Context, clusterName string) error 
 
 	// Wait for Cilium to be ready (with timeout)
 	cmd = exec.CommandContext(ctx, "cilium", "status", "--wait", "--wait-duration=300s")
-	output, err = cmd.CombinedOutput()
+	_, err = cmd.CombinedOutput()
 	if err != nil {
 		// Don't fail if status check fails, just warn
 		fmt.Printf("⚠️  Could not verify Cilium status, but continuing: %v\n", err)
@@ -685,10 +685,11 @@ func (p *Provider) installCiliumWithKubectl(ctx context.Context, clusterName str
 	// Install Cilium using the manifests from our platform stack
 	// This will include kube-proxy replacement configuration from our stack
 	ciliumManifestPath := "platform/stack/platform/cilium"
+	var output []byte
 
 	// Apply Cilium manifests from our platform stack which includes kube-proxy replacement
 	cmd := exec.CommandContext(ctx, p.config.KubectlPath, "apply", "-f", ciliumManifestPath)
-	output, err := cmd.CombinedOutput()
+	_, err := cmd.CombinedOutput()
 	if err != nil {
 		// Fallback to external Cilium YAML if local manifests fail
 		ciliumURL := "https://raw.githubusercontent.com/cilium/cilium/v1.16.0/install/kubernetes/quick-install.yaml"
@@ -759,7 +760,7 @@ func generateKindConfig(spec *types.ClusterSpec) map[string]interface{} {
 		}
 		if i == 0 {
 			// First control plane node gets extra port mappings
-			// Map host ports 80/443 to nginx NodePorts 30080/30443
+			// Map host ports 80/443 directly to the Kind node ports (Cilium Gateway in hostNetwork mode listens on 80/443)
 			httpPort := 80
 			httpsPort := 443
 
@@ -773,12 +774,12 @@ func generateKindConfig(spec *types.ClusterSpec) map[string]interface{} {
 
 			node["extraPortMappings"] = []map[string]interface{}{
 				{
-					"containerPort": 30080, // nginx NodePort for HTTP
+					"containerPort": 80,
 					"hostPort":      httpPort,
 					"protocol":      "TCP",
 				},
 				{
-					"containerPort": 30443, // nginx NodePort for HTTPS
+					"containerPort": 443,
 					"hostPort":      httpsPort,
 					"protocol":      "TCP",
 				},

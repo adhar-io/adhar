@@ -97,6 +97,8 @@ type subReconciler func(ctx context.Context, req ctrl.Request, resource *v1alpha
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses;gateways;httproutes;grpcroutes;referencegrants,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -109,7 +111,7 @@ type subReconciler func(ctx context.Context, req ctrl.Request, resource *v1alpha
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
 func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling AdharPlatform", "resource", req.NamespacedName)
+	logger.Info("🔵 Reconcile called", "resource", req.NamespacedName)
 
 	var localBuild v1alpha1.AdharPlatform
 	if err := r.Get(ctx, req.NamespacedName, &localBuild); err != nil {
@@ -124,12 +126,47 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	logger.Info("🔵 Step 1: Reconciling project namespace")
 	_, err := r.ReconcileProjectNamespace(ctx, req, &localBuild)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
+	// Ensure Gateway API CRDs exist before installing any core packages.
+	// Some core packages (e.g. Cilium/ArgoCD) may ship Gateway API resources (GatewayClass/HTTPRoute).
+	logger.Info("🔵 Step 2: Ensuring Gateway API CRDs are installed")
+	if err := r.installGatewayAPICRDs(ctx); err != nil {
+		logger.Error(err, "failed installing Gateway API CRDs")
+		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+	}
+	logger.Info("✅ Gateway API CRDs installed successfully")
+
+	// Install core packages synchronously to ensure they complete
+	logger.Info("🔵 Step 3: Installing core packages")
+	err = r.installCorePackagesSync(ctx, req, &localBuild)
+	if err != nil {
+		logger.Error(err, "failed installing core packages")
+		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+	}
+	logger.Info("✅ Core packages installed successfully")
+
+	// Install Gateway API resources after Cilium is installed
+	// Gateway depends on Cilium being installed first
+	logger.Info("🔵 Step 4: Installing Gateway API resources")
+	result, err := r.ReconcileGateway(ctx, req, &localBuild)
+	if err != nil {
+		logger.Error(err, "failed installing Gateway API resources")
+		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+	}
+	// If Gateway reconciliation requested a requeue, honor it
+	if result.RequeueAfter > 0 || result.Requeue {
+		logger.Info("Gateway reconciliation requested requeue", "requeueAfter", result.RequeueAfter)
+		return result, nil
+	}
+	logger.Info("✅ Gateway API resources installed successfully")
+
 	// If ExitOnSync is enabled, check if platform is already deployed
+	// This check happens AFTER Gateway reconciliation to ensure Gateway is also deployed
 	if r.ExitOnSync {
 		logger.Info("ExitOnSync enabled - checking if platform is already deployed")
 		if r.isPlatformAlreadyDeployed(ctx) {
@@ -137,14 +174,6 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			r.shouldShutdown = true
 			return ctrl.Result{}, nil
 		}
-	}
-
-	// Install core packages synchronously to ensure they complete
-	logger.Info("Installing core packages")
-	err = r.installCorePackagesSync(ctx, req, &localBuild)
-	if err != nil {
-		logger.Error(err, "failed installing core packages")
-		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 	}
 
 	// Apply platform stack ApplicationSet after core packages are installed
@@ -216,22 +245,26 @@ func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, r
 	logger := log.FromContext(ctx)
 
 	installers := map[string]subReconciler{
-		v1alpha1.IngressNginxPackageName: r.ReconcileNginx, // Added back ReconcileNginx
-		v1alpha1.ArgoCDPackageName:       r.ReconcileArgo,
-		v1alpha1.CiliumPackageName:       r.ReconcileCilium,
-		v1alpha1.GiteaPackageName:        r.ReconcileGitea,
+		v1alpha1.ArgoCDPackageName: r.ReconcileArgo,
+		v1alpha1.CiliumPackageName: r.ReconcileCilium,
+		v1alpha1.GiteaPackageName:  r.ReconcileGitea,
 	}
 	logger.Info("installing core packages synchronously")
 
 	var errors []error
 	for name, installer := range installers {
-		logger.V(1).Info("installing core package", "name", name)
-		_, err := installer(ctx, req, resource)
+		logger.Info("🔵 Installing core package", "name", name)
+		startTime := time.Now()
+		result, err := installer(ctx, req, resource)
+		duration := time.Since(startTime)
 		if err != nil {
-			logger.V(1).Info("failed installing", "name", name, "error", err)
+			logger.Error(err, "❌ Failed installing core package", "name", name, "duration", duration)
 			errors = append(errors, fmt.Errorf("failed installing %s: %w", name, err))
 		} else {
-			logger.V(1).Info("successfully installed", "name", name)
+			logger.Info("✅ Successfully installed core package", "name", name, "duration", duration)
+			if result.RequeueAfter > 0 || result.Requeue {
+				logger.Info("Package requested requeue", "name", name, "requeueAfter", result.RequeueAfter)
+			}
 		}
 	}
 
@@ -294,7 +327,7 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 
 	// Wait for Gitea to be ready
 	if err := r.waitForGiteaReady(ctx); err != nil {
-		return fmt.Errorf("Gitea not ready: %w", err)
+		return fmt.Errorf("gitea not ready: %w", err)
 	}
 
 	// Create environments repository
@@ -358,7 +391,7 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 		}
 
 		if i == maxAttempts-1 {
-			return fmt.Errorf("Gitea deployment not ready after 10 minutes")
+			return fmt.Errorf("gitea deployment not ready after 10 minutes")
 		}
 
 		if i%6 == 0 { // Log every minute
@@ -401,7 +434,7 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 		}
 
 		if i == 29 {
-			return fmt.Errorf("Gitea pods not running after 5 minutes")
+			return fmt.Errorf("gitea pods not running after 5 minutes")
 		}
 
 		logger.V(1).Info("Gitea pods not ready yet, waiting...", "attempt", i+1)
@@ -716,14 +749,14 @@ func (r *AdharPlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *AdharPlatformReconciler) isPlatformAlreadyDeployed(ctx context.Context) bool {
 	logger := log.FromContext(ctx)
 
-	// Check for core deployments: ArgoCD, Gitea, Nginx
+	// Check for core deployments: ArgoCD, Gitea, Cilium Operator (Gateway API)
 	coreDeployments := []struct {
 		name      string
 		namespace string
 	}{
 		{"gitea", globals.AdharSystemNamespace},
-		{"argocd-server", globals.AdharSystemNamespace},
-		{"ingress-nginx-controller", globals.AdharSystemNamespace},
+		{"argo-cd-argocd-server", globals.AdharSystemNamespace},
+		{"cilium-operator", globals.AdharSystemNamespace},
 	}
 
 	for _, dep := range coreDeployments {
@@ -756,12 +789,18 @@ func (r *AdharPlatformReconciler) isPlatformAlreadyDeployed(ctx context.Context)
 		Namespace: globals.AdharSystemNamespace,
 	})
 
-	if err != nil || len(appSetList.Items) == 0 {
-		logger.Info("ApplicationSet not found or error listing", "error", err)
-		return false
+	if err != nil {
+		logger.V(1).Info("Error listing ApplicationSets (non-critical)", "error", err)
+		// Don't fail if we can't list ApplicationSets - they may be created later
 	}
 
-	logger.Info("Platform appears to be fully deployed", "applicationSets", len(appSetList.Items))
+	if len(appSetList.Items) > 0 {
+		logger.Info("ApplicationSets found", "count", len(appSetList.Items))
+	} else {
+		logger.V(1).Info("No ApplicationSets found yet (may be created later by ArgoCD)")
+	}
+
+	logger.Info("Platform core services are fully deployed", "deployments", len(coreDeployments), "applicationSets", len(appSetList.Items))
 	return true
 }
 
@@ -778,17 +817,28 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 		return false, err
 	}
 
+	// NOTE: ExitOnSync is used by `adhar up` to exit once the local platform is usable.
+	// GitOps repository bootstrap (Gitea.RepositoriesCreated) can take longer or be retried; we should not
+	// block CLI exit on it, otherwise `adhar up` can appear stuck forever.
 	if !resource.Status.Gitea.RepositoriesCreated {
-		logger.Info("GitOps repositories still being prepared, not shutting down yet")
-		return false, nil
+		logger.V(1).Info("GitOps repositories still being prepared (non-blocking for ExitOnSync)")
 	}
 
+	// Require core services to be available.
 	if !r.isPlatformAlreadyDeployed(ctx) {
 		logger.Info("Core platform services are not fully available yet, waiting...")
 		return false, nil
 	}
 
-	logger.Info("All GitOps readiness checks passed, should shutdown")
+	// Require the gateway Service to exist so UIs are reachable.
+	var gwSvc corev1.Service
+	gwSvcName := "cilium-gateway-adhar-gateway"
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: gwSvcName, Namespace: globals.AdharSystemNamespace}, &gwSvc); err != nil {
+		logger.Info("Gateway Service not ready yet, waiting...", "service", gwSvcName, "error", err.Error())
+		return false, nil
+	}
+
+	logger.Info("All ExitOnSync readiness checks passed, should shutdown")
 	return true, nil
 }
 
@@ -1029,8 +1079,6 @@ func GetEmbeddedRawInstallResources(name string, templateData any, config v1alph
 		return RawArgocdInstallResources(templateData, config, scheme)
 	case v1alpha1.GiteaPackageName:
 		return RawGiteaInstallResources(templateData, config, scheme)
-	case v1alpha1.IngressNginxPackageName:
-		return RawNginxInstallResources(templateData, config, scheme)
 	case v1alpha1.CiliumPackageName:
 		return RawCiliumInstallResources(templateData, config, scheme)
 	default:

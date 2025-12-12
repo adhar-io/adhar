@@ -770,7 +770,7 @@ func printProductionSuccessMsg(envName string) {
 	fmt.Printf("Environment: %s\n", envName)
 	fmt.Printf("Cluster has been provisioned with:\n")
 	fmt.Printf("  ✓ Cilium CNI with production-ready configuration\n")
-	fmt.Printf("  ✓ Core platform services (ArgoCD, Gitea, Nginx)\n")
+	fmt.Printf("  ✓ Core platform services (ArgoCD, Gitea, Cilium Gateway API)\n")
 	fmt.Printf("  ✓ Security policies and monitoring\n")
 	fmt.Printf("  ✓ Auto-scaling and high availability\n\n")
 	fmt.Printf("Next steps:\n")
@@ -851,10 +851,10 @@ func showDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 
 	if envConfig.ResolvedCoreServices != nil {
 		fmt.Printf("\nCore Services:\n")
-		fmt.Printf("  ArgoCD:    %v\n", envConfig.ResolvedCoreServices.ArgoCD != nil)
-		fmt.Printf("  Gitea:     %v\n", envConfig.ResolvedCoreServices.Gitea != nil)
-		fmt.Printf("  Nginx:     %v\n", envConfig.ResolvedCoreServices.Nginx != nil)
-		fmt.Printf("  Cilium:    %v\n", envConfig.ResolvedCoreServices.Cilium != nil)
+		fmt.Printf("  ArgoCD:     %v\n", envConfig.ResolvedCoreServices.ArgoCD != nil)
+		fmt.Printf("  Gitea:      %v\n", envConfig.ResolvedCoreServices.Gitea != nil)
+		fmt.Printf("  Cilium:     %v\n", envConfig.ResolvedCoreServices.Cilium != nil)
+		fmt.Printf("  Gateway API: %v\n", envConfig.ResolvedCoreServices.Cilium != nil)
 	}
 
 	if len(envConfig.ResolvedAddons) > 0 {

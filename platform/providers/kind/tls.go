@@ -223,5 +223,14 @@ func SetupSelfSignedCertificate(ctx context.Context, kubeclient client.Client, c
 	if err != nil {
 		return nil, err
 	}
+
+	// Cilium Gateway API / Envoy SDS may request TLS secrets using a prefixed name
+	// in the configured secrets namespace: "<namespace>-<secretName>".
+	// For local Kind, ensure this alias exists so HTTPS works reliably.
+	aliasName := fmt.Sprintf("%s-%s", globals.AdharSystemNamespace, globals.SelfSignedCertSecretName)
+	logger.Info(fmt.Sprintf("Creating secret alias for Gateway TLS (SDS compatibility): %s", aliasName))
+	if err := createCertificateAndKeySecret(ctx, kubeclient, aliasName, globals.AdharSystemNamespace, cert, privateKey); err != nil {
+		return nil, err
+	}
 	return cert, nil
 }

@@ -3,7 +3,9 @@ package adharplatform
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
+	"io/fs"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/platform/k8s"
@@ -59,15 +61,20 @@ func (r *AdharPlatformReconciler) ReconcileArgo(ctx context.Context, req ctrl.Re
 	argocdPostInstallPath := "resources/argocd/post-install.yaml"
 	postInstallBytes, err := argoCDFS.ReadFile(argocdPostInstallPath)
 	if err != nil {
-		logger.Error(err, "Failed to read ArgoCD post-install manifest", "path", argocdPostInstallPath)
-		return ctrl.Result{}, fmt.Errorf("reading argocd post-install manifest %s: %w", argocdPostInstallPath, err)
+		// post-install is optional (may not exist in embedded resources)
+		if errors.Is(err, fs.ErrNotExist) {
+			logger.V(1).Info("ArgoCD post-install manifest not found, skipping", "path", argocdPostInstallPath)
+		} else {
+			logger.Error(err, "Failed to read ArgoCD post-install manifest", "path", argocdPostInstallPath)
+			return ctrl.Result{}, fmt.Errorf("reading argocd post-install manifest %s: %w", argocdPostInstallPath, err)
+		}
+	} else {
+		if err := r.applyManifest(ctx, postInstallBytes, resource, "ArgoCD post-install"); err != nil {
+			logger.Error(err, "Failed to apply ArgoCD post-install manifest")
+			return ctrl.Result{}, err
+		}
+		logger.Info("Successfully applied ArgoCD post-install manifest")
 	}
-
-	if err := r.applyManifest(ctx, postInstallBytes, resource, "ArgoCD post-install"); err != nil {
-		logger.Error(err, "Failed to apply ArgoCD post-install manifest")
-		return ctrl.Result{}, err
-	}
-	logger.Info("Successfully applied ArgoCD post-install manifest")
 
 	resource.Status.ArgoCD.Available = true
 	logger.Info("ArgoCD reconciliation completed successfully")

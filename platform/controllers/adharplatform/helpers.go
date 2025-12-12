@@ -17,6 +17,18 @@ import (
 	"adhar-io/adhar/api/v1alpha1"
 )
 
+// resetRESTMapper clears the cached discovery data so newly created CRDs become available immediately.
+func (r *AdharPlatformReconciler) resetRESTMapper(ctx context.Context, reason string) {
+	logger := log.FromContext(ctx)
+
+	if resettable, ok := r.RESTMapper().(meta.ResettableRESTMapper); ok {
+		resettable.Reset()
+		logger.V(1).Info("Reset RESTMapper cache", "reason", reason)
+	} else {
+		logger.V(1).Info("RESTMapper is not resettable; skipping cache reset", "reason", reason)
+	}
+}
+
 // applyManifest applies a YAML manifest to the cluster
 func (r *AdharPlatformReconciler) applyManifest(ctx context.Context, manifestBytes []byte, resource *v1alpha1.AdharPlatform, manifestName string) error {
 	logger := log.FromContext(ctx)
@@ -43,6 +55,11 @@ func (r *AdharPlatformReconciler) applyManifest(ctx context.Context, manifestByt
 		// Determine if the resource is cluster-scoped
 		groupVersionKind := obj.GroupVersionKind()
 		mapping, err := r.RESTMapper().RESTMapping(groupVersionKind.GroupKind(), groupVersionKind.Version)
+		if err != nil {
+			logger.V(1).Info("RESTMapper miss for resource, resetting cache", "gvk", groupVersionKind, "error", err)
+			r.resetRESTMapper(ctx, fmt.Sprintf("refresh mapping for %s", groupVersionKind.String()))
+			mapping, err = r.RESTMapper().RESTMapping(groupVersionKind.GroupKind(), groupVersionKind.Version)
+		}
 		isClusterScoped := false
 		if err == nil {
 			isClusterScoped = mapping.Scope.Name() == meta.RESTScopeNameRoot
@@ -87,8 +104,14 @@ func (r *AdharPlatformReconciler) applyManifest(ctx context.Context, manifestByt
 		}
 
 		logger.V(1).Info("Applying resource", "kind", groupVersionKind.Kind, "name", obj.GetName(), "namespace", obj.GetNamespace(), "manifest", manifestName)
-		if err := r.Patch(ctx, obj, client.Apply, client.FieldOwner(v1alpha1.FieldManager), client.ForceOwnership); err != nil {
-			applyErrors = append(applyErrors, fmt.Errorf("applying %s %s in namespace %s: %w", groupVersionKind.Kind, obj.GetName(), obj.GetNamespace(), err))
+		applyErr := r.Patch(ctx, obj, client.Apply, client.FieldOwner(v1alpha1.FieldManager), client.ForceOwnership)
+		if applyErr != nil && meta.IsNoMatchError(applyErr) {
+			logger.V(1).Info("Retrying apply after RESTMapper reset", "kind", groupVersionKind.Kind, "name", obj.GetName())
+			r.resetRESTMapper(ctx, fmt.Sprintf("retry apply for %s", groupVersionKind.String()))
+			applyErr = r.Patch(ctx, obj, client.Apply, client.FieldOwner(v1alpha1.FieldManager), client.ForceOwnership)
+		}
+		if applyErr != nil {
+			applyErrors = append(applyErrors, fmt.Errorf("applying %s %s in namespace %s: %w", groupVersionKind.Kind, obj.GetName(), obj.GetNamespace(), applyErr))
 		}
 	}
 

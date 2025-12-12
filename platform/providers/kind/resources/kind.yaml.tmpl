@@ -6,11 +6,11 @@ nodes:
   labels:
     ingress-ready: "true"
   extraPortMappings:
-  # Map host ports to nginx NodePorts for direct access without port forwarding
-  - containerPort: 30080  # nginx NodePort for HTTP
+  # Map host ports directly to the Kind node ports (Cilium Gateway in hostNetwork mode listens on 80/443)
+  - containerPort: 80
     hostPort: {{ .HTTPPort | default 80 }}
     protocol: TCP
-  - containerPort: 30443  # nginx NodePort for HTTPS  
+  - containerPort: 443
     hostPort: {{ .HTTPSPort | default 443 }}
     protocol: TCP
   - containerPort: 32222
