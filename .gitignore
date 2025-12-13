@@ -43,3 +43,4 @@ platform.log
 adhar
 adhar_debug.log
 .devbox/
+platform/controlplane/adhar-control-plane-v0.3.8.xpkg

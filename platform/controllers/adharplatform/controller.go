@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,17 +165,6 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return result, nil
 	}
 	logger.Info("✅ Gateway API resources installed successfully")
-
-	// If ExitOnSync is enabled, check if platform is already deployed
-	// This check happens AFTER Gateway reconciliation to ensure Gateway is also deployed
-	if r.ExitOnSync {
-		logger.Info("ExitOnSync enabled - checking if platform is already deployed")
-		if r.isPlatformAlreadyDeployed(ctx) {
-			logger.Info("✅ Platform is already fully deployed - marking for immediate shutdown")
-			r.shouldShutdown = true
-			return ctrl.Result{}, nil
-		}
-	}
 
 	// Apply platform stack ApplicationSet after core packages are installed
 	logger.Info("Applying platform stack ApplicationSet")
@@ -525,6 +515,9 @@ func (r *AdharPlatformReconciler) populatePackagesRepository(ctx context.Context
 	logger := log.FromContext(ctx)
 	logger.Info("Populating packages repository with platform stack content")
 
+	adminPassword := url.QueryEscape("r8sA8CPHD9!bt6d")
+	repoURL := fmt.Sprintf("http://gitea_admin:%s@localhost:3000/gitea_admin/packages.git", adminPassword)
+
 	// Clean up any existing working directory
 	cleanupCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/packages-working")
 	if err := cleanupCmd.Run(); err != nil {
@@ -533,7 +526,7 @@ func (r *AdharPlatformReconciler) populatePackagesRepository(ctx context.Context
 
 	// Clone the existing repository
 	cloneCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "clone",
-		"/data/git/gitea-repositories/gitea_admin/packages.git", "/tmp/packages-working")
+		repoURL, "/tmp/packages-working")
 	if err := cloneCmd.Run(); err != nil {
 		logger.Info("Failed to clone packages repository (may not exist yet)", "error", err)
 		// Create the directory if it doesn't exist
@@ -554,9 +547,15 @@ func (r *AdharPlatformReconciler) populatePackagesRepository(ctx context.Context
 		logger.V(1).Info("failed to remove existing packages content", "error", err)
 	}
 
-	// Copy the packages content
+	// Ensure the repo tracks a main branch so ArgoCD targetRevision=main works out of the box
+	switchToMainCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "checkout", "-B", "main")
+	if err := switchToMainCmd.Run(); err != nil {
+		logger.V(1).Info("failed to switch packages repo to main branch", "error", err)
+	}
+
+	// Copy the packages content (strip the top-level 'packages' folder so ArgoCD paths match)
 	logger.Info("Copying packages content to working directory")
-	copyCmd := exec.Command("kubectl", "cp", "platform/stack/packages", fmt.Sprintf("adhar-system/%s:/tmp/packages-working/", podName))
+	copyCmd := exec.Command("kubectl", "cp", "platform/stack/packages/.", fmt.Sprintf("adhar-system/%s:/tmp/packages-working/", podName))
 	if err := copyCmd.Run(); err != nil {
 		return fmt.Errorf("failed to copy packages content: %w", err)
 	}
@@ -586,19 +585,19 @@ func (r *AdharPlatformReconciler) populatePackagesRepository(ctx context.Context
 	}
 
 	// Add remote origin if it doesn't exist
-	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "remote", "add", "origin", "/data/git/gitea-repositories/gitea_admin/packages.git")
+	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "remote", "set-url", "origin", repoURL)
 	if err := remoteCmd.Run(); err != nil {
-		logger.V(1).Info("failed to add packages remote", "error", err)
+		logger.V(1).Info("failed to update packages remote (will try add)", "error", err)
+		addRemoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "remote", "add", "origin", repoURL)
+		if addErr := addRemoteCmd.Run(); addErr != nil {
+			logger.V(1).Info("failed to add packages remote", "error", addErr)
+		}
 	}
 
 	// Push changes
 	pushCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "push", "-u", "origin", "main")
 	if err := pushCmd.Run(); err != nil {
-		// Try pushing to master if main doesn't work
-		pushMasterCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/packages-working", "push", "-u", "origin", "master")
-		if err := pushMasterCmd.Run(); err != nil {
-			return fmt.Errorf("failed to push to packages repository: %w", err)
-		}
+		return fmt.Errorf("failed to push packages repository main branch: %w", err)
 	}
 
 	logger.Info("✅ Packages repository populated successfully!")
@@ -610,6 +609,9 @@ func (r *AdharPlatformReconciler) populateEnvironmentsRepository(ctx context.Con
 	logger := log.FromContext(ctx)
 	logger.Info("Populating environments repository with environment configurations")
 
+	adminPassword := url.QueryEscape("r8sA8CPHD9!bt6d")
+	repoURL := fmt.Sprintf("http://gitea_admin:%s@localhost:3000/gitea_admin/environments.git", adminPassword)
+
 	// Clean up any existing working directory
 	cleanupCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/environments-working")
 	if err := cleanupCmd.Run(); err != nil {
@@ -618,7 +620,7 @@ func (r *AdharPlatformReconciler) populateEnvironmentsRepository(ctx context.Con
 
 	// Clone the existing repository
 	cloneCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "clone",
-		"/data/git/gitea-repositories/gitea_admin/environments.git", "/tmp/environments-working")
+		repoURL, "/tmp/environments-working")
 	if err := cloneCmd.Run(); err != nil {
 		logger.Info("Failed to clone environments repository (may not exist yet)", "error", err)
 		// Create the directory if it doesn't exist
@@ -637,6 +639,12 @@ func (r *AdharPlatformReconciler) populateEnvironmentsRepository(ctx context.Con
 	removeCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "rm", "-rf", "/tmp/environments-working/*")
 	if err := removeCmd.Run(); err != nil {
 		logger.V(1).Info("failed to remove existing environments content", "error", err)
+	}
+
+	// Ensure the repo tracks a main branch so ArgoCD targetRevision=main works out of the box
+	switchToMainCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "checkout", "-B", "main")
+	if err := switchToMainCmd.Run(); err != nil {
+		logger.V(1).Info("failed to switch environments repo to main branch", "error", err)
 	}
 
 	// Copy the environments content
@@ -671,19 +679,19 @@ func (r *AdharPlatformReconciler) populateEnvironmentsRepository(ctx context.Con
 	}
 
 	// Add remote origin if it doesn't exist
-	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "remote", "add", "origin", "/data/git/gitea-repositories/gitea_admin/environments.git")
+	remoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "remote", "set-url", "origin", repoURL)
 	if err := remoteCmd.Run(); err != nil {
-		logger.V(1).Info("failed to add environments remote", "error", err)
+		logger.V(1).Info("failed to update environments remote (will try add)", "error", err)
+		addRemoteCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "remote", "add", "origin", repoURL)
+		if addErr := addRemoteCmd.Run(); addErr != nil {
+			logger.V(1).Info("failed to add environments remote", "error", addErr)
+		}
 	}
 
 	// Push changes
 	pushCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "push", "-u", "origin", "main")
 	if err := pushCmd.Run(); err != nil {
-		// Try pushing to master if main doesn't work
-		pushMasterCmd := exec.Command("kubectl", "exec", "-n", "adhar-system", podName, "--", "git", "-C", "/tmp/environments-working", "push", "-u", "origin", "master")
-		if err := pushMasterCmd.Run(); err != nil {
-			return fmt.Errorf("failed to push to environments repository: %w", err)
-		}
+		return fmt.Errorf("failed to push environments repository main branch: %w", err)
 	}
 
 	logger.Info("✅ Environments repository populated successfully!")
@@ -817,11 +825,10 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 		return false, err
 	}
 
-	// NOTE: ExitOnSync is used by `adhar up` to exit once the local platform is usable.
-	// GitOps repository bootstrap (Gitea.RepositoriesCreated) can take longer or be retried; we should not
-	// block CLI exit on it, otherwise `adhar up` can appear stuck forever.
+	// Do not exit until GitOps repositories are bootstrapped so ArgoCD can sync from Gitea.
 	if !resource.Status.Gitea.RepositoriesCreated {
-		logger.V(1).Info("GitOps repositories still being prepared (non-blocking for ExitOnSync)")
+		logger.Info("GitOps repositories not created yet, waiting before shutdown")
+		return false, nil
 	}
 
 	// Require core services to be available.

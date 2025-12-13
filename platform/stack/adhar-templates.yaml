@@ -14,8 +14,8 @@ spec:
     directory:
       exclude: catalog-info.yaml
     path: application/adhar-templates
-    repoURL: http://gitea-http-clusterip.adhar-system.svc.cluster.local:3000/gitea_admin/packages
-    targetRevision: HEAD
+    repoURL: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+    targetRevision: main
   syncPolicy:
     automated:
       selfHeal: true

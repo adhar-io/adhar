@@ -171,7 +171,7 @@ spec:
       project: default
       sources:
         - path: "{{ .manifestPath }}"
-          repoURL: http://gitea-http-clusterip.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+          repoURL: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages
           targetRevision: main
           ref: gitea-repo-secret
       syncPolicy:

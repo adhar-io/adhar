@@ -113,7 +113,13 @@ func isLocalPlatformReady(ctx context.Context, kubeClient client.Client) (bool, 
 		return false, nil
 	}
 
-	return true, nil
+	// Ensure GitOps bootstrap finished so ArgoCD can sync from Gitea
+	var platform v1alpha1.AdharPlatform
+	if err := kubeClient.Get(ctx, types.NamespacedName{Name: globals.DefaultClusterName, Namespace: globals.AdharSystemNamespace}, &platform); err != nil {
+		return false, nil
+	}
+
+	return platform.Status.Gitea.RepositoriesCreated, nil
 }
 
 // NewLocalProvisioner creates a new LocalProvisioner
@@ -152,6 +158,8 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	ctrl.SetLogger(logr.Discard())
 	// Silence client-go reflector warnings during planned shutdown (ExitOnSync cancels context)
 	klog.SetOutput(io.Discard)
+	klog.SetLogger(logr.Discard())
+	klog.LogToStderr(false)
 
 	// Create controller manager with graceful shutdown timeout
 	mgr, err := manager.New(kubeConfig, manager.Options{
