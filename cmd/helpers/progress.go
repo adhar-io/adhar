@@ -458,13 +458,13 @@ func (p *ProgressTracker) renderSingleLine() {
 		return
 	}
 
-	// Only render header once to prevent duplicates
+	// Print header only once; we never clear it
 	if !p.headerRendered {
 		fmt.Printf("🚀 %s\n", HeaderStyle.Render(p.Title))
 		p.headerRendered = true
 	}
 
-	// Clear previous lines if we have printed before
+	// Clear only the body we printed previously
 	if p.linesPrinted > 0 {
 		p.clearLines(p.linesPrinted)
 	}

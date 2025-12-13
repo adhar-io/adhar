@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 
 	"adhar-io/adhar/platform/utils"
@@ -194,9 +195,11 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 		return err
 	}
 
-	fmt.Print("########################### Adhar Kind Config ############################\n")
-	fmt.Printf("%s", rawConfig)
-	fmt.Print("\n#########################   config end    ############################\n")
+	if os.Getenv("ADHAR_DEBUG_KIND_CONFIG") == "true" {
+		fmt.Print("########################### Adhar Kind Config ############################\n")
+		fmt.Printf("%s", rawConfig)
+		fmt.Print("\n#########################   config end    ############################\n")
+	}
 
 	setupLog.Info("Creating kind cluster", "cluster", c.name)
 
