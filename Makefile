@@ -76,15 +76,14 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
 .PHONY: e2e
-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+# KIND_CLUSTER_NAME lets you use a non-default cluster (adhar up creates "adhar").
+KIND_CLUSTER_NAME ?= adhar
+e2e: manifests generate fmt vet ## Run the e2e tests. They build and run ./adhar up internally.
 	@command -v $(KIND) >/dev/null 2>&1 || { \
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
-	@$(KIND) get clusters | grep -q 'kind' || { \
-		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
-		exit 1; \
-	}
+	go build $(LD_FLAGS) -o ./adhar ./cmd
 	go test -v -p 1 -timeout 15m --tags=e2e ./tests/e2e/...
 
 .PHONY: lint

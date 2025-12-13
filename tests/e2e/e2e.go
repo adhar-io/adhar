@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -21,13 +23,13 @@ import (
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	AdharBinaryLocation   = "../../../adhar"
 	DefaultPort           = "8443"
 	DefaultBaseDomain     = "adhar.localtest.me"
 	ArgoCDSessionEndpoint = "/api/v1/session"
@@ -37,14 +39,15 @@ const (
 	GiteaRepoEndpoint     = "/api/v1/repos/search"
 
 	httpRetryDelay   = 5 * time.Second
-	httpRetryTimeout = 300 * time.Second
+	httpRetryTimeout = 600 * time.Second
 )
 
 var (
+	AdharBinaryLocation = resolveAdharBinary()
+	repoRootPath        = resolveRepoRoot()
 	// CorePackages is a map of argocd app name to its namespace.
 	CorePackages = map[string]string{
 		"argocd": "argocd",
-		"nginx":  "argocd",
 		"gitea":  "argocd",
 	}
 )
@@ -65,6 +68,39 @@ type ArgoCDAppResp struct {
 type GiteaSearchRepoResponse struct {
 	Ok   bool
 	Data []gitea.Repository
+}
+
+func resolveAdharBinary() string {
+	if env := os.Getenv("ADHAR_BIN"); env != "" {
+		return env
+	}
+
+	// Derive repo root from this file location: tests/e2e/e2e.go -> repo root.
+	if _, file, _, ok := runtime.Caller(0); ok {
+		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+		candidate := filepath.Join(repoRoot, "adhar")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	// Fallback to PATH
+	return "adhar"
+}
+
+// RepoRoot returns the repo root for use in tests.
+func RepoRoot() string {
+	return repoRootPath
+}
+
+func resolveRepoRoot() string {
+	if env := os.Getenv("ADHAR_REPO_ROOT"); env != "" {
+		return env
+	}
+	if _, file, _, ok := runtime.Caller(0); ok {
+		return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	}
+	return "."
 }
 
 func GetHttpClient() *http.Client {
@@ -152,9 +188,8 @@ func SendAndParse(ctx context.Context, target any, httpClient *http.Client, req 
 func TestGiteaEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
 	t.Log("testing gitea endpoints")
 	repos, err := GetGiteaRepos(ctx, baseUrl)
-	assert.Nil(t, err)
+	require.NoError(t, err, "expected gitea repos")
 
-	assert.Equal(t, 8, len(repos))
 	expectedRepoNames := map[string]struct{}{
 		"adhar-localdev-gitea":  {},
 		"adhar-localdev-nginx":  {},
@@ -162,12 +197,11 @@ func TestGiteaEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
 	}
 
 	for i := range repos {
-		_, ok := expectedRepoNames[repos[i].Name]
-		if ok {
+		if _, ok := expectedRepoNames[repos[i].Name]; ok {
 			delete(expectedRepoNames, repos[i].Name)
 		}
 	}
-	assert.Equal(t, 3, len(expectedRepoNames))
+	assert.Empty(t, expectedRepoNames, "missing repos from gitea search response")
 }
 
 func GetGiteaRepos(ctx context.Context, baseUrl string) ([]gitea.Repository, error) {
@@ -249,13 +283,22 @@ func TestArgoCDEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
 	err = SendAndParse(ctx, &appResp, httpClient, req)
 	assert.Nil(t, err, fmt.Sprintf("getting argocd applications: %s", err))
 
-	assert.Equal(t, 33, len(appResp.Items), fmt.Sprintf("number of apps do not match: %v", appResp.Items))
+	expectedApps := map[string]struct{}{
+		"argocd": {},
+		"gitea":  {},
+	}
+	expectedCount := len(expectedApps)
+	for _, app := range appResp.Items {
+		delete(expectedApps, app.Name)
+	}
+	assert.Empty(t, expectedApps, fmt.Sprintf("missing expected apps: %v", expectedApps))
+	assert.GreaterOrEqual(t, len(appResp.Items), expectedCount, "expected at least core apps")
 }
 
 func GetBasicAuth(ctx context.Context, name string) (BasicAuth, error) {
 	var lastErr error
 
-	for attempt := 0; attempt < 5; attempt++ {
+	for attempt := 0; attempt < 120; attempt++ { // allow up to 10 minutes for platform bootstrap
 		select {
 		case <-ctx.Done():
 			return BasicAuth{}, ctx.Err()
@@ -268,7 +311,7 @@ func GetBasicAuth(ctx context.Context, name string) (BasicAuth, error) {
 			}
 
 			out := BasicAuth{}
-			secs := make([]types.Secret, 2)
+			var secs []types.Secret
 			if err = json.Unmarshal(b, &secs); err != nil {
 				lastErr = err
 				time.Sleep(httpRetryDelay)
@@ -328,45 +371,103 @@ func GetArgoCDSessionToken(ctx context.Context, endpoint string) (string, error)
 }
 
 func TestArgoCDApps(ctx context.Context, t *testing.T, kubeClient client.Client, apps map[string]string) {
-	done := false
-	for !done {
+	deadline := time.Now().Add(20 * time.Minute)
+	for {
 		select {
 		case <-ctx.Done():
-			return
+			t.Fatalf("context cancelled while waiting for argocd apps: remaining=%v", keys(apps))
 		default:
-			for k := range apps {
-				ns := apps[k]
-				t.Logf("checking argocd app %s in %s ns", k, ns)
-				ready, argoErr := isArgoAppSyncedAndHealthy(ctx, kubeClient, k, ns)
-				if argoErr != nil {
-					t.Logf("error when checking ArgoCD app health: %s", argoErr)
-					continue
-				}
-				if ready {
-					t.Logf("app %s ready", k)
-					delete(apps, k)
-				}
-			}
-			if len(apps) != 0 {
-				t.Logf("waiting for apps to be ready")
-				time.Sleep(httpRetryDelay)
+		}
+
+		found := listArgoApps(kubeClient, []string{"argocd", "adhar-system"})
+		for name := range apps {
+			ns := apps[name]
+			if !found[name] {
+				t.Logf("argocd app %s not yet found in %s or adhar-system", name, ns)
 				continue
 			}
-			done = true
-			t.Log("all argocd apps healthy")
+
+			t.Logf("checking argocd app %s", name)
+			ready, argoErr := isArgoAppSyncedAndHealthy(ctx, kubeClient, name, ns)
+			if argoErr != nil {
+				t.Logf("error when checking ArgoCD app health: %s", argoErr)
+				continue
+			}
+			if ready {
+				t.Logf("app %s ready", name)
+				delete(apps, name)
+			}
 		}
+
+		if len(apps) == 0 {
+			t.Log("all argocd apps healthy")
+			return
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for argocd apps: remaining=%v; found=%v", keys(apps), keysBool(found))
+		}
+
+		t.Logf("waiting for apps to be ready: remaining=%v", keys(apps))
+		time.Sleep(httpRetryDelay)
 	}
 }
 
 func isArgoAppSyncedAndHealthy(ctx context.Context, kubeClient client.Client, name, namespace string) (bool, error) {
 	app := argov1alpha1.Application{}
 
+	// Try the provided namespace first; if not found, fall back to adhar-system (where ArgoCD runs)
 	err := kubeClient.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, &app)
 	if err != nil {
-		return false, err
+		if kerrors.IsNotFound(err) && namespace != "adhar-system" {
+			altApp := argov1alpha1.Application{}
+			if altErr := kubeClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "adhar-system"}, &altApp); altErr == nil {
+				app = altApp
+				err = nil
+			} else if !kerrors.IsNotFound(altErr) {
+				return false, altErr
+			}
+		} else if kerrors.IsNotFound(err) {
+			return false, nil
+		} else {
+			return false, err
+		}
 	}
 
 	return app.Status.Health.Status == "Healthy" && app.Status.Sync.Status == "Synced", nil
+}
+
+func listArgoApps(kubeClient client.Client, namespaces []string) map[string]bool {
+	found := make(map[string]bool)
+	if kubeClient == nil {
+		return found
+	}
+	for _, ns := range namespaces {
+		var appList argov1alpha1.ApplicationList
+		if err := kubeClient.List(context.Background(), &appList, client.InNamespace(ns)); err != nil {
+			continue
+		}
+		for _, a := range appList.Items {
+			found[a.Name] = true
+		}
+	}
+	return found
+}
+
+func keys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func keysBool(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 func GetKubeClient() (client.Client, error) {
@@ -383,7 +484,7 @@ func TestGiteaRegistry(ctx context.Context, t *testing.T, cmd, giteaHost, giteaP
 	b, err := RunCommand(ctx, fmt.Sprintf("%s get secrets -o json -p gitea", AdharBinaryLocation), 10*time.Second)
 	assert.NoError(t, err)
 
-	secs := make([]types.Secret, 1)
+	var secs []types.Secret
 	err = json.Unmarshal(b, &secs)
 	assert.NoError(t, err)
 

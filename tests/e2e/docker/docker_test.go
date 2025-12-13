@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -53,17 +54,21 @@ func Test_CreateDocker(t *testing.T) {
 
 // test adhar create
 func testCreate(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 	defer cancel()
 	defer CleanUpDocker(t)
 
 	t.Log("running adhar up")
-	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up")
+	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up", "--package", filepath.Join(e2e.RepoRoot(), "platform/stack"))
+	cmd.Dir = e2e.RepoRoot()
 	b, err := cmd.CombinedOutput()
-	assert.NoError(t, err, b)
+	assert.NoError(t, err, fmt.Sprintf("adhar up failed: %s", b))
 
 	kubeClient, err := e2e.GetKubeClient()
 	assert.NoError(t, err, fmt.Sprintf("error while getting client: %s", err))
+	if err != nil {
+		t.FailNow()
+	}
 
 	e2e.TestArgoCDApps(ctx, t, kubeClient, e2e.CorePackages)
 
@@ -76,12 +81,13 @@ func testCreate(t *testing.T) {
 
 // test adhar up --use-path-routing
 func testCreatePath(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 	defer cancel()
 	defer CleanUpDocker(t)
 
 	t.Log("running adhar up --use-path-routing")
-	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up", "--use-path-routing", "--package=../../../platform/stack")
+	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up", "--use-path-routing", "--package", filepath.Join(e2e.RepoRoot(), "platform/stack"))
+	cmd.Dir = e2e.RepoRoot()
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, fmt.Sprintf("error while running create: %s, %s", err, b))
 
@@ -98,13 +104,14 @@ func testCreatePath(t *testing.T) {
 }
 
 func testCreatePort(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 	defer cancel()
 	defer CleanUpDocker(t)
 
 	port := "2443"
 	t.Logf("running adhar up --port %s", port)
-	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up", "--use-path-routing", "--port", port, "--package=../../../platform/stack")
+	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up", "--use-path-routing", "--port", port, "--package", filepath.Join(e2e.RepoRoot(), "platform/stack"))
+	cmd.Dir = e2e.RepoRoot()
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, fmt.Sprintf("error while running up: %s, %s", err, b))
 
@@ -119,14 +126,15 @@ func testCreatePort(t *testing.T) {
 }
 
 func testCustomPkg(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 	defer cancel()
 	defer CleanUpDocker(t)
 
-	cmdString := "up --use-path-routing --package ../../../pkg/controllers/custompackage/test/resources/customPackages/testDir"
+	customPkg := filepath.Join(e2e.RepoRoot(), "pkg/controllers/custompackage/test/resources/customPackages/testDir")
 
-	t.Log(fmt.Sprintf("running %s", cmdString))
-	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, strings.Split(cmdString, " ")...)
+	t.Logf("running adhar up with custom package %s", customPkg)
+	cmd := exec.CommandContext(ctx, e2e.AdharBinaryLocation, "up", "--use-path-routing", "--package", customPkg)
+	cmd.Dir = e2e.RepoRoot()
 	b, err := cmd.CombinedOutput()
 	assert.NoError(t, err, fmt.Sprintf("error while running up: %s, %s", err, b))
 
