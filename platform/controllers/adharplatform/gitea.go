@@ -18,17 +18,15 @@ import (
 //go:embed resources/gitea
 var giteaFS embed.FS // Added embedded FS
 
+const giteaResourcePath = "resources/gitea"
+
 // RawGiteaInstallResources loads and processes the Gitea installation manifests.
 func RawGiteaInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
-	// If config.FilePath is empty or not set, default to "install.yaml"
 	filePath := config.FilePath
-	if filePath == "" {
-		filePath = "install.yaml"
-	}
 	// The fsRootPrefix for k8s.BuildCustomizedManifests should be "." if giteaFS embeds the directory containing install.yaml directly.
 	// Since //go:embed resources/gitea embeds the 'gitea' directory, and if 'install.yaml' is directly inside it,
 	// then the path for BuildCustomizedManifests is just "install.yaml".
-	return k8s.BuildCustomizedManifests(filePath, ".", giteaFS, scheme, templateData) // Ensure k8s.BuildCustomizedManifests is correctly implemented and imported
+	return k8s.BuildCustomizedManifests(filePath, giteaResourcePath, giteaFS, scheme, templateData) // Ensure k8s.BuildCustomizedManifests is correctly implemented and imported
 }
 
 func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
@@ -36,7 +34,7 @@ func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.R
 	logger.Info("Reconciling Gitea core package")
 
 	// Apply install.yaml
-	giteaManifestPath := "resources/gitea/install.yaml"
+	giteaManifestPath := fmt.Sprintf("%s/install.yaml", giteaResourcePath)
 	manifestBytes, err := giteaFS.ReadFile(giteaManifestPath)
 	if err != nil {
 		logger.Error(err, "Failed to read Gitea install manifest", "path", giteaManifestPath)
@@ -49,7 +47,7 @@ func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.R
 	}
 
 	// Apply post-install.yaml
-	giteaPostInstallPath := "resources/gitea/post-install.yaml"
+	giteaPostInstallPath := fmt.Sprintf("%s/post-install.yaml", giteaResourcePath)
 	postInstallBytes, err := giteaFS.ReadFile(giteaPostInstallPath)
 	if err != nil {
 		// post-install is optional (may not exist in embedded resources)

@@ -2,7 +2,6 @@ package adharplatform
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"sync"
@@ -10,6 +9,7 @@ import (
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/platform/k8s"
+	resfs "adhar-io/adhar/platform/utils/fs"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,7 +35,7 @@ type EmbeddedInstallation struct {
 	// name and gvk pair for resources that need to be monitored
 	monitoredResources map[string]schema.GroupVersionKind
 	customization      v1alpha1.PackageCustomization
-	resourceFS         embed.FS
+	resourceFS         resfs.FS
 
 	// resources that need to be created without using static manifests or gitops
 	unmanagedResources []client.Object

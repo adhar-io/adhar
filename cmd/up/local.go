@@ -91,7 +91,7 @@ type LocalProvisioner struct {
 	options *LocalOptions
 }
 
-func isLocalPlatformReady(ctx context.Context, kubeClient client.Client) (bool, error) {
+func isLocalPlatformReady(ctx context.Context, kubeClient client.Client) bool {
 	requiredDeployments := []types.NamespacedName{
 		{Name: "gitea", Namespace: globals.AdharSystemNamespace},
 		{Name: "argo-cd-argocd-server", Namespace: globals.AdharSystemNamespace},
@@ -101,26 +101,26 @@ func isLocalPlatformReady(ctx context.Context, kubeClient client.Client) (bool, 
 	for _, nn := range requiredDeployments {
 		var dep appsv1.Deployment
 		if err := kubeClient.Get(ctx, nn, &dep); err != nil {
-			return false, nil
+			return false
 		}
 		if dep.Status.ReadyReplicas < 1 || dep.Status.AvailableReplicas < 1 {
-			return false, nil
+			return false
 		}
 	}
 
 	// Gateway service presence is required for UI access.
 	var gwSvc corev1.Service
 	if err := kubeClient.Get(ctx, types.NamespacedName{Name: "cilium-gateway-adhar-gateway", Namespace: globals.AdharSystemNamespace}, &gwSvc); err != nil {
-		return false, nil
+		return false
 	}
 
 	// Ensure GitOps bootstrap finished so ArgoCD can sync from Gitea
 	var platform v1alpha1.AdharPlatform
 	if err := kubeClient.Get(ctx, types.NamespacedName{Name: globals.DefaultClusterName, Namespace: globals.AdharSystemNamespace}, &platform); err != nil {
-		return false, nil
+		return false
 	}
 
-	return platform.Status.Gitea.RepositoriesCreated, nil
+	return platform.Status.Gitea.RepositoriesCreated
 }
 
 // NewLocalProvisioner creates a new LocalProvisioner
@@ -356,7 +356,7 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 			logger.Info("Waiting for platform controller to finish initial sync...")
 			// Root fix: don't rely solely on controller calling ctxCancel (it can fail to do so if reconcile stalls).
 			// If core services + gateway are ready, we can exit successfully.
-			ready, _ := isLocalPlatformReady(ctx, kubeClient)
+			ready := isLocalPlatformReady(ctx, kubeClient)
 			if ready {
 				logger.Info("Platform is ready (detected by CLI); exiting")
 				lp.options.CancelFunc()
@@ -514,7 +514,8 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 				Email:        "admin@" + globals.DefaultHostName,
 			},
 		}
-		return showLocalDryRunInfo(envConfig)
+		showLocalDryRunInfo(envConfig)
+		return nil
 	}
 
 	// Start the provisioning process
@@ -546,7 +547,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 	return nil
 }
 
-func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
+func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) {
 	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("🔍 Dry Run - Local Development Preview"))
 	fmt.Printf("┌─────────────────────────────────────────────┐\n")
 	fmt.Printf("│ Environment: %-30s │\n", envConfig.Name)
@@ -584,24 +585,7 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 	fmt.Printf("  Cilium:      true\n")
 	fmt.Printf("  Gateway API: true\n")
 
-	if len(envConfig.ResolvedClusterConfig) > 0 {
-		fmt.Printf("\nKind Cluster Configuration:\n")
-		for _, cfg := range envConfig.ResolvedClusterConfig {
-			switch cfg.Key {
-			case "kubeVersion":
-				fmt.Printf("  Kubernetes Version: %s\n", cfg.Value)
-			case "extraPorts":
-				fmt.Printf("  Extra Ports: %s\n", cfg.Value)
-			case "configPath":
-				fmt.Printf("  Config Path: %s\n", cfg.Value)
-			default:
-				fmt.Printf("  %s: %s\n", cfg.Key, cfg.Value)
-			}
-		}
-	}
-
 	fmt.Printf("\n%s\n", helpers.CodeStyle.Render("No changes will be made in dry-run mode"))
-	return nil
 }
 
 // printSuccessMsg prints success message for local development cluster

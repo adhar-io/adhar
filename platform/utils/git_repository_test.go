@@ -4,128 +4,105 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"adhar-io/adhar/api/v1alpha1"
 
-	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCloneRemoteRepoToDir(t *testing.T) {
-	spec := v1alpha1.RemoteRepositorySpec{
-		CloneSubmodules: false,
-		Path:            "examples/basic",
-		Url:             "https://github.com/adhar-io/adhar",
-		Ref:             "v0.1.0",
-	}
-	dir, err := os.MkdirTemp("", "TestCopyToDir")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer func() {
-		_ = os.RemoveAll(dir)
-	}()
-	// new clone
-	_, _, err = CloneRemoteRepoToDir(context.Background(), spec, 0, false, dir, "")
-	assert.Nil(t, err)
-	testDir, err := os.MkdirTemp("", "TestCopyToDir")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer func() {
-		_ = os.RemoveAll(testDir)
-	}()
+func createLocalRepo(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	repo, err := git.PlainInit(dir, false)
+	assert.NoError(t, err)
 
-	repo, err := git.PlainClone(testDir, false, &git.CloneOptions{URL: dir})
-	assert.Nil(t, err)
-	ref, err := repo.Head()
-	assert.Nil(t, err)
-	assert.Equal(t, "dd975dbead810b80c1221f62beb51f4cee729618", ref.Hash().String())
+	worktree, err := repo.Worktree()
+	assert.NoError(t, err)
 
-	// existing
-	spec.Ref = "v0.4.0"
-	testDir2, err := os.MkdirTemp("", "TestCopyToDir")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
+	for name, data := range files {
+		full := filepath.Join(dir, name)
+		assert.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		assert.NoError(t, os.WriteFile(full, []byte(data), 0o644))
+		_, err = worktree.Add(name)
+		assert.NoError(t, err)
 	}
-	defer func() {
-		_ = os.RemoveAll(testDir2)
-	}()
 
-	_, _, err = CloneRemoteRepoToDir(context.Background(), spec, 0, false, dir, "")
-	assert.Nil(t, err)
-	repo, err = git.PlainClone(testDir2, false, &git.CloneOptions{URL: dir})
-	assert.Nil(t, err)
-	ref, err = repo.Head()
-	assert.Nil(t, err)
-	assert.Equal(t, "dd975dbead810b80c1221f62beb51f4cee729618", ref.Hash().String())
+	_, err = worktree.Commit("init", &git.CommitOptions{
+		Author: &object.Signature{Name: "tester", Email: "tester@example.com"},
+	})
+	assert.NoError(t, err)
+	return dir
+}
+
+func TestCloneRemoteRepoToDir_LocalPath(t *testing.T) {
+	repoDir := createLocalRepo(t, map[string]string{"file.txt": "hello"})
+	dest := filepath.Join(t.TempDir(), "clone")
+
+	spec := v1alpha1.RemoteRepositorySpec{Url: repoDir}
+	fs, repo, err := CloneRemoteRepoToDir(context.Background(), spec, 1, false, dest, "")
+	assert.NoError(t, err)
+	assert.NotNil(t, fs)
+	assert.NotNil(t, repo)
+
+	head, err := repo.Head()
+	assert.NoError(t, err)
+	assert.Equal(t, plumbing.ReferenceName("refs/heads/master"), head.Name())
 }
 
 func TestCopyTreeToTree(t *testing.T) {
-	spec := v1alpha1.RemoteRepositorySpec{
-		CloneSubmodules: false,
-		Path:            "examples/basic",
-		Url:             "https://github.com/adhar-io/adhar",
-		Ref:             "",
+	src := memfs.New()
+	assert.NoError(t, src.MkdirAll("manifests/app", 0o755))
+	assert.NoError(t, src.MkdirAll("manifests/config", 0o755))
+	writeFile := func(path, data string) {
+		f, err := src.Create(path)
+		assert.NoError(t, err)
+		_, err = f.Write([]byte(data))
+		assert.NoError(t, err)
+		assert.NoError(t, f.Close())
 	}
+	writeFile("manifests/app/deploy.yaml", "kind: Deployment\n")
+	writeFile("manifests/config/values.yml", "foo: bar\n")
+	writeFile("manifests/README.md", "ignore\n")
 
 	dst := memfs.New()
-	src, _, err := CloneRemoteRepoToMemory(context.Background(), spec, 1, false)
-	assert.Nil(t, err)
+	err := CopyTreeToTree(src, dst, "manifests", ".")
+	assert.NoError(t, err)
 
-	err = CopyTreeToTree(src, dst, spec.Path, ".")
-	assert.Nil(t, err)
-	testCopiedFiles(t, src, dst, spec.Path, ".")
-}
+	content, err := ReadWorktreeFile(dst, "app/deploy.yaml")
+	assert.NoError(t, err)
+	assert.Contains(t, string(content), "Deployment")
 
-func testCopiedFiles(t *testing.T, src, dst billy.Filesystem, srcStartPath, dstStartPath string) {
-	files, err := src.ReadDir(srcStartPath)
-	assert.Nil(t, err)
-
-	for i := range files {
-		file := files[i]
-		if file.Mode().IsRegular() {
-			srcB, err := ReadWorktreeFile(src, filepath.Join(srcStartPath, file.Name()))
-			assert.Nil(t, err)
-
-			dstB, err := ReadWorktreeFile(dst, filepath.Join(dstStartPath, file.Name()))
-			assert.Nil(t, err)
-			assert.Equal(t, srcB, dstB)
-		}
-		if file.IsDir() {
-			testCopiedFiles(t, src, dst, filepath.Join(srcStartPath, file.Name()), filepath.Join(dstStartPath, file.Name()))
-		}
-	}
+	content, err = ReadWorktreeFile(dst, "config/values.yml")
+	assert.NoError(t, err)
+	assert.Contains(t, string(content), "foo")
 }
 
 func TestGetWorktreeYamlFiles(t *testing.T) {
-	filepath.Join()
-	cloneOptions := &git.CloneOptions{
-		URL:               "https://github.com/adhar-io/adhar",
-		Depth:             1,
-		ShallowSubmodules: true,
+	fs := memfs.New()
+	assert.NoError(t, fs.MkdirAll("pkg/nested", 0o755))
+	for path, data := range map[string]string{
+		"pkg/app.yaml":         "kind: ConfigMap\n",
+		"pkg/notes.txt":        "ignore",
+		"pkg/nested/app.yml":   "kind: Service\n",
+		"pkg/nested/readme.md": "nope",
+	} {
+		f, err := fs.Create(path)
+		assert.NoError(t, err)
+		_, err = f.Write([]byte(data))
+		assert.NoError(t, err)
+		assert.NoError(t, f.Close())
 	}
 
-	wt := memfs.New()
-	_, err := git.CloneContext(context.Background(), memory.NewStorage(), wt, cloneOptions)
-	if err != nil {
-		t.Fatalf("%s", err.Error())
-	}
+	paths, err := GetWorktreeYamlFiles("pkg", fs, true)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"pkg/app.yaml", "pkg/nested/app.yml"}, paths)
 
-	paths, err := GetWorktreeYamlFiles("./pkg", wt, true)
-
-	assert.Equal(t, nil, err)
-	assert.NotEqual(t, 0, len(paths))
-	for _, s := range paths {
-		assert.Equal(t, true, strings.HasSuffix(s, "yaml") || strings.HasSuffix(s, "yml"))
-	}
-
-	paths, err = GetWorktreeYamlFiles("./pkg", wt, false)
-	assert.Equal(t, nil, err)
-	assert.Equal(t, 0, len(paths))
+	paths, err = GetWorktreeYamlFiles("pkg", fs, false)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"pkg/app.yaml"}, paths)
 }

@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
@@ -129,7 +130,14 @@ Built for developer productivity with enterprise-grade security and governance.`
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute(ctx context.Context) error {
-	return rootCmd.ExecuteContext(ctx)
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		// Provide a friendlier hint for mistyped or unknown commands.
+		if strings.Contains(err.Error(), "unknown command") {
+			fmt.Println(helpers.ErrorStyle.Render("Unrecognized command. Use `adhar --help` for available commands or `adhar get status` to view platform status."))
+		}
+		return err
+	}
+	return nil
 }
 
 func init() {

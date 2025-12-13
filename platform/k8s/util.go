@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"embed"
 	"os"
 
 	"adhar-io/adhar/platform/utils/files"
@@ -11,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func BuildCustomizedManifests(filePath, fsPath string, resourceFS embed.FS, scheme *runtime.Scheme, templateData any) ([][]byte, error) {
+func BuildCustomizedManifests(filePath, fsPath string, resourceFS fs.FS, scheme *runtime.Scheme, templateData any) ([][]byte, error) {
 	rawResources, err := fs.ConvertFSToBytes(resourceFS, fsPath, templateData)
 	if err != nil {
 		return nil, err
@@ -29,7 +28,7 @@ func BuildCustomizedManifests(filePath, fsPath string, resourceFS embed.FS, sche
 	return bs, nil
 }
 
-func BuildCustomizedObjects(filePath, fsPath string, resourceFS embed.FS, scheme *runtime.Scheme, templateData any) ([]client.Object, error) {
+func BuildCustomizedObjects(filePath, fsPath string, resourceFS fs.FS, scheme *runtime.Scheme, templateData any) ([]client.Object, error) {
 	rawResources, err := fs.ConvertFSToBytes(resourceFS, fsPath, templateData)
 	if err != nil {
 		return nil, err

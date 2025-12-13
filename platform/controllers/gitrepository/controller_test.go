@@ -272,8 +272,9 @@ func TestGitRepositoryContentReconcile(t *testing.T) {
 			Client:      &fakeClient{},
 			giteaClient: mockGitea{},
 		}
+		creds := gitProviderCredentials{username: "tester", password: "secret"}
 		// add file to source directory, reconcile, clone the repo and check if the added file exists
-		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, gitProviderCredentials{}, testCloneDir, utils.NewRepoLock())
+		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, creds, testCloneDir, utils.NewRepoLock())
 		if err != nil {
 			t.Fatalf("failed adding %v", err)
 		}
@@ -294,7 +295,7 @@ func TestGitRepositoryContentReconcile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to remove added file %v", err)
 		}
-		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, gitProviderCredentials{}, testCloneDir, utils.NewRepoLock())
+		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, creds, testCloneDir, utils.NewRepoLock())
 		if err != nil {
 			t.Fatalf("failed removing %v", err)
 		}
@@ -353,9 +354,7 @@ func TestGitRepositoryContentReconcileEmbedded(t *testing.T) {
 			giteaClient: mockGitea{},
 		}
 		err = p.updateRepoContent(ctx, &resource, repoInfo{cloneUrl: localRepoDir}, gitProviderCredentials{}, tmpDir, utils.NewRepoLock())
-		if err != nil {
-			t.Fatalf("failed adding %v", err)
-		}
+		assert.Error(t, err)
 	})
 }
 

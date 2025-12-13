@@ -1,19 +1,3 @@
-/*
-Copyright 2025.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package get
 
 import (
@@ -26,503 +10,565 @@ import (
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 )
 
-// statusCmd represents the status command
+// statusCmd represents the status command.
 var statusCmd = &cobra.Command{
 	Use:     "status",
 	Aliases: []string{"st", "health"},
-	Short:   "Get platform health and status",
-	Long: `Get comprehensive health and status information about the Adhar platform.
+	Short:   "Show live platform health and component readiness",
+	Long:    "Query the Kubernetes cluster for Adhar core components, pods, and resources to present a concise health snapshot.",
+	RunE:    runGetStatus,
+}
 
-This command provides:
-• Overall platform health summary
-• Core service status (ArgoCD, Gitea, Nginx)
-• Pod health and resource usage
-• Deployment status and replica information
-• Service endpoint availability
-• Recent events and alerts
+type componentProbe struct {
+	name      string
+	icon      string
+	namespace string
+	selector  string
+	kinds     []string // deployment|statefulset|daemonset
+}
 
-Examples:
-  adhar get status                     # Get platform status overview
-  adhar get status --detailed          # Get detailed status information
-  adhar get status --watch             # Watch status changes in real-time
-  adhar get status --output json       # Output status in JSON format`,
-	RunE: runGetStatus,
+type componentStatus struct {
+	name      string
+	icon      string
+	namespace string
+	desired   int32
+	ready     int32
+	state     string
+	version   string
+}
+
+type workloadSummary struct {
+	total      int
+	running    int
+	pending    int
+	failed     int
+	succeeded  int
+	crashloops int
+	restarts   int
+}
+
+type clusterSummary struct {
+	k8sVersion string
+	nodesReady int
+	nodesTotal int
+	namespaces int
+	services   int
+	secrets    int
+	configmaps int
+	pvs        int
 }
 
 var (
-	// Status-specific flags
 	watchStatus    bool
-	healthChecks   bool
-	showEvents     bool
 	serviceDetails bool
 )
 
 func init() {
-	statusCmd.Flags().BoolVarP(&watchStatus, "watch", "w", false, "Watch status changes in real-time")
-	statusCmd.Flags().BoolVar(&healthChecks, "health", true, "Include health checks")
-	statusCmd.Flags().BoolVar(&showEvents, "events", false, "Show recent events")
-	statusCmd.Flags().BoolVar(&serviceDetails, "service-details", false, "Show detailed service information")
+	statusCmd.Flags().BoolVarP(&watchStatus, "watch", "w", false, "Watch status changes in real-time (not implemented)")
+	statusCmd.Flags().BoolVar(&serviceDetails, "service-details", false, "Reserved for future detailed output")
 }
 
-type PlatformStatus struct {
-	OverallStatus  string
-	CoreServices   []ServiceStatus
-	Nodes          NodeStatus
-	Workloads      WorkloadStatus
-	Resources      ResourceStatus
-	NetworkStatus  NetworkStatus
-	LastUpdated    time.Time
-	PlatformUptime time.Duration
-	HealthScore    int
-	Warnings       []string
-	CriticalIssues []string
-}
+func runGetStatus(_ *cobra.Command, _ []string) error {
+	logger.Info("📡 Probing platform status...")
 
-type ServiceStatus struct {
-	Name           string
-	Icon           string
-	Status         string
-	StatusColor    string
-	Replicas       string
-	Version        string
-	Endpoints      []string
-	HealthEndpoint string
-	LastChecked    time.Time
-	ResponseTime   time.Duration
-	Issues         []string
-}
-
-type NodeStatus struct {
-	Total       int
-	Ready       int
-	NotReady    int
-	CPUUsage    string
-	MemoryUsage string
-}
-
-type WorkloadStatus struct {
-	TotalPods    int
-	RunningPods  int
-	PendingPods  int
-	FailedPods   int
-	Deployments  int
-	StatefulSets int
-	DaemonSets   int
-	Jobs         int
-}
-
-type ResourceStatus struct {
-	NamespaceCount int
-	ServiceCount   int
-	IngressCount   int
-	PVCount        int
-	ConfigMapCount int
-	SecretCount    int
-}
-
-type NetworkStatus struct {
-	ServiceEndpoints   int
-	IngressControllers int
-	LoadBalancers      int
-	ExternalIPs        int
-	ClusterIPs         int
-}
-
-func runGetStatus(cmd *cobra.Command, args []string) error {
-	logger.Info("📊 Retrieving platform status...")
-
-	// Get Kubernetes client
 	clientset, err := getKubernetesClient()
 	if err != nil {
-		return fmt.Errorf("failed to get Kubernetes client: %w", err)
+		return fmt.Errorf("failed to build kubernetes client: %w", err)
 	}
 
-	// Collect platform status
-	status, err := collectPlatformStatus(clientset)
-	if err != nil {
-		return fmt.Errorf("failed to collect platform status: %w", err)
-	}
-
-	// Display status based on output format
-	switch outputFormat {
-	case "json":
-		return helpers.PrintJSON(status)
-	case "yaml":
-		return helpers.PrintYAML(status)
-	default:
-		return displayStatusTable(status)
-	}
-}
-
-func collectPlatformStatus(clientset *kubernetes.Clientset) (*PlatformStatus, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	status := &PlatformStatus{
-		LastUpdated: time.Now(),
-	}
-
-	// Get nodes status
-	nodes, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	cluster, err := summarizeCluster(ctx, clientset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get nodes: %w", err)
+		return err
 	}
-	status.Nodes = collectNodeStatus(nodes.Items)
 
-	// Get all pods
-	pods, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	workloads, err := summarizeWorkloads(ctx, clientset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pods: %w", err)
+		return err
 	}
-	status.Workloads = collectWorkloadStatus(clientset, ctx, pods.Items)
 
-	// Get resource counts
-	status.Resources = collectResourceStatus(clientset, ctx)
+	components := summarizeComponents(ctx, clientset)
 
-	// Get network status
-	status.NetworkStatus = collectNetworkStatus(clientset, ctx)
-
-	// Get core services status
-	status.CoreServices = collectCoreServicesStatus(clientset, ctx)
-
-	// Calculate overall status and health score
-	status.OverallStatus, status.HealthScore = calculateOverallStatus(status)
-
-	// Calculate platform uptime (approximate)
-	status.PlatformUptime = calculatePlatformUptime(pods.Items)
-
-	return status, nil
+	renderStatus(cluster, workloads, components)
+	return nil
 }
 
-func collectNodeStatus(nodes []corev1.Node) NodeStatus {
-	nodeStatus := NodeStatus{
-		Total: len(nodes),
+func summarizeCluster(ctx context.Context, clientset *kubernetes.Clientset) (clusterSummary, error) {
+	var summary clusterSummary
+
+	if v, err := clientset.Discovery().ServerVersion(); err == nil {
+		summary.k8sVersion = v.GitVersion
 	}
 
-	for _, node := range nodes {
-		for _, condition := range node.Status.Conditions {
-			if condition.Type == corev1.NodeReady {
-				if condition.Status == corev1.ConditionTrue {
-					nodeStatus.Ready++
-				} else {
-					nodeStatus.NotReady++
-				}
+	nodes, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return summary, fmt.Errorf("listing nodes: %w", err)
+	}
+	summary.nodesTotal = len(nodes.Items)
+	for _, n := range nodes.Items {
+		if nodeReady(&n) {
+			summary.nodesReady++
+		}
+	}
+
+	namespaces, _ := clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	services, _ := clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
+	secrets, _ := clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
+	configmaps, _ := clientset.CoreV1().ConfigMaps("").List(ctx, metav1.ListOptions{})
+	pvs, _ := clientset.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+
+	summary.namespaces = len(namespaces.Items)
+	summary.services = len(services.Items)
+	summary.secrets = len(secrets.Items)
+	summary.configmaps = len(configmaps.Items)
+	summary.pvs = len(pvs.Items)
+
+	return summary, nil
+}
+
+func summarizeWorkloads(ctx context.Context, clientset *kubernetes.Clientset) (workloadSummary, error) {
+	var ws workloadSummary
+
+	pods, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return ws, fmt.Errorf("listing pods: %w", err)
+	}
+
+	ws.total = len(pods.Items)
+	for i := range pods.Items {
+		p := pods.Items[i]
+		switch p.Status.Phase {
+		case corev1.PodRunning:
+			ws.running++
+		case corev1.PodPending:
+			ws.pending++
+		case corev1.PodFailed:
+			ws.failed++
+		case corev1.PodSucceeded:
+			ws.succeeded++
+		}
+
+		for _, cs := range p.Status.ContainerStatuses {
+			ws.restarts += int(cs.RestartCount)
+			if cs.State.Waiting != nil && strings.Contains(strings.ToLower(cs.State.Waiting.Reason), "crashloop") {
+				ws.crashloops++
 				break
 			}
 		}
 	}
 
-	// TODO: Add actual CPU/Memory usage calculation
-	nodeStatus.CPUUsage = "N/A"
-	nodeStatus.MemoryUsage = "N/A"
-
-	return nodeStatus
+	return ws, nil
 }
 
-func collectWorkloadStatus(clientset *kubernetes.Clientset, ctx context.Context, pods []corev1.Pod) WorkloadStatus {
-	workloadStatus := WorkloadStatus{
-		TotalPods: len(pods),
+func summarizeComponents(ctx context.Context, clientset *kubernetes.Clientset) []componentStatus {
+	probes := []componentProbe{
+		{name: "ArgoCD API", icon: "🚀", namespace: "adhar-system", selector: "app.kubernetes.io/name=argocd-server", kinds: []string{"deployment"}},
+		{name: "ArgoCD Controller", icon: "🧭", namespace: "adhar-system", selector: "app.kubernetes.io/name=argocd-application-controller", kinds: []string{"statefulset"}},
+		{name: "ArgoCD Repo", icon: "📦", namespace: "adhar-system", selector: "app.kubernetes.io/name=argocd-repo-server", kinds: []string{"deployment"}},
+		{name: "Gitea", icon: "🦊", namespace: "adhar-system", selector: "app=gitea", kinds: []string{"deployment"}},
 	}
 
-	// Count pod phases
-	for _, pod := range pods {
-		switch pod.Status.Phase {
-		case corev1.PodRunning:
-			workloadStatus.RunningPods++
-		case corev1.PodPending:
-			workloadStatus.PendingPods++
-		case corev1.PodFailed:
-			workloadStatus.FailedPods++
+	out := make([]componentStatus, 0, len(probes)+1)
+	for _, probe := range probes {
+		cs := inspectComponent(ctx, clientset, probe)
+		out = append(out, cs)
+	}
+	// Cilium runs as both an agent DaemonSet and an operator Deployment.
+	// Check both namespaces and common label patterns so the status reflects reality.
+	out = append(out, inspectCilium(ctx, clientset))
+	return out
+}
+
+func inspectComponent(ctx context.Context, clientset *kubernetes.Clientset, probe componentProbe) componentStatus {
+	cs := componentStatus{
+		name:      probe.name,
+		icon:      probe.icon,
+		namespace: probe.namespace,
+		state:     "❌ Not Found",
+	}
+
+	sel, _ := labels.Parse(probe.selector)
+	listOpts := metav1.ListOptions{LabelSelector: sel.String()}
+
+	for _, kind := range probe.kinds {
+		switch kind {
+		case "deployment":
+			list, err := clientset.AppsV1().Deployments(probe.namespace).List(ctx, listOpts)
+			if err == nil && len(list.Items) > 0 {
+				return deploymentStatus(list.Items[0], cs)
+			}
+		case "statefulset":
+			list, err := clientset.AppsV1().StatefulSets(probe.namespace).List(ctx, listOpts)
+			if err == nil && len(list.Items) > 0 {
+				return statefulSetStatus(list.Items[0], cs)
+			}
+		case "daemonset":
+			list, err := clientset.AppsV1().DaemonSets(probe.namespace).List(ctx, listOpts)
+			if err == nil && len(list.Items) > 0 {
+				return daemonSetStatus(list.Items[0], cs)
+			}
 		}
 	}
 
-	// Get workload counts
-	deployments, _ := clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
-	workloadStatus.Deployments = len(deployments.Items)
-
-	statefulSets, _ := clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
-	workloadStatus.StatefulSets = len(statefulSets.Items)
-
-	daemonSets, _ := clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
-	workloadStatus.DaemonSets = len(daemonSets.Items)
-
-	jobs, _ := clientset.BatchV1().Jobs("").List(ctx, metav1.ListOptions{})
-	workloadStatus.Jobs = len(jobs.Items)
-
-	return workloadStatus
-}
-
-func collectResourceStatus(clientset *kubernetes.Clientset, ctx context.Context) ResourceStatus {
-	resourceStatus := ResourceStatus{}
-
-	// Get resource counts
-	namespaces, _ := clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
-	resourceStatus.NamespaceCount = len(namespaces.Items)
-
-	services, _ := clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
-	resourceStatus.ServiceCount = len(services.Items)
-
-	configMaps, _ := clientset.CoreV1().ConfigMaps("").List(ctx, metav1.ListOptions{})
-	resourceStatus.ConfigMapCount = len(configMaps.Items)
-
-	secrets, _ := clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
-	resourceStatus.SecretCount = len(secrets.Items)
-
-	pvs, _ := clientset.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
-	resourceStatus.PVCount = len(pvs.Items)
-
-	return resourceStatus
-}
-
-func collectNetworkStatus(clientset *kubernetes.Clientset, ctx context.Context) NetworkStatus {
-	networkStatus := NetworkStatus{}
-
-	// Get services and count different types
-	services, err := clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
-	if err == nil {
-		for _, svc := range services.Items {
-			switch svc.Spec.Type {
-			case corev1.ServiceTypeLoadBalancer:
-				networkStatus.LoadBalancers++
-			case corev1.ServiceTypeClusterIP:
-				networkStatus.ClusterIPs++
+	// Fallback to pods if no controller found
+	pods, err := clientset.CoreV1().Pods(probe.namespace).List(ctx, listOpts)
+	if err == nil && len(pods.Items) > 0 {
+		var ready int32
+		for _, p := range pods.Items {
+			if podReady(&p) {
+				ready++
 			}
-
-			// Count external IPs
-			if len(svc.Spec.ExternalIPs) > 0 {
-				networkStatus.ExternalIPs++
-			}
-
-			// Count endpoints
-			networkStatus.ServiceEndpoints += len(svc.Spec.Ports)
 		}
+		cs.desired = int32(len(pods.Items))
+		cs.ready = ready
+		cs.state = readinessState(cs.ready, cs.desired)
 	}
 
-	return networkStatus
+	return cs
 }
 
-func collectCoreServicesStatus(clientset *kubernetes.Clientset, ctx context.Context) []ServiceStatus {
-	coreServices := []ServiceStatus{}
-
-	// Define core services to check
-	serviceConfigs := []struct {
-		name      string
-		icon      string
-		namespace string
-		selector  string
-	}{
-		{"ArgoCD", "🚀", "adhar-system", "app.kubernetes.io/name=argocd-server"},
-		{"Gitea", "🦊", "adhar-system", "app=gitea"},
-		{"Nginx Ingress", "🌐", "adhar-system", "app.kubernetes.io/name=ingress-nginx"},
-		{"Cilium", "🕸️", "kube-system", "k8s-app=cilium"},
+// inspectCilium inspects the Cilium agent DaemonSet and operator Deployment to
+// provide an accurate readiness signal regardless of namespace or label
+// variations between clusters.
+func inspectCilium(ctx context.Context, clientset *kubernetes.Clientset) componentStatus {
+	cs := componentStatus{
+		name:      "Cilium",
+		icon:      "🕸️",
+		namespace: "kube-system",
+		state:     "❌ Not Found",
 	}
 
-	for _, config := range serviceConfigs {
-		status := ServiceStatus{
-			Name:        config.name,
-			Icon:        config.icon,
-			LastChecked: time.Now(),
-		}
+	namespaces := []string{"adhar-system", "kube-system"}
+	agentSelectors := []string{
+		"k8s-app=cilium",
+		"app.kubernetes.io/name=cilium-agent",
+	}
 
-		// Get deployment status
-		deployments, err := clientset.AppsV1().Deployments(config.namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: config.selector,
-		})
+	operatorSelectors := []string{
+		"k8s-app=cilium-operator",
+		"app.kubernetes.io/name=cilium-operator",
+		"name=cilium-operator",
+	}
 
-		if err == nil && len(deployments.Items) > 0 {
-			deployment := deployments.Items[0]
-			status.Replicas = fmt.Sprintf("%d/%d", deployment.Status.ReadyReplicas, deployment.Status.Replicas)
+	var agentFound bool
 
-			if deployment.Status.ReadyReplicas == deployment.Status.Replicas && deployment.Status.Replicas > 0 {
-				status.Status = "✅ Healthy"
-				status.StatusColor = "#10b981"
-			} else {
-				status.Status = "⚠️ Degraded"
-				status.StatusColor = "#f59e0b"
+	// Try to resolve the agent DaemonSet first
+	for _, ns := range namespaces {
+		for _, selStr := range agentSelectors {
+			sel, err := labels.Parse(selStr)
+			if err != nil {
+				continue
 			}
-
-			// Get version from image
-			if len(deployment.Spec.Template.Spec.Containers) > 0 {
-				image := deployment.Spec.Template.Spec.Containers[0].Image
-				if strings.Contains(image, ":") {
-					parts := strings.Split(image, ":")
-					if len(parts) > 1 {
-						status.Version = parts[len(parts)-1]
-					}
+			list, err := clientset.AppsV1().DaemonSets(ns).List(ctx, metav1.ListOptions{LabelSelector: sel.String()})
+			if err == nil && len(list.Items) > 0 {
+				ds := list.Items[0]
+				ready := ds.Status.NumberReady
+				if ds.Status.NumberAvailable > ready {
+					ready = ds.Status.NumberAvailable
 				}
-			}
-		} else {
-			status.Status = "❌ Not Found"
-			status.StatusColor = "#ef4444"
-			status.Replicas = "0/0"
-		}
+				desired := ds.Status.DesiredNumberScheduled
+				if desired == 0 && ready > 0 {
+					desired = ready
+				}
 
-		coreServices = append(coreServices, status)
+				cs.namespace = ns
+				cs.desired = desired
+				cs.ready = ready
+				cs.version = firstContainerVersion(ds.Spec.Template.Spec.Containers)
+				cs.state = readinessState(cs.ready, cs.desired)
+				agentFound = true
+				break
+			}
+		}
+		if agentFound {
+			break
+		}
 	}
 
-	return coreServices
+	operatorHealthy := false
+
+	// Check operator Deployment health; if the agent is healthy but operator is
+	// missing, mark as degraded to reflect partial readiness.
+	for _, ns := range namespaces {
+		for _, selStr := range operatorSelectors {
+			sel, err := labels.Parse(selStr)
+			if err != nil {
+				continue
+			}
+			list, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{LabelSelector: sel.String()})
+			if err == nil && len(list.Items) > 0 {
+				dep := list.Items[0]
+				if dep.Status.ReadyReplicas > 0 {
+					operatorHealthy = true
+				}
+
+				// If the agent wasn't found, use the operator to populate basics
+				if !agentFound {
+					cs.namespace = ns
+					cs.desired = safeReplicaCount(dep.Spec.Replicas)
+					cs.ready = dep.Status.ReadyReplicas
+					cs.version = firstContainerVersion(dep.Spec.Template.Spec.Containers)
+					cs.state = readinessState(cs.ready, cs.desired)
+				}
+				break
+			}
+		}
+		if operatorHealthy {
+			break
+		}
+	}
+
+	// If agent is present but operator is missing or not ready, show degraded
+	if agentFound && !operatorHealthy && (cs.state == "✅ Healthy" || cs.state == "⚠️ Degraded") {
+		cs.state = "⚠️ Degraded"
+	}
+
+	return cs
 }
 
-func calculateOverallStatus(status *PlatformStatus) (string, int) {
-	healthScore := 100
-	overallStatus := "✅ Healthy"
-
-	// Check node health
-	if status.Nodes.NotReady > 0 {
-		healthScore -= 20
-		overallStatus = "⚠️ Degraded"
-	}
-
-	// Check core services
-	for _, service := range status.CoreServices {
-		if strings.Contains(service.Status, "❌") {
-			healthScore -= 25
-			overallStatus = "❌ Critical"
-		} else if strings.Contains(service.Status, "⚠️") {
-			healthScore -= 10
-			if overallStatus == "✅ Healthy" {
-				overallStatus = "⚠️ Degraded"
-			}
-		}
-	}
-
-	// Check workload health
-	if status.Workloads.FailedPods > 0 {
-		healthScore -= 5
-		if overallStatus == "✅ Healthy" {
-			overallStatus = "⚠️ Degraded"
-		}
-	}
-
-	if healthScore < 0 {
-		healthScore = 0
-	}
-
-	return overallStatus, healthScore
+func deploymentStatus(dep appsv1.Deployment, base componentStatus) componentStatus {
+	base.desired = safeReplicaCount(dep.Spec.Replicas)
+	base.ready = dep.Status.ReadyReplicas
+	base.version = firstContainerVersion(dep.Spec.Template.Spec.Containers)
+	base.state = readinessState(base.ready, base.desired)
+	return base
 }
 
-func calculatePlatformUptime(pods []corev1.Pod) time.Duration {
-	var oldestPodTime time.Time
+func statefulSetStatus(sts appsv1.StatefulSet, base componentStatus) componentStatus {
+	base.desired = safeReplicaCount(sts.Spec.Replicas)
+	base.ready = sts.Status.ReadyReplicas
+	base.version = firstContainerVersion(sts.Spec.Template.Spec.Containers)
+	base.state = readinessState(base.ready, base.desired)
+	return base
+}
 
-	for _, pod := range pods {
-		if pod.Namespace == "adhar-system" {
-			if oldestPodTime.IsZero() || pod.CreationTimestamp.Time.Before(oldestPodTime) {
-				oldestPodTime = pod.CreationTimestamp.Time
-			}
+func daemonSetStatus(ds appsv1.DaemonSet, base componentStatus) componentStatus {
+	ready := ds.Status.NumberReady
+	if ds.Status.NumberAvailable > ready {
+		ready = ds.Status.NumberAvailable
+	}
+	desired := ds.Status.DesiredNumberScheduled
+	if desired == 0 && ready > 0 {
+		desired = ready
+	}
+	base.desired = desired
+	base.ready = ready
+	base.version = firstContainerVersion(ds.Spec.Template.Spec.Containers)
+	base.state = readinessState(base.ready, base.desired)
+	return base
+}
+
+func readinessState(ready, desired int32) string {
+	switch {
+	case desired == 0:
+		return "⚠️ Pending"
+	case ready == desired:
+		return "✅ Healthy"
+	case ready > 0:
+		return "⚠️ Degraded"
+	default:
+		return "❌ Unavailable"
+	}
+}
+
+func firstContainerVersion(containers []corev1.Container) string {
+	if len(containers) == 0 {
+		return ""
+	}
+	image := containers[0].Image
+	if idx := strings.LastIndex(image, ":"); idx != -1 && idx+1 < len(image) {
+		return image[idx+1:]
+	}
+	return ""
+}
+
+func nodeReady(n *corev1.Node) bool {
+	for _, c := range n.Status.Conditions {
+		if c.Type == corev1.NodeReady {
+			return c.Status == corev1.ConditionTrue
 		}
 	}
+	return false
+}
 
-	if oldestPodTime.IsZero() {
+func podReady(p *corev1.Pod) bool {
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func safeReplicaCount(val *int32) int32 {
+	if val == nil {
+		return 1
+	}
+	return *val
+}
+
+func renderStatus(cluster clusterSummary, workloads workloadSummary, components []componentStatus) {
+	now := time.Now().Format("15:04:05 MST")
+
+	overallState := "✅ Healthy"
+	if cluster.nodesReady < cluster.nodesTotal || !allHealthy(components) || workloads.crashloops > 0 || workloads.failed > 0 {
+		overallState = "⚠️ Attention Needed"
+	}
+
+	header := fmt.Sprintf(
+		"%s  Adhar Platform Status\n%s",
+		overallState,
+		helpers.InfoStyle.Render(fmt.Sprintf("Kubernetes %s  •  %s", fallback(cluster.k8sVersion, "unknown"), now)),
+	)
+	fmt.Println(helpers.BorderStyle.Width(96).Render(header))
+
+	clusterContent := fmt.Sprintf(
+		"%s\n  %s Nodes: %d/%d ready\n  %s Namespaces: %d  Services: %d  ConfigMaps: %d  Secrets: %d  PVs: %d\n  %s Pods: %d total (running %d / pending %d / failed %d / succeeded %d)\n  %s Restarts: %d  CrashLoops: %d",
+		helpers.TitleStyle.Render("Cluster & Workloads"),
+		helpers.HighlightStyle.Render("🔧"),
+		cluster.nodesReady, cluster.nodesTotal,
+		helpers.HighlightStyle.Render("📂"),
+		cluster.namespaces, cluster.services, cluster.configmaps, cluster.secrets, cluster.pvs,
+		helpers.HighlightStyle.Render("📦"),
+		workloads.total, workloads.running, workloads.pending, workloads.failed, workloads.succeeded,
+		helpers.HighlightStyle.Render("♻️"),
+		workloads.restarts, workloads.crashloops,
+	)
+	fmt.Println(helpers.BorderStyle.Width(96).Render(clusterContent))
+
+	var b strings.Builder
+	b.WriteString(helpers.TitleStyle.Render("Core Components"))
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("%-28s %-16s %-10s %-10s %-10s\n", "Component", "State", "Ready", "Desired", "Version"))
+	b.WriteString(strings.Repeat("─", 90) + "\n")
+	for _, c := range components {
+		b.WriteString(fmt.Sprintf("%-28s %-16s %-10d %-10d %-10s\n",
+			c.icon+" "+c.name, stateBadge(c.state), c.ready, c.desired, fallback(c.version, "n/a"),
+		))
+	}
+	fmt.Println(helpers.BorderStyle.Width(96).Render(b.String()))
+
+	if cluster.nodesReady == cluster.nodesTotal && allHealthy(components) && workloads.crashloops == 0 && workloads.failed == 0 {
+		fmt.Println(helpers.SuccessStyle.Render("✅ Platform looks healthy"))
+	} else {
+		fmt.Println(helpers.WarningStyle.Render("⚠️  Some components need attention"))
+	}
+}
+
+func stateBadge(state string) string {
+	switch {
+	case strings.Contains(state, "Healthy"):
+		return helpers.SuccessStyle.Render(state)
+	case strings.Contains(state, "Degraded") || strings.Contains(state, "Pending"):
+		return helpers.WarningStyle.Render(state)
+	default:
+		return helpers.ErrorStyle.Render(state)
+	}
+}
+
+func allHealthy(components []componentStatus) bool {
+	for _, c := range components {
+		if c.state != "✅ Healthy" {
+			return false
+		}
+	}
+	return true
+}
+
+func fallback(val, alt string) string {
+	if strings.TrimSpace(val) == "" {
+		return alt
+	}
+	return val
+}
+
+// collectPlatformStatus is used by other commands to fetch a compact health snapshot.
+type PlatformStatus struct {
+	OverallStatus  string
+	HealthScore    int
+	PlatformUptime time.Duration
+}
+
+func collectPlatformStatus(clientset *kubernetes.Clientset) (*PlatformStatus, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	cluster, err := summarizeCluster(ctx, clientset)
+	if err != nil {
+		return nil, err
+	}
+	workloads, err := summarizeWorkloads(ctx, clientset)
+	if err != nil {
+		return nil, err
+	}
+	components := summarizeComponents(ctx, clientset)
+
+	score := 100
+	if cluster.nodesReady < cluster.nodesTotal {
+		score -= 15
+	}
+	for _, c := range components {
+		switch c.state {
+		case "⚠️ Degraded":
+			score -= 10
+		case "❌ Unavailable", "❌ Not Found":
+			score -= 20
+		}
+	}
+	if workloads.crashloops > 0 || workloads.failed > 0 {
+		score -= 10
+	}
+	if score < 0 {
+		score = 0
+	}
+
+	overall := "✅ Healthy"
+	switch {
+	case score < 40:
+		overall = "❌ Critical"
+	case score < 80:
+		overall = "⚠️ Degraded"
+	}
+
+	// Approximate uptime from oldest pod in adhar-system.
+	pods, _ := clientset.CoreV1().Pods("adhar-system").List(ctx, metav1.ListOptions{})
+	uptime := platformUptimeFromPods(pods.Items)
+
+	return &PlatformStatus{
+		OverallStatus:  overall,
+		HealthScore:    score,
+		PlatformUptime: uptime,
+	}, nil
+}
+
+func platformUptimeFromPods(pods []corev1.Pod) time.Duration {
+	var oldest time.Time
+	for _, p := range pods {
+		if oldest.IsZero() || p.CreationTimestamp.Time.Before(oldest) {
+			oldest = p.CreationTimestamp.Time
+		}
+	}
+	if oldest.IsZero() {
 		return 0
 	}
-
-	return time.Since(oldestPodTime)
-}
-
-func displayStatusTable(status *PlatformStatus) error {
-	logger.Info("📊 Platform Status Overview")
-
-	// Display overall status in a header box
-	overallStatusContent := fmt.Sprintf(
-		"🏥 Overall Status: %s\n"+
-			"💯 Health Score: %d/100\n"+
-			"⏱️  Platform Uptime: %s\n"+
-			"🕐 Last Updated: %s",
-		status.OverallStatus,
-		status.HealthScore,
-		formatDuration(status.PlatformUptime),
-		status.LastUpdated.Format("15:04:05 MST"))
-
-	overallBox := helpers.BorderStyle.Width(80).Render(overallStatusContent)
-	fmt.Println(overallBox)
-
-	// Display core services status
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🔧 Core Services"))
-
-	var servicesTable strings.Builder
-	servicesTable.WriteString(fmt.Sprintf("%-25s %-15s %-20s %-15s\n",
-		"🏷️  SERVICE", "📊 STATUS", "🔄 REPLICAS", "📦 VERSION"))
-	servicesTable.WriteString(strings.Repeat("─", 75) + "\n")
-
-	for _, service := range status.CoreServices {
-		serviceName := service.Icon + " " + service.Name
-		version := service.Version
-		if version == "" {
-			version = "unknown"
-		}
-
-		row := fmt.Sprintf("%-25s %-15s %-20s %-15s\n",
-			serviceName,
-			service.Status,
-			service.Replicas,
-			version)
-		servicesTable.WriteString(row)
-	}
-
-	servicesBox := helpers.BorderStyle.Width(80).Render(servicesTable.String())
-	fmt.Println(servicesBox)
-
-	// Display cluster resources
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📊 Cluster Resources"))
-
-	resourcesContent := fmt.Sprintf(
-		"🖥️  Nodes: %d ready, %d total\n"+
-			"🏗️  Workloads: %d deployments, %d pods (%d running)\n"+
-			"📦 Resources: %d namespaces, %d services, %d secrets\n"+
-			"💾 Storage: %d persistent volumes\n"+
-			"🌐 Network: %d service endpoints, %d load balancers",
-		status.Nodes.Ready, status.Nodes.Total,
-		status.Workloads.Deployments, status.Workloads.TotalPods, status.Workloads.RunningPods,
-		status.Resources.NamespaceCount, status.Resources.ServiceCount, status.Resources.SecretCount,
-		status.Resources.PVCount,
-		status.NetworkStatus.ServiceEndpoints, status.NetworkStatus.LoadBalancers)
-
-	resourcesBox := helpers.BorderStyle.Width(80).Render(resourcesContent)
-	fmt.Println(resourcesBox)
-
-	// Display any warnings or issues
-	if len(status.Warnings) > 0 || len(status.CriticalIssues) > 0 {
-		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("⚠️  Issues & Warnings"))
-
-		var issuesContent strings.Builder
-
-		if len(status.CriticalIssues) > 0 {
-			issuesContent.WriteString("🚨 Critical Issues:\n")
-			for _, issue := range status.CriticalIssues {
-				issuesContent.WriteString(fmt.Sprintf("  • %s\n", issue))
-			}
-			issuesContent.WriteString("\n")
-		}
-
-		if len(status.Warnings) > 0 {
-			issuesContent.WriteString("⚠️  Warnings:\n")
-			for _, warning := range status.Warnings {
-				issuesContent.WriteString(fmt.Sprintf("  • %s\n", warning))
-			}
-		}
-
-		if issuesContent.Len() > 0 {
-			issuesBox := helpers.BorderStyle.Width(80).Render(issuesContent.String())
-			fmt.Println(issuesBox)
-		}
-	}
-
-	return nil
+	return time.Since(oldest)
 }
 
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%.0fs", d.Seconds())
-	} else if d < time.Hour {
-		return fmt.Sprintf("%.0fm", d.Minutes())
-	} else if d < 24*time.Hour {
-		return fmt.Sprintf("%.1fh", d.Hours())
-	} else {
-		return fmt.Sprintf("%.1fd", d.Hours()/24)
 	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }

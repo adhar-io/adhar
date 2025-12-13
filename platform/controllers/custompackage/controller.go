@@ -396,10 +396,6 @@ func (r *CustomPackageReconciler) reconcileHelmValueObjectSource(ctx context.Con
 	return ctrl.Result{RequeueAfter: requeueTime}, nil
 }
 
-func localRepoName(appName, dir string) string {
-	return fmt.Sprintf("%s-%s", appName, filepath.Base(dir))
-}
-
 //nolint:unparam,unused // Retained for future repository naming logic.
 func remoteRepoName(appName, pathToPkg string, repo v1alpha1.RemoteRepositorySpec) string {
 	return fmt.Sprintf("%s-%s", appName, filepath.Base(pathToPkg))

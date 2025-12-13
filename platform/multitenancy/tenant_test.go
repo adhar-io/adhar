@@ -56,8 +56,13 @@ func TestTenantManager_CreateTenant(t *testing.T) {
 		t.Fatalf("Failed to get resource quota: %v", err)
 	}
 
-	if quota.Spec.Hard.Cpu().String() != "10" {
-		t.Errorf("Expected CPU quota to be 10, got: %s", quota.Spec.Hard.Cpu().String())
+	reqCPU := quota.Spec.Hard[corev1.ResourceRequestsCPU]
+	limitCPU := quota.Spec.Hard[corev1.ResourceLimitsCPU]
+	if reqCPU.String() != "10" {
+		t.Errorf("Expected CPU request quota to be 10, got: %s", reqCPU.String())
+	}
+	if limitCPU.String() != "10" {
+		t.Errorf("Expected CPU limit quota to be 10, got: %s", limitCPU.String())
 	}
 
 	// Verify limit range was created
@@ -209,8 +214,13 @@ func TestTenantManager_GetTenantQuota(t *testing.T) {
 		t.Errorf("Expected quota name to be 'tenant-quota', got: %s", quota.Name)
 	}
 
-	if quota.Spec.Hard.Cpu().String() != "5" {
-		t.Errorf("Expected CPU quota to be 5, got: %s", quota.Spec.Hard.Cpu().String())
+	reqCPU := quota.Spec.Hard[corev1.ResourceRequestsCPU]
+	limitCPU := quota.Spec.Hard[corev1.ResourceLimitsCPU]
+	if reqCPU.String() != "5" {
+		t.Errorf("Expected CPU request quota to be 5, got: %s", reqCPU.String())
+	}
+	if limitCPU.String() != "5" {
+		t.Errorf("Expected CPU limit quota to be 5, got: %s", limitCPU.String())
 	}
 }
 
@@ -250,12 +260,22 @@ func TestTenantManager_UpdateTenantQuota(t *testing.T) {
 		t.Fatalf("Failed to get updated quota: %v", err)
 	}
 
-	if quota.Spec.Hard.Cpu().String() != "10" {
-		t.Errorf("Expected CPU quota to be 10, got: %s", quota.Spec.Hard.Cpu().String())
+	reqCPU := quota.Spec.Hard[corev1.ResourceRequestsCPU]
+	limitCPU := quota.Spec.Hard[corev1.ResourceLimitsCPU]
+	if reqCPU.String() != "10" {
+		t.Errorf("Expected CPU request quota to be 10, got: %s", reqCPU.String())
+	}
+	if limitCPU.String() != "10" {
+		t.Errorf("Expected CPU limit quota to be 10, got: %s", limitCPU.String())
 	}
 
-	if quota.Spec.Hard.Memory().String() != "20Gi" {
-		t.Errorf("Expected memory quota to be 20Gi, got: %s", quota.Spec.Hard.Memory().String())
+	reqMem := quota.Spec.Hard[corev1.ResourceRequestsMemory]
+	limitMem := quota.Spec.Hard[corev1.ResourceLimitsMemory]
+	if reqMem.String() != "20Gi" {
+		t.Errorf("Expected memory request quota to be 20Gi, got: %s", reqMem.String())
+	}
+	if limitMem.String() != "20Gi" {
+		t.Errorf("Expected memory limit quota to be 20Gi, got: %s", limitMem.String())
 	}
 }
 
