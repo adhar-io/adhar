@@ -89,25 +89,26 @@ metadata:
 data:
   keycloak.conf: |
     # Database
-    # The database vendor.
     db=postgres
-
-    # The username of the database user.
     db-url=jdbc:postgresql://keycloak-db-rw.adhar-system.svc.cluster.local:5432/keycloak
 
-    # The proxy address forwarding mode if the server is behind a reverse proxy.
-    proxy=edge
+    # Proxy configuration for Keycloak 26+ (replaces deprecated proxy=edge)
+    # Use X-Forwarded-* headers from the gateway
+    proxy-headers=xforwarded
+    http-enabled=true
 
-    # hostname configuration (default HTTPS, port 443)
-    hostname=https://adhar.localtest.me
+    # Hostname configuration for Keycloak 26+
+    # http-relative-path sets the base context path
     http-relative-path=/keycloak
-    hostname-admin=https://adhar.localtest.me/keycloak
 
+    # hostname-url sets the full URL including path for URL generation
+    hostname-url=https://adhar.localtest.me/keycloak
+
+    # Debug mode for hostname resolution
     hostname-debug=true
 
-    # this should only be allowed in development. NEVER in production.
+    # Strict hostname checking (disabled for dev)
     hostname-strict=false
-    hostname-strict-backchannel=false
 ---
 apiVersion: v1
 kind: Secret
@@ -185,9 +186,6 @@ spec:
                 value: /keycloak
               - name: X-Forwarded-Port
                 value: "443"
-            set:
-              - name: Host
-                value: adhar.localtest.me
       backendRefs:
         - name: keycloak
           namespace: adhar-system

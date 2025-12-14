@@ -4,22 +4,6 @@ metadata:
   name: cilium
 spec:
   controllerName: io.cilium/gateway-controller
-  parametersRef:
-    group: cilium.io
-    kind: CiliumGatewayClassConfig
-    name: cilium-gatewayclass-config
-    namespace: adhar-system
----
-apiVersion: cilium.io/v2alpha1
-kind: CiliumGatewayClassConfig
-metadata:
-  name: cilium-gatewayclass-config
-  namespace: adhar-system
-spec:
-  description: "Adhar GatewayClass config (NodePort for local Kind)"
-  service:
-    type: NodePort
-    externalTrafficPolicy: Cluster
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
@@ -65,6 +49,18 @@ spec:
       allowedRoutes:
         namespaces:
           from: Same
+    # Hubble subdomain - Hubble doesn't support path prefixes, so use subdomain
+    - name: https-hubble
+      protocol: HTTPS
+      port: 443
+      hostname: "hubble.adhar.localtest.me"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: adhar-cert
+      allowedRoutes:
+        namespaces:
+          from: Same
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -76,9 +72,6 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
       sectionName: https
-    - name: adhar-gateway
-      namespace: adhar-system
-      sectionName: https-alt
   hostnames:
     - "adhar.localtest.me"
   rules:
@@ -130,6 +123,8 @@ spec:
           namespace: adhar-system
           port: 3000
 ---
+# Hubble UI - uses subdomain because Hubble doesn't support path prefixes
+# Access via: https://hubble.adhar.localtest.me/
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -139,74 +134,16 @@ spec:
   parentRefs:
     - name: adhar-gateway
       namespace: adhar-system
-      sectionName: https
-    - name: adhar-gateway
-      namespace: adhar-system
-      sectionName: https-alt
+      sectionName: https-hubble
   hostnames:
-    - "adhar.localtest.me"
+    - "hubble.adhar.localtest.me"
   rules:
-    # Route asset requests FIRST - Hubble serves these at root: /bundle.*.js, /static/*, etc.
-    # These are referenced without /hubble prefix in the HTML
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /bundle
-      backendRefs:
-        - name: hubble-ui
-          namespace: adhar-system
-          port: 80
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /static
-      backendRefs:
-        - name: hubble-ui
-          namespace: adhar-system
-          port: 80
-    - matches:
-        - path:
-            type: Exact
-            value: /favicon.ico
-      backendRefs:
-        - name: hubble-ui
-          namespace: adhar-system
-          port: 80
-    # Route /hubble paths to Hubble with URL rewrite to strip prefix
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /hubble
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
-      backendRefs:
-        - name: hubble-ui
-          namespace: adhar-system
-          port: 80
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: http-redirect
-  namespace: adhar-system
-spec:
-  parentRefs:
-    - name: adhar-gateway
-      namespace: adhar-system
-      sectionName: http
-  hostnames:
-    - "adhar.localtest.me"
-  rules:
+    # All requests to hubble subdomain go to hubble-ui
     - matches:
         - path:
             type: PathPrefix
             value: /
-      filters:
-        - type: RequestRedirect
-          requestRedirect:
-            scheme: https
-            port: 443
+      backendRefs:
+        - name: hubble-ui
+          namespace: adhar-system
+          port: 80

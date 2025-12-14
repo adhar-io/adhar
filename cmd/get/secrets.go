@@ -132,6 +132,10 @@ func getSpecificProviderSecrets(clientset *kubernetes.Clientset, provider string
 
 	var matchingSecrets []corev1.Secret
 	for _, secret := range secrets.Items {
+		// Skip certificate secrets entirely
+		if shouldSkipSecret(secret) {
+			continue
+		}
 		for _, pattern := range patterns {
 			if strings.Contains(secret.Name, pattern) {
 				matchingSecrets = append(matchingSecrets, secret)
@@ -163,7 +167,6 @@ func getSpecificProviderSecrets(clientset *kubernetes.Clientset, provider string
 
 // getAllPlatformSecrets gets all platform secrets
 func getAllPlatformSecrets(clientset *kubernetes.Clientset) error {
-	logger.Info("🔍 Retrieving all platform secrets...")
 
 	// Get secrets from adhar-system namespace
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -175,8 +178,13 @@ func getAllPlatformSecrets(clientset *kubernetes.Clientset) error {
 	}
 
 	// Filter platform secrets (exclude system secrets unless --all is specified)
+	// Always skip certificate secrets from display
 	var platformSecrets []corev1.Secret
 	for _, secret := range secrets.Items {
+		// Skip certificate secrets entirely
+		if shouldSkipSecret(secret) {
+			continue
+		}
 		if isPlatformSecret(secret.Name) || showAll {
 			platformSecrets = append(platformSecrets, secret)
 		}
@@ -217,6 +225,30 @@ func isPlatformSecret(secretName string) bool {
 	}
 
 	return false
+}
+
+// shouldSkipSecret checks if a secret should be completely hidden from output
+func shouldSkipSecret(secret corev1.Secret) bool {
+	secretName := strings.ToLower(secret.Name)
+
+	// Skip certificate/CA secrets entirely
+	skipPatterns := []string{
+		"-ca",
+		"-server",
+		"-replication",
+		"-client",
+		"tls-secret",
+		"cert-secret",
+	}
+
+	for _, pattern := range skipPatterns {
+		if strings.HasSuffix(secretName, pattern) {
+			return true
+		}
+	}
+
+	// Also skip if it's a TLS type secret or contains certificate data
+	return isCertificateLike(secret)
 }
 
 // createGiteaAdminSecret creates a virtual secret for Gitea admin credentials from deployment
