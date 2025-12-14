@@ -367,6 +367,13 @@ func extractSecretInfo(secret corev1.Secret) SecretInfo {
 		Name: secret.Name,
 	}
 
+	// Do not print certificate/private key contents
+	if isCertificateLike(secret) {
+		info.Username = "(certificate)"
+		info.Password = "[redacted]"
+		return info
+	}
+
 	// Extract username from various possible keys
 	usernameKeys := []string{"username", "user", "admin-user", "admin-username", "login", "email"}
 	for _, key := range usernameKeys {
@@ -468,6 +475,35 @@ func extractSecretInfo(secret corev1.Secret) SecretInfo {
 	info.URL = generateSecretURL(secret.Name)
 
 	return info
+}
+
+// isCertificateLike returns true if the secret appears to hold TLS material or CAs.
+func isCertificateLike(secret corev1.Secret) bool {
+	if secret.Type == corev1.SecretTypeTLS {
+		return true
+	}
+
+	pemMarkers := []string{
+		"BEGIN CERTIFICATE",
+		"BEGIN PRIVATE KEY",
+		"BEGIN RSA PRIVATE KEY",
+		"BEGIN EC PRIVATE KEY",
+	}
+
+	for key, value := range secret.Data {
+		// Common key names for TLS/CAs
+		if strings.Contains(key, "tls.") || strings.Contains(key, "ca") || strings.Contains(key, "crt") || strings.Contains(key, "cert") {
+			return true
+		}
+		strVal := string(value)
+		for _, marker := range pemMarkers {
+			if strings.Contains(strVal, marker) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // generateSecretURL generates a URL for the secret

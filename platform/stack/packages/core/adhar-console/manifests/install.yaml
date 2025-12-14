@@ -27,9 +27,9 @@ metadata:
   name: read-all
 rules:
   - apiGroups:
-      - '*'
+      - "*"
     resources:
-      - '*'
+      - "*"
     verbs:
       - get
       - list
@@ -204,7 +204,8 @@ metadata:
   name: k8s-config
   namespace: backstage
 stringData:
-  k8s-config.yaml: "type: 'config'\nclusters:\n  - url: https://kubernetes.default.svc.cluster.local\n
+  k8s-config.yaml:
+    "type: 'config'\nclusters:\n  - url: https://kubernetes.default.svc.cluster.local\n
     \   name: local\n    authProvider: 'serviceAccount'\n    skipTLSVerify: true\n
     \   skipMetricsLookup: true\n    serviceAccountToken: \n      $file: /var/run/secrets/kubernetes.io/serviceaccount/token\n
     \   caData: \n      $file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n"
@@ -349,13 +350,13 @@ spec:
             - name: data
               mountPath: /var/lib/postgresql/data
   volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: "500Mi"
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: "500Mi"
 ---
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
@@ -370,7 +371,7 @@ spec:
   noUpper: false
   allowRepeat: true
 ---
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: backstage-oidc
@@ -383,11 +384,10 @@ spec:
   target:
     name: backstage-env-vars
     template:
-      engineVersion: v2
       data:
         BACKSTAGE_FRONTEND_URL: https://adhar.localtest.me:8443/console
         POSTGRES_HOST: postgresql.backstage.svc.cluster.local
-        POSTGRES_PORT: '5432'
+        POSTGRES_PORT: "5432"
         POSTGRES_DB: backstage
         POSTGRES_USER: backstage
         POSTGRES_PASSWORD: "{{.POSTGRES_PASSWORD}}"
@@ -395,7 +395,7 @@ spec:
         KEYCLOAK_NAME_METADATA: https://adhar.localtest.me:8443/keycloak/realms/adhar/.well-known/openid-configuration
         KEYCLOAK_CLIENT_SECRET: "{{.BACKSTAGE_CLIENT_SECRET}}"
         ARGOCD_AUTH_TOKEN: "argocd.token={{.ARGOCD_SESSION_TOKEN}}"
-        ARGO_CD_URL: 'https://argocd-server.argocd.svc.cluster.local/api/v1/'
+        ARGO_CD_URL: "https://argocd-server.argocd.svc.cluster.local/api/v1/"
   data:
     - secretKey: ARGOCD_SESSION_TOKEN
       remoteRef:
@@ -415,7 +415,7 @@ spec:
         - transform:
             template: "POSTGRES_PASSWORD"
 ---
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: gitea-credentials

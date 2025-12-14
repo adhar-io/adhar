@@ -45,7 +45,7 @@ packages:
     isChart: false
   - name: keycloak
     enabled: true
-    namespace: keycloak
+    namespace: adhar-system
     category: security
     manifestPath: "security/keycloak/manifests"
     isChart: false

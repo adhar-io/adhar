@@ -36,9 +36,27 @@ spec:
       allowedRoutes:
         namespaces:
           from: Same
+    - name: http-localhost
+      protocol: HTTP
+      port: 80
+      hostname: "localhost"
+      allowedRoutes:
+        namespaces:
+          from: Same
     - name: https
       protocol: HTTPS
       port: 443
+      hostname: "adhar.localtest.me"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: adhar-cert
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-alt
+      protocol: HTTPS
+      port: 8443
       hostname: "adhar.localtest.me"
       tls:
         mode: Terminate
@@ -58,6 +76,9 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
       sectionName: https
+    - name: adhar-gateway
+      namespace: adhar-system
+      sectionName: https-alt
   hostnames:
     - "adhar.localtest.me"
   rules:
@@ -119,9 +140,39 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
       sectionName: https
+    - name: adhar-gateway
+      namespace: adhar-system
+      sectionName: https-alt
   hostnames:
     - "adhar.localtest.me"
   rules:
+    # Route asset requests FIRST - Hubble serves these at root: /bundle.*.js, /static/*, etc.
+    # These are referenced without /hubble prefix in the HTML
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bundle
+      backendRefs:
+        - name: hubble-ui
+          namespace: adhar-system
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /static
+      backendRefs:
+        - name: hubble-ui
+          namespace: adhar-system
+          port: 80
+    - matches:
+        - path:
+            type: Exact
+            value: /favicon.ico
+      backendRefs:
+        - name: hubble-ui
+          namespace: adhar-system
+          port: 80
+    # Route /hubble paths to Hubble with URL rewrite to strip prefix
     - matches:
         - path:
             type: PathPrefix

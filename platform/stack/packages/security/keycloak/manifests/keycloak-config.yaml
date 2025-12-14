@@ -3,13 +3,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: keycloak-config
-  namespace: keycloak
+  namespace: adhar-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: keycloak-config
-  namespace: keycloak
+  namespace: adhar-system
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
@@ -19,11 +19,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: keycloak-config
-  namespace: keycloak
+  namespace: adhar-system
 subjects:
   - kind: ServiceAccount
     name: keycloak-config
-    namespace: keycloak
+    namespace: adhar-system
 roleRef:
   kind: Role
   name: keycloak-config
@@ -47,7 +47,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: keycloak-config
-    namespace: keycloak
+    namespace: adhar-system
 roleRef:
   kind: Role
   name: keycloak-config
@@ -57,7 +57,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: config-job
-  namespace: keycloak
+  namespace: adhar-system
 data:
   client-scope-groups-payload.json: |
     {
@@ -215,7 +215,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: config
-  namespace: keycloak
+  namespace: adhar-system
   annotations:
     argocd.argoproj.io/hook: PostSync
 spec:
@@ -246,17 +246,18 @@ spec:
           args:
             - |
               #! /bin/bash
-  
+
               set -ex -o pipefail
-              
+
               apt -qq update && apt -qq install curl jq -y
-              
+
               ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
               USER1_PASSWORD=$(cat /var/secrets/USER_PASSWORD)
 
-              KEYCLOAK_URL=http://keycloak.keycloak.svc.cluster.local:8080/keycloak
+              # Keycloak runs HTTP on 8080; TLS is terminated at the gateway.
+              KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080/keycloak
 
-              KEYCLOAK_TOKEN=$(curl -sS  --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+              KEYCLOAK_TOKEN=$(curl -sS --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
                 --data-urlencode "username=adhar-admin" \
                 --data-urlencode "password=${ADMIN_PASSWORD}" \
                 --data-urlencode "grant_type=password" \
@@ -264,42 +265,42 @@ spec:
                 ${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token | jq -e -r '.access_token')
                 
               set +e
-              
+
               curl --fail-with-body -H "Authorization: bearer ${KEYCLOAK_TOKEN}"  "${KEYCLOAK_URL}/admin/realms/adhar"  &> /dev/null
               if [ $? -eq 0 ]; then
                 exit 0
               fi
               set -e
-              
+
               curl -sS -LO "https://dl.k8s.io/release/v1.28.3//bin/linux/amd64/kubectl"
               chmod +x kubectl
-              
+
               echo "creating adhar realm and groups"
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/realm-payload.json \
                 ${KEYCLOAK_URL}/admin/realms
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/client-scope-groups-payload.json \
                 ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/group-admin-payload.json \
                 ${KEYCLOAK_URL}/admin/realms/adhar/groups
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/group-base-user-payload.json \
                 ${KEYCLOAK_URL}/admin/realms/adhar/groups
-              
+
               # Create scope mapper
                 echo 'adding group claim to tokens'
               CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/group-mapper-payload.json \
@@ -310,64 +311,64 @@ spec:
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/user-user1.json \
                 ${KEYCLOAK_URL}/admin/realms/adhar/users
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/user-user2.json \
                 ${KEYCLOAK_URL}/admin/realms/adhar/users
-              
+
               USER1ID=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${KEYCLOAK_URL}/admin/realms/adhar/users?lastName=one" | jq -r '.[0].id')
               USER2ID=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${KEYCLOAK_URL}/admin/realms/adhar/users?lastName=two" | jq -r '.[0].id')
-              
+
               echo "setting user passwords"
               jq -r --arg pass ${USER1_PASSWORD}  '.value = $pass' /var/config/user-password.json > /tmp/user-password-to-be-applied.json
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X PUT --data @/tmp/user-password-to-be-applied.json \
                 ${KEYCLOAK_URL}/admin/realms/adhar/users/${USER1ID}/reset-password
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X PUT --data @/tmp/user-password-to-be-applied.json \
                 ${KEYCLOAK_URL}/admin/realms/adhar/users/${USER2ID}/reset-password
-            
+
               echo "creating Argo Workflows client"
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                   -X POST --data @/var/config/argo-client-payload.json \
                   ${KEYCLOAK_URL}/admin/realms/adhar/clients
-              
+
               CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "argo-workflows") | .id')
               CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-              
+
               ARGO_WORKFLOWS_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
               -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
               -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-              
+
               echo "creating Backstage client"
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/backstage-client-payload.json \
                   ${KEYCLOAK_URL}/admin/realms/adhar/clients
-              
+
               CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "backstage") | .id')
-              
+
               CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
               curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-              
+
               BACKSTAGE_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
@@ -377,32 +378,62 @@ spec:
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                   -X POST --data @/var/config/headlamp-client-payload.json \
                   ${KEYCLOAK_URL}/admin/realms/adhar/clients
-              
+
               CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "headlamp") | .id')
               CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-              
+
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-              
+
               HEADLAMP_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
               -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
               -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-              
-              ARGOCD_PASSWORD=$(./kubectl -n argocd get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
-              
-              ARGOCD_SESSION_TOKEN=$(curl -k -sS http://argocd-server.argocd.svc.cluster.local:443/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" | jq -r .token)
-              
+
+              # ArgoCD initial admin secret lives in adhar-system in this setup.
+              ARGOCD_PASSWORD=$(./kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}' 2>/dev/null || true)
+
+              # Try to obtain an ArgoCD session token; tolerate failures so the job can finish.
+              ARGOCD_SESSION_TOKEN=""
+              if [ -n "${ARGOCD_PASSWORD}" ]; then
+                # Preferred service names in the adhar-system namespace; include old namespace just in case.
+                for host in \
+                  argo-cd-argocd-server.adhar-system.svc.cluster.local \
+                  argocd-server.adhar-system.svc.cluster.local \
+                  argocd-server.argocd.svc.cluster.local; do
+                  # Quick reachability probe (version endpoint returns JSON).
+                  if curl -sS --fail --max-time 5 "http://${host}:80/api/v1/version" >/dev/null 2>&1; then
+                    ARGOCD_SESSION_JSON=$(curl -sS --fail-with-body "http://${host}:80/api/v1/session" \
+                      -H 'Content-Type: application/json' \
+                      -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" 2>/dev/null || true)
+                    token=$(echo "${ARGOCD_SESSION_JSON}" | jq -r 'try .token // empty' 2>/dev/null || true)
+                    if [ -n "${token}" ]; then
+                      ARGOCD_SESSION_TOKEN="${token}"
+                      break
+                    else
+                      echo "warn: no token in ArgoCD session response from ${host}"
+                    fi
+                  else
+                    echo "warn: ArgoCD API not reachable at ${host}"
+                  fi
+                done
+                if [ -z "${ARGOCD_SESSION_TOKEN}" ]; then
+                  echo "warning: unable to retrieve ArgoCD session token; continuing without it"
+                fi
+              else
+                echo "argocd-initial-admin-secret not found; skipping ARGOCD session token"
+              fi
+
               echo \
               "apiVersion: v1
               kind: Secret
               metadata:
                 name: keycloak-clients
-                namespace: keycloak
+                namespace: adhar-system
               type: Opaque
               stringData:
                 ARGO_WORKFLOWS_CLIENT_SECRET: ${ARGO_WORKFLOWS_CLIENT_SECRET}
@@ -413,6 +444,5 @@ spec:
                 HEADLAMP_CLIENT_SECRET: ${HEADLAMP_CLIENT_SECRET}
                 HEADLAMP_CLIENT_ID: headlamp
               " > /tmp/secret.yaml
-              
+
               ./kubectl apply -f /tmp/secret.yaml
-              

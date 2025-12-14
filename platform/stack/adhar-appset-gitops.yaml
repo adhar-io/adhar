@@ -37,7 +37,7 @@ spec:
             manifestType: "install"
           - name: "keycloak"
             enabled: "true"
-            namespace: "keycloak"
+            namespace: "adhar-system"
             category: "security"
             adharPath: "adhar://packages/security/keycloak"
             manifestType: "install"
@@ -234,3 +234,16 @@ spec:
           - Replace=true
           - CreateNamespace=true
           - ServerSideApply=true
+      ignoreDifferences:
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          jqPathExpressions:
+            - .webhooks[].clientConfig.caBundle
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          jqPathExpressions:
+            - .webhooks[].clientConfig.caBundle
+        - group: apiextensions.k8s.io
+          kind: CustomResourceDefinition
+          jqPathExpressions:
+            - .spec.conversion.webhook.clientConfig.caBundle

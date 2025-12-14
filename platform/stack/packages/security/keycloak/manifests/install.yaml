@@ -1,15 +1,11 @@
 ---
 apiVersion: v1
-kind: Namespace
-metadata:
-  name: keycloak
----
-apiVersion: v1
 kind: Service
 metadata:
   name: keycloak
   labels:
     app: keycloak
+  namespace: adhar-system
 spec:
   ports:
     - name: http
@@ -25,7 +21,7 @@ metadata:
   labels:
     app: keycloak
   name: keycloak
-  namespace: keycloak
+  namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 spec:
@@ -44,14 +40,26 @@ spec:
           env:
             - name: KEYCLOAK_ADMIN
               value: adhar-admin
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-app
+                  key: username
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-app
+                  key: password
             - name: KEYCLOAK_LOGLEVEL
               value: ALL
             - name: QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY
-              value: 'true'
+              value: "true"
           envFrom:
             - secretRef:
                 name: keycloak-config
-          image: quay.io/keycloak/keycloak:22.0.3
+            - configMapRef:
+                name: keycloak-config
+          image: quay.io/keycloak/keycloak:26.4.7
           name: keycloak
           ports:
             - containerPort: 8080
@@ -60,6 +68,10 @@ spec:
             httpGet:
               path: /keycloak/realms/master
               port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
           volumeMounts:
             - mountPath: /opt/keycloak/conf
               name: keycloak-config
@@ -70,94 +82,113 @@ spec:
           name: keycloak-config
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-config
+  namespace: adhar-system
 data:
   keycloak.conf: |
     # Database
     # The database vendor.
     db=postgres
-    
+
     # The username of the database user.
-    db-url=jdbc:postgresql://postgresql.keycloak.svc.cluster.local:5432/postgres
+    db-url=jdbc:postgresql://keycloak-db-rw.adhar-system.svc.cluster.local:5432/keycloak
 
     # The proxy address forwarding mode if the server is behind a reverse proxy.
     proxy=edge
-    
-    # hostname configuration
-    hostname=adhar.localtest.me
-    hostname-port=8443
-    http-relative-path=keycloak
-    
-    # the admin url requires its own configuration to reflect correct url
-    hostname-admin=adhar.localtest.me:8443
-    
+
+    # hostname configuration (default HTTPS, port 443)
+    hostname=https://adhar.localtest.me
+    http-relative-path=/keycloak
+    hostname-admin=https://adhar.localtest.me/keycloak
+
     hostname-debug=true
-    
+
     # this should only be allowed in development. NEVER in production.
     hostname-strict=false
     hostname-strict-backchannel=false
-    
-
-kind: ConfigMap
-metadata:
-  name: keycloak-config
-  namespace: keycloak
 ---
 apiVersion: v1
-kind: Service
+kind: Secret
 metadata:
-  labels:
-    app: postgresql
-  name: postgresql
-  namespace: keycloak
-spec:
-  clusterIP: None
-  ports:
-    - name: postgres
-      port: 5432
-  selector:
-    app: postgresql
+  name: keycloak-db-superuser
+  namespace: adhar-system
+type: Opaque
+stringData:
+  username: superadmin
+  password: supersecret
 ---
-apiVersion: apps/v1
-kind: StatefulSet
+apiVersion: v1
+kind: Secret
 metadata:
-  labels:
-    app: postgresql
-  name: postgresql
-  namespace: keycloak
+  name: keycloak-db-app
+  namespace: adhar-system
+type: Opaque
+stringData:
+  username: keycloak
+  password: keycloakpass
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keycloak-db
+  namespace: adhar-system
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgresql
-  serviceName: service-postgresql
-  template:
-    metadata:
-      labels:
-        app: postgresql
-    spec:
-      containers:
-        - envFrom:
-            - secretRef:
-                name: keycloak-config
-          image: docker.io/library/postgres:15.3-alpine3.18
-          name: postgres
-          ports:
-            - containerPort: 5432
-              name: postgresdb
-          resources:
-            limits:
-              memory: 500Mi
-            requests:
-              cpu: 100m
-              memory: 300Mi
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/postgresql/data
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: "500Mi"
+  instances: 1
+  storage:
+    size: 1Gi
+  superuserSecret:
+    name: keycloak-db-superuser
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
+      secret:
+        name: keycloak-db-app
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: keycloak-route
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "100"
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+      sectionName: https
+    - name: adhar-gateway
+      namespace: adhar-system
+      sectionName: http-localhost
+    - name: adhar-gateway
+      namespace: adhar-system
+      sectionName: https-alt
+  hostnames:
+    - "adhar.localtest.me"
+    - "localhost"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /keycloak
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            add:
+              - name: X-Forwarded-Proto
+                value: https
+              - name: X-Forwarded-Host
+                value: adhar.localtest.me
+              - name: X-Forwarded-Prefix
+                value: /keycloak
+              - name: X-Forwarded-Port
+                value: "443"
+            set:
+              - name: Host
+                value: adhar.localtest.me
+      backendRefs:
+        - name: keycloak
+          namespace: adhar-system
+          port: 8080
