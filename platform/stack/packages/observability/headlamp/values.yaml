@@ -33,73 +33,25 @@ config:
   # -- base url path at which headlamp should run
   baseURL: ""
   oidc:
-    clientID: "headlamp"
-    clientSecret: "{{HEADLAMP_CLIENT_SECRET}}"
-    issuerURL: "http://keycloak.keycloak.svc.cluster.local:8080/keycloak/realms/adhar"
-    scopes: "email,profile"
-    # Option 1:
-    # @param config.oidc.secret - OIDC secret configuration
-    # If you want to use an existing secret, set create to false and provide the name of the secret.
-    # If you want to create a new secret, set create to true and provide the name of the secret.
-    # Also provide the values for clientID, clientSecret, issuerURL, and scopes.
-    # Example:
-    # config:
-    #   oidc:
-    #     secret:
-    #       create: true
-    #       name: oidc
-    secret:
-      # -- Generate OIDC secret. If true, will generate a secret using .config.oidc.
-      create: true
-      # -- Name of the OIDC secret.
-      name: oidc
-
-    # Option 2:
-    # @param config.oidc - OIDC env configuration
-    # If you want to set the OIDC configuration directly, set the following values.
-    # Example:
-    # config:
-    #   oidc:
-    #     clientID: "clientID"
-    #     clientSecret: "clientSecret"
-    #     issuerURL: "issuerURL"
-    #     scopes: "scopes"
-
     # -- OIDC client ID
-    clientID: ""
-    # -- OIDC client secret
+    clientID: "headlamp"
+    # -- OIDC client secret (will be injected from keycloak-clients secret)
     clientSecret: ""
-    # -- OIDC issuer URL
-    issuerURL: ""
+    # -- OIDC issuer URL (Keycloak adhar realm)
+    issuerURL: "https://adhar.localtest.me/keycloak/realms/adhar"
     # -- OIDC scopes to be used
-    scopes: ""
+    scopes: "openid,profile,email,groups"
     # -- OIDC callback URL
-    callbackURL: ""
-
-    # -- OIDC client to be used during token validation
-    validatorClientID: ""
-    # -- OIDC Issuer URL to be used during token validation
-    validatorIssuerURL: ""
-    # -- Use 'access_token' instead of 'id_token' when authenticating using OIDC
-    useAccessToken: false
-    # -- Use PKCE (Proof Key for Code Exchange) for enhanced security in OIDC flow
-    usePKCE: false
-
-    # Option 3:
-    # @param config.oidc - External OIDC secret configuration
-    # If you want to use an external secret for OIDC configuration, enable this option.
-    # Provide the name of the secret to use.
-    # Example:
-    # config:
-    #   oidc:
-    #     secret:
-    #       create: false
-    #     externalSecret:
-    #       enabled: true
-    #       name: oidc
+    callbackURL: "https://headlamp.adhar.localtest.me/oidc-callback"
+    # Use external secret for OIDC configuration from keycloak-clients
+    secret:
+      # -- Don't generate OIDC secret, use external secret instead
+      create: false
+      name: headlamp-oidc
     externalSecret:
-      enabled: false
-      name: ""
+      # -- Use external secret for OIDC
+      enabled: true
+      name: headlamp-oidc
 
     # -- URL to fetch additional user info for the /me endpoint.
     # For oauth2proxy /oauth2/userinfo can be used. Empty and it will not be used.

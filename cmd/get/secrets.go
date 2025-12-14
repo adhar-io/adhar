@@ -199,6 +199,10 @@ func getAllPlatformSecrets(clientset *kubernetes.Clientset) error {
 		platformSecrets = append(platformSecrets, *giteaAdminSecret)
 	}
 
+	// Add virtual Keycloak test user secrets
+	keycloakUserSecrets := createKeycloakUserSecrets(clientset)
+	platformSecrets = append(platformSecrets, keycloakUserSecrets...)
+
 	if len(platformSecrets) == 0 {
 		logger.Info("No platform secrets found")
 		return nil
@@ -216,6 +220,7 @@ func isPlatformSecret(secretName string) bool {
 		"argocd-initial-admin-secret", // ArgoCD admin credentials
 		"gitea-admin-credentials",     // Gitea admin credentials (virtual secret)
 		"keycloak-",                   // Keycloak related secrets
+		"headlamp-oidc",               // Headlamp OIDC credentials
 	}
 
 	for _, pattern := range essentialPatterns {
@@ -314,6 +319,57 @@ func createGiteaAdminSecret(clientset *kubernetes.Clientset) (*corev1.Secret, er
 	}
 
 	return nil, fmt.Errorf("Gitea admin credentials not found in deployment")
+}
+
+// createKeycloakUserSecrets creates virtual secrets for Keycloak test users (user1, user2)
+func createKeycloakUserSecrets(clientset *kubernetes.Clientset) []corev1.Secret {
+	var secrets []corev1.Secret
+
+	// Get the USER_PASSWORD from keycloak-config secret
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	keycloakConfig, err := clientset.CoreV1().Secrets("adhar-system").Get(ctx, "keycloak-config", metav1.GetOptions{})
+	if err != nil {
+		return secrets
+	}
+
+	userPassword, exists := keycloakConfig.Data["USER_PASSWORD"]
+	if !exists || len(userPassword) == 0 {
+		return secrets
+	}
+
+	// Create virtual secrets for user1 and user2
+	// user1 is in admin group, user2 is in base-user group
+	user1Secret := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "keycloak-user1",
+			Namespace: "adhar-system",
+		},
+		Data: map[string][]byte{
+			"username": []byte("user1"),
+			"password": userPassword,
+			"email":    []byte("user1@noreply.com"),
+			"group":    []byte("admin"),
+		},
+	}
+	secrets = append(secrets, user1Secret)
+
+	user2Secret := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "keycloak-user2",
+			Namespace: "adhar-system",
+		},
+		Data: map[string][]byte{
+			"username": []byte("user2"),
+			"password": userPassword,
+			"email":    []byte("user2@noreply.com"),
+			"group":    []byte("base-user"),
+		},
+	}
+	secrets = append(secrets, user2Secret)
+
+	return secrets
 }
 
 // displaySecrets displays secrets in a formatted table
@@ -431,6 +487,36 @@ func extractSecretInfo(secret corev1.Secret) SecretInfo {
 		if adminPass, exists := secret.Data["password"]; exists {
 			info.Username = "admin"
 			info.Password = string(adminPass)
+		}
+	case strings.Contains(strings.ToLower(secret.Name), "keycloak-clients"):
+		// Keycloak clients secret - OAuth client credentials
+		info.Username = "adhar-client"
+		if clientSecret, exists := secret.Data["CLIENT_SECRET"]; exists {
+			info.Password = string(clientSecret)
+		}
+	case secret.Name == "keycloak-config":
+		// Keycloak config has the admin password for adhar-admin
+		info.Username = "adhar-admin"
+		if adminPass, exists := secret.Data["KEYCLOAK_ADMIN_PASSWORD"]; exists {
+			info.Password = string(adminPass)
+		}
+	case secret.Name == "headlamp-oidc":
+		// Headlamp OIDC credentials
+		info.Username = "headlamp (OIDC)"
+		if clientSecret, exists := secret.Data["clientSecret"]; exists {
+			info.Password = string(clientSecret)
+		}
+	case secret.Name == "keycloak-user1":
+		// Keycloak test user1 (admin group)
+		info.Username = "user1 (admin)"
+		if password, exists := secret.Data["password"]; exists {
+			info.Password = string(password)
+		}
+	case secret.Name == "keycloak-user2":
+		// Keycloak test user2 (base-user group)
+		info.Username = "user2 (base-user)"
+		if password, exists := secret.Data["password"]; exists {
+			info.Password = string(password)
 		}
 	case strings.Contains(strings.ToLower(secret.Name), "gitea-admin-credentials"):
 		// Virtual Gitea admin secret from deployment
@@ -576,6 +662,10 @@ func getSecretIcon(secretName string) string {
 		return "🚀"
 	case strings.Contains(secretName, "gitea"):
 		return "🦊"
+	case strings.Contains(secretName, "headlamp"):
+		return "💡"
+	case strings.Contains(secretName, "keycloak-user"):
+		return "👤"
 	case strings.Contains(secretName, "keycloak"):
 		return "🔐"
 	case strings.Contains(secretName, "vault"):

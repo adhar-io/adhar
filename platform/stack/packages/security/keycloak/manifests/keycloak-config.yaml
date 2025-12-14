@@ -200,13 +200,13 @@ data:
         "oidc.ciba.grant.enabled": false
       },
       "alwaysDisplayInConsole": false,
-      "rootUrl": "",
-      "baseUrl": "",
+      "rootUrl": "https://headlamp.adhar.localtest.me",
+      "baseUrl": "/",
       "redirectUris": [
-        "https://adhar.localtest.me:8443/api/auth/keycloak-oidc/handler/frame"
+        "https://headlamp.adhar.localtest.me/oidc-callback"
       ],
       "webOrigins": [
-        "/*"
+        "https://headlamp.adhar.localtest.me"
       ]
     }
 

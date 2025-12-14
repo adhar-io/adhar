@@ -61,6 +61,18 @@ spec:
       allowedRoutes:
         namespaces:
           from: Same
+    # Headlamp subdomain - Headlamp doesn't support path prefixes, so use subdomain
+    - name: https-headlamp
+      protocol: HTTPS
+      port: 443
+      hostname: "headlamp.adhar.localtest.me"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: adhar-cert
+      allowedRoutes:
+        namespaces:
+          from: Same
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute

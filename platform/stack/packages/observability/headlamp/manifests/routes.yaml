@@ -1,3 +1,5 @@
+# Headlamp UI - uses subdomain because Headlamp doesn't support path prefixes
+# Access via: https://headlamp.adhar.localtest.me/
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -9,30 +11,15 @@ spec:
   parentRefs:
     - name: adhar-gateway
       namespace: adhar-system
-      sectionName: https
-    - name: adhar-gateway
-      namespace: adhar-system
-      sectionName: https-alt
+      sectionName: https-headlamp
   hostnames:
-    - "adhar.localtest.me"
+    - "headlamp.adhar.localtest.me"
   rules:
+    # All requests to headlamp subdomain go to headlamp
     - matches:
         - path:
             type: PathPrefix
-            value: /headlamp
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
-        - type: RequestHeaderModifier
-          requestHeaderModifier:
-            add:
-              - name: X-Forwarded-Prefix
-                value: /headlamp
-              - name: X-Forwarded-Proto
-                value: https
+            value: /
       backendRefs:
         - name: headlamp
           namespace: adhar-system
