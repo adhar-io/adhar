@@ -50,9 +50,9 @@ This command creates a kind cluster, expose associated endpoints to your local m
 They are deployed as ArgoCD Applications with the Gitea repositories set as their sources. 
 
 UIs for Backstage, Gitea, and ArgoCD are accessible on the machine:
-* Gitea: https://adhar.localtest.me/gitea/explore/repos
-* Backstage: https://adhar.localtest.me/console/
-* ArgoCD: https://adhar.localtest.me/argocd/applications
+* Gitea: https://adhar.localtest.me:8443/gitea/explore/repos
+* Backstage: https://adhar.localtest.me:8443/console/
+* ArgoCD: https://adhar.localtest.me:8443/argocd/applications
 
 #### Getting credentials for packages
 

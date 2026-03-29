@@ -16,7 +16,7 @@ globalSettings:
   adharContext: "adhar-mgmt"
   defaultHost: "cloud.adhar.io"
   defaultHttpPort: 80
-  defaultHttpsPort: 443
+  defaultHttpsPort: 8443
   enableHAMode: false
   email: "YOUR_EMAIL@example.com"
 

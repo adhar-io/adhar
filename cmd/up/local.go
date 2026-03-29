@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	stdlog "log"
+
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
@@ -36,6 +38,7 @@ import (
 	"adhar-io/adhar/platform/providers/kind"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/stdr"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -76,6 +79,7 @@ type LocalOptions struct {
 	CustomPackageUrls         []string
 	PackageCustomization      map[string]v1alpha1.PackageCustomization
 	ExitOnSync                bool
+	StackDir                  string
 	Scheme                    *runtime.Scheme
 	CancelFunc                context.CancelFunc
 }
@@ -93,76 +97,74 @@ func NewLocalProvisioner(options *LocalOptions) *LocalProvisioner {
 // LocalProvisioner handles local development environment creation
 func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error {
 
-	logger.Info("Creating kind cluster")
+	// Step 1: Create Kind cluster
+	logger.Info("Creating Kind cluster...")
 	if err := lp.ReconcileKindCluster(ctx, recreateCluster); err != nil {
 		return err
 	}
 
-	logger.Info("Getting Kube config")
 	kubeConfig, err := lp.GetKubeConfig()
 	if err != nil {
 		return err
 	}
-
-	logger.Info("Getting Kube client")
 	kubeClient, err := lp.GetKubeClient(kubeConfig)
 	if err != nil {
 		return err
 	}
 
-	logger.Info("Adding CRDs to the cluster")
+	// Step 2: Install CRDs
+	logger.Info("Installing platform CRDs...")
 	if err := lp.ReconcileCRDs(ctx, kubeClient); err != nil {
 		return err
 	}
 
-	logger.Info("Creating controller manager")
-
 	// Set up controller-runtime logger
-	ctrl.SetLogger(logr.Discard())
+	// Verbose mode: show all controller-runtime messages
+	// Normal mode: completely silent (key events routed through CLI logger)
+	if lp.options.Verbose {
+		stdr.SetVerbosity(1)
+		ctrl.SetLogger(stdr.New(stdlog.New(os.Stderr, "", stdlog.LstdFlags)))
+	} else {
+		ctrl.SetLogger(logr.Discard())
+	}
 
-	// Create controller manager with graceful shutdown timeout
 	mgr, err := manager.New(kubeConfig, manager.Options{
 		Scheme: lp.options.Scheme,
 		Metrics: server.Options{
 			BindAddress: "0",
 		},
 		GracefulShutdownTimeout: func() *time.Duration {
-			d := 5 * time.Second
+			d := 30 * time.Second
 			return &d
 		}(),
 	})
 	if err != nil {
-		logger.Error("Error creating controller manager", err, map[string]interface{}{})
-		return err
+		return fmt.Errorf("creating controller manager: %w", err)
 	}
 
 	dir, err := os.MkdirTemp("", fmt.Sprintf("%s-%s-", globals.ProjectName, lp.options.Name))
 	if err != nil {
-		logger.Error("creating temp dir", err, map[string]interface{}{})
-		return err
+		return fmt.Errorf("creating temp dir: %w", err)
 	}
 	defer os.RemoveAll(dir)
-	logger.Info("Created temp directory for cloning repositories")
 
-	logger.Info("Setting up CoreDNS")
+	// Step 3: Setup networking
+	logger.Info("Configuring CoreDNS and TLS certificates...")
 	err = kind.SetupCoreDNS(ctx, kubeClient, lp.options.Scheme, lp.options.TemplateData)
 	if err != nil {
 		return err
 	}
-
-	logger.Info("Setting up TLS certificate")
 	cert, err := kind.SetupSelfSignedCertificate(ctx, kubeClient, lp.options.TemplateData)
 	if err != nil {
 		return err
 	}
 	lp.options.TemplateData.SelfSignedCert = string(cert)
 
+	// Step 4: Start platform controllers and deploy services
+	logger.Info("Starting platform reconciliation (Cilium, Nginx, ArgoCD, Gitea)...")
 	managerExit := make(chan error)
-
-	logger.Info("Running controllers")
 	if err := lp.RunControllers(ctx, mgr, managerExit, dir); err != nil {
-		logger.Error("Error running controllers", err, map[string]interface{}{})
-		return err
+		return fmt.Errorf("starting controllers: %w", err)
 	}
 
 	localBuild := v1alpha1.AdharPlatform{
@@ -174,7 +176,6 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 
 	cliStartTime := time.Now().Format(time.RFC3339Nano)
 
-	logger.Info("Creating adharplatform resource")
 	_, err = controllerutil.CreateOrUpdate(ctx, kubeClient, &localBuild, func() error {
 		if localBuild.ObjectMeta.Annotations == nil {
 			localBuild.ObjectMeta.Annotations = map[string]string{}
@@ -205,18 +206,29 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 
 	select {
 	case mgrErr := <-managerExit:
-		if mgrErr != nil {
+		// Manager exited on its own — check if it's a real error
+		if mgrErr != nil && !isShutdownError(mgrErr) {
 			return mgrErr
 		}
 	case <-ctx.Done():
-		// Context was cancelled - wait for manager to finish cleanly
-		logger.Info("Context cancelled - waiting for controller manager to finish")
-		if mgrErr := <-managerExit; mgrErr != nil && mgrErr != context.Canceled {
+		// Context cancelled — controller signalled successful shutdown
+		if mgrErr := <-managerExit; mgrErr != nil && !isShutdownError(mgrErr) {
 			return mgrErr
 		}
-		return nil
 	}
 	return nil
+}
+
+// isShutdownError returns true for errors that are expected during graceful shutdown
+func isShutdownError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return err == context.Canceled ||
+		strings.Contains(msg, "context canceled") ||
+		strings.Contains(msg, "grace period") ||
+		strings.Contains(msg, "context deadline exceeded")
 }
 
 // runPreFlightChecks validates system requirements
@@ -275,6 +287,16 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		maybeRegistryConfig = registryConfig
 	}
 
+	// Resolve the stack directory (first package dir or default)
+	stackDir := "platform/stack"
+	if len(localDirs) > 0 {
+		stackDir = localDirs[0]
+	}
+	absStackDir, err := filepath.Abs(stackDir)
+	if err != nil {
+		return fmt.Errorf("resolving stack directory path: %w", err)
+	}
+
 	// Create LocalProvisioner with options
 	options := &LocalOptions{
 		Name:                      globals.DefaultClusterName,
@@ -299,6 +321,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		CustomPackageDirs:         localDirs,
 		CustomPackageUrls:         remotePaths,
 		ExitOnSync:                exitOnSync,
+		StackDir:                  absStackDir,
 		PackageCustomization:      o,
 		Scheme:                    k8s.GetScheme(),
 		CancelFunc:                ctxCancel,
@@ -426,24 +449,6 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 
 // printSuccessMsg prints success message for local development cluster
 func printSuccessMsg() {
-	var argoURL string
-
-	// For local development (Kind clusters), use clean URLs without ports
-	proxy := behindProxy()
-	if proxy {
-		argoURL = fmt.Sprintf("https://%s/argocd", host)
-	} else if host == globals.DefaultHostName { // adhar.localtest.me (Kind cluster)
-		// Kind clusters use direct port mapping, show clean URLs
-		argoURL = fmt.Sprintf("https://%s/argocd", host)
-	} else {
-		// Production clusters or custom domains may need port specification
-		if pathRouting {
-			argoURL = fmt.Sprintf("%s://%s:%s/argocd", protocol, host, port)
-		} else {
-			argoURL = fmt.Sprintf("%s://argocd.%s:%s", protocol, host, port)
-		}
-	}
-
 	fmt.Print("\n\n########################### Finished Creating Adhar IDP Successfully! ############################\n\n")
 	fmt.Printf("🎉 %s\n\n", helpers.BoldStyle.Render("Local Development Platform Ready!"))
 	fmt.Printf("Your Adhar platform includes:\n")
@@ -453,25 +458,16 @@ func printSuccessMsg() {
 	fmt.Printf("  ✅ Gitea for Git repository hosting\n")
 	fmt.Printf("  ✅ Ingress-Nginx for traffic routing\n")
 	fmt.Printf("  ✅ Platform observability stack\n\n")
-	fmt.Printf("%s\n", helpers.BoldStyle.Render("Quick Access:"))
-	fmt.Printf("ArgoCD Dashboard: %s\n", argoURL)
-
-	// Add Hubble URL for network observability
-	var hubbleURL string
-	if proxy {
-		hubbleURL = fmt.Sprintf("https://%s/hubble", host)
-	} else if host == globals.DefaultHostName {
-		hubbleURL = fmt.Sprintf("https://%s/hubble", host)
-	} else {
-		if pathRouting {
-			hubbleURL = fmt.Sprintf("%s://%s:%s/hubble", protocol, host, port)
-		} else {
-			hubbleURL = fmt.Sprintf("%s://hubble.%s:%s", protocol, host, port)
-		}
+	baseURL := fmt.Sprintf("%s://%s:%s", protocol, host, port)
+	if behindProxy() {
+		baseURL = fmt.Sprintf("https://%s", host)
 	}
-	fmt.Printf("Hubble UI (Network Observability): %s\n", hubbleURL)
-	fmt.Printf("Username: admin\n")
-	fmt.Printf("Password: Run `adhar get secrets -p argocd`\n\n")
+
+	fmt.Printf("%s\n", helpers.BoldStyle.Render("Quick Access:"))
+	fmt.Printf("  Adhar Console: %s\n", baseURL)
+	fmt.Printf("  ArgoCD:        %s/argocd\n", baseURL)
+	fmt.Printf("  Gitea:         %s/gitea\n", baseURL)
+	fmt.Printf("\n  Credentials:   Run %s\n\n", helpers.HighlightStyle.Render("adhar get secrets"))
 	fmt.Printf("%s\n", helpers.BoldStyle.Render("Next Steps:"))
 	fmt.Printf("1. Deploy your first application via ArgoCD\n")
 	fmt.Printf("2. Push code to the integrated Gitea instance\n")
@@ -593,7 +589,7 @@ func (b *LocalProvisioner) ReconcileCRDs(ctx context.Context, kubeClient client.
 }
 
 func (b *LocalProvisioner) RunControllers(ctx context.Context, mgr manager.Manager, exitCh chan error, tmpDir string) error {
-	return controllers.RunControllers(ctx, mgr, exitCh, b.options.CancelFunc, b.options.ExitOnSync, b.options.TemplateData, tmpDir)
+	return controllers.RunControllers(ctx, mgr, exitCh, b.options.CancelFunc, b.options.ExitOnSync, b.options.TemplateData, tmpDir, b.options.StackDir)
 }
 
 func (b *LocalProvisioner) isCompatible(ctx context.Context, kubeClient client.Client) (bool, error) {

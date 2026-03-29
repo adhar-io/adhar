@@ -442,19 +442,15 @@ kind: Ingress
 metadata:
   name: backstage
   namespace: backstage
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   ingressClassName: "nginx"
+  tls:
+    - hosts:
+        - adhar.localtest.me
+      secretName: adhar-cert
   rules:
-    - host: localhost
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: backstage
-                port:
-                  name: http
     - host: adhar.localtest.me
       http:
         paths:

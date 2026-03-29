@@ -17,9 +17,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/k8s"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"time"
 )
 
 //go:embed resources/nginx/*
@@ -154,6 +158,22 @@ func (r *AdharPlatformReconciler) ReconcileNginx(ctx context.Context, req ctrl.R
 		combinedErr := fmt.Errorf("encountered %d errors applying nginx manifest: %v", len(applyErrors), applyErrors)
 		logger.Error(combinedErr, "Failed to apply all Nginx resources")
 		return ctrl.Result{}, combinedErr
+	}
+
+	// Wait for the Nginx controller deployment to be ready before marking available
+	// This ensures the admission webhook is accessible for subsequent Ingress creation
+	logger.Info("Waiting for Nginx controller deployment to be ready...")
+	for i := 0; i < 30; i++ {
+		var dep appsv1.Deployment
+		err = r.Get(ctx, types.NamespacedName{Name: "ingress-nginx-controller", Namespace: globals.AdharSystemNamespace}, &dep)
+		if err == nil && dep.Status.ReadyReplicas > 0 && dep.Status.AvailableReplicas > 0 {
+			logger.Info("Nginx controller is ready")
+			break
+		}
+		if i == 29 {
+			logger.Info("Nginx controller not fully ready yet, proceeding anyway")
+		}
+		time.Sleep(10 * time.Second)
 	}
 
 	resource.Status.Nginx.Available = true

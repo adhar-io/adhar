@@ -276,7 +276,7 @@ func getProviderInfo(currentContext string) string {
 		providerInfo.WriteString(fmt.Sprintf("📝 Cluster Name: %s\n\n", clusterName))
 		providerInfo.WriteString("🔧 Kind Cluster Details:\n")
 		providerInfo.WriteString("  • Local development cluster running in Docker\n")
-		providerInfo.WriteString("  • Access services via: https://adhar.localtest.me\n")
+		providerInfo.WriteString("  • Access services via: https://adhar.localtest.me:8443\n")
 		providerInfo.WriteString("  • Get service passwords with: adhar get secrets -p <provider>")
 	} else {
 		// Try to detect other providers

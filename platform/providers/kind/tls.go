@@ -206,19 +206,19 @@ func SetupSelfSignedCertificate(ctx context.Context, kubeclient client.Client, c
 		sans = append(sans, config.IngressHost, fmt.Sprintf("*.%s", config.IngressHost))
 	}
 
-	logger.Info("Creating/getting certificate")
+	logger.Debug("Creating/getting certificate")
 	cert, privateKey, err := getOrCreateIngressCertificateAndKey(ctx, kubeclient, globals.SelfSignedCertSecretName, globals.AdharSystemNamespace, sans)
 	if err != nil {
 		return nil, err
 	}
 
-	logger.Info("Creating secret for certificate")
+	logger.Debug("Creating secret for certificate")
 	err = createIngressCertificateSecret(ctx, kubeclient, cert)
 	if err != nil {
 		return nil, err
 	}
 
-	logger.Info("Creating secret for ArgoCD server")
+	logger.Debug("Creating secret for ArgoCD server")
 	err = createCertificateAndKeySecret(ctx, kubeclient, argocdTLSSecretName, globals.AdharSystemNamespace, cert, privateKey)
 	if err != nil {
 		return nil, err

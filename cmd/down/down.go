@@ -20,6 +20,7 @@ import (
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/logger"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -320,22 +321,25 @@ func startClusterTeardown() tea.Cmd {
 
 		for _, clusterName := range clusterNames {
 			deleteArgs := []string{"delete", "cluster", "--name", clusterName}
-			deleteCmd := exec.Command("kind", deleteArgs...)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			deleteCmd := exec.CommandContext(ctx, "kind", deleteArgs...)
 			output, err := deleteCmd.CombinedOutput()
+			cancel()
 
 			if err == nil {
-				// Successfully deleted a cluster
 				deleteOutput = string(output)
 				break
-			} else {
-				// Try the next cluster name
-				continue
 			}
+			// If kind delete fails, also try removing leftover docker containers
+			containerName := clusterName + "-control-plane"
+			_ = exec.Command("docker", "rm", "-f", containerName).Run()
 		}
 
-		// If we couldn't delete any cluster, return an error
+		// Also clean up the kind docker network if it exists
+		_ = exec.Command("docker", "network", "rm", "kind").Run()
+
 		if deleteOutput == "" {
-			return logger.ErrorMsg{Err: fmt.Errorf("failed to delete any cluster. Tried: %v", clusterNames)}
+			return logger.ErrorMsg{Err: fmt.Errorf("failed to delete cluster. Tried: %v", clusterNames)}
 		}
 
 		// Add the command output for verbose mode on success

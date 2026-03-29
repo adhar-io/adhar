@@ -47,12 +47,12 @@ This command will:
 
 Once provisioning is complete, you can access the platform services:
 
-- **Adhar Console**: <https://adhar.localtest.me/> (Self-service portal)
-- **ArgoCD**: <https://adhar.localtest.me/argocd/> (GitOps deployments)
-- **Gitea**: <https://adhar.localtest.me/gitea/> (Git repositories)
-- **Keycloak**: <https://adhar.localtest.me/keycloak/> (Identity management)
-- **Headlamp**: <https://adhar.localtest.me/headlamp/> (Kubernetes UI)
-- **JupyterHub**: <https://adhar.localtest.me/jupyterhub/> (Notebooks)
+- **Adhar Console**: <https://adhar.localtest.me:8443/> (Self-service portal)
+- **ArgoCD**: <https://adhar.localtest.me:8443/argocd/> (GitOps deployments)
+- **Gitea**: <https://adhar.localtest.me:8443/gitea/> (Git repositories)
+- **Keycloak**: <https://adhar.localtest.me:8443/keycloak/> (Identity management)
+- **Headlamp**: <https://adhar.localtest.me:8443/headlamp/> (Kubernetes UI)
+- **JupyterHub**: <https://adhar.localtest.me:8443/jupyterhub/> (Notebooks)
 
 ### 3. Get Credentials
 

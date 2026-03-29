@@ -330,25 +330,25 @@ adhar env list
 
 ### Accessing Services
 
-All platform services are accessible via the Adhar Console at `https://adhar.localtest.me/` (local) or your configured domain.
+All platform services are accessible via the Adhar Console at `https://adhar.localtest.me:8443/` (local) or your configured domain.
 
 #### ArgoCD
-- **URL**: `https://adhar.localtest.me/argocd/`
+- **URL**: `https://adhar.localtest.me:8443/argocd/`
 - **Purpose**: GitOps continuous delivery
 - **Credentials**: Run `adhar get secrets argocd`
 
 #### Gitea
-- **URL**: `https://adhar.localtest.me/gitea/`
+- **URL**: `https://adhar.localtest.me:8443/gitea/`
 - **Purpose**: Git repository hosting
 - **Credentials**: Run `adhar get secrets gitea`
 
 #### Harbor
-- **URL**: `https://adhar.localtest.me/harbor/`
+- **URL**: `https://adhar.localtest.me:8443/harbor/`
 - **Purpose**: Container registry
 - **Credentials**: Run `adhar get secrets harbor`
 
 #### Grafana
-- **URL**: `https://adhar.localtest.me/grafana/`
+- **URL**: `https://adhar.localtest.me:8443/grafana/`
 - **Purpose**: Metrics visualization
 - **Credentials**: Run `adhar get secrets grafana`
 
@@ -363,7 +363,7 @@ Adhar includes pre-configured Prometheus for metrics collection and Grafana for 
 **Access Dashboards**:
 ```bash
 # Open Grafana
-open https://adhar.localtest.me/grafana/
+open https://adhar.localtest.me:8443/grafana/
 
 # Pre-installed dashboards:
 # - Kubernetes Cluster Monitoring
@@ -393,7 +393,7 @@ Distributed tracing for microservices.
 
 **Access Jaeger UI**:
 ```bash
-open https://adhar.localtest.me/jaeger/
+open https://adhar.localtest.me:8443/jaeger/
 ```
 
 ---

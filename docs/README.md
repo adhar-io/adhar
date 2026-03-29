@@ -56,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install
 adhar up
 
 # Access the platform
-open https://adhar.localtest.me
+open https://adhar.localtest.me:8443
 ```
 
 ---

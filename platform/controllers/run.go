@@ -22,6 +22,7 @@ func RunControllers(
 	exitOnSync bool,
 	cfg v1alpha1.BuildCustomizationSpec,
 	tmpDir string,
+	stackDir string,
 ) error {
 	logger := log.FromContext(ctx)
 
@@ -35,6 +36,7 @@ func RunControllers(
 		CancelFunc: ctxCancel,
 		Config:     cfg,
 		TempDir:    tmpDir,
+		StackDir:   stackDir,
 		RepoMap:    repoMap,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create adharplatform controller")

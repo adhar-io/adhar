@@ -223,7 +223,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("globalSettings.adharContext", "adhar-mgmt")
 	v.SetDefault("globalSettings.defaultHost", "platform.adhar.io")
 	v.SetDefault("globalSettings.defaultHttpPort", 80)
-	v.SetDefault("globalSettings.defaultHttpsPort", 443)
+	v.SetDefault("globalSettings.defaultHttpsPort", 8443)
 	v.SetDefault("globalSettings.enableHAMode", false)
 	v.SetDefault("globalSettings.email", "admin@adhar.io")
 
@@ -370,7 +370,7 @@ func getDefaultKindConfig() Config {
 			AdharContext:     "adhar-mgmt",
 			DefaultHost:      "platform.adhar.io",
 			DefaultHttpPort:  80,
-			DefaultHttpsPort: 443,
+			DefaultHttpsPort: 8443,
 			EnableHAMode:     false,
 			Email:            "admin@adhar.io",
 		},
@@ -398,8 +398,8 @@ func getDefaultKindConfig() Config {
 							{
 								"role": "control-plane",
 								"extra_port_mappings": []map[string]interface{}{
-									{"container_port": 80, "host_port": 80},
-									{"container_port": 443, "host_port": 443},
+									{"container_port": 80, "host_port": 8080},
+									{"container_port": 443, "host_port": 8443},
 								},
 							},
 							{"role": "worker"},

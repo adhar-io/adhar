@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -75,6 +76,33 @@ func (c *Cluster) getConfig() ([]byte, error) {
 		return nil, errors.New("--registry-config flag used but no registry config was found")
 	}
 
+	// Derive host port bindings from the --port flag (default 8443)
+	// If the desired ports are already in use, automatically find free ports
+	httpsPort := 8443
+	httpPort := 8080
+	if c.cfg.Port != "" {
+		if p, pErr := strconv.Atoi(c.cfg.Port); pErr == nil {
+			httpsPort = p
+			httpPort = p - 363 // e.g. 8443 -> 8080, 9443 -> 9080
+			if httpPort <= 0 {
+				httpPort = p - 1
+			}
+		}
+	}
+
+	// Auto-find free ports if the desired ones are occupied
+	httpPort, err = findFreePort(httpPort)
+	if err != nil {
+		return nil, fmt.Errorf("finding free HTTP port: %w", err)
+	}
+	httpsPort, err = findFreePort(httpsPort)
+	if err != nil {
+		return nil, fmt.Errorf("finding free HTTPS port: %w", err)
+	}
+
+	// Update cfg.Port to reflect the actual HTTPS port (used by success messages, Ingress configs)
+	c.cfg.Port = strconv.Itoa(httpsPort)
+
 	var retBuff []byte
 	if retBuff, err = files.ApplyTemplate(rawConfigTempl, TemplateConfig{
 		BuildCustomizationSpec: c.cfg,
@@ -82,8 +110,8 @@ func (c *Cluster) getConfig() ([]byte, error) {
 		ExtraPortsMapping:      portMappingPairs,
 		RegistryConfig:         registryConfig,
 		RegistryCertsDir:       registryCertsDir,
-		HTTPPort:               80,
-		HTTPSPort:              443,
+		HTTPPort:               httpPort,
+		HTTPSPort:              httpsPort,
 	}); err != nil {
 		return nil, err
 	}
@@ -194,10 +222,7 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 		return err
 	}
 
-	fmt.Print("########################### Adhar Kind Config ############################\n")
-	fmt.Printf("%s", rawConfig)
-	fmt.Print("\n#########################   config end    ############################\n")
-
+	setupLog.V(1).Info("Kind cluster config generated", "config", string(rawConfig))
 	setupLog.Info("Creating kind cluster", "cluster", c.name)
 
 	if err = c.provider.Create(
@@ -298,4 +323,22 @@ nodes:
 	}
 
 	return parsedCluster, nil
+}
+
+// findFreePort checks if the desired port is available, and if not, scans upward
+// to find the next free port. This prevents "port already in use" failures when
+// other services (httpd, other Kind clusters, etc.) occupy the default ports.
+func findFreePort(desired int) (int, error) {
+	for port := desired; port < desired+100; port++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			continue // port in use, try next
+		}
+		ln.Close()
+		if port != desired {
+			setupLog.Info("Port in use, using alternative", "desired", desired, "using", port)
+		}
+		return port, nil
+	}
+	return 0, fmt.Errorf("no free port found in range %d-%d", desired, desired+100)
 }

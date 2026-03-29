@@ -72,7 +72,7 @@ curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/scripts/install.sh |
 adhar up
 
 #3. Access the platform, Adhar Console
-open https://adhar.localtest.me
+open https://adhar.localtest.me:8443
 
 #4. Retrieve application secrets
 adhar get secrets

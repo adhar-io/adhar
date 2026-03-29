@@ -63,7 +63,7 @@ spec:
   tls:
     - hosts:
         - adhar.localtest.me
-      secretName: adhar-localtest-tls
+      secretName: adhar-cert
   rules:
     - host: adhar.localtest.me
       http:
