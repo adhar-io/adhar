@@ -366,9 +366,9 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 </tr>
 <tr>
 <td align="center" width="20%">
-<a href="https://aquasecurity.github.io/trivy">
-<img src="https://logo.svgcdn.com/simple-icons/trivy-dark.svg" width="80px" alt="Trivy"/>
-<br/><b>Trivy</b>
+<a href="https://backstage.io">
+<img src="https://raw.githubusercontent.com/cncf/artwork/master/projects/backstage/icon/color/backstage-icon-color.svg" width="80px" alt="Backstage"/>
+<br/><b>Backstage</b>
 </a>
 </td>
 <td align="center" width="20%">
@@ -384,15 +384,15 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 </a>
 </td>
 <td align="center" width="20%">
-<a href="https://cert-manager.io">
-<img src="https://raw.githubusercontent.com/cncf/artwork/master/projects/cert-manager/icon/color/cert-manager-icon-color.svg" width="80px" alt="cert-manager"/>
-<br/><b>cert-manager</b>
+<a href="https://kargo.io">
+<img src="https://raw.githubusercontent.com/akuity/kargo/main/docs/static/img/kargo.png" width="80px" alt="Kargo"/>
+<br/><b>Kargo</b>
 </a>
 </td>
 <td align="center" width="20%">
-<a href="https://helm.sh">
-<img src="https://raw.githubusercontent.com/cncf/artwork/master/projects/helm/icon/color/helm-icon-color.svg" width="80px" alt="Helm"/>
-<br/><b>Helm</b>
+<a href="https://cloudnative-pg.io">
+<img src="https://raw.githubusercontent.com/cncf/artwork/refs/heads/main/projects/cloudnativepg/icon/color/cloudnativepg-icon-color.svg" width="80px" alt="CloudNativePG"/>
+<br/><b>CloudNativePG</b>
 </a>
 </td>
 </tr>

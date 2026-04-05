@@ -9,8 +9,8 @@ metadata:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/version: 17.6.0
+    helm.sh/chart: postgresql-16.7.27
     app.kubernetes.io/component: primary
 spec:
   podSelector:
@@ -27,6 +27,34 @@ spec:
     - ports:
         - port: 5432
 ---
+# Source: gitea/charts/valkey/templates/networkpolicy.yaml
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: gitea-valkey
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+    app.kubernetes.io/part-of: valkey
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: gitea
+      app.kubernetes.io/name: valkey
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - {}
+  ingress:
+    # Allow inbound connections
+    - ports:
+        - port: 6379
+---
 # Source: gitea/charts/postgresql/templates/primary/pdb.yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -37,8 +65,8 @@ metadata:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/version: 17.6.0
+    helm.sh/chart: postgresql-16.7.27
     app.kubernetes.io/component: primary
 spec:
   maxUnavailable: 1
@@ -46,6 +74,27 @@ spec:
     matchLabels:
       app.kubernetes.io/instance: gitea
       app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
+---
+# Source: gitea/charts/valkey/templates/primary/pdb.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gitea-valkey-primary
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+    app.kubernetes.io/component: primary
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: gitea
+      app.kubernetes.io/name: valkey
       app.kubernetes.io/component: primary
 ---
 # Source: gitea/charts/postgresql/templates/serviceaccount.yaml
@@ -58,9 +107,24 @@ metadata:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/version: 17.6.0
+    helm.sh/chart: postgresql-16.7.27
 automountServiceAccountToken: false
+---
+# Source: gitea/charts/valkey/templates/primary/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: false
+metadata:
+  name: gitea-valkey-primary
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+    app.kubernetes.io/part-of: valkey
 ---
 # Source: gitea/charts/postgresql/templates/secrets.yaml
 apiVersion: v1
@@ -72,13 +136,30 @@ metadata:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/version: 17.6.0
+    helm.sh/chart: postgresql-16.7.27
 type: Opaque
 data:
-  postgres-password: "NEtQdmVZOWViRw=="
+  postgres-password: "MzZ0bzhLQWNHbw=="
   password: "Z2l0ZWE="
   # We don't auto-generate LDAP password when it's not provided as we do for other passwords
+---
+# Source: gitea/charts/valkey/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitea-valkey
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+    app.kubernetes.io/part-of: valkey
+type: Opaque
+data:
+  valkey-password: "Y2hhbmdlbWU="
 ---
 # Source: gitea/templates/gitea/config.yaml
 apiVersion: v1
@@ -87,20 +168,19 @@ metadata:
   name: gitea-inline-config
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-11.0.1
+    helm.sh/chart: gitea-12.5.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.23.6"
-    version: "1.23.6"
+    app.kubernetes.io/version: "1.25.4"
+    version: "1.25.4"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
   _generals_: ""
-  actions: ENABLED=false
   cache: |-
-    ADAPTER=memory
-    HOST=
+    ADAPTER=redis
+    HOST=redis://:changeme@gitea-valkey-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
   database: |-
     DB_TYPE=postgres
     HOST=gitea-postgresql.adhar-system.svc.cluster.local:5432
@@ -110,25 +190,24 @@ stringData:
   indexer: ISSUE_INDEXER_TYPE=db
   metrics: ENABLED=false
   queue: |-
-    CONN_STR=
-    TYPE=level
+    CONN_STR=redis://:changeme@gitea-valkey-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
+    TYPE=redis
   repository: ROOT=/data/git/gitea-repositories
   security: INSTALL_LOCK=true
   server: |-
     APP_DATA_PATH=/data
-    DOMAIN=adhar.localtest.me
+    DOMAIN=git.example.com
     ENABLE_PPROF=false
-    HTTP_ADDR=0.0.0.0
     HTTP_PORT=3000
     PROTOCOL=http
-    ROOT_URL=https://adhar.localtest.me/gitea/
-    SSH_DOMAIN=adhar.localtest.me
+    ROOT_URL=http://git.example.com
+    SSH_DOMAIN=git.example.com
     SSH_LISTEN_PORT=2222
     SSH_PORT=22
     START_SSH_SERVER=true
   session: |-
-    PROVIDER=memory
-    PROVIDER_CONFIG=
+    PROVIDER=redis
+    PROVIDER_CONFIG=redis://:changeme@gitea-valkey-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
 ---
 # Source: gitea/templates/gitea/config.yaml
 apiVersion: v1
@@ -137,40 +216,40 @@ metadata:
   name: gitea
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-11.0.1
+    helm.sh/chart: gitea-12.5.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.23.6"
-    version: "1.23.6"
+    app.kubernetes.io/version: "1.25.4"
+    version: "1.25.4"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
   config_environment.sh: |
     #!/usr/bin/env bash
     set -euo pipefail
-
+  
     function env2ini::log() {
       printf "${1}\n"
     }
-
+  
     function env2ini::read_config_to_env() {
       local section="${1}"
       local line="${2}"
-
+  
       if [[ -z "${line}" ]]; then
         # skip empty line
         return
       fi
-
+  
       # 'xargs echo -n' trims all leading/trailing whitespaces and a trailing new line
       local setting="$(awk -F '=' '{print $1}' <<< "${line}" | xargs echo -n)"
-
+  
       if [[ -z "${setting}" ]]; then
         env2ini::log '  ! invalid setting'
         exit 1
       fi
-
+  
       local value=''
       local regex="^${setting}(\s*)=(\s*)(.*)"
       if [[ $line =~ $regex ]]; then
@@ -179,37 +258,37 @@ stringData:
         env2ini::log '  ! invalid setting'
         exit 1
       fi
-
+  
       env2ini::log "    + '${setting}'"
-
+  
       if [[ -z "${section}" ]]; then
         export "GITEA____${setting^^}=${value}"                           # '^^' makes the variable content uppercase
         return
       fi
-
+  
       local masked_section="${section//./_0X2E_}"                            # '//' instructs to replace all matches
       masked_section="${masked_section//-/_0X2D_}"
-
+  
       export "GITEA__${masked_section^^}__${setting^^}=${value}"        # '^^' makes the variable content uppercase
     }
-
+  
     function env2ini::reload_preset_envs() {
       env2ini::log "Reloading preset envs..."
-
+  
       while read -r line; do
         if [[ -z "${line}" ]]; then
           # skip empty line
           return
         fi
-
+  
         # 'xargs echo -n' trims all leading/trailing whitespaces and a trailing new line
         local setting="$(awk -F '=' '{print $1}' <<< "${line}" | xargs echo -n)"
-
+  
         if [[ -z "${setting}" ]]; then
           env2ini::log '  ! invalid setting'
           exit 1
         fi
-
+  
         local value=''
         local regex="^${setting}(\s*)=(\s*)(.*)"
         if [[ $line =~ $regex ]]; then
@@ -218,74 +297,74 @@ stringData:
           env2ini::log '  ! invalid setting'
           exit 1
         fi
-
+  
         env2ini::log "  + '${setting}'"
-
+  
         export "${setting^^}=${value}"                           # '^^' makes the variable content uppercase
       done < "$TMP_EXISTING_ENVS_FILE"
-
+  
       rm $TMP_EXISTING_ENVS_FILE
     }
-
-
+  
+  
     function env2ini::process_config_file() {
       local config_file="${1}"
       local section="$(basename "${config_file}")"
-
+  
       if [[ $section == '_generals_' ]]; then
         env2ini::log "  [ini root]"
         section=''
       else
         env2ini::log "  ${section}"
       fi
-
+  
       while read -r line; do
         env2ini::read_config_to_env "${section}" "${line}"
       done < <(awk 1 "${config_file}")                             # Helm .toYaml trims the trailing new line which breaks line processing; awk 1 ... adds it back while reading
     }
-
+  
     function env2ini::load_config_sources() {
       local path="${1}"
-
+  
       if [[ -d "${path}" ]]; then
         env2ini::log "Processing $(basename "${path}")..."
-
+  
         while read -d '' configFile; do
           env2ini::process_config_file "${configFile}"
         done < <(find "${path}" -type l -not -name '..data' -print0)
-
+  
         env2ini::log "\n"
       fi
     }
-
+  
     function env2ini::generate_initial_secrets() {
       # These environment variables will either be
       #   - overwritten with user defined values,
       #   - initially used to set up Gitea
       # Anyway, they won't harm existing app.ini files
-
+  
       export GITEA__SECURITY__INTERNAL_TOKEN=$(gitea generate secret INTERNAL_TOKEN)
       export GITEA__SECURITY__SECRET_KEY=$(gitea generate secret SECRET_KEY)
       export GITEA__OAUTH2__JWT_SECRET=$(gitea generate secret JWT_SECRET)
       export GITEA__SERVER__LFS_JWT_SECRET=$(gitea generate secret LFS_JWT_SECRET)
-
+  
       env2ini::log "...Initial secrets generated\n"
     }
-
+  
     # save existing envs prior to script execution. Necessary to keep order of preexisting and custom envs
     env | (grep -e '^GITEA__' || [[ $? == 1 ]]) > $TMP_EXISTING_ENVS_FILE
-
+  
     # MUST BE CALLED BEFORE OTHER CONFIGURATION
     env2ini::generate_initial_secrets
-
+  
     env2ini::load_config_sources "$ENV_TO_INI_MOUNT_POINT/inlines/"
     env2ini::load_config_sources "$ENV_TO_INI_MOUNT_POINT/additionals/"
-
+  
     # load existing envs to override auto generated envs
     env2ini::reload_preset_envs
-
+  
     env2ini::log "=== All configuration sources loaded ===\n"
-
+  
     # safety to prevent rewrite of secret keys if an app.ini already exists
     if [ -f ${GITEA_APP_INI} ]; then
       env2ini::log 'An app.ini file already exists. To prevent overwriting secret keys, these settings are dropped and remain unchanged:'
@@ -293,13 +372,13 @@ stringData:
       env2ini::log '  - security.SECRET_KEY'
       env2ini::log '  - oauth2.JWT_SECRET'
       env2ini::log '  - server.LFS_JWT_SECRET'
-
+  
       unset GITEA__SECURITY__INTERNAL_TOKEN
       unset GITEA__SECURITY__SECRET_KEY
       unset GITEA__OAUTH2__JWT_SECRET
       unset GITEA__SERVER__LFS_JWT_SECRET
     fi
-
+  
     environment-to-ini -o $GITEA_APP_INI
   assertions: |
 ---
@@ -310,19 +389,19 @@ metadata:
   name: gitea-init
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-11.0.1
+    helm.sh/chart: gitea-12.5.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.23.6"
-    version: "1.23.6"
+    app.kubernetes.io/version: "1.25.4"
+    version: "1.25.4"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
   configure_gpg_environment.sh: |
     #!/usr/bin/env bash
     set -eu
-
+  
     gpg --batch --import "$TMP_RAW_GPG_KEY"
   init_directory_structure.sh: |-
     #!/usr/bin/env bash
@@ -336,6 +415,8 @@ stringData:
     mkdir -pv "${GITEA_TEMP}"
     chmod -v ug+rwx "${GITEA_TEMP}"
 
+    
+
   configure_gitea.sh: |-
     #!/usr/bin/env bash
 
@@ -343,17 +424,30 @@ stringData:
 
     echo '==== BEGIN GITEA CONFIGURATION ===='
 
-    retry=0
-    max_retries=30
-    until gitea migrate; do
-      retry=$((retry+1))
-      if [[ "${retry}" -ge "${max_retries}" ]]; then
-        echo "Gitea migrate still failing after ${max_retries} attempts, giving up"
+    { # try
+      gitea migrate
+    } || { # catch
+      echo "Gitea migrate might fail due to database connection...This init-container will try again in a few seconds"
+      exit 1
+    }
+    function test_valkey_connection() {
+      local RETRY=0
+      local MAX=30
+      
+      echo 'Wait for valkey to become avialable...'
+      until [ "${RETRY}" -ge "${MAX}" ]; do
+        nc -vz -w2 gitea-valkey-headless.adhar-system.svc.cluster.local 6379 && break
+        RETRY=$[${RETRY}+1]
+        echo "...not ready yet (${RETRY}/${MAX})"
+      done
+
+      if [ "${RETRY}" -ge "${MAX}" ]; then
+        echo "Valkey not reachable after '${MAX}' attempts!"
         exit 1
       fi
-      echo "Gitea migrate failed (attempt ${retry}/${max_retries}). Waiting for database to be ready..."
-      sleep 5
-    done
+    }
+
+    test_valkey_connection
     function configure_admin_user() {
       local full_admin_list=$(gitea admin user list --admin)
       local actual_user_table=''
@@ -424,6 +518,179 @@ stringData:
 
     echo '==== END GITEA CONFIGURATION ===='
 ---
+# Source: gitea/charts/valkey/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-valkey-configuration
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+    app.kubernetes.io/part-of: valkey
+data:
+  valkey.conf: |-
+    # User-supplied common configuration:
+    # Enable AOF https://valkey.io/docs/topics/persistence.html
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+    # End of common configuration
+  primary.conf: |-
+    dir /data
+    # User-supplied primary configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of primary configuration
+  replica.conf: |-
+    dir /data
+    # User-supplied replica configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of replica configuration
+---
+# Source: gitea/charts/valkey/templates/health-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-valkey-health
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $VALKEY_PASSWORD_FILE ]] && export VALKEY_PASSWORD="$(< "${VALKEY_PASSWORD_FILE}")"
+    [[ -n "$VALKEY_PASSWORD" ]] && export REDISCLI_AUTH="$VALKEY_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      valkey-cli \
+        -h localhost \
+        -p $VALKEY_PORT \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $VALKEY_PASSWORD_FILE ]] && export VALKEY_PASSWORD="$(< "${VALKEY_PASSWORD_FILE}")"
+    [[ -n "$VALKEY_PASSWORD" ]] && export REDISCLI_AUTH="$VALKEY_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      valkey-cli \
+        -h localhost \
+        -p $VALKEY_PORT \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ] && [ "$responseFirstWord" != "MASTERDOWN" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_primary.sh: |-
+    #!/bin/bash
+
+    [[ -f $VALKEY_PRIMARY_PASSWORD_FILE ]] && export VALKEY_PRIMARY_PASSWORD="$(< "${VALKEY_PRIMARY_PASSWORD_FILE}")"
+    [[ -n "$VALKEY_PRIMARY_PASSWORD" ]] && export REDISCLI_AUTH="$VALKEY_PRIMARY_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      valkey-cli \
+        -h $VALKEY_PRIMARY_HOST \
+        -p $VALKEY_PRIMARY_PORT_NUMBER \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_primary.sh: |-
+    #!/bin/bash
+
+    [[ -f $VALKEY_PRIMARY_PASSWORD_FILE ]] && export VALKEY_PRIMARY_PASSWORD="$(< "${VALKEY_PRIMARY_PASSWORD_FILE}")"
+    [[ -n "$VALKEY_PRIMARY_PASSWORD" ]] && export REDISCLI_AUTH="$VALKEY_PRIMARY_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      valkey-cli \
+        -h $VALKEY_PRIMARY_HOST \
+        -p $VALKEY_PRIMARY_PORT_NUMBER \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_primary.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_primary.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_primary.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_primary.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+# Source: gitea/charts/valkey/templates/scripts-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-valkey-scripts
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+    app.kubernetes.io/part-of: valkey
+data:
+  start-primary.sh: |
+    #!/bin/bash
+
+    [[ -f $VALKEY_PASSWORD_FILE ]] && export VALKEY_PASSWORD="$(< "${VALKEY_PASSWORD_FILE}")"
+    if [[ -f /opt/bitnami/valkey/mounted-etc/primary.conf ]];then
+        cp /opt/bitnami/valkey/mounted-etc/primary.conf /opt/bitnami/valkey/etc/primary.conf
+    fi
+    if [[ -f /opt/bitnami/valkey/mounted-etc/valkey.conf ]];then
+        cp /opt/bitnami/valkey/mounted-etc/valkey.conf /opt/bitnami/valkey/etc/valkey.conf
+    fi
+    ARGS=("--port" "${VALKEY_PORT}")
+    ARGS+=("--requirepass" "${VALKEY_PASSWORD}")
+    ARGS+=("--primaryauth" "${VALKEY_PASSWORD}")
+    ARGS+=("--include" "/opt/bitnami/valkey/etc/valkey.conf")
+    ARGS+=("--include" "/opt/bitnami/valkey/etc/primary.conf")
+    exec valkey-server "${ARGS[@]}"
+---
 # Source: gitea/templates/gitea/pvc.yaml
 kind: PersistentVolumeClaim
 apiVersion: v1
@@ -432,12 +699,13 @@ metadata:
   namespace: adhar-system
   annotations:
     helm.sh/resource-policy: keep
-  labels: {}
+  labels:
+    {}
 spec:
   accessModes:
     - ReadWriteOnce
   volumeMode: Filesystem
-
+  
   resources:
     requests:
       storage: 10Gi
@@ -452,8 +720,8 @@ metadata:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/version: 17.6.0
+    helm.sh/chart: postgresql-16.7.27
     app.kubernetes.io/component: primary
   annotations:
 spec:
@@ -482,8 +750,8 @@ metadata:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/version: 17.6.0
+    helm.sh/chart: postgresql-16.7.27
     app.kubernetes.io/component: primary
 spec:
   type: ClusterIP
@@ -498,6 +766,58 @@ spec:
     app.kubernetes.io/name: postgresql
     app.kubernetes.io/component: primary
 ---
+# Source: gitea/charts/valkey/templates/headless-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-valkey-headless
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+    app.kubernetes.io/part-of: valkey
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-redis
+      port:  6379
+      targetPort: redis
+  selector:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/name: valkey
+---
+# Source: gitea/charts/valkey/templates/primary/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-valkey-primary
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+    app.kubernetes.io/component: primary
+    app.kubernetes.io/part-of: valkey
+spec:
+  type: ClusterIP
+  internalTrafficPolicy: Cluster
+  sessionAffinity: None
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+      nodePort: null
+  selector:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/component: primary
+---
 # Source: gitea/templates/gitea/http-svc.yaml
 apiVersion: v1
 kind: Service
@@ -505,20 +825,22 @@ metadata:
   name: gitea-http
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-11.0.1
+    helm.sh/chart: gitea-12.5.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.23.6"
-    version: "1.23.6"
+    app.kubernetes.io/version: "1.25.4"
+    version: "1.25.4"
     app.kubernetes.io/managed-by: Helm
-  annotations: {}
+  annotations:
+    {}
 spec:
   type: ClusterIP
+  clusterIP: None
   ports:
-    - name: http
-      port: 3000
-      targetPort: http
+  - name: http
+    port: 3000
+    targetPort: 
   selector:
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
@@ -530,21 +852,23 @@ metadata:
   name: gitea-ssh
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-11.0.1
+    helm.sh/chart: gitea-12.5.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.23.6"
-    version: "1.23.6"
+    app.kubernetes.io/version: "1.25.4"
+    version: "1.25.4"
     app.kubernetes.io/managed-by: Helm
-  annotations: {}
+  annotations:
+    {}
 spec:
   type: ClusterIP
+  clusterIP: None
   ports:
-    - name: ssh
-      port: 22
-      targetPort: ssh
-      protocol: TCP
+  - name: ssh
+    port: 22
+    targetPort: 2222
+    protocol: TCP
   selector:
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
@@ -557,12 +881,12 @@ metadata:
   namespace: adhar-system
   annotations:
   labels:
-    helm.sh/chart: gitea-11.0.1
+    helm.sh/chart: gitea-12.5.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.23.6"
-    version: "1.23.6"
+    app.kubernetes.io/version: "1.25.4"
+    version: "1.25.4"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -578,23 +902,25 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 2e55a90aebd849fba5ab7c6ad873da2beb1a8da489482b05479ba50a009a0a0d
+        checksum/config: 3227c7f6c8f3c6e30090567fdb5659fcf7b524a85c3fa572b458e7e3b262418f
       labels:
-        helm.sh/chart: gitea-11.0.1
+        helm.sh/chart: gitea-12.5.0
         app: gitea
         app.kubernetes.io/name: gitea
         app.kubernetes.io/instance: gitea
-        app.kubernetes.io/version: "1.23.6"
-        version: "1.23.6"
+        app.kubernetes.io/version: "1.25.4"
+        version: "1.25.4"
         app.kubernetes.io/managed-by: Helm
     spec:
+      
       securityContext:
         fsGroup: 1000
       initContainers:
         - name: init-directories
-          image: "docker.gitea.com/gitea:1.23.6-rootless"
+          image: "docker.gitea.com/gitea:1.25.4-rootless"
           imagePullPolicy: IfNotPresent
-          command: ["/usr/sbin/init_directory_structure.sh"]
+          command:
+            - "/usr/sbinx/init_directory_structure.sh"
           env:
             - name: GITEA_APP_INI
               value: /data/gitea/conf/app.ini
@@ -606,22 +932,24 @@ spec:
               value: /tmp/gitea
           volumeMounts:
             - name: init
-              mountPath: /usr/sbin
+              mountPath: /usr/sbinx
             - name: temp
               mountPath: /tmp
             - name: data
               mountPath: /data
-
-          securityContext: {}
+            
+          securityContext:
+            {}
           resources:
             limits: {}
             requests:
               cpu: 100m
               memory: 128Mi
         - name: init-app-ini
-          image: "docker.gitea.com/gitea:1.23.6-rootless"
+          image: "docker.gitea.com/gitea:1.25.4-rootless"
           imagePullPolicy: IfNotPresent
-          command: ["/usr/sbin/config_environment.sh"]
+          command:
+          - "/usr/sbinx/config_environment.sh"
           env:
             - name: GITEA_APP_INI
               value: /data/gitea/conf/app.ini
@@ -637,23 +965,25 @@ spec:
               value: /env-to-ini-mounts
           volumeMounts:
             - name: config
-              mountPath: /usr/sbin
+              mountPath: /usr/sbinx
             - name: temp
               mountPath: /tmp
             - name: data
               mountPath: /data
             - name: inline-config-sources
               mountPath: /env-to-ini-mounts/inlines/
-
-          securityContext: {}
+            
+          securityContext:
+            {}
           resources:
             limits: {}
             requests:
               cpu: 100m
               memory: 128Mi
         - name: configure-gitea
-          image: "docker.gitea.com/gitea:1.23.6-rootless"
-          command: ["/usr/sbin/configure_gitea.sh"]
+          image: "docker.gitea.com/gitea:1.25.4-rootless"
+          command:
+          - "/usr/sbinx/configure_gitea.sh"
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsUser: 1000
@@ -676,12 +1006,12 @@ spec:
               value: keepUpdated
           volumeMounts:
             - name: init
-              mountPath: /usr/sbin
+              mountPath: /usr/sbinx
             - name: temp
               mountPath: /tmp
             - name: data
               mountPath: /data
-
+            
           resources:
             limits: {}
             requests:
@@ -690,7 +1020,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: gitea
-          image: "docker.gitea.com/gitea:1.23.6-rootless"
+          image: "docker.gitea.com/gitea:1.25.4-rootless"
           imagePullPolicy: IfNotPresent
           env:
             # SSH Port values have to be set here as well for openssh configuration
@@ -720,28 +1050,22 @@ spec:
               containerPort: 2222
             - name: http
               containerPort: 3000
-          startupProbe:
-            failureThreshold: 30
-            periodSeconds: 10
-            tcpSocket:
-              port: http
-            timeoutSeconds: 3
           livenessProbe:
             failureThreshold: 10
-            initialDelaySeconds: 60
-            periodSeconds: 10
-            successThreshold: 1
-            tcpSocket:
-              port: http
-            timeoutSeconds: 3
-          readinessProbe:
-            failureThreshold: 5
             initialDelaySeconds: 30
             periodSeconds: 10
             successThreshold: 1
             tcpSocket:
               port: http
-            timeoutSeconds: 3
+            timeoutSeconds: 1
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: http
+            timeoutSeconds: 1
           resources:
             limits:
               cpu: 200m
@@ -749,13 +1073,14 @@ spec:
             requests:
               cpu: 50m
               memory: 128Mi
-          securityContext: {}
+          securityContext:
+            {}
           volumeMounts:
             - name: temp
               mountPath: /tmp
             - name: data
               mountPath: /data
-
+            
       volumes:
         - name: init
           secret:
@@ -784,8 +1109,8 @@ metadata:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: postgresql
-    app.kubernetes.io/version: 17.4.0
-    helm.sh/chart: postgresql-16.4.14
+    app.kubernetes.io/version: 17.6.0
+    helm.sh/chart: postgresql-16.7.27
     app.kubernetes.io/component: primary
 spec:
   replicas: 1
@@ -805,16 +1130,16 @@ spec:
         app.kubernetes.io/instance: gitea
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: postgresql
-        app.kubernetes.io/version: 17.4.0
-        helm.sh/chart: postgresql-16.4.14
+        app.kubernetes.io/version: 17.6.0
+        helm.sh/chart: postgresql-16.7.27
         app.kubernetes.io/component: primary
     spec:
       serviceAccountName: gitea-postgresql
-
+      
       automountServiceAccountToken: false
       affinity:
         podAffinity:
-
+          
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - podAffinityTerm:
@@ -826,7 +1151,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
               weight: 1
         nodeAffinity:
-
+          
       securityContext:
         fsGroup: 1001
         fsGroupChangePolicy: Always
@@ -842,7 +1167,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop:
-                - ALL
+              - ALL
             privileged: false
             readOnlyRootFilesystem: true
             runAsGroup: 1001
@@ -863,16 +1188,10 @@ spec:
             # Authentication
             - name: POSTGRES_USER
               value: "gitea"
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: gitea-postgresql
-                  key: password
-            - name: POSTGRES_POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: gitea-postgresql
-                  key: postgres-password
+            - name: POSTGRES_PASSWORD_FILE
+              value: /opt/bitnami/postgresql/secrets/password
+            - name: POSTGRES_POSTGRES_PASSWORD_FILE
+              value: /opt/bitnami/postgresql/secrets/postgres-password
             - name: POSTGRES_DATABASE
               value: "gitea"
             # LDAP
@@ -942,6 +1261,8 @@ spec:
             - name: empty-dir
               mountPath: /opt/bitnami/postgresql/tmp
               subPath: app-tmp-dir
+            - name: postgresql-password
+              mountPath: /opt/bitnami/postgresql/secrets/
             - name: dshm
               mountPath: /dev/shm
             - name: data
@@ -949,6 +1270,9 @@ spec:
       volumes:
         - name: empty-dir
           emptyDir: {}
+        - name: postgresql-password
+          secret:
+            secretName: gitea-postgresql
         - name: dshm
           emptyDir:
             medium: Memory
@@ -963,3 +1287,190 @@ spec:
         resources:
           requests:
             storage: "5Gi"
+---
+# Source: gitea/charts/valkey/templates/primary/application.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitea-valkey-primary
+  namespace: "adhar-system"
+  labels:
+    app.kubernetes.io/instance: gitea
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/version: 8.1.3
+    helm.sh/chart: valkey-3.0.31
+    app.kubernetes.io/component: primary
+    app.kubernetes.io/part-of: valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: gitea
+      app.kubernetes.io/name: valkey
+      app.kubernetes.io/component: primary
+  serviceName: gitea-valkey-headless
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: gitea
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: valkey
+        app.kubernetes.io/version: 8.1.3
+        helm.sh/chart: valkey-3.0.31
+        app.kubernetes.io/component: primary
+      annotations:
+        checksum/configmap: c8cdc0c4c772ac3192446a08bf401c29f1e39f33614657d36e4bb1692e34b39f
+        checksum/health: e3a0f06458110f02986bb8df4391c43567355d3582dd02f25447184391196fbc
+        checksum/scripts: 791de9ea7b477455268cda3e85c8e58a1505e8d19ff8e851d78a246cb185a0f7
+        checksum/secret: b6a1ec38f338ddc2549686770cd644719aa49f186495fe8a75c2d5a761d66bf9
+    spec:
+      
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: Always
+        supplementalGroups: []
+        sysctls: []
+      serviceAccountName: gitea-valkey-primary
+      automountServiceAccountToken: false
+      affinity:
+        podAffinity:
+          
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: gitea
+                    app.kubernetes.io/name: valkey
+                    app.kubernetes.io/component: primary
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity:
+          
+      enableServiceLinks: true
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: valkey
+          image: docker.io/bitnami/valkey:latest
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seLinuxOptions: {}
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-primary.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: VALKEY_REPLICATION_MODE
+              value: primary
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: VALKEY_PASSWORD_FILE
+              value: "/opt/bitnami/valkey/secrets/valkey-password"
+            - name: VALKEY_TLS_ENABLED
+              value: "no"
+            - name: VALKEY_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            # One second longer than command timeout should prevent generation of zombie processes.
+            timeoutSeconds: 6
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 1
+          resources:
+            limits:
+              cpu: 150m
+              ephemeral-storage: 2Gi
+              memory: 192Mi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 50Mi
+              memory: 128Mi
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: valkey-password
+              mountPath: /opt/bitnami/valkey/secrets/
+            - name: valkey-data
+              mountPath: /data
+            - name: config
+              mountPath: /opt/bitnami/valkey/mounted-etc
+            - name: empty-dir
+              mountPath: /opt/bitnami/valkey/etc/
+              subPath: app-conf-dir
+            - name: empty-dir
+              mountPath: /tmp
+              subPath: tmp-dir
+      volumes:
+        - name: start-scripts
+          configMap:
+            name: gitea-valkey-scripts
+            defaultMode: 0755
+        - name: health
+          configMap:
+            name: gitea-valkey-health
+            defaultMode: 0755
+        - name: valkey-password
+          
+          secret:
+            secretName: gitea-valkey
+            items:
+            - key: valkey-password
+              path: valkey-password
+        - name: config
+          configMap:
+            name: gitea-valkey-configuration
+        - name: empty-dir
+          emptyDir: {}
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: valkey-data
+        labels:
+          app.kubernetes.io/instance: gitea
+          app.kubernetes.io/name: valkey
+          app.kubernetes.io/component: primary
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "8Gi"

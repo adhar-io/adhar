@@ -19,6 +19,7 @@ package up
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -46,6 +47,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/log"
@@ -118,14 +120,15 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		return err
 	}
 
-	// Set up controller-runtime logger
-	// Verbose mode: show all controller-runtime messages
-	// Normal mode: completely silent (key events routed through CLI logger)
+	// Set up controller-runtime and klog loggers
+	// Verbose mode: show all messages. Normal mode: completely silent.
 	if lp.options.Verbose {
 		stdr.SetVerbosity(1)
 		ctrl.SetLogger(stdr.New(stdlog.New(os.Stderr, "", stdlog.LstdFlags)))
 	} else {
 		ctrl.SetLogger(logr.Discard())
+		// Silence klog (k8s.io/client-go) warnings that bypass controller-runtime logger
+		klog.SetOutput(io.Discard)
 	}
 
 	mgr, err := manager.New(kubeConfig, manager.Options{

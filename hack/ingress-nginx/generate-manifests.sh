@@ -5,7 +5,7 @@ MANIFEST_DIR="platform/controllers/adharplatform/resources/nginx" # Changed to i
 INSTALL_YAML="$MANIFEST_DIR/install.yaml"
 HACK_DIR="$(cd "$(dirname "$0")" && pwd)" # Ensure HACK_DIR is an absolute path
 # It's good practice to use a specific version. Check for the latest stable version appropriate for your needs.
-NGINX_VERSION="v4.12.2"
+NGINX_VERSION="4.14.3"
 
 # Use Helm to generate the NGINX Ingress Controller manifest
 # The official chart is typically from 'ingress-nginx'

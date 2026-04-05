@@ -41,7 +41,21 @@
       "Bash(python3 -c \"import sys,json,base64; d=json.load\\(sys.stdin\\); [print\\(f''''{k}: {base64.b64decode\\(v\\).decode\\(\\)}''''\\) for k,v in d.items\\(\\)]\")",
       "Bash(curl -sk https://adhar.localtest.me:8443/hubble/bundle.main.d3dae0fa32e1af6f7354.js -o /dev/null -w \"%{http_code}\")",
       "Bash(curl -sk https://adhar.localtest.me:8443/)",
-      "Bash(curl -sk https://adhar.localtest.me:8443/bundle.main.d3dae0fa32e1af6f7354.js -o /dev/null -w \"%{http_code}\\\\n\")"
+      "Bash(curl -sk https://adhar.localtest.me:8443/bundle.main.d3dae0fa32e1af6f7354.js -o /dev/null -w \"%{http_code}\\\\n\")",
+      "WebSearch",
+      "Bash(bash hack/argocd/generate-manifests.sh)",
+      "Bash(helm search:*)",
+      "Bash(bash hack/cilium/generate-manifests.sh)",
+      "Bash(bash hack/ingress-nginx/generate-manifests.sh)",
+      "Bash(bash hack/crossplane/generate-manifests.sh)",
+      "Bash(bash hack/gitea/generate-manifests.sh)",
+      "Bash(grep \"name: gitea$\" platform/controllers/adharplatform/resources/gitea/install.yaml)",
+      "Bash(kind version:*)",
+      "Bash(brew install:*)",
+      "Bash(brew upgrade:*)",
+      "Bash(brew link:*)",
+      "Bash(docker ps:*)",
+      "Bash(kind create:*)"
     ]
   }
 }

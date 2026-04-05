@@ -30,9 +30,9 @@ controller:
     ## for backwards compatibility consider setting the full image url via the repository value below
     ## use *either* current default registry/image or repository format or installing chart by providing the values.yaml will fail
     ## repository:
-    tag: "v1.12.2"
-    digest: sha256:03497ee984628e95eca9b2279e3f3a3c1685dd48635479e627d219f00c8eefa9
-    digestChroot: sha256:a697e2bfa419768315250d079ccbbca45f6099c60057769702b912d20897a574
+    tag: "v1.14.3"
+    digest: ""
+    digestChroot: ""
     pullPolicy: IfNotPresent
     runAsNonRoot: true
     # -- This value must not be changed using the official image.
@@ -493,8 +493,8 @@ controller:
     # -- Labels to be added to both controller services.
     labels: {}
     # -- Type of the external controller service.
-    # Ref: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
-    type: LoadBalancer
+    # NodePort for Kind clusters — host ports map directly to these NodePorts
+    type: NodePort
     # -- Pre-defined cluster internal IP address of the external controller service. Take care of collisions with existing services.
     # This value is immutable. Set once, it can not be changed without deleting and re-creating the service.
     # Ref: https://kubernetes.io/docs/concepts/services-networking/service/#choosing-your-own-ip-address
@@ -559,10 +559,10 @@ controller:
     # Ref: https://kubernetes.io/docs/concepts/services-networking/service/#application-protocol
     appProtocol: true
     nodePorts:
-      # -- Node port allocated for the external HTTP listener. If left empty, the service controller allocates one from the configured node port range.
-      http: ""
-      # -- Node port allocated for the external HTTPS listener. If left empty, the service controller allocates one from the configured node port range.
-      https: ""
+      # -- Fixed NodePorts matching Kind extraPortMappings (30080 HTTP, 30443 HTTPS)
+      http: "30080"
+      # -- Fixed NodePort for HTTPS matching Kind extraPortMappings
+      https: "30443"
       # -- Node port mapping for external TCP listeners. If left empty, the service controller allocates them from the configured node port range.
       # Example:
       # tcp:
