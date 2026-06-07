@@ -1,0 +1,136 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositeenvironment-kubernetes
+  labels:
+    feature: env
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeEnvironment
+  mode: Pipeline
+  pipeline:
+    - step: render-environment
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            oxr = option("params").oxr
+
+            params = oxr.spec.parameters
+            envName = params.name
+            tier = params.tier or "dev"
+            cpuQuota = params.cpuQuota or "4"
+            memoryQuota = params.memoryQuota or "8Gi"
+            podQuota = params.podQuota or 20
+            enableNetworkPolicy = params.enableNetworkPolicy
+            extraLabels = params.labels or {}
+
+            nsLabels = {
+                "adhar.io/environment" = envName
+                "adhar.io/tier" = tier
+            } | extraLabels
+
+            # Native v1 Namespace — the object defines its own name; omit metadata.namespace
+            namespace = {
+                apiVersion = "v1"
+                kind = "Namespace"
+                metadata = {
+                    name = envName
+                    labels = nsLabels
+                }
+            }
+
+            # Native v1 ResourceQuota inside the environment namespace
+            resourceQuota = {
+                apiVersion = "v1"
+                kind = "ResourceQuota"
+                metadata = {
+                    name = "${envName}-quota"
+                    namespace = envName
+                    labels = nsLabels
+                }
+                spec = {
+                    hard = {
+                        "requests.cpu" = cpuQuota
+                        "requests.memory" = memoryQuota
+                        "limits.cpu" = cpuQuota
+                        "limits.memory" = memoryQuota
+                        pods = str(podQuota)
+                    }
+                }
+            }
+
+            # Native v1 LimitRange providing per-container defaults
+            limitRange = {
+                apiVersion = "v1"
+                kind = "LimitRange"
+                metadata = {
+                    name = "${envName}-limits"
+                    namespace = envName
+                    labels = nsLabels
+                }
+                spec = {
+                    limits = [{
+                        type = "Container"
+                        default = {
+                            cpu = "500m"
+                            memory = "512Mi"
+                        }
+                        defaultRequest = {
+                            cpu = "100m"
+                            memory = "128Mi"
+                        }
+                    }]
+                }
+            }
+
+            _items = [namespace, resourceQuota, limitRange]
+
+            # Native networking.k8s.io/v1 NetworkPolicy — only when enabled
+            if enableNetworkPolicy:
+                networkPolicy = {
+                    apiVersion = "networking.k8s.io/v1"
+                    kind = "NetworkPolicy"
+                    metadata = {
+                        name = "${envName}-default-deny"
+                        namespace = envName
+                        labels = nsLabels
+                    }
+                    spec = {
+                        podSelector = {}
+                        policyTypes = ["Ingress"]
+                        ingress = [{
+                            "from" = [{
+                                namespaceSelector = {
+                                    matchLabels = {
+                                        "adhar.io/environment" = envName
+                                    }
+                                }
+                            }]
+                        }]
+                    }
+                }
+                _items += [networkPolicy]
+
+            statusItem = {
+                apiVersion = "platform.adhar.io/v1alpha1"
+                kind = "CompositeEnvironment"
+                metadata = oxr.metadata
+                status = {
+                    phase = "Available"
+                    message = "Environment '{}' provisioned".format(envName)
+                    ready = True
+                    namespace = envName
+                }
+            }
+
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = _items + [statusItem]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready

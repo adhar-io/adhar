@@ -1,0 +1,18 @@
+# Chaos Mesh Helm Chart Values
+#
+# Gateway API only -- NO nginx Ingress. The chart Ingress (dashboard.ingress) is
+# kept disabled and the dashboard service is set to ClusterIP; external access is
+# routed through the Cilium Gateway via manifests/httproute.yaml (backend
+# chaos-dashboard:2333). On a Kind/containerd cluster the runtime socket is
+# containerd, so point the daemon at it.
+
+dashboard:
+  create: true
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+
+chaosDaemon:
+  runtime: containerd
+  socketPath: /run/containerd/containerd.sock

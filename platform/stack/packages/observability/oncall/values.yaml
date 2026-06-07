@@ -1,0 +1,13 @@
+# Adhar overrides for grafana/oncall.
+# External access is provided via the Cilium Gateway API HTTPRoute in
+# manifests/httproute.yaml, so the chart's bundled nginx Ingress, ingress-nginx
+# controller subchart and cert-manager subchart are all disabled. cert-manager
+# is already installed by the Adhar security stack.
+ingress:
+  enabled: false
+
+ingress-nginx:
+  enabled: false
+
+cert-manager:
+  enabled: false

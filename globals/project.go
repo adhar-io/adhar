@@ -7,6 +7,11 @@ const (
 
 	// Default cluster name for Kind clusters
 	DefaultClusterName string = "adhar"
+
+	// DefaultKubernetesVersion is the single source of truth for the Kubernetes
+	// version Adhar provisions (Kind node image tag and cloud cluster default).
+	// Kept current with the latest stable upstream release.
+	DefaultKubernetesVersion string = "v1.36.1"
 )
 
 var (

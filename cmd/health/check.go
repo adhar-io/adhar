@@ -29,25 +29,17 @@ func init() {
 func runCheck(cmd *cobra.Command, args []string) error {
 	logger.Info("🔍 Running health checks...")
 
-	if checkAll {
+	if checkAll || component == "" {
 		return runAllHealthChecks()
 	}
 
-	// TODO: Implement specific health checks based on flags
-	logger.Info("✅ Health checks completed")
-	return nil
+	_, err := runHealthSweep(component, parseTimeout(timeout))
+	return err
 }
 
 func runAllHealthChecks() error {
 	logger.Info("🔍 Running all health checks...")
 
-	// TODO: Implement comprehensive health checks
-	// - Cluster health
-	// - Component health
-	// - Resource health
-	// - Network health
-	// - Security health
-
-	logger.Info("✅ All health checks completed")
-	return nil
+	_, err := runHealthSweep("", parseTimeout(timeout))
+	return err
 }

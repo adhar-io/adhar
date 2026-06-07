@@ -1,0 +1,31 @@
+# lakeFS UI/API routed through the Cilium Gateway (adhar-gateway). TLS
+# terminates at the Gateway (adhar-cert). Replaces any nginx Ingress. The
+# /lakefs prefix is stripped before forwarding to the lakefs service:80.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: lakefs
+  namespace: lakefs
+  labels:
+    app.kubernetes.io/name: lakefs
+    app.kubernetes.io/instance: lakefs
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /lakefs
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: lakefs
+          port: 80

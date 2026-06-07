@@ -1,0 +1,162 @@
+# BEYLA INSTALL RESOURCES
+# This file is auto-generated with 'platform/stack/packages/observability/beyla/generate-manifests.sh'
+---
+# Source: beyla/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: beyla
+  namespace: beyla
+  labels:
+    helm.sh/chart: beyla-1.16.7
+    app.kubernetes.io/name: beyla
+    app.kubernetes.io/instance: beyla
+    app.kubernetes.io/version: "3.14.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: beyla
+    app.kubernetes.io/component: rbac
+automountServiceAccountToken: true
+---
+# Source: beyla/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beyla
+  namespace: beyla
+  labels:
+    helm.sh/chart: beyla-1.16.7
+    app.kubernetes.io/name: beyla
+    app.kubernetes.io/instance: beyla
+    app.kubernetes.io/version: "3.14.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: beyla
+    app.kubernetes.io/component: config
+data:
+  beyla-config.yml: |
+    attributes:
+      kubernetes:
+        enable: true
+    discovery:
+      services:
+      - k8s_namespace: .
+    filter:
+      network:
+        k8s_dst_owner_name:
+          not_match: '{kube*,*jaeger-agent*,*prometheus*,*promtail*,*grafana-agent*}'
+        k8s_src_owner_name:
+          not_match: '{kube*,*jaeger-agent*,*prometheus*,*promtail*,*grafana-agent*}'
+    otel_metrics_export:
+      endpoint: http://alloy.monitoring.svc.cluster.local:4318
+    otel_traces_export:
+      endpoint: http://alloy.monitoring.svc.cluster.local:4318
+    prometheus_export:
+      path: /metrics
+      port: 9090
+---
+# Source: beyla/templates/cluster-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: beyla
+  labels:
+    helm.sh/chart: beyla-1.16.7
+    app.kubernetes.io/name: beyla
+    app.kubernetes.io/instance: beyla
+    app.kubernetes.io/version: "3.14.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: beyla
+    app.kubernetes.io/component: rbac
+rules:
+  - apiGroups: [ "apps" ]
+    resources: [ "replicasets" ]
+    verbs: [ "list", "watch" ]
+  - apiGroups: [ "" ]
+    resources: [ "pods", "services", "nodes" ]
+    verbs: [ "list", "watch", "get" ]
+---
+# Source: beyla/templates/cluster-role-binding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: beyla
+  labels:
+    helm.sh/chart: beyla-1.16.7
+    app.kubernetes.io/name: beyla
+    app.kubernetes.io/instance: beyla
+    app.kubernetes.io/version: "3.14.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: beyla
+    app.kubernetes.io/component: rbac
+subjects:
+  - kind: ServiceAccount
+    name: beyla
+    namespace: beyla
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: beyla
+---
+# Source: beyla/templates/daemon-set.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: beyla
+  namespace: beyla
+  labels:
+    helm.sh/chart: beyla-1.16.7
+    app.kubernetes.io/name: beyla
+    app.kubernetes.io/instance: beyla
+    app.kubernetes.io/version: "3.14.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: beyla
+    app.kubernetes.io/component: workload
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beyla
+      app.kubernetes.io/instance: beyla
+  updateStrategy:
+    type: RollingUpdate
+  minReadySeconds: 0
+  template:
+    metadata:
+      annotations:
+        checksum/config: 8839c65ad4b7c33ffe84d39b6fc1565208fd84577881606d5f2ca7dd19db09ac
+      labels:
+        helm.sh/chart: beyla-1.16.7
+        app.kubernetes.io/name: beyla
+        app.kubernetes.io/instance: beyla
+        app.kubernetes.io/version: "3.14.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: beyla
+        app.kubernetes.io/component: workload
+    spec:
+      serviceAccountName: beyla
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: beyla
+          image: docker.io/grafana/beyla:3.14.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          ports:
+          - name: metrics
+            containerPort: 9090
+            protocol: TCP
+          env:
+            - name: BEYLA_CONFIG_PATH
+              value: "/etc/beyla/config/beyla-config.yml"
+          volumeMounts:
+            - mountPath: /etc/beyla/config
+              name: beyla-config
+            - mountPath: /sys/fs/cgroup
+              name: cgroup
+      volumes:
+        - name: beyla-config
+          configMap:
+            name: beyla
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup

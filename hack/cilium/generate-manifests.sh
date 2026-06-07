@@ -3,7 +3,7 @@
 # Update Cilium manifest using Helm
 INSTALL_YAML="platform/controllers/adharplatform/resources/cilium/install.yaml"
 HACK_DIR="$(cd "$(dirname "$0")" && pwd)"
-CILIUM_VERSION="v1.17.13"
+CILIUM_VERSION="1.19.4"
 CILIUM_NAMESPACE="adhar-system"
 
 # Use Helm to generate the Cilium manifest including CRDs

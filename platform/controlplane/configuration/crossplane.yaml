@@ -4,86 +4,115 @@ metadata:
   name: adhar-control-plane
   annotations:
     meta.crossplane.io/maintainer: Adhar Platform Team <team@adhar.io>
-    meta.crossplane.io/description: Crossplane v2.1 configuration powering the Adhar control plane with multi-cloud support.
+    meta.crossplane.io/description: Crossplane v2 configuration powering the Adhar control plane with multi-cloud, namespaced composite resources.
     meta.crossplane.io/license: Apache-2.0
     meta.crossplane.io/readme: |
-      Comprehensive control plane for Adhar platform supporting AWS, Azure, GCP, DigitalOcean, Civo, Kind, and on-premises Kubernetes clusters.
+      Comprehensive control plane for the Adhar platform supporting AWS, Azure, GCP,
+      DigitalOcean, Civo, Kind, and on-premises Kubernetes clusters. Built on the
+      Crossplane v2 namespaced composite-resource model (apiextensions.crossplane.io/v2)
+      with pipeline compositions, namespaced managed resources, and day-2 Operations.
 spec:
+  # Crossplane v2 introduced the namespaced composite-resource model that this
+  # control plane relies on (apiextensions.crossplane.io/v2, namespaced MRs, and
+  # the Operations API). Require v2.3+.
   crossplane:
-    version: ">=v2.1.0"
+    version: ">=v2.3.0"
   dependsOn:
-    # AWS Provider - Complete AWS resource support
+    # ---------------------------------------------------------------------------
+    # AWS - Upbound official providers (v2 supports namespaced managed resources
+    # under the *.aws.m.upbound.io API groups).
+    # ---------------------------------------------------------------------------
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-aws-eks
-      version: ">=v1.7.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-aws-ec2
-      version: ">=v1.7.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-aws-rds
-      version: ">=v1.7.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-aws-iam
-      version: ">=v1.7.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-aws-s3
-      version: ">=v1.7.0"
+      version: ">=v2.0.0"
 
-    # Azure Provider - Complete Azure resource support
+    # ---------------------------------------------------------------------------
+    # Azure - Upbound official providers (v2, *.azure.m.upbound.io).
+    # ---------------------------------------------------------------------------
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-azure-containerservice
-      version: ">=v1.3.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-azure-network
-      version: ">=v1.3.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-azure-sql
-      version: ">=v1.3.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-azure-storage
-      version: ">=v1.3.0"
+      version: ">=v2.0.0"
 
-    # GCP Provider - Complete GCP resource support
+    # ---------------------------------------------------------------------------
+    # GCP - Upbound official providers (v2, *.gcp.m.upbound.io).
+    # ---------------------------------------------------------------------------
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-gcp-container
-      version: ">=v1.7.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-gcp-compute
-      version: ">=v1.7.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-gcp-sql
-      version: ">=v1.7.0"
+      version: ">=v2.0.0"
     - type: Provider
       package: xpkg.upbound.io/upbound/provider-gcp-storage
-      version: ">=v1.7.0"
+      version: ">=v2.0.0"
 
-    # DigitalOcean Provider
+    # ---------------------------------------------------------------------------
+    # DigitalOcean & Civo - community providers.
+    # ---------------------------------------------------------------------------
     - type: Provider
       package: xpkg.upbound.io/crossplane-contrib/provider-digitalocean
       version: ">=v0.7.0"
-
-    # Civo Provider
     - type: Provider
       package: xpkg.upbound.io/crossplane-contrib/provider-civo
       version: ">=v0.3.0"
 
-    # Kubernetes Provider - For Kind and on-prem clusters
+    # ---------------------------------------------------------------------------
+    # Kubernetes - serves namespaced Objects under kubernetes.m.crossplane.io
+    # (requires v1.2.0+). Backbone of every Kubernetes-native composition.
+    # ---------------------------------------------------------------------------
     - type: Provider
       package: xpkg.upbound.io/crossplane-contrib/provider-kubernetes
-      version: ">=v0.14.0"
+      version: ">=v1.2.0"
 
-    # Helm Provider - For application deployment
+    # ---------------------------------------------------------------------------
+    # Helm - serves namespaced Releases under helm.m.crossplane.io
+    # (requires v1.2.0+). Used to install platform add-ons.
+    # ---------------------------------------------------------------------------
     - type: Provider
       package: xpkg.upbound.io/crossplane-contrib/provider-helm
-      version: ">=v0.19.0"
+      version: ">=v1.2.0"
 
-    # Functions
-    - type: Function
-      package: xpkg.upbound.io/crossplane-contrib/function-go-templating
-      version: ">=v0.6.0"
-    - type: Function
-      package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform
-      version: ">=v0.6.0"
+    # ---------------------------------------------------------------------------
+    # Composition Functions
+    # ---------------------------------------------------------------------------
     - type: Function
       package: xpkg.upbound.io/crossplane-contrib/function-kcl
+      version: ">=v0.12.0"
+    - type: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-go-templating
       version: ">=v0.9.0"
+    - type: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform
+      version: ">=v0.8.0"
+    # Sets the composite Ready condition from the readiness of composed resources.
+    - type: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-auto-ready
+      version: ">=v0.4.0"
+    # Powers day-2 Operations (Operation/CronOperation/WatchOperation) logic.
+    - type: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-python
+      version: ">=v0.2.0"

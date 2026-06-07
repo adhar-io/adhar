@@ -1,10 +1,12 @@
-# Kargo Helm Chart Values
+# Falco Helm Chart Values
+# Runtime security via the modern eBPF probe (no kernel module / driver build).
 
-api:
-  ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+driver:
+  enabled: true
+  kind: modern_ebpf
+
+# Falcosidekick forwards events; UI disabled (no ingress, Gateway-API only platform).
+falcosidekick:
+  enabled: true
+  webui:
+    enabled: false

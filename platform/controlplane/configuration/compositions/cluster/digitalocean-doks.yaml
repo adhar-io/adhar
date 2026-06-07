@@ -1,3 +1,7 @@
+# DigitalOcean DOKS runs under LegacyCluster scope (CONVENTIONS.md §3):
+# the community provider-digitalocean has no namespaced (.m) MRs, so its
+# managed resources stay cluster-scoped and reference the plain legacy
+# ProviderConfig (name: digitalocean) with no providerConfigRef kind field.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -13,7 +17,7 @@ spec:
   pipeline:
     - step: render-doks
       functionRef:
-        name: fn-go-templating
+        name: function-go-templating
       input:
         apiVersion: templating.fn.crossplane.io/v1beta1
         kind: Template
@@ -27,7 +31,7 @@ spec:
             {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
             {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
             {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
-            {{- $providerConfig := get $xr.spec.providerConfigRef "name" -}}
+            {{- $providerConfig := dig "spec" "providerConfigRef" "name" "digitalocean" $xr -}}
             {{- $clusterTags := list }}
             {{- range (default (list) (get $doks "tags")) }}
               {{- $clusterTags = append $clusterTags . -}}

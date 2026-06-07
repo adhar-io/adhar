@@ -69,6 +69,7 @@ func init() {
 
 	// Add subcommands
 	SecretsCmd.AddCommand(listCmd)
+	SecretsCmd.AddCommand(getCmd)
 	SecretsCmd.AddCommand(createCmd)
 	SecretsCmd.AddCommand(rotateCmd)
 	SecretsCmd.AddCommand(auditCmd)
@@ -79,6 +80,7 @@ func runSecrets(cmd *cobra.Command, args []string) error {
 	logger.Info("🔐 Secrets management - use subcommands for specific secret tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  list    - List all secrets")
+	logger.Info("  get     - Get a secret's keys/metadata (use --reveal for values)")
 	logger.Info("  create  - Create new secrets")
 	logger.Info("  rotate  - Rotate existing secrets")
 	logger.Info("  audit   - Audit secret access")

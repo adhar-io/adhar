@@ -1,0 +1,9 @@
+# OpenMetadata metadata / data-catalog platform.
+# The OpenMetadata UI is exposed via the Cilium Gateway API HTTPRoute
+# (manifests/httproute.yaml) attached to adhar-gateway -- the chart Ingress is
+# left disabled (default) and must NOT be enabled (no nginx).
+# NOTE: the openmetadata chart requires external Elasticsearch/OpenSearch and a
+# MySQL/Postgres database plus Airflow; this renders the core deployment. Wire
+# the database/search hosts to the platform services for a working install.
+ingress:
+  enabled: false

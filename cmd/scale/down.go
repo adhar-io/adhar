@@ -1,6 +1,7 @@
 package scale
 
 import (
+	"context"
 	"fmt"
 
 	"adhar-io/adhar/platform/logger"
@@ -28,15 +29,22 @@ func runDown(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--replicas must be greater than 0")
 	}
 
-	logger.Info(fmt.Sprintf("⬇️ Scaling down deployment: %s to %d replicas", deploymentName, replicas))
+	ns := resolveNamespace()
+	logger.Info(fmt.Sprintf("⬇️ Scaling down %s/%s to %d replicas", ns, deploymentName, replicas))
 
-	// TODO: Implement scale down
-	// This should:
-	// - Validate deployment exists
-	// - Scale to target replicas
-	// - Monitor scaling progress
-	// - Verify scaling success
+	clientset, err := getClientset()
+	if err != nil {
+		return err
+	}
 
-	logger.Info("✅ Deployment scaled down successfully")
+	ctx, cancel := context.WithTimeout(context.Background(), parseTimeout())
+	defer cancel()
+
+	kind, err := applyReplicas(ctx, clientset, ns, deploymentName, int32(replicas))
+	if err != nil {
+		return err
+	}
+
+	logger.Info(fmt.Sprintf("✅ %s %s/%s scaled to %d replicas", kind, ns, deploymentName, replicas))
 	return nil
 }

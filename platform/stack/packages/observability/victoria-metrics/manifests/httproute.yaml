@@ -1,0 +1,32 @@
+# VictoriaMetrics (vmui + API) routed through the Cilium Gateway (adhar-gateway).
+# TLS terminates at the Gateway. The /victoria-metrics prefix is stripped before
+# forwarding to the single-node server on port 8428, which serves both the vmui
+# web interface and the VictoriaMetrics HTTP API. This replaces the chart's
+# disabled nginx Ingress.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: victoria-metrics
+  namespace: victoria-metrics
+  annotations:
+    argocd.argoproj.io/sync-wave: "100"
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /victoria-metrics
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: victoria-metrics-victoria-metrics-single-server
+          port: 8428

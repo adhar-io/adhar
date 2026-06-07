@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v3.3.0"
+CHART_VERSION="3.8.1"
 
 echo "# KYVERNO INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/security/kyverno/generate-manifests.sh'" >>${INSTALL_YAML}

@@ -1,3 +1,6 @@
+// Package config loads, validates, saves, and resolves the layered Adhar
+// platform configuration (global settings, providers, environment templates,
+// and environments) from YAML files and environment variables.
 package config
 
 import (
@@ -128,10 +131,10 @@ type ResolvedEnvironmentConfig struct {
 
 // ResolvedCoreServices holds resolved core service configurations
 type ResolvedCoreServices struct {
-	ArgoCD *ServiceConfig `json:"argocd,omitempty"`
-	Gitea  *ServiceConfig `json:"gitea,omitempty"`
-	Nginx  *ServiceConfig `json:"nginx,omitempty"`
-	Cilium *ServiceConfig `json:"cilium,omitempty"`
+	ArgoCD  *ServiceConfig `json:"argocd,omitempty"`
+	Gitea   *ServiceConfig `json:"gitea,omitempty"`
+	Gateway *ServiceConfig `json:"gateway,omitempty"`
+	Cilium  *ServiceConfig `json:"cilium,omitempty"`
 }
 
 // GlobalSettings holds global platform settings
@@ -514,13 +517,22 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 		Name: envName,
 	}
 
-	// Resolve provider
+	// Resolve provider - explicit > primary > first available
 	resolved.ResolvedProvider = envConfig.Provider
 	if resolved.ResolvedProvider == "" {
-		// Use the first provider if not specified
-		for name := range c.Providers {
-			resolved.ResolvedProvider = name
-			break
+		// Try primary provider first
+		for name, prov := range c.Providers {
+			if prov.Primary {
+				resolved.ResolvedProvider = name
+				break
+			}
+		}
+		// Fallback to first available
+		if resolved.ResolvedProvider == "" {
+			for name := range c.Providers {
+				resolved.ResolvedProvider = name
+				break
+			}
 		}
 	}
 
@@ -560,8 +572,8 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 		if gitea, exists := envConfig.CoreServices["gitea"]; exists {
 			resolved.ResolvedCoreServices.Gitea = &gitea
 		}
-		if nginx, exists := envConfig.CoreServices["nginx"]; exists {
-			resolved.ResolvedCoreServices.Nginx = &nginx
+		if gateway, exists := envConfig.CoreServices["gateway"]; exists {
+			resolved.ResolvedCoreServices.Gateway = &gateway
 		}
 		if cilium, exists := envConfig.CoreServices["cilium"]; exists {
 			resolved.ResolvedCoreServices.Cilium = &cilium
@@ -582,9 +594,9 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 					resolved.ResolvedCoreServices.Gitea = &gitea
 				}
 			}
-			if resolved.ResolvedCoreServices.Nginx == nil {
-				if nginx, exists := template.CoreServices["nginx"]; exists {
-					resolved.ResolvedCoreServices.Nginx = &nginx
+			if resolved.ResolvedCoreServices.Gateway == nil {
+				if gateway, exists := template.CoreServices["gateway"]; exists {
+					resolved.ResolvedCoreServices.Gateway = &gateway
 				}
 			}
 			if resolved.ResolvedCoreServices.Cilium == nil {

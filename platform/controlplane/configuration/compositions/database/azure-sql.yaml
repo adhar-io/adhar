@@ -65,7 +65,7 @@ spec:
 
             _items = [
                 {
-                    apiVersion: "azure.upbound.io/v1beta1"
+                    apiVersion: "azure.m.upbound.io/v1beta1"
                     kind: "ResourceGroup"
                     metadata.name: "resource-group"
                     metadata.labels: {
@@ -79,11 +79,12 @@ spec:
                                 tags: tags
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 },
                 {
-                    apiVersion: "sql.azure.upbound.io/v1beta1"
+                    apiVersion: "sql.azure.m.upbound.io/v1beta1"
                     kind: "MSSQLServer"
                     metadata.name: "sql-server"
                     metadata.labels: {
@@ -109,11 +110,12 @@ spec:
                                 tags: tags
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 },
                 {
-                    apiVersion: "sql.azure.upbound.io/v1beta1"
+                    apiVersion: "sql.azure.m.upbound.io/v1beta1"
                     kind: "MSSQLDatabase"
                     metadata.name: "sql-database"
                     metadata.labels: {
@@ -133,6 +135,7 @@ spec:
                                 tags: tags
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         writeConnectionSecretToRef: {
                             name: secretName
                             namespace: secretNamespace
@@ -145,7 +148,7 @@ spec:
             # Add backup policy if enabled
             if enableBackup:
                 _items += [{
-                    apiVersion: "sql.azure.upbound.io/v1beta1"
+                    apiVersion: "sql.azure.m.upbound.io/v1beta1"
                     kind: "MSSQLDatabaseExtendedAuditingPolicy"
                     metadata.name: "audit-policy"
                     metadata.labels: {
@@ -160,6 +163,7 @@ spec:
                             retentionInDays: backupRetentionDays
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }]
@@ -168,7 +172,7 @@ spec:
             if subnetIds and len(subnetIds) > 0:
                 for idx, subnetId in subnetIds:
                     _items += [{
-                        apiVersion: "sql.azure.upbound.io/v1beta1"
+                        apiVersion: "sql.azure.m.upbound.io/v1beta1"
                         kind: "MSSQLVirtualNetworkRule"
                         metadata.name: "vnet-rule-{}".format(idx)
                         metadata.labels: {
@@ -183,6 +187,7 @@ spec:
                                 subnetId: subnetId
                             }
                             providerConfigRef.name: providerConfigName
+                            providerConfigRef.kind: "ClusterProviderConfig"
                             deletionPolicy: deletionPolicy
                         }
                     }]

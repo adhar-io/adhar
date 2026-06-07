@@ -137,9 +137,14 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	// Install core packages (idempotent - checks status before applying)
-	if !localBuild.Status.ArgoCD.Available || !localBuild.Status.Nginx.Available ||
-		!localBuild.Status.Gitea.Available {
+	// Install core packages (idempotent - checks status before applying).
+	// Crossplane reports Available once its deployment is up, but applying the
+	// control-plane configuration (XRDs/Compositions/ProviderConfigs/Operations)
+	// can fail on the first pass if Crossplane's own CRDs aren't registered yet;
+	// keep re-running until ControlPlaneApplied so that retry actually happens.
+	if !localBuild.Status.ArgoCD.Available || !localBuild.Status.Gateway.Available ||
+		!localBuild.Status.Gitea.Available || !localBuild.Status.Crossplane.Available ||
+		!localBuild.Status.Crossplane.ControlPlaneApplied {
 		logger.Info("Installing core packages")
 		err = r.installCorePackagesSync(ctx, req, &localBuild)
 		if err != nil {
@@ -156,6 +161,17 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			logger.Error(err, "failed applying platform stack")
 			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 		}
+	}
+
+	// Keep requeuing until the Crossplane control plane is fully applied. The
+	// kubernetes/helm ClusterProviderConfigs only apply once their provider CRDs
+	// register (a minute or two after the Provider packages install), and
+	// ReconcileCrossplane returns no requeue on that transient failure — so
+	// without this the control plane never converges in watch mode (the common
+	// default), where the ExitOnSync requeue loop below is skipped.
+	if !localBuild.Status.Crossplane.ControlPlaneApplied {
+		logger.Info("Waiting for Crossplane control plane to finish applying; will retry")
+		return ctrl.Result{RequeueAfter: defaultRequeueTime}, nil
 	}
 
 	// If ExitOnSync is enabled, check if we should shut down
@@ -218,35 +234,31 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
 
-	// Install in deterministic order: Cilium (CNI) -> Nginx (Ingress) -> ArgoCD -> Gitea
-	// Cilium must be first so pods can communicate, Nginx must be before ArgoCD/Gitea
-	// so the admission webhook is ready when Ingress resources are created
+	// Install in deterministic order:
+	//   Gateway API CRDs -> Cilium (CNI + Gateway data path) -> Gateway -> ArgoCD -> Gitea -> Crossplane
+	// The Gateway API CRDs must exist before Cilium starts with Gateway API
+	// enabled; the platform Gateway is created after Cilium is up so Cilium can
+	// program it and generate the NodePort Service that Kind maps host ports to.
 	type namedInstaller struct {
 		name    string
 		install subReconciler
 	}
 	installers := []namedInstaller{
+		{v1alpha1.GatewayAPICRDsPackageName, r.ReconcileGatewayAPICRDs},
 		{v1alpha1.CiliumPackageName, r.ReconcileCilium},
-		{v1alpha1.IngressNginxPackageName, r.ReconcileNginx},
+		{v1alpha1.GatewayPackageName, r.ReconcileGateway},
 		{v1alpha1.ArgoCDPackageName, r.ReconcileArgo},
 		{v1alpha1.GiteaPackageName, r.ReconcileGitea},
+		{v1alpha1.CrossplanePackageName, r.ReconcileCrossplane},
 	}
-	logger.Info("installing core packages synchronously in order: Cilium -> Nginx -> ArgoCD -> Gitea")
+	logger.Info("installing core packages: Gateway API CRDs -> Cilium -> Gateway -> ArgoCD -> Gitea -> Crossplane")
 
 	for _, inst := range installers {
 		logger.Info("installing core package", "name", inst.name)
 		_, err := inst.install(ctx, req, resource)
 		if err != nil {
-			// If Nginx admission webhook isn't ready yet, wait and retry once
-			if strings.Contains(err.Error(), "validate.nginx.ingress.kubernetes.io") {
-				logger.Info("Nginx admission webhook not ready yet, waiting 15s and retrying...", "name", inst.name)
-				time.Sleep(15 * time.Second)
-				_, err = inst.install(ctx, req, resource)
-			}
-			if err != nil {
-				logger.Info("failed installing", "name", inst.name, "error", err)
-				return fmt.Errorf("failed installing %s: %w", inst.name, err)
-			}
+			logger.Info("failed installing", "name", inst.name, "error", err)
+			return fmt.Errorf("failed installing %s: %w", inst.name, err)
 		}
 		logger.Info("successfully installed", "name", inst.name)
 	}
@@ -659,14 +671,16 @@ func (r *AdharPlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *AdharPlatformReconciler) isPlatformAlreadyDeployed(ctx context.Context) bool {
 	logger := log.FromContext(ctx)
 
-	// Check for core deployments: ArgoCD, Gitea, Nginx
+	// Check for core deployments: ArgoCD, Gitea, Crossplane.
+	// (The Gateway data path is served by Cilium's Envoy and has no dedicated
+	// Deployment of its own, so it is not listed here.)
 	coreDeployments := []struct {
 		name      string
 		namespace string
 	}{
 		{"gitea", globals.AdharSystemNamespace},
 		{"argo-cd-argocd-server", globals.AdharSystemNamespace},
-		{"ingress-nginx-controller", globals.AdharSystemNamespace},
+		{"crossplane", globals.AdharSystemNamespace},
 	}
 
 	for _, dep := range coreDeployments {
@@ -723,6 +737,16 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 
 	if !resource.Status.Gitea.RepositoriesCreated {
 		logger.Info("GitOps repositories still being prepared, not shutting down yet")
+		return false, nil
+	}
+
+	// The control plane must be fully applied (XRDs, Compositions, Functions,
+	// kubernetes/helm Providers + ClusterProviderConfigs, Operations) before we
+	// consider `adhar up` done — this is what "controlplane fully set up as part
+	// of adhar up" means. The provider ClusterProviderConfigs only resolve once
+	// their provider CRDs register, so this can take a couple of minutes.
+	if !resource.Status.Crossplane.ControlPlaneApplied {
+		logger.Info("Crossplane control plane not fully applied yet, waiting...")
 		return false, nil
 	}
 
@@ -966,8 +990,8 @@ func GetEmbeddedRawInstallResources(name string, templateData any, config v1alph
 		return RawArgocdInstallResources(templateData, config, scheme)
 	case v1alpha1.GiteaPackageName:
 		return RawGiteaInstallResources(templateData, config, scheme)
-	case v1alpha1.IngressNginxPackageName:
-		return RawNginxInstallResources(templateData, config, scheme)
+	case v1alpha1.GatewayPackageName:
+		return RawGatewayInstallResources(templateData, config, scheme)
 	case v1alpha1.CiliumPackageName:
 		return RawCiliumInstallResources(templateData, config, scheme)
 	default:

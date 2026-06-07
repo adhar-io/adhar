@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v5.0.15"
+CHART_VERSION="5.4.0"
 
 echo "# MINIO INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/minio/generate-manifests.sh'" >>${INSTALL_YAML}

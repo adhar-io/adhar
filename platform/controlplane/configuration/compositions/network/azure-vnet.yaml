@@ -36,7 +36,7 @@ spec:
 
             _items = [
                 {
-                    apiVersion: "azure.upbound.io/v1beta1"
+                    apiVersion: "azure.m.upbound.io/v1beta1"
                     kind: "ResourceGroup"
                     metadata.name: "resource-group"
                     metadata.labels: {
@@ -50,11 +50,12 @@ spec:
                                 tags: tags
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 },
                 {
-                    apiVersion: "network.azure.upbound.io/v1beta1"
+                    apiVersion: "network.azure.m.upbound.io/v1beta1"
                     kind: "VirtualNetwork"
                     metadata.name: "vnet"
                     metadata.labels: {
@@ -72,6 +73,7 @@ spec:
                                 tags: tags | {"Name": metadata.name}
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }
@@ -81,7 +83,7 @@ spec:
             for idx, subnet in subnets:
                 _subnetName = subnet.name or "subnet-{}".format(idx)
                 _items += [{
-                    apiVersion: "network.azure.upbound.io/v1beta1"
+                    apiVersion: "network.azure.m.upbound.io/v1beta1"
                     kind: "Subnet"
                     metadata.name: "subnet-{}".format(_subnetName)
                     metadata.labels: {
@@ -100,6 +102,7 @@ spec:
                             addressPrefixes: [subnet.cidrBlock]
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }]

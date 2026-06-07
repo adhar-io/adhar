@@ -76,6 +76,12 @@ data:
     {"name":"admin"}
   group-base-user-payload.json: |
     {"name":"base-user"}
+  group-platform-admin-payload.json: |
+    {"name":"platform-admin"}
+  group-platform-developer-payload.json: |
+    {"name":"platform-developer"}
+  group-platform-viewer-payload.json: |
+    {"name":"platform-viewer"}
   group-mapper-payload.json: |
     {
         "protocol": "openid-connect",
@@ -210,6 +216,64 @@ data:
       ]
     }
 
+  argocd-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "argocd",
+      "name": "ArgoCD Client",
+      "description": "Used for ArgoCD SSO",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_idp_initiated_sso_url_name": "",
+        "oauth2.device.authorization.grant.enabled": false,
+        "oidc.ciba.grant.enabled": false
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "",
+      "baseUrl": "",
+      "redirectUris": [
+        "https://adhar.localtest.me:8443/argocd/auth/callback"
+      ],
+      "webOrigins": [
+        "/*"
+      ]
+    }
+
+  gitea-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "gitea",
+      "name": "Gitea Client",
+      "description": "Used for Gitea SSO",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_idp_initiated_sso_url_name": "",
+        "oauth2.device.authorization.grant.enabled": false,
+        "oidc.ciba.grant.enabled": false
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "",
+      "baseUrl": "",
+      "redirectUris": [
+        "https://adhar.localtest.me:8443/gitea/user/oauth2/keycloak/callback"
+      ],
+      "webOrigins": [
+        "/*"
+      ]
+    }
+
 ---
 apiVersion: batch/v1
 kind: Job
@@ -295,7 +359,23 @@ spec:
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/group-base-user-payload.json \
                 ${KEYCLOAK_URL}/admin/realms/adhar/groups
-              
+
+              echo "creating platform RBAC groups"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/group-platform-admin-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/groups
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/group-platform-developer-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/groups
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/group-platform-viewer-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/groups
+
               # Create scope mapper
                 echo 'adding group claim to tokens'
               CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
@@ -392,7 +472,49 @@ spec:
               HEADLAMP_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
               -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
               -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-              
+
+              echo "creating ArgoCD client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/argocd-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "argocd") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              ARGOCD_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
+
+              echo "creating Gitea client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/gitea-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "gitea") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              GITEA_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
+
               ARGOCD_PASSWORD=$(./kubectl -n argocd get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
               
               ARGOCD_SESSION_TOKEN=$(curl -k -sS http://argocd-server.argocd.svc.cluster.local:443/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" | jq -r .token)
@@ -412,6 +534,10 @@ spec:
                 BACKSTAGE_CLIENT_ID: backstage
                 HEADLAMP_CLIENT_SECRET: ${HEADLAMP_CLIENT_SECRET}
                 HEADLAMP_CLIENT_ID: headlamp
+                ARGOCD_CLIENT_SECRET: ${ARGOCD_CLIENT_SECRET}
+                ARGOCD_CLIENT_ID: argocd
+                GITEA_CLIENT_SECRET: ${GITEA_CLIENT_SECRET}
+                GITEA_CLIENT_ID: gitea
               " > /tmp/secret.yaml
               
               ./kubectl apply -f /tmp/secret.yaml

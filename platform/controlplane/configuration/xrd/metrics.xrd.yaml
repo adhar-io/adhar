@@ -1,16 +1,14 @@
 ---
-apiVersion: apiextensions.crossplane.io/v1
+apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
   name: compositemetrics.platform.adhar.io
 spec:
   group: platform.adhar.io
+  scope: Namespaced
   names:
     kind: CompositeMetrics
     plural: compositemetrics
-  claimNames:
-    kind: Metrics
-    plural: metrics
   versions:
   - name: v1alpha1
     served: true

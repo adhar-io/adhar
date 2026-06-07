@@ -1,10 +1,26 @@
 # Kargo Helm Chart Values
+#
+# Gateway API only -- NO nginx Ingress. The chart's Ingress resources are
+# disabled by default (api.ingress.enabled=false); we keep them off and route
+# the kargo-api ClusterIP service through the Cilium Gateway via
+# manifests/httproute.yaml.
+#
+# Admin credentials come from the pre-created "kargo-api" Secret shipped in
+# manifests/ingress.yaml (ADMIN_ACCOUNT_PASSWORD_HASH + token signing key), so
+# the chart does not generate its own.
 
 api:
+  # Domain (and sub-path) where Kargo's UI/API is reached through the Gateway.
+  host: adhar.localtest.me
   ingress:
+    enabled: false
     tls:
       enabled: false
-  tls:
-    selfSignedCert: true
+  service:
+    type: ClusterIP
   secret:
     name: kargo-api
+
+externalWebhooksServer:
+  ingress:
+    enabled: false

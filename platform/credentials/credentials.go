@@ -1,3 +1,6 @@
+// Package credentials discovers, validates, and materializes cloud provider
+// credentials for the Adhar platform, sourcing them from environment variables,
+// Kubernetes secrets, or well-known credential files.
 package credentials
 
 import (

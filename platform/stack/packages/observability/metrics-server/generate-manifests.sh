@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v3.12.2"
+CHART_VERSION="3.13.0"
 
 echo "# METRICS_SERVER INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/metrics-server/generate-manifests.sh'" >>${INSTALL_YAML}

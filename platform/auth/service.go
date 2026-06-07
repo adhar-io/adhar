@@ -1,3 +1,6 @@
+// Package auth provides authentication and authorization services for the Adhar
+// platform, integrating Keycloak for identity with Kubernetes RBAC for access
+// control and synchronizing users, roles, and permissions between them.
 package auth
 
 import (

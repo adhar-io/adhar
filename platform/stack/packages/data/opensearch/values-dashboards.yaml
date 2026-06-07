@@ -1,0 +1,24 @@
+# OpenSearch Dashboards (Kibana-equivalent UI). Ingress disabled -- routed
+# through the Cilium Gateway API HTTPRoute (manifests/httproute.yaml). The
+# dashboard is served under the /opensearch sub-path (basePath) so it works
+# behind the shared adhar host. Never enable a nginx Ingress here.
+ingress:
+  enabled: false
+
+service:
+  type: ClusterIP
+  port: 5601
+
+opensearchHosts: "https://opensearch-cluster-master:9200"
+
+config:
+  opensearch_dashboards.yml: |
+    server.name: opensearch-dashboards
+    server.host: "0.0.0.0"
+    server.basePath: "/opensearch"
+    server.rewriteBasePath: true
+    opensearch.hosts: ["https://opensearch-cluster-master:9200"]
+    opensearch.ssl.verificationMode: none
+    opensearch.username: admin
+    opensearch.password: admin
+    opensearch_security.multitenancy.enabled: false

@@ -27,14 +27,36 @@ var (
 	namespace    string
 	output       string
 	verbose      bool
+
+	// Keycloak connection flags (shared by login/token/user/role/group).
+	kcIssuer       string
+	kcAdminURL     string
+	kcRealm        string
+	kcClientID     string
+	kcClientSecret string
+	kcAdminToken   string
+	kcInsecure     bool
 )
 
 func init() {
 	// Global flags
-	AuthCmd.PersistentFlags().StringVarP(&authProvider, "provider", "p", "", "Authentication provider (keycloak, ldap, saml, oauth)")
-	AuthCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Target namespace")
+	// NOTE: these are persistent (inherited by every subcommand). Several
+	// subcommands already use -p (permissions) and -n (name) as local shorthands,
+	// so the persistent variants intentionally omit shorthands to avoid a pflag
+	// "shorthand already used" panic when cobra merges the flag sets.
+	AuthCmd.PersistentFlags().StringVar(&authProvider, "provider", "", "Authentication provider (keycloak, ldap, saml, oauth)")
+	AuthCmd.PersistentFlags().StringVar(&namespace, "namespace", "", "Target namespace")
 	AuthCmd.PersistentFlags().StringVarP(&output, "output", "o", "table", "Output format: table, json, yaml")
 	AuthCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
+
+	// Keycloak connection flags.
+	AuthCmd.PersistentFlags().StringVar(&kcIssuer, "issuer", defaultIssuer, "OIDC issuer URL (Keycloak realm)")
+	AuthCmd.PersistentFlags().StringVar(&kcAdminURL, "admin-url", defaultAdminAPIURL, "Keycloak base URL for the Admin REST API")
+	AuthCmd.PersistentFlags().StringVar(&kcRealm, "realm", defaultRealm, "Keycloak realm")
+	AuthCmd.PersistentFlags().StringVar(&kcClientID, "client-id", defaultClientID, "OIDC client ID")
+	AuthCmd.PersistentFlags().StringVar(&kcClientSecret, "client-secret", "", "OIDC client secret (if the client is confidential)")
+	AuthCmd.PersistentFlags().StringVar(&kcAdminToken, "admin-token", "", "Bearer token for the Keycloak Admin REST API")
+	AuthCmd.PersistentFlags().BoolVar(&kcInsecure, "insecure", false, "Skip TLS verification (for the local self-signed cert)")
 
 	// Add subcommands
 	AuthCmd.AddCommand(loginCmd)

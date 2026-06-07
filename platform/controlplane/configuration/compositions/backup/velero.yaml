@@ -24,7 +24,9 @@ spec:
 
             params = oxr.spec.parameters
             metadata = oxr.metadata
-            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+            # All resources here are provider-kubernetes Objects, which must
+            # reference the kubernetes-provider ClusterProviderConfig (per conventions).
+            providerConfigName = "kubernetes-provider"
 
             # Backup configuration
             schedule = params.schedule or "0 2 * * *"
@@ -94,7 +96,7 @@ spec:
                     }
                 },
                 {
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "backup-storage-location"
                     metadata.labels: {
@@ -129,10 +131,11 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 },
                 {
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "backup-schedule"
                     metadata.labels: {
@@ -185,6 +188,7 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 }
             ]

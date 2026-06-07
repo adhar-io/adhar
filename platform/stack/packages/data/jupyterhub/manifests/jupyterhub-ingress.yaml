@@ -1,32 +1,31 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# JupyterHub routed through the Cilium Gateway (adhar-gateway). TLS terminates
+# at the Gateway (adhar-cert). The old nginx Ingress used use-regex with
+# rewrite-target: /jupyterhub/$2 on path /jupyterhub(/|$)(.*) -- i.e. it kept the
+# /jupyterhub prefix when forwarding (JupyterHub's base_url is /jupyterhub), so
+# we ReplacePrefixMatch to /jupyterhub. Backend proxy-public:80 (plain HTTP).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: jupyterhub-ingress
+  name: jupyterhub
   namespace: jupyterhub
-  annotations:
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /jupyterhub/$2
-    nginx.ingress.kubernetes.io/use-regex: 'true'
 spec:
-  ingressClassName: nginx
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+    - localhost
   rules:
-    - host: adhar.localtest.me
-      http:
-        paths:
-          - path: /jupyterhub(/|$)(.*)
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: proxy-public
-                port:
-                  number: 80
-    - host: localhost
-      http:
-        paths:
-          - path: /jupyterhub(/|$)(.*)
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: proxy-public
-                port:
-                  number: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /jupyterhub
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /jupyterhub
+      backendRefs:
+        - name: proxy-public
+          port: 80

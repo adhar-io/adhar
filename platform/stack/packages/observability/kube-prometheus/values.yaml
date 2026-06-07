@@ -597,7 +597,6 @@ alertmanager:
 
     # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
     # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
-    # ingressClassName: nginx
 
     annotations: {}
 
@@ -685,7 +684,6 @@ alertmanager:
 
     # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
     # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
-    # ingressClassName: nginx
 
     annotations: {}
     labels: {}
@@ -1293,6 +1291,32 @@ grafana:
   adminUser: admin
   adminPassword: prom-operator
 
+  # Keycloak client id/secret are delivered into the `grafana-oidc` secret (keys
+  # GF_AUTH_GENERIC_OAUTH_CLIENT_ID / GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET) by the
+  # ExternalSecret in manifests/grafana-external-secret.yaml. Grafana picks these up
+  # as environment variables, which override the matching grafana.ini keys below.
+  # NOTE (bootstrap timing): generic_oauth login only works once Keycloak has synced
+  # and that secret is populated; the local `admin` user stays as break-glass.
+  envFromSecret: grafana-oidc
+
+  # Grafana runs behind the platform host at /grafana.
+  grafana.ini:
+    server:
+      root_url: https://adhar.localtest.me:8443/grafana
+      serve_from_sub_path: true
+    auth.generic_oauth:
+      enabled: true
+      name: Keycloak
+      client_id: grafana
+      scopes: openid profile email groups
+      auth_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/auth
+      token_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/token
+      api_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/userinfo
+      # Map Keycloak realm groups (in the `groups` claim) to Grafana org roles.
+      role_attribute_path: contains(groups[*], 'platform-admin') && 'Admin' || contains(groups[*], 'platform-developer') && 'Editor' || 'Viewer'
+      role_attribute_strict: false
+      allow_assign_grafana_admin: true
+
   rbac:
     ## If true, Grafana PSPs will be created
     ##
@@ -1306,12 +1330,10 @@ grafana:
     ## IngressClassName for Grafana Ingress.
     ## Should be provided if Ingress is enable.
     ##
-    # ingressClassName: nginx
 
     ## Annotations for Grafana Ingress
     ##
     annotations: {}
-      # kubernetes.io/ingress.class: nginx
       # kubernetes.io/tls-acme: "true"
 
     ## Labels to be added to the Ingress
@@ -3647,7 +3669,6 @@ prometheus:
 
     # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
     # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
-    # ingressClassName: nginx
 
     annotations: {}
     labels: {}
@@ -3697,7 +3718,6 @@ prometheus:
 
     # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
     # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
-    # ingressClassName: nginx
 
     annotations: {}
     labels: {}
@@ -3778,7 +3798,6 @@ prometheus:
 
     # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
     # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
-    # ingressClassName: nginx
 
     annotations: {}
     labels: {}
@@ -4869,7 +4888,6 @@ thanosRuler:
 
     # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
     # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
-    # ingressClassName: nginx
 
     annotations: {}
 

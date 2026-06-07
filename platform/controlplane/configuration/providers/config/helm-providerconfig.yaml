@@ -1,17 +1,19 @@
 ---
-# Helm Provider Configuration - For application deployment
-apiVersion: helm.crossplane.io/v1beta1
-kind: ProviderConfig
+# Helm Provider - cluster-scoped config consumed by namespaced
+# helm.m.crossplane.io/v1beta1 Release managed resources.
+# Namespaced MRs reference this via providerConfigRef.kind: ClusterProviderConfig.
+apiVersion: helm.m.crossplane.io/v1beta1
+kind: ClusterProviderConfig
 metadata:
   name: helm-provider
 spec:
-  # Uses in-cluster configuration by default
+  # Deploy charts into the local (in-cluster) Kubernetes API by default.
   credentials:
     source: InjectedIdentity
 ---
-# Alternative: External cluster Helm configuration
-apiVersion: helm.crossplane.io/v1beta1
-kind: ProviderConfig
+# Alternative: deploy charts to an external cluster via a kubeconfig secret.
+apiVersion: helm.m.crossplane.io/v1beta1
+kind: ClusterProviderConfig
 metadata:
   name: helm-external
 spec:

@@ -1,0 +1,5 @@
+# vCluster control plane. Ingress is disabled; external access (if needed) is
+# routed through the Cilium Gateway API, never nginx.
+controlPlane:
+  ingress:
+    enabled: false

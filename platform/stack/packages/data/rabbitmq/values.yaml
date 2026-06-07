@@ -1,0 +1,26 @@
+# RabbitMQ message broker (Bitnami chart).
+# The management UI is exposed via the Cilium Gateway API HTTPRoute
+# (manifests/httproute.yaml) attached to adhar-gateway -- the chart Ingress is
+# left disabled (default) and must NOT be enabled (no nginx).
+auth:
+  username: admin
+  password: adhar-rabbitmq
+
+replicaCount: 1
+
+persistence:
+  enabled: true
+  size: 2Gi
+
+ingress:
+  enabled: false
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi

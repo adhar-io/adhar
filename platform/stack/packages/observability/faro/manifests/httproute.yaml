@@ -1,0 +1,31 @@
+# Grafana Faro receiver routed through the Cilium Gateway (adhar-gateway). TLS
+# terminates at the Gateway. Browsers (the Faro Web SDK) POST RUM data to the
+# /faro endpoint, which is forwarded to the Alloy faro.receiver on port 12347.
+# This is the public ingest endpoint Faro requires; there is no nginx Ingress.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: faro
+  namespace: faro
+  annotations:
+    argocd.argoproj.io/sync-wave: "100"
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /faro
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: faro-alloy
+          port: 12347

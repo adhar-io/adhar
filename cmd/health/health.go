@@ -17,9 +17,18 @@ limitations under the License.
 package health
 
 import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 // HealthCmd represents the health command
@@ -86,34 +95,72 @@ func runHealth(cmd *cobra.Command, args []string) error {
 func checkOverallHealth() error {
 	logger.Info("🔍 Performing overall platform health check...")
 
-	// TODO: Implement overall platform health check
-	// This should check:
-	// - Kubernetes cluster status
-	// - Core platform components (Cilium, Nginx, Gitea, ArgoCD)
-	// - Resource availability (CPU, Memory, Storage)
-	// - Network connectivity
-	// - Security status
-
-	logger.Info("✅ Overall platform health check completed")
-	return nil
+	_, err := runHealthSweep("", parseTimeout(timeout))
+	return err
 }
 
 func checkComponentHealth(componentName string) error {
 	logger.Info("🔍 Checking component health: " + componentName)
 
-	// TODO: Implement component-specific health check
-	// This should check the health of the specified component
-
-	logger.Info("✅ Component health check completed")
-	return nil
+	_, err := runHealthSweep(componentName, parseTimeout(timeout))
+	return err
 }
 
 func checkNamespaceHealth(namespaceName string) error {
 	logger.Info("🔍 Checking namespace health: " + namespaceName)
 
-	// TODO: Implement namespace-specific health check
-	// This should check all resources in the specified namespace
+	clientset, err := getClientset()
+	if err != nil {
+		fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
+		fmt.Println(helpers.CreateMuted("   " + err.Error()))
+		return fmt.Errorf("failed to get Kubernetes client: %w", err)
+	}
+	return reportNamespaceHealth(clientset, namespaceName, parseTimeout(timeout))
+}
 
-	logger.Info("✅ Namespace health check completed")
+// reportNamespaceHealth summarizes pod health for a single namespace.
+func reportNamespaceHealth(clientset *kubernetes.Clientset, ns string, to time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), to)
+	defer cancel()
+
+	pods, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list pods in namespace %q: %w", ns, err)
+	}
+
+	var running, pending, failed, succeeded int
+	var problems []string
+	for _, p := range pods.Items {
+		switch p.Status.Phase {
+		case corev1.PodRunning:
+			running++
+		case corev1.PodPending:
+			pending++
+			problems = append(problems, fmt.Sprintf("%s is Pending", p.Name))
+		case corev1.PodFailed:
+			failed++
+			problems = append(problems, fmt.Sprintf("%s is Failed", p.Name))
+		case corev1.PodSucceeded:
+			succeeded++
+		}
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.State.Waiting != nil && (cs.State.Waiting.Reason == "CrashLoopBackOff" || cs.State.Waiting.Reason == "ImagePullBackOff") {
+				problems = append(problems, fmt.Sprintf("%s: %s", p.Name, cs.State.Waiting.Reason))
+			}
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("📦 Namespace: %s\n", ns))
+	b.WriteString(fmt.Sprintf("🟢 Running: %d   🟡 Pending: %d   🔴 Failed: %d   ✅ Succeeded: %d\n", running, pending, failed, succeeded))
+	b.WriteString(fmt.Sprintf("📊 Total Pods: %d", len(pods.Items)))
+	fmt.Println(helpers.BorderStyle.Width(70).Render(b.String()))
+
+	if len(problems) > 0 {
+		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("⚠️  Issues"))
+		for _, p := range problems {
+			fmt.Println("  • " + p)
+		}
+	}
 	return nil
 }

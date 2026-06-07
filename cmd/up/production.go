@@ -19,8 +19,11 @@ package up
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
+	"time"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/config"
@@ -28,8 +31,16 @@ import (
 	pfactory "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
 
+	// Import providers so their init() functions register with DefaultFactory
+	_ "adhar-io/adhar/platform/providers/aws"
+	_ "adhar-io/adhar/platform/providers/azure"
+	_ "adhar-io/adhar/platform/providers/civo"
+	_ "adhar-io/adhar/platform/providers/custom"
+	_ "adhar-io/adhar/platform/providers/digitalocean"
+	_ "adhar-io/adhar/platform/providers/gcp"
+	_ "adhar-io/adhar/platform/providers/kind"
+
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // ProductionProvisioner handles production environment deployment
@@ -95,24 +106,19 @@ func (pp *ProductionProvisioner) Provision() error {
 	return nil
 }
 
-// loadConfiguration loads the configuration file
+// loadConfiguration loads the configuration file using Viper
 func (pp *ProductionProvisioner) loadConfiguration() error {
 	logger.Info("📋 Loading configuration from: " + pp.configFile)
 
-	// Check if config file exists
-	if _, err := os.Stat(pp.configFile); os.IsNotExist(err) {
-		return fmt.Errorf("configuration file not found: %s", pp.configFile)
-	}
-
-	// Read and parse configuration file
-	data, err := os.ReadFile(pp.configFile)
+	cfg, err := config.LoadConfig(pp.configFile)
 	if err != nil {
-		return fmt.Errorf("failed to read configuration file: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	pp.config = cfg
 
-	pp.config = &config.Config{}
-	if err := yaml.Unmarshal(data, pp.config); err != nil {
-		return fmt.Errorf("failed to parse configuration file: %w", err)
+	// Resolve environments (merge templates, assign providers)
+	if err := pp.config.ResolveEnvironments(); err != nil {
+		return fmt.Errorf("failed to resolve environments: %w", err)
 	}
 
 	logger.Info("✅ Configuration loaded successfully")
@@ -239,16 +245,7 @@ func (pp *ProductionProvisioner) runPreFlightChecks() error {
 // checkProviderAuthentication verifies provider credentials
 func (pp *ProductionProvisioner) checkProviderAuthentication() error {
 	// Get the target environment
-	var targetEnv config.EnvironmentConfig
-	if pp.options.Environment != "" {
-		targetEnv = pp.config.Environments[pp.options.Environment]
-	} else {
-		// Use first environment if none specified
-		for _, env := range pp.config.Environments {
-			targetEnv = env
-			break
-		}
-	}
+	targetEnv := pp.targetEnvironment()
 
 	// Create provider instance for authentication check
 	provider, err := pp.factory.CreateProvider(targetEnv.Provider, map[string]interface{}{
@@ -274,16 +271,7 @@ func (pp *ProductionProvisioner) checkProviderAuthentication() error {
 // checkResourceQuotas verifies available resources
 func (pp *ProductionProvisioner) checkResourceQuotas() error {
 	// Get the target environment
-	var targetEnv config.EnvironmentConfig
-	if pp.options.Environment != "" {
-		targetEnv = pp.config.Environments[pp.options.Environment]
-	} else {
-		// Use first environment if none specified
-		for _, env := range pp.config.Environments {
-			targetEnv = env
-			break
-		}
-	}
+	targetEnv := pp.targetEnvironment()
 
 	// Create provider instance for resource check
 	provider, err := pp.factory.CreateProvider(targetEnv.Provider, map[string]interface{}{
@@ -355,16 +343,7 @@ func (pp *ProductionProvisioner) checkInternetConnectivity() error {
 // checkProviderConnectivity verifies provider-specific connectivity
 func (pp *ProductionProvisioner) checkProviderConnectivity() error {
 	// Get the target environment
-	var targetEnv config.EnvironmentConfig
-	if pp.options.Environment != "" {
-		targetEnv = pp.config.Environments[pp.options.Environment]
-	} else {
-		// Use first environment if none specified
-		for _, env := range pp.config.Environments {
-			targetEnv = env
-			break
-		}
-	}
+	targetEnv := pp.targetEnvironment()
 
 	// Test provider-specific endpoints based on provider type
 	switch targetEnv.Provider {
@@ -384,40 +363,42 @@ func (pp *ProductionProvisioner) checkProviderConnectivity() error {
 
 // testDNSResolution tests DNS resolution
 func (pp *ProductionProvisioner) testDNSResolution(host string) error {
-	// Simple DNS test - in production this would use proper DNS resolution
-	// For now, we'll assume success
+	_, err := net.DialTimeout("tcp", host+":53", 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("cannot reach DNS server %s: %w", host, err)
+	}
 	return nil
 }
 
 // testHTTPConnectivity tests HTTP connectivity
 func (pp *ProductionProvisioner) testHTTPConnectivity(url string) error {
-	// Simple HTTP test - in production this would make actual HTTP requests
-	// For now, we'll assume success
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("HTTP connectivity check failed for %s: %w", url, err)
+	}
+	resp.Body.Close()
 	return nil
 }
 
 // testAWSConnectivity tests AWS-specific connectivity
 func (pp *ProductionProvisioner) testAWSConnectivity() error {
-	// Test AWS endpoints
-	return nil
+	return pp.testHTTPConnectivity("https://sts.amazonaws.com")
 }
 
 // testAzureConnectivity tests Azure-specific connectivity
 func (pp *ProductionProvisioner) testAzureConnectivity() error {
-	// Test Azure endpoints
-	return nil
+	return pp.testHTTPConnectivity("https://management.azure.com")
 }
 
 // testGCPConnectivity tests GCP-specific connectivity
 func (pp *ProductionProvisioner) testGCPConnectivity() error {
-	// Test GCP endpoints
-	return nil
+	return pp.testHTTPConnectivity("https://cloudresourcemanager.googleapis.com")
 }
 
 // testDigitalOceanConnectivity tests DigitalOcean-specific connectivity
 func (pp *ProductionProvisioner) testDigitalOceanConnectivity() error {
-	// Test DigitalOcean endpoints
-	return nil
+	return pp.testHTTPConnectivity("https://api.digitalocean.com/v2/account")
 }
 
 // createCloudCluster creates the cloud-based Kubernetes cluster
@@ -425,16 +406,7 @@ func (pp *ProductionProvisioner) createCloudCluster() error {
 	logger.Info("🔧 Creating cloud Kubernetes cluster...")
 
 	// Get the target environment
-	var targetEnv config.EnvironmentConfig
-	if pp.options.Environment != "" {
-		targetEnv = pp.config.Environments[pp.options.Environment]
-	} else {
-		// Use first environment if none specified
-		for _, env := range pp.config.Environments {
-			targetEnv = env
-			break
-		}
-	}
+	targetEnv := pp.targetEnvironment()
 
 	// Create provider instance
 	provider, err := pp.factory.CreateProvider(targetEnv.Provider, map[string]interface{}{
@@ -457,11 +429,21 @@ func (pp *ProductionProvisioner) createCloudCluster() error {
 	for _, kv := range targetEnv.ClusterConfig {
 		switch kv.Key {
 		case "controlPlaneReplicas":
-			// Parse and set control plane replicas
+			if n := atoiDef(kv.Value, 0); n > 0 {
+				spec.ControlPlane.Replicas = n
+			}
 		case "workerNodeReplicas":
-			// Parse and set worker node replicas
-		case "nodeType":
-			// Parse and set node type
+			if n := atoiDef(kv.Value, 0); n > 0 {
+				if len(spec.NodeGroups) > 0 {
+					spec.NodeGroups[0].Replicas = n
+				}
+			}
+		case "nodeType", "instanceType":
+			if len(spec.NodeGroups) > 0 {
+				spec.NodeGroups[0].InstanceType = kv.Value
+			}
+		case "kubeVersion", "version":
+			spec.Version = kv.Value
 		}
 	}
 
@@ -480,16 +462,7 @@ func (pp *ProductionProvisioner) installPlatformComponents() error {
 	logger.Info("📦 Installing platform components...")
 
 	// Get the target environment
-	var targetEnv config.EnvironmentConfig
-	if pp.options.Environment != "" {
-		targetEnv = pp.config.Environments[pp.options.Environment]
-	} else {
-		// Use first environment if none specified
-		for _, env := range pp.config.Environments {
-			targetEnv = env
-			break
-		}
-	}
+	targetEnv := pp.targetEnvironment()
 
 	// Install core services based on environment configuration
 	if targetEnv.CoreServices != nil {
@@ -574,16 +547,7 @@ func (pp *ProductionProvisioner) setupGitOpsRepositories() error {
 	logger.Info("🔄 Setting up GitOps repositories...")
 
 	// Get the target environment
-	var targetEnv config.EnvironmentConfig
-	if pp.options.Environment != "" {
-		targetEnv = pp.config.Environments[pp.options.Environment]
-	} else {
-		// Use first environment if none specified
-		for _, env := range pp.config.Environments {
-			targetEnv = env
-			break
-		}
-	}
+	targetEnv := pp.targetEnvironment()
 
 	// Wait for ArgoCD to be ready
 	if err := pp.waitForArgoCD(); err != nil {
@@ -659,12 +623,22 @@ func (pp *ProductionProvisioner) configureArgoCDApplications(envConfig config.En
 	return nil
 }
 
-// createPlatformApplicationSet creates ApplicationSet for platform components
+// createPlatformApplicationSet creates the ApplicationSet for platform
+// components. Cloud/production uses the GitOps ApplicationSet, which enables the
+// full platform stack (a multi-node cloud cluster has the capacity); it falls
+// back to the curated local ApplicationSet if the GitOps one is unavailable.
 func (pp *ProductionProvisioner) createPlatformApplicationSet() error {
-	// Apply platform ApplicationSet manifest
-	cmd := exec.Command("kubectl", "apply", "-f", "platform/stack/adhar-appset-manifests.yaml")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to apply platform ApplicationSet: %w", err)
+	appsetPath := "platform/stack/adhar-appset-gitops.yaml"
+	if _, err := os.Stat(appsetPath); os.IsNotExist(err) {
+		appsetPath = "platform/stack/adhar-appset-local.yaml"
+		if _, err := os.Stat(appsetPath); os.IsNotExist(err) {
+			return fmt.Errorf("ApplicationSet manifest not found (looked for adhar-appset-gitops.yaml and adhar-appset-local.yaml)")
+		}
+	}
+
+	cmd := exec.Command("kubectl", "apply", "-f", appsetPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply platform ApplicationSet: %w, output: %s", err, string(output))
 	}
 
 	return nil
@@ -672,10 +646,16 @@ func (pp *ProductionProvisioner) createPlatformApplicationSet() error {
 
 // createApplicationApplicationSet creates ApplicationSet for applications
 func (pp *ProductionProvisioner) createApplicationApplicationSet() error {
-	// Apply application ApplicationSet manifest
-	cmd := exec.Command("kubectl", "apply", "-f", "platform/stack/adhar-appset-charts.yaml")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to apply application ApplicationSet: %w", err)
+	// ArgoCD auth for Gitea access
+	authPath := "platform/stack/argocd-auth.yaml"
+	if _, err := os.Stat(authPath); os.IsNotExist(err) {
+		logger.Warnf("ArgoCD auth manifest not found at %s, skipping", authPath)
+		return nil
+	}
+
+	cmd := exec.Command("kubectl", "apply", "-f", authPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply ArgoCD auth: %w, output: %s", err, string(output))
 	}
 
 	return nil
@@ -746,26 +726,20 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	return nil
 }
 
-// loadConfigFromFile loads configuration from a specific file path
+// loadConfigFromFile loads configuration from a specific file path using Viper
+// (which understands mapstructure tags used by the Config struct)
 func loadConfigFromFile(configPath string) (*config.Config, error) {
-	file, err := os.Open(configPath)
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open configuration file: %w", err)
-	}
-	defer file.Close()
-
-	var cfg config.Config
-	decoder := yaml.NewDecoder(file)
-	if err := decoder.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse configuration file: %w", err)
+		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Resolve environment configurations
+	// Resolve environment configurations (merge templates, assign providers)
 	if err := cfg.ResolveEnvironments(); err != nil {
 		return nil, fmt.Errorf("failed to resolve environments: %w", err)
 	}
 
-	return &cfg, nil
+	return cfg, nil
 }
 
 // resolveEnvironmentConfig resolves a specific environment configuration
@@ -788,7 +762,7 @@ func printProductionSuccessMsg(envName string) {
 	fmt.Printf("Environment: %s\n", envName)
 	fmt.Printf("Cluster has been provisioned with:\n")
 	fmt.Printf("  ✓ Cilium CNI with production-ready configuration\n")
-	fmt.Printf("  ✓ Core platform services (ArgoCD, Gitea, Nginx)\n")
+	fmt.Printf("  ✓ Core platform services (ArgoCD, Gitea, Cilium Gateway)\n")
 	fmt.Printf("  ✓ Security policies and monitoring\n")
 	fmt.Printf("  ✓ Auto-scaling and high availability\n\n")
 	fmt.Printf("Next steps:\n")
@@ -871,7 +845,7 @@ func showDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 		fmt.Printf("\nCore Services:\n")
 		fmt.Printf("  ArgoCD:    %v\n", envConfig.ResolvedCoreServices.ArgoCD != nil)
 		fmt.Printf("  Gitea:     %v\n", envConfig.ResolvedCoreServices.Gitea != nil)
-		fmt.Printf("  Nginx:     %v\n", envConfig.ResolvedCoreServices.Nginx != nil)
+		fmt.Printf("  Gateway:   %v\n", envConfig.ResolvedCoreServices.Gateway != nil)
 		fmt.Printf("  Cilium:    %v\n", envConfig.ResolvedCoreServices.Cilium != nil)
 	}
 
@@ -888,14 +862,9 @@ func showDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 
 // validateEnvironmentExists checks if the specified environment exists in the config file
 func validateEnvironmentExists(configPath, envName string) error {
-	data, err := os.ReadFile(configPath)
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var cfg config.Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("failed to parse config file: %w", err)
+		return fmt.Errorf("failed to load config file: %w", err)
 	}
 
 	if len(cfg.Environments) == 0 {

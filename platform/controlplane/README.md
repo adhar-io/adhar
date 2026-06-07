@@ -4,7 +4,7 @@ This directory contains the **Crossplane v2.1** based control plane configuratio
 
 ## Table of Contents
 - [Overview](#overview)
-- [What's New in v2.1](#whats-new-in-v21)
+- [What's New in v2.3](#whats-new-in-v23)
 - [What Lives Here](#what-lives-here)
 - [Architecture](#architecture)
 - [Supported Providers](#supported-providers)
@@ -28,13 +28,17 @@ The control plane provides:
 - **Advanced provider features** including logging, monitoring, identity, and networking
 - **Kubernetes-native operations** for existing clusters (Kind, on-prem) via provider-kubernetes
 
-## What's New in v2.1
+## What's New in v2.3
 
-### Crossplane 2.1 Upgrade
-- ✅ Updated to Crossplane v2.1.0 with latest features and improvements
-- ✅ Enhanced pipeline composition mode with better status reporting
-- ✅ Improved function ecosystem with function-patch-and-transform
-- ✅ Better resource lifecycle management and dependency handling
+### Crossplane 2.3 Upgrade
+
+- ✅ Updated to Crossplane **v2.3.1** core (re-rendered install manifests via Helm)
+- ✅ **Namespaced composite resources**: all XRDs migrated to `apiextensions.crossplane.io/v2` with `scope: Namespaced` — no more claims
+- ✅ **Namespaced managed resources**: compositions target the `.m` API groups (`*.aws.m.upbound.io`, `kubernetes.m.crossplane.io`, `helm.m.crossplane.io`) with shared `ClusterProviderConfig`s
+- ✅ **Day-2 Operations**: `Operation` / `CronOperation` / `WatchOperation` (`ops.crossplane.io/v1alpha1`) for scheduled backups, secret rotation, and drift detection (core `--enable-operations`)
+- ✅ Expanded function ecosystem: function-kcl, function-go-templating, function-patch-and-transform, function-auto-ready, function-python
+- ✅ New features: `logs`, `env`, and `config` composite resources
+- ✅ See [CONVENTIONS.md](../CONVENTIONS.md) for the full v2 model and authoring rules
 
 ### Provider Expansion
 - ✅ **AWS**: Modular providers (EKS, EC2, RDS, IAM, S3) for granular resource management
@@ -562,7 +566,7 @@ See `examples/` directory for complete samples:
 **November 8, 2025** - All control plane features completed using **KCL-based Crossplane compositions**.
 
 ### Technology Stack
-- **Crossplane**: v2.1.0+ 
+- **Crossplane**: v2.3.0+ (tested on v2.3.1) 
 - **Function**: function-kcl v0.9.0+
 - **Language**: KCL (Kubernetes Configuration Language)
 - **Pattern**: Declarative, GitOps-driven infrastructure

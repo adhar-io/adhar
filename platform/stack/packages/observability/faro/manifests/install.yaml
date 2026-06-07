@@ -1,0 +1,327 @@
+# FARO INSTALL RESOURCES
+# This file is auto-generated with 'platform/stack/packages/observability/faro/generate-manifests.sh'
+---
+# Source: alloy/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: true
+metadata:
+  name: faro-alloy
+  namespace: faro
+  labels:
+    helm.sh/chart: alloy-1.8.2
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: faro
+    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: alloy
+    app.kubernetes.io/component: rbac
+---
+# Source: alloy/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: faro-alloy
+  namespace: faro
+  labels:
+    helm.sh/chart: alloy-1.8.2
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: faro
+    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: alloy
+    app.kubernetes.io/component: config
+data:
+  config.alloy: |-
+    faro.receiver "default" {
+      server {
+        listen_address = "0.0.0.0"
+        listen_port    = 12347
+        cors_allowed_origins = ["*"]
+      }
+      output {
+        logs   = [loki.write.default.receiver]
+        traces = [otelcol.exporter.otlp.tempo.input]
+      }
+    }
+    
+    loki.write "default" {
+      endpoint {
+        url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+      }
+    }
+    
+    otelcol.exporter.otlp "tempo" {
+      client {
+        endpoint = "tempo.monitoring.svc.cluster.local:4317"
+        tls {
+          insecure = true
+        }
+      }
+    }
+---
+# Source: alloy/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: faro-alloy
+  labels:
+    helm.sh/chart: alloy-1.8.2
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: faro
+    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: alloy
+    app.kubernetes.io/component: rbac
+rules:
+  - apiGroups:
+    - ""
+    - discovery.k8s.io
+    - networking.k8s.io
+    resources:
+    - endpoints
+    - endpointslices
+    - ingresses
+    - pods
+    - services
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    - pods/log
+    - namespaces
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - monitoring.grafana.com
+    resources:
+    - podlogs
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - monitoring.coreos.com
+    resources:
+    - prometheusrules
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - monitoring.coreos.com
+    resources:
+    - alertmanagerconfigs
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - monitoring.coreos.com
+    resources:
+    - podmonitors
+    - servicemonitors
+    - probes
+    - scrapeconfigs
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - events
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - configmaps
+    - secrets
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - apps
+    - extensions
+    resources:
+    - replicasets
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - nodes
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - nodes/pods
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - nodes/metrics
+    verbs:
+    - get
+    - list
+    - watch
+  - nonResourceURLs:
+    - /metrics
+    verbs:
+    - get
+---
+# Source: alloy/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: faro-alloy
+  labels:
+    helm.sh/chart: alloy-1.8.2
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: faro
+    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: alloy
+    app.kubernetes.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: faro-alloy
+subjects:
+  - kind: ServiceAccount
+    name: faro-alloy
+    namespace: faro
+---
+# Source: alloy/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: faro-alloy
+  namespace: faro
+  labels:
+    helm.sh/chart: alloy-1.8.2
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: faro
+    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: alloy
+    app.kubernetes.io/component: networking
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: faro
+  internalTrafficPolicy: Cluster
+  ports:
+    - name: http-metrics
+      port: 12345
+      targetPort: 12345
+      protocol: "TCP"
+    - name: faro
+      port: 12347
+      targetPort: 12347
+      protocol: TCP
+---
+# Source: alloy/templates/controllers/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: faro-alloy
+  namespace: faro
+  labels:
+    helm.sh/chart: alloy-1.8.2
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: faro
+    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: alloy
+spec:
+  replicas: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: faro
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: alloy
+      labels:
+        app.kubernetes.io/name: alloy
+        app.kubernetes.io/instance: faro
+    spec:
+      serviceAccountName: faro-alloy
+      containers:
+        - name: alloy
+          image: docker.io/grafana/alloy:v1.16.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/tmp/alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --server.http.ui-path-prefix=/
+            - --stability.level=generally-available
+          env:
+            - name: ALLOY_DEPLOY_MODE
+              value: "helm"
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - containerPort: 12345
+              name: http-metrics
+            - containerPort: 12347
+              name: faro
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 12345
+              scheme: HTTP
+            initialDelaySeconds: 10
+            timeoutSeconds: 1
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+        - name: config-reloader
+          image: quay.io/prometheus-operator/prometheus-config-reloader:v0.91.0@sha256:7d9e4eea5f1139e602508871f422b0116c60e87c662f3dcd234d5ab60cd0d8c1
+          imagePullPolicy: IfNotPresent
+          args:
+            - --watched-dir=/etc/alloy
+            - --reload-url=http://localhost:12345/-/reload
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+          resources:
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      dnsPolicy: ClusterFirst
+      volumes:
+        - name: config
+          configMap:
+            name: faro-alloy

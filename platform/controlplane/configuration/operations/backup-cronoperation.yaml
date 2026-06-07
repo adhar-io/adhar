@@ -1,0 +1,81 @@
+---
+# Daily platform backup (day-2 Operation).
+#
+# Runs every day at 02:00 and emits a Velero Backup (velero.io/v1) that captures
+# the adhar-system and crossplane-system namespaces. The Operation pipeline uses
+# function-python's operate() entrypoint: resources placed in
+# rsp.desired.resources are server-side applied by Crossplane (force apply, no
+# owner references), and rsp.output records the run for history/observability.
+#
+# Requires the core --enable-operations flag (see hack/crossplane/values*.yaml).
+apiVersion: ops.crossplane.io/v1alpha1
+kind: CronOperation
+metadata:
+  name: adhar-daily-backup
+  labels:
+    feature: backup
+    provider: kubernetes
+spec:
+  schedule: "0 2 * * *"
+  # Never start a new backup while the previous scheduled run is still active.
+  concurrencyPolicy: Forbid
+  # Retain recent Operation objects for auditing/troubleshooting.
+  successfulHistoryLimit: 5
+  failedHistoryLimit: 3
+  # If the controller misses the scheduled time by more than 15m, skip the run.
+  startingDeadlineSeconds: 900
+  operationTemplate:
+    metadata:
+      labels:
+        feature: backup
+    spec:
+      mode: Pipeline
+      pipeline:
+        - step: create-velero-backup
+          functionRef:
+            name: function-python
+          input:
+            apiVersion: python.fn.crossplane.io/v1beta1
+            kind: Script
+            script: |
+              import datetime
+
+              from crossplane.function.proto.v1 import run_function_pb2 as fnv1
+
+
+              def operate(req: fnv1.RunFunctionRequest,
+                          rsp: fnv1.RunFunctionResponse):
+                  """Emit a timestamped Velero Backup for core platform namespaces."""
+                  stamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+                      "%Y%m%d-%H%M%S"
+                  )
+                  name = f"adhar-platform-{stamp}"
+
+                  rsp.desired.resources["velero-backup"].resource.update({
+                      "apiVersion": "velero.io/v1",
+                      "kind": "Backup",
+                      "metadata": {
+                          "name": name,
+                          "namespace": "velero",
+                          "labels": {
+                              "adhar.io/managed": "true",
+                              "adhar.io/operation": "adhar-daily-backup",
+                          },
+                      },
+                      "spec": {
+                          "includedNamespaces": [
+                              "adhar-system",
+                              "crossplane-system",
+                          ],
+                          "ttl": "168h0m0s",
+                          "snapshotVolumes": True,
+                          "storageLocation": "default",
+                      },
+                  })
+
+                  rsp.output["backupName"] = name
+                  rsp.output["scheduledAt"] = stamp
+                  rsp.output["message"] = (
+                      f"Requested Velero Backup {name} for adhar-system,"
+                      " crossplane-system"
+                  )

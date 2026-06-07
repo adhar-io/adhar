@@ -37,11 +37,12 @@ const (
 	PackageTypeLabelCore   = "core"
 	PackageTypeLabelCustom = "custom"
 
-	ArgoCDPackageName       = "argocd"
-	GiteaPackageName        = "gitea"
-	IngressNginxPackageName = "nginx"
-	CiliumPackageName       = "cilium"
-	CrossplanePackageName   = "crosplane"
+	ArgoCDPackageName         = "argocd"
+	GiteaPackageName          = "gitea"
+	GatewayPackageName        = "gateway"
+	GatewayAPICRDsPackageName = "gateway-api-crds"
+	CiliumPackageName         = "cilium"
+	CrossplanePackageName     = "crossplane"
 )
 
 const (
@@ -104,11 +105,11 @@ type PackageCustomization struct {
 
 // CoreServicesSpec defines the configuration for core services.
 type CoreServicesSpec struct {
-	Cilium *HelmChartConfig `json:"cilium,omitempty"`
-	Nginx  *HelmChartConfig `json:"nginx,omitempty"`
-	Gitea  *HelmChartConfig `json:"gitea,omitempty"`
-	ArgoCD *HelmChartConfig `json:"argocd,omitempty"`
-	Values []ValuesConfig   `json:"values,omitempty"`
+	Cilium  *HelmChartConfig `json:"cilium,omitempty"`
+	Gateway *HelmChartConfig `json:"gateway,omitempty"`
+	Gitea   *HelmChartConfig `json:"gitea,omitempty"`
+	ArgoCD  *HelmChartConfig `json:"argocd,omitempty"`
+	Values  []ValuesConfig   `json:"values,omitempty"`
 }
 
 // AddonSpec defines the configuration for an addon.
@@ -146,10 +147,16 @@ type AdharPlatformStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 	// ObservedGeneration is the 'Generation' of the Service that was last processed by the controller.
 	// +optional
-	ObservedGeneration int64        `json:"observedGeneration,omitempty"`
-	ArgoCD             ArgoCDStatus `json:"ArgoCD,omitempty"`
-	Nginx              NginxStatus  `json:"nginx,omitempty"`
-	Gitea              GiteaStatus  `json:"gitea,omitempty"`
+	ObservedGeneration int64            `json:"observedGeneration,omitempty"`
+	ArgoCD             ArgoCDStatus     `json:"ArgoCD,omitempty"`
+	Gateway            GatewayStatus    `json:"gateway,omitempty"`
+	Gitea              GiteaStatus      `json:"gitea,omitempty"`
+	Crossplane         CrossplaneStatus `json:"crossplane,omitempty"`
+}
+
+type CrossplaneStatus struct {
+	Available           bool `json:"available,omitempty"`
+	ControlPlaneApplied bool `json:"controlPlaneApplied,omitempty"`
 }
 
 type GiteaStatus struct {
@@ -166,7 +173,7 @@ type ArgoCDStatus struct {
 	AppsCreated bool `json:"appsCreated,omitempty"`
 }
 
-type NginxStatus struct {
+type GatewayStatus struct {
 	Available bool `json:"available,omitempty"`
 }
 

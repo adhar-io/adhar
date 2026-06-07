@@ -1,0 +1,11 @@
+# Dagster data orchestrator.
+# The Dagster webserver (Dagit) UI is exposed via the Cilium Gateway API
+# HTTPRoute (manifests/httproute.yaml) attached to adhar-gateway -- the chart
+# Ingress is left disabled (default) and must NOT be enabled (no nginx).
+ingress:
+  enabled: false
+
+dagsterWebserver:
+  service:
+    type: ClusterIP
+    port: 80

@@ -58,6 +58,9 @@ func init() {
 	ConfigCmd.AddCommand(validateCmd)
 	ConfigCmd.AddCommand(listTemplatesCmd)
 	ConfigCmd.AddCommand(exportCmd)
+	ConfigCmd.AddCommand(viewCmd)
+	ConfigCmd.AddCommand(getCmd)
+	ConfigCmd.AddCommand(setCmd)
 }
 
 func runConfig(cmd *cobra.Command, args []string) error {

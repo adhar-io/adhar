@@ -14,6 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package up implements the `adhar up` command, which provisions a complete
+// Adhar Internal Developer Platform.
+//
+// It supports two modes selected by the presence of the --file flag:
+//
+//   - Local development mode (default): creates a local Kind cluster and runs
+//     the platform controllers in-process (see local.go).
+//   - Production mode (-f config.yaml): provisions a cloud cluster from a
+//     resolved configuration file using the provider factory (see production.go).
+//
+// Shared helpers used by both modes live in common.go.
 package up
 
 import (
@@ -22,6 +33,7 @@ import (
 	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
@@ -30,7 +42,7 @@ import (
 const (
 	recreateClusterUsage           = "🗑️ Delete existing cluster before creating new one"
 	devPasswordUsage               = "🔑 Set password 'developer' for admin users (ArgoCD & Gitea)"
-	kubeVersionUsage               = "🐳 Kubernetes version for Kind cluster (e.g., v1.33.2)"
+	kubeVersionUsage               = "🐳 Kubernetes version for Kind cluster (e.g., v1.36.1)"
 	extraPortsMappingUsage         = "🔌 Extra ports to expose (e.g., '22:32222,9090:39090')"
 	registryConfigUsage            = "📦 Container registry config paths (uses first existing one)"
 	kindConfigPathUsage            = "⚙️ Custom Kind configuration file path or URL"
@@ -129,7 +141,7 @@ func init() {
 	// cluster related flags
 	UpCmd.PersistentFlags().BoolVar(&recreateCluster, "recreate", false, recreateClusterUsage)
 	UpCmd.PersistentFlags().BoolVar(&devPassword, "dev-password", false, devPasswordUsage)
-	UpCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", "v1.34.0", kubeVersionUsage)
+	UpCmd.PersistentFlags().StringVar(&kubeVersion, "kube-version", globals.DefaultKubernetesVersion, kubeVersionUsage)
 	UpCmd.PersistentFlags().StringVar(&extraPortsMapping, "extra-ports", "", extraPortsMappingUsage)
 	UpCmd.PersistentFlags().StringVar(&kindConfigPath, "kind-config", "", kindConfigPathUsage)
 	UpCmd.PersistentFlags().StringSliceVar(&registryConfig, "registry-config", []string{}, registryConfigUsage)
@@ -174,6 +186,9 @@ func preCreateE(cmd *cobra.Command, args []string) error {
 	return logger.SetupKubernetesLogging()
 }
 
+// create is the RunE entry point for UpCmd. It prints a mode-specific banner and
+// dispatches to production provisioning when --file is set, otherwise to local
+// development cluster creation.
 func create(cmd *cobra.Command, args []string) error {
 	// Create a new context with cancel function to support graceful shutdown
 	ctx, ctxCancel := context.WithCancel(cmd.Context())

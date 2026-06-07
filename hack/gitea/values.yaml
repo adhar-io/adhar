@@ -403,21 +403,13 @@ gitea:
     #  usernameAttribute:
     #  publicSSHKeyAttribute:
 
-  # Either specify inline `key` and `secret` or refer to them via `existingSecret`
-  ## @param gitea.oauth OAuth configuration
-  oauth:
-    []
-    # - name: 'OAuth 1'
-    #   provider:
-    #   key:
-    #   secret:
-    #   existingSecret:
-    #   autoDiscoverUrl:
-    #   useCustomUrls:
-    #   customAuthUrl:
-    #   customTokenUrl:
-    #   customProfileUrl:
-    #   customEmailUrl:
+  # NOTE: Gitea is a BOOTSTRAP component (installed before Keycloak). It must NOT
+  # hard-depend on a Keycloak OAuth secret at startup — doing so wedges `adhar up`
+  # (the init container fails with CreateContainerConfigError until the secret
+  # exists, but the secret comes from Keycloak, which needs Gitea+ArgoCD first).
+  # Keycloak SSO for Gitea is therefore configured POST-bootstrap (via the Keycloak
+  # package, once the realm + keycloak-clients secret exist) rather than wired here.
+  # Until/unless that runs, log in with the break-glass local `gitea_admin` account.
 
   ## @param gitea.config.server.SSH_PORT SSH port for rootlful Gitea image
   ## @param gitea.config.server.SSH_LISTEN_PORT SSH port for rootless Gitea image

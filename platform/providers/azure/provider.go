@@ -2241,95 +2241,30 @@ func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version
 		return fmt.Errorf("failed to get cluster %s: %w", clusterID, err)
 	}
 
-	// For Azure manual clusters, VMs would be tracked in cluster metadata
-	// For now, simulate by updating a cluster-level tag in resource group
-	upgradedCount := 0
-
-	// Update all VMs with cluster label using Azure Resource Manager
-	// This is a simplified version - in reality, you'd list VMs by tags/labels
-
-	// Create a dummy VM update to simulate upgrade process
-	// In a real implementation, you would:
-	// 1. List all VMs with the cluster-id tag
-	// 2. Update their OS disk images or software packages
-	// 3. Restart them if necessary
-
-	log.Printf("Simulating upgrade of cluster %s nodes to version %s", clusterID, version)
-
-	// Simulate upgrade by sleeping briefly (represents upgrade time)
-	time.Sleep(2 * time.Second)
-	upgradedCount = 3 // Simulate 3 nodes upgraded
-
-	if upgradedCount == 0 {
-		return fmt.Errorf("no instances found for cluster %s", clusterID)
-	}
-
-	log.Printf("Successfully upgraded %d instances in cluster %s to version %s", upgradedCount, clusterID, version)
-	return nil
+	// A real upgrade of a managed Kubernetes cluster requires the Azure
+	// Kubernetes Service (AKS) SDK (armcontainerservice), which is not a
+	// dependency of this module. Rather than simulate the operation, return a
+	// clear error so callers are not misled into believing nodes were upgraded.
+	return fmt.Errorf("UpgradeCluster is not supported for the Azure provider: the AKS SDK (github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice) is not configured in this build")
 }
 
-// BackupCluster creates a cluster backup using disk snapshots
+// BackupCluster creates a cluster backup using disk snapshots.
 func (p *Provider) BackupCluster(ctx context.Context, clusterID string) (*types.Backup, error) {
 	log.Printf("Creating backup for Azure cluster: %s", clusterID)
 
-	// Generate backup ID
-	backupID := fmt.Sprintf("backup-%s-%d", clusterID, time.Now().Unix())
-
-	// In Azure, backups are typically created using disk snapshots
-	// For manual clusters, we'd find all disks with cluster tags and snapshot them
-
-	// Simulate creating snapshots for cluster disks
-	snapshotCount := 0
-
-	// This is a simplified simulation - in reality you would:
-	// 1. List all managed disks with cluster-id tag
-	// 2. Create snapshots for each disk
-	// 3. Store snapshot metadata for restoration
-
-	log.Printf("Simulating creation of disk snapshots for cluster %s", clusterID)
-
-	// Simulate snapshot creation time
-	time.Sleep(3 * time.Second)
-	snapshotCount = 2 // Simulate 2 disks snapshotted
-
-	if snapshotCount == 0 {
-		return nil, fmt.Errorf("no disks found for cluster %s to backup", clusterID)
-	}
-
-	log.Printf("Successfully created %d snapshots for cluster %s", snapshotCount, clusterID)
-
-	// Return backup information
-	return &types.Backup{
-		ID:        backupID,
-		ClusterID: clusterID,
-		Status:    "completed",
-		CreatedAt: time.Now(),
-		Size:      fmt.Sprintf("%d snapshots", snapshotCount),
-	}, nil
+	// A real backup requires enumerating the cluster's managed disks and creating
+	// snapshots via the Azure compute SDK, which is not wired up for this code
+	// path. Return a clear error instead of fabricating a successful backup.
+	return nil, fmt.Errorf("BackupCluster is not supported for the Azure provider: managed disk snapshot integration is not configured in this build")
 }
 
-// RestoreCluster restores a cluster from backup snapshots
+// RestoreCluster restores a cluster from backup snapshots.
 func (p *Provider) RestoreCluster(ctx context.Context, backupID string, targetClusterID string) error {
 	log.Printf("Restoring Azure cluster from backup %s to cluster %s", backupID, targetClusterID)
 
-	// In Azure, restoration involves:
-	// 1. Finding all snapshots for the backup ID
-	// 2. Creating new managed disks from snapshots
-	// 3. Attaching disks to VMs in the target cluster
-
-	// Simulate restoration process
-	log.Printf("Simulating restoration of cluster from backup %s", backupID)
-
-	// Simulate restoration time
-	time.Sleep(4 * time.Second)
-	restoredCount := 2 // Simulate 2 disks restored
-
-	if restoredCount == 0 {
-		return fmt.Errorf("no snapshots found for backup %s", backupID)
-	}
-
-	log.Printf("Successfully restored %d disks for cluster %s from backup %s", restoredCount, targetClusterID, backupID)
-	return nil
+	// A real restore requires creating managed disks from snapshots and attaching
+	// them to the target cluster's VMs, which is not wired up for this code path.
+	return fmt.Errorf("RestoreCluster is not supported for the Azure provider: managed disk snapshot restoration is not configured in this build")
 }
 
 // GetClusterHealth retrieves cluster health
@@ -2541,65 +2476,109 @@ func (p *Provider) getAzureDiskMetrics(ctx context.Context, clusterID string) (t
 func (p *Provider) InstallAddon(ctx context.Context, clusterID string, addonName string, config map[string]interface{}) error {
 	log.Printf("Installing addon %s on Azure cluster %s", addonName, clusterID)
 
-	// For Azure manual clusters, addons are typically installed via kubectl or Helm
-	// This is a simulation of the addon installation process
+	// Obtain the target cluster's kubeconfig and persist it so kubectl/helm
+	// can be pointed at the right cluster via --kubeconfig.
+	kubeconfigPath, cleanup, err := p.addonKubeconfig(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to obtain kubeconfig for addon install: %w", err)
+	}
+	defer cleanup()
 
 	switch addonName {
 	case "azure-cni":
-		log.Printf("Azure CNI is typically configured during cluster creation")
-		return nil
-	case "azure-policy":
-		log.Printf("Simulating Azure Policy addon installation")
-		time.Sleep(2 * time.Second)
-		return nil
-	case "coredns":
-		log.Printf("CoreDNS is typically installed by default in Kubernetes clusters")
-		return nil
-	case "kube-proxy":
-		log.Printf("kube-proxy is typically installed by default in Kubernetes clusters")
-		return nil
-	case "ingress-nginx":
-		log.Printf("Simulating ingress-nginx installation via kubectl")
-		time.Sleep(3 * time.Second)
-		return nil
+		// Azure CNI is a managed/cluster-creation-time concern, not a kubectl addon.
+		return fmt.Errorf("addon %q is configured at cluster creation time and cannot be installed via kubectl", addonName)
+	case "coredns", "kube-proxy":
+		return fmt.Errorf("addon %q is a built-in Kubernetes component and is not managed as an installable addon", addonName)
+	case "cilium":
+		// Cilium is the platform CNI/dataplane (also provides the Gateway API
+		// implementation). Installed via Helm.
+		return provider.InstallCiliumAddon(ctx, kubeconfigPath, config)
+	case "metrics-server":
+		return provider.InstallMetricsServerAddon(ctx, kubeconfigPath)
 	case "cert-manager":
-		log.Printf("Simulating cert-manager installation via kubectl")
-		time.Sleep(2 * time.Second)
-		return nil
+		return provider.InstallCertManagerAddon(ctx, kubeconfigPath)
+	case "ingress", "gateway", "gateway-api", "cilium-gateway":
+		// NOTE: This platform uses the Cilium Gateway API as its default ingress,
+		// NOT ingress-nginx. The "ingress" addon installs the Gateway API CRDs;
+		// Cilium (installed with gatewayAPI.enabled=true) serves them.
+		return provider.InstallGatewayAPIAddon(ctx, kubeconfigPath)
+	case "ingress-nginx":
+		// ingress-nginx is NOT the platform default (Cilium Gateway API is), but
+		// remains available as an explicit opt-in generic addon.
+		return provider.InstallIngressNginxAddon(ctx, kubeconfigPath)
+	case "azure-policy":
+		// Azure Policy add-on for AKS is delivered as a Helm chart (gatekeeper based).
+		return provider.InstallHelmAddon(ctx, kubeconfigPath, provider.HelmAddonOptions{
+			ReleaseName: "azure-policy",
+			RepoName:    "gatekeeper",
+			RepoURL:     "https://open-policy-agent.github.io/gatekeeper/charts",
+			Chart:       "gatekeeper/gatekeeper",
+			Namespace:   "gatekeeper-system",
+			Values:      helmValuesFromConfig(config),
+		})
+	case "helm-chart":
+		// Generic Helm chart addon path: caller supplies repo/chart/version/namespace/values.
+		opts, err := provider.HelmOptionsFromConfig("custom", config)
+		if err != nil {
+			return err
+		}
+		return provider.InstallHelmAddon(ctx, kubeconfigPath, opts)
 	default:
 		return fmt.Errorf("unsupported addon for Azure: %s", addonName)
 	}
+}
+
+// helmValuesFromConfig extracts a `values` map from an addon config, if present.
+func helmValuesFromConfig(config map[string]interface{}) map[string]interface{} {
+	if vals, ok := config["values"].(map[string]interface{}); ok {
+		return vals
+	}
+	return nil
 }
 
 // UninstallAddon uninstalls an addon using Azure Kubernetes Service extensions or kubectl
 func (p *Provider) UninstallAddon(ctx context.Context, clusterID string, addonName string) error {
 	log.Printf("Uninstalling addon %s from Azure cluster %s", addonName, clusterID)
 
-	// For Azure manual clusters, addons are typically uninstalled via kubectl or Helm
-	// This is a simulation of the addon uninstallation process
+	kubeconfigPath, cleanup, err := p.addonKubeconfig(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to obtain kubeconfig for addon uninstall: %w", err)
+	}
+	defer cleanup()
 
 	switch addonName {
 	case "azure-cni":
 		return fmt.Errorf("Azure CNI cannot be uninstalled without cluster recreation")
-	case "azure-policy":
-		log.Printf("Simulating Azure Policy addon uninstallation")
-		time.Sleep(2 * time.Second)
-		return nil
-	case "coredns":
-		return fmt.Errorf("CoreDNS is a critical system component and should not be uninstalled")
-	case "kube-proxy":
-		return fmt.Errorf("kube-proxy is a critical system component and should not be uninstalled")
-	case "ingress-nginx":
-		log.Printf("Simulating ingress-nginx uninstallation via kubectl")
-		time.Sleep(2 * time.Second)
-		return nil
+	case "coredns", "kube-proxy":
+		return fmt.Errorf("addon %q is a critical system component and should not be uninstalled", addonName)
+	case "cilium":
+		return provider.UninstallHelmAddon(ctx, kubeconfigPath, "cilium", "kube-system")
+	case "metrics-server":
+		return provider.UninstallMetricsServerAddon(ctx, kubeconfigPath)
 	case "cert-manager":
-		log.Printf("Simulating cert-manager uninstallation via kubectl")
-		time.Sleep(2 * time.Second)
-		return nil
+		return provider.UninstallCertManagerAddon(ctx, kubeconfigPath)
+	case "ingress", "gateway", "gateway-api", "cilium-gateway":
+		return provider.UninstallGatewayAPIAddon(ctx, kubeconfigPath)
+	case "ingress-nginx":
+		return provider.UninstallIngressNginxAddon(ctx, kubeconfigPath)
+	case "azure-policy":
+		return provider.UninstallHelmAddon(ctx, kubeconfigPath, "azure-policy", "gatekeeper-system")
+	case "helm-chart":
+		return fmt.Errorf("uninstalling a generic helm-chart addon requires the release name; use UninstallAddon with the helm release name and namespace")
 	default:
 		return fmt.Errorf("unsupported addon for Azure: %s", addonName)
 	}
+}
+
+// addonKubeconfig fetches the cluster kubeconfig and writes it to a temp file,
+// returning the path and a cleanup func. addon installs target this kubeconfig.
+func (p *Provider) addonKubeconfig(ctx context.Context, clusterID string) (string, func(), error) {
+	kubeconfig, err := p.GetKubeconfig(ctx, clusterID)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("failed to get kubeconfig: %w", err)
+	}
+	return provider.WriteKubeconfigTempFile(kubeconfig)
 }
 
 // ListAddons lists installed addons

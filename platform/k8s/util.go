@@ -11,6 +11,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// BuildCustomizedManifests renders the embedded resources at fsPath with the
+// given template data and applies any overrides from filePath, returning the
+// resulting raw YAML manifests.
 func BuildCustomizedManifests(filePath, fsPath string, resourceFS embed.FS, scheme *runtime.Scheme, templateData any) ([][]byte, error) {
 	rawResources, err := fs.ConvertFSToBytes(resourceFS, fsPath, templateData)
 	if err != nil {
@@ -29,6 +32,9 @@ func BuildCustomizedManifests(filePath, fsPath string, resourceFS embed.FS, sche
 	return bs, nil
 }
 
+// BuildCustomizedObjects renders the embedded resources at fsPath with the given
+// template data and applies any overrides from filePath, returning the resulting
+// client.Objects.
 func BuildCustomizedObjects(filePath, fsPath string, resourceFS embed.FS, scheme *runtime.Scheme, templateData any) ([]client.Object, error) {
 	rawResources, err := fs.ConvertFSToBytes(resourceFS, fsPath, templateData)
 	if err != nil {

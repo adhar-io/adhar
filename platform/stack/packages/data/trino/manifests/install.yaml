@@ -1,0 +1,455 @@
+# TRINO INSTALL RESOURCES
+# This file is auto-generated with 'platform/stack/packages/data/trino/generate-manifests.sh'
+---
+# Source: trino/templates/configmap-catalog.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-catalog
+  namespace: trino
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: catalogs
+data:
+  tpcds.properties: |
+    connector.name=tpcds
+    tpcds.splits-per-node=4
+    
+  tpch.properties: |
+    connector.name=tpch
+    tpch.splits-per-node=4
+---
+# Source: trino/templates/configmap-coordinator.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-coordinator
+  namespace: trino
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: coordinator
+data:
+  node.properties: |
+    node.environment=production
+    node.data-dir=/data/trino
+    plugin.dir=/usr/lib/trino/plugin
+
+  jvm.config: |
+    -server
+    -agentpath:/usr/lib/trino/bin/libjvmkill.so
+    -Xmx8G
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=32M
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:+ExitOnOutOfMemoryError
+    -XX:-OmitStackTraceInFastThrow
+    -XX:ReservedCodeCacheSize=512M
+    -XX:PerMethodRecompilationCutoff=10000
+    -XX:PerBytecodeRecompilationCutoff=10000
+    -Djdk.attach.allowAttachSelf=true
+    -Djdk.nio.maxCachedBufferSize=2000000
+    # Allow loading dynamic agent used by JOL
+    -XX:+EnableDynamicAgentLoading
+  
+    # https://bugs.openjdk.org/browse/JDK-8329528
+    -XX:+UnlockDiagnosticVMOptions
+    -XX:G1NumCollectionsKeepPinned=10000000
+
+  config.properties: |
+    coordinator=true
+    node-scheduler.include-coordinator=false
+    http-server.http.port=8080
+    query.max-memory=4GB
+    query.max-memory-per-node=1GB
+    discovery.uri=http://localhost:8080
+
+  log.properties: |
+    io.trino=INFO
+---
+# Source: trino/templates/configmap-coordinator.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-schemas-volume-coordinator
+  namespace: trino
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: coordinator
+data:
+---
+# Source: trino/templates/configmap-worker.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-worker
+  namespace: trino
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: worker
+data:
+  node.properties: |
+    node.environment=production
+    node.data-dir=/data/trino
+    plugin.dir=/usr/lib/trino/plugin
+
+  jvm.config: |
+    -server
+    -agentpath:/usr/lib/trino/bin/libjvmkill.so
+    -Xmx8G
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=32M
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:+ExitOnOutOfMemoryError
+    -XX:-OmitStackTraceInFastThrow
+    -XX:ReservedCodeCacheSize=512M
+    -XX:PerMethodRecompilationCutoff=10000
+    -XX:PerBytecodeRecompilationCutoff=10000
+    -Djdk.attach.allowAttachSelf=true
+    -Djdk.nio.maxCachedBufferSize=2000000
+    # Allow loading dynamic agent used by JOL
+    -XX:+EnableDynamicAgentLoading
+  
+    # https://bugs.openjdk.org/browse/JDK-8329528
+    -XX:+UnlockDiagnosticVMOptions
+    -XX:G1NumCollectionsKeepPinned=10000000
+
+  config.properties: |
+    coordinator=false
+    http-server.http.port=8080
+    query.max-memory=4GB
+    query.max-memory-per-node=1GB
+    discovery.uri=http://trino:8080
+
+  log.properties: |
+    io.trino=INFO
+---
+# Source: trino/templates/configmap-worker.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-schemas-volume-worker
+  namespace: trino
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: worker
+data:
+---
+# Source: trino/templates/service-coordinator.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino
+  namespace: trino
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: coordinator
+  annotations:
+    {}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/component: coordinator
+---
+# Source: trino/templates/service-worker.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino-worker
+  namespace: trino
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: worker
+  annotations:
+    {}
+spec:
+  clusterIP: None
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/component: worker
+---
+# Source: trino/templates/deployment-coordinator.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino-coordinator
+  namespace: trino
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: coordinator
+    trino.io/network-policy-protection: disabled
+  annotations:
+    {}
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trino
+      app.kubernetes.io/instance: trino
+      app.kubernetes.io/component: coordinator
+  template:
+    metadata:
+      annotations:
+        checksum/catalog-config: 8178a3ce4c7a8368637d247f54592efd408cc56243d34962e2a1f8ddd8f1ecfc
+        checksum/coordinator-config: d2660d9430ab8d045d34be1baf9828b8930ed22a37081814cf5f369f7296cd1b
+
+      labels:
+        helm.sh/chart: trino-1.42.2
+        app.kubernetes.io/name: trino
+        app.kubernetes.io/instance: trino
+        app.kubernetes.io/version: "480"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: coordinator
+        trino.io/network-policy-protection: disabled
+    spec:
+      serviceAccountName: default
+      securityContext:
+        runAsGroup: 1000
+        runAsUser: 1000
+      volumes:
+        - name: config-volume
+          configMap:
+            name: trino-coordinator
+        - name: catalog-volume
+          configMap:
+            name: trino-catalog
+        - name: schemas-volume
+          configMap:
+            name: trino-schemas-volume-coordinator
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: trino-coordinator
+          image: trinodb/trino:480
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+          env:
+            []
+          envFrom:
+            []
+          volumeMounts:
+            - mountPath: /etc/trino
+              name: config-volume
+            - mountPath: /etc/trino/catalog
+              name: catalog-volume
+            - mountPath: /etc/trino/schemas
+              name: schemas-volume
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /v1/info
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command: [/usr/lib/trino/bin/health-check]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+            successThreshold: 1
+          startupProbe:
+            exec:
+              command: [/usr/lib/trino/bin/health-check]
+            initialDelaySeconds: 10
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 60
+            successThreshold: 1
+          lifecycle:
+            {}
+          resources:
+            {}
+---
+# Source: trino/templates/deployment-worker.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino-worker
+  namespace: trino
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: worker
+    trino.io/network-policy-protection: disabled
+  annotations:
+    {}
+spec:
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 10
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trino
+      app.kubernetes.io/instance: trino
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      annotations:
+        checksum/catalog-config: 8178a3ce4c7a8368637d247f54592efd408cc56243d34962e2a1f8ddd8f1ecfc
+        checksum/worker-config: 2cb77819fe7eed3a6382e252a4dc9eefe797d302200b93f1e57c53d1e50558d1
+      labels:
+        helm.sh/chart: trino-1.42.2
+        app.kubernetes.io/name: trino
+        app.kubernetes.io/instance: trino
+        app.kubernetes.io/version: "480"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: worker
+        trino.io/network-policy-protection: disabled
+    spec:
+      serviceAccountName: default
+      securityContext:
+        runAsGroup: 1000
+        runAsUser: 1000
+      volumes:
+        - name: config-volume
+          configMap:
+            name: trino-worker
+        - name: catalog-volume
+          configMap:
+            name: trino-catalog
+        - name: schemas-volume
+          configMap:
+            name: trino-schemas-volume-worker
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: trino-worker
+          image: trinodb/trino:480
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+          env:
+            []
+          envFrom:
+            []
+          volumeMounts:
+            - mountPath: /etc/trino
+              name: config-volume
+            - mountPath: /etc/trino/catalog
+              name: catalog-volume
+            - mountPath: /etc/trino/schemas
+              name: schemas-volume
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /v1/info
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command: [/usr/lib/trino/bin/health-check]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+            successThreshold: 1
+          startupProbe:
+            exec:
+              command: [/usr/lib/trino/bin/health-check]
+            initialDelaySeconds: 10
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 60
+            successThreshold: 1
+          lifecycle:
+          resources:
+            {}
+---
+# Source: trino/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: trino-test-connection
+  labels:
+    helm.sh/chart: trino-1.42.2
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/version: "480"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+    test: connection
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: cli
+      image: trinodb/trino:480
+      command: ['trino']
+      args:
+      - trino://trino:8080
+      - --user=admin
+      - --debug
+      - --execute=SELECT COUNT(*) FROM tpch.tiny.nation
+      - --no-progress
+  restartPolicy: Never

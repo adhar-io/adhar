@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v3.3.7"
+CHART_VERSION="4.3.5"
 
 echo "# JUPYTERHUB INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/jupyterhub/generate-manifests.sh'" >>${INSTALL_YAML}

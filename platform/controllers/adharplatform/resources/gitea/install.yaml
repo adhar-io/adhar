@@ -140,7 +140,7 @@ metadata:
     helm.sh/chart: postgresql-16.7.27
 type: Opaque
 data:
-  postgres-password: "MzZ0bzhLQWNHbw=="
+  postgres-password: "QnRXcTJpTGNZdQ=="
   password: "Z2l0ZWE="
   # We don't auto-generate LDAP password when it's not provided as we do for other passwords
 ---
@@ -168,19 +168,19 @@ metadata:
   name: gitea-inline-config
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
   _generals_: ""
   cache: |-
     ADAPTER=redis
-    HOST=redis://:changeme@gitea-valkey-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
+    HOST=redis://:changeme@gitea-valkey-primary.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
   database: |-
     DB_TYPE=postgres
     HOST=gitea-postgresql.adhar-system.svc.cluster.local:5432
@@ -190,7 +190,7 @@ stringData:
   indexer: ISSUE_INDEXER_TYPE=db
   metrics: ENABLED=false
   queue: |-
-    CONN_STR=redis://:changeme@gitea-valkey-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
+    CONN_STR=redis://:changeme@gitea-valkey-primary.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
     TYPE=redis
   repository: ROOT=/data/git/gitea-repositories
   security: INSTALL_LOCK=true
@@ -207,7 +207,7 @@ stringData:
     START_SSH_SERVER=true
   session: |-
     PROVIDER=redis
-    PROVIDER_CONFIG=redis://:changeme@gitea-valkey-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
+    PROVIDER_CONFIG=redis://:changeme@gitea-valkey-primary.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
 ---
 # Source: gitea/templates/gitea/config.yaml
 apiVersion: v1
@@ -216,12 +216,12 @@ metadata:
   name: gitea
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -306,7 +306,6 @@ stringData:
       rm $TMP_EXISTING_ENVS_FILE
     }
   
-  
     function env2ini::process_config_file() {
       local config_file="${1}"
       local section="$(basename "${config_file}")"
@@ -379,7 +378,7 @@ stringData:
       unset GITEA__SERVER__LFS_JWT_SECRET
     fi
   
-    environment-to-ini -o $GITEA_APP_INI
+    gitea config edit-ini --apply-env --config "$GITEA_APP_INI" --out "$GITEA_APP_INI"
   assertions: |
 ---
 # Source: gitea/templates/gitea/init.yaml
@@ -389,12 +388,12 @@ metadata:
   name: gitea-init
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -436,7 +435,7 @@ stringData:
       
       echo 'Wait for valkey to become avialable...'
       until [ "${RETRY}" -ge "${MAX}" ]; do
-        nc -vz -w2 gitea-valkey-headless.adhar-system.svc.cluster.local 6379 && break
+        RES_OPTIONS="ndots:0" nc -vz -w2 gitea-valkey-primary.adhar-system.svc 6379 && break
         RETRY=$[${RETRY}+1]
         echo "...not ready yet (${RETRY}/${MAX})"
       done
@@ -491,7 +490,7 @@ stringData:
           #   should add it to prevent requiring frequent admin password resets.
           local -a change_args
           change_args=(--username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}")
-          if gitea admin user change-password --help | grep -qF -- '--must-change-password'; then
+          if gitea admin user change-password --help | grep -F -- '--must-change-password' >/dev/null; then
             change_args+=(--must-change-password=false)
           fi
           gitea admin user change-password "${change_args[@]}"
@@ -825,12 +824,12 @@ metadata:
   name: gitea-http
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -852,12 +851,12 @@ metadata:
   name: gitea-ssh
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -881,12 +880,12 @@ metadata:
   namespace: adhar-system
   annotations:
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -902,14 +901,14 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 3227c7f6c8f3c6e30090567fdb5659fcf7b524a85c3fa572b458e7e3b262418f
+        checksum/config: c54a5e6043a00034fc5b44379ffbbddbfe8cec9a0a36cf9a94fdd1e8b1f97504
       labels:
-        helm.sh/chart: gitea-12.5.0
+        helm.sh/chart: gitea-12.6.0
         app: gitea
         app.kubernetes.io/name: gitea
         app.kubernetes.io/instance: gitea
-        app.kubernetes.io/version: "1.25.4"
-        version: "1.25.4"
+        app.kubernetes.io/version: "1.26.1"
+        version: "1.26.1"
         app.kubernetes.io/managed-by: Helm
     spec:
       
@@ -917,7 +916,7 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: init-directories
-          image: "docker.gitea.com/gitea:1.25.4-rootless"
+          image: "docker.gitea.com/gitea:1.26.1-rootless"
           imagePullPolicy: IfNotPresent
           command:
             - "/usr/sbinx/init_directory_structure.sh"
@@ -938,15 +937,13 @@ spec:
             - name: data
               mountPath: /data
             
-          securityContext:
-            {}
           resources:
             limits: {}
             requests:
               cpu: 100m
               memory: 128Mi
         - name: init-app-ini
-          image: "docker.gitea.com/gitea:1.25.4-rootless"
+          image: "docker.gitea.com/gitea:1.26.1-rootless"
           imagePullPolicy: IfNotPresent
           command:
           - "/usr/sbinx/config_environment.sh"
@@ -973,15 +970,13 @@ spec:
             - name: inline-config-sources
               mountPath: /env-to-ini-mounts/inlines/
             
-          securityContext:
-            {}
           resources:
             limits: {}
             requests:
               cpu: 100m
               memory: 128Mi
         - name: configure-gitea
-          image: "docker.gitea.com/gitea:1.25.4-rootless"
+          image: "docker.gitea.com/gitea:1.26.1-rootless"
           command:
           - "/usr/sbinx/configure_gitea.sh"
           imagePullPolicy: IfNotPresent
@@ -1020,7 +1015,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: gitea
-          image: "docker.gitea.com/gitea:1.25.4-rootless"
+          image: "docker.gitea.com/gitea:1.26.1-rootless"
           imagePullPolicy: IfNotPresent
           env:
             # SSH Port values have to be set here as well for openssh configuration
@@ -1073,8 +1068,6 @@ spec:
             requests:
               cpu: 50m
               memory: 128Mi
-          securityContext:
-            {}
           volumeMounts:
             - name: temp
               mountPath: /tmp

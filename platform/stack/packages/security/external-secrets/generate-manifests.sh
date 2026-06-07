@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v0.10.3"
+CHART_VERSION="2.5.0"
 
 echo "# EXTERNAL SECRETS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/security/external-secrets/generate-manifests.sh'" >>${INSTALL_YAML}

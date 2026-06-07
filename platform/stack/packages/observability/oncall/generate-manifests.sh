@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v1.11.5"
+CHART_VERSION="1.16.5"
 
 echo "# ONCALL INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/oncall/generate-manifests.sh'" >>${INSTALL_YAML}

@@ -1,0 +1,138 @@
+# In-namespace PostgreSQL + Valkey for Penpot. The upstream Penpot 1.x chart does
+# not bundle these, so this static manifest provides minimal single-replica
+# instances wired to the credentials in values.yaml. Suitable for local/dev use;
+# for production swap to CloudNativePG (cnpg) and the redis operator.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: penpot-postgresql
+  namespace: penpot
+type: Opaque
+stringData:
+  POSTGRES_DB: penpot
+  POSTGRES_USER: penpot
+  POSTGRES_PASSWORD: penpot
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: penpot-postgresql
+  namespace: penpot
+  labels:
+    app.kubernetes.io/name: penpot-postgresql
+    app.kubernetes.io/part-of: penpot
+spec:
+  serviceName: penpot-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: penpot-postgresql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: penpot-postgresql
+        app.kubernetes.io/part-of: penpot
+    spec:
+      containers:
+        - name: postgresql
+          image: postgres:16-alpine
+          envFrom:
+            - secretRef:
+                name: penpot-postgresql
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U penpot -d penpot"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: penpot-postgresql
+  namespace: penpot
+  labels:
+    app.kubernetes.io/name: penpot-postgresql
+    app.kubernetes.io/part-of: penpot
+spec:
+  selector:
+    app.kubernetes.io/name: penpot-postgresql
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: penpot-valkey
+  namespace: penpot
+  labels:
+    app.kubernetes.io/name: penpot-valkey
+    app.kubernetes.io/part-of: penpot
+spec:
+  serviceName: penpot-valkey
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: penpot-valkey
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: penpot-valkey
+        app.kubernetes.io/part-of: penpot
+    spec:
+      containers:
+        - name: valkey
+          image: valkey/valkey:8-alpine
+          ports:
+            - name: valkey
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "valkey-cli ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: penpot-valkey
+  namespace: penpot
+  labels:
+    app.kubernetes.io/name: penpot-valkey
+    app.kubernetes.io/part-of: penpot
+spec:
+  selector:
+    app.kubernetes.io/name: penpot-valkey
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: 6379

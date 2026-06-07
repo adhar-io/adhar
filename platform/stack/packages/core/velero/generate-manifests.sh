@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v5.2.2"
+CHART_VERSION="12.0.2"
 
 echo "# VELERO INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/core/velero/generate-manifests.sh'" >>${INSTALL_YAML}

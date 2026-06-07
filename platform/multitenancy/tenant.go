@@ -1,3 +1,6 @@
+// Package multitenancy manages tenant lifecycle on the platform, provisioning
+// per-tenant namespaces, resource quotas, limit ranges, RBAC roles/bindings,
+// and network policies.
 package multitenancy
 
 import (

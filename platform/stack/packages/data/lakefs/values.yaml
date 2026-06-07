@@ -1,0 +1,13 @@
+# lakeFS data version-control over object storage.
+# The lakeFS UI/API is exposed via the Cilium Gateway API HTTPRoute
+# (manifests/httproute.yaml) attached to adhar-gateway -- the chart Ingress is
+# left disabled (default) and must NOT be enabled (no nginx).
+ingress:
+  enabled: false
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Local quickstart uses the embedded "local" block adapter + in-memory KV. For
+# production point this at MinIO (S3) + cnpg Postgres.

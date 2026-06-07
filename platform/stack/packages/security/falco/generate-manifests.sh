@@ -2,9 +2,11 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.0.3"
+CHART_VERSION="9.0.0"
 
-echo "# KARGO INSTALL RESOURCES" >${INSTALL_YAML}
-echo "# This file is auto-generated with 'platform/stack/packages/application/kargo/generate-manifests.sh'" >>${INSTALL_YAML}
+echo "# FALCO INSTALL RESOURCES" >${INSTALL_YAML}
+echo "# This file is auto-generated with 'platform/stack/packages/security/falco/generate-manifests.sh'" >>${INSTALL_YAML}
 
-helm template --namespace kargo kargo oci://ghcr.io/akuity/kargo-charts/kargo -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}
+helm repo add falcosecurity https://falcosecurity.github.io/charts --force-update
+helm repo update falcosecurity
+helm template --include-crds --namespace falco falco falcosecurity/falco -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

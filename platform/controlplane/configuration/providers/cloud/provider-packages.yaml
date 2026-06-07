@@ -1,0 +1,111 @@
+# Cloud Crossplane Provider packages. Applied best-effort by the controller and
+# only meaningful in cloud mode (they are heavy and unnecessary on a local Kind
+# node). Versions are kept in sync with ../../crossplane.yaml dependsOn.
+# AWS (Upbound, modular)
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-eks
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-eks:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-ec2
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-ec2:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-rds
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-rds:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-iam
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-iam:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-s3
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-s3:v2.0.0
+---
+# Azure (Upbound, modular)
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azure-containerservice
+spec:
+  package: xpkg.upbound.io/upbound/provider-azure-containerservice:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azure-network
+spec:
+  package: xpkg.upbound.io/upbound/provider-azure-network:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azure-sql
+spec:
+  package: xpkg.upbound.io/upbound/provider-azure-sql:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azure-storage
+spec:
+  package: xpkg.upbound.io/upbound/provider-azure-storage:v2.0.0
+---
+# GCP (Upbound, modular)
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-gcp-container
+spec:
+  package: xpkg.upbound.io/upbound/provider-gcp-container:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-gcp-compute
+spec:
+  package: xpkg.upbound.io/upbound/provider-gcp-compute:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-gcp-sql
+spec:
+  package: xpkg.upbound.io/upbound/provider-gcp-sql:v2.0.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-gcp-storage
+spec:
+  package: xpkg.upbound.io/upbound/provider-gcp-storage:v2.0.0
+---
+# DigitalOcean & Civo (community)
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-digitalocean
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/provider-digitalocean:v0.7.0
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-civo
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/provider-civo:v0.3.0

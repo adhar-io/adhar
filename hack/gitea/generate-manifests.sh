@@ -4,7 +4,7 @@
 INSTALL_YAML="platform/controllers/adharplatform/resources/gitea/install.yaml"
 INSTALL_HA_YAML="platform/controllers/adharplatform/resources/gitea/install-ha.yaml"
 HACK_DIR="$(cd "$(dirname "$0")" && pwd)" # Ensure HACK_DIR is an absolute path
-GITEA_VERSION=${1:-"12.5.0"} # Default to version 12.5.0 if not provided
+GITEA_VERSION=${1:-"12.6.0"} # Default to version 12.5.0 if not provided
 
 echo "Using Gitea as the Git provider."
 helm repo add gitea-charts https://dl.gitea.com/charts/

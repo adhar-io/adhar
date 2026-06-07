@@ -1,6 +1,9 @@
 package health
 
 import (
+	"fmt"
+
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
@@ -31,13 +34,16 @@ func init() {
 func runHistory(cmd *cobra.Command, args []string) error {
 	logger.Info("📈 Viewing health history...")
 
-	// TODO: Implement health history viewing
-	// This should show:
-	// - Health trends over time
-	// - Incident history
-	// - Performance metrics
-	// - Component-specific history
+	// Adhar does not persist historical health snapshots locally; trend data is
+	// surfaced by the observability stack (kube-prometheus / Grafana) deployed
+	// by the platform. Point the user there and show the current snapshot so the
+	// command is still useful rather than a no-op.
+	fmt.Println(helpers.CreateMuted(
+		"Historical health trends are not stored by the CLI. " +
+			"View time-series metrics in Grafana (kube-prometheus) at " +
+			"https://adhar.localtest.me:8443/grafana."))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📸 Current Snapshot"))
 
-	logger.Info("✅ Health history displayed")
-	return nil
+	_, err := runHealthSweep(historyComponent, parseTimeout(timeout))
+	return err
 }

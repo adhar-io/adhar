@@ -1,0 +1,23 @@
+# Apache Kafka event-streaming platform (Bitnami chart, KRaft mode).
+# Kafka has no web UI, so there is no Gateway API HTTPRoute for this package
+# (clients connect over the Kafka protocol in-cluster on port 9092).
+controller:
+  replicaCount: 1
+
+listeners:
+  client:
+    protocol: PLAINTEXT
+
+persistence:
+  enabled: true
+  size: 4Gi
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 768Mi
+  limits:
+    memory: 1536Mi

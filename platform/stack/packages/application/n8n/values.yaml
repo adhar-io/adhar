@@ -1,0 +1,19 @@
+# n8n values for Adhar (community 8gears chart). Ingress disabled -- routing is
+# handled by the Cilium Gateway API (adhar-gateway) via manifests/httproute.yaml.
+# n8n is served under the /n8n sub-path on adhar.localtest.me.
+ingress:
+  enabled: false
+
+# the main (n8n) application config. The main.config dict is rendered into a
+# ConfigMap as environment variables (nested keys joined with "_", uppercased).
+main:
+  config:
+    # WEBHOOK_URL / N8N_EDITOR_BASE_URL so generated links carry the sub-path.
+    WEBHOOK_URL: "https://adhar.localtest.me:8443/n8n/"
+    N8N_EDITOR_BASE_URL: "https://adhar.localtest.me:8443/n8n/"
+    N8N_PATH: "/n8n/"
+    N8N_PORT: "5678"
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 80

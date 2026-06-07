@@ -1,10 +1,6 @@
-# Kargo Helm Chart Values
+# Sigstore Policy Controller Helm Chart Values
+# Admission controller that enforces cosign image-signature policies via the
+# ClusterImagePolicy CRD. No web UI / ingress.
 
-api:
-  ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+webhook:
+  replicaCount: 1

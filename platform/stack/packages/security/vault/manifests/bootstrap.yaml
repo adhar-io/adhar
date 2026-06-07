@@ -1,0 +1,263 @@
+# VAULT BOOTSTRAP (auto-init / unseal / configure)
+#
+# Applied AFTER the Vault server StatefulSet (chart objects have no sync-wave =
+# wave 0; these run at wave "1"). The Job is fully idempotent and safe to
+# re-run: every step checks current state before mutating.
+#
+# What it does:
+#   1. Waits for vault-0 (svc "vault") to answer `vault status`.
+#   2. Initializes Vault (1 key share / threshold 1) and stores the init JSON
+#      (unseal key + root token) in the K8s Secret "vault-keys" (vault ns).
+#   3. Unseals using the stored key (skips if already unsealed).
+#   4. Logs in with the root token and idempotently configures:
+#        - KV v2 secrets engine at path "secret/"
+#        - kubernetes auth method (mount "kubernetes/") using the in-cluster
+#          SA token / CA / API host (Vault's own pod SA acts as token reviewer
+#          via its system:auth-delegator binding)
+#        - policy "external-secrets" (read on secret/data/* + secret/metadata/*)
+#        - kubernetes auth role "external-secrets" bound to the external-secrets
+#          controller ServiceAccount (external-secrets / external-secrets ns)
+#
+# !!! CLOUD / PRODUCTION WARNING !!!
+# This Job stores the unseal key and root token in a plain K8s Secret, which is
+# fine for local/dev but NOT for production. On a cloud platform use Vault's
+# auto-unseal with a cloud KMS (awskms / azurekeyvault / gcpckms) configured in
+# the chart values, and DROP this stored-keys Job entirely (or restrict it to
+# the post-init configure step). See vault/README.md.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-bootstrap
+  namespace: vault
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vault-bootstrap
+  namespace: vault
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-bootstrap
+  namespace: vault
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vault-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: vault-bootstrap
+    namespace: vault
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-bootstrap
+  namespace: vault
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+
+    VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
+    export VAULT_ADDR
+    KEYS_SECRET="vault-keys"
+    NAMESPACE="vault"
+
+    # External-secrets controller identity (must match its install.yaml).
+    ES_SA="external-secrets"
+    ES_NS="external-secrets"
+
+    log() { echo "[vault-bootstrap] $*"; }
+
+    # ---------------------------------------------------------------------
+    # 0. The hashicorp/vault image has the vault CLI but no kubectl, so fetch
+    #    a static kubectl once (busybox wget supports HTTPS). kubectl picks up
+    #    the in-cluster SA token + CA automatically.
+    # ---------------------------------------------------------------------
+    if ! command -v kubectl >/dev/null 2>&1; then
+      log "downloading kubectl"
+      KVER="$(wget -q -O - https://dl.k8s.io/release/stable.txt)"
+      ARCH="$(uname -m)"
+      case "${ARCH}" in
+        x86_64) ARCH="amd64" ;;
+        aarch64) ARCH="arm64" ;;
+      esac
+      wget -q -O /tmp/kubectl "https://dl.k8s.io/release/${KVER}/bin/linux/${ARCH}/kubectl"
+      chmod +x /tmp/kubectl
+      PATH="/tmp:${PATH}"
+      export PATH
+    fi
+    KUBE="kubectl -n ${NAMESPACE}"
+
+    # ---------------------------------------------------------------------
+    # 1. Wait for Vault to respond. `vault status` exits 0 (unsealed),
+    #    2 (sealed) or 1 (no response yet) once the API is reachable.
+    # ---------------------------------------------------------------------
+    log "waiting for Vault API at ${VAULT_ADDR}"
+    i=0
+    while true; do
+      if vault status >/dev/null 2>&1; then break; fi
+      rc=$?
+      if [ "${rc}" = "2" ]; then break; fi
+      i=$((i + 1))
+      if [ "${i}" -ge 60 ]; then
+        log "timed out waiting for Vault API"
+        exit 1
+      fi
+      sleep 5
+    done
+    log "Vault API is reachable"
+
+    # ---------------------------------------------------------------------
+    # 2. Initialize if needed; persist init JSON to the K8s Secret.
+    # ---------------------------------------------------------------------
+    if vault status -format=json | grep -q '"initialized": true'; then
+      log "Vault already initialized"
+    else
+      log "initializing Vault"
+      INIT_JSON="$(vault operator init -key-shares=1 -key-threshold=1 -format=json)"
+      log "storing init keys in Secret ${KEYS_SECRET}"
+      ${KUBE} create secret generic "${KEYS_SECRET}" \
+        --from-literal=init.json="${INIT_JSON}" \
+        --dry-run=client -o yaml | ${KUBE} apply -f -
+    fi
+
+    # ---------------------------------------------------------------------
+    # 3. Unseal using the stored key (skip if already unsealed).
+    # ---------------------------------------------------------------------
+    if vault status -format=json | grep -q '"sealed": false'; then
+      log "Vault already unsealed"
+    else
+      log "reading unseal key from Secret ${KEYS_SECRET}"
+      INIT_JSON="$(${KUBE} get secret "${KEYS_SECRET}" -o jsonpath='{.data.init\.json}' | base64 -d)"
+      UNSEAL_KEY="$(echo "${INIT_JSON}" | sed -n 's/.*"unseal_keys_b64": *\[ *"\([^"]*\)".*/\1/p')"
+      if [ -z "${UNSEAL_KEY}" ]; then
+        log "could not parse unseal key from ${KEYS_SECRET}"
+        exit 1
+      fi
+      log "unsealing Vault"
+      vault operator unseal "${UNSEAL_KEY}" >/dev/null
+    fi
+
+    # ---------------------------------------------------------------------
+    # 4. Login with root token, then configure (all idempotent).
+    # ---------------------------------------------------------------------
+    INIT_JSON="$(${KUBE} get secret "${KEYS_SECRET}" -o jsonpath='{.data.init\.json}' | base64 -d)"
+    ROOT_TOKEN="$(echo "${INIT_JSON}" | sed -n 's/.*"root_token": *"\([^"]*\)".*/\1/p')"
+    if [ -z "${ROOT_TOKEN}" ]; then
+      log "could not parse root token from ${KEYS_SECRET}"
+      exit 1
+    fi
+    VAULT_TOKEN="${ROOT_TOKEN}"
+    export VAULT_TOKEN
+
+    # KV v2 at secret/ (ignore if already enabled).
+    if vault secrets list -format=json | grep -q '"secret/"'; then
+      log "KV v2 already enabled at secret/"
+    else
+      log "enabling KV v2 at secret/"
+      vault secrets enable -path=secret -version=2 kv || true
+    fi
+
+    # kubernetes auth method (ignore if already enabled).
+    if vault auth list -format=json | grep -q '"kubernetes/"'; then
+      log "kubernetes auth already enabled"
+    else
+      log "enabling kubernetes auth"
+      vault auth enable kubernetes || true
+    fi
+
+    # Configure kubernetes auth from the in-cluster environment. Leaving
+    # token_reviewer_jwt unset makes Vault use its own pod SA (which carries the
+    # system:auth-delegator binding) to review login JWTs.
+    log "configuring kubernetes auth"
+    KUBE_CA="$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)"
+    vault write auth/kubernetes/config \
+      kubernetes_host="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}" \
+      kubernetes_ca_cert="${KUBE_CA}"
+
+    # Policy for external-secrets (read-only on KV v2 data + metadata).
+    # Built with printf (not a heredoc) so leading indentation inside this
+    # YAML block scalar can never break the terminator.
+    log "writing policy external-secrets"
+    printf '%s\n' \
+      'path "secret/data/*" {' \
+      '  capabilities = ["read"]' \
+      '}' \
+      'path "secret/metadata/*" {' \
+      '  capabilities = ["read"]' \
+      '}' > /tmp/external-secrets.hcl
+    vault policy write external-secrets /tmp/external-secrets.hcl
+
+    # Kubernetes auth role bound to the external-secrets controller SA.
+    log "creating kubernetes auth role external-secrets"
+    vault write auth/kubernetes/role/external-secrets \
+      bound_service_account_names="${ES_SA}" \
+      bound_service_account_namespaces="${ES_NS}" \
+      policies="external-secrets" \
+      ttl="1h"
+
+    log "bootstrap complete"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-bootstrap
+  namespace: vault
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # Re-run on every sync so config drift is reconciled idempotently.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault
+        app.kubernetes.io/component: bootstrap
+    spec:
+      serviceAccountName: vault-bootstrap
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: hashicorp/vault:1.21.2
+          command: ["/bin/sh", "/scripts/bootstrap.sh"]
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: vault-bootstrap
+            defaultMode: 0755

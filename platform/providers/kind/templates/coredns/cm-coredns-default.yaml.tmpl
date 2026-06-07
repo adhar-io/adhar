@@ -5,12 +5,15 @@ metadata:
   namespace: kube-system
 data:
   default.conf: |
-    # Goal: Rewrite rules for in-cluster access to a service: gitea, argocd, etc using the same FQDN as for external access
+    # Goal: rewrite the platform host (and its subdomains) so that in-cluster
+    # clients reach services via the SAME FQDN as external access. The platform
+    # uses the Cilium Gateway (it replaced ingress-nginx), so the host resolves
+    # to the generated cilium-gateway-adhar-gateway Service in adhar-system.
 
-    # subdomain names e.g. gitea.cnoe.localtest.me resolves to the IP address of the kubernetes ingress service and then will become ingress-nginx-controller.ingress-nginx.svc.cluster.local
+    # subdomains, e.g. gitea.adhar.localtest.me -> the Cilium Gateway Service
     rewrite stop {
-        name regex (.*).{{ .Host }} ingress-nginx-controller.ingress-nginx.svc.cluster.local answer auto
+        name regex (.*)\.{{ .Host }} cilium-gateway-adhar-gateway.adhar-system.svc.cluster.local answer auto
     }
 
-    # host name resolves to the IP address of the kubernetes ingress service
-    rewrite name exact {{ .Host }} ingress-nginx-controller.ingress-nginx.svc.cluster.local
+    # the bare host (e.g. adhar.localtest.me, used by the Keycloak OIDC issuer)
+    rewrite name exact {{ .Host }} cilium-gateway-adhar-gateway.adhar-system.svc.cluster.local

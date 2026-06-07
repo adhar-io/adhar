@@ -1,0 +1,79 @@
+# Adhar platform Gateway (Cilium Gateway API).
+# Replaces the ingress-nginx controller. The Gateway's data path is served by
+# Cilium's Envoy. A dedicated GatewayClass ("adhar") parameterises the generated
+# Service as NodePort so that Kind's static host port-mapping (8080/8443 ->
+# nodePort 30080/30443) keeps working; the AdharPlatform controller pins the
+# node ports on the generated cilium-gateway-adhar-gateway Service.
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumGatewayClassConfig
+metadata:
+  name: adhar-gateway-config
+  namespace: adhar-system
+spec:
+  service:
+    # NodePort (not the default LoadBalancer) so it works on Kind without an LB.
+    type: NodePort
+    externalTrafficPolicy: Cluster
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: adhar
+spec:
+  controllerName: io.cilium/gateway-controller
+  parametersRef:
+    group: cilium.io
+    kind: CiliumGatewayClassConfig
+    name: adhar-gateway-config
+    namespace: adhar-system
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: adhar-gateway
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-gateway
+    app.kubernetes.io/managed-by: adhar
+spec:
+  gatewayClassName: adhar
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: https
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          # Self-signed platform certificate created by the Kind provider
+          # (globals.SelfSignedCertSecretName) in the adhar-system namespace.
+          - kind: Secret
+            group: ""
+            name: adhar-cert
+      allowedRoutes:
+        namespaces:
+          from: All
+    # Second HTTPS listener on the platform's external port (8443). Externally,
+    # the host's :8443 is mapped to the 443 NodePort by Kind; but in-cluster
+    # clients (e.g. ArgoCD performing OIDC discovery against the Keycloak issuer
+    # https://adhar.localtest.me:8443/keycloak/...) connect to the Gateway Service
+    # on :8443 directly, so the Gateway must also listen there. HTTPRoutes attach
+    # to all listeners, so every route is served on 80, 443 and 8443 alike.
+    - name: https-8443
+      protocol: HTTPS
+      port: 8443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            group: ""
+            name: adhar-cert
+      allowedRoutes:
+        namespaces:
+          from: All

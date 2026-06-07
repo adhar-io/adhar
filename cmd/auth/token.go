@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"time"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
@@ -10,12 +13,18 @@ import (
 var (
 	tokenCmd = &cobra.Command{
 		Use:   "token",
-		Short: "Manage API tokens and keys",
-		Long: `Manage platform API tokens including:
-- Token creation and revocation
-- API key management
-- Token permissions and scopes
-- Token expiration and renewal`,
+		Short: "Obtain an OIDC token from Keycloak",
+		Long: `Obtain an OIDC access token from the Keycloak realm.
+
+With no subcommand, this mints a token: if --user is set it uses the password
+grant (prompting for the password), otherwise it uses the client_credentials
+grant for the configured client. Subcommands (create/list/...) manage
+client/personal tokens and require admin wiring; they report clearly when not
+configured.
+
+Examples:
+  adhar auth token --user admin --insecure
+  adhar auth token --client-id my-svc --client-secret xxxx`,
 		RunE: runToken,
 	}
 
@@ -39,16 +48,34 @@ func init() {
 }
 
 func runToken(cmd *cobra.Command, args []string) error {
-	fmt.Println("🔑 Adhar Platform Token Management")
-	fmt.Println("")
-	fmt.Println("Available commands:")
-	fmt.Println("  create    - Create a new API token")
-	fmt.Println("  list      - List all tokens")
-	fmt.Println("  get       - Get token details")
-	fmt.Println("  revoke    - Revoke a token")
-	fmt.Println("  renew     - Renew an expired token")
-	fmt.Println("")
-	fmt.Println("Use 'adhar auth token <command> --help' for more information")
+	kc := settings()
+	ctx := context.Background()
+
+	var (
+		tr  *tokenResponse
+		err error
+	)
+	if tokenUser != "" {
+		pw, perr := promptPassword(fmt.Sprintf("Password for %s: ", tokenUser))
+		if perr != nil {
+			return perr
+		}
+		fmt.Printf("🔑 Requesting token for %q via password grant...\n", tokenUser)
+		tr, err = kc.passwordGrant(ctx, tokenUser, pw)
+	} else {
+		fmt.Printf("🔑 Requesting token for client %q via client_credentials grant...\n", kc.ClientID)
+		tr, err = kc.clientCredentialsGrant(ctx)
+	}
+	if err != nil {
+		return err
+	}
+
+	if output == "json" {
+		return helpers.PrintJSON(tr)
+	}
+	fmt.Println(helpers.CreateSuccess("✅ Token obtained"))
+	fmt.Printf("⏰ Expires: %ds\n", tr.ExpiresIn)
+	fmt.Printf("🔑 Access token:\n%s\n", tr.AccessToken)
 	return nil
 }
 
@@ -76,25 +103,10 @@ func init() {
 }
 
 func runCreateToken(cmd *cobra.Command, args []string) error {
-	tokenName := args[0]
-
-	fmt.Printf("🔑 Creating API token: %s\n", tokenName)
-
-	if tokenDesc != "" {
-		fmt.Printf("📝 Description: %s\n", tokenDesc)
-	}
-	if len(tokenPerms) > 0 {
-		fmt.Printf("🔐 Permissions: %v\n", tokenPerms)
-	}
-	fmt.Printf("⏰ Expiry: %s\n", tokenExpiry)
-	fmt.Printf("🌐 Scope: %s\n", tokenScope)
-
-	// TODO: Implement actual token creation logic
-	fmt.Printf("✅ Successfully created token: %s\n", tokenName)
-	fmt.Println("🔑 Token: adhar_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-	fmt.Println("⚠️  Store this token securely - it won't be shown again!")
-
-	return nil
+	// Minting a personal/offline token in Keycloak requires the password (or an
+	// offline_access scope) and is realm-specific. Rather than fabricate a token,
+	// point the user at the supported path: `adhar auth token` (OIDC grant).
+	return fmt.Errorf("creating named API tokens is not wired to Keycloak in this build; use `adhar auth token --user %s` to obtain an OIDC access token instead", args[0])
 }
 
 var (

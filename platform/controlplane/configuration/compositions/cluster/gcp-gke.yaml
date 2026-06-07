@@ -13,7 +13,7 @@ spec:
   pipeline:
     - step: render-gke
       functionRef:
-        name: fn-go-templating
+        name: function-go-templating
       input:
         apiVersion: templating.fn.crossplane.io/v1beta1
         kind: Template
@@ -27,7 +27,7 @@ spec:
             {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
             {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
             {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
-            {{- $providerConfig := get $xr.spec.providerConfigRef "name" -}}
+            {{- $providerConfig := dig "spec" "providerConfigRef" "name" "default" $xr -}}
             {{- $tags := default (dict) $params.tags -}}
             {{- $releaseChannel := upper (default "REGULAR" (get $gcp "releaseChannel")) -}}
             {{- $removeDefault := default true (get $gcp "removeDefaultNodePool") -}}
@@ -39,7 +39,7 @@ spec:
               resources:
                 - name: gke-cluster
                   resource:
-                    apiVersion: container.gcp.upbound.io/v1beta1
+                    apiVersion: container.gcp.m.upbound.io/v1beta1
                     kind: Cluster
                     metadata:
                       labels:
@@ -84,15 +84,14 @@ spec:
                       writeConnectionSecretToRef:
                         name: {{ quote $secretName }}
                         namespace: {{ quote $secretNamespace }}
-                      {{- if $providerConfig }}
                       providerConfigRef:
                         name: {{ quote $providerConfig }}
-                      {{- end }}
+                        kind: ClusterProviderConfig
                       deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
                 {{- range $index, $pool := $params.nodePools }}
                 - name: gke-nodepool-{{ $index }}
                   resource:
-                    apiVersion: container.gcp.upbound.io/v1beta1
+                    apiVersion: container.gcp.m.upbound.io/v1beta1
                     kind: NodePool
                     metadata:
                       labels:
@@ -150,9 +149,8 @@ spec:
                             {{- if $pool.spot }}
                             preemptible: true
                             {{- end }}
-                        {{- if $providerConfig }}
-                        providerConfigRef:
-                          name: {{ quote $providerConfig }}
-                        {{- end }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                        kind: ClusterProviderConfig
                       deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
                 {{- end }}

@@ -1,10 +1,23 @@
-# Kargo Helm Chart Values
+# HashiCorp Vault Helm Chart Values
+# Single-node standalone server suitable for local/dev platforms. The UI is
+# exposed through the Cilium Gateway API (HTTPRoute), not an nginx Ingress.
 
-api:
+global:
+  enabled: true
+
+injector:
+  enabled: true
+
+server:
+  standalone:
+    enabled: true
+  dataStorage:
+    enabled: true
+    size: 1Gi
+  # No nginx Ingress; routing handled by manifests/httproute.yaml (Gateway API).
   ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+    enabled: false
+
+ui:
+  enabled: true
+  serviceType: ClusterIP

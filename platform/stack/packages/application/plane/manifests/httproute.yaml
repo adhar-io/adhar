@@ -1,0 +1,73 @@
+# Plane routed through the Cilium Gateway (adhar-gateway). TLS terminates at the
+# Gateway (adhar-cert), replacing the chart's Traefik IngressRoute (disabled in
+# values.yaml). This mirrors Plane's upstream path-based routing across its
+# services.
+#
+# NOTE: Plane serves its main app at the root path (/) and uses absolute prefixes
+# (/spaces, /god-mode, /api, /auth, /live, /uploads). On the shared
+# adhar.localtest.me hostname these would collide with other apps' root paths, so
+# in production Plane should be given its OWN hostname (e.g. plane.localtest.me)
+# and the rules below moved under that hostname. For local single-app use this
+# routes the Plane prefixes; the catch-all root rule is intentionally omitted to
+# avoid hijacking the shared host.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: plane
+  namespace: plane
+  labels:
+    app.kubernetes.io/name: plane
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/part-of: plane
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /spaces
+      backendRefs:
+        - name: plane-space
+          port: 3000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /god-mode
+      backendRefs:
+        - name: plane-admin
+          port: 3000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+        - path:
+            type: PathPrefix
+            value: /auth
+      backendRefs:
+        - name: plane-api
+          port: 8000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /live
+      backendRefs:
+        - name: plane-live
+          port: 3000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /uploads
+      backendRefs:
+        - name: plane-minio
+          port: 9000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /plane
+      backendRefs:
+        - name: plane-web
+          port: 3000

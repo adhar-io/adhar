@@ -14,7 +14,7 @@ metadata:
   name: minio
   labels:
     app: minio
-    chart: minio-5.0.15
+    chart: minio-5.4.0
     release: minio
     heritage: Helm
 data:
@@ -415,7 +415,7 @@ metadata:
   name: minio
   labels:
     app: minio
-    chart: minio-5.0.15
+    chart: minio-5.4.0
     release: minio
     heritage: Helm
 spec:
@@ -434,7 +434,7 @@ metadata:
   name: minio-console
   labels:
     app: minio
-    chart: minio-5.0.15
+    chart: minio-5.4.0
     release: minio
     heritage: Helm
 spec:
@@ -455,7 +455,7 @@ metadata:
   name: minio
   labels:
     app: minio
-    chart: minio-5.0.15
+    chart: minio-5.4.0
     release: minio
     heritage: Helm
     monitoring: "true"
@@ -477,7 +477,7 @@ metadata:
   name: minio
   labels:
     app: minio
-    chart: minio-5.0.15
+    chart: minio-5.4.0
     release: minio
     heritage: Helm
 spec:
@@ -499,18 +499,19 @@ spec:
         release: minio
       annotations:
         checksum/secrets: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
-        checksum/config: e1fc01a9da25b4ecdc2ce2796247deeca0f385330231399a9a8ba2c8b082b1fd
+        checksum/config: 0f06a3a87e9ecbd7b2795fcf59871f5c18cadbb288a3ff141e6ca2034cd05a8c
     spec:
       securityContext:
-        runAsUser: 1000
-        runAsGroup: 1000
+        
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsUser: 1000
       
       serviceAccountName: minio-sa
       containers:
         - name: minio
-          image: "quay.io/minio/minio:RELEASE.2024-01-11T07-46-16Z"
+          image: "quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z"
           imagePullPolicy: IfNotPresent
           command:
             - "/bin/sh"
@@ -542,7 +543,9 @@ spec:
               value: "public"
           resources:
             requests:
-              memory: 128Mi      
+              memory: 128Mi
+          securityContext: 
+            readOnlyRootFilesystem: false      
       volumes:
         - name: export
           persistentVolumeClaim:
@@ -551,30 +554,6 @@ spec:
           secret:
             secretName: root-creds
 ---
-# Source: minio/templates/console-ingress.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: minio-console
-  labels:
-    app: minio
-    chart: minio-5.0.15
-    release: minio
-    heritage: Helm
-spec:
-  ingressClassName: nginx
-  rules:
-    - http:
-        paths:
-          - path: /minio
-            pathType: Prefix
-            backend:
-              service:
-                name: minio-console
-                port: 
-                  number: 9001
-      host: "adhar.localtest.me"
----
 # Source: minio/templates/post-job.yaml
 apiVersion: batch/v1
 kind: Job
@@ -582,7 +561,7 @@ metadata:
   name: minio-post-job
   labels:
     app: minio-post-job
-    chart: minio-5.0.15
+    chart: minio-5.4.0
     release: minio
     heritage: Helm
   annotations:
@@ -611,7 +590,7 @@ spec:
       serviceAccountName: minio-sa
       containers:
         - name: minio-make-bucket
-          image: "quay.io/minio/mc:RELEASE.2024-01-11T05-49-32Z"
+          image: "quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z"
           imagePullPolicy: IfNotPresent
           command: [ "/bin/sh", "/config/initialize" ]
           env:
@@ -630,7 +609,7 @@ spec:
             requests:
               memory: 128Mi
         - name: minio-make-user
-          image: "quay.io/minio/mc:RELEASE.2024-01-11T05-49-32Z"
+          image: "quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z"
           imagePullPolicy: IfNotPresent
           command: [ "/bin/sh", "/config/add-user" ]
           env:

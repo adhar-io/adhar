@@ -12,7 +12,7 @@ spec:
   pipeline:
     - step: render-gitops
       functionRef:
-        name: fn-go-templating
+        name: function-go-templating
       input:
         apiVersion: templating.fn.crossplane.io/v1beta1
         kind: Template
@@ -25,7 +25,7 @@ spec:
             {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
             {{- $secretName := default (printf "%s-gitops" $xr.metadata.name) (get $conn "name") -}}
             {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
-            {{- $providerConfig := get $xr.spec.providerConfigRef "name" -}}
+            {{- $providerConfig := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
             {{- $observedResources := default (dict) .observed.resources -}}
             {{- $projectObserved := default (dict) (get $observedResources "argocd-project") -}}
             {{- $projectResource := default (dict) (get $projectObserved "resource") -}}
@@ -53,7 +53,7 @@ spec:
               resources:
                 - name: argocd-project
                   resource:
-                    apiVersion: kubernetes.crossplane.io/v1alpha1
+                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
                     kind: Object
                     metadata:
                       labels:
@@ -124,6 +124,7 @@ spec:
                       {{- if $providerConfig }}
                       providerConfigRef:
                         name: {{ quote $providerConfig }}
+                        kind: ClusterProviderConfig
                       {{- end }}
                       {{- if $secretName }}
                       writeConnectionSecretToRef:
@@ -133,7 +134,7 @@ spec:
                 {{- range $index, $appset := $appsets }}
                 - name: argocd-appset-{{ $index }}
                   resource:
-                    apiVersion: kubernetes.crossplane.io/v1alpha1
+                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
                     kind: Object
                     metadata:
                       labels:
@@ -158,6 +159,7 @@ spec:
                       {{- if $providerConfig }}
                       providerConfigRef:
                         name: {{ quote $providerConfig }}
+                        kind: ClusterProviderConfig
                       {{- end }}
                       deletionPolicy: Delete
                 {{- end }}

@@ -1,0 +1,133 @@
+# LAKEFS INSTALL RESOURCES
+# This file is auto-generated with 'platform/stack/packages/data/lakefs/generate-manifests.sh'
+---
+# Source: lakefs/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lakefs
+  labels:
+    helm.sh/chart: lakefs-1.12.2
+    app: lakefs
+    app.kubernetes.io/name: lakefs
+    app.kubernetes.io/instance: lakefs
+    app.kubernetes.io/version: "1.86.1"
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+---
+# Source: lakefs/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lakefs
+data:
+  config.yaml:
+  |
+    database:
+      type: local
+    blockstore:
+      type: local
+---
+# Source: lakefs/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: lakefs
+  labels:
+    helm.sh/chart: lakefs-1.12.2
+    app: lakefs
+    app.kubernetes.io/name: lakefs
+    app.kubernetes.io/instance: lakefs
+    app.kubernetes.io/version: "1.86.1"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    {}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: lakefs
+    app.kubernetes.io/name: lakefs
+    app.kubernetes.io/instance: lakefs
+---
+# Source: lakefs/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lakefs
+  labels:
+    helm.sh/chart: lakefs-1.12.2
+    app: lakefs
+    app.kubernetes.io/name: lakefs
+    app.kubernetes.io/instance: lakefs
+    app.kubernetes.io/version: "1.86.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lakefs
+      app.kubernetes.io/name: lakefs
+      app.kubernetes.io/instance: lakefs
+  template:
+    metadata:
+      annotations:
+        checksum/config: 391fb000274c3715a64faa00fa136f4fc9f5c227434c96cb57b1364c70255a89
+      labels:
+        app: lakefs
+        app.kubernetes.io/name: lakefs
+        app.kubernetes.io/instance: lakefs
+    spec:
+      serviceAccountName: default
+      securityContext:
+        null
+      containers:
+        - name: lakefs
+          args: ["run", "--config", "/etc/lakefs/config.yaml"]
+          securityContext:
+            null
+          image: "treeverse/lakefs:1.81.1"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          readinessProbe:   
+            httpGet:
+              path: /_health
+              port: http
+          livenessProbe:                                                
+            httpGet:
+              path: /_health
+              port: http
+          resources:
+            {}
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/lakefs/config.yaml
+              subPath: "config.yaml"
+              readOnly: true
+          env:
+            
+            - name: LAKEFS_AUTH_ENCRYPT_SECRET_KEY
+              value: asdjfhjaskdhuioaweyuiorasdsjbaskcbkj
+        
+        
+        
+        
+      volumes:
+        
+        - name: config-volume
+          configMap:
+            name: lakefs
+            items:
+              - key: config.yaml
+                path: config.yaml
+---
+# Source: lakefs/templates/secret.yaml
+# certificates to use with SAML SSO against server such as AD FS

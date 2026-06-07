@@ -40,7 +40,7 @@ var statusCmd = &cobra.Command{
 
 This command provides:
 • Overall platform health summary
-• Core service status (ArgoCD, Gitea, Nginx)
+• Core service status (ArgoCD, Gitea, Gateway)
 • Pod health and resource usage
 • Deployment status and replica information
 • Service endpoint availability
@@ -190,6 +190,21 @@ func collectPlatformStatus(clientset *kubernetes.Clientset) (*PlatformStatus, er
 	// Get core services status
 	status.CoreServices = collectCoreServicesStatus(clientset, ctx)
 
+	// Collect warnings from failed/pending pods
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == corev1.PodFailed {
+			status.Warnings = append(status.Warnings, fmt.Sprintf("Pod %s/%s is Failed", pod.Namespace, pod.Name))
+		}
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
+				status.CriticalIssues = append(status.CriticalIssues, fmt.Sprintf("Pod %s/%s is CrashLoopBackOff", pod.Namespace, pod.Name))
+			}
+			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "ImagePullBackOff" {
+				status.Warnings = append(status.Warnings, fmt.Sprintf("Pod %s/%s has ImagePullBackOff", pod.Namespace, pod.Name))
+			}
+		}
+	}
+
 	// Calculate overall status and health score
 	status.OverallStatus, status.HealthScore = calculateOverallStatus(status)
 
@@ -217,9 +232,26 @@ func collectNodeStatus(nodes []corev1.Node) NodeStatus {
 		}
 	}
 
-	// TODO: Add actual CPU/Memory usage calculation
-	nodeStatus.CPUUsage = "N/A"
-	nodeStatus.MemoryUsage = "N/A"
+	// Calculate allocatable resources from node status
+	var totalCPU, totalMem int64
+	for _, node := range nodes {
+		if cpu, ok := node.Status.Allocatable[corev1.ResourceCPU]; ok {
+			totalCPU += cpu.MilliValue()
+		}
+		if mem, ok := node.Status.Allocatable[corev1.ResourceMemory]; ok {
+			totalMem += mem.Value() / (1024 * 1024) // Convert to Mi
+		}
+	}
+	if totalCPU > 0 {
+		nodeStatus.CPUUsage = fmt.Sprintf("%dm allocatable", totalCPU)
+	} else {
+		nodeStatus.CPUUsage = "N/A"
+	}
+	if totalMem > 0 {
+		nodeStatus.MemoryUsage = fmt.Sprintf("%dMi allocatable", totalMem)
+	} else {
+		nodeStatus.MemoryUsage = "N/A"
+	}
 
 	return nodeStatus
 }
@@ -318,51 +350,60 @@ func collectCoreServicesStatus(clientset *kubernetes.Clientset, ctx context.Cont
 	}{
 		{"ArgoCD", "🚀", "adhar-system", "app.kubernetes.io/name=argocd-server"},
 		{"Gitea", "🦊", "adhar-system", "app=gitea"},
-		{"Nginx Ingress", "🌐", "adhar-system", "app.kubernetes.io/name=ingress-nginx"},
-		{"Cilium", "🕸️", "kube-system", "k8s-app=cilium"},
+		// The Gateway data path is served by Cilium's Envoy DaemonSet (the
+		// adhar-gateway Gateway has no Deployment of its own), so we report the
+		// cilium-envoy DaemonSet health for the "Cilium Gateway" row.
+		{"Cilium Gateway", "🌐", "adhar-system", "app.kubernetes.io/name=cilium-envoy"},
+		{"Cilium", "🕸️", "adhar-system", "app.kubernetes.io/name=cilium-agent"},
+		{"Crossplane", "🔧", "adhar-system", "app=crossplane"},
 	}
 
 	for _, config := range serviceConfigs {
-		status := ServiceStatus{
+		svcStatus := ServiceStatus{
 			Name:        config.name,
 			Icon:        config.icon,
 			LastChecked: time.Now(),
 		}
 
-		// Get deployment status
+		// Try Deployment first
 		deployments, err := clientset.AppsV1().Deployments(config.namespace).List(ctx, metav1.ListOptions{
 			LabelSelector: config.selector,
 		})
 
 		if err == nil && len(deployments.Items) > 0 {
-			deployment := deployments.Items[0]
-			status.Replicas = fmt.Sprintf("%d/%d", deployment.Status.ReadyReplicas, deployment.Status.Replicas)
-
-			if deployment.Status.ReadyReplicas == deployment.Status.Replicas && deployment.Status.Replicas > 0 {
-				status.Status = "✅ Healthy"
-				status.StatusColor = "#10b981"
+			dep := deployments.Items[0]
+			svcStatus.Replicas = fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, dep.Status.Replicas)
+			if dep.Status.ReadyReplicas == dep.Status.Replicas && dep.Status.Replicas > 0 {
+				svcStatus.Status = "✅ Healthy"
 			} else {
-				status.Status = "⚠️ Degraded"
-				status.StatusColor = "#f59e0b"
+				svcStatus.Status = "⚠️ Degraded"
 			}
-
-			// Get version from image
-			if len(deployment.Spec.Template.Spec.Containers) > 0 {
-				image := deployment.Spec.Template.Spec.Containers[0].Image
-				if strings.Contains(image, ":") {
-					parts := strings.Split(image, ":")
-					if len(parts) > 1 {
-						status.Version = parts[len(parts)-1]
-					}
-				}
+			if len(dep.Spec.Template.Spec.Containers) > 0 {
+				svcStatus.Version = extractVersion(dep.Spec.Template.Spec.Containers[0].Image)
 			}
 		} else {
-			status.Status = "❌ Not Found"
-			status.StatusColor = "#ef4444"
-			status.Replicas = "0/0"
+			// Try DaemonSet (for Cilium)
+			daemonSets, dsErr := clientset.AppsV1().DaemonSets(config.namespace).List(ctx, metav1.ListOptions{
+				LabelSelector: config.selector,
+			})
+			if dsErr == nil && len(daemonSets.Items) > 0 {
+				ds := daemonSets.Items[0]
+				svcStatus.Replicas = fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
+				if ds.Status.NumberReady == ds.Status.DesiredNumberScheduled && ds.Status.DesiredNumberScheduled > 0 {
+					svcStatus.Status = "✅ Healthy"
+				} else {
+					svcStatus.Status = "⚠️ Degraded"
+				}
+				if len(ds.Spec.Template.Spec.Containers) > 0 {
+					svcStatus.Version = extractVersion(ds.Spec.Template.Spec.Containers[0].Image)
+				}
+			} else {
+				svcStatus.Status = "❌ Not Found"
+				svcStatus.Replicas = "0/0"
+			}
 		}
 
-		coreServices = append(coreServices, status)
+		coreServices = append(coreServices, svcStatus)
 	}
 
 	return coreServices
@@ -513,6 +554,21 @@ func displayStatusTable(status *PlatformStatus) error {
 	}
 
 	return nil
+}
+
+func extractVersion(image string) string {
+	if i := strings.LastIndex(image, ":"); i >= 0 {
+		ver := image[i+1:]
+		if at := strings.Index(ver, "@"); at >= 0 {
+			ver = ver[:at]
+		}
+		// Strip suffixes like "-rootless" for cleaner display
+		for _, suffix := range []string{"-rootless", "-alpine", "-slim", "-distroless"} {
+			ver = strings.TrimSuffix(ver, suffix)
+		}
+		return ver
+	}
+	return "unknown"
 }
 
 func formatDuration(d time.Duration) string {

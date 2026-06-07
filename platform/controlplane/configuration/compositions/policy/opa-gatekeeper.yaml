@@ -55,20 +55,20 @@ spec:
                     targets = [{
                         target = "admission.k8s.gatekeeper.sh"
                         rego = """
-package k8srequireresourcelimits
+                        package k8srequireresourcelimits
 
-violation[{"msg": msg}] {
-  container := input.review.object.spec.containers[_]
-  not container.resources.limits.cpu
-  msg := sprintf("Container %v is missing CPU limits", [container.name])
-}
+                        violation[{"msg": msg}] {
+                          container := input.review.object.spec.containers[_]
+                          not container.resources.limits.cpu
+                          msg := sprintf("Container %v is missing CPU limits", [container.name])
+                        }
 
-violation[{"msg": msg}] {
-  container := input.review.object.spec.containers[_]
-  not container.resources.limits.memory
-  msg := sprintf("Container %v is missing memory limits", [container.name])
-}
-"""
+                        violation[{"msg": msg}] {
+                          container := input.review.object.spec.containers[_]
+                          not container.resources.limits.memory
+                          msg := sprintf("Container %v is missing memory limits", [container.name])
+                        }
+                        """
                     }]
                 }
             }
@@ -111,14 +111,14 @@ violation[{"msg": msg}] {
                     targets = [{
                         target = "admission.k8s.gatekeeper.sh"
                         rego = """
-package k8sdisallowprivileged
+                        package k8sdisallowprivileged
 
-violation[{"msg": msg}] {
-  container := input.review.object.spec.containers[_]
-  container.securityContext.privileged == true
-  msg := sprintf("Container %v is running in privileged mode", [container.name])
-}
-"""
+                        violation[{"msg": msg}] {
+                          container := input.review.object.spec.containers[_]
+                          container.securityContext.privileged == true
+                          msg := sprintf("Container %v is running in privileged mode", [container.name])
+                        }
+                        """
                     }]
                 }
             }

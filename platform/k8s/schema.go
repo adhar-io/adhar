@@ -14,6 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// GetScheme returns a runtime.Scheme registered with the core Kubernetes API
+// groups plus the ArgoCD and Adhar v1alpha1 types used by the platform.
 func GetScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	schemeBuilder := runtime.NewSchemeBuilder(

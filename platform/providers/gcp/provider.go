@@ -1550,36 +1550,48 @@ func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *ty
 
 		cluster.Metadata["node-count"] = fmt.Sprintf("%d", totalDesiredNodes)
 
-		// For manual clusters, simulate node scaling by updating instance groups
-		currentNodeCount := len(cluster.MasterNodes) + len(cluster.WorkerNodes)
+		// Scale the worker pool by creating/deleting real compute instances via
+		// the Google Cloud SDK rather than fabricating in-memory node entries.
+		desiredWorkers := totalDesiredNodes - len(cluster.MasterNodes)
+		if desiredWorkers < 0 {
+			desiredWorkers = 0
+		}
+		currentWorkers := len(cluster.WorkerNodes)
 
-		if totalDesiredNodes > currentNodeCount {
-			// Scale up: add more nodes
-			for i := currentNodeCount; i < totalDesiredNodes; i++ {
-				// Simulate adding worker nodes
-				newNode := NodeInfo{
-					InstanceName: fmt.Sprintf("%s-worker-%d", clusterID, i),
-					Zone:         p.config.Zone,
-					PrivateIP:    fmt.Sprintf("10.0.1.%d", 10+i),
-					PublicIP:     "",
-					MachineType:  p.config.MachineType,
-					Role:         "worker",
+		machineType := p.config.MachineType
+		for _, nodeGroup := range spec.NodeGroups {
+			if nodeGroup.InstanceType != "" {
+				machineType = nodeGroup.InstanceType
+				break
+			}
+		}
+
+		switch {
+		case desiredWorkers > currentWorkers:
+			subnetURL := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s",
+				p.config.ProjectID, p.config.Region, fmt.Sprintf("%s-subnet", extractClusterName(clusterID)))
+			for i := currentWorkers; i < desiredWorkers; i++ {
+				nodeName := fmt.Sprintf("%s-worker-%d", extractClusterName(clusterID), i)
+				nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, machineType, false)
+				if err != nil {
+					return fmt.Errorf("failed to scale up cluster %s: %w", clusterID, err)
 				}
-				cluster.WorkerNodes = append(cluster.WorkerNodes, newNode)
+				cluster.WorkerNodes = append(cluster.WorkerNodes, *nodeInfo)
 			}
-			log.Printf("Scaled up cluster %s to %d nodes", clusterID, totalDesiredNodes)
-		} else if totalDesiredNodes < currentNodeCount && totalDesiredNodes > 0 {
-			// Scale down: remove excess worker nodes
-			if totalDesiredNodes <= len(cluster.MasterNodes) {
-				// Don't scale below master node count
-				totalDesiredNodes = len(cluster.MasterNodes) + 1
+			log.Printf("Scaled up cluster %s to %d worker nodes", clusterID, desiredWorkers)
+		case desiredWorkers < currentWorkers:
+			for i := currentWorkers - 1; i >= desiredWorkers; i-- {
+				node := cluster.WorkerNodes[i]
+				zone := node.Zone
+				if zone == "" {
+					zone = p.config.Zone
+				}
+				if err := p.deleteInstance(ctx, node.InstanceName, zone); err != nil {
+					return fmt.Errorf("failed to scale down cluster %s: %w", clusterID, err)
+				}
 			}
-
-			workerNodesNeeded := totalDesiredNodes - len(cluster.MasterNodes)
-			if workerNodesNeeded >= 0 && workerNodesNeeded < len(cluster.WorkerNodes) {
-				cluster.WorkerNodes = cluster.WorkerNodes[:workerNodesNeeded]
-			}
-			log.Printf("Scaled down cluster %s to %d nodes", clusterID, totalDesiredNodes)
+			cluster.WorkerNodes = cluster.WorkerNodes[:desiredWorkers]
+			log.Printf("Scaled down cluster %s to %d worker nodes", clusterID, desiredWorkers)
 		}
 	}
 
@@ -1590,22 +1602,63 @@ func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *ty
 	return nil
 }
 
-// GetCluster retrieves cluster information
+// GetCluster retrieves cluster information from the provider's tracked state,
+// verifying the underlying compute instances via the Google Cloud SDK. It does
+// not fabricate data: an unknown cluster yields an error.
 func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Cluster, error) {
-	// In a real implementation, call GKE GetCluster API
+	infrastructure, exists := p.clusters[clusterID]
+	tracker, hasTracker := p.resourceTrackers[clusterID]
+	if !exists && !hasTracker {
+		return nil, fmt.Errorf("cluster not found: %s", clusterID)
+	}
+
+	region := p.config.Region
+	zone := p.config.Zone
+	createdAt := time.Now()
+	updatedAt := time.Now()
+	if hasTracker {
+		region = tracker.Region
+		zone = tracker.Zone
+		createdAt = tracker.CreatedAt
+		updatedAt = tracker.UpdatedAt
+	}
+
+	// Determine status by verifying at least one master instance exists.
+	status := types.ClusterStatusUnknown
+	endpoint := ""
+	version := ""
+	if exists {
+		if len(infrastructure.MasterNodes) > 0 {
+			master := infrastructure.MasterNodes[0]
+			if p.verifyInstanceExists(ctx, master.InstanceName, zone) {
+				status = types.ClusterStatusRunning
+			} else {
+				status = types.ClusterStatusError
+			}
+			if master.PublicIP != "" {
+				endpoint = fmt.Sprintf("https://%s:6443", master.PublicIP)
+			}
+		}
+		if infrastructure.Metadata != nil {
+			if v, ok := infrastructure.Metadata["cluster-version"]; ok {
+				version = v
+			}
+		}
+	}
+
 	return &types.Cluster{
 		ID:        clusterID,
 		Name:      extractClusterName(clusterID),
 		Provider:  "gcp",
-		Region:    p.config.Region,
-		Version:   "v1.29.0",
-		Status:    types.ClusterStatusRunning,
-		Endpoint:  fmt.Sprintf("https://example.gke.%s.gcp.internal", p.config.Region),
-		CreatedAt: time.Now().Add(-1 * time.Hour),
-		UpdatedAt: time.Now(),
+		Region:    region,
+		Version:   version,
+		Status:    status,
+		Endpoint:  endpoint,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
 		Metadata: map[string]interface{}{
 			"projectId": p.config.ProjectID,
-			"zone":      p.config.Zone,
+			"zone":      zone,
 		},
 	}, nil
 }
@@ -2608,94 +2661,89 @@ func (p *Provider) GetClusterMetrics(ctx context.Context, clusterID string) (*ty
 	}, nil
 }
 
-// InstallAddon installs an addon by updating cluster metadata
+// InstallAddon installs an addon on the target cluster via kubectl/helm.
 func (p *Provider) InstallAddon(ctx context.Context, clusterID string, addonName string, config map[string]interface{}) error {
 	log.Printf("Installing addon %s on GCP cluster %s", addonName, clusterID)
 
-	// For manual clusters, simulate addon installation by updating cluster metadata
-	cluster, exists := p.clusters[clusterID]
-	if !exists {
-		return fmt.Errorf("cluster %s not found", clusterID)
+	kubeconfigPath, cleanup, err := p.addonKubeconfig(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to obtain kubeconfig for addon install: %w", err)
 	}
+	defer cleanup()
 
-	// Simulate addon installation by adding to cluster metadata
-	if cluster.Metadata == nil {
-		cluster.Metadata = make(map[string]string)
-	}
-
-	// Add addon to installed addons list
-	installedAddons := cluster.Metadata["installed-addons"]
-	if installedAddons == "" {
-		installedAddons = addonName
-	} else {
-		// Check if addon is already installed
-		if strings.Contains(installedAddons, addonName) {
-			return fmt.Errorf("addon %s is already installed", addonName)
+	switch addonName {
+	case "gce-pd-csi-driver", "gcp-compute-persistent-disk-csi-driver":
+		// CSI driver is a managed/cluster-creation concern on GKE, not a kubectl addon.
+		return fmt.Errorf("addon %q is managed at the cluster level and cannot be installed via kubectl", addonName)
+	case "coredns", "kube-proxy":
+		return fmt.Errorf("addon %q is a built-in Kubernetes component and is not managed as an installable addon", addonName)
+	case "cilium":
+		// Cilium is the platform CNI/dataplane and the Gateway API implementation.
+		return provider.InstallCiliumAddon(ctx, kubeconfigPath, config)
+	case "metrics-server":
+		return provider.InstallMetricsServerAddon(ctx, kubeconfigPath)
+	case "cert-manager":
+		return provider.InstallCertManagerAddon(ctx, kubeconfigPath)
+	case "ingress", "gateway", "gateway-api", "cilium-gateway":
+		// NOTE: This platform uses the Cilium Gateway API as its default ingress,
+		// NOT ingress-nginx. This installs the Gateway API CRDs served by Cilium.
+		return provider.InstallGatewayAPIAddon(ctx, kubeconfigPath)
+	case "ingress-nginx":
+		// ingress-nginx is NOT the platform default (Cilium Gateway API is), but
+		// remains available as an explicit opt-in generic addon.
+		return provider.InstallIngressNginxAddon(ctx, kubeconfigPath)
+	case "helm-chart":
+		// Generic Helm chart addon path: caller supplies repo/chart/version/namespace/values.
+		opts, err := provider.HelmOptionsFromConfig("custom", config)
+		if err != nil {
+			return err
 		}
-		installedAddons += "," + addonName
+		return provider.InstallHelmAddon(ctx, kubeconfigPath, opts)
+	default:
+		return fmt.Errorf("unsupported addon for GCP: %s", addonName)
 	}
-	cluster.Metadata["installed-addons"] = installedAddons
-
-	// Add addon-specific configuration
-	configKey := fmt.Sprintf("addon-%s-config", addonName)
-	if len(config) > 0 {
-		// Serialize config to JSON-like string for metadata storage
-		configStr := ""
-		for k, v := range config {
-			if configStr != "" {
-				configStr += ";"
-			}
-			configStr += fmt.Sprintf("%s=%v", k, v)
-		}
-		cluster.Metadata[configKey] = configStr
-	}
-
-	// Update the cluster in our tracking
-	p.clusters[clusterID] = cluster
-
-	log.Printf("Successfully installed addon %s on cluster %s", addonName, clusterID)
-	return nil
 }
 
-// UninstallAddon uninstalls an addon by updating cluster metadata
+// UninstallAddon uninstalls an addon from the target cluster via kubectl/helm.
 func (p *Provider) UninstallAddon(ctx context.Context, clusterID string, addonName string) error {
 	log.Printf("Uninstalling addon %s from GCP cluster %s", addonName, clusterID)
 
-	// For manual clusters, simulate addon uninstallation by updating cluster metadata
-	cluster, exists := p.clusters[clusterID]
-	if !exists {
-		return fmt.Errorf("cluster %s not found", clusterID)
+	kubeconfigPath, cleanup, err := p.addonKubeconfig(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to obtain kubeconfig for addon uninstall: %w", err)
 	}
+	defer cleanup()
 
-	if cluster.Metadata == nil {
-		return fmt.Errorf("addon %s is not installed", addonName)
+	switch addonName {
+	case "gce-pd-csi-driver", "gcp-compute-persistent-disk-csi-driver":
+		return fmt.Errorf("addon %q is managed at the cluster level and cannot be uninstalled via kubectl", addonName)
+	case "coredns", "kube-proxy":
+		return fmt.Errorf("addon %q is a critical system component and should not be uninstalled", addonName)
+	case "cilium":
+		return provider.UninstallHelmAddon(ctx, kubeconfigPath, "cilium", "kube-system")
+	case "metrics-server":
+		return provider.UninstallMetricsServerAddon(ctx, kubeconfigPath)
+	case "cert-manager":
+		return provider.UninstallCertManagerAddon(ctx, kubeconfigPath)
+	case "ingress", "gateway", "gateway-api", "cilium-gateway":
+		return provider.UninstallGatewayAPIAddon(ctx, kubeconfigPath)
+	case "ingress-nginx":
+		return provider.UninstallIngressNginxAddon(ctx, kubeconfigPath)
+	case "helm-chart":
+		return fmt.Errorf("uninstalling a generic helm-chart addon requires the release name and namespace")
+	default:
+		return fmt.Errorf("unsupported addon for GCP: %s", addonName)
 	}
+}
 
-	// Remove addon from installed addons list
-	installedAddons := cluster.Metadata["installed-addons"]
-	if installedAddons == "" || !strings.Contains(installedAddons, addonName) {
-		return fmt.Errorf("addon %s is not installed", addonName)
+// addonKubeconfig fetches the cluster kubeconfig and writes it to a temp file,
+// returning the path and a cleanup func used to target addon installs.
+func (p *Provider) addonKubeconfig(ctx context.Context, clusterID string) (string, func(), error) {
+	kubeconfig, err := p.GetKubeconfig(ctx, clusterID)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("failed to get kubeconfig: %w", err)
 	}
-
-	// Remove addon from the list
-	addons := strings.Split(installedAddons, ",")
-	var newAddons []string
-	for _, addon := range addons {
-		if strings.TrimSpace(addon) != addonName {
-			newAddons = append(newAddons, strings.TrimSpace(addon))
-		}
-	}
-	cluster.Metadata["installed-addons"] = strings.Join(newAddons, ",")
-
-	// Remove addon-specific configuration
-	configKey := fmt.Sprintf("addon-%s-config", addonName)
-	delete(cluster.Metadata, configKey)
-
-	// Update the cluster in our tracking
-	p.clusters[clusterID] = cluster
-
-	log.Printf("Successfully uninstalled addon %s from cluster %s", addonName, clusterID)
-	return nil
+	return provider.WriteKubeconfigTempFile(kubeconfig)
 }
 
 // ListAddons lists installed addons

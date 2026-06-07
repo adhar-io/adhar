@@ -1,10 +1,9 @@
-# Kargo Helm Chart Values
+# Trivy Operator Helm Chart Values
+# Continuously scans workloads (vulnerabilities, misconfig, secrets) and writes
+# results to CRDs. No web UI / ingress.
 
-api:
-  ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+trivyOperator:
+  scanJobsConcurrentLimit: 5
+
+operator:
+  scannerReportTTL: "24h"

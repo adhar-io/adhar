@@ -56,6 +56,8 @@ var (
 	backup     bool
 	restore    bool
 	health     bool
+	dbNS       string
+	dbOutput   string
 )
 
 func init() {
@@ -70,9 +72,15 @@ func init() {
 	DBCmd.Flags().BoolVar(&restore, "restore", false, "Perform restore operation")
 	DBCmd.Flags().BoolVar(&health, "health", false, "Check database health")
 
+	// Persistent flags shared across subcommands operating on CompositeDatabase XRs.
+	DBCmd.PersistentFlags().StringVar(&dbNS, "namespace", "default", "Namespace for the database resources")
+	DBCmd.PersistentFlags().StringVarP(&dbOutput, "output", "o", "table", "Output format (table, json, yaml)")
+
 	// Add subcommands
 	DBCmd.AddCommand(createCmd)
 	DBCmd.AddCommand(listCmd)
+	DBCmd.AddCommand(statusCmd)
+	DBCmd.AddCommand(deleteCmd)
 	DBCmd.AddCommand(backupCmd)
 	DBCmd.AddCommand(restoreCmd)
 	DBCmd.AddCommand(healthCmd)

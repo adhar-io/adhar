@@ -27,7 +27,7 @@ Become the definitive open foundation for cloud-native platform engineering. A s
 ### Design Pattern: Management Cluster First + GitOps-Driven
 
 Adhar uses a two-phase deployment model:
-1. **Bootstrap Phase** (imperative): Install Cilium CNI → Nginx Ingress → ArgoCD → Gitea (in this order)
+1. **Bootstrap Phase** (imperative): Install Gateway API CRDs → Cilium CNI (Gateway data path) → Cilium Gateway → ArgoCD → Gitea (in this order)
 2. **GitOps Phase** (declarative): Everything else managed through Git repos in Gitea + ArgoCD ApplicationSet reconciliation
 
 ### `adhar up` Sequence (Local Development)
@@ -40,14 +40,14 @@ Adhar uses a two-phase deployment model:
 6. Create `AdharPlatform` CR in `adhar-system` namespace
 7. Controller reconciles:
    - Install Cilium (CNI + Hubble)
-   - Install Nginx Ingress (wait for deployment ready — webhook must be accessible)
-   - Install ArgoCD (install + post-install with Ingress)
-   - Install Gitea (install + post-install with Ingress)
+   - Install Gateway API CRDs, then the Cilium Gateway (GatewayClass + adhar-gateway); pin the Gateway Service node ports
+   - Install ArgoCD (install + post-install HTTPRoute)
+   - Install Gitea (install + post-install HTTPRoute)
 8. Wait for Gitea API readiness (deployment + pod + HTTP probe)
 9. Create `environments` and `packages` repos in Gitea (via API with `auto_init: true`)
 10. Populate repos: `kubectl cp` from `platform/stack/{packages,environments}` → Gitea pod → git push
 11. Apply ArgoCD auth (repo secrets + dedicated `gitea-argocd` service)
-12. Apply `adhar-appset-local.yaml` (ApplicationSet with 28+ packages)
+12. Apply `adhar-appset-local.yaml` (ApplicationSet wiring 69 packages; a `selector` on `enabled: "true"` deploys a curated local-safe core (~16), the rest are wired but disabled)
 13. ArgoCD syncs all applications from Gitea repos
 14. Controller detects platform is deployed → graceful shutdown → success message
 
@@ -60,7 +60,7 @@ Adhar uses a two-phase deployment model:
 | CNI | Cilium (eBPF-based, replaces kube-proxy) |
 | GitOps | ArgoCD (ApplicationSet for all platform packages) |
 | Git Server | Gitea (self-hosted, in-cluster) |
-| Ingress | Nginx Ingress Controller (NodePort 30080/30443) |
+| Gateway | Cilium Gateway API (GatewayClass `adhar`, Gateway `adhar-gateway`, NodePort 30080/30443) |
 | IaC | Crossplane |
 | Cloud SDKs | AWS SDK v2, Azure SDK, GCP API, DigitalOcean, Civo |
 
@@ -68,7 +68,7 @@ Adhar uses a two-phase deployment model:
 
 All CRDs are in API group `platform.adhar.io/v1alpha1`:
 
-- **AdharPlatform** - Top-level platform resource; manages component lifecycle (Cilium, ArgoCD, Gitea, Nginx, Crossplane)
+- **AdharPlatform** - Top-level platform resource; manages component lifecycle (Cilium, Gateway, ArgoCD, Gitea, Crossplane)
 - **GitRepository** - Manages Git repos across providers (Gitea, GitHub, GitLab, Bitbucket); supports local, remote, and embedded sources
 - **CustomPackage** - Deploys custom applications via ArgoCD Application/ApplicationSet
 
@@ -77,7 +77,7 @@ CRD types defined in `api/v1alpha1/`, generated with controller-gen, embedded YA
 ### Three Kubernetes Controllers
 
 Located in `platform/controllers/`:
-- **AdharPlatform Controller** (`adharplatform/`) - Reconciles platform components with individual reconcilers per service (argocd.go, cilium.go, gitea.go, nginx.go, crossplane.go). Installs in deterministic order: Cilium → Nginx → ArgoCD → Gitea
+- **AdharPlatform Controller** (`adharplatform/`) - Reconciles platform components with individual reconcilers per service (argocd.go, cilium.go, gitea.go, gateway.go, crossplane.go). Installs in deterministic order: Gateway API CRDs → Cilium → Gateway → ArgoCD → Gitea
 - **GitRepository Controller** (`gitrepository/`) - Reconciles git repos across multiple providers
 - **CustomPackage Controller** (`custompackage/`) - Manages ArgoCD app deployment via Gitea
 
@@ -94,7 +94,7 @@ Factory pattern in `platform/providers/factory.go` for dynamic instantiation.
 
 - ArgoCD server: `argo-cd-argocd-server` (Helm release prefix `argo-cd`)
 - Gitea: `gitea`
-- Nginx: `ingress-nginx-controller`
+- Gateway Service: `cilium-gateway-adhar-gateway` (NodePort 30080/30443, served by Cilium Envoy)
 - Gitea service for ArgoCD: `gitea-argocd` (dedicated ClusterIP)
 - Gitea HTTP service: `gitea-http` (ClusterIP, port 3000)
 
@@ -120,13 +120,13 @@ adhar/
 ├── platform/                      # Core platform logic
 │   ├── controllers/               # 3 Kubernetes controllers
 │   │   ├── adharplatform/         # Platform reconciler + per-component reconcilers
-│   │   │   ├── resources/         # Embedded YAML manifests (argocd/, cilium/, gitea/, nginx/)
+│   │   │   ├── resources/         # Embedded YAML manifests (argocd/, cilium/, gitea/, gateway/, gateway-api/)
 │   │   │   ├── controller.go      # Main reconciliation loop + GitOps repo setup
 │   │   │   ├── helpers.go         # applyManifest (server-side apply with owner refs)
 │   │   │   ├── argocd.go          # ArgoCD install + post-install
-│   │   │   ├── cilium.go          # Cilium install + Hubble UI ingress
-│   │   │   ├── gitea.go           # Gitea install + ingress
-│   │   │   └── nginx.go           # Nginx install + readiness wait
+│   │   │   ├── cilium.go          # Cilium install (Gateway API enabled) + Hubble UI (port-forward)
+│   │   │   ├── gitea.go           # Gitea install + HTTPRoute
+│   │   │   └── gateway.go         # Gateway API CRDs + Cilium Gateway + node-port pinning
 │   │   ├── gitrepository/         # Git repo reconciler (multi-provider)
 │   │   ├── custompackage/         # Custom package reconciler
 │   │   └── crd.go                 # CRD installation from embedded resources
@@ -134,7 +134,7 @@ adhar/
 │   │   └── kind/                  # Local Kind cluster (cluster.go, config.go, coredns.go, tls.go)
 │   ├── config/                    # Multi-layered config (global, provider, template, environment)
 │   ├── stack/                     # GitOps content pushed to Gitea repos
-│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (28+ packages)
+│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (69 wired, enabled-gated; curated core for local)
 │   │   ├── argocd-auth.yaml         # ArgoCD repo secrets + gitea-argocd service
 │   │   ├── packages/                # 87 package directories (security/, data/, observability/, etc.)
 │   │   └── environments/            # Environment configs (local, dev, staging, prod)
@@ -186,8 +186,8 @@ Version info injected via ldflags: `cmd/version.Version`, `cmd/version.GitCommit
 ## Networking & Ports
 
 ### Default Local Development Ports
-- **HTTPS**: `8443` (host) → `30443` (Nginx NodePort) → `443` (Nginx container)
-- **HTTP**: `8080` (host) → `30080` (Nginx NodePort) → `80` (Nginx container)
+- **HTTPS**: `8443` (host) → `30443` (Gateway NodePort) → `443` (Cilium Envoy / HTTPS listener)
+- **HTTP**: `8080` (host) → `30080` (Gateway NodePort) → `80` (Cilium Envoy / HTTP listener)
 - **SSH**: `32222` (host) → `32222` (Gitea SSH)
 - **Access URLs**: `https://adhar.localtest.me:8443/argocd`, `https://adhar.localtest.me:8443/gitea`
 
@@ -242,9 +242,20 @@ Validated against `config.schema.json` (JSON Schema draft-07).
 ## Integrated Services (50+)
 
 ### Core (Bootstrap Phase - Embedded Manifests)
-Cilium, Nginx Ingress, ArgoCD, Gitea
+Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
 
-### GitOps Phase (28+ packages via ApplicationSet)
+### Crossplane Control Plane (Crossplane v2, namespaced model)
+
+- Built on **Crossplane v2.3.1** core. XRDs use `apiextensions.crossplane.io/v2` with `scope: Namespaced` (no claims); Compositions stay `apiextensions.crossplane.io/v1`, Pipeline mode. Managed resources use namespaced `.m` API groups (`*.aws.m.upbound.io`, `kubernetes.m.crossplane.io`, `helm.m.crossplane.io`) and reference shared `ClusterProviderConfig`s. See `platform/controlplane/CONVENTIONS.md`.
+- **23 XRDs** in `platform/controlplane/configuration/xrd/` — CompositeCluster, CompositeApplication, CompositeDatabase, CompositeNetwork, CompositeLogging, CompositeEnvironment, CompositePlatformConfig, etc.
+- **34 Compositions** in `platform/controlplane/configuration/compositions/` — multi-cloud (AWS/Azure/GCP via Upbound v2) + Kubernetes-native (provider-kubernetes/helm).
+- **5 Functions** — function-kcl, function-go-templating, function-patch-and-transform, function-auto-ready, function-python.
+- **3 Operations** in `configuration/operations/` — CronOperation (daily backup, weekly secret rotation) + WatchOperation (ConfigMap drift); requires core `--enable-operations`.
+- **ProviderConfigs** — shared `ClusterProviderConfig` per cloud family (AWS/Azure/GCP), plus provider-kubernetes & provider-helm (`ClusterProviderConfig`); DigitalOcean/Civo remain legacy `ProviderConfig`.
+- **Package .xpkg** at `platform/controlplane/adhar-control-plane-v0.3.8.xpkg`, built via `crossplane xpkg build` (`make build-control-plane`).
+- Install order: Crossplane core → wait for ready → XRDs → Compositions → Functions → ProviderConfigs → Operations
+
+### GitOps Phase (69 packages wired via ApplicationSet; curated core enabled for local, rest toggleable)
 **Security**: cert-manager, external-secrets, kyverno, kyverno-policies, keycloak
 **Data**: cnpg, jupyterhub, minio, redis, spark-operator
 **Observability**: metrics-server, kube-prometheus, loki, alloy, tempo, mimir, opencost, oncall, headlamp
@@ -254,8 +265,8 @@ Cilium, Nginx Ingress, ArgoCD, Gitea
 
 ## Important Implementation Notes
 
-- Core packages install in deterministic order: Cilium → Nginx (wait for ready) → ArgoCD → Gitea
-- Nginx readiness wait is critical — admission webhook must be accessible before Ingress resources
+- Core packages install in deterministic order: Gateway API CRDs → Cilium → Cilium Gateway → ArgoCD → Gitea
+- The Cilium Gateway must be Programmed before HTTPRoutes resolve; the controller pins the generated Service node ports (30080/30443) so Kind host port-mapping works
 - The `StackDir` field on `AdharPlatformReconciler` holds the absolute path to `platform/stack/`
 - Repository population uses `kubectl cp` + `kubectl exec` with `sh -c` for proper shell expansion
 - Gitea repos created with `auto_init: true` and `default_branch: main`

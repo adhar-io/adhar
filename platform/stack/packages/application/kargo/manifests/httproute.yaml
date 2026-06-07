@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kargo
+---
+# Kargo API routed through the Cilium Gateway (adhar-gateway). TLS terminates at
+# the Gateway (adhar-cert). The old nginx Ingress used ssl-passthrough +
+# backend-protocol: HTTPS because kargo-api only exposes an HTTPS port (443 ->
+# targetPort 8080). The Service has no plain-HTTP port, so we keep port 443 here.
+# NOTE: a BackendTLSPolicy targeting the kargo-api Service is likely required so
+# the Gateway re-encrypts traffic to the TLS backend (replacing ssl-passthrough).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kargo-api
+  namespace: kargo
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /kargo
+      backendRefs:
+        - name: kargo-api
+          port: 443

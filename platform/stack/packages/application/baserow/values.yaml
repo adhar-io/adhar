@@ -1,0 +1,20 @@
+# Baserow values for Adhar (christianhuth community chart). Ingress disabled --
+# routing is handled by the Cilium Gateway API (adhar-gateway) via
+# manifests/httproute.yaml. Baserow is served under the /baserow sub-path on
+# adhar.localtest.me. Bundled Bitnami PostgreSQL + Redis subcharts make the
+# package self-contained.
+config:
+  publicBackendUrl: "https://adhar.localtest.me:8443/baserow"
+  publicFrontendUrl: "https://adhar.localtest.me:8443/baserow"
+
+frontend:
+  service:
+    type: ClusterIP
+    port: 3000
+  ingress:
+    enabled: false
+
+postgresql:
+  enabled: true
+redis:
+  enabled: true

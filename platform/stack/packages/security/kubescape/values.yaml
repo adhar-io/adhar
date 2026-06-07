@@ -1,10 +1,11 @@
-# Kargo Helm Chart Values
+# Kubescape Operator Helm Chart Values
+# In-cluster security posture scanning (NSA/MITRE frameworks) and vulnerability
+# scanning. Runs fully offline (no Kubescape Cloud account). No web UI / ingress.
 
-api:
-  ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+capabilities:
+  # Disable cloud-portal integrations; keep in-cluster scanning only.
+  configurationScan: enable
+  vulnerabilityScan: enable
+  relevancy: disable
+  networkPolicyService: disable
+  nodeScan: enable

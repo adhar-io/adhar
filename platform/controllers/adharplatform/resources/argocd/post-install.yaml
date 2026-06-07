@@ -46,32 +46,31 @@ subjects:
     name: default
     namespace: adhar-system
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# ArgoCD UI/API routed through the Cilium Gateway (adhar-gateway). TLS is
+# terminated at the Gateway (adhar-cert); argo-cd-argocd-server runs with
+# server.insecure=true and basehref/rootpath /argocd, so we forward plain HTTP
+# on port 80 and keep the /argocd prefix (no rewrite).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: argocd-server-ingress
+  name: argocd-server
   namespace: adhar-system
   labels:
     app.kubernetes.io/name: argocd-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/part-of: argocd
-  annotations:
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - adhar.localtest.me
-      secretName: adhar-cert
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
   rules:
-    - host: adhar.localtest.me
-      http:
-        paths:
-          - path: /argocd
-            pathType: Prefix
-            backend:
-              service:
-                name: argo-cd-argocd-server
-                port:
-                  number: 443
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /argocd
+      backendRefs:
+        - name: argo-cd-argocd-server
+          port: 80

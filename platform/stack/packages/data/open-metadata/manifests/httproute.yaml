@@ -1,0 +1,32 @@
+# OpenMetadata UI routed through the Cilium Gateway (adhar-gateway). TLS
+# terminates at the Gateway (adhar-cert). Replaces any nginx Ingress. The
+# /open-metadata prefix is stripped before forwarding to the openmetadata
+# service:8585 (HTTP UI/API port).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: open-metadata
+  namespace: open-metadata
+  labels:
+    app.kubernetes.io/name: openmetadata
+    app.kubernetes.io/instance: openmetadata
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /open-metadata
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: openmetadata
+          port: 8585

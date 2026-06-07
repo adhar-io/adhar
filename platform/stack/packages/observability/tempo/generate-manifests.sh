@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v1.11.0"
+CHART_VERSION="1.24.4"
 
 echo "# TEMPO INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/tempo/generate-manifests.sh'" >>${INSTALL_YAML}

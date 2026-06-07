@@ -14,12 +14,11 @@ persistence:
 buckets:
   - name: adhar-backups
 
+# Ingress is disabled: the MinIO console is now exposed via a Gateway API
+# HTTPRoute (manifests/httproute.yaml) attached to the Cilium adhar-gateway,
+# replacing the old nginx Ingress. If generate-manifests.sh is re-run, do not
+# re-enable this -- maintain the HTTPRoute instead.
 consoleIngress:
-  enabled: true
-  ingressClassName: nginx
-  path: /minio
-  port: 8443
-  hosts:
-    - adhar.localtest.me
+  enabled: false
 
 existingSecret: root-creds

@@ -1,4 +1,10 @@
 # Registry of CLI commands and their corresponding Crossplane composite resources.
+#
+# Crossplane v2 note: the control plane uses the namespaced composite-resource
+# model (apiextensions.crossplane.io/v2, scope: Namespaced). There are no claims
+# in v2 — users create the `compositeKind` directly in their namespace. The
+# `claimKind` field below is retained for historical/CLI-mapping reference only
+# and is no longer a distinct Kubernetes kind.
 commands:
   - name: apps
     group: platform.adhar.io

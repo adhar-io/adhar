@@ -519,7 +519,7 @@ environments:
   # Development environments (auto-assigned to non-production provider: DigitalOcean)
   dev:
     type: non-production
-    template: development-defaults
+    template: nonprod-defaults
     clusterConfig:
       - key: "name"
         value: "adhar-dev"
@@ -531,7 +531,7 @@ environments:
   # Testing environment (auto-assigned to non-production provider: DigitalOcean)
   test:
     type: non-production
-    template: development-defaults
+    template: nonprod-defaults
     clusterConfig:
       - key: "name"
         value: "adhar-test"
@@ -543,7 +543,7 @@ environments:
   # Staging environment (auto-assigned to production provider: GKE for production-like testing)
   staging:
     type: production
-    template: production-defaults
+    template: prod-defaults
     clusterConfig:
       - key: "name"
         value: "adhar-staging"
@@ -557,7 +557,7 @@ environments:
   # Production environment (auto-assigned to production provider: GKE)
   production:
     type: production
-    template: production-defaults
+    template: prod-defaults
     clusterConfig:
       - key: "name"
         value: "adhar-production"

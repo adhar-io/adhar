@@ -1,0 +1,13 @@
+# Tetragon Helm Chart Values
+# eBPF-based runtime security observability and enforcement, deployed alongside
+# Cilium in kube-system. Exposes only the gRPC/metrics endpoints (no ingress).
+
+tetragon:
+  enabled: true
+
+tetragonOperator:
+  enabled: true
+
+# Export events for collection by the platform observability stack.
+export:
+  mode: stdout

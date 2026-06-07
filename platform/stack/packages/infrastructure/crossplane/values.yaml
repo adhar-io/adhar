@@ -1,0 +1,28 @@
+# Minimal Crossplane v2.3.1 values for the (redundant) GitOps parity package.
+# Mirrors a minimal subset of the bootstrap values at hack/crossplane/values.yaml.
+# See generate-manifests.sh header: this package is redundant with the
+# bootstrap Crossplane install and is kept only for GitOps parity.
+
+# Single instance for local development.
+replicas: 1
+
+# LOCAL DEV: reduced resource footprint.
+resourcesCrossplane:
+  limits:
+    cpu: 200m
+    memory: 512Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+resourcesRBACManager:
+  limits:
+    cpu: 50m
+    memory: 256Mi
+  requests:
+    cpu: 25m
+    memory: 128Mi
+
+metrics:
+  # LOCAL DEV: metrics disabled to reduce resource usage.
+  enabled: false

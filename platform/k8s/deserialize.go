@@ -11,6 +11,8 @@ import (
 	kyaml "sigs.k8s.io/kustomize/kyaml/yaml"
 )
 
+// ConversionError indicates a decoded runtime object could not be converted to
+// a controller-runtime client.Object.
 type ConversionError struct {
 	rtObject runtime.Object
 }
@@ -19,6 +21,8 @@ func (e *ConversionError) Error() string {
 	return fmt.Sprintf("Failed to convert object %q", e.rtObject.GetObjectKind().GroupVersionKind().String())
 }
 
+// ConvertYamlToObjects decodes a multi-document YAML byte slice into a list of
+// client.Objects using the given scheme.
 func ConvertYamlToObjects(scheme *runtime.Scheme, objYamls []byte) ([]client.Object, error) {
 	decode := serializer.NewCodecFactory(scheme).UniversalDeserializer().Decode
 
@@ -42,6 +46,8 @@ func ConvertYamlToObjects(scheme *runtime.Scheme, objYamls []byte) ([]client.Obj
 	return k8sObjects, nil
 }
 
+// ConvertRawResourcesToObjects decodes multiple raw YAML resources into a single
+// flattened list of client.Objects.
 func ConvertRawResourcesToObjects(scheme *runtime.Scheme, rawResources [][]byte) ([]client.Object, error) {
 	var ret []client.Object
 	for _, resources := range rawResources {
@@ -54,7 +60,8 @@ func ConvertRawResourcesToObjects(scheme *runtime.Scheme, rawResources [][]byte)
 	return ret, nil
 }
 
-// replace k8s objects in given YAML doc with override objects. returns built yaml file and objects
+// ConvertYamlToObjectsWithOverride replaces k8s objects in the given YAML docs
+// with matching override objects, returning the built YAML files and objects.
 func ConvertYamlToObjectsWithOverride(scheme *runtime.Scheme, originalFiles [][]byte, overrideYamls []byte) ([][]byte, []client.Object, error) {
 
 	overrides, err := kio.FromBytes(overrideYamls)
@@ -133,6 +140,8 @@ func ConvertYamlToObjectsWithOverride(scheme *runtime.Scheme, originalFiles [][]
 	return outYaml, outObjs, nil
 }
 
+// GetObjectIdentifier returns a stable identifier for a YAML node composed of
+// its apiVersion, kind, namespace, and name.
 func GetObjectIdentifier(n *kyaml.RNode) string {
 	return fmt.Sprintf("%s%s%s%s", n.GetApiVersion(), n.GetKind(), n.GetNamespace(), n.GetName())
 }

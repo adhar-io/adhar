@@ -1,6 +1,11 @@
 package health
 
 import (
+	"fmt"
+	"os"
+	"strings"
+
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
@@ -31,14 +36,47 @@ func init() {
 func runReport(cmd *cobra.Command, args []string) error {
 	logger.Info("📊 Generating health report...")
 
-	// TODO: Implement health report generation
-	// This should generate a comprehensive report including:
-	// - Overall health score
-	// - Component health status
-	// - Resource utilization
-	// - Recommendations
-	// - Historical trends
+	clientset, err := getClientset()
+	if err != nil {
+		fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
+		fmt.Println(helpers.CreateMuted("   " + err.Error()))
+		return fmt.Errorf("failed to get Kubernetes client: %w", err)
+	}
 
-	logger.Info("✅ Health report generated")
+	components, err := resolveComponents(component)
+	if err != nil {
+		return err
+	}
+
+	h := collectPlatformHealth(clientset, components, parseTimeout(timeout))
+
+	switch strings.ToLower(reportFormat) {
+	case "json":
+		if reportOutput != "" {
+			return writeReportFile(reportOutput, mustJSON(h))
+		}
+		return helpers.PrintJSON(h)
+	case "yaml":
+		if reportOutput != "" {
+			return writeReportFile(reportOutput, mustYAML(h))
+		}
+		return helpers.PrintYAML(h)
+	default:
+		// Table (default). When an output file is requested, write the plain
+		// summary lines so the report is machine-friendly.
+		if reportOutput != "" {
+			return writeReportFile(reportOutput, []byte(strings.Join(h.summaryLines(), "\n")+"\n"))
+		}
+		renderHealth(h)
+		logger.Info("✅ Health report generated")
+		return nil
+	}
+}
+
+func writeReportFile(path string, data []byte) error {
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("failed to write report to %s: %w", path, err)
+	}
+	logger.Info("✅ Health report written to " + path)
 	return nil
 }

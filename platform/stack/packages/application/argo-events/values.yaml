@@ -1,10 +1,4 @@
-# Kargo Helm Chart Values
-
-api:
-  ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+# Argo Events Helm Chart Values
+#
+# Gateway API only -- the argo-events chart exposes no Ingress and has no web UI,
+# so nothing to disable and no HTTPRoute is required. Defaults are sufficient.

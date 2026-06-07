@@ -370,7 +370,7 @@ spec:
   noUpper: false
   allowRepeat: true
 ---
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: backstage-oidc
@@ -415,7 +415,7 @@ spec:
         - transform:
             template: "POSTGRES_PASSWORD"
 ---
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: gitea-credentials
@@ -436,28 +436,3 @@ spec:
       remoteRef:
         key: gitea-credential
         property: password
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: backstage
-  namespace: backstage
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-spec:
-  ingressClassName: "nginx"
-  tls:
-    - hosts:
-        - adhar.localtest.me
-      secretName: adhar-cert
-  rules:
-    - host: adhar.localtest.me
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: backstage
-                port:
-                  name: http

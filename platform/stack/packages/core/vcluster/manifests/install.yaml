@@ -1,0 +1,345 @@
+# VCLUSTER INSTALL RESOURCES
+# This file is auto-generated with 'platform/stack/packages/core/vcluster/generate-manifests.sh'
+---
+# Source: vcluster/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vc-vcluster
+  namespace: vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+---
+# Source: vcluster/templates/workload-serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vc-workload-vcluster
+  namespace: vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+---
+# Source: vcluster/templates/config-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "vc-config-vcluster"
+  namespace: vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+type: Opaque
+data:
+  config.yaml: "Y29udHJvbFBsYW5lOgogIGFkdmFuY2VkOgogICAgY2xvdWRDb250cm9sbGVyTWFuYWdlcjoKICAgICAgZW5hYmxlZDogdHJ1ZQogICAgZGVmYXVsdEltYWdlUmVnaXN0cnk6ICIiCiAgICBnbG9iYWxNZXRhZGF0YToKICAgICAgYW5ub3RhdGlvbnM6IHt9CiAgICBoZWFkbGVzc1NlcnZpY2U6CiAgICAgIGFubm90YXRpb25zOiB7fQogICAgICBsYWJlbHM6IHt9CiAgICBrb25uZWN0aXZpdHk6CiAgICAgIGFnZW50OgogICAgICAgIGVuYWJsZWQ6IHRydWUKICAgICAgICBleHRyYUFyZ3M6IFtdCiAgICAgICAgZXh0cmFFbnY6IFtdCiAgICAgICAgaW1hZ2U6ICIiCiAgICAgICAgaW1hZ2VQdWxsUG9saWN5OiAiIgogICAgICAgIG5vZGVTZWxlY3Rvcjoge30KICAgICAgICByZXBsaWNhczogMQogICAgICAgIHRvbGVyYXRpb25zOiBbXQogICAgICBzZXJ2ZXI6CiAgICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICAgIGV4dHJhQXJnczogW10KICAgIGt1YmVWaXA6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICBwb2REaXNydXB0aW9uQnVkZ2V0OgogICAgICBlbmFibGVkOiBmYWxzZQogICAgcmVnaXN0cnk6CiAgICAgIGFub255bW91c1B1bGw6IHRydWUKICAgICAgY29uZmlnOiB7fQogICAgICBlbmFibGVkOiBmYWxzZQogICAgc2VydmljZUFjY291bnQ6CiAgICAgIGFubm90YXRpb25zOiB7fQogICAgICBlbmFibGVkOiB0cnVlCiAgICAgIGltYWdlUHVsbFNlY3JldHM6IFtdCiAgICAgIGxhYmVsczoge30KICAgICAgbmFtZTogIiIKICAgIHZpcnR1YWxTY2hlZHVsZXI6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICB3b3JrbG9hZFNlcnZpY2VBY2NvdW50OgogICAgICBhbm5vdGF0aW9uczoge30KICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICBpbWFnZVB1bGxTZWNyZXRzOiBbXQogICAgICBsYWJlbHM6IHt9CiAgICAgIG5hbWU6ICIiCiAgYmFja2luZ1N0b3JlOgogICAgZGF0YWJhc2U6CiAgICAgIGVtYmVkZGVkOgogICAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICAgICAgZXh0cmFBcmdzOiBbXQogICAgICBleHRlcm5hbDoKICAgICAgICBjYUZpbGU6ICIiCiAgICAgICAgY2VydEZpbGU6ICIiCiAgICAgICAgY29ubmVjdG9yOiAiIgogICAgICAgIGRhdGFTb3VyY2U6ICIiCiAgICAgICAgZW5hYmxlZDogZmFsc2UKICAgICAgICBleHRyYUFyZ3M6IFtdCiAgICAgICAgaWRlbnRpdHlQcm92aWRlcjogIiIKICAgICAgICBrZXlGaWxlOiAiIgogICAgZXRjZDoKICAgICAgZGVwbG95OgogICAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICAgICAgaGVhZGxlc3NTZXJ2aWNlOgogICAgICAgICAgYW5ub3RhdGlvbnM6IHt9CiAgICAgICAgc2VydmljZToKICAgICAgICAgIGFubm90YXRpb25zOiB7fQogICAgICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICAgIHN0YXRlZnVsU2V0OgogICAgICAgICAgYW5ub3RhdGlvbnM6IHt9CiAgICAgICAgICBlbmFibGVTZXJ2aWNlTGlua3M6IHRydWUKICAgICAgICAgIGVuYWJsZWQ6IHRydWUKICAgICAgICAgIGVudjogW10KICAgICAgICAgIGV4dHJhQXJnczogW10KICAgICAgICAgIGhpZ2hBdmFpbGFiaWxpdHk6CiAgICAgICAgICAgIHJlcGxpY2FzOiAxCiAgICAgICAgICBpbWFnZToKICAgICAgICAgICAgcmVnaXN0cnk6IHJlZ2lzdHJ5Lms4cy5pbwogICAgICAgICAgICByZXBvc2l0b3J5OiBldGNkCiAgICAgICAgICAgIHRhZzogMy42LjQtMAogICAgICAgICAgaW1hZ2VQdWxsUG9saWN5OiAiIgogICAgICAgICAgbGFiZWxzOiB7fQogICAgICAgICAgcGVyc2lzdGVuY2U6CiAgICAgICAgICAgIGFkZFZvbHVtZU1vdW50czogW10KICAgICAgICAgICAgYWRkVm9sdW1lczogW10KICAgICAgICAgICAgdm9sdW1lQ2xhaW06CiAgICAgICAgICAgICAgYWNjZXNzTW9kZXM6CiAgICAgICAgICAgICAgLSBSZWFkV3JpdGVPbmNlCiAgICAgICAgICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICAgICAgICAgIHJldGVudGlvblBvbGljeTogUmV0YWluCiAgICAgICAgICAgICAgc2l6ZTogNUdpCiAgICAgICAgICAgICAgc3RvcmFnZUNsYXNzOiAiIgogICAgICAgICAgICB2b2x1bWVDbGFpbVRlbXBsYXRlczogW10KICAgICAgICAgIHBvZHM6CiAgICAgICAgICAgIGFubm90YXRpb25zOiB7fQogICAgICAgICAgICBsYWJlbHM6IHt9CiAgICAgICAgICByZXNvdXJjZXM6CiAgICAgICAgICAgIHJlcXVlc3RzOgogICAgICAgICAgICAgIGNwdTogMjBtCiAgICAgICAgICAgICAgbWVtb3J5OiAxNTBNaQogICAgICAgICAgc2NoZWR1bGluZzoKICAgICAgICAgICAgYWZmaW5pdHk6IHt9CiAgICAgICAgICAgIG5vZGVTZWxlY3Rvcjoge30KICAgICAgICAgICAgcG9kTWFuYWdlbWVudFBvbGljeTogUGFyYWxsZWwKICAgICAgICAgICAgcHJpb3JpdHlDbGFzc05hbWU6ICIiCiAgICAgICAgICAgIHRvbGVyYXRpb25zOiBbXQogICAgICAgICAgICB0b3BvbG9neVNwcmVhZENvbnN0cmFpbnRzOiBbXQogICAgICAgICAgc2VjdXJpdHk6CiAgICAgICAgICAgIGNvbnRhaW5lclNlY3VyaXR5Q29udGV4dDoge30KICAgICAgICAgICAgcG9kU2VjdXJpdHlDb250ZXh0OiB7fQogICAgICBlbWJlZGRlZDoKICAgICAgICBlbmFibGVkOiBmYWxzZQogICAgICAgIGV4dHJhQXJnczogW10KICAgICAgICBtaWdyYXRlRnJvbURlcGxveWVkRXRjZDogZmFsc2UKICAgICAgZXh0ZXJuYWw6CiAgICAgICAgZW5hYmxlZDogZmFsc2UKICAgICAgICBlbmRwb2ludDogIiIKICAgICAgICB0bHM6CiAgICAgICAgICBjYUZpbGU6ICIiCiAgICAgICAgICBjZXJ0RmlsZTogIiIKICAgICAgICAgIGtleUZpbGU6ICIiCiAgY29yZWRuczoKICAgIGRlcGxveW1lbnQ6CiAgICAgIGFmZmluaXR5OiB7fQogICAgICBhbm5vdGF0aW9uczoge30KICAgICAgaW1hZ2U6ICIiCiAgICAgIGxhYmVsczoge30KICAgICAgbm9kZVNlbGVjdG9yOiB7fQogICAgICBwb2RzOgogICAgICAgIGFubm90YXRpb25zOiB7fQogICAgICAgIGxhYmVsczoge30KICAgICAgcmVwbGljYXM6IDEKICAgICAgcmVzb3VyY2VzOgogICAgICAgIGxpbWl0czoKICAgICAgICAgIGNwdTogMTAwMG0KICAgICAgICAgIG1lbW9yeTogMTcwTWkKICAgICAgICByZXF1ZXN0czoKICAgICAgICAgIGNwdTogMjBtCiAgICAgICAgICBtZW1vcnk6IDY0TWkKICAgICAgdG9sZXJhdGlvbnM6IFtdCiAgICAgIHRvcG9sb2d5U3ByZWFkQ29uc3RyYWludHM6CiAgICAgIC0gbGFiZWxTZWxlY3RvcjoKICAgICAgICAgIG1hdGNoTGFiZWxzOgogICAgICAgICAgICBrOHMtYXBwOiB2Y2x1c3Rlci1rdWJlLWRucwogICAgICAgIG1heFNrZXc6IDEKICAgICAgICB0b3BvbG9neUtleToga3ViZXJuZXRlcy5pby9ob3N0bmFtZQogICAgICAgIHdoZW5VbnNhdGlzZmlhYmxlOiBEb05vdFNjaGVkdWxlCiAgICBlbWJlZGRlZDogZmFsc2UKICAgIGVuYWJsZWQ6IHRydWUKICAgIG92ZXJ3cml0ZUNvbmZpZzogIiIKICAgIG92ZXJ3cml0ZU1hbmlmZXN0czogIiIKICAgIHByaW9yaXR5Q2xhc3NOYW1lOiAiIgogICAgc2VjdXJpdHk6CiAgICAgIGNvbnRhaW5lclNlY3VyaXR5Q29udGV4dDoge30KICAgICAgcG9kU2VjdXJpdHlDb250ZXh0OiB7fQogICAgc2VydmljZToKICAgICAgYW5ub3RhdGlvbnM6IHt9CiAgICAgIGxhYmVsczoge30KICAgICAgc3BlYzoKICAgICAgICB0eXBlOiBDbHVzdGVySVAKICBkaXN0cm86CiAgICBrOHM6CiAgICAgIGFwaVNlcnZlcjoKICAgICAgICBjb21tYW5kOiBbXQogICAgICAgIGVuYWJsZWQ6IHRydWUKICAgICAgICBleHRyYUFyZ3M6IFtdCiAgICAgIGNvbnRyb2xsZXJNYW5hZ2VyOgogICAgICAgIGNvbW1hbmQ6IFtdCiAgICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICAgIGV4dHJhQXJnczogW10KICAgICAgZW5hYmxlZDogZmFsc2UKICAgICAgZW52OiBbXQogICAgICBpbWFnZToKICAgICAgICByZWdpc3RyeTogZ2hjci5pbwogICAgICAgIHJlcG9zaXRvcnk6IGxvZnQtc2gva3ViZXJuZXRlcwogICAgICAgIHRhZzogdjEuMzUuMAogICAgICBpbWFnZVB1bGxQb2xpY3k6ICIiCiAgICAgIHJlc291cmNlczoKICAgICAgICBsaW1pdHM6CiAgICAgICAgICBjcHU6IDEwMG0KICAgICAgICAgIG1lbW9yeTogMjU2TWkKICAgICAgICByZXF1ZXN0czoKICAgICAgICAgIGNwdTogNDBtCiAgICAgICAgICBtZW1vcnk6IDY0TWkKICAgICAgc2NoZWR1bGVyOgogICAgICAgIGNvbW1hbmQ6IFtdCiAgICAgICAgZW5hYmxlZDogZmFsc2UKICAgICAgICBleHRyYUFyZ3M6IFtdCiAgICAgIHNlY3VyaXR5Q29udGV4dDoge30KICAgICAgdmVyc2lvbjogIiIKICBpbmdyZXNzOgogICAgYW5ub3RhdGlvbnM6CiAgICAgIG5naW54LmluZ3Jlc3Mua3ViZXJuZXRlcy5pby9iYWNrZW5kLXByb3RvY29sOiBIVFRQUwogICAgICBuZ2lueC5pbmdyZXNzLmt1YmVybmV0ZXMuaW8vc3NsLXBhc3N0aHJvdWdoOiAidHJ1ZSIKICAgICAgbmdpbnguaW5ncmVzcy5rdWJlcm5ldGVzLmlvL3NzbC1yZWRpcmVjdDogInRydWUiCiAgICBlbmFibGVkOiBmYWxzZQogICAgaG9zdDogbXktaG9zdC5jb20KICAgIGxhYmVsczoge30KICAgIHBhdGhUeXBlOiBJbXBsZW1lbnRhdGlvblNwZWNpZmljCiAgICBzcGVjOgogICAgICB0bHM6IFtdCiAgcHJveHk6CiAgICBiaW5kQWRkcmVzczogMC4wLjAuMAogICAgZXh0cmFTQU5zOiBbXQogICAgcG9ydDogODQ0MwogIHNlcnZpY2U6CiAgICBhbm5vdGF0aW9uczoge30KICAgIGVuYWJsZWQ6IHRydWUKICAgIGh0dHBzTm9kZVBvcnQ6IDAKICAgIGt1YmVsZXROb2RlUG9ydDogMAogICAgbGFiZWxzOiB7fQogICAgc3BlYzoKICAgICAgdHlwZTogQ2x1c3RlcklQCiAgc2VydmljZU1vbml0b3I6CiAgICBhbm5vdGF0aW9uczoge30KICAgIGVuYWJsZWQ6IGZhbHNlCiAgICBsYWJlbHM6IHt9CiAgc3RhbmRhbG9uZToKICAgIGRhdGFEaXI6IC92YXIvbGliL3ZjbHVzdGVyCiAgICBqb2luTm9kZToKICAgICAgY29udGFpbmVyZDoKICAgICAgICBlbmFibGVkOiB0cnVlCiAgICAgIGVuYWJsZWQ6IHRydWUKICBzdGF0ZWZ1bFNldDoKICAgIGFubm90YXRpb25zOiB7fQogICAgYXJnczogW10KICAgIGNvbW1hbmQ6IFtdCiAgICBlbmFibGVTZXJ2aWNlTGlua3M6IHRydWUKICAgIGVudjogW10KICAgIGhpZ2hBdmFpbGFiaWxpdHk6CiAgICAgIGxlYXNlRHVyYXRpb246IDYwCiAgICAgIHJlbmV3RGVhZGxpbmU6IDQwCiAgICAgIHJlcGxpY2FzOiAxCiAgICAgIHJldHJ5UGVyaW9kOiAxNQogICAgaG9zdEFsaWFzZXM6IFtdCiAgICBpbWFnZToKICAgICAgcmVnaXN0cnk6IGdoY3IuaW8KICAgICAgcmVwb3NpdG9yeTogbG9mdC1zaC92Y2x1c3Rlci1wcm8KICAgICAgdGFnOiAiIgogICAgaW1hZ2VQdWxsUG9saWN5OiAiIgogICAgaW5pdENvbnRhaW5lcnM6IFtdCiAgICBsYWJlbHM6IHt9CiAgICBwZXJzaXN0ZW5jZToKICAgICAgYWRkVm9sdW1lTW91bnRzOiBbXQogICAgICBhZGRWb2x1bWVzOiBbXQogICAgICBiaW5hcmllc1ZvbHVtZToKICAgICAgLSBlbXB0eURpcjoge30KICAgICAgICBuYW1lOiBiaW5hcmllcwogICAgICBkYXRhVm9sdW1lOiBbXQogICAgICB2b2x1bWVDbGFpbToKICAgICAgICBhY2Nlc3NNb2RlczoKICAgICAgICAtIFJlYWRXcml0ZU9uY2UKICAgICAgICBlbmFibGVkOiBhdXRvCiAgICAgICAgcmV0ZW50aW9uUG9saWN5OiBSZXRhaW4KICAgICAgICBzaXplOiA1R2kKICAgICAgICBzdG9yYWdlQ2xhc3M6ICIiCiAgICAgIHZvbHVtZUNsYWltVGVtcGxhdGVzOiBbXQogICAgcG9kczoKICAgICAgYW5ub3RhdGlvbnM6IHt9CiAgICAgIGxhYmVsczoge30KICAgIHByb2JlczoKICAgICAgbGl2ZW5lc3NQcm9iZToKICAgICAgICBlbmFibGVkOiB0cnVlCiAgICAgICAgZmFpbHVyZVRocmVzaG9sZDogNjAKICAgICAgICBpbml0aWFsRGVsYXlTZWNvbmRzOiA2MAogICAgICAgIHBlcmlvZFNlY29uZHM6IDIKICAgICAgICB0aW1lb3V0U2Vjb25kczogMwogICAgICByZWFkaW5lc3NQcm9iZToKICAgICAgICBlbmFibGVkOiB0cnVlCiAgICAgICAgZmFpbHVyZVRocmVzaG9sZDogNjAKICAgICAgICBwZXJpb2RTZWNvbmRzOiAyCiAgICAgICAgdGltZW91dFNlY29uZHM6IDMKICAgICAgc3RhcnR1cFByb2JlOgogICAgICAgIGVuYWJsZWQ6IHRydWUKICAgICAgICBmYWlsdXJlVGhyZXNob2xkOiAzMDAKICAgICAgICBwZXJpb2RTZWNvbmRzOiA2CiAgICAgICAgdGltZW91dFNlY29uZHM6IDMKICAgIHJlc291cmNlczoKICAgICAgbGltaXRzOgogICAgICAgIGVwaGVtZXJhbC1zdG9yYWdlOiAxMEdpCiAgICAgICAgbWVtb3J5OiA0R2kKICAgICAgcmVxdWVzdHM6CiAgICAgICAgY3B1OiAyMDBtCiAgICAgICAgZXBoZW1lcmFsLXN0b3JhZ2U6IDFHaQogICAgICAgIG1lbW9yeTogMjU2TWkKICAgIHNjaGVkdWxpbmc6CiAgICAgIGFmZmluaXR5OiB7fQogICAgICBub2RlU2VsZWN0b3I6IHt9CiAgICAgIHBvZE1hbmFnZW1lbnRQb2xpY3k6IFBhcmFsbGVsCiAgICAgIHByaW9yaXR5Q2xhc3NOYW1lOiAiIgogICAgICB0b2xlcmF0aW9uczogW10KICAgICAgdG9wb2xvZ3lTcHJlYWRDb25zdHJhaW50czogW10KICAgIHNlY3VyaXR5OgogICAgICBjb250YWluZXJTZWN1cml0eUNvbnRleHQ6CiAgICAgICAgYWxsb3dQcml2aWxlZ2VFc2NhbGF0aW9uOiBmYWxzZQogICAgICAgIHJ1bkFzR3JvdXA6IDAKICAgICAgICBydW5Bc1VzZXI6IDAKICAgICAgcG9kU2VjdXJpdHlDb250ZXh0OiB7fQogICAgc2lkZWNhckNvbnRhaW5lcnM6IFtdCiAgICB3b3JraW5nRGlyOiAiIgogIHRsc1JvdXRlOgogICAgYW5ub3RhdGlvbnM6IHt9CiAgICBhcGlWZXJzaW9uOiBnYXRld2F5Lm5ldHdvcmtpbmcuazhzLmlvL3YxCiAgICBlbmFibGVkOiBmYWxzZQogICAgaG9zdDogbXktaG9zdC5jb20KICAgIGxhYmVsczoge30KICAgIHBhcmVudFJlZnM6IFtdCiAgICBzcGVjOiB7fQpkZXBsb3k6CiAgY25pOgogICAgZmxhbm5lbDoKICAgICAgZW5hYmxlZDogdHJ1ZQogIGluZ3Jlc3NOZ2lueDoKICAgIGRlZmF1bHRJbmdyZXNzQ2xhc3M6IHRydWUKICAgIGVuYWJsZWQ6IGZhbHNlCiAga3ViZVByb3h5OgogICAgY29uZmlnOiB7fQogICAgZW5hYmxlZDogdHJ1ZQogICAgZXh0cmFBcmdzOiBbXQogICAgZXh0cmFFbnY6IFtdCiAgICBpbWFnZTogIiIKICAgIGltYWdlUHVsbFBvbGljeTogIiIKICAgIG5vZGVTZWxlY3Rvcjoge30KICAgIHRvbGVyYXRpb25zOiBbXQogIGxvY2FsUGF0aFByb3Zpc2lvbmVyOgogICAgZW5hYmxlZDogdHJ1ZQogIG1ldGFsbGI6CiAgICBlbmFibGVkOiBmYWxzZQogICAgaXBBZGRyZXNzUG9vbDoKICAgICAgYWRkcmVzc2VzOiBbXQogICAgICBsMkFkdmVydGlzZW1lbnQ6IHRydWUKICBtZXRyaWNzU2VydmVyOgogICAgZW5hYmxlZDogZmFsc2UKICB2b2x1bWVTbmFwc2hvdENvbnRyb2xsZXI6CiAgICBlbmFibGVkOiBmYWxzZQpleHBlcmltZW50YWw6CiAgZGVwbG95OgogICAgaG9zdDoKICAgICAgbWFuaWZlc3RzOiAiIgogICAgICBtYW5pZmVzdHNUZW1wbGF0ZTogIiIKICAgIHZjbHVzdGVyOgogICAgICBoZWxtOiBbXQogICAgICBtYW5pZmVzdHM6ICIiCiAgICAgIG1hbmlmZXN0c1RlbXBsYXRlOiAiIgogIGRvY2tlcjoKICAgIGxvYWRCYWxhbmNlcjoKICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICBmb3J3YXJkUG9ydHM6IHRydWUKICAgIHJlZ2lzdHJ5UHJveHk6CiAgICAgIGVuYWJsZWQ6IHRydWUKICBub2RlTW9uaXRvcnM6IFtdCiAgcHJveHk6CiAgICBjdXN0b21SZXNvdXJjZXM6IHt9CiAgc3luY1NldHRpbmdzOgogICAgc2V0T3duZXI6IHRydWUKZXhwb3J0S3ViZUNvbmZpZzoKICBhZGRpdGlvbmFsU2VjcmV0czogW10KICBjb250ZXh0OiAiIgogIGluc2VjdXJlOiBmYWxzZQogIHNlY3JldDoKICAgIG5hbWU6ICIiCiAgICBuYW1lc3BhY2U6ICIiCiAgc2VydmVyOiAiIgogIHNlcnZpY2VBY2NvdW50OgogICAgY2x1c3RlclJvbGU6ICIiCiAgICBuYW1lOiAiIgogICAgbmFtZXNwYWNlOiAiIgppbnRlZ3JhdGlvbnM6CiAgY2VydE1hbmFnZXI6CiAgICBlbmFibGVkOiBmYWxzZQogICAgc3luYzoKICAgICAgZnJvbUhvc3Q6CiAgICAgICAgY2x1c3Rlcklzc3VlcnM6CiAgICAgICAgICBlbmFibGVkOiB0cnVlCiAgICAgICAgICBzZWxlY3RvcjoKICAgICAgICAgICAgbGFiZWxzOiB7fQogICAgICB0b0hvc3Q6CiAgICAgICAgY2VydGlmaWNhdGVzOgogICAgICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICAgIGlzc3VlcnM6CiAgICAgICAgICBlbmFibGVkOiB0cnVlCiAgZXh0ZXJuYWxTZWNyZXRzOgogICAgZW5hYmxlZDogZmFsc2UKICAgIHN5bmM6CiAgICAgIGZyb21Ib3N0OgogICAgICAgIGNsdXN0ZXJTdG9yZXM6CiAgICAgICAgICBlbmFibGVkOiBmYWxzZQogICAgICAgICAgc2VsZWN0b3I6CiAgICAgICAgICAgIG1hdGNoTGFiZWxzOiB7fQogICAgICB0b0hvc3Q6CiAgICAgICAgZXh0ZXJuYWxTZWNyZXRzOgogICAgICAgICAgc2VsZWN0b3I6CiAgICAgICAgICAgIG1hdGNoTGFiZWxzOiB7fQogICAgICAgIHN0b3JlczoKICAgICAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICAgICAgICBzZWxlY3RvcjoKICAgICAgICAgICAgbWF0Y2hMYWJlbHM6IHt9CiAgICB3ZWJob29rOgogICAgICBlbmFibGVkOiBmYWxzZQogIGlzdGlvOgogICAgZW5hYmxlZDogZmFsc2UKICAgIHN5bmM6CiAgICAgIHRvSG9zdDoKICAgICAgICBkZXN0aW5hdGlvblJ1bGVzOgogICAgICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICAgIGdhdGV3YXlzOgogICAgICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICAgIHZpcnR1YWxTZXJ2aWNlczoKICAgICAgICAgIGVuYWJsZWQ6IHRydWUKICBrdWJlVmlydDoKICAgIGVuYWJsZWQ6IGZhbHNlCiAgICBzeW5jOgogICAgICBkYXRhVm9sdW1lczoKICAgICAgICBlbmFibGVkOiBmYWxzZQogICAgICB2aXJ0dWFsTWFjaGluZUNsb25lczoKICAgICAgICBlbmFibGVkOiB0cnVlCiAgICAgIHZpcnR1YWxNYWNoaW5lSW5zdGFuY2VNaWdyYXRpb25zOgogICAgICAgIGVuYWJsZWQ6IHRydWUKICAgICAgdmlydHVhbE1hY2hpbmVJbnN0YW5jZXM6CiAgICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICB2aXJ0dWFsTWFjaGluZVBvb2xzOgogICAgICAgIGVuYWJsZWQ6IHRydWUKICAgICAgdmlydHVhbE1hY2hpbmVzOgogICAgICAgIGVuYWJsZWQ6IHRydWUKICAgIHdlYmhvb2s6CiAgICAgIGVuYWJsZWQ6IHRydWUKICBtZXRyaWNzU2VydmVyOgogICAgZW5hYmxlZDogZmFsc2UKICAgIG5vZGVzOiB0cnVlCiAgICBwb2RzOiB0cnVlCmxvZ2dpbmc6CiAgZW5jb2Rpbmc6IGNvbnNvbGUKbmV0d29ya2luZzoKICBhZHZhbmNlZDoKICAgIGNsdXN0ZXJEb21haW46IGNsdXN0ZXIubG9jYWwKICAgIGZhbGxiYWNrSG9zdENsdXN0ZXI6IGZhbHNlCiAgICBwcm94eUt1YmVsZXRzOgogICAgICBieUhvc3RuYW1lOiB0cnVlCiAgICAgIGJ5SVA6IHRydWUKICBwb2RDSURSOiAxMC4yNDQuMC4wLzE2CiAgcmVwbGljYXRlU2VydmljZXM6CiAgICBmcm9tSG9zdDogW10KICAgIHRvSG9zdDogW10KICByZXNvbHZlRE5TOiBbXQpwbHVnaW5zOiB7fQpwb2xpY2llczoKICBjZW50cmFsQWRtaXNzaW9uOgogICAgbXV0YXRpbmdXZWJob29rczogW10KICAgIHZhbGlkYXRpbmdXZWJob29rczogW10KICBsaW1pdFJhbmdlOgogICAgYW5ub3RhdGlvbnM6IHt9CiAgICBkZWZhdWx0OgogICAgICBjcHU6ICIxIgogICAgICBlcGhlbWVyYWwtc3RvcmFnZTogOEdpCiAgICAgIG1lbW9yeTogNTEyTWkKICAgIGRlZmF1bHRSZXF1ZXN0OgogICAgICBjcHU6IDEwMG0KICAgICAgZXBoZW1lcmFsLXN0b3JhZ2U6IDNHaQogICAgICBtZW1vcnk6IDEyOE1pCiAgICBlbmFibGVkOiBhdXRvCiAgICBsYWJlbHM6IHt9CiAgICBtYXg6IHt9CiAgICBtaW46IHt9CiAgbmV0d29ya1BvbGljeToKICAgIGFubm90YXRpb25zOiB7fQogICAgY29udHJvbFBsYW5lOgogICAgICBlZ3Jlc3M6IFtdCiAgICAgIGluZ3Jlc3M6IFtdCiAgICBlbmFibGVkOiBmYWxzZQogICAgZmFsbGJhY2tEbnM6IDguOC44LjgKICAgIGxhYmVsczoge30KICAgIHdvcmtsb2FkOgogICAgICBlZ3Jlc3M6IFtdCiAgICAgIGluZ3Jlc3M6IFtdCiAgICAgIHB1YmxpY0VncmVzczoKICAgICAgICBjaWRyOiAwLjAuMC4wLzAKICAgICAgICBlbmFibGVkOiB0cnVlCiAgICAgICAgZXhjZXB0OgogICAgICAgIC0gMTAwLjY0LjAuMC8xMAogICAgICAgIC0gMTI3LjAuMC4wLzgKICAgICAgICAtIDEwLjAuMC4wLzgKICAgICAgICAtIDE3Mi4xNi4wLjAvMTIKICAgICAgICAtIDE5Mi4xNjguMC4wLzE2CiAgcmVzb3VyY2VRdW90YToKICAgIGFubm90YXRpb25zOiB7fQogICAgZW5hYmxlZDogYXV0bwogICAgbGFiZWxzOiB7fQogICAgcXVvdGE6CiAgICAgIGNvdW50L2NvbmZpZ21hcHM6IDEwMAogICAgICBjb3VudC9lbmRwb2ludHM6IDQwCiAgICAgIGNvdW50L3BlcnNpc3RlbnR2b2x1bWVjbGFpbXM6IDIwCiAgICAgIGNvdW50L3BvZHM6IDIwCiAgICAgIGNvdW50L3NlY3JldHM6IDEwMAogICAgICBjb3VudC9zZXJ2aWNlczogMjAKICAgICAgbGltaXRzLmNwdTogMjAKICAgICAgbGltaXRzLmVwaGVtZXJhbC1zdG9yYWdlOiAxNjBHaQogICAgICBsaW1pdHMubWVtb3J5OiA0MEdpCiAgICAgIHJlcXVlc3RzLmNwdTogMTAKICAgICAgcmVxdWVzdHMuZXBoZW1lcmFsLXN0b3JhZ2U6IDYwR2kKICAgICAgcmVxdWVzdHMubWVtb3J5OiAyMEdpCiAgICAgIHJlcXVlc3RzLnN0b3JhZ2U6IDEwMEdpCiAgICAgIHNlcnZpY2VzLmxvYWRiYWxhbmNlcnM6IDEKICAgICAgc2VydmljZXMubm9kZXBvcnRzOiAwCiAgICBzY29wZVNlbGVjdG9yOgogICAgICBtYXRjaEV4cHJlc3Npb25zOiBbXQogICAgc2NvcGVzOiBbXQpwcml2YXRlTm9kZXM6CiAgYXV0b05vZGVzOiBbXQogIGF1dG9VcGdyYWRlOgogICAgY29uY3VycmVuY3k6IDEKICAgIGNvbnRhaW5lclNlY3VyaXR5Q29udGV4dDoge30KICAgIGVuYWJsZWQ6IHRydWUKICAgIHBvZFNlY3VyaXR5Q29udGV4dDoge30KICBkYWVtb246CiAgICBjb250cm9sUGxhbmVMb2FkQmFsYW5jZXI6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICAgIGt1YmVQcm94eTogdHJ1ZQogICAgICBwb3J0OiAxMTM0MwogICAgZW5hYmxlZDogZmFsc2UKICBlbmFibGVkOiBmYWxzZQogIGpvaW5Ob2RlOgogICAgY29udGFpbmVyZDoKICAgICAgZW5hYmxlZDogdHJ1ZQogIGt1YmVsZXQ6CiAgICBjb25maWc6IHt9CiAgdnBuOgogICAgZW5hYmxlZDogZmFsc2UKICAgIG5vZGVUb05vZGU6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCnJiYWM6CiAgY2x1c3RlclJvbGU6CiAgICBlbmFibGVkOiBhdXRvCiAgICBleHRyYVJ1bGVzOiBbXQogICAgb3ZlcndyaXRlUnVsZXM6IFtdCiAgZW5hYmxlVm9sdW1lU25hcHNob3RSdWxlczoKICAgIGVuYWJsZWQ6IGF1dG8KICByb2xlOgogICAgZW5hYmxlZDogdHJ1ZQogICAgZXh0cmFSdWxlczogW10KICAgIG92ZXJ3cml0ZVJ1bGVzOiBbXQpzeW5jOgogIGZyb21Ib3N0OgogICAgY29uZmlnTWFwczoKICAgICAgZW5hYmxlZDogZmFsc2UKICAgICAgbWFwcGluZ3M6CiAgICAgICAgYnlOYW1lOiB7fQogICAgY3NpRHJpdmVyczoKICAgICAgZW5hYmxlZDogYXV0bwogICAgY3NpTm9kZXM6CiAgICAgIGVuYWJsZWQ6IGF1dG8KICAgIGNzaVN0b3JhZ2VDYXBhY2l0aWVzOgogICAgICBlbmFibGVkOiBhdXRvCiAgICBkZXZpY2VDbGFzc2VzOgogICAgICBlbmFibGVkOiBmYWxzZQogICAgZXZlbnRzOgogICAgICBlbmFibGVkOiB0cnVlCiAgICBpbmdyZXNzQ2xhc3NlczoKICAgICAgZW5hYmxlZDogZmFsc2UKICAgIG5vZGVzOgogICAgICBjbGVhckltYWdlU3RhdHVzOiBmYWxzZQogICAgICBlbmFibGVkOiBmYWxzZQogICAgICBzZWxlY3RvcjoKICAgICAgICBhbGw6IGZhbHNlCiAgICAgICAgbGFiZWxzOiB7fQogICAgICBzeW5jQmFja0NoYW5nZXM6IGZhbHNlCiAgICBwcmlvcml0eUNsYXNzZXM6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICBydW50aW1lQ2xhc3NlczoKICAgICAgZW5hYmxlZDogZmFsc2UKICAgIHNlY3JldHM6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICAgIG1hcHBpbmdzOgogICAgICAgIGJ5TmFtZToge30KICAgIHN0b3JhZ2VDbGFzc2VzOgogICAgICBlbmFibGVkOiBhdXRvCiAgICB2b2x1bWVTbmFwc2hvdENsYXNzZXM6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgdG9Ib3N0OgogICAgY29uZmlnTWFwczoKICAgICAgYWxsOiBmYWxzZQogICAgICBlbmFibGVkOiB0cnVlCiAgICBlbmRwb2ludFNsaWNlczoKICAgICAgZW5hYmxlZDogdHJ1ZQogICAgZW5kcG9pbnRzOgogICAgICBlbmFibGVkOiB0cnVlCiAgICBpbmdyZXNzZXM6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICBuYW1lc3BhY2VzOgogICAgICBlbmFibGVkOiBmYWxzZQogICAgICBtYXBwaW5nc09ubHk6IGZhbHNlCiAgICBuZXR3b3JrUG9saWNpZXM6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICBwZXJzaXN0ZW50Vm9sdW1lQ2xhaW1zOgogICAgICBlbmFibGVkOiB0cnVlCiAgICBwZXJzaXN0ZW50Vm9sdW1lczoKICAgICAgZW5hYmxlZDogZmFsc2UKICAgIHBvZERpc3J1cHRpb25CdWRnZXRzOgogICAgICBlbmFibGVkOiBmYWxzZQogICAgcG9kczoKICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICBlbmZvcmNlVG9sZXJhdGlvbnM6IFtdCiAgICAgIGh5YnJpZFNjaGVkdWxpbmc6CiAgICAgICAgZW5hYmxlZDogZmFsc2UKICAgICAgICBob3N0U2NoZWR1bGVyczogW10KICAgICAgcHJpb3JpdHlDbGFzc05hbWU6ICIiCiAgICAgIHJld3JpdGVIb3N0czoKICAgICAgICBlbmFibGVkOiB0cnVlCiAgICAgICAgaW5pdENvbnRhaW5lcjoKICAgICAgICAgIGltYWdlOgogICAgICAgICAgICByZWdpc3RyeTogbWlycm9yLmdjci5pbwogICAgICAgICAgICByZXBvc2l0b3J5OiBsaWJyYXJ5L2FscGluZQogICAgICAgICAgICB0YWc6ICIzLjIwIgogICAgICAgICAgcmVzb3VyY2VzOgogICAgICAgICAgICBsaW1pdHM6CiAgICAgICAgICAgICAgY3B1OiAzMG0KICAgICAgICAgICAgICBtZW1vcnk6IDY0TWkKICAgICAgICAgICAgcmVxdWVzdHM6CiAgICAgICAgICAgICAgY3B1OiAzMG0KICAgICAgICAgICAgICBtZW1vcnk6IDY0TWkKICAgICAgcnVudGltZUNsYXNzTmFtZTogIiIKICAgICAgdHJhbnNsYXRlSW1hZ2U6IHt9CiAgICAgIHVzZVNlY3JldHNGb3JTQVRva2VuczogZmFsc2UKICAgIHByaW9yaXR5Q2xhc3NlczoKICAgICAgZW5hYmxlZDogZmFsc2UKICAgIHJlc291cmNlQ2xhaW1UZW1wbGF0ZXM6CiAgICAgIGVuYWJsZWQ6IGZhbHNlCiAgICByZXNvdXJjZUNsYWltczoKICAgICAgZW5hYmxlZDogZmFsc2UKICAgIHNlY3JldHM6CiAgICAgIGFsbDogZmFsc2UKICAgICAgZW5hYmxlZDogdHJ1ZQogICAgc2VydmljZUFjY291bnRzOgogICAgICBlbmFibGVkOiBmYWxzZQogICAgc2VydmljZXM6CiAgICAgIGVuYWJsZWQ6IHRydWUKICAgIHN0b3JhZ2VDbGFzc2VzOgogICAgICBlbmFibGVkOiBmYWxzZQogICAgdm9sdW1lU25hcHNob3RDb250ZW50czoKICAgICAgZW5hYmxlZDogZmFsc2UKICAgIHZvbHVtZVNuYXBzaG90czoKICAgICAgZW5hYmxlZDogZmFsc2UKdGVsZW1ldHJ5OgogIGVuYWJsZWQ6IHRydWU="
+---
+# Source: vcluster/templates/clusterrole.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vc-vcluster-v-vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "persistentvolumes" ]
+    verbs: [ "get", "list" ]
+  
+  - apiGroups: [ "snapshot.storage.k8s.io" ]
+    resources: [ "volumesnapshotclasses" ]
+    verbs: ["get", "list"]
+  - apiGroups: [ "snapshot.storage.k8s.io" ]
+    resources: [ "volumesnapshotcontents" ]
+    verbs: ["create", "delete", "patch", "update", "get", "list"]
+---
+# Source: vcluster/templates/clusterrolebinding.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vc-vcluster-v-vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+subjects:
+  - kind: ServiceAccount
+    name: vc-vcluster
+    namespace: vcluster
+roleRef:
+  kind: ClusterRole
+  name: vc-vcluster-v-vcluster
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: vcluster/templates/role.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vc-vcluster
+  namespace: vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "services", "pods", "pods/attach", "pods/portforward", "pods/exec", "persistentvolumeclaims"]
+    verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/status", "pods/ephemeralcontainers"]
+    verbs: ["patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "replicasets", "deployments"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["endpoints", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: [ "create", "get", "list", "watch" ]
+  - apiGroups: [ "events.k8s.io" ]
+    resources: ["events"]
+    verbs: [ "create", "get", "list", "watch" ]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["create", "delete", "patch", "update"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: [ "endpointslices" ]
+    verbs: [ "create", "list", "get", "delete", "patch", "update", "watch" ]
+  - apiGroups: [ "snapshot.storage.k8s.io" ]
+    resources: [ "volumesnapshots" ]
+    verbs: ["create", "delete", "patch", "update", "get", "list"]
+---
+# Source: vcluster/templates/rolebinding.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vc-vcluster
+  namespace: vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+subjects:
+  - kind: ServiceAccount
+    name: vc-vcluster
+    namespace: vcluster
+roleRef:
+  kind: Role
+  name: vc-vcluster
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: vcluster/templates/headless-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: vcluster-headless
+  namespace: vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+spec:
+  publishNotReadyAddresses: true
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+  clusterIP: None
+  selector:
+    app: vcluster
+    release: "vcluster"
+---
+# Source: vcluster/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: vcluster
+  namespace: vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+    vcluster.loft.sh/service: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+      nodePort: 0
+      protocol: TCP
+    - name: kubelet
+      port: 10250
+      targetPort: 8443
+      nodePort: 0
+      protocol: TCP
+  selector:
+    app: vcluster
+    release: "vcluster"
+---
+# Source: vcluster/templates/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vcluster
+  namespace: vcluster
+  labels:
+    app: vcluster
+    chart: "vcluster-0.34.1"
+    release: "vcluster"
+    heritage: "Helm"
+spec:
+  selector:
+    matchLabels:
+      app: vcluster
+      release: "vcluster"
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+  serviceName: vcluster-headless
+  podManagementPolicy: Parallel
+  
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 5Gi
+  replicas: 1
+  template:
+    metadata:
+      annotations:
+        vClusterConfigHash: "1412e907a06c187bdd773d7846e7f86197a7df04b95b31ff681b69fb096152e3"
+      labels:
+        app: vcluster
+        release: "vcluster"
+    spec:
+      terminationGracePeriodSeconds: 15
+      serviceAccountName: vc-vcluster
+      volumes:        
+        - name: helm-cache
+          emptyDir: {}
+        - emptyDir: {}
+          name: binaries
+        - name: tmp
+          emptyDir: {}
+        - name: certs
+          emptyDir: {}
+        - name: vcluster-config
+          secret:
+            secretName: vc-config-vcluster
+      initContainers:
+        
+        - name: kubernetes
+          image: "ghcr.io/loft-sh/kubernetes:v1.35.0"
+          volumeMounts:
+            - mountPath: /binaries
+              name: binaries
+          command:
+            - cp
+          args:
+            - -r 
+            - /kubernetes/.
+            - /binaries/
+          securityContext:
+            {}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 40m
+              memory: 64Mi
+      enableServiceLinks: true
+      containers:
+        - name: syncer
+          image: "ghcr.io/loft-sh/vcluster-pro:0.34.1"
+          imagePullPolicy: 
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 60
+            periodSeconds: 2
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8443
+              scheme: HTTPS
+            periodSeconds: 2
+            timeoutSeconds: 3
+            failureThreshold: 60
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: 8443
+              scheme: HTTPS
+            periodSeconds: 6
+            timeoutSeconds: 3
+            failureThreshold: 300
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 0
+            runAsUser: 0
+          resources:
+            limits:
+              ephemeral-storage: 10Gi
+              memory: 4Gi
+            requests:
+              cpu: 200m
+              ephemeral-storage: 1Gi
+              memory: 256Mi
+          env:
+            - name: VCLUSTER_NAME
+              value: "vcluster"
+            - name: LOFT_LOG_ENCODING
+              value: console
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          volumeMounts:            
+            - name: data
+              mountPath: /data
+            - name: binaries
+              mountPath: /binaries
+            - name: certs
+              mountPath: /pki
+            - name: helm-cache
+              mountPath: /.cache/helm
+            - name: vcluster-config
+              mountPath: /var/lib/vcluster
+            - name: tmp
+              mountPath: /tmp

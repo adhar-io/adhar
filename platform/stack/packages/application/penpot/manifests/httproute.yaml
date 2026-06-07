@@ -1,0 +1,27 @@
+# Penpot routed through the Cilium Gateway (adhar-gateway). TLS terminates at the
+# Gateway (adhar-cert), replacing the chart's Ingress (disabled in values.yaml).
+# Requests to /penpot are forwarded to the penpot frontend service on port 8080.
+# config.publicUri is set to the external /penpot URL in values.yaml.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: penpot
+  namespace: penpot
+  labels:
+    app.kubernetes.io/name: penpot
+    app.kubernetes.io/instance: penpot
+    app.kubernetes.io/part-of: penpot
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /penpot
+      backendRefs:
+        - name: penpot
+          port: 8080

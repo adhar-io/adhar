@@ -108,7 +108,21 @@ build: manifests generate fmt vet build-control-plane ## Build adhar binary and 
 .PHONY: build-control-plane
 build-control-plane: ## Build Crossplane control-plane configuration package
 	@echo "› Building Crossplane control-plane package..."
-	@tar -czf platform/controlplane/adhar-control-plane-$(VERSION).xpkg -C platform/controlplane/configuration .
+	@# A Crossplane v2 Configuration package contains only the meta (crossplane.yaml),
+	@# XRDs and Compositions. ProviderConfigs, Function CRs and Operations are runtime
+	@# resources (applied by the controller from configuration/), not package contents.
+	@if command -v crossplane >/dev/null 2>&1; then \
+		mkdir -p platform/controlplane/dist/examples; \
+		crossplane xpkg build \
+			--package-root=platform/controlplane/configuration \
+			--examples-root=platform/controlplane/dist/examples \
+			--ignore="providers/*,providers/config/*,providers/cloud/*,functions/*,operations/*" \
+			-o platform/controlplane/adhar-control-plane-$(VERSION).xpkg; \
+		rm -rf platform/controlplane/dist/examples; \
+	else \
+		echo "  crossplane CLI not found; falling back to tarball bundle"; \
+		tar -czf platform/controlplane/adhar-control-plane-$(VERSION).xpkg -C platform/controlplane/configuration .; \
+	fi
 	@echo "✓ Control-plane package ready: platform/controlplane/adhar-control-plane-$(VERSION).xpkg"
 
 .PHONY: run

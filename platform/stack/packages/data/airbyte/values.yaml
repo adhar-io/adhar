@@ -1,0 +1,13 @@
+# Airbyte data-integration / ELT platform.
+# The Airbyte web UI is exposed via the Cilium Gateway API HTTPRoute
+# (manifests/httproute.yaml) attached to adhar-gateway -- the chart Ingress is
+# left disabled (default) and must NOT be enabled (no nginx).
+global:
+  edition: community
+
+webapp:
+  ingress:
+    enabled: false
+
+# Keep the embedded MinIO/Postgres the chart ships for a self-contained local
+# install; point these at the platform MinIO + cnpg Postgres for production.

@@ -82,7 +82,7 @@ spec:
             # Build the desired resources
             _items = [
                 {
-                    apiVersion: "rds.aws.upbound.io/v1beta1"
+                    apiVersion: "rds.aws.m.upbound.io/v1beta1"
                     kind: "Instance"
                     metadata.name: "rds-instance"
                     metadata.labels: {
@@ -139,6 +139,7 @@ spec:
                                 tags: tags
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         writeConnectionSecretToRef: {
                             name: secretName
                             namespace: secretNamespace
@@ -151,7 +152,7 @@ spec:
             # Add DB Subnet Group if subnets are specified
             if subnetIds and len(subnetIds) > 0:
                 _items += [{
-                    apiVersion: "rds.aws.upbound.io/v1beta1"
+                    apiVersion: "rds.aws.m.upbound.io/v1beta1"
                     kind: "SubnetGroup"
                     metadata.name: "db-subnet-group"
                     metadata.labels: {
@@ -166,6 +167,7 @@ spec:
                                 tags: tags
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }]
@@ -173,7 +175,7 @@ spec:
             # Add monitoring IAM role if enhanced monitoring is enabled
             if enableEnhancedMonitoring and monitoringInterval > 0:
                 _items += [{
-                    apiVersion: "iam.aws.upbound.io/v1beta1"
+                    apiVersion: "iam.aws.m.upbound.io/v1beta1"
                     kind: "Role"
                     metadata.name: "monitoring-role"
                     metadata.labels: {
@@ -195,6 +197,7 @@ spec:
                                 tags: tags
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }]

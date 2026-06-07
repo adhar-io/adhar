@@ -5,7 +5,7 @@ MANIFEST_DIR="platform/controllers/adharplatform/resources/argocd" # Changed 'ar
 INSTALL_YAML="$MANIFEST_DIR/install.yaml"
 INSTALL_HA_YAML="$MANIFEST_DIR/install-ha.yaml"
 HACK_DIR="$(cd "$(dirname "$0")" && pwd)" # Ensure HACK_DIR is an absolute path
-ARGOCD_VERSION="9.4.17"
+ARGOCD_VERSION="9.5.19"
 ARGOCD_NAMESPACE="adhar-system"
 
 mkdir -p "$MANIFEST_DIR" # Ensure directory exists

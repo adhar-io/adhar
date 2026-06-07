@@ -1,0 +1,30 @@
+# PostHog routed through the Cilium Gateway (adhar-gateway). TLS terminates at the
+# Gateway (adhar-cert), replacing the chart's Ingress + bundled ingress-nginx
+# (both disabled in values.yaml). Requests to /posthog are forwarded to the
+# posthog-web service on port 8000.
+# NOTE: PostHog serves its app at the root path and does not natively support a
+# URL sub-path; for a clean production setup give it a dedicated hostname instead
+# of the /posthog prefix.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: posthog
+  namespace: posthog
+  labels:
+    app.kubernetes.io/name: posthog
+    app.kubernetes.io/instance: posthog
+    app.kubernetes.io/part-of: posthog
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /posthog
+      backendRefs:
+        - name: posthog-web
+          port: 8000

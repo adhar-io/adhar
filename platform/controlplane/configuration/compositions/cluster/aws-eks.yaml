@@ -13,7 +13,7 @@ spec:
   pipeline:
     - step: render-eks
       functionRef:
-        name: fn-go-templating
+        name: function-go-templating
       input:
         apiVersion: templating.fn.crossplane.io/v1beta1
         kind: Template
@@ -30,20 +30,91 @@ spec:
             {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (index $conn "name") -}}
             {{- $secretNamespace := default "crossplane-system" (index $conn "namespace") -}}
             {{- $access := default "Public" $cp.endpointAccess -}}
-            {{- $providerConfig := index $xr.spec.providerConfigRef "name" -}}
+            {{- $providerConfig := dig "spec" "providerConfigRef" "name" "default" $xr -}}
             {{- $tags := default (dict) $params.tags -}}
             {{- $loggingTypes := default (list) (get $aws "loggingTypes") -}}
             {{- $securityGroups := default (list) (get $aws "securityGroupIds") -}}
-            {{- $enableIRSA := default false (get $aws "enableIRSA") -}}
             {{- $kmsKeyArn := default "" (get $aws "kmsKeyArn") -}}
-            {{- $addonConfigs := default (list) (get $aws "addonConfigs") -}}
+            {{- $deletionPolicy := default "Delete" $params.deletionPolicy -}}
+            {{- $clusterRoleArn := index $iam "clusterRoleARN" -}}
+            {{- $nodeRoleArn := index $iam "nodeRoleARN" -}}
             apiVersion: fn.crossplane.io/v1beta1
             kind: FunctionIO
             desired:
               resources:
+                {{- if not $clusterRoleArn }}
+                - name: eks-cluster-role
+                  resource:
+                    apiVersion: iam.aws.m.upbound.io/v1beta1
+                    kind: Role
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: aws
+                        role: eks-cluster
+                    spec:
+                      forProvider:
+                        assumeRolePolicy: |
+                          {
+                            "Version": "2012-10-17",
+                            "Statement": [{
+                              "Effect": "Allow",
+                              "Principal": {"Service": "eks.amazonaws.com"},
+                              "Action": "sts:AssumeRole"
+                            }]
+                          }
+                        managedPolicyArns:
+                          - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+                        {{- if $tags }}
+                        tags:
+                        {{- range $k, $v := $tags }}
+                          {{ $k }}: {{ quote $v }}
+                        {{- end }}
+                        {{- end }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                        kind: ClusterProviderConfig
+                      deletionPolicy: {{ $deletionPolicy }}
+                {{- end }}
+                {{- if not $nodeRoleArn }}
+                - name: eks-node-role
+                  resource:
+                    apiVersion: iam.aws.m.upbound.io/v1beta1
+                    kind: Role
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: aws
+                        role: eks-node
+                    spec:
+                      forProvider:
+                        assumeRolePolicy: |
+                          {
+                            "Version": "2012-10-17",
+                            "Statement": [{
+                              "Effect": "Allow",
+                              "Principal": {"Service": "ec2.amazonaws.com"},
+                              "Action": "sts:AssumeRole"
+                            }]
+                          }
+                        managedPolicyArns:
+                          - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+                          - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+                          - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+                        {{- if $tags }}
+                        tags:
+                        {{- range $k, $v := $tags }}
+                          {{ $k }}: {{ quote $v }}
+                        {{- end }}
+                        {{- end }}
+                      providerConfigRef:
+                        name: {{ quote $providerConfig }}
+                        kind: ClusterProviderConfig
+                      deletionPolicy: {{ $deletionPolicy }}
+                {{- end }}
                 - name: eks-cluster
                   resource:
-                    apiVersion: eks.aws.crossplane.io/v1beta1
+                    apiVersion: eks.aws.m.upbound.io/v1beta1
                     kind: Cluster
                     metadata:
                       labels:
@@ -53,17 +124,19 @@ spec:
                       forProvider:
                         region: {{ quote $params.region }}
                         version: {{ quote $params.version }}
-                        {{- if (index $iam "clusterRoleARN") }}
-                        roleArn: {{ quote (index $iam "clusterRoleARN") }}
+                        {{- if $clusterRoleArn }}
+                        roleArn: {{ quote $clusterRoleArn }}
+                        {{- else }}
+                        roleArnSelector:
+                          matchControllerRef: true
+                          matchLabels:
+                            role: eks-cluster
                         {{- end }}
                         {{- if $loggingTypes }}
-                        logging:
-                          clusterLogging:
-                            {{- range $loggingTypes }}
-                            - types:
-                                - {{ quote . }}
-                              enabled: true
-                            {{- end }}
+                        enabledClusterLogTypes:
+                        {{- range $loggingTypes }}
+                          - {{ quote . }}
+                        {{- end }}
                         {{- end }}
                         {{- if $kmsKeyArn }}
                         encryptionConfig:
@@ -72,42 +145,38 @@ spec:
                             resources:
                               - secrets
                         {{- end }}
-                        resourcesVpcConfig:
-                          endpointPublicAccess: {{ or (eq $access "Public") (eq $access "PublicAndPrivate") }}
-                          endpointPrivateAccess: {{ ne $access "Public" }}
-                          {{- if $network.subnetIds }}
-                          subnetIds:
-                          {{- range $network.subnetIds }}
-                            - {{ quote . }}
-                          {{- end }}
-                          {{- end }}
-                          {{- if $network.vpcId }}
-                          vpcId: {{ quote $network.vpcId }}
-                          {{- end }}
-                          {{- if $securityGroups }}
-                          securityGroupIds:
-                          {{- range $securityGroups }}
-                            - {{ quote . }}
-                          {{- end }}
-                          {{- end }}
+                        vpcConfig:
+                          - endpointPublicAccess: {{ or (eq $access "Public") (eq $access "PublicAndPrivate") }}
+                            endpointPrivateAccess: {{ ne $access "Public" }}
+                            {{- if $network.subnetIds }}
+                            subnetIds:
+                            {{- range $network.subnetIds }}
+                              - {{ quote . }}
+                            {{- end }}
+                            {{- end }}
+                            {{- if $securityGroups }}
+                            securityGroupIds:
+                            {{- range $securityGroups }}
+                              - {{ quote . }}
+                            {{- end }}
+                            {{- end }}
+                        {{- if $tags }}
+                        tags:
+                        {{- range $k, $v := $tags }}
+                          {{ $k }}: {{ quote $v }}
+                        {{- end }}
+                        {{- end }}
                       writeConnectionSecretToRef:
                         name: {{ quote $secretName }}
                         namespace: {{ quote $secretNamespace }}
-                      {{- if $providerConfig }}
                       providerConfigRef:
                         name: {{ quote $providerConfig }}
-                      {{- end }}
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
-                      {{- if $tags }}
-                      tags:
-                      {{- range $k, $v := $tags }}
-                        {{ $k }}: {{ quote $v }}
-                      {{- end }}
-                      {{- end }}
+                        kind: ClusterProviderConfig
+                      deletionPolicy: {{ $deletionPolicy }}
                 {{- range $index, $pool := $params.nodePools }}
                 - name: eks-nodegroup-{{ $index }}
                   resource:
-                    apiVersion: eks.aws.crossplane.io/v1beta1
+                    apiVersion: eks.aws.m.upbound.io/v1beta1
                     kind: NodeGroup
                     metadata:
                       labels:
@@ -119,26 +188,31 @@ spec:
                         region: {{ quote $params.region }}
                         clusterNameSelector:
                           matchControllerRef: true
+                        {{- if $nodeRoleArn }}
+                        nodeRoleArn: {{ quote $nodeRoleArn }}
+                        {{- else }}
+                        nodeRoleArnSelector:
+                          matchControllerRef: true
+                          matchLabels:
+                            role: eks-node
+                        {{- end }}
                         {{- if $network.subnetIds }}
                         subnetIds:
                         {{- range $network.subnetIds }}
                           - {{ quote . }}
                         {{- end }}
+                        {{- else }}
+                        subnetIdSelector:
+                          matchControllerRef: true
                         {{- end }}
                         scalingConfig:
-                          desiredSize: {{ default 1 $pool.count }}
-                          minSize: {{ default (default 1 $pool.count) $pool.minCount }}
-                          maxSize: {{ default (default 1 $pool.count) $pool.maxCount }}
-                        {{- if $pool.availabilityZones }}
-                        availabilityZones:
-                        {{- range $pool.availabilityZones }}
-                          - {{ quote . }}
-                        {{- end }}
-                        {{- end }}
+                          - desiredSize: {{ default 1 $pool.count }}
+                            minSize: {{ default (default 1 $pool.count) $pool.minCount }}
+                            maxSize: {{ default (default 1 $pool.count) $pool.maxCount }}
                         instanceTypes:
                           - {{ quote $pool.instanceType }}
                         {{- if $pool.taints }}
-                        taints:
+                        taint:
                         {{- range $pool.taints }}
                           - key: {{ quote .key }}
                             {{- if .value }}
@@ -153,12 +227,6 @@ spec:
                           {{ $k }}: {{ quote $v }}
                         {{- end }}
                         {{- end }}
-                        {{- if $pool.tags }}
-                        tags:
-                        {{- range $k, $v := $pool.tags }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
                         {{- if $pool.storageSize }}
                         {{- $disk := trimSuffix "Gi" $pool.storageSize -}}
                         {{- if $disk }}
@@ -170,50 +238,16 @@ spec:
                         {{- else }}
                         capacityType: ON_DEMAND
                         {{- end }}
-                        {{- if $pool.machineImage }}
-                        launchTemplate:
-                          name: {{ quote $pool.machineImage }}
+                        {{- $poolTags := default (dict) $pool.tags -}}
+                        {{- $allTags := merge (dict) $tags $poolTags -}}
+                        {{- if $allTags }}
+                        tags:
+                        {{- range $k, $v := $allTags }}
+                          {{ $k }}: {{ quote $v }}
                         {{- end }}
-                        {{- if (index $iam "nodeRoleARN") }}
-                        nodeRoleArn: {{ quote (index $iam "nodeRoleARN") }}
                         {{- end }}
-                      {{- if $providerConfig }}
                       providerConfigRef:
                         name: {{ quote $providerConfig }}
-                      {{- end }}
-                      {{- if $tags }}
-                      tags:
-                      {{- range $k, $v := $tags }}
-                        {{ $k }}: {{ quote $v }}
-                      {{- end }}
-                      {{- end }}
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
-                {{- end }}
-                {{- range $index, $addon := $addonConfigs }}
-                - name: eks-addon-{{ $index }}
-                  resource:
-                    apiVersion: eks.aws.crossplane.io/v1alpha1
-                    kind: Addon
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: aws
-                        cluster-name: {{ $xr.metadata.name | quote }}
-                    spec:
-                      forProvider:
-                        region: {{ quote $params.region }}
-                        clusterNameSelector:
-                          matchControllerRef: true
-                        addonName: {{ quote $addon.name }}
-                        {{- if $addon.version }}
-                        addonVersion: {{ quote $addon.version }}
-                        {{- end }}
-                        {{- if $addon.resolveConflicts }}
-                        resolveConflicts: {{ quote $addon.resolveConflicts }}
-                        {{- end }}
-                      {{- if $providerConfig }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                      {{- end }}
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                        kind: ClusterProviderConfig
+                      deletionPolicy: {{ $deletionPolicy }}
                 {{- end }}

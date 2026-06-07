@@ -1,10 +1,6 @@
-# Kargo Helm Chart Values
-
-api:
-  ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+# Buildpack (kpack) "values"
+#
+# kpack has no Helm chart; it is installed from a vendored upstream static release
+# manifest (see generate-manifests.sh). There are no Helm values to set. kpack
+# exposes no web UI / Ingress, so the Gateway API invariant is satisfied with no
+# HTTPRoute. This file is kept for package-layout consistency only.

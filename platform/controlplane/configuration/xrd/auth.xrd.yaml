@@ -1,19 +1,13 @@
-apiVersion: apiextensions.crossplane.io/v1
+apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
   name: compositeauthstacks.platform.adhar.io
 spec:
   group: platform.adhar.io
+  scope: Namespaced
   names:
     kind: CompositeAuthStack
     plural: compositeauthstacks
-  claimNames:
-    kind: AuthStack
-    plural: authstacks
-  connectionSecretKeys:
-    - issuer
-    - clientId
-    - clientSecret
   defaultCompositionRef:
     name: compositeauthstack-keycloak
   versions:

@@ -1,0 +1,24 @@
+# OpenSearch cluster (single node for local). Ingress disabled -- access is via
+# the OpenSearch Dashboards UI which is exposed through the Cilium Gateway API
+# HTTPRoute (manifests/httproute.yaml). Never enable a nginx Ingress here.
+singleNode: true
+replicas: 1
+
+ingress:
+  enabled: false
+
+persistence:
+  enabled: true
+  size: 4Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+
+# Disable the demo-config security install bootstrap interactive prompts.
+extraEnvs:
+  - name: DISABLE_INSTALL_DEMO_CONFIG
+    value: "false"

@@ -110,11 +110,11 @@ func TestSetPackageLabels(t *testing.T) {
 			},
 		},
 		{
-			name:          "IngressNginx package",
-			objectName:    v1alpha1.IngressNginxPackageName,
+			name:          "Gateway package",
+			objectName:    v1alpha1.GatewayPackageName,
 			initialLabels: nil,
 			expectedLabels: map[string]string{
-				v1alpha1.PackageNameLabelKey: v1alpha1.IngressNginxPackageName,
+				v1alpha1.PackageNameLabelKey: v1alpha1.GatewayPackageName,
 				v1alpha1.PackageTypeLabelKey: v1alpha1.PackageTypeLabelCore,
 			},
 		},

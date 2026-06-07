@@ -1,3 +1,6 @@
+// Package provider defines the cloud provider abstraction for the Adhar platform
+// and a factory for instantiating provider implementations (AWS, Azure, GCP,
+// DigitalOcean, Civo, Kind, and custom) by type.
 package provider
 
 import (

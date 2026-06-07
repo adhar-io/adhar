@@ -1,0 +1,26 @@
+# MinIO console routed through the Cilium Gateway (adhar-gateway). TLS
+# terminates at the Gateway (adhar-cert). No rewrite annotations were present on
+# the old nginx Ingress, so the /minio prefix is forwarded as-is to
+# minio-console:9001.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: minio-console
+  namespace: minio
+  labels:
+    app: minio
+    release: minio
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /minio
+      backendRefs:
+        - name: minio-console
+          port: 9001

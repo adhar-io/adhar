@@ -1,0 +1,120 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositelogging-loki
+  labels:
+    feature: logs
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeLogging
+  mode: Pipeline
+  pipeline:
+    - step: render-loki
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            oxr = option("params").oxr
+            ocds = option("params").ocds or {}
+
+            params = oxr.spec.parameters or {}
+            namespace = params.namespace or "observability"
+            retentionDays = params.retentionDays or 7
+            storageSize = params.storageSize or "10Gi"
+            replicas = params.replicas or 1
+
+            release = {
+                apiVersion = "helm.m.crossplane.io/v1beta1"
+                kind = "Release"
+                metadata = {
+                    name = "loki"
+                    labels = {
+                        feature = "logs"
+                        provider = "kubernetes"
+                    }
+                }
+                spec = {
+                    providerConfigRef = {name = "helm-provider", kind = "ClusterProviderConfig"}
+                    forProvider = {
+                        namespace = namespace
+                        chart = {
+                            name = "loki"
+                            repository = "https://grafana.github.io/helm-charts"
+                        }
+                        values = {
+                            loki = {
+                                commonConfig = {
+                                    replication_factor = replicas
+                                }
+                                limits_config = {
+                                    retention_period = "${retentionDays * 24}h"
+                                }
+                            }
+                            backend = {
+                                replicas = replicas
+                                persistence = {
+                                    size = storageSize
+                                }
+                            }
+                            write = {
+                                replicas = replicas
+                                persistence = {
+                                    size = storageSize
+                                }
+                            }
+                            read = {
+                                replicas = replicas
+                            }
+                        }
+                    }
+                }
+            }
+
+            # Compute XR status from the Release status
+            _releaseObserved = ocds.get("loki", {}).get("resource", {})
+            _releaseState = _releaseObserved.get("status", {}).get("atProvider", {}).get("state", "")
+
+            _phase = "Pending"
+            _message = "Logging stack provisioning initiated"
+            _ready = False
+            _endpoint = ""
+
+            if _releaseState:
+                if _releaseState == "deployed":
+                    _phase = "Available"
+                    _message = "Logging stack is ready"
+                    _ready = True
+                    _endpoint = "http://loki-gateway.${namespace}.svc.cluster.local"
+                elif _releaseState in ["pending-install", "pending-upgrade", "pending-rollback"]:
+                    _phase = "Creating"
+                    _message = "Logging stack is being deployed"
+                elif _releaseState == "failed":
+                    _phase = "Failed"
+                    _message = "Logging stack deployment failed"
+                else:
+                    _phase = "Modifying"
+                    _message = "Logging stack state: {}".format(_releaseState)
+
+            statusItem = {
+                apiVersion = "platform.adhar.io/v1alpha1"
+                kind = "CompositeLogging"
+                metadata = oxr.metadata
+                status = {
+                    phase = _phase
+                    message = _message
+                    ready = _ready
+                    if _endpoint:
+                        endpoint = _endpoint
+                }
+            }
+
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [release, statusItem]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready

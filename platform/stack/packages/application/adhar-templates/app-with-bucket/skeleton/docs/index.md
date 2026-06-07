@@ -1,4 +1,4 @@
-![adha logo](./images/adhar-logo.png)
+![adhar logo](./images/adhar-logo.png)
 
 # Example Basic Application
 

@@ -96,8 +96,25 @@ func NewLocalProvisioner(options *LocalOptions) *LocalProvisioner {
 	return &LocalProvisioner{options: options}
 }
 
-// LocalProvisioner handles local development environment creation
+// Provision creates the local development environment end to end: it builds the
+// Kind cluster, installs CRDs, configures networking and TLS, starts the
+// platform controllers, and creates the AdharPlatform resource that drives
+// GitOps reconciliation. It blocks until the manager exits or the context is
+// cancelled.
 func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error {
+	// Set up the controller-runtime and klog loggers FIRST — before any code
+	// path that emits a controller-runtime log (e.g. the Kind cluster reconcile
+	// below). Otherwise controller-runtime prints a one-time
+	// "log.SetLogger(...) was never called" stack-trace warning.
+	// Verbose mode: show all messages. Normal mode: completely silent.
+	if lp.options.Verbose {
+		stdr.SetVerbosity(1)
+		ctrl.SetLogger(stdr.New(stdlog.New(os.Stderr, "", stdlog.LstdFlags)))
+	} else {
+		ctrl.SetLogger(logr.Discard())
+		// Silence klog (k8s.io/client-go) warnings that bypass the cr logger.
+		klog.SetOutput(io.Discard)
+	}
 
 	// Step 1: Create Kind cluster
 	logger.Info("Creating Kind cluster...")
@@ -118,17 +135,6 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	logger.Info("Installing platform CRDs...")
 	if err := lp.ReconcileCRDs(ctx, kubeClient); err != nil {
 		return err
-	}
-
-	// Set up controller-runtime and klog loggers
-	// Verbose mode: show all messages. Normal mode: completely silent.
-	if lp.options.Verbose {
-		stdr.SetVerbosity(1)
-		ctrl.SetLogger(stdr.New(stdlog.New(os.Stderr, "", stdlog.LstdFlags)))
-	} else {
-		ctrl.SetLogger(logr.Discard())
-		// Silence klog (k8s.io/client-go) warnings that bypass controller-runtime logger
-		klog.SetOutput(io.Discard)
 	}
 
 	mgr, err := manager.New(kubeConfig, manager.Options{
@@ -164,7 +170,7 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	lp.options.TemplateData.SelfSignedCert = string(cert)
 
 	// Step 4: Start platform controllers and deploy services
-	logger.Info("Starting platform reconciliation (Cilium, Nginx, ArgoCD, Gitea)...")
+	logger.Info("Starting platform reconciliation (Cilium, Gateway, ArgoCD, Gitea, Crossplane)...")
 	managerExit := make(chan error)
 	if err := lp.RunControllers(ctx, mgr, managerExit, dir); err != nil {
 		return fmt.Errorf("starting controllers: %w", err)
@@ -233,8 +239,6 @@ func isShutdownError(err error) bool {
 		strings.Contains(msg, "grace period") ||
 		strings.Contains(msg, "context deadline exceeded")
 }
-
-// runPreFlightChecks validates system requirements
 
 // createLocalDevelopmentCluster creates a local Kind cluster using the LocalProvisioner
 func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args []string, ctxCancel context.CancelFunc) error {
@@ -427,7 +431,7 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 	fmt.Printf("\nCore Services:\n")
 	fmt.Printf("  ArgoCD:      true\n")
 	fmt.Printf("  Gitea:       true\n")
-	fmt.Printf("  Nginx:       true\n")
+	fmt.Printf("  Gateway:     true\n")
 	fmt.Printf("  Cilium:      true\n")
 
 	if len(envConfig.ResolvedClusterConfig) > 0 {
@@ -459,7 +463,8 @@ func printSuccessMsg() {
 	fmt.Printf("  ✅ Cilium CNI for secure networking\n")
 	fmt.Printf("  ✅ ArgoCD for GitOps deployments\n")
 	fmt.Printf("  ✅ Gitea for Git repository hosting\n")
-	fmt.Printf("  ✅ Ingress-Nginx for traffic routing\n")
+	fmt.Printf("  ✅ Cilium Gateway API for traffic routing\n")
+	fmt.Printf("  ✅ Crossplane for unified infrastructure APIs\n")
 	fmt.Printf("  ✅ Platform observability stack\n\n")
 	baseURL := fmt.Sprintf("%s://%s:%s", protocol, host, port)
 	if behindProxy() {
@@ -530,7 +535,7 @@ func getPackageCustomFile(input string) (v1alpha1.PackageCustomization, error) {
 		return v1alpha1.PackageCustomization{}, err
 	}
 
-	corePkgs := map[string]struct{}{v1alpha1.ArgoCDPackageName: {}, v1alpha1.GiteaPackageName: {}, v1alpha1.IngressNginxPackageName: {}}
+	corePkgs := map[string]struct{}{v1alpha1.ArgoCDPackageName: {}, v1alpha1.GiteaPackageName: {}, v1alpha1.GatewayPackageName: {}}
 	name := s[0]
 	_, ok := corePkgs[name]
 	if !ok {
@@ -542,6 +547,8 @@ func getPackageCustomFile(input string) (v1alpha1.PackageCustomization, error) {
 	}, nil
 }
 
+// ReconcileKindCluster creates (or recreates) the Kind cluster for local
+// development and exports its kubeconfig.
 func (b *LocalProvisioner) ReconcileKindCluster(ctx context.Context, recreateCluster bool) error {
 	// Initialize Kind Cluster
 	cluster, err := kind.NewCluster(b.options.Name, b.options.KubeVersion, b.options.KubeConfigPath, b.options.KindConfigPath, b.options.ExtraPortsMapping, b.options.RegistryConfig, b.options.TemplateData)
@@ -564,6 +571,7 @@ func (b *LocalProvisioner) ReconcileKindCluster(ctx context.Context, recreateClu
 	return nil
 }
 
+// GetKubeConfig builds a REST config from the provisioner's kubeconfig path.
 func (b *LocalProvisioner) GetKubeConfig() (*rest.Config, error) {
 	kubeConfig, err := clientcmd.BuildConfigFromFlags("", b.options.KubeConfigPath)
 	if err != nil {
@@ -573,6 +581,8 @@ func (b *LocalProvisioner) GetKubeConfig() (*rest.Config, error) {
 	return kubeConfig, nil
 }
 
+// GetKubeClient creates a controller-runtime client from the given REST config
+// using the provisioner's scheme.
 func (b *LocalProvisioner) GetKubeClient(kubeConfig *rest.Config) (client.Client, error) {
 	kubeClient, err := client.New(kubeConfig, client.Options{Scheme: b.options.Scheme})
 	if err != nil {
@@ -582,6 +592,8 @@ func (b *LocalProvisioner) GetKubeClient(kubeConfig *rest.Config) (client.Client
 	return kubeClient, nil
 }
 
+// ReconcileCRDs installs the platform CRDs (AdharPlatform, GitRepository,
+// CustomPackage) into the cluster.
 func (b *LocalProvisioner) ReconcileCRDs(ctx context.Context, kubeClient client.Client) error {
 	// Ensure idpbuilder CRDs
 	if err := controllers.EnsureCRDs(ctx, b.options.Scheme, kubeClient, b.options.TemplateData); err != nil {
@@ -591,6 +603,8 @@ func (b *LocalProvisioner) ReconcileCRDs(ctx context.Context, kubeClient client.
 	return nil
 }
 
+// RunControllers starts the platform controllers on the given manager, signalling
+// completion or errors over exitCh.
 func (b *LocalProvisioner) RunControllers(ctx context.Context, mgr manager.Manager, exitCh chan error, tmpDir string) error {
 	return controllers.RunControllers(ctx, mgr, exitCh, b.options.CancelFunc, b.options.ExitOnSync, b.options.TemplateData, tmpDir, b.options.StackDir)
 }

@@ -1,3 +1,6 @@
+// Package domain manages cluster domain setup, including cert-manager and
+// Let's Encrypt issuers, external-dns, ingress controllers, and CoreDNS
+// configuration for local (Kind) and production clusters.
 package domain
 
 import (
@@ -464,9 +467,9 @@ data:
         cache 30
         reload
         loadbalance
-        rewrite name exact %s ingress-nginx-controller.ingress-nginx.svc.cluster.local
+        rewrite name exact %s cilium-gateway-adhar-gateway.adhar-system.svc.cluster.local
         rewrite stop {
-            name regex (.*).%s ingress-nginx-controller.ingress-nginx.svc.cluster.local answer auto
+            name regex (.*).%s cilium-gateway-adhar-gateway.adhar-system.svc.cluster.local answer auto
         }
         forward . /etc/resolv.conf
     }`, domain, domain, domain, domain)

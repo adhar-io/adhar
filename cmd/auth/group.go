@@ -1,7 +1,11 @@
 package auth
 
 import (
+	"context"
 	"fmt"
+	"strings"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
@@ -98,14 +102,56 @@ var (
 	}
 )
 
+// kcGroup is a subset of the Keycloak group representation.
+type kcGroup struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Path      string    `json:"path"`
+	SubGroups []kcGroup `json:"subGroups"`
+}
+
 func runListGroups(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 Platform Groups")
-	fmt.Println("")
+	fmt.Println("📋 Platform Groups (Keycloak)")
+	kc := settings()
 
-	// TODO: Implement actual group listing logic
-	fmt.Println("📭 No groups found")
-	fmt.Println("Use 'adhar auth group create' to create your first group")
+	var groups []kcGroup
+	if err := kc.adminGet(context.Background(), "/groups", &groups); err != nil {
+		return err
+	}
 
+	if output == "json" {
+		return helpers.PrintJSON(groups)
+	}
+	if output == "yaml" {
+		return helpers.PrintYAML(groups)
+	}
+
+	// Flatten the group tree for tabular display.
+	var flat []kcGroup
+	var walk func(gs []kcGroup)
+	walk = func(gs []kcGroup) {
+		for _, g := range gs {
+			flat = append(flat, g)
+			if len(g.SubGroups) > 0 {
+				walk(g.SubGroups)
+			}
+		}
+	}
+	walk(groups)
+
+	if len(flat) == 0 {
+		fmt.Println(helpers.CreateMuted("No groups found in realm " + kc.Realm))
+		return nil
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%-30s %-40s %s\n", "👥 NAME", "🧭 PATH", "🆔 ID"))
+	b.WriteString(strings.Repeat("─", 100) + "\n")
+	for _, g := range flat {
+		b.WriteString(fmt.Sprintf("%-30s %-40s %s\n", truncA(g.Name, 30), truncA(g.Path, 40), g.ID))
+	}
+	fmt.Println(helpers.BorderStyle.Render(b.String()))
+	fmt.Println(helpers.CreateMuted(fmt.Sprintf("%d group(s) in realm %s", len(flat), kc.Realm)))
 	return nil
 }
 

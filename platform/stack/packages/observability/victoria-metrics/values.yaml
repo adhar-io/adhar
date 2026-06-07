@@ -1,0 +1,12 @@
+# Adhar overrides for victoria-metrics/victoria-metrics-single.
+# A single-node VictoriaMetrics time-series database with the built-in vmui web
+# interface on port 8428. The chart's nginx Ingress is disabled; external access
+# to vmui is provided via the Cilium Gateway API HTTPRoute in
+# manifests/httproute.yaml.
+server:
+  ingress:
+    enabled: false
+  persistentVolume:
+    enabled: true
+    size: 8Gi
+  retentionPeriod: 1

@@ -178,12 +178,12 @@ metadata:
   name: gitea
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   selector:
@@ -264,12 +264,12 @@ metadata:
   name: gitea-inline-config
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -312,12 +312,12 @@ metadata:
   name: gitea
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -402,7 +402,6 @@ stringData:
       rm $TMP_EXISTING_ENVS_FILE
     }
   
-  
     function env2ini::process_config_file() {
       local config_file="${1}"
       local section="$(basename "${config_file}")"
@@ -475,7 +474,7 @@ stringData:
       unset GITEA__SERVER__LFS_JWT_SECRET
     fi
   
-    environment-to-ini -o $GITEA_APP_INI
+    gitea config edit-ini --apply-env --config "$GITEA_APP_INI" --out "$GITEA_APP_INI"
   assertions: |
 ---
 # Source: gitea/templates/gitea/init.yaml
@@ -485,12 +484,12 @@ metadata:
   name: gitea-init
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -532,7 +531,7 @@ stringData:
       
       echo 'Wait for valkey to become avialable...'
       until [ "${RETRY}" -ge "${MAX}" ]; do
-        nc -vz -w2 gitea-valkey-cluster-headless.adhar-system.svc.cluster.local 6379 && break
+        RES_OPTIONS="ndots:0" nc -vz -w2 gitea-valkey-cluster-headless.adhar-system.svc 6379 && break
         RETRY=$[${RETRY}+1]
         echo "...not ready yet (${RETRY}/${MAX})"
       done
@@ -587,7 +586,7 @@ stringData:
           #   should add it to prevent requiring frequent admin password resets.
           local -a change_args
           change_args=(--username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}")
-          if gitea admin user change-password --help | grep -qF -- '--must-change-password'; then
+          if gitea admin user change-password --help | grep -F -- '--must-change-password' >/dev/null; then
             change_args+=(--must-change-password=false)
           fi
           gitea admin user change-password "${change_args[@]}"
@@ -3254,12 +3253,12 @@ metadata:
   name: gitea-http
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -3281,12 +3280,12 @@ metadata:
   name: gitea-ssh
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -3503,12 +3502,12 @@ metadata:
   namespace: adhar-system
   annotations:
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 2
@@ -3524,14 +3523,14 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 120e437b82cc41fae19ac5b5d9254ce6db44e32514ccbcaaaa7fcdfc6df6720a
+        checksum/config: f25158989f3fee2523c2646ae94f20de1d4444d865b8456b775b81ba9b08f80a
       labels:
-        helm.sh/chart: gitea-12.5.0
+        helm.sh/chart: gitea-12.6.0
         app: gitea
         app.kubernetes.io/name: gitea
         app.kubernetes.io/instance: gitea
-        app.kubernetes.io/version: "1.25.4"
-        version: "1.25.4"
+        app.kubernetes.io/version: "1.26.1"
+        version: "1.26.1"
         app.kubernetes.io/managed-by: Helm
     spec:
       
@@ -3539,7 +3538,7 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: init-directories
-          image: "docker.gitea.com/gitea:1.25.4-rootless"
+          image: "docker.gitea.com/gitea:1.26.1-rootless"
           imagePullPolicy: IfNotPresent
           command:
             - "/usr/sbinx/init_directory_structure.sh"
@@ -3560,15 +3559,13 @@ spec:
             - name: data
               mountPath: /data
             
-          securityContext:
-            {}
           resources:
             limits: {}
             requests:
               cpu: 100m
               memory: 128Mi
         - name: init-app-ini
-          image: "docker.gitea.com/gitea:1.25.4-rootless"
+          image: "docker.gitea.com/gitea:1.26.1-rootless"
           imagePullPolicy: IfNotPresent
           command:
           - "/usr/sbinx/config_environment.sh"
@@ -3595,15 +3592,13 @@ spec:
             - name: inline-config-sources
               mountPath: /env-to-ini-mounts/inlines/
             
-          securityContext:
-            {}
           resources:
             limits: {}
             requests:
               cpu: 100m
               memory: 128Mi
         - name: configure-gitea
-          image: "docker.gitea.com/gitea:1.25.4-rootless"
+          image: "docker.gitea.com/gitea:1.26.1-rootless"
           command:
           - "/usr/sbinx/configure_gitea.sh"
           imagePullPolicy: IfNotPresent
@@ -3642,7 +3637,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: gitea
-          image: "docker.gitea.com/gitea:1.25.4-rootless"
+          image: "docker.gitea.com/gitea:1.26.1-rootless"
           imagePullPolicy: IfNotPresent
           env:
             # SSH Port values have to be set here as well for openssh configuration
@@ -3695,8 +3690,6 @@ spec:
             requests:
               cpu: 200m
               memory: 512Mi
-          securityContext:
-            {}
           volumeMounts:
             - name: temp
               mountPath: /tmp
@@ -4199,12 +4192,12 @@ metadata:
   name: gitea
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.5.0
+    helm.sh/chart: gitea-12.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.25.4"
-    version: "1.25.4"
+    app.kubernetes.io/version: "1.26.1"
+    version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   selector:

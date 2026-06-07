@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -400,74 +401,203 @@ func (p *Provider) ValidatePermissions(ctx context.Context) error {
 	return nil
 }
 
-// CreateCluster creates a new manual Kubernetes cluster using DigitalOcean SDK
+// CreateCluster creates a new managed DOKS (DigitalOcean Kubernetes) cluster
+// using the godo KubernetesService and waits for it to become running.
 func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
-	if spec.Provider != "digitalocean" {
+	if spec.Provider != "" && spec.Provider != "digitalocean" {
 		return nil, fmt.Errorf("provider mismatch: expected digitalocean, got %s", spec.Provider)
 	}
 
-	log.Printf("Creating manual Kubernetes cluster: %s", spec.Name)
+	log.Printf("Creating managed DOKS cluster: %s", spec.Name)
 
 	// Validate cluster specification
-	err := p.validateClusterSpec(spec)
-	if err != nil {
+	if err := p.validateClusterSpec(spec); err != nil {
 		return nil, fmt.Errorf("invalid cluster specification: %w", err)
 	}
 
-	// Create cluster infrastructure
-	infrastructure, err := p.createClusterInfrastructure(ctx, spec.Name, spec)
+	region := p.config.Region
+	if spec.Region != "" {
+		region = spec.Region
+	}
+
+	// Resolve the Kubernetes version slug (DOKS requires a full slug, e.g.
+	// "1.30.1-do.0"). If the caller supplied a bare/partial version, find the
+	// matching available slug; otherwise fall back to the latest default.
+	versionSlug, err := p.resolveDOKSVersion(ctx, spec.Version)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create cluster infrastructure: %w", err)
+		return nil, fmt.Errorf("failed to resolve DOKS version: %w", err)
 	}
 
-	// Create cluster object
-	cluster := &types.Cluster{
-		ID:        fmt.Sprintf("digitalocean-%s", spec.Name),
-		Name:      spec.Name,
-		Provider:  "digitalocean",
-		Region:    p.config.Region,
-		Version:   spec.Version,
-		Status:    types.ClusterStatusRunning,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		Metadata: map[string]interface{}{
-			"region":      p.config.Region,
-			"vpc":         infrastructure.VPCName,
-			"firewall":    infrastructure.FirewallName,
-			"masterNodes": len(infrastructure.MasterNodes),
-			"workerNodes": len(infrastructure.WorkerNodes),
-		},
+	// Build node pools from the requested node groups. DOKS requires at least
+	// one node pool.
+	nodePools := p.buildDOKSNodePools(spec)
+
+	createReq := &godo.KubernetesClusterCreateRequest{
+		Name:        spec.Name,
+		RegionSlug:  region,
+		VersionSlug: versionSlug,
+		VPCUUID:     p.config.VPCUUID,
+		Tags:        append([]string{"adhar-cluster"}, p.config.Tags...),
+		HA:          spec.ControlPlane.HighAvailability,
+		NodePools:   nodePools,
 	}
 
-	// Set cluster endpoint using master node public IP
-	if len(infrastructure.MasterNodes) > 0 && infrastructure.MasterNodes[0].PublicIP != "" {
-		cluster.Endpoint = fmt.Sprintf("https://%s:6443", infrastructure.MasterNodes[0].PublicIP)
+	doCluster, _, err := p.client.Kubernetes.Create(ctx, createReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create DOKS cluster %q: %w", spec.Name, err)
 	}
 
-	// Store cluster infrastructure
+	log.Printf("DOKS cluster %s created (id=%s), waiting for it to become running", spec.Name, doCluster.ID)
+	running, err := p.waitForDOKSRunning(ctx, doCluster.ID)
+	if err != nil {
+		return nil, fmt.Errorf("DOKS cluster %s did not become ready: %w", spec.Name, err)
+	}
+
+	cluster := p.doksToCluster(running)
 	p.clusters[cluster.ID] = cluster
 
-	// Create resource tracker
-	resourceTracker := &ResourceTracker{
-		Region:    p.config.Region,
-		VPCs:      []string{infrastructure.VPCUUID},
-		Firewalls: []string{infrastructure.FirewallUUID},
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	// Add droplets to resource tracker
-	for _, node := range infrastructure.MasterNodes {
-		resourceTracker.Droplets = append(resourceTracker.Droplets, node.DropletID)
-	}
-	for _, node := range infrastructure.WorkerNodes {
-		resourceTracker.Droplets = append(resourceTracker.Droplets, node.DropletID)
-	}
-
-	p.resourceTrackers[cluster.ID] = resourceTracker
-
-	log.Printf("Successfully created cluster: %s", spec.Name)
+	log.Printf("Successfully created managed DOKS cluster: %s (id=%s)", spec.Name, running.ID)
 	return cluster, nil
+}
+
+// resolveDOKSVersion maps a requested Kubernetes version to a concrete DOKS
+// version slug. An empty request resolves to the provider default.
+func (p *Provider) resolveDOKSVersion(ctx context.Context, requested string) (string, error) {
+	opts, _, err := p.client.Kubernetes.GetOptions(ctx)
+	if err != nil {
+		// If we cannot list options, trust the caller-provided slug.
+		if requested != "" {
+			log.Printf("Warning: failed to list DOKS options, using requested version %q: %v", requested, err)
+			return requested, nil
+		}
+		return "", fmt.Errorf("failed to list DOKS options: %w", err)
+	}
+	if len(opts.Versions) == 0 {
+		if requested != "" {
+			return requested, nil
+		}
+		return "", fmt.Errorf("no DOKS versions available in region %s", p.config.Region)
+	}
+
+	trimmed := strings.TrimPrefix(requested, "v")
+	if trimmed != "" {
+		for _, v := range opts.Versions {
+			if v.Slug == trimmed || v.KubernetesVersion == trimmed || strings.HasPrefix(v.Slug, trimmed) {
+				return v.Slug, nil
+			}
+		}
+		log.Printf("Warning: requested version %q not found among DOKS options, using default %q", requested, opts.Versions[0].Slug)
+	}
+	// Default to the first (latest) available version.
+	return opts.Versions[0].Slug, nil
+}
+
+// buildDOKSNodePools converts the cluster spec node groups into DOKS node pool
+// create requests. A default pool is created when none are specified.
+func (p *Provider) buildDOKSNodePools(spec *types.ClusterSpec) []*godo.KubernetesNodePoolCreateRequest {
+	var pools []*godo.KubernetesNodePoolCreateRequest
+	for _, ng := range spec.NodeGroups {
+		size := ng.InstanceType
+		if size == "" {
+			size = p.config.DropletSize
+		}
+		count := ng.Replicas
+		if count <= 0 {
+			count = 1
+		}
+		pools = append(pools, &godo.KubernetesNodePoolCreateRequest{
+			Name:      ng.Name,
+			Size:      size,
+			Count:     count,
+			Labels:    ng.Labels,
+			AutoScale: ng.AutoScaling.MaxReplicas > 0,
+			MinNodes:  ng.AutoScaling.MinReplicas,
+			MaxNodes:  ng.AutoScaling.MaxReplicas,
+		})
+	}
+	if len(pools) == 0 {
+		pools = append(pools, &godo.KubernetesNodePoolCreateRequest{
+			Name:  "default-pool",
+			Size:  p.config.DropletSize,
+			Count: 3,
+		})
+	}
+	return pools
+}
+
+// waitForDOKSRunning polls the DOKS API until the cluster reaches the running
+// state or the context/timeout expires.
+func (p *Provider) waitForDOKSRunning(ctx context.Context, clusterID string) (*godo.KubernetesCluster, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		cluster, _, err := p.client.Kubernetes.Get(waitCtx, clusterID)
+		if err == nil && cluster.Status != nil {
+			switch cluster.Status.State {
+			case godo.KubernetesClusterStatusRunning:
+				return cluster, nil
+			case godo.KubernetesClusterStatusError, godo.KubernetesClusterStatusDegraded:
+				return nil, fmt.Errorf("cluster entered state %q: %s", cluster.Status.State, cluster.Status.Message)
+			default:
+				log.Printf("DOKS cluster %s state: %s", clusterID, cluster.Status.State)
+			}
+		} else if err != nil {
+			log.Printf("Warning: failed to poll DOKS cluster %s: %v", clusterID, err)
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("timed out waiting for DOKS cluster %s to become running: %w", clusterID, waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// doksToCluster maps a godo KubernetesCluster to the provider-agnostic type.
+func (p *Provider) doksToCluster(c *godo.KubernetesCluster) *types.Cluster {
+	status := types.ClusterStatusUnknown
+	if c.Status != nil {
+		switch c.Status.State {
+		case godo.KubernetesClusterStatusRunning:
+			status = types.ClusterStatusRunning
+		case godo.KubernetesClusterStatusProvisioning:
+			status = types.ClusterStatusCreating
+		case godo.KubernetesClusterStatusDeleted:
+			status = types.ClusterStatusDeleting
+		case godo.KubernetesClusterStatusUpgrading:
+			status = types.ClusterStatusUpdating
+		case godo.KubernetesClusterStatusError, godo.KubernetesClusterStatusDegraded:
+			status = types.ClusterStatusError
+		}
+	}
+
+	workerNodes := 0
+	for _, np := range c.NodePools {
+		workerNodes += np.Count
+	}
+
+	return &types.Cluster{
+		ID:        c.ID,
+		Name:      c.Name,
+		Provider:  "digitalocean",
+		Region:    c.RegionSlug,
+		Version:   c.VersionSlug,
+		Status:    status,
+		Endpoint:  c.Endpoint,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
+		Metadata: map[string]interface{}{
+			"region":      c.RegionSlug,
+			"vpc":         c.VPCUUID,
+			"ha":          c.HA,
+			"nodePools":   len(c.NodePools),
+			"workerNodes": workerNodes,
+		},
+	}
 }
 
 // validateClusterSpec validates the cluster specification
@@ -1294,117 +1424,119 @@ func (p *Provider) determineClusterStatus(dropletStatus string) types.ClusterSta
 	}
 }
 
-// ListClusters returns all clusters managed by this provider
+// ListClusters returns all managed DOKS clusters via the godo API.
 func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
-	log.Printf("Listing DigitalOcean clusters")
+	log.Printf("Listing managed DOKS clusters")
 
-	// Start with in-memory clusters
 	var clusters []*types.Cluster
-	for _, cluster := range p.clusters {
-		clusters = append(clusters, cluster)
-	}
-
-	// Discover existing clusters from DigitalOcean by finding resources with adhar tags
-	discoveredClusters, err := p.discoverExistingClusters(ctx)
-	if err != nil {
-		log.Printf("Warning: Failed to discover existing clusters: %v", err)
-	} else {
-		// Add discovered clusters that aren't already in memory
-		for _, discovered := range discoveredClusters {
-			found := false
-			for _, existing := range clusters {
-				if existing.ID == discovered.ID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				clusters = append(clusters, discovered)
-				// Cache the discovered cluster
-				p.clusters[discovered.ID] = discovered
-			}
+	opts := &godo.ListOptions{Page: 1, PerPage: 200}
+	for {
+		page, resp, err := p.client.Kubernetes.List(ctx, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list DOKS clusters: %w", err)
 		}
+		for _, c := range page {
+			cluster := p.doksToCluster(c)
+			p.clusters[cluster.ID] = cluster
+			clusters = append(clusters, cluster)
+		}
+		if resp == nil || resp.Links == nil || resp.Links.IsLastPage() {
+			break
+		}
+		nextPage, err := resp.Links.CurrentPage()
+		if err != nil {
+			break
+		}
+		opts.Page = nextPage + 1
 	}
 
-	log.Printf("Found %d clusters (%d cached, %d discovered)", len(clusters), len(p.clusters), len(discoveredClusters))
+	log.Printf("Found %d managed DOKS clusters", len(clusters))
 	return clusters, nil
 }
 
-// GetCluster returns a specific cluster by ID
+// GetCluster returns a specific managed DOKS cluster by ID using the godo API.
 func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Cluster, error) {
-	log.Printf("Getting cluster: %s", clusterID)
+	log.Printf("Getting DOKS cluster: %s", clusterID)
 
-	cluster, exists := p.clusters[clusterID]
-	if !exists {
-		return nil, fmt.Errorf("cluster not found: %s", clusterID)
+	doCluster, _, err := p.client.Kubernetes.Get(ctx, clusterID)
+	if err != nil {
+		// Fall back to any cached entry to preserve prior behaviour.
+		if cluster, ok := p.clusters[clusterID]; ok {
+			return cluster, nil
+		}
+		return nil, fmt.Errorf("failed to get DOKS cluster %s: %w", clusterID, err)
 	}
 
+	cluster := p.doksToCluster(doCluster)
+	p.clusters[cluster.ID] = cluster
 	return cluster, nil
 }
 
-// UpdateCluster updates an existing cluster
+// UpdateCluster updates mutable attributes (name/tags) of a managed DOKS
+// cluster. Version upgrades are handled via UpgradeCluster and node scaling via
+// the node-group methods.
 func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *types.ClusterSpec) error {
-	log.Printf("Updating cluster: %s", clusterID)
+	log.Printf("Updating DOKS cluster: %s", clusterID)
 
-	cluster, exists := p.clusters[clusterID]
-	if !exists {
-		return fmt.Errorf("cluster not found: %s", clusterID)
+	updateReq := &godo.KubernetesClusterUpdateRequest{}
+	if spec.Name != "" {
+		updateReq.Name = spec.Name
+	}
+	if len(spec.Tags) > 0 {
+		tags := []string{"adhar-cluster"}
+		for k, v := range spec.Tags {
+			tags = append(tags, fmt.Sprintf("%s:%s", k, v))
+		}
+		updateReq.Tags = tags
 	}
 
-	// Update cluster metadata
-	cluster.UpdatedAt = time.Now()
+	doCluster, _, err := p.client.Kubernetes.Update(ctx, clusterID, updateReq)
+	if err != nil {
+		return fmt.Errorf("failed to update DOKS cluster %s: %w", clusterID, err)
+	}
 
-	// Store updated cluster
-	p.clusters[clusterID] = cluster
-
-	log.Printf("Successfully updated cluster: %s", clusterID)
+	p.clusters[clusterID] = p.doksToCluster(doCluster)
+	log.Printf("Successfully updated DOKS cluster: %s", clusterID)
 	return nil
 }
 
-// DeleteCluster deletes a cluster and its resources
+// DeleteCluster deletes a managed DOKS cluster and waits for the deletion to
+// complete (the cluster disappears from the API).
 func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
-	log.Printf("Deleting cluster: %s", clusterID)
+	log.Printf("Deleting DOKS cluster: %s", clusterID)
 
-	// First, try to discover the cluster if it's not in our cache
-	_, exists := p.clusters[clusterID]
-	if !exists {
-		log.Printf("Cluster not found in cache, attempting to discover: %s", clusterID)
-		discoveredClusters, err := p.discoverExistingClusters(ctx)
-		if err == nil {
-			for _, discovered := range discoveredClusters {
-				if discovered.ID == clusterID {
-					p.clusters[clusterID] = discovered
-					exists = true
-					break
-				}
-			}
-		}
+	if _, err := p.client.Kubernetes.Delete(ctx, clusterID); err != nil {
+		return fmt.Errorf("failed to delete DOKS cluster %s: %w", clusterID, err)
 	}
 
-	if !exists {
-		return fmt.Errorf("cluster not found: %s", clusterID)
-	}
+	// Wait for the cluster to be fully removed.
+	waitCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 
-	// Delete resources by discovering them from DigitalOcean (more reliable than resource tracker)
-	err := p.deleteClusterResourcesByDiscovery(ctx, clusterID)
-	if err != nil {
-		log.Printf("Warning: Failed to delete some cluster resources: %v", err)
-	}
-
-	// Also try to delete using resource tracker if available
-	resourceTracker, trackerExists := p.resourceTrackers[clusterID]
-	if trackerExists {
-		err := p.deleteClusterResources(ctx, resourceTracker)
+	for {
+		_, resp, err := p.client.Kubernetes.Get(waitCtx, clusterID)
 		if err != nil {
-			log.Printf("Warning: Failed to delete resources from tracker: %v", err)
+			if resp != nil && resp.StatusCode == http.StatusNotFound {
+				break
+			}
+			log.Printf("Warning: error polling DOKS cluster %s during deletion: %v", clusterID, err)
+		}
+
+		select {
+		case <-waitCtx.Done():
+			log.Printf("Warning: timed out waiting for DOKS cluster %s deletion to finish", clusterID)
+			delete(p.clusters, clusterID)
+			delete(p.resourceTrackers, clusterID)
+			return nil
+		case <-ticker.C:
 		}
 	}
 
-	// Remove from tracking
 	delete(p.clusters, clusterID)
 	delete(p.resourceTrackers, clusterID)
-
-	log.Printf("Successfully deleted cluster: %s", clusterID)
+	log.Printf("Successfully deleted DOKS cluster: %s", clusterID)
 	return nil
 }
 
@@ -1546,67 +1678,21 @@ func (p *Provider) deleteClusterResources(ctx context.Context, tracker *Resource
 	return nil
 }
 
-// GetKubeconfig returns the kubeconfig for a cluster
+// GetKubeconfig fetches the admin kubeconfig for a managed DOKS cluster from
+// the DigitalOcean API.
 func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
-	log.Printf("Generating kubeconfig for cluster: %s", clusterID)
+	log.Printf("Fetching kubeconfig for DOKS cluster: %s", clusterID)
 
-	// Extract cluster name
-	clusterName := strings.TrimPrefix(clusterID, "digitalocean-")
-
-	// Try to find the cluster in our cache first
-	cluster, err := p.GetCluster(ctx, clusterID)
+	cfg, _, err := p.client.Kubernetes.GetKubeConfig(ctx, clusterID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get cluster: %w", err)
+		return "", fmt.Errorf("failed to fetch kubeconfig for DOKS cluster %s: %w", clusterID, err)
+	}
+	if len(cfg.KubeconfigYAML) == 0 {
+		return "", fmt.Errorf("empty kubeconfig returned for DOKS cluster %s", clusterID)
 	}
 
-	if cluster.Status != types.ClusterStatusRunning {
-		return "", fmt.Errorf("cluster is not running: %s", cluster.Status)
-	}
-
-	// Get the actual endpoint from the cluster
-	endpoint := cluster.Endpoint
-	if endpoint == "" {
-		// Try to get endpoint from master nodes
-		infrastructure, err := p.getClusterInfrastructure(ctx, cluster.Name)
-		if err != nil {
-			log.Printf("Warning: failed to get cluster infrastructure: %v", err)
-			// Use a default endpoint based on region
-			endpoint = fmt.Sprintf("%s-master-0.%s.digitaloceanspaces.com", clusterName, p.config.Region)
-		} else {
-			// Find master node for this cluster
-			for _, master := range infrastructure.MasterNodes {
-				if master.PublicIP != "" {
-					endpoint = master.PublicIP
-					break
-				}
-			}
-		}
-	}
-
-	// Generate a proper kubeconfig with correct authentication
-	kubeconfig := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- name: %s
-  cluster:
-    server: https://%s:6443
-    insecure-skip-tls-verify: true
-contexts:
-- name: %s-context
-  context:
-    cluster: %s
-    user: admin-%s
-current-context: %s-context
-users:
-- name: admin-%s
-  user:
-    client-certificate-data: ""
-    client-key-data: ""
-    token: ""
-`, clusterName, endpoint, clusterName, clusterName, clusterName, clusterName, clusterName)
-
-	log.Printf("Generated kubeconfig for cluster: %s with endpoint: %s", clusterName, endpoint)
-	return kubeconfig, nil
+	log.Printf("Successfully fetched kubeconfig for DOKS cluster: %s", clusterID)
+	return string(cfg.KubeconfigYAML), nil
 }
 
 // generateKubeconfigContent generates the kubeconfig YAML content by fetching it from the master node
@@ -1847,95 +1933,124 @@ func filterDropletsByCluster(droplets []godo.Droplet, clusterName string) []godo
 	return filtered
 }
 
-// AddNodeGroup adds a node group to the cluster
-func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup *types.NodeGroupSpec) (*types.NodeGroup, error) {
-	log.Printf("Adding node group %s to cluster %s", nodeGroup.Name, clusterID)
-
-	_, exists := p.clusters[clusterID]
-	if !exists {
-		return nil, fmt.Errorf("cluster not found: %s", clusterID)
-	}
-
-	// In a real implementation, we would create new droplets for the node group
-	// For now, return a simulated node group
+// nodePoolToNodeGroup maps a godo node pool to the provider-agnostic NodeGroup.
+func nodePoolToNodeGroup(np *godo.KubernetesNodePool) *types.NodeGroup {
 	return &types.NodeGroup{
-		Name:         nodeGroup.Name,
-		Replicas:     nodeGroup.Replicas,
-		InstanceType: nodeGroup.InstanceType,
-		Status:       "ready",
+		Name:         np.Name,
+		Replicas:     np.Count,
+		InstanceType: np.Size,
+		Status:       types.NodeGroupStatusReady,
+		Labels:       np.Labels,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
-	}, nil
+	}
 }
 
-// RemoveNodeGroup removes a node group from the cluster
+// findNodePoolByName returns the DOKS node pool whose name matches.
+func (p *Provider) findNodePoolByName(ctx context.Context, clusterID, name string) (*godo.KubernetesNodePool, error) {
+	pools, _, err := p.client.Kubernetes.ListNodePools(ctx, clusterID, &godo.ListOptions{Page: 1, PerPage: 200})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list node pools for cluster %s: %w", clusterID, err)
+	}
+	for _, np := range pools {
+		if np.Name == name {
+			return np, nil
+		}
+	}
+	return nil, fmt.Errorf("node pool %q not found in cluster %s", name, clusterID)
+}
+
+// AddNodeGroup adds a node pool to a managed DOKS cluster.
+func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup *types.NodeGroupSpec) (*types.NodeGroup, error) {
+	log.Printf("Adding node pool %s to DOKS cluster %s", nodeGroup.Name, clusterID)
+
+	size := nodeGroup.InstanceType
+	if size == "" {
+		size = p.config.DropletSize
+	}
+	count := nodeGroup.Replicas
+	if count <= 0 {
+		count = 1
+	}
+
+	req := &godo.KubernetesNodePoolCreateRequest{
+		Name:      nodeGroup.Name,
+		Size:      size,
+		Count:     count,
+		Labels:    nodeGroup.Labels,
+		AutoScale: nodeGroup.AutoScaling.MaxReplicas > 0,
+		MinNodes:  nodeGroup.AutoScaling.MinReplicas,
+		MaxNodes:  nodeGroup.AutoScaling.MaxReplicas,
+	}
+
+	np, _, err := p.client.Kubernetes.CreateNodePool(ctx, clusterID, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add node pool %s to cluster %s: %w", nodeGroup.Name, clusterID, err)
+	}
+
+	log.Printf("Successfully added node pool: %s", nodeGroup.Name)
+	return nodePoolToNodeGroup(np), nil
+}
+
+// RemoveNodeGroup deletes a node pool from a managed DOKS cluster.
 func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) error {
-	log.Printf("Removing node group %s from cluster %s", nodeGroupName, clusterID)
+	log.Printf("Removing node pool %s from DOKS cluster %s", nodeGroupName, clusterID)
 
-	_, exists := p.clusters[clusterID]
-	if !exists {
-		return fmt.Errorf("cluster not found: %s", clusterID)
+	np, err := p.findNodePoolByName(ctx, clusterID, nodeGroupName)
+	if err != nil {
+		return err
+	}
+	if _, err := p.client.Kubernetes.DeleteNodePool(ctx, clusterID, np.ID); err != nil {
+		return fmt.Errorf("failed to delete node pool %s: %w", nodeGroupName, err)
 	}
 
-	// In a real implementation, we would delete the droplets in the node group
-	log.Printf("Successfully removed node group: %s", nodeGroupName)
+	log.Printf("Successfully removed node pool: %s", nodeGroupName)
 	return nil
 }
 
-// ScaleNodeGroup scales a node group
+// ScaleNodeGroup updates the node count of a managed DOKS node pool.
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGroupName string, replicas int) error {
-	log.Printf("Scaling node group %s in cluster %s to %d replicas", nodeGroupName, clusterID, replicas)
+	log.Printf("Scaling node pool %s in DOKS cluster %s to %d nodes", nodeGroupName, clusterID, replicas)
 
-	_, exists := p.clusters[clusterID]
-	if !exists {
-		return fmt.Errorf("cluster not found: %s", clusterID)
+	np, err := p.findNodePoolByName(ctx, clusterID, nodeGroupName)
+	if err != nil {
+		return err
+	}
+	count := replicas
+	req := &godo.KubernetesNodePoolUpdateRequest{Count: &count}
+	if _, _, err := p.client.Kubernetes.UpdateNodePool(ctx, clusterID, np.ID, req); err != nil {
+		return fmt.Errorf("failed to scale node pool %s: %w", nodeGroupName, err)
 	}
 
-	// In a real implementation, we would add or remove droplets to match the desired replica count
-	log.Printf("Successfully scaled node group %s to %d replicas", nodeGroupName, replicas)
+	log.Printf("Successfully scaled node pool %s to %d nodes", nodeGroupName, replicas)
 	return nil
 }
 
-// GetNodeGroup retrieves node group information
+// GetNodeGroup retrieves a node pool from a managed DOKS cluster.
 func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) (*types.NodeGroup, error) {
-	log.Printf("Getting node group %s from cluster %s", nodeGroupName, clusterID)
+	log.Printf("Getting node pool %s from DOKS cluster %s", nodeGroupName, clusterID)
 
-	_, exists := p.clusters[clusterID]
-	if !exists {
-		return nil, fmt.Errorf("cluster not found: %s", clusterID)
+	np, err := p.findNodePoolByName(ctx, clusterID, nodeGroupName)
+	if err != nil {
+		return nil, err
 	}
-
-	// Return simulated node group information
-	return &types.NodeGroup{
-		Name:         nodeGroupName,
-		Replicas:     3,
-		InstanceType: "s-2vcpu-2gb",
-		Status:       "ready",
-		CreatedAt:    time.Now().Add(-1 * time.Hour),
-		UpdatedAt:    time.Now(),
-	}, nil
+	return nodePoolToNodeGroup(np), nil
 }
 
-// ListNodeGroups lists all node groups for a cluster
+// ListNodeGroups lists all node pools for a managed DOKS cluster.
 func (p *Provider) ListNodeGroups(ctx context.Context, clusterID string) ([]*types.NodeGroup, error) {
-	log.Printf("Listing node groups for cluster: %s", clusterID)
+	log.Printf("Listing node pools for DOKS cluster: %s", clusterID)
 
-	_, exists := p.clusters[clusterID]
-	if !exists {
-		return nil, fmt.Errorf("cluster not found: %s", clusterID)
+	pools, _, err := p.client.Kubernetes.ListNodePools(ctx, clusterID, &godo.ListOptions{Page: 1, PerPage: 200})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list node pools for cluster %s: %w", clusterID, err)
 	}
 
-	// Return simulated node groups
-	return []*types.NodeGroup{
-		{
-			Name:         "default-pool",
-			Replicas:     3,
-			InstanceType: "s-2vcpu-2gb",
-			Status:       "ready",
-			CreatedAt:    time.Now().Add(-1 * time.Hour),
-			UpdatedAt:    time.Now(),
-		},
-	}, nil
+	var groups []*types.NodeGroup
+	for _, np := range pools {
+		groups = append(groups, nodePoolToNodeGroup(np))
+	}
+	return groups, nil
 }
 
 // CreateVPC creates a VPC using DigitalOcean API
@@ -2371,57 +2486,40 @@ func (p *Provider) GetStorage(ctx context.Context, storageID string) (*types.Sto
 
 // UpgradeCluster upgrades a cluster using DigitalOcean API
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
-	log.Printf("Upgrading cluster %s to version %s", clusterID, version)
+	log.Printf("Upgrading DOKS cluster %s to version %s", clusterID, version)
 
-	// Since this is manual cluster management, we need to upgrade each component
-	// This is a simplified implementation for demonstration
-
-	// First, get cluster info to understand current state
-	infraMap, err := p.getClusterInfrastructure(ctx, clusterID)
+	// Resolve the requested version to a concrete upgrade slug offered for this
+	// cluster.
+	upgrades, _, err := p.client.Kubernetes.GetUpgrades(ctx, clusterID)
 	if err != nil {
-		return fmt.Errorf("failed to get cluster infrastructure: %w", err)
+		return fmt.Errorf("failed to list available upgrades for cluster %s: %w", clusterID, err)
+	}
+	if len(upgrades) == 0 {
+		return fmt.Errorf("no upgrades available for DOKS cluster %s", clusterID)
 	}
 
-	// Count control plane and worker nodes
-	controlPlaneCount := len(infraMap.MasterNodes)
-	workerCount := len(infraMap.WorkerNodes)
-
-	log.Printf("Found %d control plane nodes and %d worker nodes", controlPlaneCount, workerCount)
-
-	// For manual clusters, upgrade process involves:
-	// 1. Upgrade control plane nodes one by one
-	// 2. Upgrade worker nodes in batches
-	// 3. Update cluster configuration
-
-	upgradeSteps := []string{
-		"drain-nodes",
-		"upgrade-binaries",
-		"restart-services",
-		"uncordon-nodes",
-		"verify-health",
-	}
-
-	for i, step := range upgradeSteps {
-		log.Printf("Upgrade step %d/%d: %s", i+1, len(upgradeSteps), step)
-
-		// Simulate upgrade step processing
-		time.Sleep(2 * time.Second)
-
-		switch step {
-		case "drain-nodes":
-			log.Printf("Draining nodes for safe upgrade")
-		case "upgrade-binaries":
-			log.Printf("Upgrading Kubernetes binaries to version %s", version)
-		case "restart-services":
-			log.Printf("Restarting Kubernetes services")
-		case "uncordon-nodes":
-			log.Printf("Uncordoning nodes after upgrade")
-		case "verify-health":
-			log.Printf("Verifying cluster health post-upgrade")
+	target := strings.TrimPrefix(version, "v")
+	versionSlug := upgrades[0].Slug // default to the latest offered upgrade
+	if target != "" {
+		matched := false
+		for _, u := range upgrades {
+			if u.Slug == target || u.KubernetesVersion == target || strings.HasPrefix(u.Slug, target) {
+				versionSlug = u.Slug
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf("version %q is not an available upgrade target for cluster %s", version, clusterID)
 		}
 	}
 
-	log.Printf("Successfully upgraded cluster %s to version %s", clusterID, version)
+	req := &godo.KubernetesClusterUpgradeRequest{VersionSlug: versionSlug}
+	if _, err := p.client.Kubernetes.Upgrade(ctx, clusterID, req); err != nil {
+		return fmt.Errorf("failed to upgrade DOKS cluster %s to %s: %w", clusterID, versionSlug, err)
+	}
+
+	log.Printf("Successfully initiated upgrade of DOKS cluster %s to version %s", clusterID, versionSlug)
 	return nil
 }
 
@@ -2590,77 +2688,109 @@ func (p *Provider) GetClusterMetrics(ctx context.Context, clusterID string) (*ty
 	}, nil
 }
 
-// InstallAddon installs an addon using kubectl or DigitalOcean 1-Click Apps
+// InstallAddon installs an addon using kubectl/helm against the cluster kubeconfig.
 func (p *Provider) InstallAddon(ctx context.Context, clusterID string, addonName string, config map[string]interface{}) error {
 	log.Printf("Installing addon %s on DigitalOcean cluster %s", addonName, clusterID)
 
-	// For DigitalOcean manual clusters, addons are typically installed via kubectl
-	// This simulates the addon installation process
+	kubeconfigPath, cleanup, err := p.addonKubeconfig(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to obtain kubeconfig for addon install: %w", err)
+	}
+	defer cleanup()
 
 	switch addonName {
 	case "do-csi":
-		log.Printf("DigitalOcean CSI driver is typically configured during cluster creation")
-		return nil
+		// CSI driver is configured at cluster creation, not a kubectl addon.
+		return fmt.Errorf("addon %q is configured at cluster creation time and cannot be installed via kubectl", addonName)
+	case "coredns", "kube-proxy":
+		return fmt.Errorf("addon %q is a built-in Kubernetes component and is not managed as an installable addon", addonName)
 	case "cilium":
-		log.Printf("Simulating Cilium CNI installation via kubectl")
-		time.Sleep(3 * time.Second)
-		return nil
-	case "coredns":
-		log.Printf("CoreDNS is typically installed by default in Kubernetes clusters")
-		return nil
-	case "kube-proxy":
-		log.Printf("kube-proxy is typically installed by default in Kubernetes clusters")
-		return nil
-	case "ingress-nginx":
-		log.Printf("Simulating ingress-nginx installation via kubectl")
-		time.Sleep(3 * time.Second)
-		return nil
+		// Cilium is the platform CNI/dataplane and the Gateway API implementation.
+		return provider.InstallCiliumAddon(ctx, kubeconfigPath, config)
+	case "metrics-server":
+		return provider.InstallMetricsServerAddon(ctx, kubeconfigPath)
 	case "cert-manager":
-		log.Printf("Simulating cert-manager installation via kubectl")
-		time.Sleep(2 * time.Second)
-		return nil
+		return provider.InstallCertManagerAddon(ctx, kubeconfigPath)
+	case "ingress", "gateway", "gateway-api", "cilium-gateway":
+		// NOTE: This platform uses the Cilium Gateway API as its default ingress,
+		// NOT ingress-nginx. This installs the Gateway API CRDs served by Cilium.
+		return provider.InstallGatewayAPIAddon(ctx, kubeconfigPath)
+	case "ingress-nginx":
+		// ingress-nginx is NOT the platform default (Cilium Gateway API is), but
+		// remains available as an explicit opt-in generic addon.
+		return provider.InstallIngressNginxAddon(ctx, kubeconfigPath)
 	case "monitoring":
-		log.Printf("Simulating monitoring stack (Prometheus + Grafana) installation")
-		time.Sleep(4 * time.Second)
-		return nil
+		// kube-prometheus-stack (Prometheus + Grafana) via Helm.
+		return provider.InstallHelmAddon(ctx, kubeconfigPath, provider.HelmAddonOptions{
+			ReleaseName: "kube-prometheus-stack",
+			RepoName:    "prometheus-community",
+			RepoURL:     "https://prometheus-community.github.io/helm-charts",
+			Chart:       "prometheus-community/kube-prometheus-stack",
+			Namespace:   "monitoring",
+			Values:      helmValuesFromConfig(config),
+		})
+	case "helm-chart":
+		// Generic Helm chart addon path: caller supplies repo/chart/version/namespace/values.
+		opts, err := provider.HelmOptionsFromConfig("custom", config)
+		if err != nil {
+			return err
+		}
+		return provider.InstallHelmAddon(ctx, kubeconfigPath, opts)
 	default:
 		return fmt.Errorf("unsupported addon for DigitalOcean: %s", addonName)
 	}
 }
 
-// UninstallAddon uninstalls an addon using kubectl
+// UninstallAddon uninstalls an addon using kubectl/helm against the cluster kubeconfig.
 func (p *Provider) UninstallAddon(ctx context.Context, clusterID string, addonName string) error {
 	log.Printf("Uninstalling addon %s from DigitalOcean cluster %s", addonName, clusterID)
 
-	// For DigitalOcean manual clusters, addons are typically uninstalled via kubectl
-	// This simulates the addon uninstallation process
+	kubeconfigPath, cleanup, err := p.addonKubeconfig(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to obtain kubeconfig for addon uninstall: %w", err)
+	}
+	defer cleanup()
 
 	switch addonName {
 	case "do-csi":
 		return fmt.Errorf("DigitalOcean CSI driver is a critical component and should not be uninstalled")
+	case "coredns", "kube-proxy":
+		return fmt.Errorf("addon %q is a critical system component and should not be uninstalled", addonName)
 	case "cilium":
-		log.Printf("Simulating Cilium CNI uninstallation via kubectl")
-		time.Sleep(2 * time.Second)
-		return nil
-	case "coredns":
-		return fmt.Errorf("CoreDNS is a critical system component and should not be uninstalled")
-	case "kube-proxy":
-		return fmt.Errorf("kube-proxy is a critical system component and should not be uninstalled")
-	case "ingress-nginx":
-		log.Printf("Simulating ingress-nginx uninstallation via kubectl")
-		time.Sleep(2 * time.Second)
-		return nil
+		return provider.UninstallHelmAddon(ctx, kubeconfigPath, "cilium", "kube-system")
+	case "metrics-server":
+		return provider.UninstallMetricsServerAddon(ctx, kubeconfigPath)
 	case "cert-manager":
-		log.Printf("Simulating cert-manager uninstallation via kubectl")
-		time.Sleep(2 * time.Second)
-		return nil
+		return provider.UninstallCertManagerAddon(ctx, kubeconfigPath)
+	case "ingress", "gateway", "gateway-api", "cilium-gateway":
+		return provider.UninstallGatewayAPIAddon(ctx, kubeconfigPath)
+	case "ingress-nginx":
+		return provider.UninstallIngressNginxAddon(ctx, kubeconfigPath)
 	case "monitoring":
-		log.Printf("Simulating monitoring stack uninstallation")
-		time.Sleep(3 * time.Second)
-		return nil
+		return provider.UninstallHelmAddon(ctx, kubeconfigPath, "kube-prometheus-stack", "monitoring")
+	case "helm-chart":
+		return fmt.Errorf("uninstalling a generic helm-chart addon requires the release name and namespace")
 	default:
 		return fmt.Errorf("unsupported addon for DigitalOcean: %s", addonName)
 	}
+}
+
+// addonKubeconfig fetches the cluster kubeconfig and writes it to a temp file,
+// returning the path and a cleanup func used to target addon installs.
+func (p *Provider) addonKubeconfig(ctx context.Context, clusterID string) (string, func(), error) {
+	kubeconfig, err := p.GetKubeconfig(ctx, clusterID)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("failed to get kubeconfig: %w", err)
+	}
+	return provider.WriteKubeconfigTempFile(kubeconfig)
+}
+
+// helmValuesFromConfig extracts a `values` map from an addon config, if present.
+func helmValuesFromConfig(config map[string]interface{}) map[string]interface{} {
+	if vals, ok := config["values"].(map[string]interface{}); ok {
+		return vals
+	}
+	return nil
 }
 
 // ListAddons lists installed addons

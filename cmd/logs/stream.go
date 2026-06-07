@@ -1,6 +1,9 @@
 package logs
 
 import (
+	"fmt"
+
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
@@ -21,13 +24,27 @@ Examples:
 func runStream(cmd *cobra.Command, args []string) error {
 	logger.Info("📡 Streaming logs in real-time...")
 
-	// TODO: Implement real-time log streaming
-	// This should:
-	// - Connect to log aggregation system (Loki, ELK, etc.)
-	// - Stream logs in real-time
-	// - Apply filters and search criteria
-	// - Handle graceful shutdown
+	clientset, err := getClientset()
+	if err != nil {
+		return clusterError(err)
+	}
 
-	logger.Info("✅ Log streaming started")
+	ctx, cancel := signalContext()
+	defer cancel()
+
+	// Default to all core components when no specific component is requested.
+	name := component
+	if name == "" {
+		name = "argocd"
+		fmt.Println(helpers.CreateMuted("No --component specified; streaming argocd. Use --component to choose another."))
+	}
+
+	t := resolveTarget(name, namespace)
+	fmt.Println(helpers.CreateMuted("Streaming logs (press Ctrl-C to stop)..."))
+	if _, err := streamPodLogs(ctx, clientset, t, int64(lines), true, search); err != nil {
+		return err
+	}
+
+	logger.Info("✅ Log streaming stopped")
 	return nil
 }

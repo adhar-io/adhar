@@ -1,3 +1,6 @@
+// Package k8s provides Kubernetes client construction and helpers for the Adhar
+// platform, including typed/dynamic/controller-runtime clients, scheme setup,
+// YAML-to-object deserialization, manifest customization, and idempotent apply.
 package k8s
 
 import (
@@ -18,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// GetKubeClient returns a controller-runtime client built from the local kubeconfig.
 func GetKubeClient() (client.Client, error) {
 	conf, err := clientcmd.BuildConfigFromFlags("", filepath.Join(homedir.HomeDir(), ".kube", "config"))
 	if err != nil {
@@ -53,6 +57,8 @@ func GetKubeConfig() (*rest.Config, error) {
 	return clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
 }
 
+// EnsureObject creates the object if it does not already exist in the cluster,
+// using the provided namespace (falling back to the object's own namespace).
 func EnsureObject(ctx context.Context, kubeClient client.Client, obj client.Object, namespace string) error {
 	curObj := &unstructured.Unstructured{}
 	curObj.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
@@ -87,6 +93,7 @@ func EnsureObject(ctx context.Context, kubeClient client.Client, obj client.Obje
 	return nil
 }
 
+// EnsureNamespace creates the named namespace if it does not already exist.
 func EnsureNamespace(ctx context.Context, kubeClient client.Client, name string) error {
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{

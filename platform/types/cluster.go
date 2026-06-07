@@ -1,3 +1,6 @@
+// Package types defines the provider-agnostic data structures used across the
+// Adhar platform to describe Kubernetes clusters, node groups, networking,
+// security, addons, and related infrastructure resources.
 package types
 
 import (

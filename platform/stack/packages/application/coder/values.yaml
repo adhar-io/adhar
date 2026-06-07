@@ -1,0 +1,13 @@
+# Coder values for Adhar. Ingress disabled -- routing is handled by the Cilium
+# Gateway API (adhar-gateway) via manifests/httproute.yaml. Coder is served under
+# the /coder sub-path on adhar.localtest.me.
+coder:
+  ingress:
+    enable: false
+  env:
+    - name: CODER_ACCESS_URL
+      value: "https://adhar.localtest.me:8443/coder"
+    - name: CODER_HTTP_ADDRESS
+      value: "0.0.0.0:8080"
+  service:
+    type: ClusterIP

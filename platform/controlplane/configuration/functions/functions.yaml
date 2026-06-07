@@ -1,0 +1,47 @@
+---
+# Composition Functions used across the Adhar control plane.
+#
+# Every pipeline composition references one or more of these by metadata.name.
+# Names are canonical and must match the functionRef.name in compositions:
+#   - function-kcl                 KCL-based resource generation (primary)
+#   - function-go-templating       Go template-based generation
+#   - function-patch-and-transform Declarative patch & transform
+#   - function-auto-ready          Derive XR Ready from composed resources
+#   - function-python              Python logic for day-2 Operations
+#
+# apiVersion pkg.crossplane.io/v1 is the stable Function API in Crossplane v2.
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-kcl
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-kcl:v0.12.1
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-go-templating
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-go-templating:v0.12.1
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-patch-and-transform
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform:v0.10.7
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-auto-ready
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-auto-ready:v0.6.5
+---
+# Powers day-2 Operations (Operation/CronOperation/WatchOperation) logic.
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-python
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-python:v0.4.0

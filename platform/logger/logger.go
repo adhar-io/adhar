@@ -1,3 +1,6 @@
+// Package logger provides the structured, leveled logger used across the Adhar
+// platform, including text/JSON formatters, log rotation, contextual fields,
+// and domain-specific helpers for cluster, provider, network, and security logs.
 package logger
 
 import (

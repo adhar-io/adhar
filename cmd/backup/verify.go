@@ -1,109 +1,71 @@
 package backup
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"strings"
+	"time"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var (
-	verifyCmd = &cobra.Command{
-		Use:   "verify [backup-name]",
-		Short: "Verify backup integrity",
-		Long:  "Verify the integrity and completeness of a backup",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runVerifyBackup,
-	}
+var verifyCmd = &cobra.Command{
+	Use:   "verify [backup-name]",
+	Short: "Verify a Velero backup's status",
+	Long: `Verify a Velero Backup by inspecting its phase and error/warning counts.
+A non-Completed phase results in a non-zero exit so this is CI-friendly.
 
-	// Verify-specific flags
-	verifyChecksum bool
-	verifySize     bool
-	verifyContent  bool
-)
-
-func init() {
-	verifyCmd.Flags().BoolVarP(&verifyChecksum, "checksum", "c", true, "Verify backup checksum")
-	verifyCmd.Flags().BoolVarP(&verifySize, "size", "s", true, "Verify backup size")
-	verifyCmd.Flags().BoolVarP(&verifyContent, "content", "", false, "Verify backup content structure")
+Examples:
+  adhar backup verify my-backup`,
+	Args: cobra.ExactArgs(1),
+	RunE: runVerifyBackup,
 }
 
 func runVerifyBackup(cmd *cobra.Command, args []string) error {
-	backupName := args[0]
-	backupPath := filepath.Join(backupDir, backupName)
+	name := args[0]
+	fmt.Printf("🔍 Verifying backup: %s\n", name)
 
-	fmt.Printf("🔍 Verifying backup: %s\n", backupName)
-
-	// Check if backup exists
-	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-		return fmt.Errorf("backup not found: %s", backupName)
-	}
-
-	// Get backup info
-	info, err := os.Stat(backupPath)
+	dyn, err := getDynamicClient()
 	if err != nil {
-		return fmt.Errorf("failed to get backup info: %w", err)
+		return unreachable(err)
 	}
 
-	fmt.Printf("📁 Backup path: %s\n", backupPath)
-	fmt.Printf("📏 Size: %s\n", formatSize(info.Size()))
-	fmt.Printf("🕒 Modified: %s\n", info.ModTime().Format("2006-01-02 15:04:05"))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// Verify checksum if enabled
-	if verifyChecksum {
-		if err := verifyBackupChecksum(backupPath); err != nil {
-			fmt.Printf("❌ Checksum verification failed: %v\n", err)
-		} else {
-			fmt.Println("✅ Checksum verification passed")
+	obj, err := dyn.Resource(backupGVR).Namespace(veleroNamespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if crdMissing(err) {
+			return fmt.Errorf("Velero Backup CRD not installed (velero not present in the cluster)")
 		}
+		return fmt.Errorf("failed to get backup %q: %w", name, err)
 	}
 
-	// Verify size if enabled
-	if verifySize {
-		if err := verifyBackupSize(backupPath); err != nil {
-			fmt.Printf("❌ Size verification failed: %v\n", err)
-		} else {
-			fmt.Println("✅ Size verification passed")
-		}
+	phase := nestedString(obj.Object, "status", "phase")
+	errCount := countNested(obj.Object, "status", "errors")
+	warnCount := countNested(obj.Object, "status", "warnings")
+	started := nestedString(obj.Object, "status", "startTimestamp")
+	completed := nestedString(obj.Object, "status", "completionTimestamp")
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("📦 Name:      %s\n", name))
+	b.WriteString(fmt.Sprintf("📊 Phase:     %s\n", phaseIcon(phase)))
+	b.WriteString(fmt.Sprintf("⚠️  Warnings:  %d\n", warnCount))
+	b.WriteString(fmt.Sprintf("❌ Errors:    %d\n", errCount))
+	if started != "" {
+		b.WriteString(fmt.Sprintf("🕐 Started:   %s\n", started))
 	}
-
-	// Verify content if enabled
-	if verifyContent {
-		if err := verifyBackupContent(backupPath); err != nil {
-			fmt.Printf("❌ Content verification failed: %v\n", err)
-		} else {
-			fmt.Println("✅ Content verification passed")
-		}
+	if completed != "" {
+		b.WriteString(fmt.Sprintf("🏁 Completed: %s", completed))
 	}
+	fmt.Println(helpers.BorderStyle.Width(70).Render(b.String()))
 
-	fmt.Println("\n🎯 Backup verification completed!")
-	return nil
-}
-
-func verifyBackupChecksum(backupPath string) error {
-	// TODO: Implement actual checksum verification
-	// This would typically involve:
-	// 1. Reading the backup file
-	// 2. Calculating checksum (MD5, SHA256, etc.)
-	// 3. Comparing with stored checksum
-	return nil
-}
-
-func verifyBackupSize(backupPath string) error {
-	// TODO: Implement actual size verification
-	// This would typically involve:
-	// 1. Checking if file size is reasonable
-	// 2. Comparing with expected size if available
-	// 3. Checking for corruption indicators
-	return nil
-}
-
-func verifyBackupContent(backupPath string) error {
-	// TODO: Implement actual content verification
-	// This would typically involve:
-	// 1. Checking file format validity
-	// 2. Verifying internal structure
-	// 3. Testing extraction capability
+	if phase != "Completed" {
+		return fmt.Errorf("backup %q is not Completed (phase: %s)", name, phase)
+	}
+	fmt.Println(helpers.CreateSuccess("✅ Backup verified: phase Completed"))
 	return nil
 }

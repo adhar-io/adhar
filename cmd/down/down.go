@@ -272,115 +272,82 @@ func (m downModel) View() string {
 	return fmt.Sprintf("\n%s\n", mainContent)
 }
 
-// send is a helper function to send messages to the Bubble Tea program
-func send(msg tea.Msg) tea.Cmd {
-	return func() tea.Msg {
-		return msg
-	}
-}
-
 // startClusterTeardown starts the asynchronous operation to tear down the cluster
 func startClusterTeardown() tea.Cmd {
 	return func() tea.Msg {
-		// Check if the Kind cluster exists
-		send(logger.StepMsg("Checking for Kind cluster"))
-		send(logger.StatusMsg("looking for cluster named '" + globals.DefaultClusterName + "'"))
-
+		// Step 1: Check if the Kind cluster exists
 		exists, err := kindClusterExists()
 		if err != nil {
 			return logger.ErrorMsg{Err: fmt.Errorf("failed to check if cluster exists: %w", err)}
 		}
-
 		if !exists {
-			return logger.ErrorMsg{Err: fmt.Errorf("cluster not found")}
+			return logger.ErrorMsg{Err: fmt.Errorf("no cluster named '%s' exists. Nothing to tear down", globals.DefaultClusterName)}
 		}
 
-		// Get active resources before deleting for verbose output
-		if verboseDown {
-			send(logger.StepMsg("Getting cluster resources"))
-			send(logger.StatusMsg("collecting information"))
-
-			// Run kubectl to get resources
-			cmd := exec.Command("kubectl", "get", "all", "--all-namespaces")
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				// Send a warning if kubectl fails, but don't stop the teardown
-				send(logger.ExtraOutputMsg(fmt.Sprintf("Warning: Failed to get resources before deletion: %s\nOutput:\n%s", err, string(output))))
-			} else {
-				send(logger.ExtraOutputMsg(fmt.Sprintf("Resources before deletion:\n%s", string(output))))
-			}
-		}
-
-		// Delete the Kind cluster
-		send(logger.StepMsg("Deleting Kind cluster"))
-		send(logger.StatusMsg("removing '" + globals.DefaultClusterName + "'"))
-
-		// Try to delete both possible cluster names (for backward compatibility)
+		// Step 2: Delete the Kind cluster (with timeout)
 		clusterNames := []string{globals.DefaultClusterName, "adhar-local"}
-		var deleteOutput string
+		deleted := false
 
 		for _, clusterName := range clusterNames {
-			deleteArgs := []string{"delete", "cluster", "--name", clusterName}
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			deleteCmd := exec.CommandContext(ctx, "kind", deleteArgs...)
+			deleteCmd := exec.CommandContext(ctx, "kind", "delete", "cluster", "--name", clusterName)
 			output, err := deleteCmd.CombinedOutput()
 			cancel()
 
 			if err == nil {
-				deleteOutput = string(output)
+				_ = output
+				deleted = true
 				break
 			}
-			// If kind delete fails, also try removing leftover docker containers
-			containerName := clusterName + "-control-plane"
-			_ = exec.Command("docker", "rm", "-f", containerName).Run()
+			// Fallback: force-remove docker containers for this cluster
+			_ = exec.Command("docker", "rm", "-f", clusterName+"-control-plane").Run()
+			_ = exec.Command("docker", "rm", "-f", clusterName+"-worker").Run()
+			_ = exec.Command("docker", "rm", "-f", clusterName+"-worker2").Run()
 		}
 
-		// Also clean up the kind docker network if it exists
+		// Step 3: Clean up docker network
 		_ = exec.Command("docker", "network", "rm", "kind").Run()
 
-		if deleteOutput == "" {
+		if !deleted {
+			// Check if containers were at least removed
+			out, _ := exec.Command("docker", "ps", "-a", "--filter", "name=adhar", "--format", "{{.Names}}").CombinedOutput()
+			if strings.TrimSpace(string(out)) == "" {
+				deleted = true // Containers gone via fallback cleanup
+			}
+		}
+
+		if !deleted {
 			return logger.ErrorMsg{Err: fmt.Errorf("failed to delete cluster. Tried: %v", clusterNames)}
 		}
 
-		// Add the command output for verbose mode on success
-		if verboseDown {
-			send(logger.ExtraOutputMsg(deleteOutput))
-		}
-
-		// Remove any cluster-related files
+		// Step 4: Clean up leftover files
 		cleanupFiles()
 
 		return logger.DoneMsg{}
 	}
 }
 
-// cleanupFiles removes any leftover files related to the cluster
+// cleanupFiles removes any leftover kubeconfig files generated during 'up'
 func cleanupFiles() {
-	send(logger.StepMsg("Cleaning up files"))
-	send(logger.StatusMsg("removing leftover files"))
+	patterns := []string{"*-kubeconfig.yaml"}
 
-	// Try to find and remove any kubeconfig files generated during 'up'
-	home, err := os.UserHomeDir()
-	if err == nil {
-		files, err := filepath.Glob(filepath.Join(home, "*-kubeconfig.yaml"))
-		if err == nil {
-			for _, file := range files {
-				if verboseDown {
-					send(logger.ExtraOutputMsg(fmt.Sprintf("Removing file: %s", file)))
+	// Search home directory
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, pattern := range patterns {
+			if files, err := filepath.Glob(filepath.Join(home, pattern)); err == nil {
+				for _, file := range files {
+					os.Remove(file)
 				}
-				os.Remove(file)
 			}
 		}
 	}
 
-	// Current directory kubeconfig files
-	files, err := filepath.Glob("*-kubeconfig.yaml")
-	if err == nil {
-		for _, file := range files {
-			if verboseDown {
-				send(logger.ExtraOutputMsg(fmt.Sprintf("Removing file: %s", file)))
+	// Search current directory
+	for _, pattern := range patterns {
+		if files, err := filepath.Glob(pattern); err == nil {
+			for _, file := range files {
+				os.Remove(file)
 			}
-			os.Remove(file)
 		}
 	}
 }

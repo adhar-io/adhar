@@ -631,7 +631,7 @@ func (p *Provider) UninstallAddon(ctx context.Context, clusterID string, addonNa
 
 // ListAddons lists installed addons
 func (p *Provider) ListAddons(ctx context.Context, clusterID string) ([]string, error) {
-	return []string{"cilium", "metrics-server", "ingress-nginx"}, nil
+	return []string{"cilium", "metrics-server", "gateway"}, nil
 }
 
 // GetClusterCost returns cluster cost (free for Kind)
@@ -758,8 +758,9 @@ func generateKindConfig(spec *types.ClusterSpec) map[string]interface{} {
 			"role": "control-plane",
 		}
 		if i == 0 {
-			// First control plane node gets extra port mappings
-			// Map host ports 80/443 to nginx NodePorts 30080/30443
+			// First control plane node gets extra port mappings.
+			// Map host ports 80/443 to the Cilium Gateway NodePorts 30080/30443
+			// (pinned by the AdharPlatform controller's gateway reconciler).
 			httpPort := 80
 			httpsPort := 443
 

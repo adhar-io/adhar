@@ -1,0 +1,31 @@
+# Trino coordinator/UI routed through the Cilium Gateway (adhar-gateway). TLS
+# terminates at the Gateway (adhar-cert). Replaces any nginx Ingress. The /trino
+# prefix is stripped before forwarding to the trino service:8080.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: trino
+  namespace: trino
+  labels:
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /trino
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: trino
+          port: 8080

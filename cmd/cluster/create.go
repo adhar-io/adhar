@@ -23,6 +23,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 	pfactory "adhar-io/adhar/platform/providers"
 	ptypes "adhar-io/adhar/platform/types"
@@ -41,7 +42,7 @@ var createCmd = &cobra.Command{
 func init() {
 	createCmd.Flags().StringP("provider", "p", "kind", "Cloud provider to use")
 	createCmd.Flags().StringP("region", "r", "local", "Provider region")
-	createCmd.Flags().StringP("version", "", "v1.29.0", "Kubernetes version")
+	createCmd.Flags().StringP("version", "", globals.DefaultKubernetesVersion, "Kubernetes version")
 	createCmd.Flags().IntP("control-plane-replicas", "", 1, "Number of control plane nodes")
 	createCmd.Flags().IntP("worker-replicas", "", 3, "Number of worker nodes")
 	createCmd.Flags().StringP("instance-type", "", "m5.large", "Instance type for nodes")

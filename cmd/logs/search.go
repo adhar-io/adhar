@@ -1,6 +1,9 @@
 package logs
 
 import (
+	"fmt"
+
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
@@ -23,13 +26,50 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	query := args[0]
 	logger.Info("🔍 Searching logs for: " + query)
 
-	// TODO: Implement log search functionality
-	// This should:
-	// - Search across all log sources
-	// - Support regex and text search
-	// - Apply filters (component, namespace, time, level)
-	// - Display results with context
+	clientset, err := getClientset()
+	if err != nil {
+		return clusterError(err)
+	}
 
+	ctx, cancel := signalContext()
+	defer cancel()
+
+	total := 0
+
+	if component != "" {
+		// Search a single component/app.
+		t := resolveTarget(component, namespace)
+		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📦 "+component))
+		n, err := streamPodLogs(ctx, clientset, t, int64(lines), false, query)
+		if err != nil {
+			return err
+		}
+		total += n
+	} else if namespace != "" {
+		// Search every pod in a namespace.
+		t := componentTarget{Namespace: namespace, Selector: ""}
+		n, err := streamPodLogs(ctx, clientset, t, int64(lines), false, query)
+		if err != nil {
+			return err
+		}
+		total += n
+	} else {
+		// Search across all core components.
+		for name := range knownComponents {
+			if name == "envoy" {
+				continue
+			}
+			t := resolveTarget(name, namespace)
+			n, err := streamPodLogs(ctx, clientset, t, int64(lines), false, query)
+			if err != nil {
+				fmt.Println(helpers.CreateMuted("  " + err.Error()))
+				continue
+			}
+			total += n
+		}
+	}
+
+	fmt.Println(helpers.CreateMuted(fmt.Sprintf("\n%d matching line(s) found.", total)))
 	logger.Info("✅ Log search completed")
 	return nil
 }

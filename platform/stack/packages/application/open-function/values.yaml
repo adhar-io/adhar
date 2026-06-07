@@ -1,10 +1,8 @@
-# Kargo Helm Chart Values
-
-api:
-  ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+# OpenFunction Helm Chart Values
+#
+# Gateway API only -- OpenFunction's control plane exposes no Ingress and has no
+# web UI; nothing to disable and no HTTPRoute required. Per-function networking
+# is created by OpenFunction at function-deploy time.
+#
+# Dependencies (Knative, Dapr, Keda, etc.) are managed as separate Adhar packages,
+# so the chart's bundled dependency installers are left at their defaults.

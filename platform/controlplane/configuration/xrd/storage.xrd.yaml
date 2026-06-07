@@ -1,16 +1,14 @@
 ---
-apiVersion: apiextensions.crossplane.io/v1
+apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
   name: compositestorages.platform.adhar.io
 spec:
   group: platform.adhar.io
+  scope: Namespaced
   names:
     kind: CompositeStorage
     plural: compositestorages
-  claimNames:
-    kind: Storage
-    plural: storages
   versions:
   - name: v1alpha1
     served: true

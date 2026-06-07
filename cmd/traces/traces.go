@@ -46,12 +46,15 @@ Examples:
 
 var (
 	// Traces command flags
-	traceID   string
-	service   string
-	operation string
-	timeout   string
-	output    string
-	detailed  bool
+	traceID    string
+	service    string
+	operation  string
+	timeout    string
+	output     string
+	detailed   bool
+	tempoURL   string
+	traceLimit int
+	tags       string
 )
 
 func init() {
@@ -62,6 +65,11 @@ func init() {
 	TracesCmd.Flags().StringVarP(&timeout, "timeout", "m", "30s", "Operation timeout")
 	TracesCmd.Flags().StringVarP(&output, "output", "f", "", "Output format (table, json, yaml)")
 	TracesCmd.Flags().BoolVarP(&detailed, "detailed", "d", false, "Show detailed information")
+
+	// Tempo endpoint and search options (shared by subcommands).
+	TracesCmd.PersistentFlags().StringVar(&tempoURL, "tempo-url", defaultTempoURL, "Tempo HTTP API base URL")
+	TracesCmd.PersistentFlags().IntVarP(&traceLimit, "limit", "l", 20, "Maximum number of traces to return")
+	TracesCmd.PersistentFlags().StringVar(&tags, "tags", "", "Additional TraceQL tag filters (e.g. 'http.status_code=500')")
 
 	// Add subcommands
 	TracesCmd.AddCommand(listCmd)

@@ -1,3 +1,6 @@
+// Package webhooks implements Kubernetes admission webhook validators for the
+// platform's Crossplane composite resources (clusters, databases, networks, and
+// applications), enforcing required fields and provider-specific constraints.
 package webhooks
 
 import (
@@ -17,7 +20,7 @@ type ClusterValidator struct {
 	decoder admission.Decoder
 }
 
-// ValidateCluster validates cluster specifications
+// Handle validates a cluster composite resource admission request.
 func (v *ClusterValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	cluster := &unstructured.Unstructured{}
 
@@ -132,7 +135,7 @@ type DatabaseValidator struct {
 	decoder admission.Decoder
 }
 
-// ValidateDatabase validates database specifications
+// Handle validates a database composite resource admission request.
 func (v *DatabaseValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	database := &unstructured.Unstructured{}
 
@@ -199,7 +202,7 @@ type NetworkValidator struct {
 	decoder admission.Decoder
 }
 
-// ValidateNetwork validates network specifications
+// Handle validates a network composite resource admission request.
 func (v *NetworkValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	network := &unstructured.Unstructured{}
 
@@ -289,7 +292,7 @@ type ApplicationValidator struct {
 	decoder admission.Decoder
 }
 
-// ValidateApplication validates application specifications
+// Handle validates an application composite resource admission request.
 func (v *ApplicationValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	app := &unstructured.Unstructured{}
 
@@ -393,16 +396,19 @@ func (v *ClusterValidator) InjectDecoder(d admission.Decoder) error {
 	return nil
 }
 
+// InjectDecoder injects the admission decoder into the validator.
 func (v *DatabaseValidator) InjectDecoder(d admission.Decoder) error {
 	v.decoder = d
 	return nil
 }
 
+// InjectDecoder injects the admission decoder into the validator.
 func (v *NetworkValidator) InjectDecoder(d admission.Decoder) error {
 	v.decoder = d
 	return nil
 }
 
+// InjectDecoder injects the admission decoder into the validator.
 func (v *ApplicationValidator) InjectDecoder(d admission.Decoder) error {
 	v.decoder = d
 	return nil

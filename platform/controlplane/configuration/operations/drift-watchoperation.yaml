@@ -1,0 +1,77 @@
+---
+# ConfigMap drift detection (day-2 Operation).
+#
+# Watches every ConfigMap in adhar-system labeled adhar.io/managed=true. Any
+# create/update/delete of a matching ConfigMap triggers a one-shot Operation
+# whose pipeline reads the watched resource (injected under the requirement name
+# ops.crossplane.io/watched-resource) and records an observation of its current
+# state via rsp.output. This is a minimal, read-only drift recorder that surfaces
+# the resourceVersion/data keys at change time; remediation logic can be layered
+# on by extending the operate() function.
+#
+# Requires the core --enable-operations flag (see hack/crossplane/values*.yaml).
+apiVersion: ops.crossplane.io/v1alpha1
+kind: WatchOperation
+metadata:
+  name: adhar-configmap-drift
+  labels:
+    feature: drift
+    provider: kubernetes
+spec:
+  watch:
+    apiVersion: v1
+    kind: ConfigMap
+    namespace: adhar-system
+    matchLabels:
+      adhar.io/managed: "true"
+  # Don't pile up concurrent runs for the same churning ConfigMap.
+  concurrencyPolicy: Forbid
+  successfulHistoryLimit: 10
+  failedHistoryLimit: 5
+  operationTemplate:
+    metadata:
+      labels:
+        feature: drift
+    spec:
+      mode: Pipeline
+      pipeline:
+        - step: record-configmap-drift
+          functionRef:
+            name: function-python
+          input:
+            apiVersion: python.fn.crossplane.io/v1beta1
+            kind: Script
+            script: |
+              import datetime
+
+              from crossplane.function import request, response
+
+
+              def operate(req, rsp):
+                  """Record the state of the ConfigMap that triggered this run."""
+                  watched = request.get_required_resource(
+                      req, "ops.crossplane.io/watched-resource"
+                  )
+                  if not watched:
+                      response.set_output(
+                          rsp, {"error": "no watched resource present"}
+                      )
+                      return
+
+                  meta = watched.get("metadata", {})
+                  data = watched.get("data", {}) or {}
+                  now = datetime.datetime.now(
+                      datetime.timezone.utc
+                  ).isoformat()
+
+                  response.set_output(rsp, {
+                      "observedAt": now,
+                      "namespace": meta.get("namespace", "adhar-system"),
+                      "name": meta.get("name", "<unknown>"),
+                      "resourceVersion": meta.get("resourceVersion", ""),
+                      "dataKeys": sorted(data.keys()),
+                      "message": (
+                          "Detected change on managed ConfigMap "
+                          f"{meta.get('namespace')}/{meta.get('name')}"
+                      ),
+                  })

@@ -254,68 +254,189 @@ func (p *Provider) ValidatePermissions(ctx context.Context) error {
 }
 
 func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
-	log.Printf("Creating Civo cluster: %s in region %s", spec.Name, p.config.Region)
+	log.Printf("Creating managed Civo Kubernetes cluster: %s in region %s", spec.Name, p.config.Region)
 
 	if err := p.validateClusterSpec(spec); err != nil {
 		return nil, fmt.Errorf("invalid cluster spec: %w", err)
 	}
 
-	infrastructure, err := p.createClusterInfrastructure(ctx, spec)
+	// Resolve the requested Kubernetes version to a concrete Civo version.
+	version, err := p.resolveCivoVersion(spec.Version)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create cluster infrastructure: %w", err)
+		return nil, fmt.Errorf("failed to resolve Civo Kubernetes version: %w", err)
 	}
 
-	masterNode := infrastructure.MasterNodes[0]
-	clusterID := fmt.Sprintf("civo-%s", spec.Name)
+	// Build node pools from the requested node groups, defaulting to the
+	// provider's configured size/count when none are supplied.
+	pools := p.buildCivoPools(spec)
+	targetNodes := 0
+	for _, pool := range pools {
+		targetNodes += pool.Count
+	}
 
-	log.Printf("Waiting for cluster %s to become ready...", spec.Name)
-	kubeconfig, err := p.waitForClusterReady(ctx, masterNode.PublicIP, masterNode.PrivateKey)
+	tags := strings.Join(append([]string{"adhar-cluster", spec.Name}, p.config.Tags...), " ")
+
+	clusterConfig := &civogo.KubernetesClusterConfig{
+		Name:              spec.Name,
+		Region:            p.config.Region,
+		NumTargetNodes:    targetNodes,
+		TargetNodesSize:   pools[0].Size,
+		KubernetesVersion: version,
+		NetworkID:         p.config.NetworkID,
+		Tags:              tags,
+		Pools:             pools,
+		CNIPlugin:         "cilium",
+	}
+
+	created, err := p.client.NewKubernetesClusters(clusterConfig)
 	if err != nil {
-		return nil, fmt.Errorf("cluster readiness check failed: %w", err)
-	}
-	log.Printf("Cluster %s is ready.", spec.Name)
-
-	if err := p.saveKubeconfig(spec.Name, kubeconfig); err != nil {
-		log.Printf("Warning: failed to save kubeconfig: %v", err)
+		return nil, fmt.Errorf("failed to create Civo Kubernetes cluster %q: %w", spec.Name, err)
 	}
 
-	cluster := &types.Cluster{
-		ID:        clusterID,
-		Name:      spec.Name,
-		Provider:  "civo",
-		Region:    p.config.Region,
-		Version:   spec.Version,
-		Status:    types.ClusterStatusRunning,
-		Endpoint:  fmt.Sprintf("https://%s:6443", masterNode.PublicIP),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		Metadata: map[string]interface{}{
-			"network":          infrastructure.NetworkLabel,
-			"masterNodes":      len(infrastructure.MasterNodes),
-			"workerNodes":      len(infrastructure.WorkerNodes),
-			"masterPublicIP":   masterNode.PublicIP,
-			"masterPrivateKey": masterNode.PrivateKey,
-		},
+	log.Printf("Civo cluster %s created (id=%s), waiting for it to become ready", spec.Name, created.ID)
+	ready, err := p.waitForCivoClusterReady(ctx, created.ID)
+	if err != nil {
+		return nil, fmt.Errorf("Civo cluster %s did not become ready: %w", spec.Name, err)
 	}
 
+	if ready.KubeConfig != "" {
+		if err := p.saveKubeconfig(spec.Name, ready.KubeConfig); err != nil {
+			log.Printf("Warning: failed to save kubeconfig: %v", err)
+		}
+	}
+
+	cluster := p.civoToCluster(ready)
 	p.clusters[cluster.ID] = cluster
 	p.saveClustersToCache()
 
-	// Track resources
-	resourceTracker := &ResourceTracker{
-		Region:    p.config.Region,
-		Networks:  []string{infrastructure.NetworkID},
-		CreatedAt: time.Now(),
-	}
-	for _, node := range infrastructure.MasterNodes {
-		resourceTracker.Instances = append(resourceTracker.Instances, node.InstanceID)
-	}
-	for _, node := range infrastructure.WorkerNodes {
-		resourceTracker.Instances = append(resourceTracker.Instances, node.InstanceID)
-	}
-	p.resourceTrackers[cluster.ID] = resourceTracker
-
 	return cluster, nil
+}
+
+// resolveCivoVersion resolves the requested Kubernetes version to an available
+// Civo version string, defaulting to the latest available when unspecified.
+func (p *Provider) resolveCivoVersion(requested string) (string, error) {
+	versions, err := p.client.ListAvailableKubernetesVersions()
+	if err != nil {
+		if requested != "" {
+			log.Printf("Warning: failed to list Civo Kubernetes versions, using requested %q: %v", requested, err)
+			return requested, nil
+		}
+		return "", fmt.Errorf("failed to list available Kubernetes versions: %w", err)
+	}
+	if len(versions) == 0 {
+		return requested, nil
+	}
+
+	trimmed := strings.TrimPrefix(requested, "v")
+	if trimmed != "" {
+		for _, v := range versions {
+			if v.Version == trimmed || strings.HasPrefix(v.Version, trimmed) {
+				return v.Version, nil
+			}
+		}
+		log.Printf("Warning: requested version %q not found among Civo versions, using default %q", requested, versions[0].Version)
+	}
+	return versions[0].Version, nil
+}
+
+// buildCivoPools converts the cluster spec node groups into Civo pool configs.
+func (p *Provider) buildCivoPools(spec *types.ClusterSpec) []civogo.KubernetesClusterPoolConfig {
+	var pools []civogo.KubernetesClusterPoolConfig
+	for _, ng := range spec.NodeGroups {
+		size := ng.InstanceType
+		if size == "" {
+			size = p.config.Size
+		}
+		count := ng.Replicas
+		if count <= 0 {
+			count = 1
+		}
+		pools = append(pools, civogo.KubernetesClusterPoolConfig{
+			Region: p.config.Region,
+			Count:  count,
+			Size:   size,
+			Labels: ng.Labels,
+		})
+	}
+	if len(pools) == 0 {
+		pools = append(pools, civogo.KubernetesClusterPoolConfig{
+			Region: p.config.Region,
+			Count:  p.config.DefaultNodeCount,
+			Size:   p.config.Size,
+		})
+	}
+	return pools
+}
+
+// waitForCivoClusterReady polls the Civo API until the cluster is ready or the
+// context/timeout expires.
+func (p *Provider) waitForCivoClusterReady(ctx context.Context, clusterID string) (*civogo.KubernetesCluster, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer cancel()
+
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		cluster, err := p.client.GetKubernetesCluster(clusterID)
+		if err == nil {
+			if cluster.Ready {
+				return cluster, nil
+			}
+			log.Printf("Civo cluster %s status: %s (ready=%t)", clusterID, cluster.Status, cluster.Ready)
+		} else {
+			log.Printf("Warning: failed to poll Civo cluster %s: %v", clusterID, err)
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("timed out waiting for Civo cluster %s to become ready: %w", clusterID, waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// civoToCluster maps a Civo KubernetesCluster to the provider-agnostic type.
+func (p *Provider) civoToCluster(c *civogo.KubernetesCluster) *types.Cluster {
+	status := types.ClusterStatusUnknown
+	switch {
+	case c.Ready:
+		status = types.ClusterStatusRunning
+	case strings.EqualFold(c.Status, "BUILDING"), strings.EqualFold(c.Status, "INSTANCE-CREATE"):
+		status = types.ClusterStatusCreating
+	case strings.EqualFold(c.Status, "DELETING"):
+		status = types.ClusterStatusDeleting
+	case strings.EqualFold(c.Status, "FAILED"):
+		status = types.ClusterStatusError
+	}
+
+	workerNodes := 0
+	for _, pool := range c.Pools {
+		workerNodes += pool.Count
+	}
+
+	endpoint := c.APIEndPoint
+	if endpoint == "" && c.MasterIP != "" {
+		endpoint = fmt.Sprintf("https://%s:6443", c.MasterIP)
+	}
+
+	return &types.Cluster{
+		ID:        c.ID,
+		Name:      c.Name,
+		Provider:  "civo",
+		Region:    p.config.Region,
+		Version:   c.KubernetesVersion,
+		Status:    status,
+		Endpoint:  endpoint,
+		CreatedAt: c.CreatedAt,
+		UpdatedAt: time.Now(),
+		Metadata: map[string]interface{}{
+			"network":     c.NetworkID,
+			"pools":       len(c.Pools),
+			"workerNodes": workerNodes,
+			"masterIP":    c.MasterIP,
+		},
+	}
 }
 func (p *Provider) saveKubeconfig(clusterName, kubeconfig string) error {
 	homeDir, err := os.UserHomeDir()
@@ -739,123 +860,147 @@ func (p *Provider) waitForInstanceReady(ctx context.Context, instanceID string) 
 }
 
 func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
-	log.Printf("Deleting Civo cluster: %s", clusterID)
-	clusterName := strings.TrimPrefix(clusterID, "civo-")
+	log.Printf("Deleting managed Civo Kubernetes cluster: %s", clusterID)
 
-	// Find all instances associated with the cluster
-	allInstances, err := p.client.ListAllInstances()
+	id, err := p.resolveCivoClusterID(clusterID)
 	if err != nil {
-		return fmt.Errorf("failed to list instances: %w", err)
+		return err
 	}
 
-	var instancesToDelete []string
-	for _, instance := range allInstances {
-		if strings.HasPrefix(instance.Hostname, clusterName) {
-			instancesToDelete = append(instancesToDelete, instance.ID)
-		}
+	if _, err := p.client.DeleteKubernetesCluster(id); err != nil {
+		return fmt.Errorf("failed to delete Civo cluster %s: %w", id, err)
 	}
 
-	if len(instancesToDelete) == 0 {
-		log.Printf("No instances found for cluster %s.", clusterName)
-	} else {
-		for _, instanceID := range instancesToDelete {
-			log.Printf("Deleting instance %s", instanceID)
-			_, err := p.client.DeleteInstance(instanceID)
-			if err != nil {
-				log.Printf("Warning: failed to delete instance %s: %v", instanceID, err)
-			}
-		}
-	}
+	// Wait for the cluster to be fully removed from the API.
+	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 
-	// Delete network
-	networks, err := p.client.ListNetworks()
-	if err != nil {
-		return fmt.Errorf("failed to list networks: %w", err)
-	}
-	for _, network := range networks {
-		if network.Label == fmt.Sprintf("%s-network", clusterName) {
-			log.Printf("Deleting network %s", network.ID)
-			// Wait a bit before deleting the network
-			time.Sleep(15 * time.Second)
-			_, err := p.client.DeleteNetwork(network.ID)
-			if err != nil {
-				log.Printf("Warning: failed to delete network %s: %v", network.ID, err)
-			}
+	for {
+		_, err := p.client.GetKubernetesCluster(id)
+		if err != nil {
+			// Treat a not-found error as successful deletion.
 			break
 		}
+		select {
+		case <-waitCtx.Done():
+			log.Printf("Warning: timed out waiting for Civo cluster %s deletion to finish", id)
+			delete(p.clusters, clusterID)
+			delete(p.resourceTrackers, clusterID)
+			p.clearClustersFromCache(clusterID)
+			return nil
+		case <-ticker.C:
+		}
 	}
 
-	// Clean up local state
 	delete(p.clusters, clusterID)
 	delete(p.resourceTrackers, clusterID)
 	p.clearClustersFromCache(clusterID)
 
-	log.Printf("Successfully initiated deletion of cluster %s", clusterID)
+	log.Printf("Successfully deleted Civo cluster %s", clusterID)
 	return nil
 }
 
-func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
-	log.Printf("Attempting to get kubeconfig for cluster: %s", clusterID)
-
-	cluster, ok := p.clusters[clusterID]
-	if !ok {
-		return "", fmt.Errorf("cluster %s not found in provider cache", clusterID)
+// resolveCivoClusterID accepts either a Civo cluster UUID or a cluster name and
+// returns the corresponding cluster UUID.
+func (p *Provider) resolveCivoClusterID(clusterID string) (string, error) {
+	// First try a direct lookup by ID.
+	if _, err := p.client.GetKubernetesCluster(clusterID); err == nil {
+		return clusterID, nil
 	}
-
-	log.Println("Cluster found in cache. Checking for master node details in metadata...")
-
-	masterIP, ok := cluster.Metadata["masterPublicIP"].(string)
-	if !ok || masterIP == "" {
-		return "", fmt.Errorf("masterPublicIP not found or is empty in cluster metadata for %s", clusterID)
-	}
-
-	privateKey, ok := cluster.Metadata["masterPrivateKey"].(string)
-	if !ok || privateKey == "" {
-		return "", fmt.Errorf("masterPrivateKey not found or is empty in cluster metadata for %s", clusterID)
-	}
-
-	log.Printf("Found master node details: IP=%s", masterIP)
-	log.Println("Attempting to retrieve kubeconfig via SSH...")
-
-	kubeconfig, err := p.runSSHCommand(masterIP, privateKey, "cat /etc/rancher/k3s/k3s.yaml")
+	// Fall back to a name search.
+	found, err := p.client.FindKubernetesCluster(clusterID)
 	if err != nil {
-		return "", fmt.Errorf("failed to retrieve kubeconfig from master node %s: %w", masterIP, err)
+		return "", fmt.Errorf("failed to resolve Civo cluster %q: %w", clusterID, err)
 	}
-
-	log.Println("Successfully retrieved kubeconfig from master node.")
-
-	// Replace the server address from 127.0.0.1 to the master's public IP
-	kubeconfig = strings.Replace(kubeconfig, "127.0.0.1", masterIP, 1)
-	log.Printf("Updated kubeconfig to use master public IP: %s", masterIP)
-
-	// Validate the final kubeconfig
-	if _, err := clientcmd.Load([]byte(kubeconfig)); err != nil {
-		return "", fmt.Errorf("retrieved kubeconfig is invalid: %w", err)
-	}
-	log.Println("Kubeconfig validation successful.")
-
-	return kubeconfig, nil
+	return found.ID, nil
 }
 
-// Unimplemented methods
+func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
+	log.Printf("Fetching kubeconfig for Civo cluster: %s", clusterID)
+
+	id, err := p.resolveCivoClusterID(clusterID)
+	if err != nil {
+		return "", err
+	}
+
+	cluster, err := p.client.GetKubernetesCluster(id)
+	if err != nil {
+		return "", fmt.Errorf("failed to get Civo cluster %s: %w", id, err)
+	}
+	if cluster.KubeConfig == "" {
+		return "", fmt.Errorf("kubeconfig not yet available for Civo cluster %s (ready=%t)", id, cluster.Ready)
+	}
+
+	// Validate the kubeconfig before returning it.
+	if _, err := clientcmd.Load([]byte(cluster.KubeConfig)); err != nil {
+		return "", fmt.Errorf("retrieved kubeconfig is invalid: %w", err)
+	}
+
+	log.Printf("Successfully fetched kubeconfig for Civo cluster: %s", id)
+	return cluster.KubeConfig, nil
+}
+
+// UpdateCluster renames a managed Civo Kubernetes cluster. Version upgrades are
+// handled via UpgradeCluster and node scaling via the node-group methods.
 func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *types.ClusterSpec) error {
-	return fmt.Errorf("UpdateCluster not implemented for Civo")
+	id, err := p.resolveCivoClusterID(clusterID)
+	if err != nil {
+		return err
+	}
+
+	updateConfig := &civogo.KubernetesClusterConfig{}
+	if spec.Name != "" {
+		updateConfig.Name = spec.Name
+	} else {
+		return fmt.Errorf("no updatable fields provided for Civo cluster %s", clusterID)
+	}
+
+	updated, err := p.client.UpdateKubernetesCluster(id, updateConfig)
+	if err != nil {
+		return fmt.Errorf("failed to update Civo cluster %s: %w", id, err)
+	}
+
+	p.clusters[clusterID] = p.civoToCluster(updated)
+	return nil
 }
 
 func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Cluster, error) {
-	if cluster, exists := p.clusters[clusterID]; exists {
-		return cluster, nil
+	id, err := p.resolveCivoClusterID(clusterID)
+	if err != nil {
+		if cluster, exists := p.clusters[clusterID]; exists {
+			return cluster, nil
+		}
+		return nil, err
 	}
-	return nil, fmt.Errorf("cluster %s not found", clusterID)
+
+	c, err := p.client.GetKubernetesCluster(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Civo cluster %s: %w", id, err)
+	}
+
+	cluster := p.civoToCluster(c)
+	p.clusters[cluster.ID] = cluster
+	return cluster, nil
 }
 
 func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
-	// For now, returns clusters created in the current session.
-	// A real implementation would discover clusters from the Civo API.
-	var clusters []*types.Cluster
-	for _, c := range p.clusters {
-		clusters = append(clusters, c)
+	log.Printf("Listing managed Civo Kubernetes clusters")
+
+	page, err := p.client.ListKubernetesClusters()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list Civo Kubernetes clusters: %w", err)
 	}
+
+	var clusters []*types.Cluster
+	for i := range page.Items {
+		cluster := p.civoToCluster(&page.Items[i])
+		p.clusters[cluster.ID] = cluster
+		clusters = append(clusters, cluster)
+	}
+
+	log.Printf("Found %d managed Civo Kubernetes clusters", len(clusters))
 	return clusters, nil
 }
 
@@ -863,9 +1008,6 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 func (p *Provider) validateClusterSpec(spec *types.ClusterSpec) error {
 	if spec.Name == "" {
 		return fmt.Errorf("cluster name is required")
-	}
-	if spec.ControlPlane.Replicas != 1 {
-		return fmt.Errorf("Civo provider currently supports single-master clusters only")
 	}
 	return nil
 }
@@ -975,21 +1117,114 @@ func (p *Provider) clearClustersFromCache(clusterID string) {
 	}
 }
 
-// Other interface methods (mostly unimplemented for Civo VM provider)
+// civoPoolToNodeGroup maps a Civo pool to the provider-agnostic NodeGroup.
+func civoPoolToNodeGroup(pool *civogo.KubernetesPool) *types.NodeGroup {
+	return &types.NodeGroup{
+		Name:         pool.ID,
+		Replicas:     pool.Count,
+		InstanceType: pool.Size,
+		Status:       types.NodeGroupStatusReady,
+		Labels:       pool.Labels,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+}
+
+// AddNodeGroup adds a node pool to a managed Civo Kubernetes cluster.
 func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, spec *types.NodeGroupSpec) (*types.NodeGroup, error) {
-	return nil, fmt.Errorf("not implemented")
+	id, err := p.resolveCivoClusterID(clusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	size := spec.InstanceType
+	if size == "" {
+		size = p.config.Size
+	}
+	count := spec.Replicas
+	if count <= 0 {
+		count = 1
+	}
+
+	poolConfig := &civogo.KubernetesClusterPoolConfig{
+		Region: p.config.Region,
+		Count:  count,
+		Size:   size,
+		Labels: spec.Labels,
+	}
+
+	if _, err := p.client.CreateKubernetesClusterPool(id, poolConfig); err != nil {
+		return nil, fmt.Errorf("failed to add node pool to Civo cluster %s: %w", id, err)
+	}
+
+	return &types.NodeGroup{
+		Name:         spec.Name,
+		Replicas:     count,
+		InstanceType: size,
+		Status:       types.NodeGroupStatusCreating,
+		Labels:       spec.Labels,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}, nil
 }
+
+// RemoveNodeGroup deletes a node pool (by pool ID) from a managed Civo cluster.
 func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID, nodeGroupName string) error {
-	return fmt.Errorf("not implemented")
+	id, err := p.resolveCivoClusterID(clusterID)
+	if err != nil {
+		return err
+	}
+	if _, err := p.client.DeleteKubernetesClusterPool(id, nodeGroupName); err != nil {
+		return fmt.Errorf("failed to delete node pool %s from Civo cluster %s: %w", nodeGroupName, id, err)
+	}
+	return nil
 }
+
+// ScaleNodeGroup updates the node count of a Civo pool (by pool ID).
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID, nodeGroupName string, replicas int) error {
-	return fmt.Errorf("not implemented")
+	id, err := p.resolveCivoClusterID(clusterID)
+	if err != nil {
+		return err
+	}
+	count := replicas
+	updateConfig := &civogo.KubernetesClusterPoolUpdateConfig{
+		Count:  &count,
+		Region: p.config.Region,
+	}
+	if _, err := p.client.UpdateKubernetesClusterPool(id, nodeGroupName, updateConfig); err != nil {
+		return fmt.Errorf("failed to scale node pool %s in Civo cluster %s: %w", nodeGroupName, id, err)
+	}
+	return nil
 }
+
+// GetNodeGroup retrieves a Civo pool (by pool ID) from a managed cluster.
 func (p *Provider) GetNodeGroup(ctx context.Context, clusterID, nodeGroupName string) (*types.NodeGroup, error) {
-	return nil, fmt.Errorf("not implemented")
+	id, err := p.resolveCivoClusterID(clusterID)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := p.client.GetKubernetesClusterPool(id, nodeGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node pool %s from Civo cluster %s: %w", nodeGroupName, id, err)
+	}
+	return civoPoolToNodeGroup(pool), nil
 }
+
+// ListNodeGroups lists all node pools for a managed Civo Kubernetes cluster.
 func (p *Provider) ListNodeGroups(ctx context.Context, clusterID string) ([]*types.NodeGroup, error) {
-	return nil, fmt.Errorf("not implemented")
+	id, err := p.resolveCivoClusterID(clusterID)
+	if err != nil {
+		return nil, err
+	}
+	pools, err := p.client.ListKubernetesClusterPools(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list node pools for Civo cluster %s: %w", id, err)
+	}
+	var groups []*types.NodeGroup
+	for i := range pools {
+		groups = append(groups, civoPoolToNodeGroup(&pools[i]))
+	}
+	return groups, nil
 }
 func (p *Provider) CreateVPC(ctx context.Context, spec *types.VPCSpec) (*types.VPC, error) {
 	return nil, fmt.Errorf("not implemented")
@@ -1025,7 +1260,27 @@ func (p *Provider) GetStorage(ctx context.Context, storageID string) (*types.Sto
 	return nil, fmt.Errorf("not implemented")
 }
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
-	return fmt.Errorf("not implemented")
+	id, err := p.resolveCivoClusterID(clusterID)
+	if err != nil {
+		return err
+	}
+
+	targetVersion, err := p.resolveCivoVersion(version)
+	if err != nil {
+		return fmt.Errorf("failed to resolve target Kubernetes version: %w", err)
+	}
+
+	updateConfig := &civogo.KubernetesClusterConfig{
+		KubernetesVersion: targetVersion,
+	}
+	updated, err := p.client.UpdateKubernetesCluster(id, updateConfig)
+	if err != nil {
+		return fmt.Errorf("failed to upgrade Civo cluster %s to %s: %w", id, targetVersion, err)
+	}
+
+	p.clusters[clusterID] = p.civoToCluster(updated)
+	log.Printf("Successfully initiated upgrade of Civo cluster %s to version %s", id, targetVersion)
+	return nil
 }
 func (p *Provider) BackupCluster(ctx context.Context, clusterID string) (*types.Backup, error) {
 	return nil, fmt.Errorf("not implemented")

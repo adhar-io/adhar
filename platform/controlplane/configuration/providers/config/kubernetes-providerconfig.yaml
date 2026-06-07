@@ -1,17 +1,19 @@
 ---
-# Kubernetes Provider Configuration - For Kind and on-prem clusters
-apiVersion: kubernetes.crossplane.io/v1alpha1
-kind: ProviderConfig
+# Kubernetes Provider - cluster-scoped config consumed by namespaced
+# kubernetes.m.crossplane.io/v1alpha1 Object managed resources.
+# Namespaced MRs reference this via providerConfigRef.kind: ClusterProviderConfig.
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: ClusterProviderConfig
 metadata:
   name: kubernetes-provider
 spec:
-  # Uses in-cluster configuration by default
+  # Manage the local (in-cluster) Kubernetes API by default.
   credentials:
     source: InjectedIdentity
 ---
-# Alternative: External Kubernetes cluster configuration
-apiVersion: kubernetes.crossplane.io/v1alpha1
-kind: ProviderConfig
+# Alternative: manage an external Kubernetes cluster via a kubeconfig secret.
+apiVersion: kubernetes.m.crossplane.io/v1alpha1
+kind: ClusterProviderConfig
 metadata:
   name: kubernetes-external
 spec:

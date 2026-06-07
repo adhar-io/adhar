@@ -1072,8 +1072,8 @@ func populateBootstrapRepository(podName string) error {
 	// Copy manifests
 	manifestSources := map[string]string{
 		"platform/controllers/adharplatform/resources/crossplane/install.yaml": "crossplane/",
-		"platform/controllers/adharplatform/resources/nginx/install.yaml":      "nginx/",
-		"platform/controllers/adharplatform/resources/ingress":                 "ingress/",
+		"platform/controllers/adharplatform/resources/gateway-api/crds.yaml":   "gateway-api/",
+		"platform/controllers/adharplatform/resources/gateway/gateway.yaml":    "gateway/",
 		"platform/controllers/resources":                                       "crds/",
 		"platform/controlplane/configuration":                                  "control-plane/",
 	}

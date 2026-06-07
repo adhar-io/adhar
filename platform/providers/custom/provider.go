@@ -2222,9 +2222,40 @@ func (p *Provider) InstallAddon(ctx context.Context, clusterID string, addonName
 
 	masterIP := p.config.NodeIPs[0]
 
-	// Define addon installation commands
+	// Pinned addon versions (kept in sync with the shared provider addon catalog).
+	const (
+		gatewayAPIURL    = "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml"
+		certManagerURL   = "https://github.com/cert-manager/cert-manager/releases/download/v1.15.3/cert-manager.yaml"
+		metricsServerURL = "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+		ingressNginxURL  = "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/cloud/deploy.yaml"
+		metallbURL       = "https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml"
+	)
+
+	// Custom provider runs kubectl/helm over SSH on the control-plane node, which
+	// holds the cluster-admin kubeconfig at $HOME/.kube/config.
 	var installCmd string
 	switch addonName {
+	case "cilium":
+		// Cilium is the platform CNI/dataplane and also provides the Gateway API
+		// implementation. Install Gateway API CRDs first, then Cilium via Helm
+		// with gatewayAPI.enabled=true.
+		installCmd = fmt.Sprintf("kubectl apply -f %s && "+
+			"helm repo add cilium https://helm.cilium.io/ --force-update && helm repo update cilium && "+
+			"helm upgrade --install cilium cilium/cilium --version 1.16.1 --namespace kube-system "+
+			"--set gatewayAPI.enabled=true --wait", gatewayAPIURL)
+	case "metrics-server":
+		installCmd = fmt.Sprintf("kubectl apply -f %s", metricsServerURL)
+	case "cert-manager":
+		installCmd = fmt.Sprintf("kubectl apply -f %s", certManagerURL)
+	case "ingress", "gateway", "gateway-api", "cilium-gateway":
+		// NOTE: The Adhar platform uses the Cilium Gateway API as its default
+		// ingress, NOT ingress-nginx. This installs the Gateway API CRDs, which
+		// are served by Cilium (gatewayAPI.enabled=true).
+		installCmd = fmt.Sprintf("kubectl apply -f %s", gatewayAPIURL)
+	case "ingress-nginx":
+		// ingress-nginx is NOT the platform default (Cilium Gateway API is), but
+		// remains available as an explicit opt-in addon.
+		installCmd = fmt.Sprintf("kubectl apply -f %s", ingressNginxURL)
 	case "calico":
 		installCmd = "kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml"
 	case "flannel":
@@ -2232,16 +2263,19 @@ func (p *Provider) InstallAddon(ctx context.Context, clusterID string, addonName
 	case "weave":
 		installCmd = "kubectl apply -f https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
 	case "metallb":
-		installCmd = "kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml"
-	case "ingress-nginx":
-		installCmd = "kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.5.1/deploy/static/provider/baremetal/deploy.yaml"
-	case "cert-manager":
-		installCmd = "kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml"
+		installCmd = fmt.Sprintf("kubectl apply -f %s", metallbURL)
 	case "prometheus":
 		installCmd = "kubectl apply -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/bundle.yaml"
 	case "grafana":
 		// Create a simple Grafana deployment
 		installCmd = `kubectl create deployment grafana --image=grafana/grafana:latest && kubectl expose deployment grafana --port=3000 --type=NodePort`
+	case "helm-chart":
+		// Generic Helm chart addon path: caller supplies repo/chart/version/namespace/values.
+		cmd, err := buildHelmInstallCommand(config)
+		if err != nil {
+			return err
+		}
+		installCmd = cmd
 	default:
 		return fmt.Errorf("unsupported addon: %s", addonName)
 	}
@@ -2277,9 +2311,28 @@ func (p *Provider) UninstallAddon(ctx context.Context, clusterID string, addonNa
 
 	masterIP := p.config.NodeIPs[0]
 
+	const (
+		gatewayAPIURL    = "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml"
+		certManagerURL   = "https://github.com/cert-manager/cert-manager/releases/download/v1.15.3/cert-manager.yaml"
+		metricsServerURL = "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+		ingressNginxURL  = "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/cloud/deploy.yaml"
+		metallbURL       = "https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml"
+	)
+
 	// Define addon uninstallation commands
 	var uninstallCmd string
 	switch addonName {
+	case "cilium":
+		uninstallCmd = "helm uninstall cilium --namespace kube-system --ignore-not-found"
+	case "metrics-server":
+		uninstallCmd = fmt.Sprintf("kubectl delete -f %s --ignore-not-found", metricsServerURL)
+	case "cert-manager":
+		uninstallCmd = fmt.Sprintf("kubectl delete -f %s --ignore-not-found", certManagerURL)
+	case "ingress", "gateway", "gateway-api", "cilium-gateway":
+		// Cilium Gateway API is the platform default ingress (see InstallAddon).
+		uninstallCmd = fmt.Sprintf("kubectl delete -f %s --ignore-not-found", gatewayAPIURL)
+	case "ingress-nginx":
+		uninstallCmd = fmt.Sprintf("kubectl delete -f %s --ignore-not-found", ingressNginxURL)
 	case "calico":
 		uninstallCmd = "kubectl delete -f https://docs.projectcalico.org/manifests/calico.yaml"
 	case "flannel":
@@ -2287,11 +2340,7 @@ func (p *Provider) UninstallAddon(ctx context.Context, clusterID string, addonNa
 	case "weave":
 		uninstallCmd = "kubectl delete -f https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
 	case "metallb":
-		uninstallCmd = "kubectl delete -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml"
-	case "ingress-nginx":
-		uninstallCmd = "kubectl delete -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.5.1/deploy/static/provider/baremetal/deploy.yaml"
-	case "cert-manager":
-		uninstallCmd = "kubectl delete -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml"
+		uninstallCmd = fmt.Sprintf("kubectl delete -f %s", metallbURL)
 	case "prometheus":
 		uninstallCmd = "kubectl delete -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/bundle.yaml"
 	case "grafana":
@@ -2313,6 +2362,54 @@ func (p *Provider) UninstallAddon(ctx context.Context, clusterID string, addonNa
 // ListAddons lists installed addons
 func (p *Provider) ListAddons(ctx context.Context, clusterID string) ([]string, error) {
 	return []string{"calico", "coredns", "kube-proxy", "local-path-provisioner", "metallb"}, nil
+}
+
+// buildHelmInstallCommand builds a `helm upgrade --install` shell command for the
+// generic "helm-chart" addon from a config map. Recognised keys: repoName,
+// repoURL, chart, version, namespace, releaseName, values(map).
+func buildHelmInstallCommand(config map[string]interface{}) (string, error) {
+	getString := func(key string) string {
+		if v, ok := config[key].(string); ok {
+			return v
+		}
+		return ""
+	}
+
+	chart := getString("chart")
+	if chart == "" {
+		return "", fmt.Errorf("generic helm addon requires a 'chart' value in config (e.g. repo/chart or oci://...)")
+	}
+
+	releaseName := getString("releaseName")
+	if releaseName == "" {
+		releaseName = "custom-addon"
+	}
+	namespace := getString("namespace")
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	var parts []string
+	repoName := getString("repoName")
+	repoURL := getString("repoURL")
+	if repoName != "" && repoURL != "" {
+		parts = append(parts, fmt.Sprintf("helm repo add %s %s --force-update", repoName, repoURL))
+		parts = append(parts, fmt.Sprintf("helm repo update %s", repoName))
+	}
+
+	install := fmt.Sprintf("helm upgrade --install %s %s --namespace %s --create-namespace --wait",
+		releaseName, chart, namespace)
+	if version := getString("version"); version != "" {
+		install += fmt.Sprintf(" --version %s", version)
+	}
+	if vals, ok := config["values"].(map[string]interface{}); ok {
+		for k, v := range vals {
+			install += fmt.Sprintf(" --set %s=%v", k, v)
+		}
+	}
+	parts = append(parts, install)
+
+	return strings.Join(parts, " && "), nil
 }
 
 // GetClusterCost retrieves cluster cost (infrastructure cost)

@@ -1,0 +1,13 @@
+# Trino distributed SQL query engine.
+# The Trino UI/coordinator is exposed via the Cilium Gateway API HTTPRoute
+# (manifests/httproute.yaml) attached to adhar-gateway -- the chart Ingress is
+# left disabled (default) and must NOT be enabled (no nginx).
+server:
+  workers: 1
+
+ingress:
+  enabled: false
+
+service:
+  type: ClusterIP
+  port: 8080

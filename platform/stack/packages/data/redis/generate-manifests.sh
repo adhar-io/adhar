@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v0.18.3"
+CHART_VERSION="0.24.0"
 
 echo "# REDIS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/redis/generate-manifests.sh'" >>${INSTALL_YAML}

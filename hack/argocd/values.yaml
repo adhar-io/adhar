@@ -222,23 +222,28 @@ configs:
     #         orgs:
     #         - name: your-github-org
 
-    # OIDC configuration as an alternative to dex (optional).
-    # oidc.config: |
-    #   name: AzureAD
-    #   issuer: https://login.microsoftonline.com/TENANT_ID/v2.0
-    #   clientID: CLIENT_ID
-    #   clientSecret: $oidc.azuread.clientSecret
-    #   rootCA: |
-    #     -----BEGIN CERTIFICATE-----
-    #     ... encoded certificate data here ...
-    #     -----END CERTIFICATE-----
-    #   requestedIDTokenClaims:
-    #     groups:
-    #       essential: true
-    #   requestedScopes:
-    #     - openid
-    #     - profile
-    #     - email
+    # Browser-facing base URL. Argo CD builds the OIDC redirect/callback from this.
+    url: https://adhar.localtest.me:8443/argocd
+
+    # Keycloak OIDC (Single Sign-On) for the core platform realm `adhar`.
+    # NOTE (bootstrap timing): OIDC only becomes usable once the Keycloak GitOps
+    # package has synced, created the `argocd` client + keycloak-clients Secret, and
+    # the ExternalSecret has populated `oidc.keycloak.clientSecret` into argocd-secret.
+    # Until then, log in with the break-glass local `admin` user (admin.enabled: true).
+    # `$oidc.keycloak.clientSecret` resolves to that key in argocd-secret.
+    oidc.config: |
+      name: Keycloak
+      issuer: https://adhar.localtest.me:8443/keycloak/realms/adhar
+      clientID: argocd
+      clientSecret: $oidc.keycloak.clientSecret
+      requestedScopes:
+        - openid
+        - profile
+        - email
+        - groups
+      requestedIDTokenClaims:
+        groups:
+          essential: true
 
     # Extension Configuration
     ## Ref: https://argo-cd.readthedocs.io/en/latest/developer-guide/extensions/proxy-extensions/
@@ -414,7 +419,7 @@ configs:
     ## Server properties
     # -- Run server without TLS
     ## NOTE: This value should be set when you generate params by other means as it changes ports used by ingress template.
-    server.insecure: false
+    server.insecure: true
     # -- Value for base href in index.html. Used if Argo CD is running behind reverse proxy under subpath different from /
     server.basehref: /argocd
     # -- Used if Argo CD is running behind reverse proxy under subpath different from /
@@ -475,7 +480,21 @@ configs:
 
     # -- File containing user-defined policies and role definitions.
     # @default -- `''` (See [values.yaml])
-    policy.csv: ""
+    # Maps Keycloak realm groups (delivered via the `groups` claim) to Argo CD roles.
+    # platform-admin -> built-in role:admin, platform-viewer -> built-in role:readonly,
+    # platform-developer -> custom role:platform-developer (apps sync/get, repos/logs read).
+    # The local `admin` user remains as break-glass (admin.enabled: true).
+    policy.csv: |
+      p, role:platform-developer, applications, get, */*, allow
+      p, role:platform-developer, applications, sync, */*, allow
+      p, role:platform-developer, applications, action/*, */*, allow
+      p, role:platform-developer, logs, get, */*, allow
+      p, role:platform-developer, repositories, get, *, allow
+      p, role:platform-developer, projects, get, *, allow
+      p, role:platform-developer, clusters, get, *, allow
+      g, platform-admin, role:admin
+      g, platform-developer, role:platform-developer
+      g, platform-viewer, role:readonly
     # Policy rules are in the form:
     #  p, subject, resource, action, object, effect
     # Role definitions and bindings are in the form:

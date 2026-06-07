@@ -1,24 +1,25 @@
 # Harbor Helm Chart Values
+#
+# Gateway API only -- NO nginx Ingress. We expose Harbor as a ClusterIP service
+# and route external traffic through the Cilium Gateway via manifests/httproute.yaml.
+# Setting expose.type to "clusterIP" prevents the chart from rendering any Ingress.
 
-# External URL for Harbor
-externalURL: "https://harbor.adhar.localtest.me"
-
-# Ingress configuration
 expose:
-  ingress:
-    hosts:
-      core: "adhar.localtest.me"
+  type: clusterIP
+  tls:
+    enabled: false
+  clusterIP:
+    name: harbor
+    ports:
+      httpPort: 80
+      httpsPort: 443
 
-# Database configuration
+# External URL Harbor advertises (must match the Gateway host + path).
+externalURL: "https://adhar.localtest.me/harbor"
+
+# Use the chart's bundled (internal) database and redis.
 database:
-  type: "external"
-  external:
-    host: "harbor-db"
-    port: 5432
+  type: "internal"
 
-# Redis configuration
 redis:
-  type: "external"
-  external:
-    host: "harbor-redis"
-    port: 6379  # Assuming the default Redis port, update if different
+  type: "internal"

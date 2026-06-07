@@ -55,20 +55,20 @@ func TestParsePackageStrings(t *testing.T) {
 		"invalidLocalPath": {expectErr: true, inputPaths: []string{
 			"does-not-exist",
 		}, remote: 0, local: 0},
-		"invalidRemotePath": {expectErr: true, inputPaths: []string{
+		"validRemotePath": {expectErr: false, inputPaths: []string{
 			"https://github.com/kubernetes-sigs/kustomize//examples",
-		}, remote: 0, local: 0},
+		}, remote: 1, local: 0},
 	}
 
 	for k := range cases {
 		c := cases[k]
-		remote, local, err, _ := ParsePackageStrings(c.inputPaths)
+		remote, files, dirs, err := ParsePackageStrings(c.inputPaths)
 		if cases[k].expectErr {
-			assert.NotNil(t, err)
+			assert.NotNil(t, err, "case %s expected error", k)
 		} else {
-			assert.Nil(t, err)
+			assert.Nil(t, err, "case %s unexpected error", k)
 		}
-		assert.Equal(t, c.remote, len(remote))
-		assert.Equal(t, c.local, len(local))
+		assert.Equal(t, c.remote, len(remote), "case %s remote count", k)
+		assert.Equal(t, c.local, len(files)+len(dirs), "case %s local count (files+dirs)", k)
 	}
 }

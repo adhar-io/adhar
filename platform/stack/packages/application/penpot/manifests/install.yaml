@@ -1,0 +1,344 @@
+# PENPOT INSTALL RESOURCES
+# This file is auto-generated with 'platform/stack/packages/application/penpot/generate-manifests.sh'
+---
+# Source: penpot/templates/serviceaccount.yml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: penpot
+  namespace: penpot
+  labels:
+    helm.sh/chart: penpot-1.2.0
+    app.kubernetes.io/name: penpot
+    app.kubernetes.io/instance: penpot
+    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: penpot/templates/assets-persistentvolumeclaim.yml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: penpot-data-assets
+  namespace: penpot
+  labels:
+    helm.sh/chart: penpot-1.2.0
+    app.kubernetes.io/name: penpot
+    app.kubernetes.io/instance: penpot
+    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: "20Gi"
+---
+# Source: penpot/templates/backend-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: penpot-backend
+  namespace: penpot
+  labels:
+    helm.sh/chart: penpot-1.2.0
+    app.kubernetes.io/name: penpot
+    app.kubernetes.io/instance: penpot
+    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6060
+      targetPort: 6060
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: penpot-backend
+    app.kubernetes.io/instance: penpot
+---
+# Source: penpot/templates/exporter-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: penpot-exporter
+  namespace: penpot
+  labels:
+    helm.sh/chart: penpot-1.2.0
+    app.kubernetes.io/name: penpot
+    app.kubernetes.io/instance: penpot
+    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6061
+      targetPort: 6061
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: penpot-exporter
+    app.kubernetes.io/instance: penpot
+---
+# Source: penpot/templates/frontend-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: penpot
+  namespace: penpot
+  labels:
+    helm.sh/chart: penpot-1.2.0
+    app.kubernetes.io/name: penpot
+    app.kubernetes.io/instance: penpot
+    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: penpot-frontend
+    app.kubernetes.io/instance: penpot
+---
+# Source: penpot/templates/backend-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: penpot-backend
+  namespace: penpot
+  labels:
+    helm.sh/chart: penpot-1.2.0
+    app.kubernetes.io/name: penpot
+    app.kubernetes.io/instance: penpot
+    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: penpot-backend
+      app.kubernetes.io/instance: penpot
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: penpot-backend
+        app.kubernetes.io/name: penpot-backend
+        app.kubernetes.io/instance: penpot
+    spec:
+      serviceAccountName: penpot
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: penpot-backend
+          image: "penpotapp/backend:2.15.4"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - all
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1001
+          env:
+            # General settings
+            - name: PENPOT_PUBLIC_URI
+              value: "https://adhar.localtest.me:8443/penpot"
+            - name: PENPOT_FLAGS
+              value: "$PENPOT_FLAGS enable-registration enable-login-with-password disable-email-verification disable-secure-session-cookies"
+            - name: PENPOT_SECRET_KEY
+              value: "kmZ96pAxhTgk3HZvvBkPeVTspGBneKVLEpO_3ecORs_gwACENZ77z05zCe7skvPsQ3jI3QgkULQOWCuLjmjQsg"
+            # Telemetry settings
+            - name: PENPOT_TELEMETRY_ENABLED
+              value: "true"
+            - name: PENPOT_TELEMETRY_REFERER
+              value: kubernetes
+            # PosgreSQL connection settings
+            - name: PENPOT_DATABASE_URI
+              value: "postgresql://penpot-postgresql.penpot.svc.cluster.local:5432/penpot"
+            - name: PENPOT_DATABASE_USERNAME
+              value: "penpot"
+            - name: PENPOT_DATABASE_PASSWORD
+              value: "penpot"
+            # Valkey/Redis connection settings
+            - name: PENPOT_REDIS_URI
+              value: "redis://penpot-valkey.penpot.svc.cluster.local:6379/0"
+            # Objects Storage settings
+            - name: PENPOT_OBJECTS_STORAGE_BACKEND
+              value: "fs"
+            - name: PENPOT_OBJECTS_STORAGE_FS_DIRECTORY
+              value: "/opt/data/assets"
+            # File Data Store settings
+            - name: PENPOT_FILE_DATA_BACKEND
+              value: "legacy-db"
+            # Auto file snapshot settings
+            - name: PENPOT_AUTO_FILE_SNAPSHOT_EVERY
+              value: "5"
+            - name: PENPOT_AUTO_FILE_SNAPSHOT_TIMEOUT
+              value: "3h"
+            # Extra environments
+          volumeMounts:
+            - mountPath: "/opt/data/assets"
+              name: app-data
+              readOnly: false
+          ports:
+            - name: http
+              containerPort: 6060
+              protocol: TCP
+          resources:
+            limits: {}
+            requests: {}
+          startupProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+      volumes:
+      - name: app-data
+        persistentVolumeClaim:
+          claimName: penpot-data-assets
+---
+# Source: penpot/templates/exporter-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: penpot-exporter
+  namespace: penpot
+  labels:
+    helm.sh/chart: penpot-1.2.0
+    app.kubernetes.io/name: penpot
+    app.kubernetes.io/instance: penpot
+    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: penpot-exporter
+      app.kubernetes.io/instance: penpot
+  template:
+    metadata:
+      labels:
+        app: penpot-exporter
+        app.kubernetes.io/name: penpot-exporter
+        app.kubernetes.io/instance: penpot
+    spec:
+      serviceAccountName: penpot
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: penpot-exporter
+          image: "penpotapp/exporter:2.15.4"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - all
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1001
+          env:
+            - name: PENPOT_PUBLIC_URI
+              value: http://penpot:8080
+            - name: PENPOT_SECRET_KEY
+              value: "kmZ96pAxhTgk3HZvvBkPeVTspGBneKVLEpO_3ecORs_gwACENZ77z05zCe7skvPsQ3jI3QgkULQOWCuLjmjQsg"
+            - name: PENPOT_REDIS_URI
+              value: "redis://penpot-valkey.penpot.svc.cluster.local:6379/0"
+            - name: PENPOT_TEMPDIR
+              value: "/tmp/penpot-exporter"
+            # Extra environments
+          volumeMounts:
+          ports:
+            - name: http
+              containerPort: 6061
+              protocol: TCP
+          resources:
+            limits: {}
+            requests: {}
+      volumes:
+---
+# Source: penpot/templates/frontend-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: penpot-frontend
+  namespace: penpot
+  labels:
+    helm.sh/chart: penpot-1.2.0
+    app.kubernetes.io/name: penpot
+    app.kubernetes.io/instance: penpot
+    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: penpot-frontend
+      app.kubernetes.io/instance: penpot
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: penpot-frontend
+        app.kubernetes.io/name: penpot-frontend
+        app.kubernetes.io/instance: penpot
+    spec:
+      serviceAccountName: penpot
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: penpot-frontend
+          image: "penpotapp/frontend:2.15.4"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - all
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1001
+          env:
+            - name: PENPOT_FLAGS
+              value: "$PENPOT_FLAGS enable-registration enable-login-with-password disable-email-verification disable-secure-session-cookies"
+            - name: PENPOT_PUBLIC_URI
+              value: "https://adhar.localtest.me:8443/penpot"
+            - name: PENPOT_BACKEND_URI
+              value: http://penpot-backend:6060
+            - name: PENPOT_EXPORTER_URI
+              value: http://penpot-exporter:6061
+            - name: PENPOT_INTERNAL_RESOLVER
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PENPOT_TERMS_OF_SERVICE_URI
+              value: ""
+            - name: PENPOT_PRIVACY_POLICY_URI
+              value: ""
+            - name: PENPOT_HTTP_SERVER_MAX_BODY_SIZE
+              value: "367001600"
+            # Extra environments
+          volumeMounts:
+            - mountPath: /opt/data/assets
+              name: app-data
+              readOnly: false
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            limits: {}
+            requests: {}
+      volumes:
+      - name: app-data
+        persistentVolumeClaim:
+          claimName: penpot-data-assets

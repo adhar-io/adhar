@@ -1,0 +1,75 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositeplatformconfig-default
+  labels:
+    feature: config
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositePlatformConfig
+  mode: Pipeline
+  pipeline:
+    - step: render-platform-config
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          source: |
+            import json
+
+            oxr = option("params").oxr
+
+            params = oxr.spec.parameters or {}
+            namespace = params.namespace or "adhar-system"
+            domain = params.domain or ""
+            defaultProvider = params.defaultProvider or ""
+            features = params.features or {}
+            settings = params.settings or {}
+
+            # Build ConfigMap data — all values must be strings
+            _data = {
+                if domain:
+                    domain = domain
+                if defaultProvider:
+                    defaultProvider = defaultProvider
+                "features.json" = json.encode(features)
+                "settings.json" = json.encode(settings)
+            }
+            # Flatten individual settings as top-level keys for convenience
+            _data |= {k = settings[k] for k in settings}
+
+            # Native v1 ConfigMap rendered into the target namespace
+            configMap = {
+                apiVersion = "v1"
+                kind = "ConfigMap"
+                metadata = {
+                    name = "adhar-platform-config"
+                    namespace = namespace
+                    labels = {
+                        feature = "config"
+                        provider = "kubernetes"
+                    }
+                }
+                data = _data
+            }
+
+            statusItem = {
+                apiVersion = "platform.adhar.io/v1alpha1"
+                kind = "CompositePlatformConfig"
+                metadata = oxr.metadata
+                status = {
+                    phase = "Available"
+                    message = "Platform configuration rendered into namespace '{}'".format(namespace)
+                    ready = True
+                }
+            }
+
+            {apiVersion = "krm.kcl.dev/v1alpha1", kind = "ResourceList", items = [configMap, statusItem]}
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready

@@ -1,0 +1,19 @@
+# Devtron values for Adhar. Ingress disabled -- routing is handled by the Cilium
+# Gateway API (adhar-gateway) via manifests/httproute.yaml. The devtron service
+# is switched from LoadBalancer to ClusterIP. Devtron is served under the
+# /dashboard path (its native UI base path) on adhar.localtest.me.
+components:
+  devtron:
+    service:
+      type: ClusterIP
+      port: 80
+    ingress:
+      enabled: false
+  dashboard:
+    config:
+      extraConfigs:
+        USE_V2: "true"
+
+# Keep the base (no CI/CD) install -- lean and self-contained for local clusters.
+installer:
+  modules: []

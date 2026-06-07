@@ -1,0 +1,50 @@
+# Harbor routed through the Cilium Gateway (adhar-gateway). TLS terminates at
+# the Gateway (adhar-cert), replacing the old nginx Ingress (its tls block +
+# ssl-redirect are no longer needed). No path rewrite -- Harbor serves these
+# prefixes directly. All API/registry prefixes go to harbor-core:80; the /harbor
+# UI prefix goes to harbor-portal:80.
+# NOTE: the old Ingress set proxy-body-size: "0" (unlimited upload size for image
+# pushes). Gateway API has no direct equivalent; large layer pushes may need a
+# Cilium/Envoy request-body-size tuning at the Gateway/GatewayClass level.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: harbor
+  namespace: harbor
+  labels:
+    app.kubernetes.io/instance: harbor
+    app.kubernetes.io/name: harbor
+    app.kubernetes.io/part-of: harbor
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/
+        - path:
+            type: PathPrefix
+            value: /service/
+        - path:
+            type: PathPrefix
+            value: /v2/
+        - path:
+            type: PathPrefix
+            value: /chartrepo/
+        - path:
+            type: PathPrefix
+            value: /c/
+      backendRefs:
+        - name: harbor-core
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /harbor
+      backendRefs:
+        - name: harbor-portal
+          port: 80

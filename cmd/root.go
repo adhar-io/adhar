@@ -29,26 +29,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ASCII Art for ADHAR Platform
-const adharArt = `
-    _      ____    _    _      _      ____   
-   / \    |  _ \  | |  | |    / \    |  _ \  
-  / _ \   | | | | | |__| |   / _ \   | |_) | 
- / ___ \  | |_| | |  __  |  / ___ \  |  _ <  
-/_/   \_\ |____/  |_|  |_| /_/   \_\ |_| \_\ `
-
-// renderAsciiArt renders the ADHAR ASCII art with style
-func renderAsciiArt() string {
-	return lipgloss.NewStyle().
-		Foreground(helpers.PrimaryColor).
-		Bold(true).
-		Render(adharArt)
-}
-
-// printHeader prints the standard Adhar Platform header with ASCII art
+// printHeader prints the signature Adhar header: the hexagon brand mark rendered
+// as truecolor terminal art alongside the gradient wordmark and tagline.
+// See cmd/helpers/branding.go — the mark shares its geometry with the SVG logo.
+// When stdout is not an interactive terminal (piped, redirected, CI) it falls
+// back to a clean one-line brand strip so logs stay tidy.
 func printHeader() {
-	fmt.Println(renderAsciiArt())
-	fmt.Println(helpers.SubtitleStyle.Render(" Platform " + globals.Version + " - The Open Foundation"))
+	if fi, err := os.Stdout.Stat(); err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+		fmt.Println(helpers.RenderBannerLine(globals.Version))
+		return
+	}
+	fmt.Println()
+	fmt.Println(helpers.RenderBanner())
 	fmt.Println() // Add a blank line for spacing
 }
 

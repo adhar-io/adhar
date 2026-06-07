@@ -1,0 +1,33 @@
+# Dagster webserver (Dagit) UI routed through the Cilium Gateway
+# (adhar-gateway). TLS terminates at the Gateway (adhar-cert). Replaces any
+# nginx Ingress. The /dagster prefix is stripped before forwarding to
+# dagster-dagster-webserver:80. (Set dagsterWebserver.pathPrefix in values if
+# Dagit needs to serve under the sub-path.)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: dagster
+  namespace: dagster
+  labels:
+    app.kubernetes.io/name: dagster
+    app.kubernetes.io/instance: dagster
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /dagster
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: dagster-dagster-webserver
+          port: 80

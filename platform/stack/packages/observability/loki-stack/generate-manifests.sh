@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v2.10.2"
+CHART_VERSION="2.10.3"
 
 echo "# LOKI-STACK INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/loki-stack/generate-manifests.sh'" >>${INSTALL_YAML}

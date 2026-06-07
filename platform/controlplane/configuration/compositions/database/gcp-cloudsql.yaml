@@ -80,7 +80,7 @@ spec:
 
             _items = [
                 {
-                    apiVersion: "sql.gcp.upbound.io/v1beta1"
+                    apiVersion: "sql.gcp.m.upbound.io/v1beta1"
                     kind: "DatabaseInstance"
                     metadata.name: "cloudsql-instance"
                     metadata.labels: {
@@ -129,6 +129,7 @@ spec:
                             deletionProtection: not params.skipFinalSnapshot
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         writeConnectionSecretToRef: {
                             name: secretName
                             namespace: secretNamespace
@@ -137,7 +138,7 @@ spec:
                     }
                 },
                 {
-                    apiVersion: "sql.gcp.upbound.io/v1beta1"
+                    apiVersion: "sql.gcp.m.upbound.io/v1beta1"
                     kind: "Database"
                     metadata.name: "database"
                     metadata.labels: {
@@ -152,11 +153,12 @@ spec:
                             name: "${metadata.name}db"
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 },
                 {
-                    apiVersion: "sql.gcp.upbound.io/v1beta1"
+                    apiVersion: "sql.gcp.m.upbound.io/v1beta1"
                     kind: "User"
                     metadata.name: "db-user"
                     metadata.labels: {
@@ -177,6 +179,7 @@ spec:
                                 }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }

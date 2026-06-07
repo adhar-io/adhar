@@ -1,31 +1,31 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# Argo Workflows server routed through the Cilium Gateway (adhar-gateway). TLS
+# terminates at the Gateway (adhar-cert). The old nginx Ingress used
+# rewrite-target: /$2 with use-regex on path /argo-workflows(/|$)(.*), i.e. it
+# stripped the /argo-workflows prefix; we replicate that with a URLRewrite
+# ReplacePrefixMatch to /. The argo-server Service "web" port is 2746.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: argo-workflows-ingress
+  name: argo-workflows
   namespace: argo
-  annotations:
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
-  ingressClassName: "nginx"
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - localhost
+    - adhar.localtest.me
   rules:
-    - host: localhost
-      http:
-        paths:
-          - path: /argo-workflows(/|$)(.*)
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: argo-server
-                port:
-                  name: web
-    - host: adhar.localtest.me
-      http:
-        paths:
-          - path: /argo-workflows(/|$)(.*)
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: argo-server
-                port:
-                  name: web
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /argo-workflows
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: argo-server
+          port: 2746

@@ -1,0 +1,22 @@
+# MongoDB document database (Bitnami chart). Headless/ClusterIP service only --
+# MongoDB has no web UI, so there is no Gateway API HTTPRoute for this package
+# (clients connect over the mongodb wire protocol in-cluster).
+architecture: standalone
+
+auth:
+  rootPassword: adhar-mongodb
+  enabled: true
+
+persistence:
+  enabled: true
+  size: 4Gi
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi

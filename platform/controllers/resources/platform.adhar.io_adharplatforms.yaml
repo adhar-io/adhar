@@ -117,6 +117,18 @@ spec:
                   available:
                     type: boolean
                 type: object
+              crossplane:
+                properties:
+                  available:
+                    type: boolean
+                  controlPlaneApplied:
+                    type: boolean
+                type: object
+              gateway:
+                properties:
+                  available:
+                    type: boolean
+                type: object
               gitea:
                 properties:
                   adminUserSecretNameecret:
@@ -130,11 +142,6 @@ spec:
                   internalURL:
                     type: string
                   repositoriesCreated:
-                    type: boolean
-                type: object
-              nginx:
-                properties:
-                  available:
                     type: boolean
                 type: object
               observedGeneration:

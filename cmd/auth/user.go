@@ -1,7 +1,11 @@
 package auth
 
 import (
+	"context"
 	"fmt"
+	"strings"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
@@ -124,15 +128,67 @@ func init() {
 	listUsersCmd.Flags().IntVarP(&limit, "limit", "l", 0, "Limit number of users to show")
 }
 
+// kcUser is a subset of the Keycloak user representation.
+type kcUser struct {
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	Email     string `json:"email"`
+	Enabled   bool   `json:"enabled"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+}
+
 func runListUsers(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 Platform Users")
-	fmt.Println("")
+	fmt.Println("📋 Platform Users (Keycloak)")
+	kc := settings()
 
-	// TODO: Implement actual user listing logic
-	fmt.Println("📭 No users found")
-	fmt.Println("Use 'adhar auth user create' to create your first user")
+	path := "/users"
+	if limit > 0 {
+		path = fmt.Sprintf("/users?max=%d", limit)
+	}
 
+	var users []kcUser
+	if err := kc.adminGet(context.Background(), path, &users); err != nil {
+		return err
+	}
+
+	if output == "json" {
+		return helpers.PrintJSON(users)
+	}
+	if output == "yaml" {
+		return helpers.PrintYAML(users)
+	}
+
+	if len(users) == 0 {
+		fmt.Println(helpers.CreateMuted("No users found in realm " + kc.Realm))
+		return nil
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%-24s %-30s %-9s %s\n", "👤 USERNAME", "📧 EMAIL", "✅ ENABLED", "🆔 ID"))
+	b.WriteString(strings.Repeat("─", 100) + "\n")
+	for _, u := range users {
+		enabled := "yes"
+		if !u.Enabled {
+			enabled = "no"
+		}
+		b.WriteString(fmt.Sprintf("%-24s %-30s %-9s %s\n", truncA(u.Username, 24), truncA(u.Email, 30), enabled, u.ID))
+	}
+	fmt.Println(helpers.BorderStyle.Render(b.String()))
+	fmt.Println(helpers.CreateMuted(fmt.Sprintf("%d user(s) in realm %s", len(users), kc.Realm)))
 	return nil
+}
+
+// truncA shortens s to n runes, appending an ellipsis when truncated.
+func truncA(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n <= 1 {
+		return string(r[:n])
+	}
+	return string(r[:n-1]) + "…"
 }
 
 var (

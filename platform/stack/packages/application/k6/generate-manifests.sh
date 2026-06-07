@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v3.9.1"
+CHART_VERSION="4.4.1"
 
 echo "# K6 INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/k6/generate-manifests.sh'" >>${INSTALL_YAML}

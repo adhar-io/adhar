@@ -24,7 +24,9 @@ spec:
 
             params = oxr.spec.parameters
             metadata = oxr.metadata
-            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+            # All resources here are provider-kubernetes Objects, which must
+            # reference the kubernetes-provider ClusterProviderConfig (per conventions).
+            providerConfigName = "kubernetes-provider"
 
             # Configuration
             providers = params.providers or ["aws"]
@@ -58,7 +60,7 @@ spec:
                     }
                 },
                 {
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "opencost-deployment"
                     metadata.labels: {
@@ -162,10 +164,11 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 },
                 {
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "opencost-service"
                     metadata.labels: {
@@ -202,10 +205,11 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 },
                 {
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "opencost-serviceaccount"
                     metadata.labels: {
@@ -224,10 +228,11 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 },
                 {
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "opencost-clusterrole"
                     metadata.labels: {
@@ -267,10 +272,11 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 },
                 {
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "opencost-clusterrolebinding"
                     metadata.labels: {
@@ -298,6 +304,7 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 }
             ]
@@ -305,7 +312,7 @@ spec:
             # Add ingress if dashboard is enabled
             if enableDashboard and dashboard.ingress?.enabled:
                 _items += [{
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "opencost-ingress"
                     metadata.labels: {
@@ -314,39 +321,39 @@ spec:
                     }
                     spec: {
                         forProvider: {
+                            # Routed through the Cilium Gateway (adhar-gateway). TLS
+                            # terminates at the Gateway, so the old nginx ssl-redirect
+                            # annotation is dropped. Host/path/backend are preserved.
                             manifest: {
-                                apiVersion: "networking.k8s.io/v1"
-                                kind: "Ingress"
+                                apiVersion: "gateway.networking.k8s.io/v1"
+                                kind: "HTTPRoute"
                                 metadata: {
                                     name: "opencost"
                                     namespace: opencostNamespace
-                                    annotations: {
-                                        "nginx.ingress.kubernetes.io/ssl-redirect": "true"
-                                    }
                                 }
                                 spec: {
-                                    ingressClassName: "nginx"
+                                    parentRefs: [{
+                                        name: "adhar-gateway"
+                                        namespace: "adhar-system"
+                                    }]
+                                    hostnames: [dashboard.ingress.hostname or "opencost.${metadata.name}.local"]
                                     rules: [{
-                                        host: dashboard.ingress.hostname or "opencost.${metadata.name}.local"
-                                        http: {
-                                            paths: [{
-                                                path: "/"
-                                                pathType: "Prefix"
-                                                backend: {
-                                                    service: {
-                                                        name: "opencost"
-                                                        port: {
-                                                            number: 9003
-                                                        }
-                                                    }
-                                                }
-                                            }]
-                                        }
+                                        matches: [{
+                                            path: {
+                                                type: "PathPrefix"
+                                                value: "/"
+                                            }
+                                        }]
+                                        backendRefs: [{
+                                            name: "opencost"
+                                            port: 9003
+                                        }]
                                     }]
                                 }
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 }]
 
@@ -359,7 +366,7 @@ spec:
                 } for budget in budgets}
                 
                 _items += [{
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "budget-config"
                     metadata.labels: {
@@ -381,6 +388,7 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 }]
 

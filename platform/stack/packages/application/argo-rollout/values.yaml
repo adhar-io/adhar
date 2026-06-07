@@ -1,10 +1,16 @@
-# Kargo Helm Chart Values
+# Argo Rollouts Helm Chart Values
+#
+# Gateway API only -- NO nginx Ingress. We enable the Rollouts dashboard but keep
+# its chart Ingress disabled; external access is routed through the Cilium Gateway
+# via manifests/httproute.yaml (backend argo-rollouts-dashboard:3100).
 
-api:
+dashboard:
+  enabled: true
   ingress:
-    tls:
-      enabled: false
-  tls:
-    selfSignedCert: true
-  secret:
-    name: kargo-api
+    enabled: false
+  service:
+    type: ClusterIP
+
+controller:
+  ingress:
+    enabled: false

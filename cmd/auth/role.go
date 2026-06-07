@@ -1,7 +1,11 @@
 package auth
 
 import (
+	"context"
 	"fmt"
+	"strings"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
@@ -103,14 +107,48 @@ var (
 	}
 )
 
+// kcRole is a subset of the Keycloak role representation.
+type kcRole struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Composite   bool   `json:"composite"`
+	ClientRole  bool   `json:"clientRole"`
+}
+
 func runListRoles(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 Platform Roles")
-	fmt.Println("")
+	fmt.Println("📋 Platform Roles (Keycloak realm roles)")
+	kc := settings()
 
-	// TODO: Implement actual role listing logic
-	fmt.Println("📭 No roles found")
-	fmt.Println("Use 'adhar auth role create' to create your first role")
+	var roles []kcRole
+	if err := kc.adminGet(context.Background(), "/roles", &roles); err != nil {
+		return err
+	}
 
+	if output == "json" {
+		return helpers.PrintJSON(roles)
+	}
+	if output == "yaml" {
+		return helpers.PrintYAML(roles)
+	}
+
+	if len(roles) == 0 {
+		fmt.Println(helpers.CreateMuted("No realm roles found in " + kc.Realm))
+		return nil
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%-30s %-11s %s\n", "🔑 ROLE", "🧩 COMPOSITE", "📝 DESCRIPTION"))
+	b.WriteString(strings.Repeat("─", 90) + "\n")
+	for _, r := range roles {
+		comp := "no"
+		if r.Composite {
+			comp = "yes"
+		}
+		b.WriteString(fmt.Sprintf("%-30s %-11s %s\n", truncA(r.Name, 30), comp, truncA(r.Description, 40)))
+	}
+	fmt.Println(helpers.BorderStyle.Render(b.String()))
+	fmt.Println(helpers.CreateMuted(fmt.Sprintf("%d realm role(s) in %s", len(roles), kc.Realm)))
 	return nil
 }
 

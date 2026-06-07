@@ -1,0 +1,8 @@
+# Plane (Community Edition) values for Adhar. The chart's Ingress/IngressRoute is
+# disabled -- routing is handled by the Cilium Gateway API (adhar-gateway) via
+# manifests/httproute.yaml, which mirrors the upstream path-based routing across
+# the web, space, admin, api, live and minio services. Plane bundles its own
+# Postgres, Redis/Valkey, MinIO and RabbitMQ (local_setup), so the package is
+# self-contained.
+ingress:
+  enabled: false

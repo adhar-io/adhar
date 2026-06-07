@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v1.15.3"
+CHART_VERSION="v1.20.2"
 
 echo "# CERT MANAGER INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/security/cert-manager/generate-manifests.sh'" >>${INSTALL_YAML}

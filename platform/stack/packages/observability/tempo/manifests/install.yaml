@@ -1,4 +1,4 @@
-# LOKI-STACK INSTALL RESOURCES
+# TEMPO INSTALL RESOURCES
 # This file is auto-generated with 'platform/stack/packages/observability/tempo/generate-manifests.sh'
 ---
 # Source: tempo/templates/serviceaccount.yaml
@@ -8,10 +8,10 @@ metadata:
   name: tempo
   namespace: monitoring
   labels:
-    helm.sh/chart: tempo-1.11.0
+    helm.sh/chart: tempo-1.24.4
     app.kubernetes.io/name: tempo
     app.kubernetes.io/instance: tempo
-    app.kubernetes.io/version: "2.5.0"
+    app.kubernetes.io/version: "2.9.0"
     app.kubernetes.io/managed-by: Helm
 automountServiceAccountToken: true
 ---
@@ -22,16 +22,18 @@ metadata:
   name: tempo
   namespace: monitoring
   labels:
-    helm.sh/chart: tempo-1.11.0
+    helm.sh/chart: tempo-1.24.4
     app.kubernetes.io/name: tempo
     app.kubernetes.io/instance: tempo
-    app.kubernetes.io/version: "2.5.0"
+    app.kubernetes.io/version: "2.9.0"
     app.kubernetes.io/managed-by: Helm
 data:
   overrides.yaml: |
     overrides:
       {}
   tempo.yaml: |
+    memberlist:
+      cluster_label: "tempo.monitoring"
     multitenancy_enabled: false
     usage_report:
       reporting_enabled: true
@@ -60,7 +62,7 @@ data:
     ingester:
           {}
     server:
-          http_listen_port: 3100
+          http_listen_port: 3200
     storage:
           trace:
             backend: local
@@ -73,6 +75,7 @@ data:
     query_frontend:
           {}
     overrides:
+          defaults: {}
           per_tenant_override_config: /conf/overrides.yaml
 ---
 # Source: tempo/templates/service.yaml
@@ -82,17 +85,14 @@ metadata:
   name: tempo
   namespace: monitoring
   labels:
-    helm.sh/chart: tempo-1.11.0
+    helm.sh/chart: tempo-1.24.4
     app.kubernetes.io/name: tempo
     app.kubernetes.io/instance: tempo
-    app.kubernetes.io/version: "2.5.0"
+    app.kubernetes.io/version: "2.9.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
-  ports:
-  - name: tempo-prom-metrics
-    port: 3100
-    targetPort: 3100
+  ports:  
   - name: tempo-jaeger-thrift-compact
     port: 6831
     protocol: UDP
@@ -100,7 +100,11 @@ spec:
   - name: tempo-jaeger-thrift-binary
     port: 6832
     protocol: UDP
-    targetPort: 6832
+    targetPort: 6832  
+  - name: tempo-prom-metrics
+    port: 3200
+    protocol: TCP
+    targetPort: 3200
   - name: tempo-jaeger-thrift-http
     port: 14268
     protocol: TCP
@@ -120,7 +124,7 @@ spec:
   - name: tempo-otlp-http-legacy
     port: 55681
     protocol: TCP
-    targetPort: 4318
+    targetPort: 55681
   - name: grpc-tempo-otlp
     port: 4317
     protocol: TCP
@@ -144,10 +148,10 @@ metadata:
   name: tempo
   namespace: monitoring
   labels:
-    helm.sh/chart: tempo-1.11.0
+    helm.sh/chart: tempo-1.24.4
     app.kubernetes.io/name: tempo
     app.kubernetes.io/instance: tempo
-    app.kubernetes.io/version: "2.5.0"
+    app.kubernetes.io/version: "2.9.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -162,7 +166,7 @@ spec:
         app.kubernetes.io/name: tempo
         app.kubernetes.io/instance: tempo
       annotations:
-        checksum/config: 3f52699246d300b4df6bc8993fd4adecb0eda36cf8537f885f33552aaf86d6a0
+        checksum/config: cb46355f257527ccf4de20eb11bfb649e089f49545a4caa810463748828ba810
     spec:
       serviceAccountName: tempo
       automountServiceAccountToken: true
@@ -170,11 +174,11 @@ spec:
       - args:
         - -config.file=/conf/tempo.yaml
         - -mem-ballast-size-mbs=1024
-        image: grafana/tempo:2.5.0
+        image: docker.io/grafana/tempo:2.9.0
         imagePullPolicy: IfNotPresent
         name: tempo
         ports:
-        - containerPort: 3100
+        - containerPort: 3200
           name: prom-metrics
         - containerPort: 6831
           name: jaeger-thrift-c
@@ -198,6 +202,24 @@ spec:
           name: otlp-http
         - containerPort: 55678
           name: opencensus
+        livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /ready
+              port: 3200
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+        readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /ready
+              port: 3200
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
         resources:
           {}
         env:

@@ -354,13 +354,24 @@ loadBalancer:
   mode: "snat"                     # snat, dsr, hybrid
 ```
 
-#### Ingress Controller
+#### Gateway API
+
+Adhar uses the **Cilium Gateway API** as the platform's traffic path (it replaced
+ingress-nginx). The Cilium ingress controller is therefore disabled and the
+Gateway API is enabled:
+
 ```yaml
 ingressController:
-  enabled: true
-  loadbalancerMode: shared
-  default: false
+  enabled: false                  # superseded by Gateway API
+gatewayAPI:
+  enabled: true                   # platform traffic path (requires Gateway API CRDs)
 ```
+
+Gateway API requires its CRDs to be installed first — see `hack/gateway-api`.
+The platform Gateway, GatewayClass and `CiliumGatewayClassConfig` live in
+`platform/controllers/adharplatform/resources/gateway/`. Do **not** re-enable
+`ingressController`; it would create a second Envoy listener path alongside the
+Gateway.
 
 ## 📈 Performance Tuning
 

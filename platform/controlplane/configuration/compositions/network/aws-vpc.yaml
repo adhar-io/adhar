@@ -54,7 +54,7 @@ spec:
 
             _items = [
                 {
-                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                     kind: "VPC"
                     metadata.name: "vpc"
                     metadata.labels: {
@@ -71,6 +71,7 @@ spec:
                                 tags: tags | {"Name": metadata.name}
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }
@@ -79,7 +80,7 @@ spec:
             # Add Internet Gateway if enabled
             if enableIGW:
                 _items += [{
-                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                     kind: "InternetGateway"
                     metadata.name: "igw"
                     metadata.labels: {
@@ -96,6 +97,7 @@ spec:
                                 tags: tags | {"Name": "${metadata.name}-igw"}
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }]
@@ -110,7 +112,7 @@ spec:
                 _subnetName = "subnet-${subnet.name or idx}"
                 
                 _items += [{
-                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                     kind: "Subnet"
                     metadata.name: _subnetName
                     metadata.labels: {
@@ -134,6 +136,7 @@ spec:
                                 }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }]
@@ -153,7 +156,7 @@ spec:
                     # Create one NAT gateway in first public subnet
                     _items += [
                         {
-                            apiVersion: "ec2.aws.upbound.io/v1beta1"
+                            apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                             kind: "EIP"
                             metadata.name: "nat-eip-0"
                             metadata.labels: {
@@ -168,11 +171,12 @@ spec:
                                         tags: tags | {"Name": "${metadata.name}-nat-eip-0"}
                                 }
                                 providerConfigRef.name: providerConfigName
+                                providerConfigRef.kind: "ClusterProviderConfig"
                                 deletionPolicy: deletionPolicy
                             }
                         },
                         {
-                            apiVersion: "ec2.aws.upbound.io/v1beta1"
+                            apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                             kind: "NATGateway"
                             metadata.name: "nat-gateway-0"
                             metadata.labels: {
@@ -197,6 +201,7 @@ spec:
                                         tags: tags | {"Name": "${metadata.name}-nat-0"}
                                 }
                                 providerConfigRef.name: providerConfigName
+                                providerConfigRef.kind: "ClusterProviderConfig"
                                 deletionPolicy: deletionPolicy
                             }
                         }
@@ -207,7 +212,7 @@ spec:
                     for idx, subnetName in _publicSubnets:
                         _items += [
                             {
-                                apiVersion: "ec2.aws.upbound.io/v1beta1"
+                                apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                                 kind: "EIP"
                                 metadata.name: "nat-eip-{}".format(idx)
                                 metadata.labels: {
@@ -222,11 +227,12 @@ spec:
                                             tags: tags | {"Name": "${metadata.name}-nat-eip-{}".format(idx)}
                                     }
                                     providerConfigRef.name: providerConfigName
+                                    providerConfigRef.kind: "ClusterProviderConfig"
                                     deletionPolicy: deletionPolicy
                                 }
                             },
                             {
-                                apiVersion: "ec2.aws.upbound.io/v1beta1"
+                                apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                                 kind: "NATGateway"
                                 metadata.name: "nat-gateway-{}".format(idx)
                                 metadata.labels: {
@@ -250,6 +256,7 @@ spec:
                                             tags: tags | {"Name": "${metadata.name}-nat-{}".format(idx)}
                                     }
                                     providerConfigRef.name: providerConfigName
+                                    providerConfigRef.kind: "ClusterProviderConfig"
                                     deletionPolicy: deletionPolicy
                                 }
                             }
@@ -261,7 +268,7 @@ spec:
             if len(_publicSubnets) > 0 and enableIGW:
                 _items += [
                     {
-                        apiVersion: "ec2.aws.upbound.io/v1beta1"
+                        apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                         kind: "RouteTable"
                         metadata.name: "public-rt"
                         metadata.labels: {
@@ -279,11 +286,12 @@ spec:
                                     tags: tags | {"Name": "${metadata.name}-public", "Type": "public"}
                             }
                             providerConfigRef.name: providerConfigName
+                            providerConfigRef.kind: "ClusterProviderConfig"
                             deletionPolicy: deletionPolicy
                         }
                     },
                     {
-                        apiVersion: "ec2.aws.upbound.io/v1beta1"
+                        apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                         kind: "Route"
                         metadata.name: "public-route-igw"
                         metadata.labels: {
@@ -303,6 +311,7 @@ spec:
                                 }
                             }
                             providerConfigRef.name: providerConfigName
+                            providerConfigRef.kind: "ClusterProviderConfig"
                             deletionPolicy: deletionPolicy
                         }
                     }
@@ -311,7 +320,7 @@ spec:
                 # Associate public subnets with public route table
                 for subnetName in _publicSubnets:
                     _items += [{
-                        apiVersion: "ec2.aws.upbound.io/v1beta1"
+                        apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                         kind: "RouteTableAssociation"
                         metadata.name: "rta-{}".format(subnetName)
                         metadata.labels: {
@@ -333,6 +342,7 @@ spec:
                                 }
                             }
                             providerConfigRef.name: providerConfigName
+                            providerConfigRef.kind: "ClusterProviderConfig"
                             deletionPolicy: deletionPolicy
                         }
                     }]
@@ -340,7 +350,7 @@ spec:
             # Private route table with NAT gateway
             if len(_privateSubnets) > 0 and len(_natGatewayNames) > 0:
                 _items += [{
-                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                     kind: "RouteTable"
                     metadata.name: "private-rt"
                     metadata.labels: {
@@ -358,10 +368,11 @@ spec:
                                 tags: tags | {"Name": "${metadata.name}-private", "Type": "private"}
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }, {
-                    apiVersion: "ec2.aws.upbound.io/v1beta1"
+                    apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                     kind: "Route"
                     metadata.name: "private-route-nat"
                     metadata.labels: {
@@ -381,6 +392,7 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                         deletionPolicy: deletionPolicy
                     }
                 }]
@@ -388,7 +400,7 @@ spec:
                 # Associate private subnets
                 for subnetName in _privateSubnets:
                     _items += [{
-                        apiVersion: "ec2.aws.upbound.io/v1beta1"
+                        apiVersion: "ec2.aws.m.upbound.io/v1beta1"
                         kind: "RouteTableAssociation"
                         metadata.name: "rta-{}".format(subnetName)
                         metadata.labels: {
@@ -410,6 +422,7 @@ spec:
                                 }
                             }
                             providerConfigRef.name: providerConfigName
+                            providerConfigRef.kind: "ClusterProviderConfig"
                             deletionPolicy: deletionPolicy
                         }
                     }]

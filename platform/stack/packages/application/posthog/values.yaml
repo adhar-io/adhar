@@ -1,0 +1,19 @@
+# PostHog values for Adhar (charts-clickhouse). The chart's Ingress (and bundled
+# ingress-nginx) is disabled -- routing is handled by the Cilium Gateway API
+# (adhar-gateway) via manifests/httproute.yaml. PostHog is served at the root path
+# on adhar.localtest.me (it does not support a sub-path), so the HTTPRoute matches
+# a dedicated path and PostHog should ideally have its own hostname in production.
+cloud: "local"
+
+ingress:
+  enabled: false
+  nginx:
+    enabled: false
+
+# Bundled ingress-nginx subchart -- keep it off, the Cilium Gateway handles L7.
+ingress-nginx:
+  enabled: false
+
+web:
+  service:
+    type: ClusterIP

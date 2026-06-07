@@ -25,7 +25,9 @@ spec:
             params = oxr.spec.parameters
             metadata = oxr.metadata
             conn = oxr.spec.writeConnectionSecretToRef or {}
-            providerConfigName = oxr.spec.providerConfigRef?.name or "default"
+            # All resources here are provider-kubernetes Objects, which must
+            # reference the kubernetes-provider ClusterProviderConfig (per conventions).
+            providerConfigName = "kubernetes-provider"
 
             # Auth configuration
             realm = params.realm or "master"
@@ -60,7 +62,7 @@ spec:
                     }
                 },
                 {
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "keycloak-deployment"
                     metadata.labels: {
@@ -135,10 +137,11 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 },
                 {
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "keycloak-service"
                     metadata.labels: {
@@ -168,15 +171,18 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 }
             ]
 
-            # Add Ingress for external access
+            # Add HTTPRoute for external access via the Cilium Gateway
+            # (adhar-gateway). TLS terminates at the Gateway, replacing the old
+            # nginx Ingress (and its ssl-redirect annotation).
             _items += [{
-                apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                 kind: "Object"
-                metadata.name: "keycloak-ingress"
+                metadata.name: "keycloak-httproute"
                 metadata.labels: {
                     feature: "auth"
                     component: "keycloak"
@@ -184,38 +190,37 @@ spec:
                 spec: {
                     forProvider: {
                         manifest: {
-                            apiVersion: "networking.k8s.io/v1"
-                            kind: "Ingress"
+                            apiVersion: "gateway.networking.k8s.io/v1"
+                            kind: "HTTPRoute"
                             metadata: {
                                 name: "keycloak"
                                 namespace: keycloakNamespace
-                                annotations: {
-                                    "nginx.ingress.kubernetes.io/ssl-redirect": "true"
-                                }
                             }
                             spec: {
-                                ingressClassName: "nginx"
+                                parentRefs: [{
+                                    name: "adhar-gateway"
+                                    namespace: "adhar-system"
+                                }]
+                                hostnames: [
+                                    params.hostname or "keycloak.${metadata.name}.local"
+                                ]
                                 rules: [{
-                                    host: params.hostname or "keycloak.${metadata.name}.local"
-                                    http: {
-                                        paths: [{
-                                            path: "/"
-                                            pathType: "Prefix"
-                                            backend: {
-                                                service: {
-                                                    name: "keycloak"
-                                                    port: {
-                                                        number: 80
-                                                    }
-                                                }
-                                            }
-                                        }]
-                                    }
+                                    matches: [{
+                                        path: {
+                                            type: "PathPrefix"
+                                            value: "/"
+                                        }
+                                    }]
+                                    backendRefs: [{
+                                        name: "keycloak"
+                                        port: 80
+                                    }]
                                 }]
                             }
                         }
                     }
                     providerConfigRef.name: providerConfigName
+                    providerConfigRef.kind: "ClusterProviderConfig"
                 }
             }]
 
@@ -248,7 +253,7 @@ spec:
                 }
                 
                 _items += [{
-                    apiVersion: "kubernetes.crossplane.io/v1alpha1"
+                    apiVersion: "kubernetes.m.crossplane.io/v1alpha1"
                     kind: "Object"
                     metadata.name: "realm-config"
                     metadata.labels: {
@@ -270,6 +275,7 @@ spec:
                             }
                         }
                         providerConfigRef.name: providerConfigName
+                        providerConfigRef.kind: "ClusterProviderConfig"
                     }
                 }]
 

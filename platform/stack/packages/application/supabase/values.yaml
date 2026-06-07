@@ -1,0 +1,6 @@
+# Supabase values for Adhar (supabase-community chart). Ingress disabled --
+# routing is handled by the Cilium Gateway API (adhar-gateway) via
+# manifests/httproute.yaml. The Kong API gateway (supabase-kong:8000) is the
+# single public entrypoint for Studio, REST, Auth, Storage and Realtime.
+ingress:
+  enabled: false

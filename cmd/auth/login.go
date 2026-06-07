@@ -1,38 +1,44 @@
 package auth
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	"os"
+	"strings"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
 	loginCmd = &cobra.Command{
 		Use:   "login [username]",
 		Short: "Authenticate with the platform",
-		Long: `Authenticate with the Adhar platform using various methods:
-- Username/password authentication
-- OAuth providers (GitHub, Google, Azure AD)
-- SAML authentication
-- LDAP authentication
-- API key authentication`,
+		Long: `Authenticate against the Keycloak realm using the OIDC password grant.
+
+Obtains an access token from the realm token endpoint (derived from --issuer).
+The token is printed; combine with --output json to capture it programmatically.
+
+Examples:
+  adhar auth login admin --insecure
+  adhar auth login --issuer https://kc.example/realms/adhar
+  adhar auth login admin --password secret --output json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: runLogin,
 	}
 
 	// Login specific flags
-	username      string
-	password      string
-	apiKey        string
-	oauthProvider string
-	rememberMe    bool
-	forceLogin    bool
+	username   string
+	password   string
+	rememberMe bool
+	forceLogin bool
 )
 
 func init() {
-	loginCmd.Flags().StringVarP(&password, "password", "", "", "Password for authentication")
-	loginCmd.Flags().StringVarP(&apiKey, "api-key", "k", "", "API key for authentication")
-	loginCmd.Flags().StringVarP(&oauthProvider, "oauth", "", "", "OAuth provider (github, google, azure)")
+	loginCmd.Flags().StringVarP(&password, "password", "", "", "Password (prompted if omitted)")
 	loginCmd.Flags().BoolVarP(&rememberMe, "remember", "r", false, "Remember login session")
 	loginCmd.Flags().BoolVarP(&forceLogin, "force", "f", false, "Force re-authentication")
 }
@@ -42,87 +48,61 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		username = args[0]
 	}
 
-	// Check authentication method
-	if apiKey != "" {
-		return loginWithAPIKey(apiKey)
+	if username == "" {
+		fmt.Print("Username: ")
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		username = strings.TrimSpace(line)
+	}
+	if username == "" {
+		return fmt.Errorf("username is required")
 	}
 
-	if oauthProvider != "" {
-		return loginWithOAuth(oauthProvider)
+	if password == "" {
+		pw, err := promptPassword("Password: ")
+		if err != nil {
+			return err
+		}
+		password = pw
+	}
+	if password == "" {
+		return fmt.Errorf("password is required")
 	}
 
-	// Interactive login if no credentials provided
-	if username == "" || password == "" {
-		return interactiveLogin()
+	kc := settings()
+	fmt.Printf("🔐 Authenticating %q against %s\n", username, kc.Issuer)
+
+	tr, err := kc.passwordGrant(context.Background(), username, password)
+	if err != nil {
+		return err
 	}
 
-	return loginWithCredentials(username, password)
-}
+	if output == "json" {
+		return helpers.PrintJSON(tr)
+	}
 
-func loginWithAPIKey(apiKey string) error {
-	fmt.Println("🔑 Authenticating with API key...")
-
-	// TODO: Implement API key authentication
-	// This would typically involve:
-	// 1. Validating API key format
-	// 2. Checking API key against stored keys
-	// 3. Retrieving user permissions
-	// 4. Creating session
-
-	fmt.Println("✅ Successfully authenticated with API key")
+	fmt.Println(helpers.CreateSuccess("✅ Successfully authenticated"))
+	fmt.Printf("👤 User:    %s\n", username)
+	fmt.Printf("⏰ Expires: %ds\n", tr.ExpiresIn)
+	fmt.Printf("🔑 Access token:\n%s\n", tr.AccessToken)
+	fmt.Println(helpers.CreateMuted("   Reuse it for admin calls: adhar auth user list --admin-token <token>"))
 	return nil
 }
 
-func loginWithOAuth(provider string) error {
-	fmt.Printf("🔗 Authenticating with %s OAuth...\n", provider)
-
-	// TODO: Implement OAuth authentication
-	// This would typically involve:
-	// 1. Opening browser for OAuth flow
-	// 2. Handling OAuth callback
-	// 3. Exchanging code for tokens
-	// 4. Creating user session
-
-	fmt.Printf("✅ Successfully authenticated with %s OAuth\n", provider)
-	return nil
-}
-
-func interactiveLogin() error {
-	fmt.Println("🔐 Interactive Login")
-	fmt.Println("")
-
-	// Get username
-	fmt.Print("Username: ")
-	fmt.Scanln(&username)
-
-	// Get password (hidden input)
-	fmt.Print("Password: ")
-	// TODO: Implement hidden password input
-	fmt.Scanln(&password)
-
-	if username == "" || password == "" {
-		return fmt.Errorf("username and password are required")
+// promptPassword reads a password from the terminal without echoing it. Falls
+// back to a plain (echoed) read when stdin is not a terminal.
+func promptPassword(prompt string) (string, error) {
+	fmt.Print(prompt)
+	fd := int(os.Stdin.Fd())
+	if term.IsTerminal(fd) {
+		b, err := term.ReadPassword(fd)
+		fmt.Println()
+		if err != nil {
+			return "", fmt.Errorf("reading password: %w", err)
+		}
+		return string(b), nil
 	}
-
-	return loginWithCredentials(username, password)
-}
-
-func loginWithCredentials(username, password string) error {
-	fmt.Printf("🔐 Authenticating user: %s\n", username)
-
-	// TODO: Implement credential authentication
-	// This would typically involve:
-	// 1. Validating credentials against auth provider
-	// 2. Checking user permissions and roles
-	// 3. Creating or updating session
-	// 4. Storing authentication tokens
-
-	fmt.Println("✅ Successfully authenticated")
-	fmt.Printf("👤 Welcome, %s!\n", username)
-
-	if rememberMe {
-		fmt.Println("💾 Login session remembered")
-	}
-
-	return nil
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	return strings.TrimSpace(line), nil
 }

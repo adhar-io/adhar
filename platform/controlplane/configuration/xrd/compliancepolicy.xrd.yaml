@@ -1,19 +1,15 @@
-apiVersion: apiextensions.crossplane.io/v1
+apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
   name: compositecompliancepolicies.platform.adhar.io
 spec:
   group: platform.adhar.io
+  scope: Namespaced
   names:
     kind: CompositeCompliancePolicy
     plural: compositecompliancepolicies
-  claimNames:
-    kind: CompliancePolicy
-    plural: compliancepolicies
-  connectionSecretKeys:
-    - reportUrl
   defaultCompositionRef:
-    name: compositecompliancepolicy-kyverno
+    name: policy-kyverno
   versions:
     - name: v1alpha1
       served: true

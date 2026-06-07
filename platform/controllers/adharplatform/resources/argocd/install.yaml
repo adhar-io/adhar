@@ -7,13 +7,13 @@ metadata:
   name: argocd-application-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-application-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: application-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 ---
 # Source: argo-cd/templates/argocd-applicationset/serviceaccount.yaml
 apiVersion: v1
@@ -23,13 +23,13 @@ metadata:
   name: argocd-applicationset-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-applicationset-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: applicationset-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 ---
 # Source: argo-cd/templates/argocd-notifications/serviceaccount.yaml
 apiVersion: v1
@@ -39,13 +39,13 @@ metadata:
   name: argocd-notifications-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-notifications-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: notifications-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 ---
 # Source: argo-cd/templates/argocd-repo-server/serviceaccount.yaml
 apiVersion: v1
@@ -55,13 +55,13 @@ metadata:
   name: argo-cd-argocd-repo-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-repo-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: repo-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 ---
 # Source: argo-cd/templates/argocd-server/serviceaccount.yaml
 apiVersion: v1
@@ -71,13 +71,13 @@ metadata:
   name: argocd-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 ---
 # Source: argo-cd/templates/dex/serviceaccount.yaml
 apiVersion: v1
@@ -87,13 +87,13 @@ metadata:
   name: argocd-dex-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-dex-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: dex-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-notifications-secret.yaml
 apiVersion: v1
@@ -102,13 +102,13 @@ metadata:
   name: argocd-notifications-secret
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-notifications-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: notifications-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 type: Opaque
 stringData:
 ---
@@ -119,13 +119,13 @@ metadata:
   name: argocd-secret
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-secret
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 type: Opaque
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-cm.yaml
@@ -135,18 +135,31 @@ metadata:
   name: argocd-cm
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-cm
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 data:
   admin.enabled: "true"
   application.instanceLabelKey: argocd.argoproj.io/instance
   application.sync.impersonation.enabled: "false"
   exec.enabled: "false"
+  oidc.config: |
+    name: Keycloak
+    issuer: https://adhar.localtest.me:8443/keycloak/realms/adhar
+    clientID: argocd
+    clientSecret: $oidc.keycloak.clientSecret
+    requestedScopes:
+      - openid
+      - profile
+      - email
+      - groups
+    requestedIDTokenClaims:
+      groups:
+        essential: true
   resource.customizations.ignoreResourceUpdates.ConfigMap: |
     jqPathExpressions:
       # Ignore the cluster-autoscaler status
@@ -245,7 +258,7 @@ data:
   timeout.hard.reconciliation: 0s
   timeout.reconciliation: 180s
   timeout.reconciliation.jitter: 60s
-  url: https://argocd.example.com
+  url: https://adhar.localtest.me:8443/argocd
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-cmd-params-cm.yaml
 apiVersion: v1
@@ -254,13 +267,13 @@ metadata:
   name: argocd-cmd-params-cm
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-cmd-params-cm
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 data:
   application.namespaces: ""
   applicationsetcontroller.enable.leader.election: "false"
@@ -296,7 +309,7 @@ data:
   server.disable.auth: "false"
   server.enable.gzip: "true"
   server.enable.proxy.extension: "false"
-  server.insecure: "false"
+  server.insecure: "true"
   server.log.format: text
   server.log.level: info
   server.repo.server.strict.tls: "false"
@@ -311,12 +324,12 @@ metadata:
   name: argocd-gpg-keys-cm
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-gpg-keys-cm
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-notifications-cm.yaml
 apiVersion: v1
@@ -325,13 +338,13 @@ metadata:
   name: argocd-notifications-cm
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-notifications-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: notifications-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 data:
   context: |
     argocdUrl: https://argocd.example.com
@@ -343,15 +356,25 @@ metadata:
   name: argocd-rbac-cm
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-rbac-cm
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 data:
-  policy.csv: ""
+  policy.csv: |
+    p, role:platform-developer, applications, get, */*, allow
+    p, role:platform-developer, applications, sync, */*, allow
+    p, role:platform-developer, applications, action/*, */*, allow
+    p, role:platform-developer, logs, get, */*, allow
+    p, role:platform-developer, repositories, get, *, allow
+    p, role:platform-developer, projects, get, *, allow
+    p, role:platform-developer, clusters, get, *, allow
+    g, platform-admin, role:admin
+    g, platform-developer, role:platform-developer
+    g, platform-viewer, role:readonly
   policy.default: ""
   policy.matchMode: glob
   scopes: '[groups]'
@@ -363,12 +386,12 @@ metadata:
   name: argocd-ssh-known-hosts-cm
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-ssh-known-hosts-cm
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 data:
   ssh_known_hosts: |
     [ssh.github.com]:443 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
@@ -393,12 +416,12 @@ metadata:
   name: argocd-tls-certs-cm
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-tls-certs-cm
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 ---
 # Source: argo-cd/templates/redis/health-configmap.yaml
 apiVersion: v1
@@ -407,13 +430,13 @@ metadata:
   name: argo-cd-argocd-redis-health-configmap
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-redis
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: redis
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 data:
   redis_liveness.sh: |
     response=$(
@@ -858,12 +881,12 @@ spec:
                               apply common labels to resource selectors or not
                             type: boolean
                           namePrefix:
-                            description: NamePrefix is a prefix appended to resources
-                              for Kustomize apps
+                            description: NamePrefix overrides the namePrefix in the
+                              kustomization.yaml for Kustomize apps
                             type: string
                           nameSuffix:
-                            description: NameSuffix is a suffix appended to resources
-                              for Kustomize apps
+                            description: NameSuffix overrides the nameSuffix in the
+                              kustomization.yaml for Kustomize apps
                             type: string
                           namespace:
                             description: Namespace sets the namespace that Kustomize
@@ -1247,12 +1270,12 @@ spec:
                                 to apply common labels to resource selectors or not
                               type: boolean
                             namePrefix:
-                              description: NamePrefix is a prefix appended to resources
-                                for Kustomize apps
+                              description: NamePrefix overrides the namePrefix in
+                                the kustomization.yaml for Kustomize apps
                               type: string
                             nameSuffix:
-                              description: NameSuffix is a suffix appended to resources
-                                for Kustomize apps
+                              description: NameSuffix overrides the nameSuffix in
+                                the kustomization.yaml for Kustomize apps
                               type: string
                             namespace:
                               description: Namespace sets the namespace that Kustomize
@@ -1746,11 +1769,11 @@ spec:
                           common labels to resource selectors or not
                         type: boolean
                       namePrefix:
-                        description: NamePrefix is a prefix appended to resources
+                        description: NamePrefix overrides the namePrefix in the kustomization.yaml
                           for Kustomize apps
                         type: string
                       nameSuffix:
-                        description: NameSuffix is a suffix appended to resources
+                        description: NameSuffix overrides the nameSuffix in the kustomization.yaml
                           for Kustomize apps
                         type: string
                       namespace:
@@ -2123,12 +2146,12 @@ spec:
                               apply common labels to resource selectors or not
                             type: boolean
                           namePrefix:
-                            description: NamePrefix is a prefix appended to resources
-                              for Kustomize apps
+                            description: NamePrefix overrides the namePrefix in the
+                              kustomization.yaml for Kustomize apps
                             type: string
                           nameSuffix:
-                            description: NameSuffix is a suffix appended to resources
-                              for Kustomize apps
+                            description: NameSuffix overrides the nameSuffix in the
+                              kustomization.yaml for Kustomize apps
                             type: string
                           namespace:
                             description: Namespace sets the namespace that Kustomize
@@ -2534,12 +2557,12 @@ spec:
                             common labels to resource selectors or not
                           type: boolean
                         namePrefix:
-                          description: NamePrefix is a prefix appended to resources
-                            for Kustomize apps
+                          description: NamePrefix overrides the namePrefix in the
+                            kustomization.yaml for Kustomize apps
                           type: string
                         nameSuffix:
-                          description: NameSuffix is a suffix appended to resources
-                            for Kustomize apps
+                          description: NameSuffix overrides the nameSuffix in the
+                            kustomization.yaml for Kustomize apps
                           type: string
                         namespace:
                           description: Namespace sets the namespace that Kustomize
@@ -3093,12 +3116,12 @@ spec:
                                 to apply common labels to resource selectors or not
                               type: boolean
                             namePrefix:
-                              description: NamePrefix is a prefix appended to resources
-                                for Kustomize apps
+                              description: NamePrefix overrides the namePrefix in
+                                the kustomization.yaml for Kustomize apps
                               type: string
                             nameSuffix:
-                              description: NameSuffix is a suffix appended to resources
-                                for Kustomize apps
+                              description: NameSuffix overrides the nameSuffix in
+                                the kustomization.yaml for Kustomize apps
                               type: string
                             namespace:
                               description: Namespace sets the namespace that Kustomize
@@ -3486,12 +3509,12 @@ spec:
                                   not
                                 type: boolean
                               namePrefix:
-                                description: NamePrefix is a prefix appended to resources
-                                  for Kustomize apps
+                                description: NamePrefix overrides the namePrefix in
+                                  the kustomization.yaml for Kustomize apps
                                 type: string
                               nameSuffix:
-                                description: NameSuffix is a suffix appended to resources
-                                  for Kustomize apps
+                                description: NameSuffix overrides the nameSuffix in
+                                  the kustomization.yaml for Kustomize apps
                                 type: string
                               namespace:
                                 description: Namespace sets the namespace that Kustomize
@@ -3638,6 +3661,7 @@ spec:
               observedAt:
                 description: |-
                   ObservedAt indicates when the application state was updated without querying latest git state
+
                   Deprecated: controller no longer updates ObservedAt field
                 format: date-time
                 type: string
@@ -4034,12 +4058,12 @@ spec:
                                       or not
                                     type: boolean
                                   namePrefix:
-                                    description: NamePrefix is a prefix appended to
-                                      resources for Kustomize apps
+                                    description: NamePrefix overrides the namePrefix
+                                      in the kustomization.yaml for Kustomize apps
                                     type: string
                                   nameSuffix:
-                                    description: NameSuffix is a suffix appended to
-                                      resources for Kustomize apps
+                                    description: NameSuffix overrides the nameSuffix
+                                      in the kustomization.yaml for Kustomize apps
                                     type: string
                                   namespace:
                                     description: Namespace sets the namespace that
@@ -4447,12 +4471,12 @@ spec:
                                         selectors or not
                                       type: boolean
                                     namePrefix:
-                                      description: NamePrefix is a prefix appended
-                                        to resources for Kustomize apps
+                                      description: NamePrefix overrides the namePrefix
+                                        in the kustomization.yaml for Kustomize apps
                                       type: string
                                     nameSuffix:
-                                      description: NameSuffix is a suffix appended
-                                        to resources for Kustomize apps
+                                      description: NameSuffix overrides the nameSuffix
+                                        in the kustomization.yaml for Kustomize apps
                                       type: string
                                     namespace:
                                       description: Namespace sets the namespace that
@@ -4977,12 +5001,12 @@ spec:
                                   not
                                 type: boolean
                               namePrefix:
-                                description: NamePrefix is a prefix appended to resources
-                                  for Kustomize apps
+                                description: NamePrefix overrides the namePrefix in
+                                  the kustomization.yaml for Kustomize apps
                                 type: string
                               nameSuffix:
-                                description: NameSuffix is a suffix appended to resources
-                                  for Kustomize apps
+                                description: NameSuffix overrides the nameSuffix in
+                                  the kustomization.yaml for Kustomize apps
                                 type: string
                               namespace:
                                 description: Namespace sets the namespace that Kustomize
@@ -5381,12 +5405,12 @@ spec:
                                     not
                                   type: boolean
                                 namePrefix:
-                                  description: NamePrefix is a prefix appended to
-                                    resources for Kustomize apps
+                                  description: NamePrefix overrides the namePrefix
+                                    in the kustomization.yaml for Kustomize apps
                                   type: string
                                 nameSuffix:
-                                  description: NameSuffix is a suffix appended to
-                                    resources for Kustomize apps
+                                  description: NameSuffix overrides the nameSuffix
+                                    in the kustomization.yaml for Kustomize apps
                                   type: string
                                 namespace:
                                   description: Namespace sets the namespace that Kustomize
@@ -5906,12 +5930,12 @@ spec:
                                       or not
                                     type: boolean
                                   namePrefix:
-                                    description: NamePrefix is a prefix appended to
-                                      resources for Kustomize apps
+                                    description: NamePrefix overrides the namePrefix
+                                      in the kustomization.yaml for Kustomize apps
                                     type: string
                                   nameSuffix:
-                                    description: NameSuffix is a suffix appended to
-                                      resources for Kustomize apps
+                                    description: NameSuffix overrides the nameSuffix
+                                      in the kustomization.yaml for Kustomize apps
                                     type: string
                                   namespace:
                                     description: Namespace sets the namespace that
@@ -6359,12 +6383,12 @@ spec:
                                       or not
                                     type: boolean
                                   namePrefix:
-                                    description: NamePrefix is a prefix appended to
-                                      resources for Kustomize apps
+                                    description: NamePrefix overrides the namePrefix
+                                      in the kustomization.yaml for Kustomize apps
                                     type: string
                                   nameSuffix:
-                                    description: NameSuffix is a suffix appended to
-                                      resources for Kustomize apps
+                                    description: NameSuffix overrides the nameSuffix
+                                      in the kustomization.yaml for Kustomize apps
                                     type: string
                                   namespace:
                                     description: Namespace sets the namespace that
@@ -6872,12 +6896,12 @@ spec:
                                   not
                                 type: boolean
                               namePrefix:
-                                description: NamePrefix is a prefix appended to resources
-                                  for Kustomize apps
+                                description: NamePrefix overrides the namePrefix in
+                                  the kustomization.yaml for Kustomize apps
                                 type: string
                               nameSuffix:
-                                description: NameSuffix is a suffix appended to resources
-                                  for Kustomize apps
+                                description: NameSuffix overrides the nameSuffix in
+                                  the kustomization.yaml for Kustomize apps
                                 type: string
                               namespace:
                                 description: Namespace sets the namespace that Kustomize
@@ -7276,12 +7300,12 @@ spec:
                                     not
                                   type: boolean
                                 namePrefix:
-                                  description: NamePrefix is a prefix appended to
-                                    resources for Kustomize apps
+                                  description: NamePrefix overrides the namePrefix
+                                    in the kustomization.yaml for Kustomize apps
                                   type: string
                                 nameSuffix:
-                                  description: NameSuffix is a suffix appended to
-                                    resources for Kustomize apps
+                                  description: NameSuffix overrides the nameSuffix
+                                    in the kustomization.yaml for Kustomize apps
                                   type: string
                                 namespace:
                                   description: Namespace sets the namespace that Kustomize
@@ -30570,6 +30594,16 @@ spec:
                   - type
                   type: object
                 type: array
+              health:
+                properties:
+                  lastTransitionTime:
+                    format: date-time
+                    type: string
+                  message:
+                    type: string
+                  status:
+                    type: string
+                type: object
               resources:
                 items:
                   properties:
@@ -31004,13 +31038,13 @@ kind: ClusterRole
 metadata:
   name: argo-cd-argocd-application-controller
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-application-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: application-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 rules:
   - apiGroups:
     - '*'
@@ -31029,13 +31063,13 @@ kind: ClusterRole
 metadata:
   name: argo-cd-argocd-notifications-controller
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-notifications-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: notifications-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 rules:
   - apiGroups:
     - argoproj.io
@@ -31079,13 +31113,13 @@ kind: ClusterRole
 metadata:
   name: argo-cd-argocd-server
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 rules:
   - apiGroups:
       - '*'
@@ -31140,13 +31174,13 @@ kind: ClusterRoleBinding
 metadata:
   name: argo-cd-argocd-application-controller
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-application-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: application-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -31162,13 +31196,13 @@ kind: ClusterRoleBinding
 metadata:
   name: argo-cd-argocd-notifications-controller
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-notifications-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: notifications-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -31184,13 +31218,13 @@ kind: ClusterRoleBinding
 metadata:
   name: argo-cd-argocd-server
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -31207,13 +31241,13 @@ metadata:
   name: argo-cd-argocd-application-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-application-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: application-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 rules:
 - apiGroups:
   - ""
@@ -31261,13 +31295,13 @@ metadata:
   name: argo-cd-argocd-applicationset-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-applicationset-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: applicationset-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 rules:
   - apiGroups:
     - argoproj.io
@@ -31365,13 +31399,13 @@ metadata:
   name: argo-cd-argocd-notifications-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-notifications-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: notifications-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 rules:
 - apiGroups:
   - argoproj.io
@@ -31416,13 +31450,13 @@ metadata:
   name: argo-cd-argocd-repo-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-repo-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: repo-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 rules:
 ---
 # Source: argo-cd/templates/argocd-server/role.yaml
@@ -31432,13 +31466,13 @@ metadata:
   name: argo-cd-argocd-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 rules:
 - apiGroups:
   - ""
@@ -31482,13 +31516,13 @@ metadata:
   name: argo-cd-argocd-dex-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-dex-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: dex-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 rules:
 - apiGroups:
   - ""
@@ -31507,13 +31541,13 @@ metadata:
   name: argo-cd-argocd-application-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-application-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: application-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -31530,13 +31564,13 @@ metadata:
   name: argo-cd-argocd-applicationset-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-applicationset-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: applicationset-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -31553,13 +31587,13 @@ metadata:
   name: argo-cd-argocd-notifications-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-notifications-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: notifications-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -31576,13 +31610,13 @@ metadata:
   name: argo-cd-argocd-repo-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-repo-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: repo-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -31599,13 +31633,13 @@ metadata:
   name: argo-cd-argocd-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -31622,13 +31656,13 @@ metadata:
   name: argo-cd-argocd-dex-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-dex-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: dex-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -31645,13 +31679,13 @@ metadata:
   name: argo-cd-argocd-applicationset-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-applicationset-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: applicationset-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   type: ClusterIP  
   ports:
@@ -31667,13 +31701,13 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-repo-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: repo-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
   name: argo-cd-argocd-repo-server
   namespace: adhar-system
 spec:  
@@ -31693,13 +31727,13 @@ metadata:
   name: argo-cd-argocd-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   type: ClusterIP  
   sessionAffinity: None
@@ -31723,13 +31757,13 @@ metadata:
   name: argo-cd-argocd-dex-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-dex-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: dex-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:  
   ports:
   - name: http
@@ -31751,13 +31785,13 @@ metadata:
   name: argo-cd-argocd-redis
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-redis
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: redis
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:  
   ports:
   - name: redis
@@ -31774,13 +31808,13 @@ metadata:
   name: argo-cd-argocd-applicationset-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-applicationset-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: applicationset-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -31791,22 +31825,22 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 0ab98aa4516c2e7b94be2f9ad5f77716c02b85dc8d1a533f61c9e00edfbedf8e
+        checksum/cmd-params: 15d7c12caefa745f42c5224d1d1c5993ddb52a2386d7f2cbe0444543b48fc9f9
       labels:
-        helm.sh/chart: argo-cd-9.4.17
+        helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-applicationset-controller
         app.kubernetes.io/instance: argo-cd
         app.kubernetes.io/component: applicationset-controller
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: argocd
-        app.kubernetes.io/version: "v3.3.6"
+        app.kubernetes.io/version: "v3.4.3"
     spec:
       terminationGracePeriodSeconds: 30
       serviceAccountName: argocd-applicationset-controller
       automountServiceAccountToken: true
       containers:
         - name: applicationset-controller
-          image: quay.io/argoproj/argocd:v3.3.6
+          image: quay.io/argoproj/argocd:v3.4.3
           imagePullPolicy: IfNotPresent
           args:
             - /usr/local/bin/argocd-applicationset-controller
@@ -32068,13 +32102,13 @@ metadata:
   name: argo-cd-argocd-notifications-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-notifications-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: notifications-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -32087,22 +32121,22 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 0ab98aa4516c2e7b94be2f9ad5f77716c02b85dc8d1a533f61c9e00edfbedf8e
+        checksum/cmd-params: 15d7c12caefa745f42c5224d1d1c5993ddb52a2386d7f2cbe0444543b48fc9f9
       labels:
-        helm.sh/chart: argo-cd-9.4.17
+        helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-notifications-controller
         app.kubernetes.io/instance: argo-cd
         app.kubernetes.io/component: notifications-controller
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: argocd
-        app.kubernetes.io/version: "v3.3.6"
+        app.kubernetes.io/version: "v3.4.3"
     spec:
       terminationGracePeriodSeconds: 30
       serviceAccountName: argocd-notifications-controller
       automountServiceAccountToken: true
       containers:
         - name: notifications-controller
-          image: quay.io/argoproj/argocd:v3.3.6
+          image: quay.io/argoproj/argocd:v3.4.3
           imagePullPolicy: IfNotPresent
           args:
             - /usr/local/bin/argocd-notifications
@@ -32203,13 +32237,13 @@ metadata:
   name: argo-cd-argocd-repo-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-repo-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: repo-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -32220,23 +32254,23 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 0ab98aa4516c2e7b94be2f9ad5f77716c02b85dc8d1a533f61c9e00edfbedf8e
-        checksum/cm: a2ba87222d66d32caba1564136bc3c75be5033f365b3caa9732071cc75666ee2
+        checksum/cmd-params: 15d7c12caefa745f42c5224d1d1c5993ddb52a2386d7f2cbe0444543b48fc9f9
+        checksum/cm: 3a56a0cdd01c2bbe8716541f4f2959c8e51ed2114a46671787c88491b99ae514
       labels:
-        helm.sh/chart: argo-cd-9.4.17
+        helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-repo-server
         app.kubernetes.io/instance: argo-cd
         app.kubernetes.io/component: repo-server
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: argocd
-        app.kubernetes.io/version: "v3.3.6"
+        app.kubernetes.io/version: "v3.4.3"
     spec:
       terminationGracePeriodSeconds: 30
       serviceAccountName: argo-cd-argocd-repo-server
       automountServiceAccountToken: true
       containers:
       - name: repo-server
-        image: quay.io/argoproj/argocd:v3.3.6
+        image: quay.io/argoproj/argocd:v3.4.3
         imagePullPolicy: IfNotPresent
         args:
         - /usr/local/bin/argocd-repo-server
@@ -32562,7 +32596,7 @@ spec:
         - '-c'
         args:
         - /bin/cp --update=none /usr/local/bin/argocd /var/run/argocd/argocd && /bin/ln -sf /var/run/argocd/argocd /var/run/argocd/argocd-cmp-server
-        image: quay.io/argoproj/argocd:v3.3.6
+        image: quay.io/argoproj/argocd:v3.4.3
         imagePullPolicy: IfNotPresent
         name: copyutil
         resources:
@@ -32630,13 +32664,13 @@ metadata:
   name: argo-cd-argocd-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -32647,23 +32681,23 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 0ab98aa4516c2e7b94be2f9ad5f77716c02b85dc8d1a533f61c9e00edfbedf8e
-        checksum/cm: a2ba87222d66d32caba1564136bc3c75be5033f365b3caa9732071cc75666ee2
+        checksum/cmd-params: 15d7c12caefa745f42c5224d1d1c5993ddb52a2386d7f2cbe0444543b48fc9f9
+        checksum/cm: 3a56a0cdd01c2bbe8716541f4f2959c8e51ed2114a46671787c88491b99ae514
       labels:
-        helm.sh/chart: argo-cd-9.4.17
+        helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-server
         app.kubernetes.io/instance: argo-cd
         app.kubernetes.io/component: server
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: argocd
-        app.kubernetes.io/version: "v3.3.6"
+        app.kubernetes.io/version: "v3.4.3"
     spec:
       terminationGracePeriodSeconds: 30
       serviceAccountName: argocd-server
       automountServiceAccountToken: true
       containers:
       - name: server
-        image: quay.io/argoproj/argocd:v3.3.6
+        image: quay.io/argoproj/argocd:v3.4.3
         imagePullPolicy: IfNotPresent
         args:
         - /usr/local/bin/argocd-server
@@ -33093,13 +33127,13 @@ metadata:
   name: argo-cd-argocd-dex-server
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-dex-server
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: dex-server
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -33110,15 +33144,15 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 0ab98aa4516c2e7b94be2f9ad5f77716c02b85dc8d1a533f61c9e00edfbedf8e
+        checksum/cmd-params: 15d7c12caefa745f42c5224d1d1c5993ddb52a2386d7f2cbe0444543b48fc9f9
       labels:
-        helm.sh/chart: argo-cd-9.4.17
+        helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-dex-server
         app.kubernetes.io/instance: argo-cd
         app.kubernetes.io/component: dex-server
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: argocd
-        app.kubernetes.io/version: "v3.3.6"
+        app.kubernetes.io/version: "v3.4.3"
     spec:
       terminationGracePeriodSeconds: 30
       serviceAccountName: argocd-dex-server
@@ -33187,7 +33221,7 @@ spec:
           mountPath: /tls
       initContainers:
       - name: copyutil
-        image: quay.io/argoproj/argocd:v3.3.6
+        image: quay.io/argoproj/argocd:v3.4.3
         imagePullPolicy: IfNotPresent
         command:
         - /bin/cp
@@ -33247,13 +33281,13 @@ metadata:
   name: argo-cd-argocd-redis
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-redis
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: redis
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   replicas: 1
   revisionHistoryLimit: 3
@@ -33263,13 +33297,13 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: argo-cd-9.4.17
+        helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-redis
         app.kubernetes.io/instance: argo-cd
         app.kubernetes.io/component: redis
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: argocd
-        app.kubernetes.io/version: "v3.3.6"
+        app.kubernetes.io/version: "v3.4.3"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -33335,13 +33369,13 @@ metadata:
   name: argo-cd-argocd-application-controller
   namespace: adhar-system
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-application-controller
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: application-controller
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   replicas: 1
   revisionHistoryLimit: 5
@@ -33353,16 +33387,16 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 0ab98aa4516c2e7b94be2f9ad5f77716c02b85dc8d1a533f61c9e00edfbedf8e
-        checksum/cm: a2ba87222d66d32caba1564136bc3c75be5033f365b3caa9732071cc75666ee2
+        checksum/cmd-params: 15d7c12caefa745f42c5224d1d1c5993ddb52a2386d7f2cbe0444543b48fc9f9
+        checksum/cm: 3a56a0cdd01c2bbe8716541f4f2959c8e51ed2114a46671787c88491b99ae514
       labels:
-        helm.sh/chart: argo-cd-9.4.17
+        helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-application-controller
         app.kubernetes.io/instance: argo-cd
         app.kubernetes.io/component: application-controller
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: argocd
-        app.kubernetes.io/version: "v3.3.6"
+        app.kubernetes.io/version: "v3.4.3"
     spec:
       terminationGracePeriodSeconds: 30
       serviceAccountName: argocd-application-controller
@@ -33371,7 +33405,7 @@ spec:
       - args:
         - /usr/local/bin/argocd-application-controller
         - --metrics-port=8082
-        image: quay.io/argoproj/argocd:v3.3.6
+        image: quay.io/argoproj/argocd:v3.4.3
         imagePullPolicy: IfNotPresent
         name: application-controller
         env:
@@ -33738,13 +33772,13 @@ metadata:
     "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-redis-secret-init
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: redis-secret-init
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 ---
 # Source: argo-cd/templates/redis-secret-init/role.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -33754,13 +33788,13 @@ metadata:
     "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-redis-secret-init
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: redis-secret-init
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
   name: argo-cd-argocd-redis-secret-init
   namespace: "adhar-system"
 rules:
@@ -33787,13 +33821,13 @@ metadata:
     "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-redis-secret-init
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: redis-secret-init
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
   name: argo-cd-argocd-redis-secret-init
   namespace: "adhar-system"
 roleRef:
@@ -33803,6 +33837,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: argo-cd-argocd-redis-secret-init
+    namespace: "adhar-system"
 ---
 # Source: argo-cd/templates/redis-secret-init/job.yaml
 apiVersion: batch/v1
@@ -33814,32 +33849,32 @@ metadata:
     "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation
   labels:
-    helm.sh/chart: argo-cd-9.4.17
+    helm.sh/chart: argo-cd-9.5.19
     app.kubernetes.io/name: argocd-redis-secret-init
     app.kubernetes.io/instance: argo-cd
     app.kubernetes.io/component: redis-secret-init
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argocd
-    app.kubernetes.io/version: "v3.3.6"
+    app.kubernetes.io/version: "v3.4.3"
 spec:
   ttlSecondsAfterFinished: 60
   template:
     metadata:
       labels:
-        helm.sh/chart: argo-cd-9.4.17
+        helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-redis-secret-init
         app.kubernetes.io/instance: argo-cd
         app.kubernetes.io/component: redis-secret-init
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: argocd
-        app.kubernetes.io/version: "v3.3.6"
+        app.kubernetes.io/version: "v3.4.3"
     spec:
       containers:
       - command:
           - argocd
           - admin
           - redis-initial-password
-        image: quay.io/argoproj/argocd:v3.3.6
+        image: quay.io/argoproj/argocd:v3.4.3
         imagePullPolicy: IfNotPresent
         name: secret-init
         resources:

@@ -1,19 +1,13 @@
-apiVersion: apiextensions.crossplane.io/v1
+apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
   name: compositeapplications.platform.adhar.io
 spec:
   group: platform.adhar.io
+  scope: Namespaced
   names:
     kind: CompositeApplication
     plural: compositeapplications
-  claimNames:
-    kind: Application
-    plural: applications
-  connectionSecretKeys:
-    - applicationName
-    - project
-    - destination
   defaultCompositionRef:
     name: compositeapplication-argocd
   versions:

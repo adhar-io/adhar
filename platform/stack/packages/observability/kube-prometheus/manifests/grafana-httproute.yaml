@@ -1,0 +1,25 @@
+# Grafana UI routed through the Cilium Gateway (adhar-gateway). TLS terminates at
+# the Gateway. The old nginx rewrite-target (/grafana/$2 with use-regex)
+# preserved the /grafana prefix when forwarding to prometheus-grafana:80, so no
+# URLRewrite filter is needed. backend-protocol HTTP is the default for plain
+# HTTP backendRefs.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - adhar.localtest.me
+    - localhost
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /grafana
+      backendRefs:
+        - name: prometheus-grafana
+          port: 80

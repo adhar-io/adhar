@@ -8,13 +8,98 @@ metadata:
   name: opencost
   namespace: monitoring
   labels:
-    helm.sh/chart: opencost-1.38.1
+    helm.sh/chart: opencost-2.5.22
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.110.0"
+    app.kubernetes.io/version: "1.120.3"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
 automountServiceAccountToken: true
+---
+# Source: opencost/templates/configmap-frontend.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opencost-ui-nginx-config
+  namespace: monitoring
+data:
+  nginx.conf: |
+    gzip_static  on;
+    gzip on;
+    gzip_min_length 50000;
+    gzip_proxied expired no-cache no-store private auth;
+    gzip_types
+        application/atom+xml
+        application/geo+json
+        application/javascript
+        application/x-javascript
+        application/json
+        application/ld+json
+        application/manifest+json
+        application/rdf+xml
+        application/rss+xml
+        application/vnd.ms-fontobject
+        application/wasm
+        application/x-web-app-manifest+json
+        application/xhtml+xml
+        application/xml
+        font/eot
+        font/otf
+        font/ttf
+        image/bmp
+        image/svg+xml
+        text/cache-manifest
+        text/calendar
+        text/css
+        text/javascript
+        text/markdown
+        text/plain
+        text/xml
+        text/x-component
+        text/x-cross-domain-policy;
+
+    upstream model {
+            server opencost.monitoring:9003;
+    }
+
+    server {
+        server_name _;
+        root /var/www;
+        index index.html;
+        large_client_header_buffers 4 32k;
+        add_header Cache-Control "must-revalidate";
+
+        error_page 504 /custom_504.html;
+        location = /custom_504.html {
+            internal;
+        }
+
+        add_header Cache-Control "max-age=300";
+        location / {
+            alias /var/www/;
+            try_files $uri /index.html;
+        }
+
+        add_header ETag "1.96.0";
+        listen 9090;
+        listen [::]:9090;
+        resolver 127.0.0.1 valid=5s;
+        location /healthz {
+            access_log /dev/null;
+            return 200 'OK';
+        }
+        location /model/ {
+            proxy_connect_timeout       180;
+            proxy_send_timeout          180;
+            proxy_read_timeout          180;
+            proxy_pass http://model/;
+            proxy_redirect off;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+    }
 ---
 # Source: opencost/templates/clusterrole.yaml
 # Cluster role giving opencost to get, list, watch required resources
@@ -24,10 +109,10 @@ kind: ClusterRole
 metadata:
   name: opencost
   labels:
-    helm.sh/chart: opencost-1.38.1
+    helm.sh/chart: opencost-2.5.22
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.110.0"
+    app.kubernetes.io/version: "1.120.3"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
 rules:
@@ -109,10 +194,10 @@ kind: ClusterRoleBinding
 metadata:
   name: opencost
   labels:
-    helm.sh/chart: opencost-1.38.1
+    helm.sh/chart: opencost-2.5.22
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.110.0"
+    app.kubernetes.io/version: "1.120.3"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
 roleRef:
@@ -131,10 +216,10 @@ metadata:
   name: opencost
   namespace: monitoring
   labels:
-    helm.sh/chart: opencost-1.38.1
+    helm.sh/chart: opencost-2.5.22
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.110.0"
+    app.kubernetes.io/version: "1.120.3"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
 spec:
@@ -146,6 +231,9 @@ spec:
     - name: http
       port: 9003
       targetPort: 9003
+    - name: mcp-server
+      port: 8081
+      targetPort: 8081
     - name: http-ui
       port: 9090
       targetPort: 9090
@@ -157,12 +245,14 @@ metadata:
   name: opencost
   namespace: monitoring
   labels:
-    helm.sh/chart: opencost-1.38.1
+    helm.sh/chart: opencost-2.5.22
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.110.0"
+    app.kubernetes.io/version: "1.120.3"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    checksum/configs: b3aa8fabf22994651afe233f92c685a13b9a3956ae5784691e2a51087a739cdd
 spec:
   replicas: 1
   selector:
@@ -181,17 +271,20 @@ spec:
         app.kubernetes.io/instance: opencost
     spec:
       serviceAccountName: opencost
+      automountServiceAccountToken: true
+      initContainers:
       containers:
         - name: opencost
-          image: "ghcr.io/opencost/opencost:1.110.0"
+          image: ghcr.io/opencost/opencost:1.120.3@sha256:9f282400e59a4fc886e5fa3bca3c777b9dcae866b781641ca1d1271525d15f72
           imagePullPolicy: IfNotPresent
           args:
           ports:
             - containerPort: 9003
               name: http
+            - containerPort: 8081
+              name: mcp-server
           resources:
             limits:
-              cpu: 999m
               memory: 1Gi
             requests:
               cpu: 10m
@@ -222,16 +315,22 @@ spec:
               value: info
             - name: CUSTOM_COST_ENABLED
               value: "false"
-            - name: KUBECOST_NAMESPACE
+            - name: INSTALL_NAMESPACE
               value: monitoring
+            - name: PROMETHEUS_QUERY_RESOLUTION_SECONDS
+              value: "300"
             - name: API_PORT
               value: "9003"
             - name: PROMETHEUS_SERVER_ENDPOINT
               value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+            - name: INSECURE_SKIP_VERIFY
+              value: "false"
             - name: CLUSTER_ID
               value: "default-cluster"
-            - name: DATA_RETENTION_DAILY_RESOLUTION_DAYS
+            - name: RESOLUTION_1D_RETENTION
               value: "15"
+            - name: RESOLUTION_1H_RETENTION
+              value: "49"
             - name: CLOUD_COST_ENABLED
               value: "false"
             - name: CLOUD_COST_MONTH_TO_DATE_INTERVAL
@@ -243,8 +342,13 @@ spec:
             - name: CLOUD_COST_RUN_WINDOW_DAYS
               value: "3"
             # Add any additional provided variables
+            # MCP Server Configuration
+            - name: MCP_SERVER_ENABLED
+              value: "true"
+            - name: MCP_HTTP_PORT
+              value: "8081"
         - name: opencost-ui
-          image: "ghcr.io/opencost/opencost-ui:1.110.0"
+          image: ghcr.io/opencost/opencost-ui:1.120.3@sha256:12b6e7a844c17f9a4019cdd55e5bfe6c720c1a0961d8a9be2333a97c69bffcc9
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9090
@@ -256,7 +360,6 @@ spec:
               value: "9090"
           resources:
             limits:
-              cpu: 999m
               memory: 1Gi
             requests:
               cpu: 10m
@@ -275,3 +378,14 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 3
+          volumeMounts:
+            - name: opencost-ui-nginx-config-volume
+              mountPath: /etc/nginx/conf.d/default.nginx.conf
+              subPath: default.nginx.conf
+      volumes:
+        - name: opencost-ui-nginx-config-volume
+          configMap:
+            name: opencost-ui-nginx-config
+            items:
+              - key: nginx.conf
+                path: default.nginx.conf

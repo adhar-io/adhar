@@ -62,7 +62,11 @@ serviceAccount:
 # -- Enable [leader election](https://docs.crossplane.io/latest/concepts/pods/#leader-election) for the Crossplane pod.
 leaderElection: true
 # -- Add custom arguments to the Crossplane pod.
-args: []
+# --enable-operations turns on the alpha Operations API
+# (Operation/CronOperation/WatchOperation, ops.crossplane.io/v1alpha1)
+# consumed by configuration/operations/.
+args:
+  - --enable-operations
 
 provider:
   # -- A list of Provider packages to install.

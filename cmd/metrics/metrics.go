@@ -46,13 +46,23 @@ Examples:
 
 var (
 	// Metrics command flags
-	metricName string
-	metricType string
-	namespace  string
-	service    string
-	timeout    string
-	output     string
-	detailed   bool
+	metricName    string
+	metricType    string
+	namespace     string
+	service       string
+	timeout       string
+	output        string
+	detailed      bool
+	prometheusURL string
+	grafanaURL    string
+	promQueryExpr string
+)
+
+// Default in-cluster endpoints for the kube-prometheus-stack. These assume a
+// port-forward (or in-cluster execution); override with the flags below.
+const (
+	defaultPrometheusURL = "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
+	defaultGrafanaURL    = "http://kube-prometheus-stack-grafana.monitoring.svc"
 )
 
 func init() {
@@ -64,6 +74,11 @@ func init() {
 	MetricsCmd.Flags().StringVarP(&timeout, "timeout", "i", "30s", "Operation timeout")
 	MetricsCmd.Flags().StringVarP(&output, "output", "f", "", "Output format (table, json, yaml)")
 	MetricsCmd.Flags().BoolVarP(&detailed, "detailed", "d", false, "Show detailed information")
+
+	// Prometheus/Grafana endpoints (shared by subcommands via persistent flags).
+	MetricsCmd.PersistentFlags().StringVar(&prometheusURL, "prometheus-url", defaultPrometheusURL, "Prometheus HTTP API base URL")
+	MetricsCmd.PersistentFlags().StringVar(&grafanaURL, "grafana-url", defaultGrafanaURL, "Grafana base URL")
+	MetricsCmd.PersistentFlags().StringVarP(&promQueryExpr, "query", "q", "up", "PromQL expression (for `metrics list --query` / `export`)")
 
 	// Add subcommands
 	MetricsCmd.AddCommand(listCmd)

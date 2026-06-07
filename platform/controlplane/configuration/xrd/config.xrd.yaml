@@ -1,0 +1,53 @@
+---
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: compositeplatformconfigs.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: CompositePlatformConfig
+    plural: compositeplatformconfigs
+  defaultCompositionRef:
+    name: compositeplatformconfig-default
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              parameters:
+                type: object
+                properties:
+                  namespace:
+                    type: string
+                    default: adhar-system
+                  domain:
+                    type: string
+                  defaultProvider:
+                    type: string
+                  features:
+                    type: object
+                    additionalProperties:
+                      type: boolean
+                  settings:
+                    type: object
+                    additionalProperties:
+                      type: string
+                default: {}
+            default: {}
+          status:
+            type: object
+            properties:
+              phase:
+                type: string
+              message:
+                type: string
+              ready:
+                type: boolean
