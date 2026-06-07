@@ -1,0 +1,18 @@
+---
+# Civo Provider Configuration.
+# NOTE: provider-civo (community, v0.x) does not yet ship namespaced managed
+# resources, so this remains a legacy cluster-scoped ProviderConfig. Civo K3s
+# compositions therefore run under the LegacyCluster scope.
+apiVersion: civo.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: civo
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: civo-credentials
+      key: token
+  # Default region for Civo clusters
+  region: NYC1

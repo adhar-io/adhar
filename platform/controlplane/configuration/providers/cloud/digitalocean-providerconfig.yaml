@@ -1,0 +1,16 @@
+---
+# DigitalOcean Provider Configuration.
+# NOTE: provider-digitalocean (community, v0.x) does not yet ship namespaced
+# managed resources, so this remains a legacy cluster-scoped ProviderConfig.
+# DOKS compositions therefore run under the LegacyCluster scope.
+apiVersion: digitalocean.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: digitalocean
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: digitalocean-credentials
+      key: token

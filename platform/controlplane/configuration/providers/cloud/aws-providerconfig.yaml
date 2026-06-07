@@ -1,0 +1,16 @@
+---
+# AWS - single shared ClusterProviderConfig for the whole Upbound AWS provider
+# family (EKS, EC2, RDS, IAM, S3). In Crossplane v2 the modular AWS providers all
+# consume the aws.m.upbound.io ClusterProviderConfig; namespaced managed resources
+# reference it via providerConfigRef.kind: ClusterProviderConfig, name: default.
+apiVersion: aws.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: aws-credentials
+      key: credentials

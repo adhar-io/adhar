@@ -1,0 +1,18 @@
+---
+# GCP - single shared ClusterProviderConfig for the whole Upbound GCP provider
+# family (Container/GKE, Compute, SQL, Storage). Namespaced managed resources
+# reference it via providerConfigRef.kind: ClusterProviderConfig, name: default.
+apiVersion: gcp.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: default
+spec:
+  # projectID is required by the GCP provider; the platform injects the active
+  # project at credential-discovery time. Leave empty to source from the secret.
+  projectID: ""
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: gcp-credentials
+      key: credentials

@@ -1,0 +1,15 @@
+---
+# Azure - single shared ClusterProviderConfig for the whole Upbound Azure provider
+# family (Container Service, Network, SQL, Storage). Namespaced managed resources
+# reference it via providerConfigRef.kind: ClusterProviderConfig, name: default.
+apiVersion: azure.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: azure-credentials
+      key: credentials
