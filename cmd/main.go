@@ -99,6 +99,43 @@ func main() {
 }
 
 func init() {
+	// Register command groups so related commands are visually grouped in help.
+	RegisterCommandGroups()
+
+	// Assign each command to a group for a tidy, discoverable help layout.
+	up.UpCmd.GroupID = GroupPlatform
+	down.DownCmd.GroupID = GroupPlatform
+	health.HealthCmd.GroupID = GroupPlatform
+	get.GetCmd.GroupID = GroupPlatform
+
+	cluster.ClusterCmd.GroupID = GroupCluster
+	env.EnvCmd.GroupID = GroupCluster
+	config.ConfigCmd.GroupID = GroupCluster
+	scale.ScaleCmd.GroupID = GroupCluster
+
+	apps.AppsCmd.GroupID = GroupApps
+	gitops.GitOpsCmd.GroupID = GroupApps
+	pipeline.PipelineCmd.GroupID = GroupApps
+	service.ServiceCmd.GroupID = GroupApps
+	db.DBCmd.GroupID = GroupApps
+	storage.StorageCmd.GroupID = GroupApps
+
+	logs.LogsCmd.GroupID = GroupObservability
+	metrics.MetricsCmd.GroupID = GroupObservability
+	traces.TracesCmd.GroupID = GroupObservability
+	network.NetworkCmd.GroupID = GroupObservability
+
+	security.SecurityCmd.GroupID = GroupSecurity
+	auth.AuthCmd.GroupID = GroupSecurity
+	secrets.SecretsCmd.GroupID = GroupSecurity
+	policy.PolicyCmd.GroupID = GroupSecurity
+
+	backup.BackupCmd.GroupID = GroupUtilities
+	restore.RestoreCmd.GroupID = GroupUtilities
+	webhook.WebhookCmd.GroupID = GroupUtilities
+	version.VersionCmd.GroupID = GroupUtilities
+	help.HelpCmd.GroupID = GroupUtilities
+
 	// Add modular commands
 	AddCommand(
 		up.UpCmd,             // Up command for platform creation

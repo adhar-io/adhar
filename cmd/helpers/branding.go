@@ -78,12 +78,15 @@ func gradientBlock(art string, from, to rgb) string {
 	return strings.Join(lines, "\n")
 }
 
-// adharLetters holds the 6-row block glyphs for the wordmark (each 10 wide).
+// adharLetters holds the 6-row wordmark glyphs in a solid "ANSI Shadow" block
+// font (filled █ with a beveled box-drawing shadow). Rendered with the brand
+// gradient this reads as a clean, modern logotype rather than ASCII line-art.
+// Every glyph is exactly 8 runes wide so the columns always align.
 var adharLetters = map[rune][]string{
-	'A': {"  ______  ", " / ____ \\ ", "| |    | |", "| |____| |", "| |    | |", "|_|    |_|"},
-	'D': {" ______   ", "|  ___ \\  ", "| |   | | ", "| |   | | ", "| |__/ /  ", "|_____/   "},
-	'H': {" _      _ ", "| |    | |", "| |    | |", "| |____| |", "| |    | |", "|_|    |_|"},
-	'R': {" ______   ", "|  ___ \\  ", "| |__/ /  ", "| |  \\ \\  ", "| |   \\ \\ ", "|_|    \\_\\"},
+	'A': {" █████╗ ", "██╔══██╗", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"},
+	'D': {"██████╗ ", "██╔══██╗", "██║  ██║", "██║  ██║", "██████╔╝", "╚═════╝ "},
+	'H': {"██╗  ██╗", "██║  ██║", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"},
+	'R': {"██████╗ ", "██╔══██╗", "██████╔╝", "██╔══██╗", "██║  ██║", "╚═╝  ╚═╝"},
 }
 
 // wordmark builds the "ADHAR" block art with `gap` spaces between letters. Each
@@ -112,18 +115,73 @@ func wordmark(gap int) string {
 	return strings.Join(rows, "\n")
 }
 
-// spaceOut letter-spaces a string ("ABC" → "A B C") so it flows evenly across
-// the line.
-func spaceOut(s string) string {
-	return strings.Join(strings.Split(s, ""), " ")
+// spacedTagline letter-spaces each word of s with a single, uniform space between
+// glyphs (so the spacing reads evenly) and joins words with wordSep spaces (a
+// consistent, slightly wider gap so word boundaries stay legible). A hyphen binds
+// tight to both neighbours so a compound like "CLOUD-NATIVE" reads as one term
+// (and the tagline sits flush under the wordmark rather than overhanging it).
+func spacedTagline(s string, wordSep int) string {
+	words := strings.Fields(s)
+	for i, w := range words {
+		var b strings.Builder
+		rs := []rune(w)
+		for j, r := range rs {
+			if j > 0 && r != '-' && rs[j-1] != '-' {
+				b.WriteByte(' ')
+			}
+			b.WriteRune(r)
+		}
+		words[i] = b.String()
+	}
+	return strings.Join(words, strings.Repeat(" ", wordSep))
 }
 
-// RenderBanner is the signature Adhar header: the wide gradient wordmark with a
-// letter-spaced tagline that flows to the same width beneath it.
+// indentBlock left-pads every line of a multi-line block by n spaces.
+func indentBlock(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	pad := strings.Repeat(" ", n)
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		lines[i] = pad + ln
+	}
+	return strings.Join(lines, "\n")
+}
+
+// wordmarkGap is the number of spaces between the ADHAR block glyphs, and
+// taglineWordSep the spaces between tagline words. They are tuned together so the
+// wordmark (52 cols at gap 3) and the letter-spaced tagline (53 cols) come out
+// the same width, and the tagline sits flush under the logo rather than sticking
+// out past it.
+const (
+	wordmarkGap    = 3
+	taglineWordSep = 2
+)
+
+// RenderBanner is the signature Adhar header: the gradient block wordmark with a
+// letter-spaced tagline beneath it. Both blocks are centered to a common width
+// (the wider of the two), and the tagline uses uniform single-space letter
+// spacing so it reads evenly across the full width.
 func RenderBanner() string {
-	word := gradientBlock(wordmark(1), brandBlue, brandPurple)
-	tagline := lipgloss.NewStyle().Foreground(taglineGray).
-		Render(spaceOut("OPEN CLOUD-NATIVE FOUNDATION"))
+	art := wordmark(wordmarkGap)
+	tag := spacedTagline("OPEN CLOUD-NATIVE FOUNDATION", taglineWordSep)
+
+	artW := 0
+	for _, ln := range strings.Split(art, "\n") {
+		if w := lipgloss.Width(ln); w > artW {
+			artW = w
+		}
+	}
+	tagW := lipgloss.Width(tag)
+	width := artW
+	if tagW > width {
+		width = tagW
+	}
+
+	word := gradientBlock(indentBlock(art, (width-artW)/2), brandBlue, brandPurple)
+	tagline := strings.Repeat(" ", (width-tagW)/2) +
+		lipgloss.NewStyle().Foreground(taglineGray).Render(tag)
 	return lipgloss.JoinVertical(lipgloss.Left, word, tagline)
 }
 

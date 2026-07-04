@@ -27,7 +27,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: adding-capabilities
@@ -96,7 +96,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: host-namespaces
@@ -144,7 +144,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: host-path
@@ -190,7 +190,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: host-ports-none
@@ -246,7 +246,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: host-process-containers
@@ -304,7 +304,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: privileged-containers
@@ -359,7 +359,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: check-proc-mount
@@ -414,7 +414,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: selinux-type
@@ -515,7 +515,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: app-armor
@@ -563,7 +563,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: check-seccomp
@@ -630,7 +630,7 @@ metadata:
     helm.sh/chart: kyverno-policies-3.8.0
 spec:
   background: true
-  failurePolicy: Fail
+  failurePolicy: Ignore
   validationFailureAction: Audit
   rules:
     - name: check-sysctls

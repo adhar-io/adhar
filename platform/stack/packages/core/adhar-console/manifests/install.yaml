@@ -222,20 +222,34 @@ spec:
   selector:
     app: backstage
 ---
-apiVersion: v1
-kind: Service
+# Backstage's database, provisioned by CloudNativePG instead of a bundled
+# single-pod postgres StatefulSet. Owner role + password come from the
+# backstage-env-vars Secret (username/password keys). CNPG creates the
+# read-write Service "backstage-db-rw" automatically. sync-wave 5 so the DB is
+# created before the Backstage Deployment waits on it.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
 metadata:
-  labels:
-    app: postgresql
-  name: postgresql
+  name: backstage-db
   namespace: backstage
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
 spec:
-  clusterIP: None
-  ports:
-    - name: postgres
-      port: 5432
-  selector:
-    app: postgresql
+  instances: 1
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: backstage
+      owner: backstage
+      secret:
+        name: backstage-env-vars
+      # Backstage creates one database per plugin at startup
+      # (backstage_plugin_app, _catalog, _auth, ...). The bundled postgres made
+      # POSTGRES_USER a superuser; CNPG's owner role is not, so grant CREATEDB
+      # or every plugin fails with "permission denied to create database".
+      postInitApplicationSQL:
+        - ALTER ROLE backstage CREATEDB
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -297,66 +311,6 @@ spec:
                       path: k8s-config.yaml
                   name: k8s-config
 ---
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  labels:
-    app: postgresql
-  name: postgresql
-  namespace: backstage
-  annotations:
-    argocd.argoproj.io/sync-wave: "10"
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgresql
-  serviceName: service-postgresql
-  template:
-    metadata:
-      labels:
-        app: postgresql
-    spec:
-      containers:
-        - env:
-            - name: POSTGRES_DB
-              valueFrom:
-                secretKeyRef:
-                  name: backstage-env-vars
-                  key: POSTGRES_DB
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: backstage-env-vars
-                  key: POSTGRES_USER
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: backstage-env-vars
-                  key: POSTGRES_PASSWORD
-          image: docker.io/library/postgres:15.3-alpine3.18
-          name: postgres
-          ports:
-            - containerPort: 5432
-              name: postgresdb
-          resources:
-            limits:
-              memory: 500Mi
-            requests:
-              cpu: 100m
-              memory: 300Mi
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/postgresql/data
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: "500Mi"
----
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
 metadata:
@@ -386,16 +340,21 @@ spec:
       engineVersion: v2
       data:
         BACKSTAGE_FRONTEND_URL: https://adhar.localtest.me:8443/console
-        POSTGRES_HOST: postgresql.backstage.svc.cluster.local
+        # Database provided by the CNPG Cluster "backstage-db" (read-write svc).
+        POSTGRES_HOST: backstage-db-rw.backstage.svc.cluster.local
         POSTGRES_PORT: '5432'
         POSTGRES_DB: backstage
         POSTGRES_USER: backstage
         POSTGRES_PASSWORD: "{{.POSTGRES_PASSWORD}}"
+        # username/password keys consumed by the CNPG Cluster bootstrap.initdb,
+        # so the owner role and Backstage share one ESO-generated password.
+        username: backstage
+        password: "{{.POSTGRES_PASSWORD}}"
         ARGO_WORKFLOWS_URL: https://adhar.localtest.me:8443/argo-workflows
         KEYCLOAK_NAME_METADATA: https://adhar.localtest.me:8443/keycloak/realms/adhar/.well-known/openid-configuration
         KEYCLOAK_CLIENT_SECRET: "{{.BACKSTAGE_CLIENT_SECRET}}"
         ARGOCD_AUTH_TOKEN: "argocd.token={{.ARGOCD_SESSION_TOKEN}}"
-        ARGO_CD_URL: 'https://argocd-server.argocd.svc.cluster.local/api/v1/'
+        ARGO_CD_URL: 'http://argo-cd-argocd-server.adhar-system.svc.cluster.local/api/v1/'
   data:
     - secretKey: ARGOCD_SESSION_TOKEN
       remoteRef:

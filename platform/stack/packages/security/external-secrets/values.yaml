@@ -1,0 +1,12 @@
+# external-secrets Helm chart values.
+#
+# Fail OPEN on the admission webhooks. With the chart default (failurePolicy:
+# Fail) the apiserver REJECTS every ExternalSecret / ClusterSecretStore apply
+# whenever the external-secrets webhook is briefly unreachable — which is common
+# during bootstrap (the webhook + its cert-controller come up alongside the very
+# ExternalSecrets that depend on them). That wedges downstream packages: e.g.
+# keycloak's `keycloak-config` ExternalSecret never applies, so its Secret is
+# never generated and the keycloak postgres StatefulSet hangs in
+# CreateContainerConfigError, blocking the whole SSO chain. Ignore = fail-open.
+webhook:
+  failurePolicy: Ignore

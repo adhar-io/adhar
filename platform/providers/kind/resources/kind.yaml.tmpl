@@ -28,6 +28,33 @@ nodes:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: {{ .RegistryConfig }}
 {{- end }}
+# Control-plane tuning for local single-node clusters. On Docker Desktop the
+# etcd data dir lives on a virtualized filesystem whose fsync latency spikes
+# under the initial convergence write-storm (CRDs + ~18 ArgoCD apps reconciling
+# at once). With the kube defaults (renew-deadline 10s) the controller-manager
+# and scheduler lose their leader lease whenever an etcd write momentarily
+# exceeds the deadline, crashloop, and stall every sync — cascading into
+# repo-server / external-secrets webhook failures. Widening the leader-election
+# windows lets the control plane ride out those latency spikes instead of
+# flapping.
+#
+# NOTE: kind matches kubeadmConfigPatches against the v1beta3 kubeadm API, where
+# extraArgs is a map[string]string (NOT the v1beta4 name/value list). A patch
+# tagged apiVersion v1beta4 — or using the list form — is silently ignored. Keep
+# the map form below; verified to land on kube-controller-manager and scheduler.
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    controllerManager:
+      extraArgs:
+        leader-elect-lease-duration: "60s"
+        leader-elect-renew-deadline: "45s"
+        leader-elect-retry-period: "5s"
+    scheduler:
+      extraArgs:
+        leader-elect-lease-duration: "60s"
+        leader-elect-renew-deadline: "45s"
+        leader-elect-retry-period: "5s"
 networking:
   disableDefaultCNI: true   # do not install kindnet
   kubeProxyMode: none       # do not run kube-proxy - Cilium will replace it

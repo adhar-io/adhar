@@ -36,7 +36,7 @@ var HealthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "Check platform health and status",
 	Long: `Check the health and status of the Adhar platform and its components.
-	
+
 This command provides:
 • Overall platform health status
 • Component-specific health checks
@@ -50,7 +50,9 @@ Examples:
   adhar health --namespace=prod   # Health for specific namespace
   adhar health --component=argocd # Health for specific component
   adhar health --watch            # Watch health in real-time`,
-	RunE: runHealth,
+	RunE:          runHealth,
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
 
 var (
@@ -111,9 +113,8 @@ func checkNamespaceHealth(namespaceName string) error {
 
 	clientset, err := getClientset()
 	if err != nil {
-		fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
-		fmt.Println(helpers.CreateMuted("   " + err.Error()))
-		return fmt.Errorf("failed to get Kubernetes client: %w", err)
+		return helpers.FriendlyError(fmt.Errorf("could not connect to the cluster: %w", err),
+			"Is the cluster running? Try: adhar up")
 	}
 	return reportNamespaceHealth(clientset, namespaceName, parseTimeout(timeout))
 }

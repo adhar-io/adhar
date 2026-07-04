@@ -29,7 +29,7 @@ var GetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get information about Adhar platform resources",
 	Long: `Get information about various Adhar platform resources.
-	
+
 This command provides access to:
 • Platform secrets and credentials
 • Application status and information

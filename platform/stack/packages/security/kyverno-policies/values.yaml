@@ -6,6 +6,13 @@ policies:
   validationFailureAction: Audit #Audit/Enforce
   podSecuritySeverity: High
 
+# Admission webhook failure policy. These policies only Audit (above), so their
+# webhooks must fail OPEN: with failurePolicy: Fail, a momentarily-unavailable
+# kyverno admission controller (common while it restarts under load on a single
+# node) makes the apiserver REJECT every create/update cluster-wide — wedging
+# the whole platform even though the policies never enforce. Ignore = fail-open.
+failurePolicy: Ignore
+
 # Additional Kyverno configuration
 replicaCount: 1
 

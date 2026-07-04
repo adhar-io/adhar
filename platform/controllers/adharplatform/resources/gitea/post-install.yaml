@@ -34,3 +34,23 @@ spec:
       backendRefs:
         - name: gitea-http
           port: 3000
+---
+# Gitea admin credential, consumed by:
+#   * the controller's gitea admin password-sync flow (utils.GiteaAdminSecret),
+#   * Backstage's `gitea-credentials` ExternalSecret via the `gitea`
+#     ClusterSecretStore (remoteNamespace: adhar-system).
+# Values mirror the break-glass admin defined in hack/gitea/values.yaml. When
+# StaticPassword mode is enabled the controller rotates the password and patches
+# this Secret in place.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitea-credential
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: gitea
+    app.kubernetes.io/part-of: gitea
+type: Opaque
+stringData:
+  username: gitea_admin
+  password: r8sA8CPHD9!bt6d

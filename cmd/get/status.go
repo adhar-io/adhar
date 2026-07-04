@@ -139,13 +139,19 @@ func runGetStatus(cmd *cobra.Command, args []string) error {
 	// Get Kubernetes client
 	clientset, err := getKubernetesClient()
 	if err != nil {
-		return fmt.Errorf("failed to get Kubernetes client: %w", err)
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
+		return helpers.FriendlyError(fmt.Errorf("could not connect to the cluster: %w", err),
+			"Is the cluster running? Try: adhar up")
 	}
 
 	// Collect platform status
 	status, err := collectPlatformStatus(clientset)
 	if err != nil {
-		return fmt.Errorf("failed to collect platform status: %w", err)
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
+		return helpers.FriendlyError(fmt.Errorf("failed to collect platform status: %w", err),
+			"The cluster may still be starting. Check with: adhar health")
 	}
 
 	// Display status based on output format

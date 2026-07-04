@@ -33,7 +33,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: keycloak-config
-  namespace: argocd
+  namespace: adhar-system
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
@@ -43,7 +43,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: keycloak-config
-  namespace: argocd
+  namespace: adhar-system
 subjects:
   - kind: ServiceAccount
     name: keycloak-config
@@ -112,7 +112,7 @@ data:
         "requiredActions": [],
         "emailVerified": false,
         "groups": [
-          "/admin"
+          "/platform-admin"
         ],
         "enabled": true
     }
@@ -125,7 +125,7 @@ data:
         "requiredActions": [],
         "emailVerified": false,
         "groups": [
-          "/base-user"
+          "/platform-developer"
         ],
         "enabled": true
     }
@@ -216,6 +216,35 @@ data:
       ]
     }
 
+  grafana-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "grafana",
+      "name": "Grafana Client",
+      "description": "Used for Grafana SSO",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_idp_initiated_sso_url_name": "",
+        "oauth2.device.authorization.grant.enabled": false,
+        "oidc.ciba.grant.enabled": false
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "",
+      "baseUrl": "",
+      "redirectUris": [
+        "https://adhar.localtest.me:8443/grafana/login/generic_oauth"
+      ],
+      "webOrigins": [
+        "/*"
+      ]
+    }
+
   argocd-client-payload.json: |
     {
       "protocol": "openid-connect",
@@ -281,7 +310,16 @@ metadata:
   name: config
   namespace: keycloak
   annotations:
-    argocd.argoproj.io/hook: PostSync
+    # Runs DURING sync at wave 20 — after the Keycloak Deployment (wave 10) is
+    # healthy — so it can register the realm/clients and write the
+    # keycloak-clients Secret BEFORE the consumer ExternalSecrets (wave 40) try
+    # to read it. As a PostSync hook it ran only after the whole sync succeeded,
+    # but the sync could never succeed because argocd-oidc/gitea-oauth (wave 0)
+    # failed with "could not get secret data from provider" (keycloak-clients
+    # did not exist yet) — a deadlock that left Keycloak permanently OutOfSync.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "20"
 spec:
   template:
     metadata:
@@ -335,7 +373,19 @@ spec:
               fi
               set -e
               
-              curl -sS -LO "https://dl.k8s.io/release/v1.28.3//bin/linux/amd64/kubectl"
+              # Fetch a kubectl matching the cluster's architecture. The old
+              # hardcoded "v1.28.3//bin/linux/amd64" URL had a double slash AND
+              # forced amd64, so on an arm64 node it downloaded an XML error page
+              # (NoSuchKey) instead of a binary — every ./kubectl call then failed
+              # with "syntax error near unexpected token `<`", so keycloak-clients
+              # was never written and the whole OIDC chain stalled.
+              KVER="$(curl -sSL https://dl.k8s.io/release/stable.txt)"
+              ARCH="$(uname -m)"
+              case "${ARCH}" in
+                x86_64) ARCH="amd64" ;;
+                aarch64|arm64) ARCH="arm64" ;;
+              esac
+              curl -sS -LO "https://dl.k8s.io/release/${KVER}/bin/linux/${ARCH}/kubectl"
               chmod +x kubectl
               
               echo "creating adhar realm and groups"
@@ -473,6 +523,27 @@ spec:
               -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
               -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
 
+              echo "creating Grafana client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  -X POST --data @/var/config/grafana-client-payload.json \
+                  ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "grafana") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              GRAFANA_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
+
               echo "creating ArgoCD client"
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
@@ -515,9 +586,14 @@ spec:
               -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
               -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
 
-              ARGOCD_PASSWORD=$(./kubectl -n argocd get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
-              
-              ARGOCD_SESSION_TOKEN=$(curl -k -sS http://argocd-server.argocd.svc.cluster.local:443/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" | jq -r .token)
+              ARGOCD_PASSWORD=$(./kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
+
+              # ArgoCD session token for Backstage's ArgoCD plugin. This is
+              # best-effort: ArgoCD runs insecure HTTP (port 80, not 443), and if
+              # it is briefly unreachable we must NOT abort — otherwise (set -e)
+              # the job dies before writing keycloak-clients below and the whole
+              # OIDC chain stalls. `// empty` + `|| true` keep it non-fatal.
+              ARGOCD_SESSION_TOKEN=$(curl -sS http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" 2>/dev/null | jq -r '.token // empty' 2>/dev/null || true)
               
               echo \
               "apiVersion: v1
@@ -527,17 +603,24 @@ spec:
                 namespace: keycloak
               type: Opaque
               stringData:
-                ARGO_WORKFLOWS_CLIENT_SECRET: ${ARGO_WORKFLOWS_CLIENT_SECRET}
-                ARGO_WORKFLOWS_CLIENT_ID: argo-workflows
-                ARGOCD_SESSION_TOKEN: ${ARGOCD_SESSION_TOKEN}
-                BACKSTAGE_CLIENT_SECRET: ${BACKSTAGE_CLIENT_SECRET}
-                BACKSTAGE_CLIENT_ID: backstage
-                HEADLAMP_CLIENT_SECRET: ${HEADLAMP_CLIENT_SECRET}
-                HEADLAMP_CLIENT_ID: headlamp
-                ARGOCD_CLIENT_SECRET: ${ARGOCD_CLIENT_SECRET}
-                ARGOCD_CLIENT_ID: argocd
-                GITEA_CLIENT_SECRET: ${GITEA_CLIENT_SECRET}
-                GITEA_CLIENT_ID: gitea
+                # Values are quoted so an empty one (e.g. ARGOCD_SESSION_TOKEN
+                # when ArgoCD login is briefly unavailable) is written as an
+                # empty string rather than YAML null — otherwise kubectl drops
+                # the key entirely and every ExternalSecret that reads it (e.g.
+                # backstage-oidc) fails with 'could not get secret data'.
+                ARGO_WORKFLOWS_CLIENT_SECRET: \"${ARGO_WORKFLOWS_CLIENT_SECRET}\"
+                ARGO_WORKFLOWS_CLIENT_ID: \"argo-workflows\"
+                ARGOCD_SESSION_TOKEN: \"${ARGOCD_SESSION_TOKEN}\"
+                BACKSTAGE_CLIENT_SECRET: \"${BACKSTAGE_CLIENT_SECRET}\"
+                BACKSTAGE_CLIENT_ID: \"backstage\"
+                HEADLAMP_CLIENT_SECRET: \"${HEADLAMP_CLIENT_SECRET}\"
+                HEADLAMP_CLIENT_ID: \"headlamp\"
+                GRAFANA_CLIENT_SECRET: \"${GRAFANA_CLIENT_SECRET}\"
+                GRAFANA_CLIENT_ID: \"grafana\"
+                ARGOCD_CLIENT_SECRET: \"${ARGOCD_CLIENT_SECRET}\"
+                ARGOCD_CLIENT_ID: \"argocd\"
+                GITEA_CLIENT_SECRET: \"${GITEA_CLIENT_SECRET}\"
+                GITEA_CLIENT_ID: \"gitea\"
               " > /tmp/secret.yaml
               
               ./kubectl apply -f /tmp/secret.yaml

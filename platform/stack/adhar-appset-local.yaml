@@ -392,6 +392,5 @@ spec:
             maxDuration: 3m0s
           limit: 30
         syncOptions:
-          - Replace=true
           - CreateNamespace=true
           - ServerSideApply=true

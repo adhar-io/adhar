@@ -94,7 +94,10 @@ func runGetSecrets(cmd *cobra.Command, args []string) error {
 
 	clientset, err := getKubernetesClient()
 	if err != nil {
-		return fmt.Errorf("failed to connect to cluster: %w", err)
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
+		return helpers.FriendlyError(fmt.Errorf("could not connect to the cluster: %w", err),
+			"Is the cluster running? Try: adhar up")
 	}
 
 	if provider != "" {
@@ -302,21 +305,26 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 		}
 	case "keycloak-user":
 		if strings.Contains(secret.Name, "keycloak-config") {
-			return []SecretEntry{{
-				Icon: "👤", Service: "Keycloak (user)",
-				Username: "user", Password: string(secret.Data["USER_PASSWORD"]),
-			}}
+			pw := string(secret.Data["USER_PASSWORD"])
+			return []SecretEntry{
+				{Icon: "👤", Service: "Keycloak user1 (admin)", Username: "user1", Password: pw},
+				{Icon: "👤", Service: "Keycloak user2 (developer)", Username: "user2", Password: pw},
+			}
 		}
 	case "keycloak":
 		// When using -p keycloak, return both admin + user + clients
 		var entries []SecretEntry
 		if strings.Contains(secret.Name, "keycloak-config") {
+			pw := string(secret.Data["USER_PASSWORD"])
 			entries = append(entries, SecretEntry{
 				Icon: "🔑", Service: "Keycloak (admin)",
 				Username: "admin", Password: string(secret.Data["KEYCLOAK_ADMIN_PASSWORD"]),
 			}, SecretEntry{
-				Icon: "👤", Service: "Keycloak (user)",
-				Username: "user", Password: string(secret.Data["USER_PASSWORD"]),
+				Icon: "👤", Service: "Keycloak user1 (admin)",
+				Username: "user1", Password: pw,
+			}, SecretEntry{
+				Icon: "👤", Service: "Keycloak user2 (developer)",
+				Username: "user2", Password: pw,
 			})
 		}
 		if strings.Contains(secret.Name, "keycloak-clients") {

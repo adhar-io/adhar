@@ -30949,7 +30949,7 @@ webhooks:
   admissionReviewVersions: ["v1", "v1beta1"]
   sideEffects: None
   timeoutSeconds: 5
-  failurePolicy: Fail
+  failurePolicy: Ignore
 
 - name: "validate.clustersecretstore.external-secrets.io"
   rules:
@@ -30966,7 +30966,7 @@ webhooks:
   admissionReviewVersions: ["v1", "v1beta1"]
   sideEffects: None
   timeoutSeconds: 5
-  failurePolicy: Fail
+  failurePolicy: Ignore
 ---
 # Source: external-secrets/templates/validatingwebhook.yaml
 apiVersion: admissionregistration.k8s.io/v1
@@ -30997,4 +30997,4 @@ webhooks:
   admissionReviewVersions: ["v1", "v1beta1"]
   sideEffects: None
   timeoutSeconds: 5
-  failurePolicy: Fail
+  failurePolicy: Ignore

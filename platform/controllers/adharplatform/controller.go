@@ -836,18 +836,18 @@ func (r *AdharPlatformReconciler) updateGiteaPassword(ctx context.Context, admin
 	}
 
 	client, err := gitea.NewClient(giteaBaseUrl, gitea.SetHTTPClient(utils.GetHttpClient()),
-		gitea.SetBasicAuth("giteaAdmin", adminPassword), gitea.SetContext(ctx),
+		gitea.SetBasicAuth(utils.GiteaAdminName, adminPassword), gitea.SetContext(ctx),
 	)
 	if err != nil {
 		return fmt.Errorf("cannot create gitea client: %w", err)
 	}
 
 	opts := gitea.EditUserOption{
-		LoginName: "giteaAdmin",
+		LoginName: utils.GiteaAdminName,
 		Password:  utils.StaticPassword,
 	}
 
-	resp, err := client.AdminEditUser("giteaAdmin", opts)
+	resp, err := client.AdminEditUser(utils.GiteaAdminName, opts)
 	if err != nil {
 		return fmt.Errorf("cannot update gitea admin user. status: %d error : %w", resp.StatusCode, err)
 	}

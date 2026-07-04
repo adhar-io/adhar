@@ -44,6 +44,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
@@ -116,11 +117,31 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		klog.SetOutput(io.Discard)
 	}
 
-	// Step 1: Create Kind cluster
-	logger.Info("Creating Kind cluster...")
+	// A single live checklist tracks the real provisioning stages. Steps 1–3 run
+	// here on the CLI and are marked directly; stages 4–8 are owned by the
+	// AdharPlatform controller and advanced by polling its status. In --verbose
+	// mode the tracker degrades to plain lines so streaming logs stay readable.
+	stages := []helpers.StageDef{
+		{Label: "Kind cluster", Detail: "local node · Cilium CNI · ports 8443/8080"},
+		{Label: "Platform CRDs", Detail: "AdharPlatform · GitRepository · CustomPackage"},
+		{Label: "Networking", Detail: "CoreDNS rewrite · self-signed TLS"},
+		{Label: "Cilium & Gateway", Detail: "eBPF CNI + Cilium Gateway API"},
+		{Label: "ArgoCD", Detail: "GitOps engine"},
+		{Label: "Gitea", Detail: "in-cluster Git server"},
+		{Label: "Crossplane", Detail: "control plane + providers"},
+		{Label: "GitOps sync - platform stack", Detail: "curated platform apps via ArgoCD"},
+	}
+	tracker := helpers.NewStageTracker(os.Stderr, "Provisioning Adhar platform", stages, !lp.options.Verbose)
+	tracker.Start()
+
+	// Stage 1: Create Kind cluster
+	tracker.Activate(0)
 	if err := lp.ReconcileKindCluster(ctx, recreateCluster); err != nil {
+		tracker.Fail(0)
+		tracker.Stop()
 		return err
 	}
+	tracker.Done(0)
 
 	kubeConfig, err := lp.GetKubeConfig()
 	if err != nil {
@@ -131,11 +152,14 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		return err
 	}
 
-	// Step 2: Install CRDs
-	logger.Info("Installing platform CRDs...")
+	// Stage 2: Install CRDs
+	tracker.Activate(1)
 	if err := lp.ReconcileCRDs(ctx, kubeClient); err != nil {
+		tracker.Fail(1)
+		tracker.Stop()
 		return err
 	}
+	tracker.Done(1)
 
 	mgr, err := manager.New(kubeConfig, manager.Options{
 		Scheme: lp.options.Scheme,
@@ -157,22 +181,32 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	}
 	defer os.RemoveAll(dir)
 
-	// Step 3: Setup networking
-	logger.Info("Configuring CoreDNS and TLS certificates...")
+	// Stage 3: Setup networking (CoreDNS + self-signed TLS)
+	tracker.Activate(2)
 	err = kind.SetupCoreDNS(ctx, kubeClient, lp.options.Scheme, lp.options.TemplateData)
 	if err != nil {
+		tracker.Fail(2)
+		tracker.Stop()
 		return err
 	}
 	cert, err := kind.SetupSelfSignedCertificate(ctx, kubeClient, lp.options.TemplateData)
 	if err != nil {
+		tracker.Fail(2)
+		tracker.Stop()
 		return err
 	}
 	lp.options.TemplateData.SelfSignedCert = string(cert)
+	tracker.Done(2)
 
-	// Step 4: Start platform controllers and deploy services
-	logger.Info("Starting platform reconciliation (Cilium, Gateway, ArgoCD, Gitea, Crossplane)...")
+	// Stages 4–8: the AdharPlatform controller installs the core components
+	// (Cilium → Gateway → ArgoCD → Gitea → Crossplane) and drives the GitOps
+	// sync. Activate the first controller-owned stage; the poller advances the
+	// rest from the CR status as each component reports Available.
+	tracker.Activate(3)
 	managerExit := make(chan error)
 	if err := lp.RunControllers(ctx, mgr, managerExit, dir); err != nil {
+		tracker.Fail(3)
+		tracker.Stop()
 		return fmt.Errorf("starting controllers: %w", err)
 	}
 
@@ -211,21 +245,84 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		return fmt.Errorf("creating AdharPlatform resource: %w", err)
 	}
 
-	// GitOps repositories will be set up by the AdharPlatform controller
+	// Poll the AdharPlatform status to advance the controller-owned stages as
+	// each core component reports Available.
+	stopPoll := make(chan struct{})
+	go pollPlatformStages(ctx, kubeClient, lp.options.Name, tracker, stopPoll)
+
+	finish := func(failed bool) {
+		close(stopPoll)
+		if failed {
+			tracker.Stop()
+			return
+		}
+		// Force-complete any stage the poller hasn't caught yet — the controller
+		// shuts down the instant the platform is deployed, which can race the
+		// final status read.
+		for i := 3; i < len(stages); i++ {
+			tracker.Done(i)
+		}
+		tracker.Stop()
+	}
 
 	select {
 	case mgrErr := <-managerExit:
 		// Manager exited on its own — check if it's a real error
 		if mgrErr != nil && !isShutdownError(mgrErr) {
+			finish(true)
 			return mgrErr
 		}
 	case <-ctx.Done():
 		// Context cancelled — controller signalled successful shutdown
 		if mgrErr := <-managerExit; mgrErr != nil && !isShutdownError(mgrErr) {
+			finish(true)
 			return mgrErr
 		}
 	}
+	finish(false)
 	return nil
+}
+
+// pollPlatformStages advances the controller-owned stages of the tracker as each
+// core component reports Available in the AdharPlatform status. It runs until the
+// stop channel closes or the context is cancelled. Marks are idempotent, so it is
+// safe for several components to become Available between ticks.
+func pollPlatformStages(ctx context.Context, c client.Client, name string, tracker *helpers.StageTracker, stop <-chan struct{}) {
+	defer func() { _ = recover() }()
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			var pl v1alpha1.AdharPlatform
+			if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &pl); err != nil {
+				continue
+			}
+			st := pl.Status
+			// Stage 3 Cilium & Gateway → 4 ArgoCD → 5 Gitea → 6 Crossplane →
+			// 7 GitOps sync (completed after the controller shuts down).
+			if st.Gateway.Available {
+				tracker.Done(3)
+				tracker.Activate(4)
+			}
+			if st.ArgoCD.Available {
+				tracker.Done(4)
+				tracker.Activate(5)
+			}
+			if st.Gitea.Available {
+				tracker.Done(5)
+				tracker.Activate(6)
+			}
+			if st.Crossplane.Available {
+				tracker.Done(6)
+				tracker.Activate(7)
+			}
+		}
+	}
 }
 
 // isShutdownError returns true for errors that are expected during graceful shutdown
@@ -454,37 +551,30 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 	return nil
 }
 
-// printSuccessMsg prints success message for local development cluster
+// printSuccessMsg prints the polished end-of-run panel for the local cluster:
+// a "ready" header, a bordered table of access URLs, and the key command hints.
 func printSuccessMsg() {
-	fmt.Print("\n\n########################### Finished Creating Adhar IDP Successfully! ############################\n\n")
-	fmt.Printf("🎉 %s\n\n", helpers.BoldStyle.Render("Local Development Platform Ready!"))
-	fmt.Printf("Your Adhar platform includes:\n")
-	fmt.Printf("  ✅ Kind Kubernetes cluster\n")
-	fmt.Printf("  ✅ Cilium CNI for secure networking\n")
-	fmt.Printf("  ✅ ArgoCD for GitOps deployments\n")
-	fmt.Printf("  ✅ Gitea for Git repository hosting\n")
-	fmt.Printf("  ✅ Cilium Gateway API for traffic routing\n")
-	fmt.Printf("  ✅ Crossplane for unified infrastructure APIs\n")
-	fmt.Printf("  ✅ Platform observability stack\n\n")
 	baseURL := fmt.Sprintf("%s://%s:%s", protocol, host, port)
 	if behindProxy() {
 		baseURL = fmt.Sprintf("https://%s", host)
 	}
 
-	fmt.Printf("%s\n", helpers.BoldStyle.Render("Quick Access:"))
-	fmt.Printf("  Adhar Console: %s\n", baseURL)
-	fmt.Printf("  ArgoCD:        %s/argocd\n", baseURL)
-	fmt.Printf("  Gitea:         %s/gitea\n", baseURL)
-	fmt.Printf("\n  Credentials:   Run %s\n\n", helpers.HighlightStyle.Render("adhar get secrets"))
-	fmt.Printf("%s\n", helpers.BoldStyle.Render("Next Steps:"))
-	fmt.Printf("1. Deploy your first application via ArgoCD\n")
-	fmt.Printf("2. Push code to the integrated Gitea instance\n")
-	fmt.Printf("3. Use `adhar get secrets` to retrieve service credentials\n")
-	fmt.Printf("4. Run `adhar get status` to monitor platform health\n\n")
-	fmt.Printf("%s\n", helpers.BoldStyle.Render("Local Development Commands:"))
-	fmt.Printf("• Check cluster status: adhar get status\n")
-	fmt.Printf("• Get service secrets: adhar get secrets\n")
-	fmt.Printf("• Destroy cluster: adhar down\n\n")
+	access := [][2]string{
+		{"Console", baseURL + "/console"},
+		{"ArgoCD", baseURL + "/argocd"},
+		{"Gitea", baseURL + "/gitea"},
+		{"Grafana", baseURL + "/grafana"},
+		{"Keycloak", baseURL + "/keycloak"},
+	}
+	hints := [][2]string{
+		{"Credentials", "adhar get secrets"},
+		{"Status", "adhar get status"},
+		{"Teardown", "adhar down"},
+	}
+
+	fmt.Println()
+	fmt.Println(helpers.RenderReadyPanel(access, hints))
+	fmt.Println()
 }
 
 // behindProxy checks if we are in codespaces

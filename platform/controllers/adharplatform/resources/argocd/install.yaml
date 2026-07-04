@@ -160,6 +160,7 @@ data:
     requestedIDTokenClaims:
       groups:
         essential: true
+  oidc.tls.insecure.skip.verify: "true"
   resource.customizations.ignoreResourceUpdates.ConfigMap: |
     jqPathExpressions:
       # Ignore the cluster-autoscaler status
@@ -32255,7 +32256,7 @@ spec:
     metadata:
       annotations:
         checksum/cmd-params: 15d7c12caefa745f42c5224d1d1c5993ddb52a2386d7f2cbe0444543b48fc9f9
-        checksum/cm: 3a56a0cdd01c2bbe8716541f4f2959c8e51ed2114a46671787c88491b99ae514
+        checksum/cm: ff1a795f0e1e80f2cf6aec63cea006aa2c471506fb1bd9f5b429362330bbbd55
       labels:
         helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-repo-server
@@ -32682,7 +32683,7 @@ spec:
     metadata:
       annotations:
         checksum/cmd-params: 15d7c12caefa745f42c5224d1d1c5993ddb52a2386d7f2cbe0444543b48fc9f9
-        checksum/cm: 3a56a0cdd01c2bbe8716541f4f2959c8e51ed2114a46671787c88491b99ae514
+        checksum/cm: ff1a795f0e1e80f2cf6aec63cea006aa2c471506fb1bd9f5b429362330bbbd55
       labels:
         helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-server
@@ -33388,7 +33389,7 @@ spec:
     metadata:
       annotations:
         checksum/cmd-params: 15d7c12caefa745f42c5224d1d1c5993ddb52a2386d7f2cbe0444543b48fc9f9
-        checksum/cm: 3a56a0cdd01c2bbe8716541f4f2959c8e51ed2114a46671787c88491b99ae514
+        checksum/cm: ff1a795f0e1e80f2cf6aec63cea006aa2c471506fb1bd9f5b429362330bbbd55
       labels:
         helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-application-controller

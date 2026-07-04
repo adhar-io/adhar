@@ -30,7 +30,6 @@ package up
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/globals"
@@ -194,38 +193,21 @@ func create(cmd *cobra.Command, args []string) error {
 	ctx, ctxCancel := context.WithCancel(cmd.Context())
 	defer ctxCancel()
 
-	// Build a banner box with global info and mode-specific details
-	lines := []string{}
-
+	// The banner is already printed once by the root command's PersistentPreRun
+	// (printHeader) — do not repeat it here. Production mode shows a compact
+	// config summary; local mode goes straight to the live stage tracker.
 	if configFile != "" {
-		// Production mode details
-		lines = append(lines,
-			helpers.TitleStyle.Render("🚀 Adhar Platform - Production Provisioning Mode"),
-			helpers.InfoStyle.Render(" 🎯 Spinning up complete IDP with industry standard technologies"),
-			helpers.InfoStyle.Render(fmt.Sprintf(" 📁 Configuration file: %s", configFile)),
-		)
+		fmt.Printf("  %s   %s\n", helpers.MutedStyle.Render("mode  "), helpers.InfoStyle.Render("production"))
+		fmt.Printf("  %s   %s\n", helpers.MutedStyle.Render("config"), helpers.InfoStyle.Render(configFile))
 		if environment != "" {
-			lines = append(lines, helpers.InfoStyle.Render(fmt.Sprintf("🎯 Target environment: %s", environment)))
+			fmt.Printf("  %s   %s\n", helpers.MutedStyle.Render("env   "), helpers.InfoStyle.Render(environment))
 		} else {
-			lines = append(lines, helpers.InfoStyle.Render("🌐 Mode: Complete platform provisioning (all environments)"))
+			fmt.Printf("  %s   %s\n", helpers.MutedStyle.Render("env   "), helpers.InfoStyle.Render("all environments"))
 		}
-	} else {
-		// Local development mode details
-		lines = append(lines,
-			helpers.TitleStyle.Render("🚀 Adhar Platform - Local Development Mode"),
-			helpers.InfoStyle.Render(" 🎯 Spinning up complete IDP with industry standard technologies"),
-			helpers.InfoStyle.Render(" ⚡ Perfect for development, testing, and demonstrations"),
-		)
-	}
-
-	combinedBox := helpers.BorderStyle.Width(70).Render(fmt.Sprint(strings.Join(lines, "\n")))
-	fmt.Printf("\n%s\n\n", combinedBox)
-
-	// Proceed based on mode
-	if configFile != "" {
+		fmt.Println()
 		return createProductionCluster(ctx, cmd, args, ctxCancel)
 	}
 
-	// Create local development cluster using new ProviderManager
+	// Local development mode — the stage tracker renders all provisioning output.
 	return createLocalDevelopmentCluster(ctx, cmd, args, ctxCancel)
 }

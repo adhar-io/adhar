@@ -77,7 +77,7 @@ data:
     db=postgres
     
     # The username of the database user.
-    db-url=jdbc:postgresql://postgresql.keycloak.svc.cluster.local:5432/postgres
+    db-url=jdbc:postgresql://keycloak-db-rw.keycloak.svc.cluster.local:5432/keycloak
 
     # The proxy address forwarding mode if the server is behind a reverse proxy.
     proxy=edge
@@ -102,62 +102,28 @@ metadata:
   name: keycloak-config
   namespace: keycloak
 ---
-apiVersion: v1
-kind: Service
+# Keycloak's database is provisioned by CloudNativePG (the platform's CNPG
+# operator) instead of a hand-rolled single-pod postgres StatefulSet. CNPG gives
+# managed lifecycle, health, backups and (when instances>1) failover. The owner
+# role + password come from the keycloak-config Secret (username/password keys),
+# so Keycloak and the database share one ESO-generated credential.
+# CNPG creates the read-write Service "keycloak-db-rw" automatically.
+# sync-wave 5: after secret-gen (wave 0, provides keycloak-config) and before
+# the Keycloak Deployment (wave 10), which then waits for the DB to be Ready.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
 metadata:
-  labels:
-    app: postgresql
-  name: postgresql
+  name: keycloak-db
   namespace: keycloak
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
 spec:
-  clusterIP: None
-  ports:
-    - name: postgres
-      port: 5432
-  selector:
-    app: postgresql
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  labels:
-    app: postgresql
-  name: postgresql
-  namespace: keycloak
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgresql
-  serviceName: service-postgresql
-  template:
-    metadata:
-      labels:
-        app: postgresql
-    spec:
-      containers:
-        - envFrom:
-            - secretRef:
-                name: keycloak-config
-          image: docker.io/library/postgres:15.3-alpine3.18
-          name: postgres
-          ports:
-            - containerPort: 5432
-              name: postgresdb
-          resources:
-            limits:
-              memory: 500Mi
-            requests:
-              cpu: 100m
-              memory: 300Mi
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/postgresql/data
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: "500Mi"
+  instances: 1
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
+      secret:
+        name: keycloak-config

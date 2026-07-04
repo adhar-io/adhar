@@ -68,7 +68,25 @@ The platform provides unified tools for the complete development journey:
 • Discover: Monitor and gain insights with comprehensive observability
 • Decide: Make data-driven decisions using metrics and analytics
 
+Getting Started:
+  adhar up                 Spin up a complete local platform (Kind)
+  adhar get status         Check that everything is healthy
+  adhar get secrets        Grab your ArgoCD & Gitea credentials
+  adhar down               Tear it all down when you're done
+
 Built for developer productivity with enterprise-grade security and governance.`,
+	Example: `  # Launch a complete local platform in minutes
+  adhar up
+
+  # Preview what 'up' would do, without changing anything
+  adhar up --dry-run
+
+  # Check platform health and grab credentials
+  adhar get status
+  adhar get secrets -p argocd
+
+  # Tear the local platform down
+  adhar down`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Print header before any command runs
 		// Skip header for help command itself to avoid duplication with Cobra's default help flag behavior
@@ -123,7 +141,11 @@ Built for developer productivity with enterprise-grade security and governance.`
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute(ctx context.Context) error {
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "%s %v\n", helpers.ErrorStyle.Render("Error:"), err)
+		// FriendlyError has already rendered a styled message + hint, so avoid
+		// printing the raw error a second time.
+		if !helpers.IsFriendlyError(err) {
+			fmt.Fprintf(os.Stderr, "%s %v\n", helpers.ErrorStyle.Render("Error:"), err)
+		}
 		os.Exit(1)
 	}
 	return nil
@@ -149,6 +171,29 @@ func init() {
 // AddCommand adds one or more commands to the root command
 func AddCommand(cmd ...*cobra.Command) {
 	rootCmd.AddCommand(cmd...)
+}
+
+// Command group IDs used to organize subcommands in `adhar --help`.
+const (
+	GroupPlatform      = "platform"
+	GroupCluster       = "cluster"
+	GroupApps          = "apps"
+	GroupObservability = "observability"
+	GroupSecurity      = "security"
+	GroupUtilities     = "utilities"
+)
+
+// RegisterCommandGroups registers the help groups so related commands appear
+// together under friendly headings in `adhar --help`.
+func RegisterCommandGroups() {
+	rootCmd.AddGroup(
+		&cobra.Group{ID: GroupPlatform, Title: "Platform — manage the platform lifecycle:"},
+		&cobra.Group{ID: GroupCluster, Title: "Cluster — clusters, environments & config:"},
+		&cobra.Group{ID: GroupApps, Title: "Apps & GitOps — deploy and operate workloads:"},
+		&cobra.Group{ID: GroupObservability, Title: "Observability — logs, metrics, traces & network:"},
+		&cobra.Group{ID: GroupSecurity, Title: "Security — auth, secrets & policy:"},
+		&cobra.Group{ID: GroupUtilities, Title: "Utilities — backup, restore & tooling:"},
+	)
 }
 
 // renderRootCommandContent renders the content for the root command

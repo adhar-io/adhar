@@ -225,6 +225,17 @@ configs:
     # Browser-facing base URL. Argo CD builds the OIDC redirect/callback from this.
     url: https://adhar.localtest.me:8443/argocd
 
+    # The Keycloak issuer is served by the Cilium Gateway over a SELF-SIGNED platform
+    # certificate (adhar-cert), which is generated fresh per cluster at runtime. Argo CD
+    # (api-server + dex) fetches the OIDC discovery document and exchanges tokens
+    # server-side over HTTPS, so x509 verification against that ephemeral CA would
+    # otherwise fail ("certificate signed by unknown authority") and SSO login would
+    # never start. The CA is not known ahead of time (cannot be baked into this chart),
+    # and this is a local platform terminating edge TLS at the in-cluster Gateway, so we
+    # skip verification for the server-side OIDC HTTPS client only. This does NOT affect
+    # browser-facing TLS or repo TLS.
+    oidc.tls.insecure.skip.verify: "true"
+
     # Keycloak OIDC (Single Sign-On) for the core platform realm `adhar`.
     # NOTE (bootstrap timing): OIDC only becomes usable once the Keycloak GitOps
     # package has synced, created the `argocd` client + keycloak-clients Secret, and

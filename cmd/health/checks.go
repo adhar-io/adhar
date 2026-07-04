@@ -253,9 +253,8 @@ func renderHealth(h *platformHealth) {
 func runHealthSweep(componentName string, to time.Duration) (*platformHealth, error) {
 	clientset, err := getClientset()
 	if err != nil {
-		fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
-		fmt.Println(helpers.CreateMuted("   " + err.Error()))
-		return nil, fmt.Errorf("failed to get Kubernetes client: %w", err)
+		return nil, helpers.FriendlyError(fmt.Errorf("could not connect to the cluster: %w", err),
+			"Is the cluster running? Try: adhar up")
 	}
 
 	components, err := resolveComponents(componentName)

@@ -18,9 +18,11 @@ import (
 
 const (
 	// hardcoded values from what we have in the yaml installation file.
-	GiteaNamespace           = "gitea"
+	// Gitea is installed into adhar-system by the bootstrap (not a dedicated
+	// "gitea" namespace); the admin credential Secret lives there too.
+	GiteaNamespace           = "adhar-system"
 	GiteaAdminSecret         = "gitea-credential"
-	GiteaAdminName           = "giteaAdmin"
+	GiteaAdminName           = "gitea_admin"
 	GiteaAdminTokenName      = "admin"
 	GiteaAdminTokenFieldName = "token"
 	GiteaURLTempl            = "%s://%s%s:%s%s"

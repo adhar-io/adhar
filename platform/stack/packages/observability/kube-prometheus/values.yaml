@@ -1297,7 +1297,13 @@ grafana:
   # as environment variables, which override the matching grafana.ini keys below.
   # NOTE (bootstrap timing): generic_oauth login only works once Keycloak has synced
   # and that secret is populated; the local `admin` user stays as break-glass.
-  envFromSecret: grafana-oidc
+  #
+  # IMPORTANT: use envFromSecrets with optional:true (NOT the required `envFromSecret`)
+  # so Grafana still starts before Keycloak has created the secret. A required
+  # secretRef would wedge the pod in CreateContainerConfigError until Keycloak syncs.
+  envFromSecrets:
+    - name: grafana-oidc
+      optional: true
 
   # Grafana runs behind the platform host at /grafana.
   grafana.ini:
@@ -1312,6 +1318,13 @@ grafana:
       auth_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/auth
       token_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/token
       api_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/userinfo
+      # The Keycloak token/userinfo endpoints are served by the Cilium Gateway over the
+      # SELF-SIGNED platform cert (adhar-cert, generated per cluster at runtime). Grafana
+      # calls token_url/api_url server-side over HTTPS during the OAuth code exchange, so
+      # without skipping verification it fails with "x509: certificate signed by unknown
+      # authority" and login dead-ends after the Keycloak redirect. The CA is not known
+      # ahead of time, so skip verification for this server-side OAuth client only.
+      tls_skip_verify_insecure: true
       # Map Keycloak realm groups (in the `groups` claim) to Grafana org roles.
       role_attribute_path: contains(groups[*], 'platform-admin') && 'Admin' || contains(groups[*], 'platform-developer') && 'Editor' || 'Viewer'
       role_attribute_strict: false

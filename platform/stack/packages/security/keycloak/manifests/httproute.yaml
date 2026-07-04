@@ -7,7 +7,12 @@ metadata:
   name: keycloak
   namespace: keycloak
   annotations:
-    argocd.argoproj.io/sync-wave: "100"
+    # Wave 15: right after the Keycloak Deployment (wave 10), BEFORE the OIDC
+    # integration jobs (realm wave 20, gitea-oauth wave 30). The route only
+    # needs the server; gating it behind those jobs meant a single failing job
+    # (e.g. gitea OAuth registration hitting the self-signed cert) left Keycloak
+    # with no HTTPRoute — so Backstage's "/" catch-all route shadowed /keycloak.
+    argocd.argoproj.io/sync-wave: "15"
 spec:
   parentRefs:
     - name: adhar-gateway

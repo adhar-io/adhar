@@ -14,6 +14,15 @@ server:
   dataStorage:
     enabled: true
     size: 1Gi
+  # Readiness via the HTTP health endpoint so a sealed/uninitialized Vault still
+  # reports Ready. The chart default probe (`vault status`) exits non-zero while
+  # sealed, so the pod never becomes Ready; ArgoCD's sync-wave ordering then
+  # never advances past the wave-0 StatefulSet to the wave-2 bootstrap Job that
+  # initialises/unseals Vault — a deadlock. sealedcode=204 and uninitcode=204
+  # make those states return 2xx so the pod is Ready and the Job can run.
+  readinessProbe:
+    enabled: true
+    path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
   # No nginx Ingress; routing handled by manifests/httproute.yaml (Gateway API).
   ingress:
     enabled: false
