@@ -16,7 +16,7 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - devtron.adhar.localtest.me
   rules:
     - matches:
         - path:

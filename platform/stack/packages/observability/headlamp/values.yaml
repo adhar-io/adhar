@@ -1,6 +1,13 @@
-config:
-  oidc:
-    clientID: "headlamp"
-    clientSecret: "{{HEADLAMP_CLIENT_SECRET}}"
-    issuerURL: "http://keycloak.keycloak.svc.cluster.local:8080/keycloak/realms/adhar"
-    scopes: "email,profile"
+# Headlamp runs WITHOUT its own OIDC. Keycloak SSO is enforced by an oauth2-proxy
+# in front of Headlamp (manifests/headlamp-oauth2-proxy.yaml), mirroring the
+# Prometheus/RustFS pattern.
+#
+# Why not Headlamp-native OIDC: Headlamp forwards the logged-in user's OIDC token
+# to the Kubernetes API server, but the Kind apiserver is not configured to trust
+# Keycloak as an OIDC issuer, so every cluster call came back 401 (login appeared
+# broken). With no -oidc flags, Headlamp's backend proxies to the API server using
+# its own in-cluster ServiceAccount, which the chart binds to cluster-admin — so
+# authenticated SSO users (already gated by oauth2-proxy) get a working dashboard.
+# Trade-off: all SSO users share the cluster-admin view; per-user K8s RBAC would
+# require apiserver OIDC trust instead.
+config: {}

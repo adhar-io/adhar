@@ -78,22 +78,23 @@ func gradientBlock(art string, from, to rgb) string {
 	return strings.Join(lines, "\n")
 }
 
-// adharLetters holds the 6-row wordmark glyphs in a solid "ANSI Shadow" block
-// font (filled █ with a beveled box-drawing shadow). Rendered with the brand
+// adharLetters holds the 5-row wordmark glyphs in a solid "ANSI Shadow" block
+// font (filled █ with a beveled box-drawing shadow) — one body row shorter than
+// the classic 6-row form for a more compact header. Rendered with the brand
 // gradient this reads as a clean, modern logotype rather than ASCII line-art.
 // Every glyph is exactly 8 runes wide so the columns always align.
 var adharLetters = map[rune][]string{
-	'A': {" █████╗ ", "██╔══██╗", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"},
-	'D': {"██████╗ ", "██╔══██╗", "██║  ██║", "██║  ██║", "██████╔╝", "╚═════╝ "},
-	'H': {"██╗  ██╗", "██║  ██║", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"},
-	'R': {"██████╗ ", "██╔══██╗", "██████╔╝", "██╔══██╗", "██║  ██║", "╚═╝  ╚═╝"},
+	'A': {" █████╗ ", "██╔══██╗", "███████║", "██║  ██║", "╚═╝  ╚═╝"},
+	'D': {"██████╗ ", "██╔══██╗", "██║  ██║", "██████╔╝", "╚═════╝ "},
+	'H': {"██╗  ██╗", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"},
+	'R': {"██████╗ ", "██╔══██╗", "██████╔╝", "██╔══██╗", "╚═╝  ╚═╝"},
 }
 
 // wordmark builds the "ADHAR" block art with `gap` spaces between letters. Each
 // letter's rows are padded to its own width so the columns always align.
 func wordmark(gap int) string {
 	sep := strings.Repeat(" ", gap)
-	rows := make([]string, 6)
+	rows := make([]string, len(adharLetters['A']))
 	for r := range rows {
 		parts := make([]string, 0, 5)
 		for _, c := range "ADHAR" {

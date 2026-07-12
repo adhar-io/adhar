@@ -13,19 +13,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - localhost
-    - adhar.localtest.me
+    - argo-workflows.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /argo-workflows
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: argo-server
           port: 2746

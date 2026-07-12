@@ -1,25 +1,22 @@
-# Headlamp UI routed through the Cilium Gateway (adhar-gateway). TLS terminates
-# at the Gateway. The old nginx rewrite-target (/headlamp/$2 with use-regex)
-# preserved the /headlamp prefix when forwarding to the backend, so no URLRewrite
-# filter is needed here.
+# Headlamp UI on its own host (headlamp.adhar.localtest.me). The whole host
+# forwards to the oauth2-proxy (Keycloak SSO gate), which reverse-proxies to
+# Headlamp once the user is authenticated. See manifests/headlamp-oauth2-proxy.yaml.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: headlamp
   namespace: adhar-system
-  annotations:
-    argocd.argoproj.io/sync-wave: "100"
 spec:
   parentRefs:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - headlamp.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /headlamp
+            value: /
       backendRefs:
-        - name: headlamp
-          port: 80
+        - name: headlamp-oauth2-proxy
+          port: 4180

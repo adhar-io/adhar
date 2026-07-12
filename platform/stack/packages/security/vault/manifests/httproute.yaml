@@ -1,6 +1,11 @@
-# Vault UI routed through the Cilium Gateway (adhar-gateway). TLS terminates at
-# the Gateway, replacing any nginx Ingress. The /vault prefix is stripped before
-# forwarding to vault-ui:8200.
+# Vault UI routed through the Cilium Gateway (adhar-gateway) on its OWN hostname,
+# vault.adhar.localtest.me. TLS terminates at the Gateway (adhar-cert, whose
+# *.adhar.localtest.me wildcard SAN covers this subdomain).
+#
+# Vault is given a dedicated host (not a sub-path) because the Vault UI serves at
+# /ui/ and hardcodes root-absolute asset/redirect paths — under the shared
+# adhar.localtest.me/vault host those break (Vault redirects "/" -> "/ui/" and the
+# assets 404 against the "/" catch-all). On its own host Vault safely owns "/".
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -15,18 +20,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - vault.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /vault
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: vault-ui
           port: 8200

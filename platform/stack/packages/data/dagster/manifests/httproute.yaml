@@ -16,18 +16,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - dagster.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /dagster
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: dagster-dagster-webserver
           port: 80

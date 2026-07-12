@@ -15,18 +15,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - victoria-metrics.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /victoria-metrics
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: victoria-metrics-victoria-metrics-single-server
           port: 8428

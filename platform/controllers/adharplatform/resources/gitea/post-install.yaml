@@ -1,9 +1,21 @@
 # Gitea routed through the Cilium Gateway (adhar-gateway). TLS terminates at the
-# Gateway (adhar-cert). The /gitea prefix is stripped before forwarding to
-# gitea-http:3000 (URLRewrite ReplacePrefixMatch "/"), preserving the behaviour
-# of the previous nginx rewrite-target. NOTE: for fully-correct absolute links
-# (redirects, OAuth callbacks, clone URLs) Gitea's ROOT_URL should be set to the
-# external URL https://adhar.localtest.me:8443/gitea/ via hack/gitea/values.yaml.
+# Gateway (adhar-cert).
+#
+# Gitea's sub-path model is the OPPOSITE of ArgoCD's, and needs BOTH halves:
+#   1. ROOT_URL=https://gitea.adhar.localtest.me:8443/ (install.yaml
+#      gitea-inline-config) — this ONLY controls URL generation. It sets Gitea's
+#      AppSubURL=/gitea so every emitted link, asset src, redirect, cookie path,
+#      OAuth callback and clone URL is prefixed with /gitea.
+#   2. This route STRIPS the /gitea prefix (URLRewrite ReplacePrefixMatch "/")
+#      before forwarding — because Gitea still SERVES all of its HTTP handlers at
+#      root, not under /gitea (unlike ArgoCD's server.rootpath which actually
+#      mounts the app under the sub-path). This mirrors the canonical Gitea
+#      reverse-proxy setup `proxy_pass http://gitea:3000/;` (trailing slash).
+# So: browser requests /gitea/assets/x → Gateway strips → /assets/x → Gitea serves,
+# and Gitea's HTML already points assets/links at /gitea/... via AppSubURL. Forward
+# the prefix intact (no strip) and Gitea 404s (it has no routes under /gitea) — the
+# page fails to load; strip without ROOT_URL and assets become root-relative and
+# hit the "/" catch-all. Both pieces are required together.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -19,18 +31,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - gitea.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /gitea
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: gitea-http
           port: 3000

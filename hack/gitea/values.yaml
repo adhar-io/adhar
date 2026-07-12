@@ -417,6 +417,17 @@ gitea:
     #  APP_NAME: "Gitea: Git with a cup of tea"
     #  RUN_MODE: dev
     server:
+      # Gitea is served behind the Cilium Gateway under the /gitea sub-path at the
+      # platform host. ROOT_URL must carry that sub-path so Gitea emits all assets,
+      # redirects, cookies, OAuth callbacks and clone URLs under /gitea/ (otherwise
+      # it emits root-relative links that hit the "/" catch-all app and 404).
+      # ROOT_URL only affects URL GENERATION — Gitea still serves its handlers at
+      # root, so the gitea HTTPRoute STRIPS the /gitea prefix before forwarding
+      # (the canonical `proxy_pass http://gitea:3000/;` reverse-proxy setup).
+      DOMAIN: adhar.localtest.me
+      SSH_DOMAIN: adhar.localtest.me
+      ROOT_URL: https://gitea.adhar.localtest.me:8443/
+      PROTOCOL: http # TLS terminates at the Gateway; Gitea listens plain HTTP
       SSH_PORT: 22 # rootful image
       SSH_LISTEN_PORT: 2222 # rootless image
   #

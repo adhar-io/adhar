@@ -8,10 +8,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.42.0
+    helm.sh/chart: headlamp-0.43.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.42.0"
+    app.kubernetes.io/version: "0.43.0"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: headlamp/templates/secret.yaml
@@ -22,10 +22,6 @@ metadata:
   namespace: adhar-system
 type: Opaque
 data:
-  clientID: "aGVhZGxhbXA="
-  clientSecret: "e3tIRUFETEFNUF9DTElFTlRfU0VDUkVUfX0="
-  issuerURL: "aHR0cDovL2tleWNsb2FrLmtleWNsb2FrLnN2Yy5jbHVzdGVyLmxvY2FsOjgwODAva2V5Y2xvYWsvcmVhbG1zL2FkaGFy"
-  scopes: "ZW1haWwscHJvZmlsZQ=="
 ---
 # Source: headlamp/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -33,10 +29,10 @@ kind: ClusterRoleBinding
 metadata:
   name: headlamp-admin
   labels:
-    helm.sh/chart: headlamp-0.42.0
+    helm.sh/chart: headlamp-0.43.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.42.0"
+    app.kubernetes.io/version: "0.43.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -54,10 +50,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.42.0
+    helm.sh/chart: headlamp-0.43.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.42.0"
+    app.kubernetes.io/version: "0.43.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -81,10 +77,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.42.0
+    helm.sh/chart: headlamp-0.43.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.42.0"
+    app.kubernetes.io/version: "0.43.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -110,44 +106,16 @@ spec:
             runAsGroup: 101
             runAsNonRoot: true
             runAsUser: 100
-          image: "ghcr.io/headlamp-k8s/headlamp:v0.42.0"
+          image: "ghcr.io/headlamp-k8s/headlamp:v0.43.0"
           imagePullPolicy: IfNotPresent
           
           env:
-            - name: OIDC_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: oidc
-                  key: clientID
-            - name: OIDC_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: oidc
-                  key: clientSecret
-            - name: OIDC_ISSUER_URL
-              valueFrom:
-                secretKeyRef:
-                  name: oidc
-                  key: issuerURL
-            - name: OIDC_SCOPES
-              valueFrom:
-                secretKeyRef:
-                  name: oidc
-                  key: scopes
           args:
             - "-in-cluster"
             - "-in-cluster-context-name=main"
             - "-plugins-dir=/headlamp/plugins"
             - "-session-ttl=86400"
             # Check if externalSecret is disabled
-            # Check if clientID is non empty either from env or oidc.config
-            - "-oidc-client-id=$(OIDC_CLIENT_ID)"
-            # Check if clientSecret is non empty either from env or oidc.config
-            - "-oidc-client-secret=$(OIDC_CLIENT_SECRET)"
-            # Check if issuerURL is non empty either from env or oidc.config
-            - "-oidc-idp-issuer-url=$(OIDC_ISSUER_URL)"
-            # Check if scopes are non empty either from env or oidc.config
-            - "-oidc-scopes=$(OIDC_SCOPES)"
           ports:
             - name: http
               containerPort: 4466
@@ -156,9 +124,21 @@ spec:
             httpGet:
               path: "/"
               port: http
+              scheme: HTTP
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: "/"
               port: http
+              scheme: HTTP
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 3
           resources:
             {}

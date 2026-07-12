@@ -1,0 +1,32 @@
+# Shared, lightweight Valkey cache managed by the hyperspike valkey-operator.
+#
+# Adhar adds Valkey alongside the existing Redis operator (data/redis) as the
+# preferred cache for platform apps. Point an app's cache at:
+#   host: adhar-cache.valkey-operator-system.svc.cluster.local
+#   port: 6379   (no auth — anonymousAuth is enabled for simple in-cluster caching)
+#
+# Sized for a single Kind node: one node, no replicas, ephemeral (no PVC), tiny
+# requests. Scale nodes/replicas/storage up on real clusters.
+apiVersion: hyperspike.io/v1
+kind: Valkey
+metadata:
+  name: adhar-cache
+  namespace: valkey-operator-system
+  labels:
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/component: cache
+  annotations:
+    # Apply after the operator + CRD are established (chart/bundle = wave 0).
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  nodes: 1
+  replicas: 0
+  tls: false
+  anonymousAuth: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 256Mi

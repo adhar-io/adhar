@@ -62,7 +62,7 @@ spec:
     # Second HTTPS listener on the platform's external port (8443). Externally,
     # the host's :8443 is mapped to the 443 NodePort by Kind; but in-cluster
     # clients (e.g. ArgoCD performing OIDC discovery against the Keycloak issuer
-    # https://adhar.localtest.me:8443/keycloak/...) connect to the Gateway Service
+    # https://keycloak.adhar.localtest.me:8443/...) connect to the Gateway Service
     # on :8443 directly, so the Gateway must also listen there. HTTPRoutes attach
     # to all listeners, so every route is served on 80, 443 and 8443 alike.
     - name: https-8443

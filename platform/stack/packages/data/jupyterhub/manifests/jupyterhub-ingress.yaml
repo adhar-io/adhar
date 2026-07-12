@@ -13,13 +13,13 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - jupyterhub.adhar.localtest.me
     - localhost
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /jupyterhub
+            value: /
       filters:
         - type: URLRewrite
           urlRewrite:

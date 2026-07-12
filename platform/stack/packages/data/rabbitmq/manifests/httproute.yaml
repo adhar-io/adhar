@@ -15,18 +15,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - rabbitmq.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /rabbitmq
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: rabbitmq
           port: 15672

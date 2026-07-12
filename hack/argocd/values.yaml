@@ -223,7 +223,7 @@ configs:
     #         - name: your-github-org
 
     # Browser-facing base URL. Argo CD builds the OIDC redirect/callback from this.
-    url: https://adhar.localtest.me:8443/argocd
+    url: https://argocd.adhar.localtest.me:8443
 
     # The Keycloak issuer is served by the Cilium Gateway over a SELF-SIGNED platform
     # certificate (adhar-cert), which is generated fresh per cluster at runtime. Argo CD
@@ -244,7 +244,7 @@ configs:
     # `$oidc.keycloak.clientSecret` resolves to that key in argocd-secret.
     oidc.config: |
       name: Keycloak
-      issuer: https://adhar.localtest.me:8443/keycloak/realms/adhar
+      issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
       clientID: argocd
       clientSecret: $oidc.keycloak.clientSecret
       requestedScopes:

@@ -14,18 +14,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - lakefs.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /lakefs
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: lakefs
           port: 80

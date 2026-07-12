@@ -1,6 +1,6 @@
-# Keycloak routed through the Cilium Gateway (adhar-gateway). TLS terminates at
-# the Gateway, replacing the old nginx Ingress. Keycloak is served under the
-# external /keycloak sub-path, so the prefix is forwarded unchanged (no rewrite).
+# Keycloak routed through the Cilium Gateway (adhar-gateway) on its own hostname,
+# keycloak.adhar.localtest.me (wildcard cert *.adhar.localtest.me covers it). It
+# serves at root (no http-relative-path), so "/" forwards unchanged to :8080.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -18,13 +18,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - localhost
-    - adhar.localtest.me
+    - keycloak.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /keycloak
+            value: /
       backendRefs:
         - name: keycloak
           port: 8080

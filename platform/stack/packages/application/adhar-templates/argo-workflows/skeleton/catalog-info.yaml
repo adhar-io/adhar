@@ -14,7 +14,7 @@ metadata:
     apache-spark.adhar.io/label-selector: env=dev,entity-id=${{values.name}}
     apache-spark.adhar.io/cluster-name: local
   links:
-    - url: https://adhar.localtest.me:8443/gitea
+    - url: https://gitea.adhar.localtest.me:8443
       title: Repo URL
       icon: github
 spec:

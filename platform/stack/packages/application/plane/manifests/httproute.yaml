@@ -24,7 +24,7 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - plane.adhar.localtest.me
   rules:
     - matches:
         - path:
@@ -67,7 +67,7 @@ spec:
     - matches:
         - path:
             type: PathPrefix
-            value: /plane
+            value: /
       backendRefs:
         - name: plane-web
           port: 3000

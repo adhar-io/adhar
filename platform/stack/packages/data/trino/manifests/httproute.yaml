@@ -14,18 +14,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - trino.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /trino
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: trino
           port: 8080

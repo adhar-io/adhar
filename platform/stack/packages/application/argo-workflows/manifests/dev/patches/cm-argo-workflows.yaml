@@ -7,14 +7,14 @@ data:
   config: |
     sso:
       insecureSkipVerify: true 
-      issuer: https://adhar.localtest.me:8443/keycloak/realms/adhar
+      issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
       clientId:
         name: keycloak-oidc
         key: client-id
       clientSecret:
         name: keycloak-oidc
         key: secret-key
-      redirectUrl: https://adhar.localtest.me:8443/argo-workflows/oauth2/callback
+      redirectUrl: https://argo-workflows.adhar.localtest.me:8443/oauth2/callback
       rbac:
         enabled: true
       scopes:

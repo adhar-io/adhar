@@ -224,6 +224,38 @@ data:
       policies="external-secrets" \
       ttl="1h"
 
+    # ---------------------------------------------------------------------
+    # 5. OIDC auth method (Keycloak) — enables "Sign in with OIDC" in the Vault
+    #    UI. Best-effort: it needs the `vault` Keycloak client secret (vault-oidc
+    #    Secret) and the platform CA (vault-ca Secret), both delivered by the
+    #    ExternalSecrets in oidc.yaml once Keycloak is up. If they are not ready
+    #    yet, skip — this Job re-runs on every sync (Sync hook) and will configure
+    #    OIDC on a later pass. All writes are idempotent.
+    # ---------------------------------------------------------------------
+    OIDC_SECRET="$(${KUBE} get secret vault-oidc -o jsonpath='{.data.VAULT_CLIENT_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    OIDC_CA="$(${KUBE} get secret vault-ca -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    if [ -n "${OIDC_SECRET}" ] && [ -n "${OIDC_CA}" ]; then
+      log "configuring OIDC auth method (Keycloak)"
+      if ! vault auth list -format=json | grep -q '"oidc/"'; then
+        vault auth enable oidc || true
+      fi
+      vault write auth/oidc/config \
+        oidc_discovery_url="https://keycloak.adhar.localtest.me:8443/realms/adhar" \
+        oidc_client_id="vault" \
+        oidc_client_secret="${OIDC_SECRET}" \
+        oidc_discovery_ca_pem="${OIDC_CA}" \
+        default_role="default" || log "oidc config write failed (will retry next sync)"
+      vault write auth/oidc/role/default \
+        bound_audiences="vault" \
+        allowed_redirect_uris="https://vault.adhar.localtest.me:8443/ui/vault/auth/oidc/oidc/callback,https://vault.adhar.localtest.me:8443/oidc/callback" \
+        user_claim="sub" \
+        oidc_scopes="openid,profile,email,groups" \
+        token_policies="default" \
+        ttl="1h" || log "oidc role write failed (will retry next sync)"
+    else
+      log "OIDC prerequisites not ready (vault-oidc / vault-ca); skipping for now"
+    fi
+
     log "bootstrap complete"
 ---
 apiVersion: batch/v1

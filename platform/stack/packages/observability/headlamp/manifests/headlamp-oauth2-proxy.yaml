@@ -1,0 +1,138 @@
+# Keycloak SSO in front of the Headlamp UI.
+#
+# Headlamp is NOT given its own -oidc flags (see values.yaml for why): it would
+# forward the user's Keycloak token to the kube-apiserver, which does not trust
+# Keycloak, so every cluster call returned 401. Instead an oauth2-proxy sits in
+# front and performs the OpenID Connect handshake with Keycloak; once the user is
+# authenticated it reverse-proxies to Headlamp, which talks to the API server with
+# its own cluster-admin ServiceAccount. Same pattern as Prometheus/RustFS.
+#
+# Flow: browser -> Gateway (headlamp.adhar.localtest.me) -> oauth2-proxy ->
+#   (unauthenticated) 302 to Keycloak /auth -> login -> /oauth2/callback ->
+#   cookie set -> reverse-proxy to the Headlamp Service (SA = cluster-admin).
+---
+# Cookie encryption secret for oauth2-proxy sessions (32 alphanumeric chars = 32
+# bytes for AES-256). Generated once by ESO.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: headlamp-oauth2-cookie
+  namespace: adhar-system
+spec:
+  length: 32
+  digits: 8
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+# Assembles the oauth2-proxy env Secret: the Keycloak `headlamp` client secret
+# (pulled from keycloak-clients) + the generated cookie secret. Keys are the
+# OAUTH2_PROXY_* env names the Deployment consumes via envFrom.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: headlamp-oauth2-proxy
+  namespace: adhar-system
+spec:
+  refreshInterval: "0"
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: headlamp-oauth2-proxy
+    template:
+      engineVersion: v2
+      data:
+        OAUTH2_PROXY_CLIENT_SECRET: "{{ .HEADLAMP_CLIENT_SECRET }}"
+        OAUTH2_PROXY_COOKIE_SECRET: "{{ .COOKIE_SECRET }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: headlamp-oauth2-cookie
+      rewrite:
+        - transform:
+            template: "COOKIE_SECRET"
+  data:
+    - secretKey: HEADLAMP_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: HEADLAMP_CLIENT_SECRET
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: headlamp-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: headlamp-oauth2-proxy
+    app.kubernetes.io/part-of: headlamp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: headlamp-oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: headlamp-oauth2-proxy
+    spec:
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=oidc
+            - --oidc-issuer-url=https://keycloak.adhar.localtest.me:8443/realms/adhar
+            # Keycloak is served over the self-signed platform cert (adhar-cert);
+            # skip verification for the server-side OIDC discovery/token calls.
+            - --ssl-insecure-skip-verify=true
+            - --client-id=headlamp
+            - --redirect-url=https://headlamp.adhar.localtest.me:8443/oauth2/callback
+            - --upstream=http://headlamp.adhar-system:80
+            - --email-domain=*
+            # Platform Keycloak users are created without email verification
+            # (emailVerified=false), so accept unverified emails — otherwise
+            # oauth2-proxy fails the callback with "email ... isn't verified" (500).
+            - --insecure-oidc-allow-unverified-email=true
+            - --scope=openid profile email groups
+            - --cookie-secure=true
+            - --skip-provider-button=true
+            - --reverse-proxy=true
+          envFrom:
+            - secretRef:
+                name: headlamp-oauth2-proxy
+          ports:
+            - name: http
+              containerPort: 4180
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: headlamp-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: headlamp-oauth2-proxy
+    app.kubernetes.io/part-of: headlamp
+spec:
+  selector:
+    app: headlamp-oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: http

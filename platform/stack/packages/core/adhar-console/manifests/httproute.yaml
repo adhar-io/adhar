@@ -1,7 +1,6 @@
 # Backstage (adhar-console) routed through the Cilium Gateway (adhar-gateway).
 # TLS terminates at the Gateway (adhar-cert), so the old nginx ssl-redirect
-# annotation is no longer needed. Backstage serves from the root path, so the
-# / prefix is forwarded unchanged (no rewrite).
+# annotation is no longer needed. Backstage on its own host console.adhar.localtest.me, served at root.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -12,7 +11,7 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - console.adhar.localtest.me
   rules:
     - matches:
         - path:

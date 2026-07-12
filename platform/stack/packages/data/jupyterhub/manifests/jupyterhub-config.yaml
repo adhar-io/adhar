@@ -82,7 +82,7 @@ spec:
               set -e
               
               ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
-              KEYCLOAK_URL=http://keycloak.keycloak.svc.cluster.local:8080/keycloak
+              KEYCLOAK_URL=http://keycloak.keycloak.svc.cluster.local:8080
               KEYCLOAK_TOKEN=$(curl -sS  --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
                 --data-urlencode "username=adhar-admin" \
                 --data-urlencode "password=${ADMIN_PASSWORD}" \

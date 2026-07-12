@@ -87,6 +87,7 @@ var knownProviders = map[string]providerConfig{
 	"postgres":       {namespaces: []string{"adhar-system", "keycloak", "cnpg-system"}, patterns: []string{"postgres", "postgresql"}},
 	"redis":          {namespaces: []string{"adhar-system"}, patterns: []string{"redis"}},
 	"harbor":         {namespaces: []string{"harbor"}, patterns: []string{"harbor-admin", "harbor-core"}},
+	"rustfs":         {namespaces: []string{"rustfs"}, patterns: []string{"rustfs-credentials"}},
 }
 
 func runGetSecrets(cmd *cobra.Command, args []string) error {
@@ -118,7 +119,7 @@ func getKubernetesClient() (*kubernetes.Clientset, error) {
 // getProviderSecrets retrieves secrets for a specific provider
 func getProviderSecrets(clientset *kubernetes.Clientset, providerName string) error {
 	if _, exists := knownProviders[providerName]; !exists {
-		available := []string{"argocd", "gitea", "keycloak", "vault", "postgres", "redis", "harbor"}
+		available := []string{"argocd", "gitea", "keycloak", "vault", "postgres", "redis", "harbor", "rustfs"}
 		return fmt.Errorf("unknown provider %q (available: %s)", providerName, strings.Join(available, ", "))
 	}
 
@@ -300,7 +301,7 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 		if strings.Contains(secret.Name, "keycloak-config") {
 			return []SecretEntry{{
 				Icon: "🔑", Service: "Keycloak (admin)",
-				Username: "admin", Password: string(secret.Data["KEYCLOAK_ADMIN_PASSWORD"]),
+				Username: "adhar-admin", Password: string(secret.Data["KEYCLOAK_ADMIN_PASSWORD"]),
 			}}
 		}
 	case "keycloak-user":
@@ -318,7 +319,7 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 			pw := string(secret.Data["USER_PASSWORD"])
 			entries = append(entries, SecretEntry{
 				Icon: "🔑", Service: "Keycloak (admin)",
-				Username: "admin", Password: string(secret.Data["KEYCLOAK_ADMIN_PASSWORD"]),
+				Username: "adhar-admin", Password: string(secret.Data["KEYCLOAK_ADMIN_PASSWORD"]),
 			}, SecretEntry{
 				Icon: "👤", Service: "Keycloak user1 (admin)",
 				Username: "user1", Password: pw,
@@ -341,6 +342,14 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 		}
 		if strings.Contains(secret.Name, "harbor-core") {
 			return []SecretEntry{{Icon: "⚓", Service: "Harbor (core)", Username: "harbor", Password: string(secret.Data["secret"])}}
+		}
+	case "rustfs":
+		if strings.Contains(secret.Name, "rustfs-credentials") {
+			return []SecretEntry{{
+				Icon: "📦", Service: "RustFS (S3/console)",
+				Username: string(secret.Data["RUSTFS_ACCESS_KEY"]),
+				Password: string(secret.Data["RUSTFS_SECRET_KEY"]),
+			}}
 		}
 	case "postgres":
 		entry := SecretEntry{Icon: "🐘", Service: "PostgreSQL (" + secret.Namespace + ")"}

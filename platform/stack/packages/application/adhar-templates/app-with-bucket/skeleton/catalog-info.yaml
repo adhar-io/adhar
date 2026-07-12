@@ -20,7 +20,7 @@ metadata:
     backstage.io/kubernetes-namespace: default
     argocd/app-name: ${{values.name | dump}}
   links:
-    - url: https://adhar.localtest.me:8443/gitea
+    - url: https://gitea.adhar.localtest.me:8443
       title: Repo URL
       icon: github
 spec:

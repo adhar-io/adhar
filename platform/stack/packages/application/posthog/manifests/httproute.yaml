@@ -19,12 +19,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - posthog.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /posthog
+            value: /
       backendRefs:
         - name: posthog-web
           port: 8000

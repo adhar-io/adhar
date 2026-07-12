@@ -1,0 +1,123 @@
+# Harbor OIDC (Keycloak) login.
+#
+# Harbor stores its auth configuration in its database, applied at runtime via the
+# admin API — there is no Helm value for it. So a Job PUTs the OIDC config once
+# Harbor is up. auth_mode=oidc_auth switches the login page to "Login via OIDC
+# Provider" (the local admin still works for break-glass at /account/sign-in).
+---
+# The Keycloak `harbor` client secret, from keycloak-clients (realm job wave 20).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: harbor-oidc
+  namespace: harbor
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+spec:
+  refreshInterval: "0"
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: harbor-oidc
+  data:
+    - secretKey: HARBOR_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: HARBOR_CLIENT_SECRET
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harbor-oidc-config
+  namespace: harbor
+data:
+  # oidc_verify_cert=false: Keycloak is served over the self-signed platform cert.
+  # oidc_auto_onboard=true: create a Harbor user on first OIDC login.
+  # platform-admin group -> Harbor system admin.
+  oidc-config.json: |
+    {
+      "auth_mode": "oidc_auth",
+      "oidc_name": "keycloak",
+      "oidc_endpoint": "https://keycloak.adhar.localtest.me:8443/realms/adhar",
+      "oidc_client_id": "harbor",
+      "oidc_client_secret": "${HARBOR_CLIENT_SECRET}",
+      "oidc_scope": "openid,profile,email,groups,offline_access",
+      "oidc_verify_cert": false,
+      "oidc_auto_onboard": true,
+      "oidc_user_claim": "preferred_username",
+      "oidc_groups_claim": "groups",
+      "oidc_admin_group": "platform-admin"
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-oidc-config
+  namespace: harbor
+  annotations:
+    # Re-run on every sync so the config is reconciled idempotently once the
+    # prerequisites (Harbor up + harbor-oidc secret) are ready.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "45"
+spec:
+  backoffLimit: 30
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: harbor-oidc-config
+    spec:
+      restartPolicy: OnFailure
+      volumes:
+        - name: oidc
+          secret:
+            secretName: harbor-oidc
+            optional: true
+        - name: admin
+          secret:
+            secretName: harbor-core
+            optional: true
+        - name: config
+          configMap:
+            name: harbor-oidc-config
+      containers:
+        - name: configure
+          image: docker.io/library/ubuntu:22.04
+          volumeMounts:
+            - name: oidc
+              mountPath: /var/oidc
+              readOnly: true
+            - name: admin
+              mountPath: /var/harbor
+              readOnly: true
+            - name: config
+              mountPath: /var/config
+              readOnly: true
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              apt -qq update && apt -qq install -y curl gettext-base >/dev/null
+
+              CLIENT_SECRET="$(cat /var/oidc/HARBOR_CLIENT_SECRET 2>/dev/null || true)"
+              if [ -z "${CLIENT_SECRET}" ]; then
+                echo "harbor-oidc secret not populated yet (Keycloak not ready) — retrying"
+                exit 1
+              fi
+              ADMIN_PW="$(cat /var/harbor/HARBOR_ADMIN_PASSWORD 2>/dev/null || echo Harbor12345)"
+              HARBOR="http://harbor-core.harbor.svc.cluster.local"
+
+              echo "waiting for Harbor API"
+              i=0
+              until curl -sf -u "admin:${ADMIN_PW}" "${HARBOR}/api/v2.0/systeminfo" >/dev/null 2>&1; do
+                i=$((i + 1)); [ "${i}" -ge 60 ] && { echo "Harbor API not ready"; exit 1; }
+                sleep 5
+              done
+
+              export HARBOR_CLIENT_SECRET="${CLIENT_SECRET}"
+              envsubst < /var/config/oidc-config.json > /tmp/oidc.json
+              echo "applying Harbor OIDC configuration"
+              curl -sf -u "admin:${ADMIN_PW}" -X PUT -H "Content-Type: application/json" \
+                --data @/tmp/oidc.json "${HARBOR}/api/v2.0/configurations"
+              echo "Harbor OIDC configured"

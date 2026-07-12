@@ -149,7 +149,7 @@ data:
   exec.enabled: "false"
   oidc.config: |
     name: Keycloak
-    issuer: https://adhar.localtest.me:8443/keycloak/realms/adhar
+    issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
     clientID: argocd
     clientSecret: $oidc.keycloak.clientSecret
     requestedScopes:
@@ -259,7 +259,7 @@ data:
   timeout.hard.reconciliation: 0s
   timeout.reconciliation: 180s
   timeout.reconciliation.jitter: 60s
-  url: https://adhar.localtest.me:8443/argocd
+  url: https://argocd.adhar.localtest.me:8443
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-cmd-params-cm.yaml
 apiVersion: v1
@@ -304,7 +304,7 @@ data:
   reposerver.log.format: text
   reposerver.log.level: info
   reposerver.parallelism.limit: "0"
-  server.basehref: /argocd
+  server.basehref: /
   server.dex.server: https://argo-cd-argocd-dex-server:5556
   server.dex.server.strict.tls: "false"
   server.disable.auth: "false"
@@ -314,7 +314,7 @@ data:
   server.log.format: text
   server.log.level: info
   server.repo.server.strict.tls: "false"
-  server.rootpath: /argocd
+  server.rootpath: ""
   server.staticassets: /shared/app
   server.x.frame.options: sameorigin
 ---

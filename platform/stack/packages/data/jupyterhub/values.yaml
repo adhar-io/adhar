@@ -12,9 +12,9 @@ hub:
     GenericOAuthenticator:
       oauth_callback_url: https://adhar.localtest.me:8443/jupyterhub/hub/oauth_callback
       client_id: jupyterhub
-      authorize_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/auth
-      token_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/token
-      userdata_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/userinfo
+      authorize_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth
+      token_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/token
+      userdata_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/userinfo
       scope:
         - openid
         - profile

@@ -1292,15 +1292,20 @@ grafana:
   adminPassword: prom-operator
 
   # Keycloak client id/secret are delivered into the `grafana-oidc` secret (keys
-  # GF_AUTH_GENERIC_OAUTH_CLIENT_ID / GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET) by the
-  # ExternalSecret in manifests/grafana-external-secret.yaml. Grafana picks these up
-  # as environment variables, which override the matching grafana.ini keys below.
-  # NOTE (bootstrap timing): generic_oauth login only works once Keycloak has synced
-  # and that secret is populated; the local `admin` user stays as break-glass.
+  # GF_AUTH_GENERIC_OAUTH_CLIENT_ID / GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET) by an
+  # ExternalSecret defined in the keycloak package
+  # (security/keycloak/manifests/grafana-oidc-external-secret.yaml). Grafana picks
+  # these up as environment variables, which override the matching grafana.ini keys
+  # below. NOTE (bootstrap timing): generic_oauth login only works once Keycloak has
+  # synced and that secret is populated; the local `admin` user stays as break-glass.
   #
   # IMPORTANT: use envFromSecrets with optional:true (NOT the required `envFromSecret`)
   # so Grafana still starts before Keycloak has created the secret. A required
   # secretRef would wedge the pod in CreateContainerConfigError until Keycloak syncs.
+  # Because env vars are read only at container start, Grafana (which starts minutes
+  # before the secret exists) would otherwise run with empty OAuth creds forever;
+  # manifests/grafana-oidc-reload.yaml is a PostSync hook that restarts Grafana once
+  # the secret is present (idempotently), so OAuth login converges automatically.
   envFromSecrets:
     - name: grafana-oidc
       optional: true
@@ -1308,16 +1313,16 @@ grafana:
   # Grafana runs behind the platform host at /grafana.
   grafana.ini:
     server:
-      root_url: https://adhar.localtest.me:8443/grafana
-      serve_from_sub_path: true
+      root_url: https://grafana.adhar.localtest.me:8443
+      serve_from_sub_path: false
     auth.generic_oauth:
       enabled: true
       name: Keycloak
       client_id: grafana
       scopes: openid profile email groups
-      auth_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/auth
-      token_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/token
-      api_url: https://adhar.localtest.me:8443/keycloak/realms/adhar/protocol/openid-connect/userinfo
+      auth_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth
+      token_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/token
+      api_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/userinfo
       # The Keycloak token/userinfo endpoints are served by the Cilium Gateway over the
       # SELF-SIGNED platform cert (adhar-cert, generated per cluster at runtime). Grafana
       # calls token_url/api_url server-side over HTTPS during the OAuth code exchange, so
@@ -4083,9 +4088,12 @@ prometheus:
     ##
     prometheusExternalLabelNameClear: false
 
-    ## External URL at which Prometheus will be reachable.
-    ##
-    externalUrl: ""
+    ## External URL at which Prometheus will be reachable. Prometheus is exposed on
+    ## its own host behind an oauth2-proxy (Keycloak SSO) — see
+    ## manifests/prometheus-oauth2-proxy.yaml. routePrefix stays "/" (below) so
+    ## Prometheus keeps serving at root for in-cluster clients (Grafana datasource,
+    ## operator, scrapes); externalUrl only affects generated absolute links.
+    externalUrl: "https://prometheus.adhar.localtest.me:8443"
 
     ## Define which Nodes the Pods are scheduled on.
     ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector

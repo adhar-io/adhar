@@ -1,0 +1,45 @@
+# Inputs for MinIO console OIDC (Keycloak) login, consumed by the chart's `oidc`
+# block (values.yaml). The MinIO server does server-side OIDC discovery/token
+# exchange against Keycloak over the self-signed platform cert, so it needs both
+# the `minio` client secret and the platform CA (mounted via trustedCertsSecret).
+---
+# Keycloak `minio` client secret, from keycloak-clients (realm job wave 20).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: minio-oidc
+  namespace: minio
+spec:
+  refreshInterval: "0"
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: minio-oidc
+  data:
+    - secretKey: MINIO_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: MINIO_CLIENT_SECRET
+---
+# The self-signed platform CA (adhar-cert.tls.crt from adhar-system), mounted into
+# MinIO's CA trust dir via chart value trustedCertsSecret. The `gitea`
+# ClusterSecretStore reads the adhar-system namespace. Key ends in .crt so MinIO
+# picks it up as a trusted CA.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: minio-ca
+  namespace: minio
+spec:
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: minio-ca
+  data:
+    - secretKey: adhar-ca.crt
+      remoteRef:
+        key: adhar-cert
+        property: tls.crt

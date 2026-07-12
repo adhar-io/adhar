@@ -15,12 +15,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - metabase.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /metabase
+            value: /
       backendRefs:
         - name: metabase
           port: 80

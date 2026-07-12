@@ -16,18 +16,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - argo-rollout.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /argo-rollouts
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
       backendRefs:
         - name: argo-rollouts-dashboard
           port: 3100

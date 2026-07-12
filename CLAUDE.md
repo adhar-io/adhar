@@ -189,7 +189,7 @@ Version info injected via ldflags: `cmd/version.Version`, `cmd/version.GitCommit
 - **HTTPS**: `8443` (host) → `30443` (Gateway NodePort) → `443` (Cilium Envoy / HTTPS listener)
 - **HTTP**: `8080` (host) → `30080` (Gateway NodePort) → `80` (Cilium Envoy / HTTP listener)
 - **SSH**: `32222` (host) → `32222` (Gitea SSH)
-- **Access URLs**: `https://adhar.localtest.me:8443/argocd`, `https://adhar.localtest.me:8443/gitea`
+- **Access URLs**: `https://argocd.adhar.localtest.me:8443`, `https://gitea.adhar.localtest.me:8443`
 
 ### Port Customization
 Use `--port` flag to set HTTPS port: `adhar up --port 9443` (HTTP auto-derives as port-363, e.g., 9080)

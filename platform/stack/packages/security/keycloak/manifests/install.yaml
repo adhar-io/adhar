@@ -58,7 +58,7 @@ spec:
               name: http
           readinessProbe:
             httpGet:
-              path: /keycloak/realms/master
+              path: /realms/master
               port: 8080
           volumeMounts:
             - mountPath: /opt/keycloak/conf
@@ -82,13 +82,13 @@ data:
     # The proxy address forwarding mode if the server is behind a reverse proxy.
     proxy=edge
     
-    # hostname configuration
-    hostname=adhar.localtest.me
+    # hostname configuration — Keycloak has its own subdomain, served at root
+    # (no http-relative-path). Issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
+    hostname=keycloak.adhar.localtest.me
     hostname-port=8443
-    http-relative-path=keycloak
-    
+
     # the admin url requires its own configuration to reflect correct url
-    hostname-admin=adhar.localtest.me:8443
+    hostname-admin=keycloak.adhar.localtest.me:8443
     
     hostname-debug=true
     

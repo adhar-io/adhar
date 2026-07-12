@@ -17,12 +17,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - supabase.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /supabase
+            value: /
       backendRefs:
         - name: supabase-supabase-kong
           port: 8000

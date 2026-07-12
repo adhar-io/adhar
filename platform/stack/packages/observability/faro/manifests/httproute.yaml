@@ -14,18 +14,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - faro.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /faro
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: faro-alloy
           port: 12347

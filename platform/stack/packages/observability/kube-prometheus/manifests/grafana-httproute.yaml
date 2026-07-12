@@ -17,13 +17,13 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - grafana.adhar.localtest.me
     - localhost
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /grafana
+            value: /
       backendRefs:
         - name: prometheus-grafana
           port: 80

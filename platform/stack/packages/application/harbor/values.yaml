@@ -3,6 +3,14 @@
 # Gateway API only -- NO nginx Ingress. We expose Harbor as a ClusterIP service
 # and route external traffic through the Cilium Gateway via manifests/httproute.yaml.
 # Setting expose.type to "clusterIP" prevents the chart from rendering any Ingress.
+#
+# DEDICATED HOST (not a sub-path): Harbor serves its registry/core APIs at root
+# prefixes (/api, /v2, /service, /c, /chartrepo) and cannot live under a shared
+# host's sub-path without hijacking those global prefixes from other apps. It is
+# therefore given its own hostname, harbor.adhar.localtest.me, which the platform
+# wildcard TLS cert (*.adhar.localtest.me) already covers and *.localtest.me
+# resolves to 127.0.0.1. The Cilium Gateway listeners are hostname-agnostic, so
+# the harbor HTTPRoute (hostname: harbor.adhar.localtest.me) attaches on :8443.
 
 expose:
   type: clusterIP
@@ -14,12 +22,51 @@ expose:
       httpPort: 80
       httpsPort: 443
 
-# External URL Harbor advertises (must match the Gateway host + path).
-externalURL: "https://adhar.localtest.me/harbor"
+# External URL Harbor advertises — the root of its dedicated host on the platform
+# external port. Portal + core generate absolute links against this.
+externalURL: "https://harbor.adhar.localtest.me:8443"
 
-# Use the chart's bundled (internal) database and redis.
+# Use the chart's bundled (internal) database and redis. Adhar adds Valkey as the
+# preferred platform cache alongside Redis, but Harbor keeps its own bundled redis
+# (tightly coupled to Harbor internals) rather than sharing the platform cache.
 database:
   type: "internal"
 
 redis:
   type: "internal"
+
+# --- Lightweight profile for a single Kind node ---------------------------------
+# Trivy (vulnerability scanner) is the heaviest optional component (extra pod +
+# large PVC + DB pulls) -- disabled locally. Enable on real clusters for scanning.
+trivy:
+  enabled: false
+
+# No metrics/exporter locally (kube-prometheus scrapes are not needed for a demo).
+metrics:
+  enabled: false
+
+# Single replica for every stateless component (chart defaults are already 1, set
+# explicitly so the intent is clear and HA never accidentally scales them up).
+portal:
+  replicas: 1
+core:
+  replicas: 1
+jobservice:
+  replicas: 1
+registry:
+  replicas: 1
+
+# Small ephemeral-ish volumes sized for local demos (Kind's local-path provisioner
+# supplies the default StorageClass). Bump these substantially on real clusters.
+persistence:
+  enabled: true
+  persistentVolumeClaim:
+    registry:
+      size: 2Gi
+    jobservice:
+      jobLog:
+        size: 1Gi
+    database:
+      size: 1Gi
+    redis:
+      size: 1Gi

@@ -15,12 +15,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - minio.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /minio
+            value: /
       backendRefs:
         - name: minio-console
           port: 9001

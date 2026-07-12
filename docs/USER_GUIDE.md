@@ -333,22 +333,22 @@ adhar env list
 All platform services are accessible via the Adhar Console at `https://adhar.localtest.me:8443/` (local) or your configured domain.
 
 #### ArgoCD
-- **URL**: `https://adhar.localtest.me:8443/argocd/`
+- **URL**: `https://argocd.adhar.localtest.me:8443/`
 - **Purpose**: GitOps continuous delivery
 - **Credentials**: Run `adhar get secrets argocd`
 
 #### Gitea
-- **URL**: `https://adhar.localtest.me:8443/gitea/`
+- **URL**: `https://gitea.adhar.localtest.me:8443/`
 - **Purpose**: Git repository hosting
 - **Credentials**: Run `adhar get secrets gitea`
 
 #### Harbor
-- **URL**: `https://adhar.localtest.me:8443/harbor/`
+- **URL**: `https://harbor.adhar.localtest.me:8443/`
 - **Purpose**: Container registry
 - **Credentials**: Run `adhar get secrets harbor`
 
 #### Grafana
-- **URL**: `https://adhar.localtest.me:8443/grafana/`
+- **URL**: `https://grafana.adhar.localtest.me:8443/`
 - **Purpose**: Metrics visualization
 - **Credentials**: Run `adhar get secrets grafana`
 
@@ -363,7 +363,7 @@ Adhar includes pre-configured Prometheus for metrics collection and Grafana for 
 **Access Dashboards**:
 ```bash
 # Open Grafana
-open https://adhar.localtest.me:8443/grafana/
+open https://grafana.adhar.localtest.me:8443/
 
 # Pre-installed dashboards:
 # - Kubernetes Cluster Monitoring

@@ -1,0 +1,155 @@
+# RustFS — a Rust, S3-compatible distributed object store (github.com/rustfs/rustfs),
+# added alongside MinIO as the long-term object-storage replacement. Apps that need
+# object storage can point at the in-cluster S3 endpoint http://rustfs-api.rustfs:9000
+# (S3 v4 signatures, access-key/secret-key auth). The web console (:9001, served at
+# /rustfs/console/) is exposed with Keycloak SSO via oauth2-proxy — see console-sso.yaml.
+---
+# Root credentials. Access key is fixed; the secret key is generated once by ESO so
+# it is never a committed plaintext. Surfaced in `adhar get secrets`.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: rustfs
+  namespace: rustfs
+spec:
+  length: 36
+  digits: 6
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: rustfs-credentials
+  namespace: rustfs
+spec:
+  refreshInterval: "0"
+  target:
+    name: rustfs-credentials
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          adhar.io/cli-secret: "true"
+          adhar.io/package-name: rustfs
+      data:
+        RUSTFS_ACCESS_KEY: "rustfsadmin"
+        RUSTFS_SECRET_KEY: "{{ .SECRET_KEY }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: rustfs
+      rewrite:
+        - transform:
+            template: "SECRET_KEY"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rustfs-data
+  namespace: rustfs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustfs
+  namespace: rustfs
+  labels:
+    app.kubernetes.io/name: rustfs
+    app.kubernetes.io/part-of: rustfs
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # single RWO volume — never run two pods against it at once
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rustfs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rustfs
+    spec:
+      containers:
+        - name: rustfs
+          image: docker.io/rustfs/rustfs:1.0.0-beta.8
+          env:
+            - name: RUSTFS_VOLUMES
+              value: "/data"
+            - name: RUSTFS_ADDRESS
+              value: ":9000"
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "true"
+            - name: RUSTFS_CONSOLE_ADDRESS
+              value: ":9001"
+          envFrom:
+            - secretRef:
+                name: rustfs-credentials
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            tcpSocket:
+              port: s3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: s3
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rustfs-data
+---
+# S3 API endpoint for in-cluster apps (access-key/secret-key auth).
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs-api
+  namespace: rustfs
+  labels:
+    app.kubernetes.io/name: rustfs
+spec:
+  selector:
+    app.kubernetes.io/name: rustfs
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+---
+# Console UI (fronted by oauth2-proxy for Keycloak SSO).
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs-console
+  namespace: rustfs
+  labels:
+    app.kubernetes.io/name: rustfs
+spec:
+  selector:
+    app.kubernetes.io/name: rustfs
+  ports:
+    - name: console
+      port: 9001
+      targetPort: console

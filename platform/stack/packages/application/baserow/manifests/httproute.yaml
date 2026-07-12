@@ -18,31 +18,25 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - baserow.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /baserow/api
+            value: //api
         - path:
             type: PathPrefix
-            value: /baserow/ws
+            value: //ws
         - path:
             type: PathPrefix
-            value: /baserow/media
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: //media
       backendRefs:
         - name: baserow-wsgi
           port: 8000
     - matches:
         - path:
             type: PathPrefix
-            value: /baserow
+            value: /
       backendRefs:
         - name: baserow-frontend
           port: 3000

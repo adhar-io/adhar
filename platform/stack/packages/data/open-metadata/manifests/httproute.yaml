@@ -15,18 +15,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - open-metadata.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /open-metadata
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: openmetadata
           port: 8585

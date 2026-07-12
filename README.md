@@ -76,8 +76,8 @@ curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/scripts/install.sh |
 #2. Create local cluster with core platform services
 adhar up
 
-#3. Access the platform, Adhar Console
-open https://adhar.localtest.me:8443
+#3. Access the platform, Adhar Console (each UI has its own subdomain)
+open https://console.adhar.localtest.me:8443
 
 #4. Retrieve application secrets
 adhar get secrets

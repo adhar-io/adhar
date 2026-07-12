@@ -16,18 +16,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - chaos-mesh.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /chaos-mesh
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: chaos-dashboard
           port: 2333

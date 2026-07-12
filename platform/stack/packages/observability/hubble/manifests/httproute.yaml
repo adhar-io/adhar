@@ -18,18 +18,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - hubble.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /hubble
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: hubble-ui
           port: 80

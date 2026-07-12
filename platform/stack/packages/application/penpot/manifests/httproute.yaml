@@ -16,12 +16,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - penpot.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /penpot
+            value: /
       backendRefs:
         - name: penpot
           port: 8080

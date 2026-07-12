@@ -128,7 +128,7 @@ spec:
               CLIENT_SECRET=$($KUBECTL -n keycloak get secret keycloak-clients -o go-template='{{index .data "GITEA_CLIENT_SECRET" | base64decode}}')
               # Locate the running Gitea pod in adhar-system.
               GITEA_POD=$($KUBECTL -n adhar-system get pods -l app=gitea -o jsonpath='{.items[0].metadata.name}')
-              ISSUER="https://adhar.localtest.me:8443/keycloak/realms/adhar"
+              ISSUER="https://keycloak.adhar.localtest.me:8443/realms/adhar"
               AUTH_NAME="keycloak"
               # Gitea performs server-side OIDC discovery against the issuer URL,
               # which is served by the gateway with the platform's self-signed
@@ -157,7 +157,9 @@ spec:
                     --key '${CLIENT_ID}' \
                     --secret '${CLIENT_SECRET}' \
                     --auto-discover-url '${ISSUER}/.well-known/openid-configuration' \
-                    --scopes 'openid profile email groups'" || echo "WARN: gitea update-oauth failed (gitea local login still works)"
+                    --scopes 'openid profile email groups' \
+                    --group-claim-name groups \
+                    --admin-group platform-admin" || echo "WARN: gitea update-oauth failed (gitea local login still works)"
               else
                 $KUBECTL -n adhar-system exec "${GITEA_POD}" -- sh -c \
                   "${CA_SETUP}gitea admin auth add-oauth \
@@ -167,6 +169,8 @@ spec:
                     --secret '${CLIENT_SECRET}' \
                     --auto-discover-url '${ISSUER}/.well-known/openid-configuration' \
                     --scopes 'openid profile email groups' \
+                    --group-claim-name groups \
+                    --admin-group platform-admin \
                     --skip-local-2fa" || echo "WARN: gitea add-oauth failed (gitea local login still works)"
               fi
               echo "Gitea Keycloak OAuth source configuration step complete."

@@ -14,12 +14,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - opencost.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /opencost
+            value: /
       backendRefs:
         - name: opencost
           port: 9090

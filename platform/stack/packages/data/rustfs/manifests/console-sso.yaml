@@ -1,0 +1,162 @@
+# Keycloak SSO in front of the RustFS console.
+#
+# RustFS has no native OIDC (S3 access-key/secret-key auth only), so an oauth2-proxy
+# gates the console with Keycloak. RustFS gets its OWN host (rustfs.adhar.localtest.me);
+# the console is a Next.js SPA served at /rustfs/console/ making same-origin calls, so
+# proxying the whole :9001 console through oauth2-proxy covers it. The wildcard cert
+# (*.adhar.localtest.me) already covers this subdomain and the Gateway is host-agnostic.
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: rustfs-oauth2-cookie
+  namespace: rustfs
+spec:
+  length: 32
+  digits: 8
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: rustfs-oauth2-proxy
+  namespace: rustfs
+spec:
+  refreshInterval: "0"
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: rustfs-oauth2-proxy
+    template:
+      engineVersion: v2
+      data:
+        OAUTH2_PROXY_CLIENT_SECRET: "{{ .RUSTFS_CLIENT_SECRET }}"
+        OAUTH2_PROXY_COOKIE_SECRET: "{{ .COOKIE_SECRET }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: rustfs-oauth2-cookie
+      rewrite:
+        - transform:
+            template: "COOKIE_SECRET"
+  data:
+    - secretKey: RUSTFS_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: RUSTFS_CLIENT_SECRET
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustfs-oauth2-proxy
+  namespace: rustfs
+  labels:
+    app.kubernetes.io/name: rustfs-oauth2-proxy
+    app.kubernetes.io/part-of: rustfs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rustfs-oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: rustfs-oauth2-proxy
+    spec:
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=oidc
+            - --oidc-issuer-url=https://keycloak.adhar.localtest.me:8443/realms/adhar
+            - --ssl-insecure-skip-verify=true
+            - --client-id=rustfs
+            - --redirect-url=https://rustfs.adhar.localtest.me:8443/oauth2/callback
+            - --upstream=http://rustfs-console.rustfs.svc.cluster.local:9001
+            - --email-domain=*
+            - --scope=openid profile email groups
+            - --cookie-secure=true
+            - --skip-provider-button=true
+            - --reverse-proxy=true
+          envFrom:
+            - secretRef:
+                name: rustfs-oauth2-proxy
+          ports:
+            - name: http
+              containerPort: 4180
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs-oauth2-proxy
+  namespace: rustfs
+  labels:
+    app.kubernetes.io/name: rustfs-oauth2-proxy
+    app.kubernetes.io/part-of: rustfs
+spec:
+  selector:
+    app: rustfs-oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: http
+---
+# Dedicated host for the RustFS console via the Cilium Gateway -> oauth2-proxy.
+# The console lives at /rustfs/console/, so the bare "/" is rewritten there for a
+# clean entry URL; everything else (assets, same-origin API, /oauth2/*) forwards
+# intact to oauth2-proxy.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: rustfs
+  namespace: rustfs
+  labels:
+    app.kubernetes.io/name: rustfs
+    app.kubernetes.io/part-of: rustfs
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - rustfs.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /rustfs/console/
+      backendRefs:
+        - name: rustfs-oauth2-proxy
+          port: 4180
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: rustfs-oauth2-proxy
+          port: 4180

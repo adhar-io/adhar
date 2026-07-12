@@ -12,7 +12,7 @@ set -e
 # handled by manifests/dev/ingress.yaml (an HTTPRoute that strips /argo-workflows).
 
 INSTALL_YAML="manifests/base/install.yaml"
-APP_VERSION="v4.0.5"
+APP_VERSION="v4.0.6"
 
 echo "# ARGO WORKFLOWS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/argo-workflows/generate-manifests.sh'" >>${INSTALL_YAML}

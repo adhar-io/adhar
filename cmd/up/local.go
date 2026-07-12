@@ -554,17 +554,23 @@ func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
 // printSuccessMsg prints the polished end-of-run panel for the local cluster:
 // a "ready" header, a bordered table of access URLs, and the key command hints.
 func printSuccessMsg() {
-	baseURL := fmt.Sprintf("%s://%s:%s", protocol, host, port)
-	if behindProxy() {
-		baseURL = fmt.Sprintf("https://%s", host)
+	// Every UI is served on its own subdomain (<app>.<host>), covered by the
+	// platform wildcard cert and resolved in-cluster via CoreDNS.
+	sub := func(name string) string {
+		if behindProxy() {
+			return fmt.Sprintf("https://%s.%s", name, host)
+		}
+		return fmt.Sprintf("%s://%s.%s:%s", protocol, name, host, port)
 	}
 
 	access := [][2]string{
-		{"Console", baseURL + "/console"},
-		{"ArgoCD", baseURL + "/argocd"},
-		{"Gitea", baseURL + "/gitea"},
-		{"Grafana", baseURL + "/grafana"},
-		{"Keycloak", baseURL + "/keycloak"},
+		{"Console", sub("console")},
+		{"ArgoCD", sub("argocd")},
+		{"Gitea", sub("gitea")},
+		{"Keycloak", sub("keycloak")},
+		{"Grafana", sub("grafana")},
+		{"Headlamp", sub("headlamp")},
+		{"Hubble", sub("hubble")},
 	}
 	hints := [][2]string{
 		{"Credentials", "adhar get secrets"},

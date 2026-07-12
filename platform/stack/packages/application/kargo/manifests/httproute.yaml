@@ -19,12 +19,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - kargo.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /kargo
+            value: /
       backendRefs:
         - name: kargo-api
           port: 443

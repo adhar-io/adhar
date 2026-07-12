@@ -22,3 +22,21 @@ consoleIngress:
   enabled: false
 
 existingSecret: root-creds
+
+# Keycloak SSO for the MinIO console. The `minio` client + secret come from
+# manifests/oidc.yaml (ExternalSecrets). The hardcoded `policy=consoleAdmin` claim
+# on the Keycloak client (see keycloak-config.yaml) grants SSO users console admin.
+# trustedCertsSecret mounts the platform CA so MinIO trusts Keycloak's self-signed
+# cert during OIDC discovery/token exchange. Local root creds stay as break-glass.
+oidc:
+  enabled: true
+  configUrl: "https://keycloak.adhar.localtest.me:8443/realms/adhar/.well-known/openid-configuration"
+  clientId: "minio"
+  existingClientSecretName: "minio-oidc"
+  existingClientSecretKey: "MINIO_CLIENT_SECRET"
+  claimName: "policy"
+  scopes: "openid,profile,email,groups"
+  redirectUri: "https://minio.adhar.localtest.me:8443/oauth_callback"
+  displayName: "Keycloak"
+
+trustedCertsSecret: "minio-ca"

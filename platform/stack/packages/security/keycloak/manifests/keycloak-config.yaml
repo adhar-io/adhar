@@ -96,7 +96,7 @@ data:
         }
     }
   realm-payload.json: |
-    {"realm":"adhar","enabled":true}
+    {"realm":"adhar","enabled":true,"sslRequired":"NONE"}
   user-password.json: |
     {
         "temporary": false,
@@ -110,7 +110,7 @@ data:
         "firstName": "user",
         "lastName": "one",
         "requiredActions": [],
-        "emailVerified": false,
+        "emailVerified": true,
         "groups": [
           "/platform-admin"
         ],
@@ -123,7 +123,7 @@ data:
         "firstName": "user",
         "lastName": "two",
         "requiredActions": [],
-        "emailVerified": false,
+        "emailVerified": true,
         "groups": [
           "/platform-developer"
         ],
@@ -151,7 +151,7 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://adhar.localtest.me:8443/argo-workflows/oauth2/callback"
+        "https://argo-workflows.adhar.localtest.me:8443/oauth2/callback"
       ],
       "webOrigins": [
         "/*"
@@ -180,7 +180,7 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://adhar.localtest.me:8443/api/auth/keycloak-oidc/handler/frame"
+        "https://console.adhar.localtest.me:8443/api/auth/keycloak-oidc/handler/frame"
       ],
       "webOrigins": [
         "/*"
@@ -209,10 +209,11 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://adhar.localtest.me:8443/api/auth/keycloak-oidc/handler/frame"
+        "https://headlamp.adhar.localtest.me:8443/oauth2/callback",
+        "https://headlamp.adhar.localtest.me:8443/*"
       ],
       "webOrigins": [
-        "/*"
+        "+"
       ]
     }
 
@@ -238,10 +239,11 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://adhar.localtest.me:8443/grafana/login/generic_oauth"
+        "https://grafana.adhar.localtest.me:8443/login/generic_oauth",
+        "https://grafana.adhar.localtest.me:8443/*"
       ],
       "webOrigins": [
-        "/*"
+        "+"
       ]
     }
 
@@ -267,7 +269,7 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://adhar.localtest.me:8443/argocd/auth/callback"
+        "https://argocd.adhar.localtest.me:8443/auth/callback"
       ],
       "webOrigins": [
         "/*"
@@ -296,10 +298,167 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://adhar.localtest.me:8443/gitea/user/oauth2/keycloak/callback"
+        "https://gitea.adhar.localtest.me:8443/user/oauth2/keycloak/callback"
       ],
       "webOrigins": [
         "/*"
+      ]
+    }
+  prometheus-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "prometheus",
+      "name": "Prometheus Client",
+      "description": "Used for Prometheus SSO via oauth2-proxy",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_idp_initiated_sso_url_name": "",
+        "oauth2.device.authorization.grant.enabled": false,
+        "oidc.ciba.grant.enabled": false
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "",
+      "baseUrl": "",
+      "redirectUris": [
+        "https://prometheus.adhar.localtest.me:8443/oauth2/callback"
+      ],
+      "webOrigins": [
+        "+"
+      ]
+    }
+  vault-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "vault",
+      "name": "Vault Client",
+      "description": "Used for Vault UI OIDC login",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_idp_initiated_sso_url_name": "",
+        "oauth2.device.authorization.grant.enabled": false,
+        "oidc.ciba.grant.enabled": false
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "",
+      "baseUrl": "",
+      "redirectUris": [
+        "https://vault.adhar.localtest.me:8443/ui/vault/auth/oidc/oidc/callback",
+        "https://vault.adhar.localtest.me:8443/oidc/callback"
+      ],
+      "webOrigins": [
+        "+"
+      ]
+    }
+  harbor-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "harbor",
+      "name": "Harbor Client",
+      "description": "Used for Harbor OIDC login",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_idp_initiated_sso_url_name": "",
+        "oauth2.device.authorization.grant.enabled": false,
+        "oidc.ciba.grant.enabled": false
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "",
+      "baseUrl": "",
+      "redirectUris": [
+        "https://harbor.adhar.localtest.me:8443/c/oidc/callback"
+      ],
+      "webOrigins": [
+        "+"
+      ]
+    }
+  rustfs-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "rustfs",
+      "name": "RustFS Client",
+      "description": "Used for RustFS console SSO via oauth2-proxy",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_idp_initiated_sso_url_name": "",
+        "oauth2.device.authorization.grant.enabled": false,
+        "oidc.ciba.grant.enabled": false
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "",
+      "baseUrl": "",
+      "redirectUris": [
+        "https://rustfs.adhar.localtest.me:8443/oauth2/callback"
+      ],
+      "webOrigins": [
+        "+"
+      ]
+    }
+  minio-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "minio",
+      "name": "MinIO Client",
+      "description": "Used for MinIO console OIDC login",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_idp_initiated_sso_url_name": "",
+        "oauth2.device.authorization.grant.enabled": false,
+        "oidc.ciba.grant.enabled": false
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "",
+      "baseUrl": "",
+      "redirectUris": [
+        "https://minio.adhar.localtest.me:8443/oauth_callback",
+        "https://minio.adhar.localtest.me:8443/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "protocolMappers": [
+        {
+          "name": "minio-policy",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "policy",
+            "claim.value": "consoleAdmin",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
       ]
     }
 
@@ -356,7 +515,7 @@ spec:
               ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
               USER1_PASSWORD=$(cat /var/secrets/USER_PASSWORD)
 
-              KEYCLOAK_URL=http://keycloak.keycloak.svc.cluster.local:8080/keycloak
+              KEYCLOAK_URL=http://keycloak.keycloak.svc.cluster.local:8080
 
               KEYCLOAK_TOKEN=$(curl -sS  --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
                 --data-urlencode "username=adhar-admin" \
@@ -366,7 +525,49 @@ spec:
                 ${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token | jq -e -r '.access_token')
                 
               set +e
-              
+
+              # The platform runs behind the self-signed Cilium Gateway, which
+              # terminates TLS and forwards to Keycloak over plain HTTP. With the
+              # realm default sslRequired=external, Keycloak rejects browser logins
+              # coming from an external client with {"error":"HTTPS required"} unless
+              # the proxy's X-Forwarded-Proto=https reaches it — which is not
+              # guaranteed here. Relax the MASTER realm (admin console login) to
+              # sslRequired=NONE. This runs on every sync, BEFORE the early-exit
+              # below, so admin login keeps working even after the realm exists.
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT --data '{"sslRequired":"NONE"}' \
+                "${KEYCLOAK_URL}/admin/realms/master"
+
+              # Same for the adhar realm (user1/user2 + app SSO). This is a no-op
+              # 404 on the very first run before the realm exists (it is then
+              # created with sslRequired=NONE from realm-payload.json below), and
+              # on later runs it fixes a pre-existing realm that was created as
+              # sslRequired=external.
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT --data '{"sslRequired":"NONE"}' \
+                "${KEYCLOAK_URL}/admin/realms/adhar"
+
+              # Reconcile OIDC client configs (redirect URIs, scopes, web origins) on
+              # EVERY sync by PUT-ing the desired client representation onto the
+              # existing client. Without this, the early-exit below skips client
+              # setup on an already-provisioned realm, so config changes (e.g. the
+              # move to per-app subdomains) never reach the clients and SSO breaks
+              # with redirect_uri mismatch. Non-fatal (runs under set +e).
+              for c in argo backstage headlamp grafana argocd gitea prometheus vault harbor rustfs minio; do
+                pf="/var/config/${c}-client-payload.json"
+                [ -f "${pf}" ] || continue
+                cid=$(jq -r '.clientId' "${pf}")
+                id=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
+                if [ -n "${id}" ]; then
+                  echo "reconciling client ${cid}"
+                  curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    -X PUT --data @"${pf}" "${KEYCLOAK_URL}/admin/realms/adhar/clients/${id}" >/dev/null 2>&1 || true
+                fi
+              done
+
               curl --fail-with-body -H "Authorization: bearer ${KEYCLOAK_TOKEN}"  "${KEYCLOAK_URL}/admin/realms/adhar"  &> /dev/null
               if [ $? -eq 0 ]; then
                 exit 0
@@ -586,6 +787,111 @@ spec:
               -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
               -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
 
+              echo "creating Prometheus client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/prometheus-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "prometheus") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              PROMETHEUS_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
+
+              echo "creating Vault client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/vault-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "vault") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              VAULT_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
+
+              echo "creating Harbor client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/harbor-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "harbor") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              HARBOR_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
+
+              echo "creating RustFS client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/rustfs-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "rustfs") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              RUSTFS_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
+
+              echo "creating MinIO client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/minio-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "minio") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              MINIO_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
+
               ARGOCD_PASSWORD=$(./kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
 
               # ArgoCD session token for Backstage's ArgoCD plugin. This is
@@ -621,6 +927,16 @@ spec:
                 ARGOCD_CLIENT_ID: \"argocd\"
                 GITEA_CLIENT_SECRET: \"${GITEA_CLIENT_SECRET}\"
                 GITEA_CLIENT_ID: \"gitea\"
+                PROMETHEUS_CLIENT_SECRET: \"${PROMETHEUS_CLIENT_SECRET}\"
+                PROMETHEUS_CLIENT_ID: \"prometheus\"
+                VAULT_CLIENT_SECRET: \"${VAULT_CLIENT_SECRET}\"
+                VAULT_CLIENT_ID: \"vault\"
+                HARBOR_CLIENT_SECRET: \"${HARBOR_CLIENT_SECRET}\"
+                HARBOR_CLIENT_ID: \"harbor\"
+                RUSTFS_CLIENT_SECRET: \"${RUSTFS_CLIENT_SECRET}\"
+                RUSTFS_CLIENT_ID: \"rustfs\"
+                MINIO_CLIENT_SECRET: \"${MINIO_CLIENT_SECRET}\"
+                MINIO_CLIENT_ID: \"minio\"
               " > /tmp/secret.yaml
               
               ./kubectl apply -f /tmp/secret.yaml

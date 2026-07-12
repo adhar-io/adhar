@@ -15,12 +15,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - opensearch.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /opensearch
+            value: /
       backendRefs:
         - name: opensearch-dashboards
           port: 5601

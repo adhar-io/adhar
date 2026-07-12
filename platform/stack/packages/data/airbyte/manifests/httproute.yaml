@@ -15,18 +15,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - airbyte.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /airbyte
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
+            value: /
       backendRefs:
         - name: airbyte-airbyte-server-svc
           port: 8001

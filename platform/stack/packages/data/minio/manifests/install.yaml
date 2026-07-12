@@ -523,6 +523,8 @@ spec:
               readOnly: true
             - name: export
               mountPath: /export            
+            - name: trusted-cert-secret-volume
+              mountPath: /etc/minio/certs/CAs
           ports:
             - name: http
               containerPort: 9000
@@ -541,6 +543,27 @@ spec:
                   key: rootPassword
             - name: MINIO_PROMETHEUS_AUTH_TYPE
               value: "public"
+            - name: MINIO_IDENTITY_OPENID_CONFIG_URL
+              value: https://keycloak.adhar.localtest.me:8443/realms/adhar/.well-known/openid-configuration
+            - name: MINIO_IDENTITY_OPENID_CLIENT_ID
+              value: minio
+            - name: MINIO_IDENTITY_OPENID_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: minio-oidc
+                  key: MINIO_CLIENT_SECRET
+            - name: MINIO_IDENTITY_OPENID_CLAIM_NAME
+              value: policy
+            - name: MINIO_IDENTITY_OPENID_CLAIM_PREFIX
+              value: 
+            - name: MINIO_IDENTITY_OPENID_SCOPES
+              value: openid,profile,email,groups
+            - name: MINIO_IDENTITY_OPENID_COMMENT
+              value: 
+            - name: MINIO_IDENTITY_OPENID_REDIRECT_URI
+              value: https://minio.adhar.localtest.me:8443/oauth_callback
+            - name: MINIO_IDENTITY_OPENID_DISPLAY_NAME
+              value: Keycloak
           resources:
             requests:
               memory: 128Mi
@@ -552,7 +575,10 @@ spec:
             claimName: minio
         - name: minio-user
           secret:
-            secretName: root-creds
+            secretName: root-creds        
+        - name: trusted-cert-secret-volume
+          secret:
+            secretName: minio-ca
 ---
 # Source: minio/templates/post-job.yaml
 apiVersion: batch/v1

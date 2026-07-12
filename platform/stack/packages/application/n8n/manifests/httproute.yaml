@@ -16,12 +16,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - n8n.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /n8n
+            value: /
       backendRefs:
         - name: n8n
           port: 80

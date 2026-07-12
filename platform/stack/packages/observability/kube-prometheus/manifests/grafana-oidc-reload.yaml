@@ -1,0 +1,114 @@
+# Restarts Grafana once the Keycloak OAuth client secret is available.
+#
+# Problem: Grafana consumes its Keycloak client id/secret via `envFromSecrets`
+# (grafana-oidc). Env vars are read ONCE at container start. But grafana-oidc is
+# produced by an ExternalSecret that depends on Keycloak's realm job
+# (keycloak-clients), which finishes minutes AFTER Grafana has already started —
+# so the running Grafana comes up with empty CLIENT_ID / no CLIENT_SECRET and the
+# "Sign in with Keycloak" OAuth code exchange fails ("invalid_client"). Nothing
+# restarts Grafana afterwards, so it stays broken until a manual rollout. The
+# secret is kept `optional: true` on purpose so Grafana still boots (with local
+# admin as break-glass) before Keycloak exists.
+#
+# Fix: a PostSync hook that waits for the secret, then restarts Grafana ONLY if the
+# running pod is actually missing the OAuth client secret env. That makes it
+# idempotent — on steady-state syncs (Grafana already has the creds) it is a no-op,
+# so there is no restart loop.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-oidc-reload
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: grafana-oidc-reload
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: grafana-oidc-reload
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: grafana-oidc-reload
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: grafana-oidc-reload
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grafana-oidc-reload
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      generateName: grafana-oidc-reload
+    spec:
+      serviceAccountName: grafana-oidc-reload
+      restartPolicy: Never
+      containers:
+        - name: kubectl
+          image: docker.io/bitnami/kubectl:1.31
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              NS=adhar-system
+              DEPLOY=prometheus-grafana
+              SECRET=grafana-oidc
+
+              # 1. Wait (bounded) for the OAuth client secret to be populated by the
+              #    keycloak realm job -> ExternalSecret chain. Non-fatal on timeout:
+              #    a later sync re-runs this hook once Keycloak has finished.
+              ok=""
+              for i in $(seq 1 60); do
+                if kubectl -n "$NS" get secret "$SECRET" \
+                     -o jsonpath='{.data.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}' 2>/dev/null | grep -q .; then
+                  ok=1; break
+                fi
+                echo "waiting for $SECRET GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET ($i)"
+                sleep 10
+              done
+              if [ -z "$ok" ]; then
+                echo "secret not ready yet; leaving Grafana as-is (will retry next sync)"
+                exit 0
+              fi
+
+              # 2. Only restart if the RUNNING Grafana pod is missing the client
+              #    secret env (i.e. it started before the secret existed). This keeps
+              #    the hook idempotent and avoids a restart on every sync.
+              POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=grafana \
+                      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+              if [ -n "$POD" ]; then
+                if kubectl -n "$NS" exec "$POD" -c grafana -- \
+                     sh -c 'test -n "$GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET"' 2>/dev/null; then
+                  echo "Grafana already has the OAuth client secret; nothing to do."
+                  exit 0
+                fi
+              fi
+
+              echo "Restarting $DEPLOY to load Keycloak OAuth env..."
+              kubectl -n "$NS" rollout restart deployment "$DEPLOY"
+              kubectl -n "$NS" rollout status deployment "$DEPLOY" --timeout=180s || true
+              echo "Grafana OAuth reload complete."

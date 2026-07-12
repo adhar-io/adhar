@@ -1,0 +1,47 @@
+# Inputs for the Vault OIDC auth method (Keycloak), consumed by the vault-bootstrap
+# Job (bootstrap.yaml). Both land as local Secrets in the vault namespace so the
+# Job can read them with its existing vault-ns RBAC (no cross-namespace grants).
+---
+# The Keycloak `vault` client secret, from keycloak-clients (written by the realm
+# job at wave 20). Wave 40 so it applies after that.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: vault-oidc
+  namespace: vault
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+spec:
+  refreshInterval: "0"
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: vault-oidc
+  data:
+    - secretKey: VAULT_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: VAULT_CLIENT_SECRET
+---
+# The self-signed platform CA (adhar-cert.tls.crt from adhar-system). Vault has no
+# TLS-skip for OIDC, so it needs this as oidc_discovery_ca_pem to talk to Keycloak
+# over the Gateway's self-signed cert. The `gitea` ClusterSecretStore already reads
+# the adhar-system namespace (remoteNamespace: adhar-system).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: vault-ca
+  namespace: vault
+spec:
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: vault-ca
+  data:
+    - secretKey: tls.crt
+      remoteRef:
+        key: adhar-cert
+        property: tls.crt

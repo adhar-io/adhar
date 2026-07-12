@@ -65,12 +65,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - argocd.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /argocd
+            value: /
       backendRefs:
         - name: argo-cd-argocd-server
           port: 80

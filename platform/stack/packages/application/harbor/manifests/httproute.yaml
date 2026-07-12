@@ -1,11 +1,17 @@
-# Harbor routed through the Cilium Gateway (adhar-gateway). TLS terminates at
-# the Gateway (adhar-cert), replacing the old nginx Ingress (its tls block +
-# ssl-redirect are no longer needed). No path rewrite -- Harbor serves these
-# prefixes directly. All API/registry prefixes go to harbor-core:80; the /harbor
-# UI prefix goes to harbor-portal:80.
-# NOTE: the old Ingress set proxy-body-size: "0" (unlimited upload size for image
-# pushes). Gateway API has no direct equivalent; large layer pushes may need a
-# Cilium/Envoy request-body-size tuning at the Gateway/GatewayClass level.
+# Harbor routed through the Cilium Gateway (adhar-gateway) on its OWN hostname,
+# harbor.adhar.localtest.me. TLS terminates at the Gateway (adhar-cert, whose
+# *.adhar.localtest.me wildcard SAN covers this subdomain). Harbor is given a
+# dedicated host because it serves its registry/core APIs at root prefixes
+# (/api, /v2, /service, /c, /chartrepo) — under the shared adhar.localtest.me host
+# those would hijack other apps' paths. On a dedicated host Harbor safely owns "/".
+#
+# All traffic is sent to the chart's internal reverse proxy, the "harbor" Service
+# (component: nginx), which fans out "/" to the portal and /api,/v2,/service,/c,
+# /chartrepo to core exactly as Harbor expects — more robust than splitting those
+# prefixes at the Gateway. No path rewrite; externalURL (values.yaml) matches this
+# host+port so absolute links resolve.
+# NOTE: large image-layer pushes may need Envoy request-body-size tuning at the
+# Gateway/GatewayClass level (Gateway API has no direct proxy-body-size equivalent).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -20,31 +26,12 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - adhar.localtest.me
+    - harbor.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /api/
-        - path:
-            type: PathPrefix
-            value: /service/
-        - path:
-            type: PathPrefix
-            value: /v2/
-        - path:
-            type: PathPrefix
-            value: /chartrepo/
-        - path:
-            type: PathPrefix
-            value: /c/
+            value: /
       backendRefs:
-        - name: harbor-core
-          port: 80
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /harbor
-      backendRefs:
-        - name: harbor-portal
+        - name: harbor
           port: 80
