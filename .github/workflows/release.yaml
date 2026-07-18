@@ -112,10 +112,12 @@ jobs:
           HOMEBREW_TOKEN: ${{ steps.generate-token.outputs.token || '' }}
           GORELEASER_CURRENT_TAG: ${{ env.RELEASE_TAG }}
 
-      # Failures land in the public run summary so they are diagnosable
-      # without log access.
+      # Failures land in the public run summary AND on the ci-debug branch so
+      # they are diagnosable without Actions log access.
       - name: Surface GoReleaser failure
         if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           {
             echo '### GoReleaser output (tail)'
@@ -123,3 +125,15 @@ jobs:
             tail -60 /tmp/goreleaser.log 2>/dev/null || echo "no log captured"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # Push the log tail to the ci-debug branch (readable via raw URL).
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs" \
+            -d "{\"ref\":\"refs/heads/ci-debug\",\"sha\":\"${{ github.sha }}\"}" >/dev/null || true
+          B64=$(tail -c 60000 /tmp/goreleaser.log | base64 -w0)
+          SHA=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/goreleaser-failure.log?ref=ci-debug" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null)
+          curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/goreleaser-failure.log" \
+            -d "{\"message\":\"ci: goreleaser failure log\",\"content\":\"$B64\",\"branch\":\"ci-debug\"$( [ -n "$SHA" ] && echo ",\"sha\":\"$SHA\"" )}" >/dev/null || true
