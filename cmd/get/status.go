@@ -85,6 +85,8 @@ type PlatformStatus struct {
 	Platform []PlatformConditionInfo
 	// Packages summarizes ArgoCD-managed platform package health.
 	Packages *PackageHealthSummary
+	// URLs lists every Gateway-routed platform UI endpoint.
+	URLs []AccessURL
 }
 
 type ServiceStatus struct {
@@ -541,6 +543,9 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	// Display AdharPlatform conditions and package readiness
 	displayPlatformHealth(status.Platform, status.Packages)
+
+	// Display browsable platform endpoints
+	displayAccessURLs(status.URLs)
 
 	// Display any warnings or issues
 	if len(status.Warnings) > 0 || len(status.CriticalIssues) > 0 {

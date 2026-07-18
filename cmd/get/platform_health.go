@@ -13,6 +13,8 @@ import (
 	"adhar-io/adhar/platform/k8s"
 
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -181,11 +183,78 @@ func displayPlatformHealth(conditions []PlatformConditionInfo, packages *Package
 	}
 }
 
-// attachPlatformHealth enriches PlatformStatus with CR conditions and package
-// health; both are best-effort so `get status` still works on foreign clusters.
+// AccessURL is one platform UI endpoint routed through the Gateway.
+type AccessURL struct {
+	Name string
+	URL  string
+}
+
+// collectAccessURLs lists every HTTPRoute hostname as a browsable URL, using
+// the platform's configured HTTPS port.
+func collectAccessURLs(ctx context.Context) []AccessURL {
+	cl, err := getControllerRuntimeClient()
+	if err != nil {
+		return nil
+	}
+
+	port := "8443"
+	platforms := &v1alpha1.AdharPlatformList{}
+	if err := cl.List(ctx, platforms, client.InNamespace(globals.AdharSystemNamespace)); err == nil && len(platforms.Items) > 0 {
+		if p := platforms.Items[0].Spec.BuildCustomization.Port; p != "" {
+			port = p
+		}
+	}
+
+	routes := &unstructured.UnstructuredList{}
+	routes.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
+	})
+	if err := cl.List(ctx, routes); err != nil {
+		return nil
+	}
+
+	var out []AccessURL
+	for i := range routes.Items {
+		r := routes.Items[i]
+		hosts, _, _ := unstructured.NestedStringSlice(r.Object, "spec", "hostnames")
+		for _, h := range hosts {
+			if h == "localhost" || strings.Contains(h, "*") {
+				continue
+			}
+			out = append(out, AccessURL{
+				Name: r.GetName(),
+				URL:  fmt.Sprintf("https://%s:%s", h, port),
+			})
+			break // first real hostname per route
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// displayAccessURLs renders the browsable platform endpoints and quick actions.
+func displayAccessURLs(urls []AccessURL) {
+	if len(urls) == 0 {
+		return
+	}
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🔗 Access URLs"))
+
+	var b strings.Builder
+	for _, u := range urls {
+		fmt.Fprintf(&b, "%-18s %s\n", u.Name, u.URL)
+	}
+	b.WriteString(strings.Repeat("─", 75) + "\n")
+	b.WriteString("🔑 Credentials: adhar get secrets   ·   📦 Apps: adhar get apps\n")
+	fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))
+}
+
+// attachPlatformHealth enriches PlatformStatus with CR conditions, package
+// health, and access URLs; all best-effort so `get status` still works on
+// foreign clusters.
 func attachPlatformHealth(status *PlatformStatus) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	status.Platform = collectPlatformConditions(ctx)
 	status.Packages = collectPackageHealth(ctx)
+	status.URLs = collectAccessURLs(ctx)
 }
