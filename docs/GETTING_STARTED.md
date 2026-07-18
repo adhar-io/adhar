@@ -20,8 +20,10 @@ From zero to a running Internal Developer Platform on your machine in under 10 m
 # Quick install (Linux/macOS)
 curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install.sh | bash
 
-# Or Homebrew
-brew install adhar-io/tap/adhar
+# Or Homebrew (tap + trust once, then it's just `brew install adhar`)
+brew tap adhar-io/tap
+brew trust adhar-io/tap   # newer Homebrew versions gate third-party taps
+brew install adhar
 
 # Or download a release archive from
 # https://github.com/adhar-io/adhar/releases

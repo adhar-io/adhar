@@ -14,8 +14,9 @@ release:
   header: |
     ## Adhar {{ .Tag }}
 
-    Install via Homebrew (`brew install adhar-io/tap/adhar`), container image
-    (`ghcr.io/adhar-io/adhar:{{ .Version }}`), or download a binary below.
+    Install via Homebrew (`brew tap adhar-io/tap && brew install adhar`),
+    container image (`ghcr.io/adhar-io/adhar:{{ .Version }}`), or download a
+    binary below.
 
 builds:
   - env:

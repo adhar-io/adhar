@@ -97,7 +97,7 @@ the same run.
 
 - Verify the [release page](https://github.com/adhar-io/adhar/releases) lists all archives + `checksums.txt`
 - `docker run ghcr.io/adhar-io/adhar:<version> version`
-- `brew update && brew install adhar-io/tap/adhar && adhar version`
+- `brew tap adhar-io/tap && brew install adhar && adhar version`
 
 ## Pre-Release Checklist
 
