@@ -49,7 +49,9 @@ func PatchPasswordSecret(ctx context.Context, kubeClient client.Client, config v
 	u := unstructured.Unstructured{}
 	u.SetName(sec.GetName())
 	u.SetNamespace(sec.GetNamespace())
-	u.SetGroupVersionKind(sec.GetObjectKind().GroupVersionKind())
+	// Typed client reads strip TypeMeta, so the GVK must be set explicitly for
+	// the server-side apply patch to be valid.
+	u.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
 
 	err = unstructured.SetNestedField(u.Object, base64.StdEncoding.EncodeToString([]byte(pass)), "data", "password")
 	if err != nil {

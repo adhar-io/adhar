@@ -1,544 +1,155 @@
-# Adhar Platform User Guide
+# Adhar User Guide
 
-**Version**: v0.3.8  
-**Last Updated**: November 2025
+**Version**: v0.1.0
 
----
-
-## 📖 Table of Contents
-
-1. [Overview](#overview)
-2. [Platform Capabilities](#platform-capabilities)
-3. [Configuration](#configuration)
-4. [CLI Reference](#cli-reference)
-5. [Platform Services](#platform-services)
-6. [Application Management](#application-management)
-7. [Environment Management](#environment-management)
-8. [Monitoring & Observability](#monitoring--observability)
-9. [Security & Compliance](#security--compliance)
-10. [Best Practices](#best-practices)
+The day-to-day guide for developers and platform operators using a running Adhar platform. For setup see [Getting Started](GETTING_STARTED.md); for how it works see [Architecture](ARCHITECTURE.md); for changing the platform itself see [Customization](CUSTOMIZATION.md).
 
 ---
 
-## Overview
+## 1. Mental Model in 60 Seconds
 
-Adhar is a complete Internal Developer Platform that provides everything needed to build, deploy, and operate cloud-native applications across multiple cloud providers.
+- The platform is **declared in Git** (in-cluster Gitea: `adhar/packages` + `adhar/environments`) and **reconciled by ArgoCD** — after bootstrap, Git is the only write path
+- Every capability is a **package** gated by an `enabled` flag; every UI is `https://<service>.<domain>:<port>`
+- The **CLI** is for lifecycle and inspection (`up`, `down`, `get`); the **Git flow** is for change
+- Self-service infrastructure (databases, clusters, …) is requested through **namespaced Crossplane APIs** (`CompositeDatabase`, `CompositeCluster`, …)
 
-### Core Features
+## 2. Accessing the Platform
 
-- **Multi-Cloud Support**: Deploy to AWS, Azure, GCP, DigitalOcean, Civo, or locally with Kind
-- **GitOps Operations**: Declarative, version-controlled infrastructure management
-- **Self-Service Portal**: Developer-friendly console for all platform operations
-- **Integrated Toolchain**: 60+ pre-configured tools for complete SDLC
-- **Security by Default**: Zero-trust networking, policy enforcement, and compliance
+| Service | URL (local defaults) | Notes |
+|---------|----------------------|-------|
+| Adhar Console | `https://console.adhar.localtest.me:8443` | Developer portal |
+| ArgoCD | `https://argocd.adhar.localtest.me:8443` | `admin` / `adhar get secrets -p argocd` |
+| Gitea | `https://gitea.adhar.localtest.me:8443` | `gitea_admin` / `r8sA8CPHD9!bt6d` (rotate in production!) |
+| Grafana | `https://grafana.adhar.localtest.me:8443` | Dashboards, logs (Loki), traces (Tempo) |
+| Headlamp | `https://headlamp.adhar.localtest.me:8443` | Kubernetes UI |
+| Hubble | `https://hubble.adhar.localtest.me:8443` | Network flows |
 
----
+`kubectl` always works too — Adhar sets your kubecontext; platform components live in `adhar-system`.
 
-## Platform Capabilities
+## 3. CLI Reference
 
-### 🎯 Core Components
-
-#### Networking (Cilium)
-- **eBPF-based networking** for high performance
-- **Network policies** for security
-- **Service mesh** capabilities
-- **Hubble UI** for network observability
-
-#### GitOps (ArgoCD + Gitea)
-- **ArgoCD**: Continuous deployment engine
-- **Gitea**: Internal Git repository hosting
-- **Automated sync**: Git-to-cluster synchronization
-- **Multi-environment**: Dev, staging, production
-
-#### Infrastructure as Code (Crossplane)
-- **Multi-cloud provisioning**: Unified API for all providers
-- **Composition**: Reusable infrastructure patterns
-- **Policy enforcement**: Guardrails and compliance
-- **Drift detection**: Automatic reconciliation
-
-### 📦 Platform Services (60+ Tools)
-
-#### Developer Tools
-- **Adhar Console**: Self-service portal
-- **JupyterHub**: Interactive notebooks
-- **Code Server**: Browser-based VS Code
-- **Harbor**: Container registry
-- **Kaniko**: Container builds
-
-#### Security & Identity
-- **Keycloak**: Identity and access management
-- **Vault**: Secrets management
-- **Kyverno**: Policy engine
-- **Falco**: Runtime security
-- **Trivy**: Vulnerability scanning
-
-#### Observability
-- **Prometheus**: Metrics collection
-- **Grafana**: Visualization and dashboards
-- **Loki**: Log aggregation
-- **Jaeger**: Distributed tracing
-- **Tempo**: Trace backend
-
-#### Data & Analytics
-- **PostgreSQL**: Relational database
-- **Redis**: In-memory data store
-- **MinIO**: Object storage
-- **Kafka**: Event streaming
-- **Elasticsearch**: Search and analytics
-
-#### CI/CD
-- **Argo Workflows**: Workflow engine
-- **Tekton**: Cloud-native CI/CD
-- **Drone**: Container-native CI
-- **Kaniko**: Serverless builds
-
----
-
-## Configuration
-
-### Configuration File Structure
-
-Adhar uses a YAML configuration file (`config.yaml`) for platform setup:
-
-```yaml
-# Global Settings
-globalSettings:
-  adharContext: "adhar-mgmt"
-  defaultHost: "cloud.adhar.io"
-  defaultHttpPort: 80
-  defaultHttpsPort: 443
-  enableHAMode: false
-  email: "YOUR_EMAIL@example.com"
-
-# Provider Configuration
-providers:
-  # Local development (enabled by default)
-  kind:
-    type: kind
-    region: local
-    primary: true
-
-  # Cloud providers (uncomment to enable)
-  # aws:
-  #   type: aws
-  #   region: us-east-1
-  #   credentials_file: "~/.aws/credentials"
-  
-  # gcp:
-  #   type: gcp
-  #   region: us-central1
-  #   credentials_file: "~/.config/gcloud/credentials.json"
-
-# Environment Templates
-environmentTemplates:
-  prod-defaults:
-    clusterConfig:
-      - key: "autoScale"
-        value: "true"
-      - key: "minNodes"
-        value: "3"
-```
-
-### Provider Configuration
-
-#### Kind (Local Development)
-```yaml
-kind:
-  type: kind
-  region: local
-  primary: true
-  config:
-    cluster_config:
-      networking:
-        disable_default_cni: false
-      nodes:
-        - role: control-plane
-        - role: worker
-```
-
-#### AWS (EKS)
-```yaml
-aws:
-  type: aws
-  region: us-east-1
-  credentials_file: "~/.aws/credentials"
-  config:
-    vpc_cidr: "10.0.0.0/16"
-    instance_types:
-      control_plane: "t3.medium"
-      worker: "t3.medium"
-```
-
-#### GCP (GKE)
-```yaml
-gcp:
-  type: gcp
-  region: us-central1
-  credentials_file: "~/.config/gcloud/credentials.json"
-  config:
-    project_id: "YOUR_PROJECT_ID"
-    machine_type: "e2-medium"
-```
-
----
-
-## CLI Reference
-
-### Core Commands
-
-#### `adhar up`
-Create and provision a platform cluster.
+### Lifecycle
 
 ```bash
-# Local development cluster
-adhar up
-
-# Production cluster with config
-adhar up -f config.yaml
-
-# Specific provider
-adhar up --provider aws --region us-east-1
+adhar up                          # create/converge the platform (local Kind by default)
+adhar up -f config.yaml           # cloud/production config
+adhar up --port 9443              # custom HTTPS port (local)
+adhar up --recreate               # rebuild from scratch
+adhar up --dry-run                # preview
+adhar down                        # tear down
 ```
 
-#### `adhar down`
-Tear down a cluster and clean up resources.
+### Inspection
 
 ```bash
-# Destroy local cluster
-adhar down
-
-# Destroy specific cluster
-adhar down --context adhar-prod
+adhar get status                  # platform component health
+adhar get apps                    # ArgoCD application states
+adhar get secrets [-p <service>]  # service credentials
+adhar get all                     # comprehensive overview
+adhar version                     # CLI version info
 ```
 
-#### `adhar get`
-Retrieve platform resources and status.
+### Applications
 
 ```bash
-# Get all resources
-adhar get all
-
-# Get specific resource type
-adhar get applications
-adhar get environments
-adhar get clusters
+adhar apps deploy my-app --repo https://github.com/org/repo --path manifests/ --dest-namespace my-team
+adhar apps list [--namespace <ns>]
+adhar apps delete my-app [--force]
 ```
 
-### Application Management
-
-#### `adhar apps deploy`
-Deploy applications to the platform.
+### Clusters & environments
 
 ```bash
-# Deploy from Git repository
-adhar apps deploy my-app \
-  --repo https://github.com/org/repo \
-  --path manifests/ \
-  --dest-namespace default
-
-# Deploy with specific environment
-adhar apps deploy my-app \
-  --repo https://github.com/org/repo \
-  --environment production
-```
-
-#### `adhar apps list`
-List all deployed applications.
-
-```bash
-# List all applications
-adhar apps list
-
-# List apps in specific namespace
-adhar apps list --namespace production
-```
-
-#### `adhar apps delete`
-Remove an application.
-
-```bash
-# Delete application
-adhar apps delete my-app
-
-# Force delete
-adhar apps delete my-app --force
-```
-
-### Cluster Management
-
-#### `adhar cluster create`
-Create a new Kubernetes cluster.
-
-```bash
-# Create cluster with provider
-adhar cluster create prod-cluster \
-  --provider gcp \
-  --region us-central1 \
-  --nodes 3
-
-# Create with specific configuration
-adhar cluster create staging-cluster \
-  --config staging-config.yaml
-```
-
-#### `adhar cluster list`
-List all managed clusters.
-
-```bash
+adhar cluster create prod --provider gcp --region us-central1 --nodes 3
 adhar cluster list
-```
+adhar cluster kubeconfig prod > prod-kubeconfig.yaml
+adhar cluster delete prod
 
-#### `adhar cluster kubeconfig`
-Get kubeconfig for a cluster.
-
-```bash
-# Get kubeconfig
-adhar cluster kubeconfig prod-cluster
-
-# Save to file
-adhar cluster kubeconfig prod-cluster > prod-kubeconfig.yaml
-```
-
-### Environment Management
-
-#### `adhar env create`
-Create a new environment.
-
-```bash
-# Create development environment
-adhar env create dev \
-  --provider digitalocean \
-  --template nonprod-defaults
-
-# Create production environment
-adhar env create prod \
-  --provider aws \
-  --template prod-defaults \
-  --ha-mode
-```
-
-#### `adhar env list`
-List all environments.
-
-```bash
+adhar env create dev --provider digitalocean --template nonprod-defaults
+adhar env create prod --provider aws --template prod-defaults --ha-mode
 adhar env list
 ```
 
----
+Run `adhar help` or `adhar <command> --help` for the full flag surface (27 subcommands).
 
-## Platform Services
+## 4. Deploying Your Applications
 
-### Accessing Services
+Three supported paths, in increasing order of platform integration:
 
-All platform services are accessible via the Adhar Console at `https://adhar.localtest.me:8443/` (local) or your configured domain.
+**a) Straight ArgoCD** — point an Application at your repo (via `adhar apps deploy` or the ArgoCD UI). Best for trying things out.
 
-#### ArgoCD
-- **URL**: `https://argocd.adhar.localtest.me:8443/`
-- **Purpose**: GitOps continuous delivery
-- **Credentials**: Run `adhar get secrets argocd`
+**b) `CustomPackage` CR** — the platform-native way; your app manifest is pushed into Gitea, so the cluster never depends on external availability. See [Customization §4](CUSTOMIZATION.md#4-deploy-team-applications-custompackage) and `examples/`.
 
-#### Gitea
-- **URL**: `https://gitea.adhar.localtest.me:8443/`
-- **Purpose**: Git repository hosting
-- **Credentials**: Run `adhar get secrets gitea`
+**c) Golden path via Console** — scaffold from a template in the Adhar Console (Backstage), which creates the repo and wiring for you.
 
-#### Harbor
-- **URL**: `https://harbor.adhar.localtest.me:8443/`
-- **Purpose**: Container registry
-- **Credentials**: Run `adhar get secrets harbor`
+### Requesting infrastructure
 
-#### Grafana
-- **URL**: `https://grafana.adhar.localtest.me:8443/`
-- **Purpose**: Metrics visualization
-- **Credentials**: Run `adhar get secrets grafana`
+Ask for what you need in *your* namespace; the platform decides how to provision it:
 
----
-
-## Monitoring & Observability
-
-### Metrics (Prometheus + Grafana)
-
-Adhar includes pre-configured Prometheus for metrics collection and Grafana for visualization.
-
-**Access Dashboards**:
-```bash
-# Open Grafana
-open https://grafana.adhar.localtest.me:8443/
-
-# Pre-installed dashboards:
-# - Kubernetes Cluster Monitoring
-# - Node Exporter
-# - Application Metrics
-# - ArgoCD Metrics
-```
-
-### Logs (Loki)
-
-Centralized log aggregation with Loki.
-
-**Query Logs**:
-```bash
-# View logs in Grafana
-# Navigate to Explore > Select Loki data source
-
-# Query syntax examples:
-# {namespace="default"}
-# {app="my-app"} |= "error"
-# {container="nginx"}
-```
-
-### Tracing (Jaeger)
-
-Distributed tracing for microservices.
-
-**Access Jaeger UI**:
-```bash
-open https://adhar.localtest.me:8443/jaeger/
-```
-
----
-
-## Security & Compliance
-
-### Network Policies
-
-Adhar uses Cilium network policies for micro-segmentation.
-
-**Example Policy**:
 ```yaml
-apiVersion: cilium.io/v2
-kind:CiliumNetworkPolicy
+apiVersion: platform.adhar.io/v1alpha1   # via a Composite API, e.g.
+kind: CompositeDatabase                   # see examples/database.yaml
 metadata:
-  name: allow-frontend-to-backend
+  name: orders-db
+  namespace: team-orders
 spec:
-  endpointSelector:
-    matchLabels:
-      app: backend
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            app: frontend
-      toPorts:
-        - ports:
-            - port: "8080"
+  engine: postgres
+  size: small
 ```
 
-### Policy Enforcement (Kyverno)
+Locally this becomes a CNPG PostgreSQL; on AWS the same request becomes RDS. Quotas and policies (Kyverno) apply automatically.
 
-Automated policy enforcement for compliance.
+## 5. Operating the Platform Day-to-Day
 
-**Example Policies**:
-- Require resource limits
-- Block privileged containers
-- Enforce label standards
-- Require network policies
+### Watching state
 
-### Security Scanning
+- **ArgoCD UI** is the single pane for "what is deployed and is it healthy" — every package and app is an Application there
+- `adhar get status` summarizes component conditions from the `AdharPlatform` CR
+- Drift is auto-healed: manual `kubectl edit` on managed objects will be reverted by the next sync — change Git instead
 
-Automated vulnerability scanning with Trivy.
+### Making platform changes
+
+All platform changes are Git changes in Gitea (enable/disable packages, tune values, add environments) — the complete catalogue is the [Customization Guide](CUSTOMIZATION.md). Rule of thumb: if you're about to `kubectl apply` something platform-level, stop and make it a commit instead.
+
+### Observability
+
+- **Metrics**: Grafana dashboards (cluster, nodes, ArgoCD, per-app); Prometheus behind them
+- **Logs**: Grafana → Explore → Loki. Query examples: `{namespace="team-orders"}`, `{app="my-app"} |= "error"`
+- **Traces**: Tempo data source (OTel ingestion via Alloy); eBPF auto-instrumentation available via Beyla
+- **Network**: Hubble UI for live flows — invaluable for debugging connectivity and authoring network policies
+- **Cost**: OpenCost dashboard for namespace/team attribution
+
+## 6. Security Day-to-Day
+
+- **Sign in with SSO** (Keycloak) everywhere; local bootstrap credentials are for day-0 only
+- **Secrets** come from External Secrets — never commit them; reference an `ExternalSecret` in your app manifests
+- **Policies** (Kyverno) will reject non-compliant workloads (missing resources, `:latest` tags, privileged pods) — the deny message names the violated policy
+- **Images** should come from the platform registry (Harbor) once enabled; Trivy scans and Cosign verification gate what runs
+
+## 7. Troubleshooting
+
+| Symptom | Check |
+|---------|-------|
+| App stuck `Progressing`/`Degraded` | ArgoCD app → Events; then `kubectl -n <ns> describe pod …` — often a Kyverno denial or missing quota |
+| Service URL 404 | Is the app `Healthy`? Does it ship an `HTTPRoute`? `kubectl get httproute -A` |
+| `OutOfSync` won't heal | Diff view in ArgoCD — someone changed Git and cluster divergently; Git wins on sync |
+| Can't reach another service | `hubble observe --namespace <ns>` — look for `DROPPED` (network policy) |
+| Pod `Pending` | `kubectl describe pod` — node resources (local) or nodepool autoscaling (cloud) |
+| Platform component unhealthy | `kubectl -n adhar-system get adharplatform -o yaml` conditions; controller logs |
 
 ```bash
-# Scan container image
-trivy image myapp:latest
-
-# Scan Kubernetes manifests
-trivy config k8s-manifests/
+# The debugging toolbox
+adhar get status && adhar get apps
+kubectl -n adhar-system get pods
+kubectl -n adhar-system logs deploy/argo-cd-argocd-server
+cilium status
+hubble observe --since 5m --namespace <ns>
 ```
 
----
+## 8. Where to Go Next
 
-## Best Practices
-
-### Development Workflow
-
-1. **Local Development**: Use `adhar up` for local Kind cluster
-2. **Git Workflow**: Commit changes to Git repositories
-3. **GitOps Deployment**: ArgoCD automatically syncs changes
-4. **Testing**: Test in development environment first
-5. **Promotion**: Promote to staging, then production
-
-### Resource Management
-
-- **Set Resource Limits**: Always define CPU/memory limits
-- **Use Namespaces**: Isolate workloads by namespace
-- **Apply Labels**: Use consistent labeling strategy
-- **Monitor Usage**: Regular review of resource consumption
-
-### Security Practices
-
-- **Least Privilege**: Use RBAC for minimal permissions
-- **Secrets Management**: Store secrets in Vault
-- **Network Policies**: Implement network segmentation
-- **Regular Scanning**: Automate security scans
-- **Audit Logs**: Enable and review audit logs
-
-### Cost Optimization
-
-- **Right-Size Resources**: Match resources to actual needs
-- **Auto-Scaling**: Enable cluster and pod autoscaling
-- **Spot Instances**: Use spot/preemptible instances for non-critical workloads
-- **Resource Cleanup**: Remove unused resources
-- **Cost Monitoring**: Track costs per environment
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-#### Pod Not Starting
-```bash
-# Check pod status
-kubectl get pods -n <namespace>
-
-# View pod events
-kubectl describe pod <pod-name> -n <namespace>
-
-# Check logs
-kubectl logs <pod-name> -n <namespace>
-```
-
-#### Service Not Accessible
-```bash
-# Check service
-kubectl get svc -n <namespace>
-
-# Check endpoints
-kubectl get endpoints -n <namespace>
-
-# Test connectivity
-kubectl run test --rm -it --image=curlimages/curl -- curl http://service-name
-```
-
-#### ArgoCD Sync Issues
-```bash
-# Check application status
-kubectl get application -n argocd
-
-# View sync status
-argocd app get <app-name>
-
-# Force sync
-argocd app sync <app-name>
-```
-
-### Getting Help
-
-- **Documentation**: Check this guide and other docs
-- **CLI Help**: Run `adhar <command> --help`
-- **GitHub Issues**: [github.com/adhar-io/adhar/issues](https://github.com/adhar-io/adhar/issues)
-- **Logs**: Check platform logs with `adhar logs`
-
----
-
-## Next Steps
-
-- **[Architecture Guide](ARCHITECTURE.md)**: Learn about platform architecture
-- **[Provider Guide](PROVIDER_GUIDE.md)**: Deep dive into providers
-- **[Advanced Guide](ADVANCED.md)**: HA mode and production practices
-- **[Contributing](../CONTRIBUTING.md)**: Contribute to the project
-
----
-
-**Need help?** Check our [GitHub Issues](https://github.com/adhar-io/adhar/issues) or reach out to the community!
-
+- **[Customization Guide](CUSTOMIZATION.md)** — packages, environments, your own golden paths
+- **[Production Guide](PRODUCTION.md)** — HA, hardening, backup/DR, upgrades
+- **[Provider Guide](PROVIDER_GUIDE.md)** — cloud-specific setup
+- **[Architecture](ARCHITECTURE.md)** — the full design, with ADRs
+- **Community**: [Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) · [Discussions](https://github.com/adhar-io/adhar/discussions) · [Issues](https://github.com/adhar-io/adhar/issues)

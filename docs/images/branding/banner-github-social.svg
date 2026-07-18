@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <!-- GitHub social preview · 1280x640 (export as PNG for repo settings) -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#1E293B"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="symbolBrand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="0.5" stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- decorative hexagons -->
+  <g fill="none" stroke="#334155" stroke-width="2" opacity="0.5">
+    <polygon points="1150,60 1207,93 1207,159 1150,192 1093,159 1093,93"/>
+    <polygon points="1210,180 1267,213 1267,279 1210,312 1153,279 1153,213"/>
+    <polygon points="90,480 147,513 147,579 90,612 33,579 33,513"/>
+  </g>
+
+  <!-- symbol -->
+  <g transform="translate(80,180) scale(1.05)">
+    <g fill="url(#symbolBrand)" stroke="url(#symbolBrand)" stroke-width="6" stroke-linejoin="round" transform="translate(-110,-40)">
+      <polygon points="240,50 297.16,83 297.16,149 240,182 182.84,149 182.84,83"/>
+      <polygon points="177.65,158 234.81,191 234.81,257 177.65,290 120.49,257 120.49,191"/>
+      <polygon points="302.35,158 359.51,191 359.51,257 302.35,290 245.19,257 245.19,191"/>
+    </g>
+    <path d="M 130,62 L 171,179 L 130,152 L 89,179 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"/>
+  </g>
+
+  <!-- text block -->
+  <text x="420" y="290" font-family="Inter, system-ui, sans-serif" font-size="120" font-weight="800" letter-spacing="-3" fill="url(#brand)">ADHAR</text>
+  <text x="424" y="352" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="600" fill="#E2E8F0">Open Cloud-Native Foundation</text>
+  <text x="424" y="402" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="500" fill="#94A3B8">One command. 50+ integrated services. Any cloud. 100% open source.</text>
+
+  <text x="424" y="560" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="600" letter-spacing="1" fill="#64748B">github.com/adhar-io/adhar</text>
+</svg>

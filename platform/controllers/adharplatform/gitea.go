@@ -18,15 +18,9 @@ var giteaFS embed.FS // Added embedded FS
 
 // RawGiteaInstallResources loads and processes the Gitea installation manifests.
 func RawGiteaInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
-	// If config.FilePath is empty or not set, default to "install.yaml"
-	filePath := config.FilePath
-	if filePath == "" {
-		filePath = "install.yaml"
-	}
-	// The fsRootPrefix for k8s.BuildCustomizedManifests should be "." if giteaFS embeds the directory containing install.yaml directly.
-	// Since //go:embed resources/gitea embeds the 'gitea' directory, and if 'install.yaml' is directly inside it,
-	// then the path for BuildCustomizedManifests is just "install.yaml".
-	return k8s.BuildCustomizedManifests(filePath, ".", giteaFS, scheme, templateData) // Ensure k8s.BuildCustomizedManifests is correctly implemented and imported
+	// config.FilePath, when set, points at a user-provided override file on
+	// local disk; empty means "no overrides".
+	return k8s.BuildCustomizedManifests(config.FilePath, "resources/gitea", giteaFS, scheme, templateData)
 }
 
 func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {

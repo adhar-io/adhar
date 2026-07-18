@@ -191,6 +191,6 @@ func RenderBanner() string {
 func RenderBannerLine(version string) string {
 	name := lipgloss.NewStyle().Foreground(lipgloss.Color(brandBlue.hex())).Bold(true).Render("ADHAR")
 	rest := lipgloss.NewStyle().Foreground(taglineGray).
-		Render(" — Open Cloud-Native Foundation · v" + version)
+		Render(" — Open Cloud-Native Foundation · v" + strings.TrimPrefix(version, "v"))
 	return name + rest
 }

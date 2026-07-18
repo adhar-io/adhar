@@ -2,11 +2,9 @@ package custompackage
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"testing"
 	"time"
 
@@ -21,7 +19,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
+
+// argoCDInstallCRDsPath points envtest at the embedded ArgoCD install manifest,
+// which carries the Application/ApplicationSet/AppProject CRDs.
+const argoCDInstallCRDsPath = "../adharplatform/resources/argocd/install.yaml"
 
 type testCase struct {
 	expectedGitRepo        v1alpha1.GitRepository
@@ -40,12 +43,10 @@ func TestReconcileCustomPkg(t *testing.T) {
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "resources"),
-			"../adharplatform/resources/argo/install.yaml",
+			argoCDInstallCRDsPath,
 		},
 		ErrorIfCRDPathMissing: true,
 		Scheme:                s,
-		BinaryAssetsDirectory: filepath.Join("..", "..", "..", "bin", "k8s",
-			fmt.Sprintf("1.29.1-%s-%s", runtime.GOOS, runtime.GOARCH)),
 	}
 
 	cfg, err := testEnv.Start()
@@ -53,7 +54,8 @@ func TestReconcileCustomPkg(t *testing.T) {
 	defer testEnv.Stop()
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: s,
+		Scheme:  s,
+		Metrics: metricsserver.Options{BindAddress: "0"},
 	})
 	require.NoError(t, err)
 
@@ -243,12 +245,10 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "resources"),
-			"../localbuild/resources/argo/install.yaml",
+			argoCDInstallCRDsPath,
 		},
 		ErrorIfCRDPathMissing: true,
 		Scheme:                s,
-		BinaryAssetsDirectory: filepath.Join("..", "..", "..", "bin", "k8s",
-			fmt.Sprintf("1.29.1-%s-%s", runtime.GOOS, runtime.GOARCH)),
 	}
 
 	cfg, err := testEnv.Start()
@@ -256,7 +256,8 @@ func TestReconcileCustomPkgAppSet(t *testing.T) {
 	defer testEnv.Stop()
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: s,
+		Scheme:  s,
+		Metrics: metricsserver.Options{BindAddress: "0"},
 	})
 	assert.Nil(t, err)
 
@@ -586,12 +587,10 @@ func TestReconcileHelmValueObject(t *testing.T) {
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "resources"),
-			"../localbuild/resources/argo/install.yaml",
+			argoCDInstallCRDsPath,
 		},
 		ErrorIfCRDPathMissing: true,
 		Scheme:                s,
-		BinaryAssetsDirectory: filepath.Join("..", "..", "..", "bin", "k8s",
-			fmt.Sprintf("1.29.1-%s-%s", runtime.GOOS, runtime.GOARCH)),
 	}
 
 	cfg, err := testEnv.Start()
@@ -601,7 +600,8 @@ func TestReconcileHelmValueObject(t *testing.T) {
 	defer testEnv.Stop()
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: s,
+		Scheme:  s,
+		Metrics: metricsserver.Options{BindAddress: "0"},
 	})
 	if err != nil {
 		t.Fatalf("getting manager: %v", err)

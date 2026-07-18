@@ -296,7 +296,7 @@ func TestGitRepositoryContentReconcileEmbedded(t *testing.T) {
 		ObjectMeta: m,
 		Spec: v1alpha1.GitRepositorySpec{
 			Source: v1alpha1.GitRepositorySource{
-				EmbeddedAppName: "nginx",
+				EmbeddedAppName: v1alpha1.GiteaPackageName,
 				Type:            "embedded",
 			},
 			Provider: v1alpha1.Provider{

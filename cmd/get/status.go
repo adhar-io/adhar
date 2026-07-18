@@ -81,6 +81,10 @@ type PlatformStatus struct {
 	HealthScore    int
 	Warnings       []string
 	CriticalIssues []string
+	// Platform holds the AdharPlatform CR conditions (empty on non-Adhar clusters).
+	Platform []PlatformConditionInfo
+	// Packages summarizes ArgoCD-managed platform package health.
+	Packages *PackageHealthSummary
 }
 
 type ServiceStatus struct {
@@ -216,6 +220,9 @@ func collectPlatformStatus(clientset *kubernetes.Clientset) (*PlatformStatus, er
 
 	// Calculate platform uptime (approximate)
 	status.PlatformUptime = calculatePlatformUptime(pods.Items)
+
+	// Enrich with AdharPlatform CR conditions and package health (best-effort)
+	attachPlatformHealth(status)
 
 	return status, nil
 }
@@ -531,6 +538,9 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	resourcesBox := helpers.BorderStyle.Width(80).Render(resourcesContent)
 	fmt.Println(resourcesBox)
+
+	// Display AdharPlatform conditions and package readiness
+	displayPlatformHealth(status.Platform, status.Packages)
 
 	// Display any warnings or issues
 	if len(status.Warnings) > 0 || len(status.CriticalIssues) > 0 {

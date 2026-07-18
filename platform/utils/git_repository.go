@@ -235,26 +235,29 @@ func CopyWTFile(srcWT, dstWT billy.Filesystem, srcFile, dstFile string) error {
 // ref could be anything. Check if hash, tag, or branch in that order
 func checkoutCommitOrRef(ctx context.Context, wt *git.Worktree, ref string) error {
 	var refName plumbing.ReferenceName
-	opts := &git.CheckoutOptions{
-		Hash: plumbing.NewHash(ref),
+	opts := &git.CheckoutOptions{}
+
+	// Only treat ref as a commit hash when it actually is one: NewHash returns
+	// the zero hash for non-hex strings, and checking out the zero hash silently
+	// resolves to HEAD instead of failing.
+	if plumbing.IsHash(ref) {
+		opts.Hash = plumbing.NewHash(ref)
+	} else {
+		opts.Branch = plumbing.NewTagReferenceName(ref)
+		refName = opts.Branch
 	}
 
 	err := wt.Checkout(opts)
 	if err != nil {
-		refName = plumbing.NewTagReferenceName(ref)
-		opts = &git.CheckoutOptions{
-			Branch: refName,
-		}
-		err := wt.Checkout(opts)
-		if err != nil {
+		if opts.Hash.IsZero() {
 			refName = plumbing.NewBranchReferenceName(ref)
 			opts = &git.CheckoutOptions{
 				Branch: refName,
 			}
-			err := wt.Checkout(opts)
-			if err != nil {
-				return err
-			}
+			err = wt.Checkout(opts)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	pullOpts := &git.PullOptions{

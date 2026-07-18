@@ -16,8 +16,9 @@ import (
 )
 
 func TestGiteaAdminSecretObject(t *testing.T) {
+	// Gitea runs in the platform namespace (adhar-system), not its own.
 	secret := utils.GiteaAdminSecretObject()
-	assert.Equal(t, "gitea", secret.Namespace)
+	assert.Equal(t, "adhar-system", secret.Namespace)
 	assert.Equal(t, "gitea-credential", secret.Name)
 	assert.Equal(t, "Secret", secret.Kind)
 }

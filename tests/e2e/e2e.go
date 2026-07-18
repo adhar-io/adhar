@@ -1,7 +1,8 @@
+// Package e2e provides helpers for end-to-end testing of the Adhar platform
+// bootstrap sequence on a local Kind cluster.
 package e2e
 
 import (
-	"adhar-io/adhar/platform/utils/types"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -10,397 +11,307 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
-	"path/filepath"
 	"strings"
-	"testing"
 	"time"
 
+	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/platform/k8s"
 
-	"code.gitea.io/sdk/gitea"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	AdharBinaryLocation   = "../../../adhar"
-	DefaultPort           = "8443"
-	DefaultBaseDomain     = "adhar.localtest.me"
-	ArgoCDSessionEndpoint = "/api/v1/session"
-	ArgoCDAppsEndpoint    = "/api/v1/applications"
-	GiteaSessionEndpoint  = "/api/v1/users/%s/tokens"
-	GiteaUserEndpoint     = "/api/v1/users/%s"
-	GiteaRepoEndpoint     = "/api/v1/repos/search"
+	// RepoRoot is the repository root relative to the e2e test packages. The
+	// adhar CLI must run from there: `adhar up` resolves platform/stack
+	// relative to the working directory.
+	RepoRoot            = "../../.."
+	AdharBinaryLocation = "./adhar"
+	KubeContext         = "kind-adhar"
 
-	httpRetryDelay   = 5 * time.Second
-	httpRetryTimeout = 300 * time.Second
+	PlatformNamespace = "adhar-system"
+	DefaultPort       = "8443"
+	DefaultBaseDomain = "adhar.localtest.me"
+
+	// Key platform objects created by the bootstrap sequence.
+	ArgoCDServerDeployment = "argo-cd-argocd-server"
+	GiteaDeployment        = "gitea"
+	GatewayService         = "cilium-gateway-adhar-gateway"
+	PlatformAppSet         = "helm-charts-local"
+
+	GiteaCredentialSecret   = "gitea-credential"
+	ArgoCDAdminSecret       = "argocd-initial-admin-secret"
+	ArgoCDAdminUser         = "admin"
+	GatewayHTTPNodePort     = 30080
+	GatewayHTTPSNodePort    = 30443
+	giteaTokenEndpointTmpl  = "/api/v1/users/%s/tokens"
+	giteaRepoSearchEndpoint = "/api/v1/repos/search"
+	argoCDSessionEndpoint   = "/api/v1/session"
+
+	pollInterval = 5 * time.Second
 )
 
-var (
-	// CorePackages is a map of argocd app name to its namespace.
-	CorePackages = map[string]string{
-		"argocd": "argocd",
-		"nginx":  "argocd",
-		"gitea":  "argocd",
-	}
-)
-
-type BasicAuth struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+// GiteaBaseURL and ArgoCDBaseURL are the subdomain-routed service URLs.
+func GiteaBaseURL() string {
+	return fmt.Sprintf("https://gitea.%s:%s", DefaultBaseDomain, DefaultPort)
 }
 
-type ArgoCDAuthResponse struct {
-	Token string `json:"token"`
+func ArgoCDBaseURL() string {
+	return fmt.Sprintf("https://argocd.%s:%s", DefaultBaseDomain, DefaultPort)
 }
 
-type ArgoCDAppResp struct {
-	Items []argov1alpha1.Application
-}
-
-type GiteaSearchRepoResponse struct {
-	Ok   bool
-	Data []gitea.Repository
-}
-
+// GetHttpClient returns a client that accepts the platform's self-signed cert.
 func GetHttpClient() *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	return &http.Client{Transport: tr}
+	return &http.Client{Transport: tr, Timeout: 30 * time.Second}
 }
 
-func TestCoreEndpoints(ctx context.Context, t *testing.T, argoBaseUrl, giteaBaseUrl string) {
-	TestArgoCDEndpoints(ctx, t, argoBaseUrl)
-	TestGiteaEndpoints(ctx, t, giteaBaseUrl)
-}
-
-func RunCommand(ctx context.Context, command string, timeout time.Duration) ([]byte, error) {
-	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cmds := strings.Split(command, " ")
-	if len(cmds) == 0 {
-		return nil, fmt.Errorf("supply at least one command")
-	}
-	binary := cmds[0]
-	args := make([]string, 0, len(cmds)-1)
-	if len(cmds) > 1 {
-		args = append(args, cmds[1:]...)
-	}
-
-	c := exec.CommandContext(cmdCtx, binary, args...)
-	b, err := c.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("error while running %s: %s, %s", command, err, b)
-	}
-
-	return b, nil
-}
-
-func SendAndParse(ctx context.Context, target any, httpClient *http.Client, req *http.Request) error {
-	sendCtx, cancel := context.WithTimeout(ctx, httpRetryTimeout)
-	defer cancel()
-	var bodyBytes []byte
-	if req.Body != nil {
-		b, bErr := io.ReadAll(req.Body)
-		if bErr != nil {
-			return fmt.Errorf("failed copying http request body: %w", bErr)
-		}
-		bodyBytes = b
-	}
-
-	for {
-		select {
-		case <-sendCtx.Done():
-			return fmt.Errorf("timedout")
-		default:
-			if req.Body != nil {
-				b := append(make([]byte, 0, len(bodyBytes)), bodyBytes...)
-				req.Body = io.NopCloser(bytes.NewBuffer(b))
-			}
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				fmt.Println("failed running http request: ", err)
-				time.Sleep(httpRetryDelay)
-				continue
-			}
-
-			defer resp.Body.Close()
-
-			respB, err := io.ReadAll(resp.Body)
-			if err != nil {
-				fmt.Println("failed reading http response body: ", err)
-				time.Sleep(httpRetryDelay)
-				continue
-			}
-
-			err = json.Unmarshal(respB, target)
-			if err != nil {
-				fmt.Println("failed parsing response body: ", err, "\n", string(respB))
-				time.Sleep(httpRetryDelay)
-				continue
-			}
-			return nil
-		}
-	}
-}
-
-func TestGiteaEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
-	t.Log("testing gitea endpoints")
-	repos, err := GetGiteaRepos(ctx, baseUrl)
-	assert.Nil(t, err)
-
-	assert.Equal(t, 8, len(repos))
-	expectedRepoNames := map[string]struct{}{
-		"adhar-localdev-gitea":  {},
-		"adhar-localdev-nginx":  {},
-		"adhar-localdev-argocd": {},
-	}
-
-	for i := range repos {
-		_, ok := expectedRepoNames[repos[i].Name]
-		if ok {
-			delete(expectedRepoNames, repos[i].Name)
-		}
-	}
-	assert.Equal(t, 3, len(expectedRepoNames))
-}
-
-func GetGiteaRepos(ctx context.Context, baseUrl string) ([]gitea.Repository, error) {
-	auth, err := GetBasicAuth(ctx, "gitea-credential")
-	if err != nil {
-		return nil, fmt.Errorf("getting gitea credentials %w", err)
-	}
-
-	token, err := GetGiteaSessionToken(ctx, auth, baseUrl)
-	if err != nil {
-		return nil, fmt.Errorf("getting gitea token %w", err)
-	}
-
-	userEP := fmt.Sprintf("%s%s", baseUrl, fmt.Sprintf(GiteaUserEndpoint, auth.Username))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, userEP, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating new request %w", err)
-	}
-
-	httpClient := GetHttpClient()
-	req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
-
-	user := gitea.User{}
-	err = SendAndParse(ctx, &user, httpClient, req)
-	if err != nil {
-		return nil, fmt.Errorf("getting user info %w", err)
-	}
-
-	repos := GiteaSearchRepoResponse{}
-	repoEp := fmt.Sprintf("%s%s", baseUrl, GiteaRepoEndpoint)
-	repoReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, repoEp, nil)
-	err = SendAndParse(ctx, &repos, httpClient, repoReq)
-	if err != nil {
-		return nil, fmt.Errorf("getting gitea repositories %w", err)
-	}
-
-	return repos.Data, nil
-}
-
-func GetGiteaSessionToken(ctx context.Context, auth BasicAuth, baseUrl string) (string, error) {
-	httpClient := GetHttpClient()
-	sessionEP := fmt.Sprintf("%s%s", baseUrl, fmt.Sprintf(GiteaSessionEndpoint, auth.Username))
-
-	sb := []byte(fmt.Sprintf(`{"name":"%d", "scopes":["%s"]}`, time.Now().Unix(), gitea.AccessTokenScopeAll))
-	sessionReq, err := http.NewRequestWithContext(ctx, http.MethodPost, sessionEP, bytes.NewBuffer(sb))
-	if err != nil {
-		return "", fmt.Errorf("reating new request for session: %w", err)
-	}
-
-	sessionReq.SetBasicAuth(auth.Username, auth.Password)
-	sessionReq.Header.Set("Content-Type", "application/json")
-
-	var sess gitea.AccessToken
-	err = SendAndParse(ctx, &sess, httpClient, sessionReq)
-	if err != nil {
-		return "", err
-	}
-
-	if sess.Token == "" {
-		return "", fmt.Errorf("received empty token")
-	}
-	return sess.Token, nil
-}
-
-func TestArgoCDEndpoints(ctx context.Context, t *testing.T, baseUrl string) {
-	t.Log("testing argocd endpoints")
-	sessionURL := fmt.Sprintf("%s%s", baseUrl, ArgoCDSessionEndpoint)
-	appURL := fmt.Sprintf("%s%s", baseUrl, ArgoCDAppsEndpoint)
-
-	token, err := GetArgoCDSessionToken(ctx, sessionURL)
-	assert.Nil(t, err, fmt.Sprintf("getting argocd token: %v", err))
-
-	httpClient := GetHttpClient()
-
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, appURL, nil)
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	var appResp ArgoCDAppResp
-	err = SendAndParse(ctx, &appResp, httpClient, req)
-	assert.Nil(t, err, fmt.Sprintf("getting argocd applications: %s", err))
-
-	assert.Equal(t, 33, len(appResp.Items), fmt.Sprintf("number of apps do not match: %v", appResp.Items))
-}
-
-func GetBasicAuth(ctx context.Context, name string) (BasicAuth, error) {
-	var lastErr error
-
-	for attempt := 0; attempt < 5; attempt++ {
-		select {
-		case <-ctx.Done():
-			return BasicAuth{}, ctx.Err()
-		default:
-			b, err := RunCommand(ctx, fmt.Sprintf("%s get secrets -o json", AdharBinaryLocation), 10*time.Second)
-			if err != nil {
-				lastErr = err
-				time.Sleep(httpRetryDelay)
-				continue
-			}
-
-			out := BasicAuth{}
-			secs := make([]types.Secret, 2)
-			if err = json.Unmarshal(b, &secs); err != nil {
-				lastErr = err
-				time.Sleep(httpRetryDelay)
-				continue
-			}
-
-			for _, sec := range secs {
-				if sec.Name == name {
-					out.Password = sec.Password
-					out.Username = sec.Username
-					break
-				}
-			}
-
-			if out.Password == "" || out.Username == "" {
-				time.Sleep(httpRetryDelay)
-				continue
-			}
-
-			return out, nil
-		}
-	}
-
-	return BasicAuth{}, fmt.Errorf("failed after 5 attempts: %w", lastErr)
-}
-
-func GetArgoCDSessionToken(ctx context.Context, endpoint string) (string, error) {
-	auth, err := GetBasicAuth(ctx, "argocd-initial-admin-secret")
-	if err != nil {
-		return "", err
-	}
-	httpClient := GetHttpClient()
-
-	authJ, err := json.Marshal(auth)
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewBuffer(authJ))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	var tokenResp ArgoCDAuthResponse
-	err = SendAndParse(ctx, &tokenResp, httpClient, req)
-	if err != nil {
-		return "", err
-	}
-
-	if tokenResp.Token == "" {
-		return "", fmt.Errorf("received token is empty")
-	}
-
-	return tokenResp.Token, nil
-}
-
-func TestArgoCDApps(ctx context.Context, t *testing.T, kubeClient client.Client, apps map[string]string) {
-	done := false
-	for !done {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			for k := range apps {
-				ns := apps[k]
-				t.Logf("checking argocd app %s in %s ns", k, ns)
-				ready, argoErr := isArgoAppSyncedAndHealthy(ctx, kubeClient, k, ns)
-				if argoErr != nil {
-					t.Logf("error when checking ArgoCD app health: %s", argoErr)
-					continue
-				}
-				if ready {
-					t.Logf("app %s ready", k)
-					delete(apps, k)
-				}
-			}
-			if len(apps) != 0 {
-				t.Logf("waiting for apps to be ready")
-				time.Sleep(httpRetryDelay)
-				continue
-			}
-			done = true
-			t.Log("all argocd apps healthy")
-		}
-	}
-}
-
-func isArgoAppSyncedAndHealthy(ctx context.Context, kubeClient client.Client, name, namespace string) (bool, error) {
-	app := argov1alpha1.Application{}
-
-	err := kubeClient.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, &app)
-	if err != nil {
-		return false, err
-	}
-
-	return app.Status.Health.Status == "Healthy" && app.Status.Sync.Status == "Synced", nil
-}
-
+// GetKubeClient returns a controller-runtime client pinned to the Adhar Kind
+// cluster's kubeconfig context, with the platform scheme loaded.
 func GetKubeClient() (client.Client, error) {
-	conf, err := clientcmd.BuildConfigFromFlags("", filepath.Join(homedir.HomeDir(), ".kube", "config"))
+	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	overrides := &clientcmd.ConfigOverrides{CurrentContext: KubeContext}
+	conf, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides).ClientConfig()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading kubeconfig for context %s: %w", KubeContext, err)
 	}
 	return client.New(conf, client.Options{Scheme: k8s.GetScheme()})
 }
 
-// login, build a test image, push, then pull.
-func TestGiteaRegistry(ctx context.Context, t *testing.T, cmd, giteaHost, giteaPort string) {
-	t.Log("testing gitea container registry")
-	b, err := RunCommand(ctx, fmt.Sprintf("%s get secrets -o json -p gitea", AdharBinaryLocation), 10*time.Second)
-	assert.NoError(t, err)
+// RunCommand executes a command with a timeout, returning combined output.
+func RunCommand(ctx context.Context, command string, timeout time.Duration) ([]byte, error) {
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmds := strings.Fields(command)
+	if len(cmds) == 0 {
+		return nil, fmt.Errorf("supply at least one command")
+	}
 
-	secs := make([]types.Secret, 1)
-	err = json.Unmarshal(b, &secs)
-	assert.NoError(t, err)
+	c := exec.CommandContext(cmdCtx, cmds[0], cmds[1:]...)
+	b, err := c.CombinedOutput()
+	if err != nil {
+		return b, fmt.Errorf("error while running %s: %w, %s", command, err, b)
+	}
+	return b, nil
+}
 
-	sec := secs[0]
-	user := sec.Username
-	pass := sec.Password
+// RunAdhar runs the adhar CLI from the repository root with the given args.
+func RunAdhar(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	login, err := RunCommand(ctx, fmt.Sprintf("%s login %s:%s -u %s -p %s", cmd, giteaHost, giteaPort, user, pass), 10*time.Second)
-	require.NoErrorf(t, err, "%s login err: %s", cmd, login)
+	c := exec.CommandContext(cmdCtx, AdharBinaryLocation, args...)
+	c.Dir = RepoRoot
+	b, err := c.CombinedOutput()
+	if err != nil {
+		return b, fmt.Errorf("error while running adhar %s: %w, %s", strings.Join(args, " "), err, b)
+	}
+	return b, nil
+}
 
-	tag := fmt.Sprintf("%s:%s/giteaadmin/test:latest", giteaHost, giteaPort)
+// GetSecretData reads a secret's data field decoded to strings.
+func GetSecretData(ctx context.Context, kubeClient client.Client, namespace, name string) (map[string]string, error) {
+	sec := corev1.Secret{}
+	if err := kubeClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &sec); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(sec.Data))
+	for k, v := range sec.Data {
+		out[k] = string(v)
+	}
+	return out, nil
+}
 
-	build, err := RunCommand(ctx, fmt.Sprintf("%s build -f test-dockerfile -t %s .", cmd, tag), 10*time.Second)
-	require.NoErrorf(t, err, "%s build err: %s", cmd, build)
+// WaitForPlatformReady polls the AdharPlatform resource until its aggregate
+// Ready condition is True. It returns the last observed conditions on timeout
+// so failures are diagnosable.
+func WaitForPlatformReady(ctx context.Context, kubeClient client.Client) error {
+	var lastConditions string
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for AdharPlatform Ready condition; last conditions: %s", lastConditions)
+		default:
+			platforms := &v1alpha1.AdharPlatformList{}
+			err := kubeClient.List(ctx, platforms, client.InNamespace(PlatformNamespace))
+			if err == nil && len(platforms.Items) > 0 {
+				conds := platforms.Items[0].Status.Conditions
+				b, _ := json.Marshal(conds)
+				lastConditions = string(b)
+				if meta.IsStatusConditionTrue(conds, "Ready") {
+					return nil
+				}
+			}
+			time.Sleep(pollInterval)
+		}
+	}
+}
 
-	push, err := RunCommand(ctx, fmt.Sprintf("%s push %s", cmd, tag), 10*time.Second)
-	require.NoErrorf(t, err, "%s push err: %s", cmd, push)
+// WaitForDeploymentAvailable polls until the deployment has at least one
+// available replica.
+func WaitForDeploymentAvailable(ctx context.Context, kubeClient client.Client, namespace, name string) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for deployment %s/%s", namespace, name)
+		default:
+			ready, err := isDeploymentAvailable(ctx, kubeClient, namespace, name)
+			if err == nil && ready {
+				return nil
+			}
+			time.Sleep(pollInterval)
+		}
+	}
+}
 
-	pull, err := RunCommand(ctx, fmt.Sprintf("%s pull %s", cmd, tag), 10*time.Second)
-	require.NoErrorf(t, err, "%s pull err: %s", cmd, pull)
+func isDeploymentAvailable(ctx context.Context, kubeClient client.Client, namespace, name string) (bool, error) {
+	dep := appsv1.Deployment{}
+	if err := kubeClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &dep); err != nil {
+		return false, err
+	}
+	return dep.Status.AvailableReplicas > 0, nil
+}
+
+// WaitForAppsHealthy waits until every named ArgoCD Application reports
+// Healthy. Sync state is logged by callers; health is the readiness signal.
+func WaitForAppsHealthy(ctx context.Context, kubeClient client.Client, names []string) error {
+	remaining := map[string]struct{}{}
+	for _, n := range names {
+		remaining[n] = struct{}{}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			keys := make([]string, 0, len(remaining))
+			for k := range remaining {
+				keys = append(keys, k)
+			}
+			return fmt.Errorf("timed out waiting for apps to be healthy: %v", keys)
+		default:
+			for name := range remaining {
+				app := argov1alpha1.Application{}
+				err := kubeClient.Get(ctx, client.ObjectKey{Namespace: PlatformNamespace, Name: name}, &app)
+				if err == nil && app.Status.Health.Status == "Healthy" {
+					delete(remaining, name)
+				}
+			}
+			if len(remaining) == 0 {
+				return nil
+			}
+			time.Sleep(pollInterval)
+		}
+	}
+}
+
+// GiteaListRepoNames lists repository names visible to the admin user through
+// the Gitea API at the platform's external URL.
+func GiteaListRepoNames(ctx context.Context, kubeClient client.Client) ([]string, error) {
+	creds, err := GetSecretData(ctx, kubeClient, PlatformNamespace, GiteaCredentialSecret)
+	if err != nil {
+		return nil, fmt.Errorf("reading gitea credentials: %w", err)
+	}
+
+	token, err := giteaSessionToken(ctx, creds["username"], creds["password"])
+	if err != nil {
+		return nil, fmt.Errorf("getting gitea token: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, GiteaBaseURL()+giteaRepoSearchEndpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "token "+token)
+
+	var result struct {
+		Ok   bool `json:"ok"`
+		Data []struct {
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := sendAndParse(req, &result); err != nil {
+		return nil, fmt.Errorf("searching gitea repos: %w", err)
+	}
+
+	names := make([]string, 0, len(result.Data))
+	for _, r := range result.Data {
+		names = append(names, r.Name)
+	}
+	return names, nil
+}
+
+func giteaSessionToken(ctx context.Context, username, password string) (string, error) {
+	endpoint := GiteaBaseURL() + fmt.Sprintf(giteaTokenEndpointTmpl, username)
+	body := fmt.Sprintf(`{"name":"e2e-%d", "scopes":["all"]}`, time.Now().UnixNano())
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBufferString(body))
+	if err != nil {
+		return "", err
+	}
+	req.SetBasicAuth(username, password)
+	req.Header.Set("Content-Type", "application/json")
+
+	var tok struct {
+		Token string `json:"sha1"`
+	}
+	if err := sendAndParse(req, &tok); err != nil {
+		return "", err
+	}
+	if tok.Token == "" {
+		return "", fmt.Errorf("received empty gitea token")
+	}
+	return tok.Token, nil
+}
+
+// ArgoCDSessionToken authenticates against the ArgoCD API with the initial
+// admin credentials, proving the external route and the API both work.
+func ArgoCDSessionToken(ctx context.Context, kubeClient client.Client) (string, error) {
+	creds, err := GetSecretData(ctx, kubeClient, PlatformNamespace, ArgoCDAdminSecret)
+	if err != nil {
+		return "", fmt.Errorf("reading argocd admin secret: %w", err)
+	}
+
+	body, _ := json.Marshal(map[string]string{
+		"username": ArgoCDAdminUser,
+		"password": creds["password"],
+	})
+	sessionURL := ArgoCDBaseURL() + argoCDSessionEndpoint
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sessionURL, bytes.NewBuffer(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	var tok struct {
+		Token string `json:"token"`
+	}
+	if err := sendAndParse(req, &tok); err != nil {
+		return "", err
+	}
+	if tok.Token == "" {
+		return "", fmt.Errorf("received empty argocd token")
+	}
+	return tok.Token, nil
+}
+
+func sendAndParse(req *http.Request, target any) error {
+	resp, err := GetHttpClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, b)
+	}
+	return json.Unmarshal(b, target)
 }

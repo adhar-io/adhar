@@ -77,6 +77,19 @@ type AdharPlatformReconciler struct {
 	TempDir        string
 	StackDir       string // Path to the platform/stack directory on the host filesystem
 	RepoMap        *utils.RepoMap
+
+	// lastFailureReason/lastFailureMessage describe the most recent reconcile
+	// failure; they are surfaced on the aggregate Ready condition and cleared
+	// at the start of each pass.
+	lastFailureReason  string
+	lastFailureMessage string
+}
+
+// recordFailure captures a reconcile failure so postProcessReconcile can
+// surface it on the Ready condition.
+func (r *AdharPlatformReconciler) recordFailure(reason string, err error) {
+	r.lastFailureReason = reason
+	r.lastFailureMessage = err.Error()
 }
 
 type subReconciler func(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error)
@@ -117,6 +130,7 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		logger.Error(err, "unable to fetch Resource")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	r.lastFailureReason, r.lastFailureMessage = "", ""
 	defer r.postProcessReconcile(ctx, req, &localBuild)
 
 	// If we already decided to shutdown, don't process any more reconciliations
@@ -130,8 +144,11 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// If ExitOnSync is enabled, check if platform is already deployed
-	if r.ExitOnSync && r.isPlatformAlreadyDeployed(ctx) {
+	// If ExitOnSync is enabled, check if platform is already deployed. The
+	// Crossplane control plane must be fully applied too — shutting down before
+	// that leaves XRDs/Compositions unapplied forever in local mode, since no
+	// controller remains to retry.
+	if r.ExitOnSync && localBuild.Status.Crossplane.ControlPlaneApplied && r.isPlatformAlreadyDeployed(ctx) {
 		logger.Info("✅ Platform is already fully deployed - marking for immediate shutdown")
 		r.shouldShutdown = true
 		return ctrl.Result{}, nil
@@ -149,6 +166,7 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		err = r.installCorePackagesSync(ctx, req, &localBuild)
 		if err != nil {
 			logger.Error(err, "failed installing core packages")
+			r.recordFailure("CorePackageInstallFailed", err)
 			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 		}
 	}
@@ -159,6 +177,7 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		err = r.applyPlatformStack(ctx, req, &localBuild)
 		if err != nil {
 			logger.Error(err, "failed applying platform stack")
+			r.recordFailure("PlatformStackApplyFailed", err)
 			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 		}
 	}
@@ -615,6 +634,14 @@ func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName
 func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) {
 	logger := log.FromContext(ctx)
 
+	// Always persist status and conditions — including on the final pass before
+	// shutdown, so the Ready=True condition survives the controller exiting.
+	resource.Status.ObservedGeneration = resource.GetGeneration()
+	syncConditions(resource, r.lastFailureReason, r.lastFailureMessage)
+	if err := r.Status().Update(ctx, resource); err != nil {
+		logger.Error(err, "Failed to update resource status after reconcile")
+	}
+
 	logger.Info("Checking if we should shutdown")
 	if r.shouldShutdown {
 		logger.Info("🎉 Platform deployment completed successfully! Shutting down...")
@@ -632,12 +659,6 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 		logger.Info("Triggering graceful shutdown...")
 		// Cancel the context to trigger manager shutdown
 		r.CancelFunc()
-		return
-	}
-
-	resource.Status.ObservedGeneration = resource.GetGeneration()
-	if err := r.Status().Update(ctx, resource); err != nil {
-		logger.Error(err, "Failed to update resource status after reconcile")
 	}
 }
 
@@ -963,23 +984,26 @@ func (r *AdharPlatformReconciler) updateArgocdPassword(ctx context.Context, admi
 
 func (r *AdharPlatformReconciler) applyArgoCDAnnotation(ctx context.Context, obj client.Object, argoCDType, annotationKey, annotationValue string) error {
 	annotations := obj.GetAnnotations()
-	if annotations != nil {
-		_, ok := annotations[annotationKey]
-		if !ok {
-			annotations[annotationKey] = annotationValue
-			err := utils.ApplyAnnotation(ctx, r.Client, obj, annotations, client.FieldOwner(v1alpha1.FieldManager))
-			if err != nil {
-				return fmt.Errorf("applying %s refresh annotation for %s: %w", argoCDType, obj.GetName(), err)
-			}
-		} else {
-			a := map[string]string{
-				annotationKey: annotationValue,
-			}
-			err := utils.ApplyAnnotation(ctx, r.Client, obj, a, client.FieldOwner(v1alpha1.FieldManager))
-			if err != nil {
-				return fmt.Errorf("applying %s refresh annotation for %s: %w", argoCDType, obj.GetName(), err)
-			}
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	if _, ok := annotations[annotationKey]; !ok {
+		// Annotation absent: apply the full annotation set including the new key
+		// so existing annotations stay owned by their original field managers.
+		annotations[annotationKey] = annotationValue
+		err := utils.ApplyAnnotation(ctx, r.Client, obj, annotations, client.FieldOwner(v1alpha1.FieldManager))
+		if err != nil {
+			return fmt.Errorf("applying %s refresh annotation for %s: %w", argoCDType, obj.GetName(), err)
 		}
+		return nil
+	}
+	// Annotation already present: re-apply only the refresh key.
+	a := map[string]string{
+		annotationKey: annotationValue,
+	}
+	err := utils.ApplyAnnotation(ctx, r.Client, obj, a, client.FieldOwner(v1alpha1.FieldManager))
+	if err != nil {
+		return fmt.Errorf("applying %s refresh annotation for %s: %w", argoCDType, obj.GetName(), err)
 	}
 	return nil
 }

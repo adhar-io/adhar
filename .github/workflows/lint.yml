@@ -17,7 +17,8 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # golangci-lint is built from source (see Makefile) so its Go language
+      # version always matches the module's go directive; the prebuilt binaries
+      # from golangci-lint-action can lag behind new Go releases.
       - name: Run linter
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.63.4
+        run: make lint

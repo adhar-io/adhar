@@ -36,11 +36,9 @@ const (
 // RawGatewayInstallResources returns the Gateway/GatewayClass manifest so it can
 // be pushed through the GitOps flow like other core packages.
 func RawGatewayInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
-	filePath := config.FilePath
-	if filePath == "" {
-		filePath = "gateway.yaml"
-	}
-	return k8s.BuildCustomizedManifests(filePath, "resources/gateway", gatewayFS, scheme, templateData)
+	// config.FilePath, when set, points at a user-provided override file on
+	// local disk; empty means "no overrides".
+	return k8s.BuildCustomizedManifests(config.FilePath, "resources/gateway", gatewayFS, scheme, templateData)
 }
 
 // ReconcileGatewayAPICRDs installs the upstream Gateway API CRDs. These must be

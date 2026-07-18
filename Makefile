@@ -6,7 +6,7 @@ LD_FLAGS=-ldflags " \
 
 # Image URL to use all building/pushing image targets
 IMG ?= adhar:latest
-VERSION ?= v0.3.8
+VERSION ?= v0.1.0
 
 # The name of the binary. Defaults to adhar
 OUT_FILE ?= adhar
@@ -76,16 +76,12 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
 .PHONY: e2e
-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
+e2e: build ## Run the e2e tests. Creates (and destroys) a local Kind cluster named 'adhar' via `adhar up`.
+	@docker info >/dev/null 2>&1 || { \
+		echo "Docker is not running. The e2e tests bootstrap a Kind cluster and need Docker."; \
 		exit 1; \
 	}
-	@$(KIND) get clusters | grep -q 'kind' || { \
-		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
-		exit 1; \
-	}
-	go test -v -p 1 -timeout 15m --tags=e2e ./tests/e2e/...
+	go test -v -p 1 -timeout 25m --tags=e2e ./tests/e2e/...
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -177,32 +173,25 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 ##@ Release Management
 
 .PHONY: release
-release: goreleaser ## Tag and build a new release with version information
+release: ## Create and push a release tag; CI (GoReleaser) builds and publishes everything
 	@if [ -z "$(VERSION)" ]; then \
-		echo "Error: VERSION must be specified (e.g., make release VERSION=v0.2.0)"; \
+		echo "Error: VERSION must be specified (e.g., make release VERSION=v0.1.0)"; \
 		exit 1; \
 	fi
-	@echo "Creating release $(VERSION)..."
 	@if git rev-parse "$(VERSION)" >/dev/null 2>&1; then \
 		echo "Error: Tag $(VERSION) already exists"; \
 		exit 1; \
 	fi
 	@git fetch --force --tags
-	@echo "Updating version information..."
 	@git tag -a $(VERSION) -m "Release $(VERSION)"
-	@echo "Building versioned binary..."
-	@$(MAKE) build VERSION=$(VERSION)
-	@if [ -z "$$GITHUB_TOKEN" ]; then \
-		echo "Error: GITHUB_TOKEN environment variable is not set"; \
-		echo "Please set it using: export GITHUB_TOKEN=your_github_token"; \
-		echo "You can create a Personal Access Token at https://github.com/settings/tokens"; \
-		echo "The token needs 'repo' permissions to create releases"; \
-		exit 1; \
-	fi
-	@echo "Running GoReleaser..."
-	@$(GORELEASER) release --clean --timeout 30m
-	@echo "Release $(VERSION) created successfully!"
-	@echo "To push the git tag, run: git push origin $(VERSION)"
+	@git push origin $(VERSION)
+	@echo "Tag $(VERSION) pushed. The release workflow now builds and publishes the release:"
+	@echo "  https://github.com/adhar-io/adhar/actions/workflows/release.yaml"
+
+.PHONY: release-snapshot
+release-snapshot: goreleaser ## Build a local snapshot release with GoReleaser (nothing is tagged or published)
+	@$(GORELEASER) release --snapshot --clean --skip=docker
+	@echo "Snapshot artifacts are in dist/"
 
 ##@ Deployment
 
@@ -245,7 +234,7 @@ HELM ?= $(LOCALBIN)/helm
 
 # GoReleaser
 GORELEASER ?= $(LOCALBIN)/goreleaser
-GORELEASER_VERSION ?= v1.26.1
+GORELEASER_VERSION ?= v2.8.2
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.6.0
@@ -254,7 +243,7 @@ CONTROLLER_TOOLS_VERSION ?= v0.17.2
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v1.63.4
+GOLANGCI_LINT_VERSION ?= latest
 HELM_VERSION ?= v3.15.0
 
 .PHONY: kustomize
@@ -291,8 +280,19 @@ clean-control-plane: ## Clean control-plane build artifacts
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
+# Built with the exact Go toolchain this module targets (from go.mod) so the
+# linter's Go language version matches; builds with an older Go refuse to lint
+# modules whose go directive is newer than the Go used to build the linter.
+MODULE_GO_VERSION = $(shell awk '/^go /{print $$2}' go.mod)
 $(GOLANGCI_LINT): $(LOCALBIN)
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+	@[ -f "$(GOLANGCI_LINT)-$(GOLANGCI_LINT_VERSION)" ] || { \
+	set -e; \
+	echo "Building golangci-lint $(GOLANGCI_LINT_VERSION) with Go $(MODULE_GO_VERSION)"; \
+	rm -f $(GOLANGCI_LINT) || true; \
+	GOTOOLCHAIN=go$(MODULE_GO_VERSION) GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+	mv $(GOLANGCI_LINT) $(GOLANGCI_LINT)-$(GOLANGCI_LINT_VERSION); \
+	} ;\
+	ln -sf $(GOLANGCI_LINT)-$(GOLANGCI_LINT_VERSION) $(GOLANGCI_LINT)
 
 .PHONY: helm
 helm: $(HELM) ## Download helm locally if necessary.
@@ -302,7 +302,7 @@ $(HELM): $(LOCALBIN)
 .PHONY: goreleaser
 goreleaser: $(GORELEASER) ## Download goreleaser locally if necessary.
 $(GORELEASER): $(LOCALBIN)
-	$(call go-install-tool,$(GORELEASER),github.com/goreleaser/goreleaser,$(GORELEASER_VERSION))
+	$(call go-install-tool,$(GORELEASER),github.com/goreleaser/goreleaser/v2,$(GORELEASER_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary

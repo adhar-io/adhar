@@ -143,15 +143,21 @@ type ValuesConfig struct {
 
 // AdharPlatformStatus defines the observed state of AdharPlatform.
 type AdharPlatformStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// ObservedGeneration is the 'Generation' of the Service that was last processed by the controller.
+	// ObservedGeneration is the 'Generation' of the resource that was last processed by the controller.
 	// +optional
 	ObservedGeneration int64            `json:"observedGeneration,omitempty"`
 	ArgoCD             ArgoCDStatus     `json:"ArgoCD,omitempty"`
 	Gateway            GatewayStatus    `json:"gateway,omitempty"`
 	Gitea              GiteaStatus      `json:"gitea,omitempty"`
 	Crossplane         CrossplaneStatus `json:"crossplane,omitempty"`
+
+	// Conditions represent the latest observations of the platform's state.
+	// Types: ArgoCDReady, GatewayReady, GiteaReady, CrossplaneReady,
+	// GitOpsReady, and the aggregate Ready.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type CrossplaneStatus struct {

@@ -4,8 +4,8 @@
 
 **Adhar** (Sanskrit: Foundation) is an open-source Internal Developer Platform (IDP) that provides standardized, production-grade cloud-native infrastructure with a single `adhar up` command. It integrates 50+ CNCF and open-source tools into a unified platform, supporting multi-cloud deployment across AWS EKS, Azure AKS, GCP GKE, DigitalOcean DOKS, Civo K3S, and local Kind clusters.
 
-- **Version**: 0.3.8
-- **Language**: Go 1.23+
+- **Version**: 0.1.0
+- **Language**: Go 1.26+
 - **License**: Apache 2.0
 - **Organization**: Adharlabs Pte Ltd (adhar-io)
 - **Status**: Active development (APIs may change)
@@ -155,7 +155,7 @@ adhar/
 ## Build & Development
 
 ### Prerequisites
-- Go 1.23+
+- Go 1.26+
 - Docker v20.10+
 - kubectl v1.24+
 - Make
@@ -173,9 +173,9 @@ go build -o ./adhar ./cmd/       # Build binary
 ### Key Makefile Targets
 ```bash
 make build              # Build binary with version metadata
-make test               # Unit tests with envtest (K8s 1.31)
+make test               # Unit tests with envtest (K8s version derived from k8s.io/api, currently 1.36)
 make e2e                # End-to-end tests on Kind (15min timeout)
-make lint               # golangci-lint v1.63.4
+make lint               # golangci-lint v2 (latest)
 make manifests          # Generate CRDs, RBAC, webhooks via controller-gen
 make generate           # Generate DeepCopy methods for CRD types
 ```
@@ -218,9 +218,10 @@ Validated against `config.schema.json` (JSON Schema draft-07).
 
 ## Testing
 
-- **Unit/Integration**: Go testing + Ginkgo v2 + Gomega + envtest (Kubernetes 1.31)
-- **E2E**: Kind cluster-based, Ginkgo v2
-- **Known failing tests**: `TestGetRawInstallResources` (expects `hack/argo-cd` dir), `TestPatchPasswordSecret` (gitea_test.go) — pre-existing issues
+- **Unit/Integration**: Go testing + testify + envtest (Kubernetes 1.36)
+- **E2E**: `make e2e` runs `tests/e2e/bootstrap` — a full `adhar up` → verify → `adhar down` cycle on Kind. ⚠️ It recreates the local `adhar` cluster (destroys existing state). `ADHAR_E2E_SKIP_UP=1` verifies an already-running platform without touching it; `ADHAR_E2E_KEEP=1` leaves the cluster up afterward
+- **Test suite is fully green** (`make test`) — keep it that way. Unit tests use local git fixtures (no network); controller tests run under envtest with the CRD path `platform/controllers/adharplatform/resources/argocd/install.yaml` and metrics servers disabled (`BindAddress: "0"`)
+- **Status conditions**: the AdharPlatform controller maintains standard `metav1.Condition`s (`ArgoCDReady`, `GatewayReady`, `GiteaReady`, `CrossplaneReady`, `GitOpsReady`, aggregate `Ready` carrying the last reconcile failure); `adhar get status` displays them plus per-package ArgoCD health
 
 ## Release Process
 
@@ -252,7 +253,7 @@ Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
 - **5 Functions** — function-kcl, function-go-templating, function-patch-and-transform, function-auto-ready, function-python.
 - **3 Operations** in `configuration/operations/` — CronOperation (daily backup, weekly secret rotation) + WatchOperation (ConfigMap drift); requires core `--enable-operations`.
 - **ProviderConfigs** — shared `ClusterProviderConfig` per cloud family (AWS/Azure/GCP), plus provider-kubernetes & provider-helm (`ClusterProviderConfig`); DigitalOcean/Civo remain legacy `ProviderConfig`.
-- **Package .xpkg** at `platform/controlplane/adhar-control-plane-v0.3.8.xpkg`, built via `crossplane xpkg build` (`make build-control-plane`).
+- **Package .xpkg** at `platform/controlplane/adhar-control-plane-v0.1.0.xpkg`, built via `crossplane xpkg build` (`make build-control-plane`).
 - Install order: Crossplane core → wait for ready → XRDs → Compositions → Functions → ProviderConfigs → Operations
 
 ### GitOps Phase (69 packages wired via ApplicationSet; curated core enabled for local, rest toggleable)

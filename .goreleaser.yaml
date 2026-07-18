@@ -1,3 +1,5 @@
+version: 2
+
 project_name: adhar
 
 before:
@@ -6,8 +8,14 @@ before:
     - go generate ./...
 
 release:
-  # Mark nightly build as prerelease based on tag
+  # Tags containing a prerelease suffix (e.g. v0.2.0-rc.1) are marked as prerelease
   prerelease: auto
+  draft: false
+  header: |
+    ## Adhar {{ .Tag }}
+
+    Install via Homebrew (`brew install adhar-io/tap/adhar`), container image
+    (`ghcr.io/adhar-io/adhar:{{ .Version }}`), or download a binary below.
 
 builds:
   - env:
@@ -20,6 +28,9 @@ builds:
     goarch:
       - amd64
       - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
     ldflags:
       - -X adhar-io/adhar/cmd/version.Version={{ .Version }}
       - -X adhar-io/adhar/cmd/version.GitCommit={{ .FullCommit }}
@@ -27,18 +38,75 @@ builds:
       - -w
       - -s
     binary: adhar
-    ignore:
-      - goos: linux
-        goarch: "386"
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}
+    format_overrides:
       - goos: windows
-        goarch: arm64
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+      - docs/**/*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+dockers:
+  - image_templates:
+      - ghcr.io/adhar-io/adhar:{{ .Version }}-amd64
+    use: buildx
+    dockerfile: Dockerfile.goreleaser
+    goarch: amd64
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.title={{ .ProjectName }}
+      - --label=org.opencontainers.image.description=Adhar - Open Foundation for Cloud-Native Platform Engineering
+      - --label=org.opencontainers.image.source=https://github.com/adhar-io/adhar
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.licenses=Apache-2.0
+  - image_templates:
+      - ghcr.io/adhar-io/adhar:{{ .Version }}-arm64
+    use: buildx
+    dockerfile: Dockerfile.goreleaser
+    goarch: arm64
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.title={{ .ProjectName }}
+      - --label=org.opencontainers.image.description=Adhar - Open Foundation for Cloud-Native Platform Engineering
+      - --label=org.opencontainers.image.source=https://github.com/adhar-io/adhar
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.licenses=Apache-2.0
+
+docker_manifests:
+  - name_template: ghcr.io/adhar-io/adhar:{{ .Version }}
+    image_templates:
+      - ghcr.io/adhar-io/adhar:{{ .Version }}-amd64
+      - ghcr.io/adhar-io/adhar:{{ .Version }}-arm64
+  - name_template: ghcr.io/adhar-io/adhar:latest
+    # Don't move the `latest` tag for prereleases
+    skip_push: auto
+    image_templates:
+      - ghcr.io/adhar-io/adhar:{{ .Version }}-amd64
+      - ghcr.io/adhar-io/adhar:{{ .Version }}-arm64
+
 brews:
   - name: adhar
     homepage: "https://adhar.io"
+    description: "Open Foundation for Cloud-Native Platform Engineering"
+    license: "Apache-2.0"
+    # Skipped automatically when no Homebrew tap token is available
+    # (e.g. local snapshots or releases from forks); also skipped for prereleases.
+    skip_upload: '{{ if envOrDefault "HOMEBREW_TOKEN" "" }}auto{{ else }}true{{ end }}'
     repository:
       owner: adhar-io
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TOKEN }}"
+      token: '{{ envOrDefault "HOMEBREW_TOKEN" "" }}'
     commit_author:
       name: "AdharAutomation"
       email: "noreply@adhar.io"
@@ -46,26 +114,23 @@ brews:
     install: |
       bin.install "adhar"
     test: |
-      system "#{bin}/adhar --version"
-archives:
-  - format: tar.gz
-    name_template: >-
-      {{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}
-    format_overrides:
-      - goos: windows
-        format: zip
-    files:
-      - README.md
-      - LICENSE
-      - docs/**/*
-checksum:
-  name_template: "checksums.txt"
-  algorithm: sha256
+      system "#{bin}/adhar version --short"
+
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
+
 changelog:
   sort: asc
   use: github
+  groups:
+    - title: "✨ Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "🐛 Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "🔧 Other Changes"
+      order: 999
   filters:
     exclude:
       - "^docs:"

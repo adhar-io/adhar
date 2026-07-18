@@ -56,8 +56,9 @@ func TestTenantManager_CreateTenant(t *testing.T) {
 		t.Fatalf("Failed to get resource quota: %v", err)
 	}
 
-	if quota.Spec.Hard.Cpu().String() != "10" {
-		t.Errorf("Expected CPU quota to be 10, got: %s", quota.Spec.Hard.Cpu().String())
+	// Quotas are written as requests.cpu/limits.cpu (not the bare cpu key).
+	if cpu := quota.Spec.Hard[corev1.ResourceRequestsCPU]; cpu.String() != "10" {
+		t.Errorf("Expected CPU quota to be 10, got: %s", cpu.String())
 	}
 
 	// Verify limit range was created
@@ -209,8 +210,8 @@ func TestTenantManager_GetTenantQuota(t *testing.T) {
 		t.Errorf("Expected quota name to be 'tenant-quota', got: %s", quota.Name)
 	}
 
-	if quota.Spec.Hard.Cpu().String() != "5" {
-		t.Errorf("Expected CPU quota to be 5, got: %s", quota.Spec.Hard.Cpu().String())
+	if cpu := quota.Spec.Hard[corev1.ResourceRequestsCPU]; cpu.String() != "5" {
+		t.Errorf("Expected CPU quota to be 5, got: %s", cpu.String())
 	}
 }
 
@@ -250,12 +251,12 @@ func TestTenantManager_UpdateTenantQuota(t *testing.T) {
 		t.Fatalf("Failed to get updated quota: %v", err)
 	}
 
-	if quota.Spec.Hard.Cpu().String() != "10" {
-		t.Errorf("Expected CPU quota to be 10, got: %s", quota.Spec.Hard.Cpu().String())
+	if cpu := quota.Spec.Hard[corev1.ResourceRequestsCPU]; cpu.String() != "10" {
+		t.Errorf("Expected CPU quota to be 10, got: %s", cpu.String())
 	}
 
-	if quota.Spec.Hard.Memory().String() != "20Gi" {
-		t.Errorf("Expected memory quota to be 20Gi, got: %s", quota.Spec.Hard.Memory().String())
+	if mem := quota.Spec.Hard[corev1.ResourceRequestsMemory]; mem.String() != "20Gi" {
+		t.Errorf("Expected memory quota to be 20Gi, got: %s", mem.String())
 	}
 }
 

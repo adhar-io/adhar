@@ -1,0 +1,9 @@
+# Release image built by GoReleaser: it copies the pre-built binary from the
+# build context instead of compiling from source (see Dockerfile for the
+# from-source build used by `make docker-build`).
+FROM gcr.io/distroless/static:nonroot
+WORKDIR /
+COPY adhar /adhar
+USER 65532:65532
+
+ENTRYPOINT ["/adhar"]

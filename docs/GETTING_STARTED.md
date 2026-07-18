@@ -1,229 +1,131 @@
-# Getting Started with Adhar Platform
+# Getting Started with Adhar
 
-This comprehensive guide will help you get started with the Adhar Platform, from installation to deploying your first applications.
+**Version**: v0.1.0
+
+From zero to a running Internal Developer Platform on your machine in under 10 minutes.
 
 ## Prerequisites
 
-Before you begin, ensure you have the following tools installed on your system:
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| **Docker** | v20.10+ | Running, with your user in the `docker` group |
+| **kubectl** | v1.24+ | For inspecting the cluster (Adhar drives it for you) |
+| **RAM** | 8 GB min, 16 GB recommended | The curated local core runs ~16 services |
+| **Disk** | 20 GB+ free | Container images and volumes |
+| **CPU** | 4+ cores | |
 
-- **Docker**: Required for running containers. [Install Docker](https://docs.docker.com/get-docker/)
-- **kubectl**: Command-line tool for interacting with Kubernetes clusters. [Install kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
-
-## Installation
-
-### Option 1: Quick Install (Recommended)
-
-The following command can be used as a convenience for installing `adhar`:
+## Install the CLI
 
 ```bash
-# Install Adhar CLI
-curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/hack/install.sh | bash
+# Quick install (Linux/macOS)
+curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install.sh | bash
 
-# Verify installation
+# Or Homebrew
+brew install adhar-io/tap/adhar
+
+# Or download a release archive from
+# https://github.com/adhar-io/adhar/releases
+
 adhar version
 ```
 
-### Option 2: Manual Installation
-
-Alternatively, you can download the latest binary from [the latest release page](https://github.com/adhar-io/adhar/releases/latest).
-
-## Quick Start
-
-### 1. Basic Local Setup
-
-The most basic command creates a local Kubernetes cluster (Kind cluster) with core packages:
+## Launch the Platform
 
 ```bash
 adhar up
 ```
 
-This command will:
+What happens (details in the [Architecture](ARCHITECTURE.md#4-deployment-lifecycle)): Adhar creates a Kind cluster, installs the foundation in order (Cilium CNI → Gateway → ArgoCD → Gitea), seeds the in-cluster Git repos with the platform stack, and lets ArgoCD deploy the curated package core via GitOps. Progress is streamed to your terminal; the platform is ready when you see the success banner.
 
-- Create a local Kubernetes cluster using Kind
-- Install core platform services (ArgoCD, Gitea, Nginx Ingress, Keycloak)
-- Set up basic authentication and networking
-
-### 2. Access Platform Services
-
-Once provisioning is complete, you can access the platform services:
-
-- **Adhar Console**: <https://adhar.localtest.me:8443/> (Self-service portal)
-- **ArgoCD**: <https://argocd.adhar.localtest.me:8443/> (GitOps deployments)
-- **Gitea**: <https://gitea.adhar.localtest.me:8443/> (Git repositories)
-- **Keycloak**: <https://keycloak.adhar.localtest.me:8443/> (Identity management)
-- **Headlamp**: <https://headlamp.adhar.localtest.me:8443/> (Kubernetes UI)
-- **JupyterHub**: <https://adhar.localtest.me:8443/jupyterhub/> (Notebooks)
-
-### 3. Get Credentials
-
-Retrieve credentials for the platform services:
+Useful variants:
 
 ```bash
-adhar get secrets
+adhar up --port 9443     # if 8443 is taken (HTTP port auto-derives)
+adhar up --recreate      # delete and recreate an existing cluster
+adhar up --dry-run       # preview without creating anything
 ```
 
-Default credentials:
+## Take the Tour
 
-- **Admin Users**: `user1` / `USER_PASSWORD` (from secrets output)
-- **Regular Users**: `user2` / `USER_PASSWORD` (from secrets output)
-- **Keycloak Admin**: `adhar-admin` / `KEYCLOAK_ADMIN_PASSWORD` (from secrets output)
+Every service is a subdomain of `adhar.localtest.me` (which resolves to your machine — no /etc/hosts editing). The TLS certificate is self-signed, so accept the browser warning locally.
 
-### 4. Tear Down
+| Service | URL | Purpose |
+|---------|-----|---------|
+| Adhar Console | `https://console.adhar.localtest.me:8443` | Developer portal |
+| ArgoCD | `https://argocd.adhar.localtest.me:8443` | GitOps — see every deployed package |
+| Gitea | `https://gitea.adhar.localtest.me:8443` | The platform's source of truth (`adhar/packages`, `adhar/environments`) |
+| Grafana / Headlamp / Hubble | `https://<name>.adhar.localtest.me:8443` | Observability and cluster UIs |
 
-To remove the entire cluster:
+Credentials:
 
 ```bash
-adhar down
+adhar get secrets                 # all service credentials
+adhar get secrets -p argocd       # just ArgoCD (user: admin)
+# Gitea default: gitea_admin / r8sA8CPHD9!bt6d
 ```
 
-## Cloud Deployment
-
-For production deployments, you can deploy to any supported cloud provider:
-
-### Single Provider Setup
+Check status anytime:
 
 ```bash
-# Create configuration file
-cat > my-config.yaml << EOF
-globalSettings:
-  provider: "gke"  # or aws, azure, do, civo
-  region: "us-east1-a"
-  
-cluster:
-  name: "my-adhar-cluster"
-  version: "1.30"
-  
-environments:
-  dev:
-    template: development-defaults
-  prod:
-    template: production-defaults
-EOF
-
-# Deploy to cloud
-adhar up -f my-config.yaml
+adhar get status      # platform health
+adhar get apps        # ArgoCD application states
 ```
 
-### Multi-Provider Setup
+## Your First Platform Change (GitOps)
+
+The whole platform is data in Gitea. Enable an extra package to see the loop:
+
+1. Open `adhar/environments` in Gitea and edit the ApplicationSet file
+2. Find a package with `enabled: "false"` (say `harbor`) and flip it to `"true"`
+3. Commit — ArgoCD picks up the change and deploys it; watch it appear in the ArgoCD UI
+4. When it's `Healthy`, it's live at `https://harbor.adhar.localtest.me:8443`
+
+> Mind local resources: a laptop can't run all 69 packages. Check `kubectl top nodes` before enabling heavyweights. The full customization surface (values, custom packages, environments) is in the [Customization Guide](CUSTOMIZATION.md).
+
+## Deploy to a Cloud
+
+The same flow targets AWS EKS, Azure AKS, GCP GKE, DigitalOcean DOKS, or Civo K3S — declare a config file and run `adhar up -f`:
+
+```yaml
+# adhar-config.yaml
+clusterName: adhar-prod
+provider: AWS_EKS
+region: us-east-1
+enableHAMode: true
+nodePools:
+  - name: system
+    instanceType: t3.large
+    count: 3
+```
 
 ```bash
-# Create dual-provider configuration
-cat > dual-config.yaml << EOF
-globalSettings:
-  productionProvider: "gke"        # Production workloads
-  productionRegion: "us-east1-a"
-  nonProductionProvider: "do"      # Cost-effective dev/test
-  nonProductionRegion: "nyc3"
-  
-cluster:
-  name: "adhar-management"
-  type: "management"
-  
-environments:
-  dev:
-    template: development-defaults
-    # Uses nonProductionProvider (DigitalOcean)
-  staging:
-    type: production
-    template: staging-defaults
-    # Uses productionProvider (GKE)
-  prod:
-    type: production
-    template: production-defaults
-    # Uses productionProvider (GKE)
-EOF
-
-# Deploy dual-provider setup
-adhar up -f dual-config.yaml
+adhar up -f adhar-config.yaml
+adhar get status
 ```
 
-## Core Platform Services
+Per-provider credentials and details: [Provider Guide](PROVIDER_GUIDE.md). Before running real workloads, follow the [Production Guide](PRODUCTION.md).
 
-The Adhar platform includes these core services:
+## Tear Down
 
-### GitOps & CI/CD
-
-- **ArgoCD**: Declarative continuous deployment
-- **Argo Workflows**: Container-native workflow engine
-- **Argo Events**: Event-driven workflow automation
-- **Argo Rollouts**: Advanced deployment capabilities
-
-### Source Control & Artifacts
-
-- **Gitea**: Self-hosted Git service
-- **Harbor**: Container image registry with security scanning
-- **Kaniko**: Container image building
-- **Paketo Buildpacks**: Cloud-native buildpack implementations
-
-### Observability
-
-- **Prometheus**: Metrics collection and alerting
-- **Grafana**: Visualization and dashboards
-- **Grafana Loki**: Log aggregation
-- **Grafana Tempo**: Distributed tracing
-- **Jaeger**: End-to-end distributed tracing
-
-### Security & Governance
-
-- **Keycloak**: Identity and access management
-- **Cert Manager**: Certificate management
-- **HashiCorp Vault**: Secrets management
-- **Kyverno**: Policy management
-- **Trivy**: Security scanning
-- **Falco**: Runtime security
-
-### Infrastructure
-
-- **Cilium**: eBPF-based networking and security
-- **Nginx Ingress**: Ingress controller
-- **External DNS**: DNS management
-- **Crossplane**: Infrastructure as code
-- **Velero**: Backup and restore
-
-## Next Steps
-
-After getting started with Adhar:
-
-1. **Explore the Console**: Use the Adhar Console to deploy your first application
-2. **Set Up GitOps**: Configure ArgoCD for your application deployments
-3. **Configure Monitoring**: Set up dashboards and alerts for your services
-4. **Implement Security**: Configure policies and security scanning
-5. **Scale Your Platform**: Add more environments and services as needed
-
-## Getting Help
-
-- **Documentation**: Check the [comprehensive guides](README.md)
-- **Community**: Join our [Slack channel](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
-- **Issues**: Report bugs or request features on [GitHub](https://github.com/adhar-io/adhar/issues)
-- **Contribution**: See our [contribution guidelines](../CONTRIBUTING.md)
+```bash
+adhar down          # destroys the local platform completely
+```
 
 ## Troubleshooting
 
-### Common Issues
+| Problem | Fix |
+|---------|-----|
+| `adhar up` fails early | Is Docker running? `docker ps`. Port conflict? `adhar up --port 9443` |
+| Service URL doesn't load | Platform still syncing — `adhar get apps`; the Gateway needs the app `Healthy` |
+| Browser TLS warning | Expected locally (self-signed). Production uses cert-manager-issued certs |
+| Pods `Pending` / node pressure | Local resource limits — disable packages you enabled, or give Docker more RAM |
+| Cluster seems wedged | `adhar up --recreate` rebuilds from scratch — the platform is fully reconstructable |
 
-**Installation fails with permission errors:**
+More: [Production Guide §7 Troubleshooting](PRODUCTION.md#7-day-2-operations) · [GitHub Issues](https://github.com/adhar-io/adhar/issues) · [Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
 
-```bash
-# Ensure Docker is running and your user has access
-sudo usermod -aG docker $USER
-# Log out and back in
-```
+## Next Steps
 
-**Cannot access platform services:**
-
-```bash
-# Check if services are running
-kubectl get pods -A
-# Check ingress configuration
-kubectl get ingress -A
-```
-
-**Secrets command fails:**
-
-```bash
-# Ensure cluster is running and kubectl is configured
-kubectl cluster-info
-adhar get secrets
-```
-
-For more detailed troubleshooting, see the [Advanced Guide](ADVANCED.md#troubleshooting).
+1. [User Guide](USER_GUIDE.md) — day-to-day usage and CLI reference
+2. [Architecture](ARCHITECTURE.md) — how it all fits together
+3. [Customization Guide](CUSTOMIZATION.md) — make the platform yours
+4. [Production Guide](PRODUCTION.md) — take it to production

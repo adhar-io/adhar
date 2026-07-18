@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"adhar-io/adhar/cmd/helpers"
+	"adhar-io/adhar/cmd/version"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
@@ -159,7 +160,7 @@ func getComprehensiveOverview(clientset *kubernetes.Clientset) (*ComprehensiveOv
 	if err == nil {
 		overview.Platform = PlatformOverview{
 			Status:      platformStatus.OverallStatus,
-			Version:     "v0.3.8", // TODO: Get from version
+			Version:     version.Version,
 			HealthScore: platformStatus.HealthScore,
 			Uptime:      formatDuration(platformStatus.PlatformUptime),
 		}

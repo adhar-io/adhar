@@ -20,6 +20,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ADHARURIScheme is the URI scheme used in ArgoCD application sources to
+// reference local or in-repo directories that the platform replicates into
+// Gitea (e.g. `repoURL: adhar://manifests`).
+const ADHARURIScheme = "adhar://"
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // CustomPackage is the Schema for the custompackages API.

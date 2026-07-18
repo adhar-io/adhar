@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="110 40 260 260" width="260" height="260">
+  <defs>
+    <linearGradient id="symbolBrand" x1="120" y1="40" x2="360" y2="290" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="0.5" stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#symbolBrand)" stroke="url(#symbolBrand)" stroke-width="6" stroke-linejoin="round">
+    <polygon points="240,50 297.16,83 297.16,149 240,182 182.84,149 182.84,83"/>
+    <polygon points="177.65,158 234.81,191 234.81,257 177.65,290 120.49,257 120.49,191"/>
+    <polygon points="302.35,158 359.51,191 359.51,257 302.35,290 245.19,257 245.19,191"/>
+  </g>
+  <path d="M 240,102 L 281,219 L 240,192 L 199,219 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"/>
+</svg>

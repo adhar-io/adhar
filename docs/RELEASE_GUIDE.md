@@ -1,532 +1,182 @@
 # Adhar Platform Release Guide
 
-**Version**: v0.3.8  
-**Last Updated**: November 2025
+**Version**: v0.1.0
+**Last Updated**: July 2026
 
 ---
 
 ## 📋 Table of Contents
 
-1. [Release Process Overview](#release-process-overview)
-2. [Release Types](#release-types)
-3. [Pre-Release Checklist](#pre-release-checklist)
-4. [Release Steps](#release-steps)
-5. [Post-Release Tasks](#post-release-tasks)
-6. [Hotfix Process](#hotfix-process)
-7. [Rollback Procedures](#rollback-procedures)
-8. [Release Schedule](#release-schedule)
+1. [Overview](#overview)
+2. [Versioning](#versioning)
+3. [The Automated Pipeline](#the-automated-pipeline)
+4. [Cutting a Release](#cutting-a-release)
+5. [Pre-Release Checklist](#pre-release-checklist)
+6. [Testing a Release Locally](#testing-a-release-locally)
+7. [Repository Configuration](#repository-configuration)
+8. [Hotfix Process](#hotfix-process)
+9. [Rollback Procedures](#rollback-procedures)
 
 ---
 
-## Release Process Overview
+## Overview
 
-Adhar follows semantic versioning (SemVer) and uses a structured release process to ensure quality and stability.
-
-### Version Format
+Adhar releases are **fully automated**. A single semver git tag drives the entire
+pipeline: [GoReleaser v2](https://goreleaser.com) (configured in
+[`.goreleaser.yaml`](../.goreleaser.yaml)) runs inside the
+[`release` GitHub Actions workflow](../.github/workflows/release.yaml) and
+builds, packages, and publishes every artifact. No release step is performed by
+hand.
 
 ```
-MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]
-
-Examples:
-- v0.3.8 (stable release)
-- v0.4.0-beta.1 (pre-release)
-- v1.0.0-rc.2 (release candidate)
+git tag v0.1.0 ──▶ release workflow ──▶ GoReleaser ──▶ ┌ GitHub Release (binaries, checksums, notes)
+   (push)                                              ├ ghcr.io/adhar-io/adhar (multi-arch images)
+                                                       └ adhar-io/homebrew-tap (brew formula)
 ```
 
-### Version Components
+## Versioning
 
-- **MAJOR**: Breaking changes, incompatible API changes
-- **MINOR**: New features, backwards-compatible
-- **PATCH**: Bug fixes, backwards-compatible
-- **PRERELEASE**: Alpha, beta, rc (release candidate)
-- **BUILD**: Build metadata (commit hash, build number)
+Adhar follows [Semantic Versioning](https://semver.org), starting from `v0.1.0`:
 
----
+| Segment | Bump when... | Example |
+|---------|--------------|---------|
+| **MAJOR** | Breaking API/config changes | `v1.0.0` |
+| **MINOR** | New features, new providers, backwards-compatible | `v0.2.0` |
+| **PATCH** | Bug fixes, security patches | `v0.1.1` |
+| **Prerelease** | Alpha/beta/release-candidate builds | `v0.2.0-rc.1` |
 
-## Release Types
+Prerelease tags are published as GitHub **prereleases**; they do not move the
+`latest` container tag and do not update the Homebrew formula (`skip_upload: auto`).
 
-### Major Release (x.0.0)
+The version embedded in the binary comes from the tag via ldflags
+(`cmd/version.Version`, `cmd/version.GitCommit`, `cmd/version.BuildDate`) — no
+file in the repository needs a version bump for a release, though the version
+badge in `README.md` and the default `VERSION` in the `Makefile` should be kept
+current as part of normal maintenance.
 
-**When to Release:**
-- Breaking API changes
-- Major architectural changes
-- Removed deprecated features
-- Incompatible configuration changes
+## The Automated Pipeline
 
-**Timeline:** Every 6-12 months
+The `release` workflow triggers on tags matching `v[0-9]+.[0-9]+.[0-9]+` (and
+`-*` prerelease suffixes), or manually via `workflow_dispatch`. It:
 
-**Example:** v1.0.0, v2.0.0
+1. Checks out the full history (`fetch-depth: 0`) so GoReleaser can compute the changelog
+2. For manual runs: validates the version input, creates and pushes the tag
+3. Sets up Go (from `go.mod`), verifies `make build` succeeds
+4. Sets up QEMU + Buildx and logs in to `ghcr.io` (using the built-in `GITHUB_TOKEN`)
+5. Mints a Homebrew tap token via GitHub App (skipped if not configured)
+6. Runs `goreleaser release --clean`, which publishes:
+   - **Binaries** for linux/darwin/windows × amd64/arm64 (no windows/arm64), as `tar.gz` (`zip` on Windows) with `checksums.txt` (SHA-256)
+   - **GitHub Release** with notes generated from commit messages, grouped into Features (`feat:`), Bug Fixes (`fix:`), and Other Changes; `docs:`/`test:`/`chore:` commits are excluded
+   - **Container images** `ghcr.io/adhar-io/adhar:<version>` (+ `latest` for stable releases) — distroless, non-root, multi-arch manifest for amd64/arm64, built from `Dockerfile.goreleaser`
+   - **Homebrew formula** in [`adhar-io/homebrew-tap`](https://github.com/adhar-io/homebrew-tap)
 
-### Minor Release (0.x.0)
+Because commit messages become release notes, use
+[Conventional Commits](https://www.conventionalcommits.org) (`feat:`, `fix:`,
+`docs:`, `chore:`, ...) on `main`.
 
-**When to Release:**
-- New features
-- New provider support
-- New platform capabilities
-- Backwards-compatible enhancements
+## Cutting a Release
 
-**Timeline:** Every 1-2 months
+### Option A — tag from the command line
 
-**Example:** v0.4.0, v0.5.0
+```bash
+git checkout main && git pull origin main
+make release VERSION=v0.1.0
+```
 
-### Patch Release (0.0.x)
+The `release` target refuses existing tags, then creates an annotated tag and
+pushes it. The workflow does the rest — watch it at
+`https://github.com/adhar-io/adhar/actions/workflows/release.yaml`.
 
-**When to Release:**
-- Bug fixes
-- Security patches
-- Documentation updates
-- Performance improvements
+### Option B — from the GitHub UI
 
-**Timeline:** As needed (typically 1-2 weeks)
+**Actions → release → Run workflow**, enter the version (e.g. `v0.1.0`).
+The workflow validates the format, creates the tag, and publishes the release in
+the same run.
 
-**Example:** v0.3.9, v0.3.10
+### After the workflow completes
 
-### Pre-Release
-
-**Types:**
-- **Alpha** (`v0.4.0-alpha.1`): Early testing, unstable
-- **Beta** (`v0.4.0-beta.1`): Feature complete, testing phase
-- **RC** (`v0.4.0-rc.1`): Release candidate, final testing
-
----
+- Verify the [release page](https://github.com/adhar-io/adhar/releases) lists all archives + `checksums.txt`
+- `docker run ghcr.io/adhar-io/adhar:<version> version`
+- `brew update && brew install adhar-io/tap/adhar && adhar version`
 
 ## Pre-Release Checklist
 
-### Code Quality
+- [ ] CI green on `main` (tests, lint, e2e)
+- [ ] `CHANGELOG.md` updated for the new version
+- [ ] `README.md` version badge and `Makefile` `VERSION` default updated
+- [ ] Docs updated for new features / breaking changes
+- [ ] No known critical security vulnerabilities (code-scanner workflow)
+- [ ] `make release-snapshot` succeeds locally
 
-- [ ] All tests passing (unit, integration, e2e)
-- [ ] Linter checks passing (`make lint`)
-- [ ] Code coverage meets threshold (>70%)
-- [ ] No critical security vulnerabilities
-- [ ] All provider tests validated
-
-### Documentation
-
-- [ ] CHANGELOG.md updated with all changes
-- [ ] Documentation updated for new features
-- [ ] API changes documented
-- [ ] Migration guide updated (if needed)
-- [ ] README.md version updated
-
-### Dependencies
-
-- [ ] Go dependencies updated and verified
-- [ ] Kubernetes version compatibility tested
-- [ ] Provider SDK versions verified
-- [ ] Security vulnerabilities scanned
-
-### Testing
-
-- [ ] Manual testing on all 6 providers
-- [ ] Upgrade path tested from previous version
-- [ ] Rollback procedures verified
-- [ ] Performance benchmarks run
-- [ ] Load testing completed (for major releases)
-
-### Platform Services
-
-- [ ] All core services deploy successfully
-- [ ] ArgoCD sync working
-- [ ] Gitea repositories accessible
-- [ ] Monitoring stack operational
-- [ ] Security policies enforced
-
----
-
-## Release Steps
-
-### 1. Prepare Release Branch
+## Testing a Release Locally
 
 ```bash
-# Create release branch from main
-git checkout main
-git pull origin main
-git checkout -b release/v0.4.0
+# Full release build without tagging or publishing (skips container images)
+make release-snapshot
+ls dist/
 
-# Update version in relevant files
-./scripts/update-version.sh v0.4.0
+# Validate .goreleaser.yaml after editing it
+bin/goreleaser check
 ```
 
-### 2. Update Documentation
+## Repository Configuration
 
-```bash
-# Update CHANGELOG.md
-cat >> CHANGELOG.md << 'EOF'
-## [0.4.0] - 2025-11-20
+Binaries, release notes, and GHCR images need **no configuration** — the
+workflow's built-in `GITHUB_TOKEN` has `contents: write` and `packages: write`.
 
-### Added
-- New feature X
-- Provider Y support
+Homebrew publishing requires a GitHub App with write access to
+`adhar-io/homebrew-tap`:
 
-### Changed
-- Improved Z performance
+| Setting | Type | Purpose |
+|---------|------|---------|
+| `ADHAR_HOMEBREW_APP_ID` | Repository **variable** | App ID used to mint a tap-scoped installation token |
+| `ADHAR_HOMEBREW_PRIVATE_KEY` | Repository **secret** | The App's private key (PEM) |
 
-### Fixed
-- Bug in component A
-
-### Security
-- Updated dependency B
-EOF
-
-# Update version in files
-sed -i '' 's/v0.3.8/v0.4.0/g' README.md
-sed -i '' 's/v0.3.8/v0.4.0/g' docs/**/*.md
-```
-
-### 3. Run Pre-Release Tests
-
-```bash
-# Run full test suite
-make test
-
-# Run linter
-make lint
-
-# Run security scan
-make security-scan
-
-# Build all platforms
-make build-all
-
-# Test on all providers
-./scripts/test-all-providers.sh
-```
-
-### 4. Create Release Commit
-
-```bash
-# Commit version updates
-git add .
-git commit -m "chore: prepare release v0.4.0"
-git push origin release/v0.4.0
-
-# Create pull request to main
-gh pr create --title "Release v0.4.0" \
-  --body "$(cat CHANGELOG.md | sed -n '/## \[0.4.0\]/,/## \[/p')"
-```
-
-### 5. Create Git Tag
-
-```bash
-# After PR is merged
-git checkout main
-git pull origin main
-
-# Create annotated tag
-git tag -a v0.4.0 -m "Release v0.4.0
-
-$(cat CHANGELOG.md | sed -n '/## \[0.4.0\]/,/## \[/p')
-"
-
-# Push tag
-git push origin v0.4.0
-```
-
-### 6. Build Release Artifacts
-
-```bash
-# Build binaries for all platforms (automated by CI)
-goreleaser release --clean
-
-# Build Docker images
-docker buildx build --platform linux/amd64,linux/arm64 \
-  -t adhar/adhar:v0.4.0 \
-  -t adhar/adhar:latest \
-  --push .
-
-# Build Helm charts (if applicable)
-helm package charts/adhar --version 0.4.0
-```
-
-### 7. Publish Release
-
-```bash
-# Create GitHub release (automated by CI)
-gh release create v0.4.0 \
-  --title "Adhar v0.4.0" \
-  --notes "$(cat CHANGELOG.md | sed -n '/## \[0.4.0\]/,/## \[/p')" \
-  dist/*
-
-# Publish to package registries
-# - Homebrew tap (automated)
-# - Docker Hub (automated)
-# - GitHub Packages (automated)
-```
-
-### 8. Update Documentation Site
-
-```bash
-# Deploy documentation
-cd docs-site
-npm run build
-npm run deploy
-
-# Update version selector
-./scripts/add-version.sh v0.4.0
-```
-
----
-
-## Post-Release Tasks
-
-### Immediate (Within 24 hours)
-
-- [ ] Monitor release metrics and downloads
-- [ ] Check CI/CD pipelines for failures
-- [ ] Review community feedback on Slack/GitHub
-- [ ] Update project board and close completed issues
-- [ ] Announce release on social media
-
-### Short-term (Within 1 week)
-
-- [ ] Monitor bug reports and issues
-- [ ] Prepare hotfix if critical issues found
-- [ ] Update roadmap based on release
-- [ ] Collect user feedback
-- [ ] Update marketing materials
-
-### Medium-term (Within 1 month)
-
-- [ ] Analyze adoption metrics
-- [ ] Plan next release features
-- [ ] Address technical debt identified
-- [ ] Review and update processes
-- [ ] Celebrate with team! 🎉
-
----
+When absent (e.g. on forks), the release still succeeds and only the formula
+update is skipped.
 
 ## Hotfix Process
 
-### When to Create a Hotfix
-
-- Critical security vulnerability discovered
-- Production-breaking bug
-- Data loss or corruption issue
-- Service unavailability
-
-### Hotfix Steps
+For a critical bug or vulnerability in the latest release:
 
 ```bash
-# 1. Create hotfix branch from release tag
-git checkout v0.3.8
-git checkout -b hotfix/v0.3.9
+# 1. Branch from the affected tag
+git checkout -b hotfix/v0.1.1 v0.1.0
 
-# 2. Fix the issue
-# ... make necessary changes ...
+# 2. Fix, test, update CHANGELOG.md
+make test && make lint
 
-# 3. Test thoroughly
-make test
-./scripts/test-providers.sh
-
-# 4. Update CHANGELOG
-cat >> CHANGELOG.md << 'EOF'
-## [0.3.9] - 2025-11-21
-
-### Fixed
-- Critical bug in X causing Y
-EOF
-
-# 5. Commit and tag
-git add .
-git commit -m "fix: critical issue in component X"
-git tag -a v0.3.9 -m "Hotfix v0.3.9"
-
-# 6. Merge to main and develop
-git checkout main
-git merge hotfix/v0.3.9
-git push origin main
-git push origin v0.3.9
-
-# 7. Release
-goreleaser release --clean
+# 3. Merge back to main via PR, then release from main
+make release VERSION=v0.1.1
 ```
 
-### Hotfix Communication
-
-- Update SECURITY.md if security-related
-- Post immediate notification on Slack
-- Send email to mailing list
-- Create GitHub security advisory
-- Update status page
-
----
+If security-related: update `SECURITY.md`, create a GitHub security advisory,
+and announce on Slack.
 
 ## Rollback Procedures
 
-### Identifying Need for Rollback
-
-Monitor these indicators:
-- Error rates spike (>5%)
-- Performance degradation (>20% slower)
-- Multiple critical bug reports
-- Service unavailability
-- Security breach
-
-### Rollback Steps
+A bad release is rolled back by pointing users at the previous version — never
+delete or re-tag a published release.
 
 ```bash
-# 1. Assess the situation
-adhar version  # Check current version
-adhar get status  # Check platform health
+# Users: downgrade the binary
+curl -fsSL https://github.com/adhar-io/adhar/releases/download/v0.1.0/adhar-0.1.0-linux-amd64.tar.gz | tar xz
 
-# 2. Revert to previous version
-# Option A: Downgrade binary
-curl -fsSL https://github.com/adhar-io/adhar/releases/download/v0.3.8/adhar-linux-amd64 -o adhar
-chmod +x adhar
-
-# Option B: Use backup cluster
-adhar cluster switch --to backup-cluster
-
-# 3. Rollback platform services
-kubectl apply -f manifests/v0.3.8/
-
-# 4. Verify rollback
-adhar get status
-adhar health check
-
-# 5. Communicate rollback
-# - Post incident report
-# - Update status page
-# - Notify users
+# Maintainers: mark the bad release as prerelease/draft on GitHub,
+# then ship a fixed patch release
+make release VERSION=v0.1.2
 ```
 
-### Post-Rollback
-
-- [ ] Investigate root cause
-- [ ] Document lessons learned
-- [ ] Fix issues before next release
-- [ ] Update testing procedures
-- [ ] Review release process
-
----
-
-## Release Schedule
-
-### Regular Releases
-
-| Type | Frequency | Day | Time (UTC) |
-|------|-----------|-----|------------|
-| Major | 6-12 months | Tuesday | 14:00 |
-| Minor | 1-2 months | Tuesday | 14:00 |
-| Patch | As needed | Tuesday | 14:00 |
-| Hotfix | Immediate | Any day | Any time |
-
-### Release Windows
-
-- **Regular releases**: Tuesday 14:00 UTC
-- **Avoid**: Fridays, weekends, holidays
-- **Best time**: Mid-week, business hours
-
-### Communication Timeline
-
-| Time | Action |
-|------|--------|
-| T-7 days | Release candidate published |
-| T-3 days | Release notes preview |
-| T-1 day | Final testing, last changes |
-| T-0 | Release published |
-| T+1 hour | Social media announcement |
-| T+24 hours | Post-release review |
-
----
-
-## Automation
-
-### CI/CD Pipeline
-
-Our release process is automated using GitHub Actions:
-
-```yaml
-# .github/workflows/release.yml
-name: Release
-
-on:
-  push:
-    tags:
-      - 'v*'
-
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v4
-        with:
-          go-version: '1.23'
-      
-      # Run tests
-      - run: make test
-      
-      # Build and release
-      - uses: goreleaser/goreleaser-action@v5
-        with:
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      # Build and push Docker images
-      - uses: docker/build-push-action@v5
-        with:
-          push: true
-          tags: adhar/adhar:${{ github.ref_name }}
-```
-
----
-
-## Release Checklist Template
-
-```markdown
-## Release v0.x.x Checklist
-
-### Pre-Release
-- [ ] Version updated in all files
-- [ ] CHANGELOG.md updated
-- [ ] Tests passing
-- [ ] Security scan clean
-- [ ] Documentation updated
-- [ ] Migration guide (if needed)
-
-### Release
-- [ ] Release branch created
-- [ ] PR created and approved
-- [ ] Tag created
-- [ ] Binaries built
-- [ ] Docker images published
-- [ ] Release notes published
-
-### Post-Release
-- [ ] Announcement posted
-- [ ] Documentation deployed
-- [ ] Monitoring active
-- [ ] Community notified
-- [ ] Roadmap updated
-
-### Sign-off
-- [ ] Release Manager: @username
-- [ ] Technical Lead: @username
-- [ ] QA Lead: @username
-```
+- [ ] Investigate root cause and document it
+- [ ] Add a regression test before the next release
 
 ---
 
 ## Additional Resources
 
-- **[Contributing Guide](../CONTRIBUTING.md)** - How to contribute
-- **[Security Policy](../SECURITY.md)** - Security reporting
-- **[Changelog](../CHANGELOG.md)** - Version history
-- **[Roadmap](ROADMAP.md)** - Future plans
-
----
-
-## Support
-
-For questions about releases:
-- **Slack**: #releases channel
-- **Email**: releases@adhar.io
-- **GitHub**: Open an issue with `release` label
-
----
+- **[GoReleaser configuration](../.goreleaser.yaml)** — the single source of truth for artifacts
+- **[Release workflow](../.github/workflows/release.yaml)** — CI automation
+- **[Contributing Guide](../CONTRIBUTING.md)** — commit conventions
+- **[Changelog](../CHANGELOG.md)** — version history
 
 **Happy Releasing! 🚀**
-

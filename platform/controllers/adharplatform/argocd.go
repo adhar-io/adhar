@@ -20,17 +20,9 @@ import (
 var argoCDFS embed.FS
 
 func RawArgocdInstallResources(templateData any, config v1alpha1.PackageCustomization, scheme *runtime.Scheme) ([][]byte, error) {
-	filePath := config.FilePath
-	if filePath == "" {
-		// Default to "install.yaml" if no specific file path is provided in the customization.
-		// This assumes "install.yaml" is the main manifest in the embedded 'resources/argocd' directory.
-		filePath = "install.yaml"
-	}
-	// argoCDFS embeds the 'resources/argocd' directory. Files within this directory (e.g., install.yaml)
-	// are at the root of the argoCDFS.
-	// filePath (e.g., "install.yaml") is expected to be the direct name of the file in argoCDFS.
-	// The fsRootPrefix for BuildCustomizedManifests should be "." to indicate the root of argoCDFS.
-	return k8s.BuildCustomizedManifests(filePath, ".", argoCDFS, scheme, templateData)
+	// config.FilePath, when set, points at a user-provided override file on
+	// local disk; empty means "no overrides".
+	return k8s.BuildCustomizedManifests(config.FilePath, "resources/argocd", argoCDFS, scheme, templateData)
 }
 
 func (r *AdharPlatformReconciler) ReconcileArgo(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {

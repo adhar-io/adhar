@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/kustomize/kyaml/kio"
 	kyaml "sigs.k8s.io/kustomize/kyaml/yaml"
+	"sigs.k8s.io/yaml"
 )
 
 // ConversionError indicates a decoded runtime object could not be converted to
@@ -35,6 +37,20 @@ func ConvertYamlToObjects(scheme *runtime.Scheme, objYamls []byte) ([]client.Obj
 
 		rtObject, _, err := decode(objYaml, nil, nil)
 		if err != nil {
+			// Kinds not registered in the scheme (e.g. Gateway API or other CRD
+			// instances shipped in embedded manifests) are decoded as
+			// unstructured objects instead of failing the whole manifest.
+			if runtime.IsNotRegisteredError(err) {
+				u := &unstructured.Unstructured{}
+				if uErr := yaml.Unmarshal(objYaml, &u.Object); uErr != nil {
+					return nil, fmt.Errorf("decoding unregistered kind as unstructured: %w", uErr)
+				}
+				if u.GetAPIVersion() == "" || u.GetKind() == "" {
+					return nil, err
+				}
+				k8sObjects = append(k8sObjects, u)
+				continue
+			}
 			return nil, err
 		}
 		object, ok := rtObject.(client.Object)

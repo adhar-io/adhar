@@ -9,12 +9,14 @@
 
 <h1>Open Foundation for Cloud-Native Platform Engineering</h1>
 
-[![Adhar Version](https://img.shields.io/badge/version-0.3.8-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkw0IDhWMTVDNCAxOC4zMSA2LjY5IDIxIDEwIDIxQzEzLjMxIDIxIDE2IDE4LjMxIDE2IDE1VjhMMTIgMloiIGZpbGw9IndoaXRlIi8+PC9zdmc+)](https://github.com/adhar-io/adhar/releases)
+[![Adhar Version](https://img.shields.io/badge/version-0.1.0-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkw0IDhWMTVDNCAxOC4zMSA2LjY5IDIxIDEwIDIxQzEzLjMxIDIxIDE2IDE4LjMxIDE2IDE1VjhMMTIgMloiIGZpbGw9IndoaXRlIi8+PC9zdmc+)](https://github.com/adhar-io/adhar/releases)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.28%2B-blue?logo=kubernetes)](https://kubernetes.io)
 [![Crossplane](https://img.shields.io/badge/crossplane-2.3%2B-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkwzIDdWMTdMMTIgMjJMMjEgMTdWN0wxMiAyWiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=)](https://www.crossplane.io)
-[![Go Version](https://img.shields.io/badge/go-1.24%2B-blue?logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/go-1.26%2B-blue?logo=go)](https://golang.org)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green?logo=apache)](LICENSE)
 [![Slack](https://img.shields.io/badge/slack-join_community-4A154B?logo=slack)](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
+
+<h3>Adhar • Built with ❤️ for developers!</h3>
 
 </div>
 
@@ -32,7 +34,7 @@ Adhar delivers battle-tested architectural patterns with 50+ production-grade se
 
 **The result:** Teams spend 100% of their time on business value, zero time on undifferentiated infrastructure work. 100% open source (Apache 2.0) with no vendor lock-in. This is the foundation modern engineering teams deserve.
 
-> ⚠️ **Development Status:** This project is in active development. APIs and configurations may change. Recommended for development and evaluation purposes.
+>⚠️ **Active Development:** This project is in active development stage. APIs and configurations may change. Recommended for development and evaluation purposes only.
 
 ---
 
@@ -245,7 +247,10 @@ adhar get secrets -p argocd
 | [User Guide](docs/USER_GUIDE.md) | Platform capabilities, configuration, and CLI reference |
 | [Architecture Overview](docs/ARCHITECTURE.md) | System design, components, and technical details |
 | [Provider Guide](docs/PROVIDER_GUIDE.md) | Multi-cloud provider implementation guide |
-| [Advanced Guide](docs/ADVANCED.md) | HA mode, production deployment, and best practices |
+| [Production Guide](docs/PRODUCTION.md) | HA, hardening, backup/DR, upgrades, and day-2 operations |
+| [Customization Guide](docs/CUSTOMIZATION.md) | Every supported extension point, from package toggles to new providers |
+| [Roadmap](docs/ROADMAP.md) | Phased path to the full multi-cluster platform vision |
+| [Release Guide](docs/RELEASE_GUIDE.md) | Release process, versioning, and GoReleaser automation |
 | [Contributing Guide](CONTRIBUTING.md) | How to contribute to the Adhar project |
 
 ---
@@ -340,7 +345,7 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 <tr>
 <td align="center" width="20%">
 <a href="https://grafana.com">
-<img src="https://logo.svgcdn.com/logos/grafana.svg" width="80px" alt="Grafana"/>
+<img src="https://www.vectorlogo.zone/logos/grafana/grafana-icon.svg" width="80px" alt="Grafana"/>
 <br/><b>Grafana</b>
 </a>
 </td>
@@ -352,7 +357,7 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 </td>
 <td align="center" width="20%">
 <a href="https://www.vaultproject.io">
-<img src="https://logo.svgcdn.com/logos/vault-icon.svg" width="80px" alt="Vault"/>
+<img src="https://www.vectorlogo.zone/logos/vaultproject/vaultproject-icon.svg" width="80px" alt="Vault"/>
 <br/><b>Vault</b>
 </a>
 </td>
@@ -411,14 +416,10 @@ Adhar is built on the shoulders of giants. We're grateful to the open-source com
 
 <div align="center">
 
-### ⭐ Star us on GitHub — it helps the project grow!
+**Adhar • Built with ❤️ for developers!**
 
-**Adhar Platform v0.3.8** • Built with ❤️ for Developers
+[🎯 Get Started](docs/GETTING_STARTED.md) • [📖 Documentation](docs/README.md) • [🗺️ Roadmap](docs/ROADMAP.md) • [🤝 Contribute](CONTRIBUTING.md) • [💬 Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) • [🐛 Issues](https://github.com/adhar-io/adhar/issues)
 
-[🎯 Get Started](docs/GETTING_STARTED.md) • [💬 Join Slack](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww) • [📖 Documentation](docs/README.md) • [🤝 Contribute](CONTRIBUTING.md) • [🐛 Report Issue](https://github.com/adhar-io/adhar/issues)
-
----
-
-© 2025 Adharlabs Pte Ltd • Licensed under [Apache License 2.0](LICENSE)
+© 2026 Anvita Systems Pvt Ltd • Licensed under [Apache License 2.0](LICENSE)
 
 </div>

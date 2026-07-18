@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -218,13 +220,30 @@ func (r *GitRepositoryReconciler) SetupWithManager(mgr ctrl.Manager, notifyChan 
 		Complete(r)
 }
 
+// clearWorktreeDir removes everything under dir except the .git directory.
+func clearWorktreeDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() == git.GitDirName {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func addAllAndCommit(path string, gitRepo *git.Repository) (plumbing.Hash, bool, error) {
 	tree, err := gitRepo.Worktree()
 	if err != nil {
 		return plumbing.Hash{}, false, fmt.Errorf("getting git worktree: %w", err)
 	}
 
-	err = tree.AddGlob("*")
+	err = tree.AddWithOptions(&git.AddOptions{All: true})
 	if err != nil {
 		return plumbing.Hash{}, false, fmt.Errorf("adding git files: %w", err)
 	}
@@ -281,6 +300,13 @@ func reconcileLocalRepoContent(ctx context.Context, repo *v1alpha1.GitRepository
 	_, tgtRepository, err := utils.CloneRemoteRepoToDir(ctx, tgtRepoSpec, 1, true, tgtCloneDir, getFallbackRepositoryURL(repo, tgtRepo))
 	if err != nil {
 		return fmt.Errorf("cloning repo %s: %w", tgtRepoSpec.Url, err)
+	}
+
+	// Mirror semantics: the target worktree must exactly reflect the source, so
+	// files removed from the source propagate as deletions in the commit.
+	err = clearWorktreeDir(tgtCloneDir)
+	if err != nil {
+		return fmt.Errorf("clearing worktree: %w", err)
 	}
 
 	err = writeRepoContents(repo, tgtCloneDir, tmplConfig, scheme)

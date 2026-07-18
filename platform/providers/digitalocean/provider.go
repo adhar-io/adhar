@@ -432,13 +432,14 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	// one node pool.
 	nodePools := p.buildDOKSNodePools(spec)
 
+	ha := spec.ControlPlane.HighAvailability
 	createReq := &godo.KubernetesClusterCreateRequest{
 		Name:        spec.Name,
 		RegionSlug:  region,
 		VersionSlug: versionSlug,
 		VPCUUID:     p.config.VPCUUID,
 		Tags:        append([]string{"adhar-cluster"}, p.config.Tags...),
-		HA:          spec.ControlPlane.HighAvailability,
+		HA:          &ha,
 		NodePools:   nodePools,
 	}
 
@@ -1683,7 +1684,7 @@ func (p *Provider) deleteClusterResources(ctx context.Context, tracker *Resource
 func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
 	log.Printf("Fetching kubeconfig for DOKS cluster: %s", clusterID)
 
-	cfg, _, err := p.client.Kubernetes.GetKubeConfig(ctx, clusterID)
+	cfg, _, err := p.client.Kubernetes.GetKubeConfig(ctx, clusterID, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch kubeconfig for DOKS cluster %s: %w", clusterID, err)
 	}

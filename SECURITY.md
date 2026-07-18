@@ -12,9 +12,7 @@ We actively support the following versions with security updates:
 
 | Version | Supported          | End of Support |
 | ------- | ------------------ | -------------- |
-| 0.3.x   | ✅ Yes             | TBD            |
-| 0.2.x   | ⚠️ Limited         | 2025-12-31     |
-| < 0.2   | ❌ No              | Ended          |
+| 0.1.x   | ✅ Yes             | TBD            |
 
 **Recommendation**: Always use the latest stable release for the best security posture.
 
@@ -67,7 +65,7 @@ Please provide as much information as possible:
 - File/Function: [specific location if known]
 
 **Versions Affected**: 
-- Version: [e.g., v0.3.0 - v0.3.8]
+- Version: [e.g., v0.1.0]
 
 **Severity**: [Critical/High/Medium/Low]
 
@@ -331,7 +329,7 @@ Before deploying to production:
 
 ### Documentation
 - [User Guide - Security](docs/USER_GUIDE.md#security--compliance)
-- [Advanced Guide - Security Hardening](docs/ADVANCED.md#security-hardening)
+- [Production Guide - Security Hardening](docs/PRODUCTION.md#3-security-hardening-checklist)
 - [Architecture - Security](docs/ARCHITECTURE.md)
 
 ### External Resources

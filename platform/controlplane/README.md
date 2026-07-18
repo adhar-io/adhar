@@ -683,7 +683,7 @@ Each XRD maps to a CLI command:
 ### Build Status
 
 ```
-✓ Control-plane package ready: platform/controlplane/adhar-control-plane-v0.3.8.xpkg
+✓ Control-plane package ready: platform/controlplane/adhar-control-plane-v0.1.0.xpkg
 ```
 
 **Total**: 11 XRDs, 14 KCL Compositions - **Production Ready 🚀**
