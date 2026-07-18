@@ -15,3 +15,12 @@ loki:
   datasource:
     jsonData: "{}"
     uid: ""
+fluent-bit:
+  enabled: true
+  resources:
+    limits:
+      # 100Mi default OOM-kills under platform log volume
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi

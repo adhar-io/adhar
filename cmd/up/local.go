@@ -225,6 +225,7 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		}
 		localBuild.ObjectMeta.Annotations[v1alpha1.CliStartTimeAnnotation] = cliStartTime
 		localBuild.Spec = v1alpha1.AdharPlatformSpec{
+			Provider:           v1alpha1.ProviderKind,
 			BuildCustomization: lp.options.TemplateData,
 			PackageConfigs: v1alpha1.PackageConfigsSpec{
 				Argo: v1alpha1.ArgoPackageConfigSpec{

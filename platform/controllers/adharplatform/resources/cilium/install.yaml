@@ -1953,7 +1953,9 @@ metadata:
 spec:
   # See docs on ServerCapabilities.LeasesResourceLock in file pkg/k8s/version/version.go
   # for more details.
-  replicas: 2
+  # Single replica: on a single-node (Kind) cluster the second operator pod
+  # stays Pending forever due to pod anti-affinity. HA topologies scale this up.
+  replicas: 1
   selector:
     matchLabels:
       io.cilium/app: operator

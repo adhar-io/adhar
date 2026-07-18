@@ -69311,7 +69311,7 @@ spec:
     spec:
       containers:
       - name: kubectl
-        image: bitnami/kubectl:1.22
+        image: docker.io/bitnamilegacy/kubectl:1.31
         command:
         - kubectl
         - delete
@@ -69338,7 +69338,7 @@ spec:
     spec:
       containers:
       - name: kubectl
-        image: bitnami/kubectl:1.22
+        image: docker.io/bitnamilegacy/kubectl:1.31
         command:
         - kubectl
         - delete

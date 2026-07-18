@@ -56,8 +56,12 @@ const (
 
 // AdharPlatformSpec defines the desired state of AdharPlatform.
 type AdharPlatformSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Provider is the infrastructure provider this platform runs on (kind,
+	// aws, azure, gke, do, civo). The controller uses it to decide which
+	// optional components make sense — e.g. cloud Crossplane providers are
+	// only installed on cloud platforms. Empty is treated as kind (local).
+	// +optional
+	Provider           EnvironmentProvider    `json:"provider,omitempty"`
 	PackageConfigs     PackageConfigsSpec     `json:"packageConfigs,omitempty"`
 	BuildCustomization BuildCustomizationSpec `json:"buildCustomization,omitempty"`
 }

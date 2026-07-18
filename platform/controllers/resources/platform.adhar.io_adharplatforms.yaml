@@ -59,9 +59,6 @@ spec:
                     type: boolean
                 type: object
               packageConfigs:
-                description: |-
-                  INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-                  Important: Run "make" to regenerate code after modifying this file
                 properties:
                   argoPackageConfigs:
                     description: |-
@@ -106,6 +103,13 @@ spec:
                       type: object
                     type: object
                 type: object
+              provider:
+                description: |-
+                  Provider is the infrastructure provider this platform runs on (kind,
+                  aws, azure, gke, do, civo). The controller uses it to decide which
+                  optional components make sense — e.g. cloud Crossplane providers are
+                  only installed on cloud platforms. Empty is treated as kind (local).
+                type: string
             type: object
           status:
             description: AdharPlatformStatus defines the observed state of AdharPlatform.

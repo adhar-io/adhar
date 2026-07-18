@@ -130,12 +130,15 @@ func (r *AdharPlatformReconciler) applyControlPlaneConfiguration(ctx context.Con
 		}
 	}
 
-	// Cloud provider packages + ProviderConfigs: heavy and only meaningful in
-	// cloud mode, where the cloud provider CRDs exist. Best-effort so a local
-	// cluster (no cloud providers) still converges; ArgoCD/cloud bring-up
-	// reconciles these when the providers are present.
-	if err := r.applyEmbeddedManifests(ctx, fsys, "configuration/providers/cloud", resource, "Cloud providers", true, true); err != nil {
-		logger.Info("Cloud provider configuration deferred (expected on local)", "error", err)
+	// Cloud provider packages + ProviderConfigs: heavy (hundreds of MB of
+	// provider images) and useless without cloud credentials — their pods just
+	// crash-loop on a local cluster. Install them only on cloud platforms.
+	if isCloudProvider(resource.Spec.Provider) {
+		if err := r.applyEmbeddedManifests(ctx, fsys, "configuration/providers/cloud", resource, "Cloud providers", true, true); err != nil {
+			logger.Info("Cloud provider configuration deferred", "error", err)
+		}
+	} else {
+		logger.V(1).Info("Skipping cloud Crossplane providers on local platform", "provider", resource.Spec.Provider)
 	}
 
 	logger.Info("Control plane configuration applied successfully")
@@ -190,4 +193,15 @@ func (r *AdharPlatformReconciler) applyEmbeddedManifests(ctx context.Context, fs
 
 func isYAML(p string) bool {
 	return strings.HasSuffix(p, ".yaml") || strings.HasSuffix(p, ".yml")
+}
+
+// isCloudProvider reports whether the platform targets a cloud provider whose
+// Crossplane provider packages should be installed. Empty means local (kind).
+func isCloudProvider(p v1alpha1.EnvironmentProvider) bool {
+	switch p {
+	case v1alpha1.ProviderAWS, v1alpha1.ProviderAzure, v1alpha1.ProviderGKE, v1alpha1.ProviderDO, v1alpha1.ProviderCivo:
+		return true
+	default:
+		return false
+	}
 }

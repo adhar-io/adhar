@@ -414,10 +414,10 @@ spec:
               name: http-metrics
           resources:
             limits:
-              memory: 100Mi
+              memory: 256Mi
             requests:
               cpu: 100m
-              memory: 100Mi
+              memory: 128Mi
       nodeSelector:
         {}
       affinity:

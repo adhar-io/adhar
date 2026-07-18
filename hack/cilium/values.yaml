@@ -2700,6 +2700,9 @@ etcd:
 operator:
   # -- Enable the cilium-operator component (required).
   enabled: true
+  # -- Number of operator replicas. Single replica: on a single-node (Kind)
+  # cluster the second pod stays Pending forever due to pod anti-affinity.
+  replicas: 1
   # -- Roll out cilium-operator pods automatically when configmap is updated.
   rollOutPods: false
   # -- cilium-operator image.

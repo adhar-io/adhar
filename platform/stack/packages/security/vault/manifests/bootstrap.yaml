@@ -123,9 +123,12 @@ data:
     log "waiting for Vault API at ${VAULT_ADDR}"
     i=0
     while true; do
-      if vault status >/dev/null 2>&1; then break; fi
-      rc=$?
-      if [ "${rc}" = "2" ]; then break; fi
+      # `vault status` exits 0 (unsealed) or 2 (sealed) once the API responds;
+      # capture the exit code directly — `$?` after an if-block is the block's
+      # status, not the condition's.
+      rc=0
+      vault status >/dev/null 2>&1 || rc=$?
+      if [ "${rc}" = "0" ] || [ "${rc}" = "2" ]; then break; fi
       i=$((i + 1))
       if [ "${i}" -ge 60 ]; then
         log "timed out waiting for Vault API"
@@ -157,7 +160,8 @@ data:
     else
       log "reading unseal key from Secret ${KEYS_SECRET}"
       INIT_JSON="$(${KUBE} get secret "${KEYS_SECRET}" -o jsonpath='{.data.init\.json}' | base64 -d)"
-      UNSEAL_KEY="$(echo "${INIT_JSON}" | sed -n 's/.*"unseal_keys_b64": *\[ *"\([^"]*\)".*/\1/p')"
+      # vault init -format=json pretty-prints across lines; flatten before sed.
+      UNSEAL_KEY="$(echo "${INIT_JSON}" | tr -d '\n' | sed -n 's/.*"unseal_keys_b64":[[:space:]]*\[[[:space:]]*"\([^"]*\)".*/\1/p')"
       if [ -z "${UNSEAL_KEY}" ]; then
         log "could not parse unseal key from ${KEYS_SECRET}"
         exit 1
@@ -170,7 +174,7 @@ data:
     # 4. Login with root token, then configure (all idempotent).
     # ---------------------------------------------------------------------
     INIT_JSON="$(${KUBE} get secret "${KEYS_SECRET}" -o jsonpath='{.data.init\.json}' | base64 -d)"
-    ROOT_TOKEN="$(echo "${INIT_JSON}" | sed -n 's/.*"root_token": *"\([^"]*\)".*/\1/p')"
+    ROOT_TOKEN="$(echo "${INIT_JSON}" | tr -d '\n' | sed -n 's/.*"root_token":[[:space:]]*"\([^"]*\)".*/\1/p')"
     if [ -z "${ROOT_TOKEN}" ]; then
       log "could not parse root token from ${KEYS_SECRET}"
       exit 1

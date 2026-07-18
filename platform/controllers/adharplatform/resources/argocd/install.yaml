@@ -285,6 +285,10 @@ data:
   applicationsetcontroller.policy: sync
   commitserver.log.format: text
   commitserver.log.level: info
+  # Diff server-side so API defaulting (ESO strategies, Gateway API
+  # parentRef/backendRef defaults) doesn't surface as permanent OutOfSync
+  # under ServerSideApply.
+  controller.diff.server.side: "true"
   controller.ignore.normalizer.jq.timeout: 1s
   controller.log.format: text
   controller.log.level: info
