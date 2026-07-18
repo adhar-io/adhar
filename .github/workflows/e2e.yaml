@@ -2,6 +2,7 @@ name: E2E
 
 on:
   push:
+    branches: ['**'] # not tags
   workflow_dispatch:
 
 # E2E bootstraps a full platform (~15 min); cancel superseded runs on the same ref.

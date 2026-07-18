@@ -2,6 +2,7 @@ name: Tests
 
 on:
   push:
+    branches: ['**'] # not tags
   pull_request:
 
 jobs:

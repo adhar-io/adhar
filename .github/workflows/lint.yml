@@ -2,6 +2,7 @@ name: Lint
 
 on:
   push:
+    branches: ['**'] # not tags: tag commits are linted on their branch already
   pull_request:
 
 jobs:
@@ -11,6 +12,10 @@ jobs:
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
+        with:
+          # Full history so the lint ratchet's new-from-rev origin/main baseline
+          # always exists (a shallow checkout resurfaces the whole backlog).
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5

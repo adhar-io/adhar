@@ -89,7 +89,10 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
-          version: '~> v2'
+          # Pinned to the version the config is validated against locally
+          # (make release-snapshot / goreleaser check). 'latest' has broken
+          # releases before via removed config fields — bump deliberately.
+          version: v2.8.2
           args: release --clean --timeout 60m
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
