@@ -60,6 +60,14 @@ jobs:
       - name: Verify build
         run: OUT_FILE=/tmp/adhar make build
 
+      # make build regenerates the control-plane .xpkg (non-deterministic
+      # tarball on GNU tar); goreleaser refuses to release from a dirty tree.
+      - name: Reset build side effects
+        run: |
+          git status --porcelain
+          git checkout -- .
+          git status --porcelain
+
       - name: Set up QEMU (multi-arch container builds)
         uses: docker/setup-qemu-action@v3
 
@@ -86,15 +94,32 @@ jobs:
           repositories: |
             homebrew-tap
 
-      - name: Run GoReleaser
+      - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           # Pinned to the version the config is validated against locally
           # (make release-snapshot / goreleaser check). 'latest' has broken
           # releases before via removed config fields — bump deliberately.
           version: v2.8.2
-          args: release --clean --timeout 60m
+          install-only: true
+
+      - name: Run GoReleaser
+        run: |
+          set -o pipefail
+          goreleaser release --clean --timeout 60m 2>&1 | tee /tmp/goreleaser.log
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TOKEN: ${{ steps.generate-token.outputs.token || '' }}
           GORELEASER_CURRENT_TAG: ${{ env.RELEASE_TAG }}
+
+      # Failures land in the public run summary so they are diagnosable
+      # without log access.
+      - name: Surface GoReleaser failure
+        if: failure()
+        run: |
+          {
+            echo '### GoReleaser output (tail)'
+            echo '```'
+            tail -60 /tmp/goreleaser.log 2>/dev/null || echo "no log captured"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
