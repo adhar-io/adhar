@@ -73,7 +73,7 @@ Before getting started, ensure you have:
 
 ```bash
 #1. Install Adhar CLI
-curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install.sh | bash
 
 #2. Create local cluster with core platform services
 adhar up
@@ -95,7 +95,7 @@ adhar down
 
 ```bash
 #1. Install Adhar CLI
-curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install.sh | bash
 
 #2. Create configuration file (see Configuration Examples below)
 cat > adhar-config.yaml <<EOF
