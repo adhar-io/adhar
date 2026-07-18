@@ -25710,7 +25710,7 @@ kind: ServiceAccount
 automountServiceAccountToken: true
 metadata:
   name: spark-operator-controller
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -25739,7 +25739,7 @@ kind: ServiceAccount
 automountServiceAccountToken: true
 metadata:
   name: spark-operator-webhook
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -25753,7 +25753,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: spark-operator-controller
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -25780,7 +25780,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: spark-operator-webhook
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -25821,7 +25821,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: spark-operator-controller
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -25832,7 +25832,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: spark-operator-controller
-  namespace: spark-operator
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -25843,7 +25843,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: spark-operator-webhook
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -25854,7 +25854,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: spark-operator-webhook
-  namespace: spark-operator
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -25865,7 +25865,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: spark-operator-controller
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -26044,7 +26044,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: spark-operator-webhook
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -26137,7 +26137,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: spark-operator-controller
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -26148,7 +26148,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: spark-operator-controller
-  namespace: spark-operator
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -26170,7 +26170,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: spark-operator-controller
-  namespace: spark-operator
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -26202,7 +26202,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: spark-operator-webhook
-  namespace: spark-operator
+  namespace: adhar-system
   labels:
     helm.sh/chart: spark-operator-2.5.0
     app.kubernetes.io/name: spark-operator
@@ -26213,7 +26213,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: spark-operator-webhook
-  namespace: spark-operator
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -26235,7 +26235,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: spark-operator-webhook
-  namespace: spark-operator
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -26472,7 +26472,7 @@ webhooks:
   clientConfig:
     service:
       name: spark-operator-webhook-svc
-      namespace: spark-operator
+      namespace: adhar-system
       port: 9443
       path: /mutate--v1-pod
   sideEffects: NoneOnDryRun
@@ -26497,7 +26497,7 @@ webhooks:
   clientConfig:
     service:
       name: spark-operator-webhook-svc
-      namespace: spark-operator
+      namespace: adhar-system
       port: 9443
       path: /mutate-sparkoperator-k8s-io-v1beta2-sparkapplication
   sideEffects: NoneOnDryRun
@@ -26519,7 +26519,7 @@ webhooks:
   clientConfig:
     service:
       name: spark-operator-webhook-svc
-      namespace: spark-operator
+      namespace: adhar-system
       port: 9443
       path: /mutate-sparkoperator-k8s-io-v1beta2-scheduledsparkapplication
   sideEffects: NoneOnDryRun
@@ -26541,7 +26541,7 @@ webhooks:
   clientConfig:
     service:
       name: spark-operator-webhook-svc
-      namespace: spark-operator
+      namespace: adhar-system
       port: 9443
       path: /mutate-sparkoperator-k8s-io-v1alpha1-sparkconnect
   sideEffects: NoneOnDryRun
@@ -26577,7 +26577,7 @@ webhooks:
   clientConfig:
     service:
       name: spark-operator-webhook-svc
-      namespace: spark-operator
+      namespace: adhar-system
       port: 9443
       path: /validate-sparkoperator-k8s-io-v1beta2-sparkapplication
   sideEffects: NoneOnDryRun
@@ -26599,7 +26599,7 @@ webhooks:
   clientConfig:
     service:
       name: spark-operator-webhook-svc
-      namespace: spark-operator
+      namespace: adhar-system
       port: 9443
       path: /validate-sparkoperator-k8s-io-v1beta2-scheduledsparkapplication
   sideEffects: NoneOnDryRun
@@ -26621,7 +26621,7 @@ webhooks:
   clientConfig:
     service:
       name: spark-operator-webhook-svc
-      namespace: spark-operator
+      namespace: adhar-system
       port: 9443
       path: /validate-sparkoperator-k8s-io-v1alpha1-sparkconnect
   sideEffects: NoneOnDryRun

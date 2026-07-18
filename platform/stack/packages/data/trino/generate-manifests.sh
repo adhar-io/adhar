@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/trino/gen
 
 helm repo add trino https://trinodb.github.io/charts --force-update
 helm repo update trino
-helm template --include-crds --namespace trino trino trino/trino -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system trino trino/trino -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

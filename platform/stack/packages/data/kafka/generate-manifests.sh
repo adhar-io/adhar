@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/kafka/gen
 
 helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
 helm repo update bitnami
-helm template --include-crds --namespace kafka kafka bitnami/kafka -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system kafka bitnami/kafka -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

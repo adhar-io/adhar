@@ -3,37 +3,37 @@ type: nonprod
 packages:
   - name: external-secrets
     enabled: true
-    namespace: external-secrets
+    namespace: adhar-system
     category: security
     manifestPath: "security/external-secrets/manifests"
     isChart: false
   - name: cert-manager
     enabled: true
-    namespace: cert-manager
+    namespace: adhar-system
     category: security
     manifestPath: "security/cert-manager/manifests"
     isChart: false
   - name: cnpg
     enabled: true
-    namespace: cnpg-system
+    namespace: adhar-system
     category: data
     manifestPath: "data/cnpg/manifests"
     isChart: false
   - name: kyverno
     enabled: true
-    namespace: kyverno
+    namespace: adhar-system
     category: security
     manifestPath: "security/kyverno/manifests"
     isChart: false
   - name: kyverno-policies
     enabled: true
-    namespace: kyverno
+    namespace: adhar-system
     category: security
     manifestPath: "security/kyverno-policies/manifests"
     isChart: false
   - name: jupyterhub
     enabled: true
-    namespace: jupyterhub
+    namespace: adhar-system
     category: data
     manifestPath: "data/jupyterhub/manifests"
     isChart: false
@@ -45,97 +45,97 @@ packages:
     isChart: false
   - name: keycloak
     enabled: true
-    namespace: keycloak
+    namespace: adhar-system
     category: security
     manifestPath: "security/keycloak/manifests"
     isChart: false
   - name: argo-workflows
     enabled: true
-    namespace: argo
+    namespace: adhar-system
     category: application
     manifestPath: "application/argo-workflows/manifests/dev"
     isChart: false
   - name: adhar-console
     enabled: true
-    namespace: backstage
+    namespace: adhar-system
     category: core
     manifestPath: "core/adhar-console/manifests"
     isChart: false
   - name: harbor
     enabled: true
-    namespace: harbor
+    namespace: adhar-system
     category: application
     manifestPath: "application/harbor/manifests"
     isChart: false
   - name: kargo
     enabled: true
-    namespace: argocd
+    namespace: adhar-system
     category: application
     manifestPath: "application/kargo/manifests"
     isChart: false
   - name: minio
     enabled: true
-    namespace: minio
+    namespace: adhar-system
     category: data
     manifestPath: "data/minio/manifests"
     isChart: false
   - name: velero
     enabled: true
-    namespace: velero
+    namespace: adhar-system
     category: core
     manifestPath: "core/velero/manifests"
     isChart: false
   - name: spark-operator
     enabled: true
-    namespace: spark-operator
+    namespace: adhar-system
     category: data
     manifestPath: "data/spark-operator/manifests"
     isChart: false
   - name: metrics-server
     enabled: true
-    namespace: kube-system
+    namespace: adhar-system
     category: observability
     manifestPath: "observability/metrics-server/manifests"
     isChart: false
   - name: kube-prometheus
     enabled: true
-    namespace: monitoring
+    namespace: adhar-system
     category: observability
     manifestPath: "observability/kube-prometheus/manifests"
     isChart: false
   - name: loki
     enabled: true
-    namespace: monitoring
+    namespace: adhar-system
     category: observability
     manifestPath: "observability/loki-stack/manifests"
     isChart: false
   - name: opencost
     enabled: true
-    namespace: monitoring
+    namespace: adhar-system
     category: observability
     manifestPath: "observability/opencost/manifests"
     isChart: false
   - name: alloy
     enabled: true
-    namespace: monitoring
+    namespace: adhar-system
     category: observability
     manifestPath: "observability/alloy/manifests"
     isChart: false
   - name: oncall
     enabled: true
-    namespace: monitoring
+    namespace: adhar-system
     category: observability
     manifestPath: "observability/oncall/manifests"
     isChart: false
   - name: tempo
     enabled: true
-    namespace: monitoring
+    namespace: adhar-system
     category: observability
     manifestPath: "observability/tempo/manifests"
     isChart: false
   - name: mimir
     enabled: true
-    namespace: monitoring
+    namespace: adhar-system
     category: observability
     manifestPath: "observability/mimir/manifests"
     isChart: false
@@ -147,7 +147,7 @@ packages:
     isChart: false
   - name: crossplane
     enabled: true
-    namespace: crossplane-system
+    namespace: adhar-system
     category: infrastructure
     manifestPath: "infrastructure/crossplane/manifests"
     isChart: false
@@ -159,19 +159,19 @@ packages:
     isChart: false
   - name: dapr
     enabled: true
-    namespace: dapr-system
+    namespace: adhar-system
     category: application
     manifestPath: "application/dapr/manifests"
     isChart: false
   - name: redis
     enabled: true
-    namespace: redis-operator
+    namespace: adhar-system
     category: data
     manifestPath: "data/redis/manifests"
     isChart: false
   - name: keda
     enabled: true
-    namespace: keda
+    namespace: adhar-system
     category: application
     manifestPath: "application/keda/manifests"
     isChart: false

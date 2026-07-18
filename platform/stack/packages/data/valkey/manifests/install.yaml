@@ -905,7 +905,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: valkey-operator
   name: valkey-operator-controller-manager
-  namespace: valkey-operator-system
+  namespace: adhar-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -914,7 +914,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: valkey-operator
   name: valkey-operator-leader-election-role
-  namespace: valkey-operator-system
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1133,7 +1133,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: valkey-operator
   name: valkey-operator-leader-election-rolebinding
-  namespace: valkey-operator-system
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1141,7 +1141,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: valkey-operator-controller-manager
-  namespace: valkey-operator-system
+  namespace: adhar-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -1157,7 +1157,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: valkey-operator-controller-manager
-  namespace: valkey-operator-system
+  namespace: adhar-system
 ---
 apiVersion: v1
 data:
@@ -1171,7 +1171,7 @@ metadata:
     app.kubernetes.io/name: valkey-operator
     control-plane: controller-manager
   name: valkey-operator-config
-  namespace: valkey-operator-system
+  namespace: adhar-system
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1181,7 +1181,7 @@ metadata:
     app.kubernetes.io/name: valkey-operator
     control-plane: controller-manager
   name: valkey-operator-controller-manager
-  namespace: valkey-operator-system
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:

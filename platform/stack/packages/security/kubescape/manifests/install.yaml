@@ -667,7 +667,7 @@ metadata:
     tier: ks-control-plane
     kubescape.io/ignore: "true"
   name: kubescape
-  namespace: kubescape
+  namespace: adhar-system
 automountServiceAccountToken: false
 ---
 # Source: kubescape-operator/templates/kubevuln/serviceaccount.yaml
@@ -688,7 +688,7 @@ metadata:
     tier: ks-control-plane
     kubescape.io/ignore: "true"
   name: kubevuln
-  namespace: kubescape
+  namespace: adhar-system
 automountServiceAccountToken: false
 ---
 # Source: kubescape-operator/templates/node-agent/serviceaccount.yaml
@@ -696,7 +696,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: node-agent
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -729,7 +729,7 @@ metadata:
     tier: ks-control-plane
     kubescape.io/ignore: "true"
   name: operator
-  namespace: kubescape
+  namespace: adhar-system
 automountServiceAccountToken: false
 ---
 # Source: kubescape-operator/templates/storage/serviceaccount.yaml
@@ -737,7 +737,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: storage
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -757,7 +757,7 @@ kind: Secret
 apiVersion: v1
 metadata:
   name: cloud-secret
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -782,7 +782,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: kubescape-admission-webhook-ca
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
     "helm.sh/resource-policy": keep
@@ -807,7 +807,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: kubescape-admission-webhook-tls
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -832,7 +832,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: storage-tls-ca
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
     "helm.sh/resource-policy": keep
@@ -857,7 +857,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: storage-tls
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -882,7 +882,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: ks-cloud-config
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -931,7 +931,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: ks-capabilities
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -960,7 +960,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: cs-matching-rules
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -984,7 +984,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: kubescape-scheduler
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -1008,7 +1008,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: host-scanner-definition
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -1031,7 +1031,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: kubevuln-scheduler
-  namespace: kubescape
+  namespace: adhar-system
   labels:
     helm.sh/chart: kubescape-operator-1.40.2
     app.kubernetes.io/name: kubescape-operator
@@ -1053,7 +1053,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: node-agent
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -1116,7 +1116,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: operator
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -1168,7 +1168,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: kubescape-cronjob-template
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -1189,7 +1189,7 @@ data:
     kind: CronJob
     metadata:
       name: kubescape-scheduler
-      namespace: kubescape
+      namespace: adhar-system
       labels:
         app: kubescape-scheduler
         tier: ks-control-plane
@@ -1255,7 +1255,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: kubevuln-cronjob-template # TODO: update template name
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -1276,7 +1276,7 @@ data:
     kind: CronJob
     metadata:
       name: kubevuln-scheduler
-      namespace: kubescape
+      namespace: adhar-system
       labels:
         app: kubevuln-scheduler
         tier: ks-control-plane
@@ -1341,7 +1341,7 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -1363,7 +1363,7 @@ data:
     kind: CronJob
     metadata:
       name: registry-scheduler
-      namespace: kubescape
+      namespace: adhar-system
       labels:
         app: registry-scheduler
         kubescape.io/tier: "core"
@@ -1429,7 +1429,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: storage
-  namespace: kubescape
+  namespace: adhar-system
   labels:
     helm.sh/chart: kubescape-operator-1.40.2
     app.kubernetes.io/name: kubescape-operator
@@ -1465,7 +1465,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: kubescape-storage
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2507,7 +2507,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kubescape
-  namespace: kubescape
+  namespace: adhar-system
 ---
 # Source: kubescape-operator/templates/kubevuln/clusterrolebinding.yaml
 kind: ClusterRoleBinding
@@ -2534,7 +2534,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kubevuln
-  namespace: kubescape
+  namespace: adhar-system
 ---
 # Source: kubescape-operator/templates/node-agent/clusterrolebinding.yaml
 kind: ClusterRoleBinding
@@ -2557,7 +2557,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: node-agent
-  namespace: kubescape
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -2584,7 +2584,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: operator
-  namespace: kubescape
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -2615,7 +2615,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: storage
-  namespace: kubescape
+  namespace: adhar-system
 ---
 # Source: kubescape-operator/templates/storage/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2642,14 +2642,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: storage
-    namespace: kubescape
+    namespace: adhar-system
 ---
 # Source: kubescape-operator/templates/kubescape/role.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: kubescape
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2673,7 +2673,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: operator
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2700,7 +2700,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: kubescape
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2721,14 +2721,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kubescape
-  namespace: kubescape
+  namespace: adhar-system
 ---
 # Source: kubescape-operator/templates/operator/rolebinding.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: operator
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2749,7 +2749,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: operator
-  namespace: kubescape
+  namespace: adhar-system
 ---
 # Source: kubescape-operator/templates/storage/rolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2778,14 +2778,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: storage
-  namespace: kubescape
+  namespace: adhar-system
 ---
 # Source: kubescape-operator/templates/kubescape/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: kubescape
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2816,7 +2816,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kubevuln
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2846,7 +2846,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: node-agent
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2876,7 +2876,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kubescape-admission-webhook
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2905,7 +2905,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: operator
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2935,7 +2935,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: storage
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -2966,7 +2966,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: node-agent
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -3217,7 +3217,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kubescape
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -3383,7 +3383,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kubevuln
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -3519,7 +3519,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: operator
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -3697,7 +3697,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: storage
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -3821,7 +3821,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: kubescape-scheduler
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -3910,7 +3910,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: kubevuln-scheduler
-  namespace: kubescape
+  namespace: adhar-system
   annotations:
     
   labels:
@@ -4019,7 +4019,7 @@ spec:
   version: "v1beta1"
   service:
     name: storage
-    namespace: kubescape
+    namespace: adhar-system
   caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURGakNDQWY2Z0F3SUJBZ0lSQU15ZDFBR1IrNVppYW1lcmpOcDBBall3RFFZSktvWklodmNOQVFFTEJRQXcKRlRFVE1CRUdBMVVFQXhNS2MzUnZjbUZuWlMxallUQWVGdzB5TmpBMk1EY3dNVEk0TkRCYUZ3MHlPREEyTURZdwpNVEk0TkRCYU1CVXhFekFSQmdOVkJBTVRDbk4wYjNKaFoyVXRZMkV3Z2dFaU1BMEdDU3FHU0liM0RRRUJBUVVBCkE0SUJEd0F3Z2dFS0FvSUJBUUM5MzAzTGQ0L1JIQ0JtelBvQXprWlBGWC9Vc3RubWkyNWtvcklxTE0yWVRxWVMKV0Jib3NSRmZYaExJWWs0aG9pbVZBNzYwZUtaQUw4UzdnOHBvK0ZkYzZuNWZCSjdPcC9QamU0QkRxc1krR3JWSwpIb3lZSnM4Slg2QTAzNmYybXY4N0FUZVdUeUZaRXlUSnF6WFNBSjlmVk84bWM4ckxRaitkMnA4OC9uc0xxYXdxCi96YWNUS21QbWoydDJhWkd4S2pRUk91OFZyd0ppZkhrMzUyOG9qN2ZYMHhEUUkxeE9xSUxCL0k2S1hrKzEyMHUKWXQwalJHc1FIQkh4OTQyZWxlMUZ2UXdOYXNMK081MmZ3anhGQUQyV1oxOHkycnJVTmVRUDhxRFc0cUtSL0pONApNYkJ4RFArR2kwd0hWL2M4UGpwWWl5M0Yzck9yZjh2T2xuaktCTHUxQWdNQkFBR2pZVEJmTUE0R0ExVWREd0VCCi93UUVBd0lDcERBZEJnTlZIU1VFRmpBVUJnZ3JCZ0VGQlFjREFRWUlLd1lCQlFVSEF3SXdEd1lEVlIwVEFRSC8KQkFVd0F3RUIvekFkQmdOVkhRNEVGZ1FVK3MzcTNoOGxXUTlvdHNDdkdYNEQxRVorNXBzd0RRWUpLb1pJaHZjTgpBUUVMQlFBRGdnRUJBQkZkZ2tQcHhVUHRodGJjbkswKzhjcDJSdTRjZHRpRjhoTGt5NlEwODB4KzJ2VXNSMXp4ClZwRVJGVjJFMktJNFhWYlN0cUUzUHNES0V3eXBkTnNZYlFZU0sxd0FBZ1FRTjUvRzVYYS9nUGUrcTB3dVZQclYKVDhlRWpkL3VvVkxMeWxNTVF1SEppbWlmb3ZaTjRqOGRoanJiNUpqTWVmaTBNZkl1d2lHL1g2L1BzK1dTT0tjbAo4NlZQS2xOdzVjY0xXRzRoTW5OUGFmV3lXNWlhUS9QdDM3V0g3ZThaVFcxK0QxWjBFSmpwNlB3dkpYQ2hJTzdLCjlIcmFBekNLdUlpRFlIcXQvYlBpWnJ4OWtaamdpazV3azBpZHVDcjRuRC9xQmxHWVpvaHViTGlGTUhHb09OdmkKVDFWWmF2UG9RcFRPbmtERUYwK1lxaS8rbkNNVFI0RGViT3M9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
 ---
 # Source: kubescape-operator/templates/node-agent/servicemonitor.yaml
@@ -4048,7 +4048,7 @@ webhooks:
     clientConfig:
       service:
         name: kubescape-admission-webhook
-        namespace: kubescape
+        namespace: adhar-system
         path: /validate
         port: 443
       caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIekNDQWdlZ0F3SUJBZ0lRYldxSmswQ0ZlYkJCVUhNaWs4dmNFakFOQmdrcWhraUc5dzBCQVFzRkFEQWEKTVJnd0ZnWURWUVFEREE4cUxtdDFZbVZ6WTJGd1pTNXpkbU13SGhjTk1qWXdOakEzTURFeU9EUXdXaGNOTXpZdwpOakEwTURFeU9EUXdXakFhTVJnd0ZnWURWUVFEREE4cUxtdDFZbVZ6WTJGd1pTNXpkbU13Z2dFaU1BMEdDU3FHClNJYjNEUUVCQVFVQUE0SUJEd0F3Z2dFS0FvSUJBUUM5MFlGMmI0cVdtdndaaSsyczE2bXduOFNNT0M5aFV1VlEKdW0yM092QmFXVDNteGhnVjhUbjR2bDM1Rmo3dVNaSFJFUThOYmV6UFp2eTNZRnNSeXJvTVhhcWdmOHd0b1I2MApIalYyd1dDdDBkeGJnSzk1OEY1dWU3a0JJY2YycTJ1T2paYm9CdmJvOFVRaXgxTnM0M2YwaVVNa2xUVDE0aW1YCjZMd3ozOEFDbmtNQ3UxU1FRSGtpRUQ3MG1JbUFUbVQxSHZ5V0hSOSt5cjh0eFQvRFM3UEZDV01JOXhzazVVK0oKamNiUy9TUWs2cDkrcmJjV3h4WDVGbVZIM1FGS2pRZGpiMjkwbDVoQStnOEV1L1c1SlV6eVc2ODdXSkxNNzhYMQp2WXlDb0M2NE53YUNpWGV4NVlXVTYwWUhldDBYd0VxclpDelBwM0x0dnNqQm1OWk5xK2gvQWdNQkFBR2pZVEJmCk1BNEdBMVVkRHdFQi93UUVBd0lDcERBZEJnTlZIU1VFRmpBVUJnZ3JCZ0VGQlFjREFRWUlLd1lCQlFVSEF3SXcKRHdZRFZSMFRBUUgvQkFVd0F3RUIvekFkQmdOVkhRNEVGZ1FVUjVBZitWSzJpbXpLOVc0YkdNMG1JL0YzY2hNdwpEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBRnFxQjVhc3V1UDFyUG9NS25xYldPZkVRSk03emRZK1NWTGpnbXU2CjZuanVkTjBCT01ENjJGMWhEbkpqWHNjQTJTOFVyN3VxRmphdHlIM2U1U1R5ZnhIeU1LSGo2M09nYlhrVkVSQzMKa2tySkNHMlNzaS9WbFFDSU5YUWx2NHdkdUR0REx2bjlJT1ZYVXJaQmUxNVJOblRRK2FPeVBDVEJ1WnF3MmYzWAp2MkVuTDdkZjNsblAyWENVMzBWYTcxRkJ2bitEYzlMVE9mbFZGcmdGVnNIeVVtYjMzb29qZWRON3VxMXdEeDVtCnpmQUU0cTlhSW94c2NER3FjdlJ3MmJEK2orKzl1SUNpejAzU0w2VzRRcHdXWHg1WHhWeVVqV0pEQkRGZnZuOXAKZmhCcmt4c2p5Uk5VZDJsNFI0QkdrZ2oxeStvTmdEUkZYWEM4UE1naWUrbHIyNFE9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K

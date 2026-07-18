@@ -95,7 +95,7 @@ mkdir -p packages/application/my-tool/manifests
 Conventions that keep you upgrade-safe:
 
 - Put custom packages in their **own directories** — never inside an Adhar-shipped package dir
-- Namespace-per-package unless it must share (e.g. `kyverno-policies` → `kyverno`)
+- All platform packages deploy into `adhar-system` — set `namespace: "adhar-system"` in the entry and render manifests with `--namespace adhar-system`
 - If the tool has a UI, ship an `HTTPRoute` attaching to `adhar-gateway` so it gets `my-tool.<domain>` like everything else:
 
 ```yaml

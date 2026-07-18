@@ -33,7 +33,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     control-plane: policy-controller-webhook
   name: policy-controller-webhook
-  namespace: cosign-system
+  namespace: adhar-system
 ---
 # Source: policy-controller/templates/webhook/secret_certs_webhook.yaml
 apiVersion: v1
@@ -47,7 +47,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     control-plane: policy-controller-webhook
   name: webhook-certs
-  namespace: cosign-system
+  namespace: adhar-system
 # The data is populated at install time.
 ---
 # Source: policy-controller/templates/webhook/config-sigstore-keys.yaml
@@ -69,7 +69,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: config-sigstore-keys
-  namespace: cosign-system
+  namespace: adhar-system
 data:
   _example: |
     ##################################
@@ -86,7 +86,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: config-image-policies
-  namespace: cosign-system
+  namespace: adhar-system
 data:
   _example: |
     #######################################
@@ -116,7 +116,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: config-policy-controller
-  namespace: cosign-system
+  namespace: adhar-system
 data:
   _example: |
     ################################
@@ -139,7 +139,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     control-plane: policy-controller-webhook
   name: policy-controller-webhook-logging
-  namespace: cosign-system
+  namespace: adhar-system
 data:
   zap-logger-config: |-
     {
@@ -193,7 +193,7 @@ spec:
       clientConfig:
         service:
           name: webhook
-          namespace: cosign-system
+          namespace: adhar-system
   group: policy.sigstore.dev
   names:
     kind: ClusterImagePolicy
@@ -1161,14 +1161,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: policy-controller-webhook
-  namespace: cosign-system
+  namespace: adhar-system
 ---
 # Source: policy-controller/templates/webhook/role_webhook.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: policy-controller-webhook
-  namespace: cosign-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: policy-controller-0.10.6
     app.kubernetes.io/name: policy-controller
@@ -1210,7 +1210,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: policy-controller-webhook
-  namespace: cosign-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: policy-controller-0.10.6
     app.kubernetes.io/name: policy-controller
@@ -1221,7 +1221,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: policy-controller-webhook
-  namespace: cosign-system
+  namespace: adhar-system
 roleRef:
   kind: Role
   name: policy-controller-webhook
@@ -1239,7 +1239,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     control-plane: policy-controller-webhook
   name: webhook
-  namespace: cosign-system
+  namespace: adhar-system
 spec:
   type: ClusterIP
   ports:
@@ -1264,7 +1264,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     control-plane: policy-controller-webhook
   name: policy-controller-webhook-metrics
-  namespace: cosign-system
+  namespace: adhar-system
 spec:
   type: ClusterIP
   ports:
@@ -1289,7 +1289,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     control-plane: policy-controller-webhook
   name: policy-controller-webhook
-  namespace: cosign-system
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -1438,7 +1438,7 @@ webhooks:
     clientConfig:
       service:
         name: webhook
-        namespace: cosign-system
+        namespace: adhar-system
     failurePolicy: Fail
     matchPolicy: Equivalent
     name: defaulting.clusterimagepolicy.sigstore.dev
@@ -1461,7 +1461,7 @@ webhooks:
   clientConfig:
     service:
       name: webhook
-      namespace: cosign-system
+      namespace: adhar-system
   failurePolicy: Fail
   sideEffects: None
   reinvocationPolicy: IfNeeded
@@ -1477,7 +1477,7 @@ webhooks:
     clientConfig:
       service:
         name: webhook
-        namespace: cosign-system
+        namespace: adhar-system
     failurePolicy: Fail
     matchPolicy: Equivalent
     name: validating.clusterimagepolicy.sigstore.dev
@@ -1500,7 +1500,7 @@ webhooks:
   clientConfig:
     service:
       name: webhook
-      namespace: cosign-system
+      namespace: adhar-system
   failurePolicy: Fail
   sideEffects: None
 ---
@@ -1516,7 +1516,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     control-plane: policy-controller-cleanup
   name: policy-controller-webhook-cleanup
-  namespace: cosign-system
+  namespace: adhar-system
   annotations:
     "helm.sh/hook": post-delete
     "helm.sh/hook-weight": "2"
@@ -1527,7 +1527,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: policy-controller-cleanup
-  namespace: cosign-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: policy-controller-0.10.6
     app.kubernetes.io/name: policy-controller
@@ -1549,7 +1549,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: policy-controller-cleanup
-  namespace: cosign-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: policy-controller-0.10.6
     app.kubernetes.io/name: policy-controller
@@ -1564,7 +1564,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: policy-controller-webhook-cleanup
-  namespace: cosign-system
+  namespace: adhar-system
 roleRef:
   kind: Role
   name: policy-controller-cleanup
@@ -1575,7 +1575,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: leases-cleanup
-  namespace: cosign-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: policy-controller-0.10.6
     app.kubernetes.io/name: policy-controller
@@ -1601,7 +1601,7 @@ spec:
           command:
             - /bin/sh
             - -c
-            - kubectl delete leases --all --ignore-not-found -n cosign-system
+            - kubectl delete leases --all --ignore-not-found -n adhar-system
           resources:
             limits:
             requests:

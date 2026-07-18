@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/cosig
 
 helm repo add sigstore https://sigstore.github.io/helm-charts --force-update
 helm repo update sigstore
-helm template --include-crds --namespace cosign-system policy-controller sigstore/policy-controller -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system policy-controller sigstore/policy-controller -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

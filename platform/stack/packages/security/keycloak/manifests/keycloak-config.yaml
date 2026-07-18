@@ -3,13 +3,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: keycloak-config
-  namespace: keycloak
+  namespace: adhar-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: keycloak-config
-  namespace: keycloak
+  namespace: adhar-system
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
@@ -19,11 +19,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: keycloak-config
-  namespace: keycloak
+  namespace: adhar-system
 subjects:
   - kind: ServiceAccount
     name: keycloak-config
-    namespace: keycloak
+    namespace: adhar-system
 roleRef:
   kind: Role
   name: keycloak-config
@@ -47,7 +47,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: keycloak-config
-    namespace: keycloak
+    namespace: adhar-system
 roleRef:
   kind: Role
   name: keycloak-config
@@ -57,7 +57,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: config-job
-  namespace: keycloak
+  namespace: adhar-system
 data:
   client-scope-groups-payload.json: |
     {
@@ -467,7 +467,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: config
-  namespace: keycloak
+  namespace: adhar-system
   annotations:
     # Runs DURING sync at wave 20 — after the Keycloak Deployment (wave 10) is
     # healthy — so it can register the realm/clients and write the
@@ -515,7 +515,7 @@ spec:
               ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
               USER1_PASSWORD=$(cat /var/secrets/USER_PASSWORD)
 
-              KEYCLOAK_URL=http://keycloak.keycloak.svc.cluster.local:8080
+              KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080
 
               KEYCLOAK_TOKEN=$(curl -sS  --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
                 --data-urlencode "username=adhar-admin" \
@@ -906,7 +906,7 @@ spec:
               kind: Secret
               metadata:
                 name: keycloak-clients
-                namespace: keycloak
+                namespace: adhar-system
               type: Opaque
               stringData:
                 # Values are quoted so an empty one (e.g. ARGOCD_SESSION_TOKEN

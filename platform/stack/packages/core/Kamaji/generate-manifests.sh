@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/core/Kamaji/ge
 
 helm repo add clastix https://clastix.github.io/charts --force-update
 helm repo update clastix
-helm template --namespace kamaji-system kamaji clastix/kamaji -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system kamaji clastix/kamaji -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}

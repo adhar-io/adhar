@@ -20,7 +20,7 @@ kind: ServiceAccount
 automountServiceAccountToken: true
 metadata:
   name: posthog-posthog-redis
-  namespace: "posthog"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: posthog-redis
     helm.sh/chart: redis-16.8.9
@@ -31,7 +31,7 @@ metadata:
 # Template Parameters:
 #
 # COMMENT=
-# NAMESPACE=posthog
+# NAMESPACE=adhar-system
 # NAME=clickhouse-operator
 #
 # Setup ServiceAccount
@@ -39,7 +39,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: clickhouse-operator
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
 ---
@@ -113,7 +113,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: posthog-posthog-redis-configuration
-  namespace: "posthog"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: posthog-redis
     helm.sh/chart: redis-16.8.9
@@ -146,7 +146,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: posthog-posthog-redis-health
-  namespace: "posthog"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: posthog-redis
     helm.sh/chart: redis-16.8.9
@@ -253,7 +253,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: posthog-posthog-redis-scripts
-  namespace: "posthog"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: posthog-redis
     helm.sh/chart: redis-16.8.9
@@ -282,14 +282,14 @@ data:
 # Template Parameters:
 #
 # NAME=etc-clickhouse-operator-files
-# NAMESPACE=posthog
+# NAMESPACE=adhar-system
 # COMMENT=
 #
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: etc-clickhouse-operator-files
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
     app: clickhouse-operator
@@ -513,14 +513,14 @@ data:
 # Template Parameters:
 #
 # NAME=etc-clickhouse-operator-confd-files
-# NAMESPACE=posthog
+# NAMESPACE=adhar-system
 # COMMENT=
 #
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: etc-clickhouse-operator-confd-files
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
     app: clickhouse-operator
@@ -530,14 +530,14 @@ data:
 # Template Parameters:
 #
 # NAME=etc-clickhouse-operator-configd-files
-# NAMESPACE=posthog
+# NAMESPACE=adhar-system
 # COMMENT=
 #
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: etc-clickhouse-operator-configd-files
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
     app: clickhouse-operator
@@ -589,14 +589,14 @@ data:
 # Template Parameters:
 #
 # NAME=etc-clickhouse-operator-templatesd-files
-# NAMESPACE=posthog
+# NAMESPACE=adhar-system
 # COMMENT=
 #
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: etc-clickhouse-operator-templatesd-files
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
     app: clickhouse-operator
@@ -690,14 +690,14 @@ data:
 # Template Parameters:
 #
 # NAME=etc-clickhouse-operator-usersd-files
-# NAMESPACE=posthog
+# NAMESPACE=adhar-system
 # COMMENT=
 #
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: etc-clickhouse-operator-usersd-files
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
     app: clickhouse-operator
@@ -749,7 +749,7 @@ data:
 # Source: posthog/templates/clickhouse-operator/clusterrole.yaml
 # Template Parameters:
 #
-# NAMESPACE=posthog
+# NAMESPACE=adhar-system
 # COMMENT=#
 # ROLE_KIND=ClusterRole
 # ROLE_NAME=clickhouse-operator-posthog
@@ -760,7 +760,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: clickhouse-operator-posthog
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
 rules:
@@ -918,7 +918,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: clickhouse-operator-posthog
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
 roleRef:
@@ -928,7 +928,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: clickhouse-operator
-  namespace: posthog
+  namespace: adhar-system
 ---
 # Source: posthog/charts/kafka/templates/svc-headless.yaml
 apiVersion: v1
@@ -1029,7 +1029,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: posthog-posthog-redis-headless
-  namespace: "posthog"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: posthog-redis
     helm.sh/chart: redis-16.8.9
@@ -1053,7 +1053,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: posthog-posthog-redis-master
-  namespace: "posthog"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: posthog-redis
     helm.sh/chart: redis-16.8.9
@@ -1079,7 +1079,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: posthog-posthog-zookeeper-headless
-  namespace: posthog
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: posthog-zookeeper
     helm.sh/chart: zookeeper-7.0.5
@@ -1113,7 +1113,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: posthog-posthog-zookeeper
-  namespace: posthog
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: posthog-zookeeper
     helm.sh/chart: zookeeper-7.0.5
@@ -1144,19 +1144,19 @@ spec:
 # Source: posthog/templates/clickhouse-operator/service.yaml
 # Template Parameters:
 #
-# NAMESPACE=posthog
+# NAMESPACE=adhar-system
 # COMMENT=
 #
 # Setup ClusterIP Service to provide monitoring metrics for Prometheus
 # Service would be created in kubectl-specified namespace
 # In order to get access outside of k8s it should be exposed as:
-# kubectl --namespace prometheus port-forward service/prometheus 9090
+# kubectl --namespace adhar-system port-forward service/prometheus 9090
 # and point browser to localhost:9090
 kind: Service
 apiVersion: v1
 metadata:
   name: clickhouse-operator-metrics
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
     app: clickhouse-operator
@@ -1247,7 +1247,7 @@ spec:
 # Source: posthog/templates/clickhouse-operator/deployment.yaml
 # Template Parameters:
 #
-# NAMESPACE=posthog
+# NAMESPACE=adhar-system
 # COMMENT=
 # OPERATOR_IMAGE=altinity/clickhouse-operator:0.19.0
 # METRICS_EXPORTER_IMAGE=altinity/metrics-exporter:latest
@@ -1258,7 +1258,7 @@ kind: Deployment
 apiVersion: apps/v1
 metadata:
   name: clickhouse-operator
-  namespace: posthog
+  namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
     app: clickhouse-operator
@@ -1700,7 +1700,7 @@ spec:
       containers:
 
       - name: posthog-pgbouncer
-        image: "bitnami/pgbouncer:1.18.0"
+        image: "bitnamilegacy/pgbouncer:1.18.0"
         imagePullPolicy: IfNotPresent
         ports:
         - name: pgbouncer
@@ -2843,7 +2843,7 @@ spec:
       serviceAccountName: posthog-posthog-kafka
       containers:
         - name: kafka
-          image: docker.io/bitnami/kafka:2.8.1-debian-10-r99
+          image: docker.io/bitnamilegacy/kafka:2.8.1-debian-10-r99
           imagePullPolicy: "IfNotPresent"
           command:
             - /scripts/setup.sh
@@ -2867,7 +2867,7 @@ spec:
             - name: KAFKA_CFG_LISTENERS
               value: "INTERNAL://:9093,CLIENT://:9092"
             - name: KAFKA_CFG_ADVERTISED_LISTENERS
-              value: "INTERNAL://$(MY_POD_NAME).posthog-posthog-kafka-headless.posthog.svc.cluster.local:9093,CLIENT://$(MY_POD_NAME).posthog-posthog-kafka-headless.posthog.svc.cluster.local:9092"
+              value: "INTERNAL://$(MY_POD_NAME).posthog-posthog-kafka-headless.adhar-system.svc.cluster.local:9093,CLIENT://$(MY_POD_NAME).posthog-posthog-kafka-headless.adhar-system.svc.cluster.local:9092"
             - name: ALLOW_PLAINTEXT_LISTENER
               value: "yes"
             - name: KAFKA_VOLUME_DIR
@@ -3014,7 +3014,7 @@ spec:
         
       containers:
         - name: posthog-posthog-postgresql
-          image: docker.io/bitnami/postgresql:11.7.0-debian-10-r9
+          image: docker.io/bitnamilegacy/postgresql:11.7.0-debian-10-r9
           imagePullPolicy: "IfNotPresent"
           resources:
             requests:
@@ -3096,7 +3096,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: posthog-posthog-redis-master
-  namespace: "posthog"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: posthog-redis
     helm.sh/chart: redis-16.8.9
@@ -3152,7 +3152,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: redis
-          image: docker.io/bitnami/redis:6.2.7-debian-10-r0
+          image: docker.io/bitnamilegacy/redis:6.2.7-debian-10-r0
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsUser: 1001
@@ -3250,7 +3250,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: posthog-posthog-zookeeper
-  namespace: posthog
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: posthog-zookeeper
     helm.sh/chart: zookeeper-7.0.5
@@ -3302,7 +3302,7 @@ spec:
           
       containers:
         - name: zookeeper
-          image: docker.io/bitnami/zookeeper:3.7.0-debian-10-r70
+          image: docker.io/bitnamilegacy/zookeeper:3.7.0-debian-10-r70
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsUser: 1001
@@ -3354,7 +3354,7 @@ spec:
             - name: ZOO_MAX_SESSION_TIMEOUT
               value: "40000"
             - name: ZOO_SERVERS
-              value: posthog-posthog-zookeeper-0.posthog-posthog-zookeeper-headless.posthog.svc.cluster.local:2888:3888::1 
+              value: posthog-posthog-zookeeper-0.posthog-posthog-zookeeper-headless.adhar-system.svc.cluster.local:2888:3888::1 
             - name: ZOO_ENABLE_AUTH
               value: "no"
             - name: ZOO_HEAP_SIZE

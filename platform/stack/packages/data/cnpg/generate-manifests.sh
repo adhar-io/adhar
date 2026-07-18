@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/cnpg/gene
 
 helm repo add cnpg https://cloudnative-pg.github.io/charts --force-update
 helm repo update cnpg
-helm template --namespace cnpg-system cnpg cnpg/cloudnative-pg -f values.yaml --version ${CHART_VERSION} --kube-version 1.31.0 --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system cnpg cnpg/cloudnative-pg -f values.yaml --version ${CHART_VERSION} --kube-version 1.31.0 --include-crds >>${INSTALL_YAML}

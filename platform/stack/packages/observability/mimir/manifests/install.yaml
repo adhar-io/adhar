@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/component: alertmanager
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -34,7 +34,7 @@ metadata:
     app.kubernetes.io/component: compactor
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -55,7 +55,7 @@ metadata:
     app.kubernetes.io/component: distributor
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -76,7 +76,7 @@ metadata:
     app.kubernetes.io/component: gateway
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -97,7 +97,7 @@ metadata:
     app.kubernetes.io/component: ingester
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -118,7 +118,7 @@ metadata:
     app.kubernetes.io/component: kafka
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -139,7 +139,7 @@ metadata:
     app.kubernetes.io/component: overrides-exporter
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -160,7 +160,7 @@ metadata:
     app.kubernetes.io/component: querier
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -181,7 +181,7 @@ metadata:
     app.kubernetes.io/component: query-frontend
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -202,7 +202,7 @@ metadata:
     app.kubernetes.io/component: query-scheduler
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -223,7 +223,7 @@ metadata:
     app.kubernetes.io/component: ruler
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -244,7 +244,7 @@ metadata:
     app.kubernetes.io/component: store-gateway
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -264,7 +264,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mimir-rollout-operator
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: rollout-operator-0.37.1
     app.kubernetes.io/name: rollout-operator
@@ -285,7 +285,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 ---
 # Source: mimir-distributed/charts/minio/templates/secrets.yaml
 apiVersion: v1
@@ -719,7 +719,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {} 
-  namespace: "monitoring"
+  namespace: "adhar-system"
 data:
   alertmanager_fallback_config.yaml: |
     receivers:
@@ -739,7 +739,7 @@ metadata:
     app.kubernetes.io/component: gateway-nginx
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 data:
   nginx.conf: |
     worker_processes  5;  ## Default: 1
@@ -804,70 +804,70 @@ data:
     
         # Distributor endpoints
         location /distributor {
-          set $distributor mimir-distributor-headless.monitoring.svc.cluster.local.;
+          set $distributor mimir-distributor-headless.adhar-system.svc.cluster.local.;
           proxy_pass      http://$distributor:8080$request_uri;
         }
         location = /api/v1/push {
-          set $distributor mimir-distributor-headless.monitoring.svc.cluster.local.;
+          set $distributor mimir-distributor-headless.adhar-system.svc.cluster.local.;
           proxy_pass      http://$distributor:8080$request_uri;
         }
         location /otlp/v1/metrics {
-          set $distributor mimir-distributor-headless.monitoring.svc.cluster.local.;
+          set $distributor mimir-distributor-headless.adhar-system.svc.cluster.local.;
           proxy_pass      http://$distributor:8080$request_uri;
         }
     
         # Alertmanager endpoints
         location /alertmanager {
-          set $alertmanager mimir-alertmanager-headless.monitoring.svc.cluster.local.;
+          set $alertmanager mimir-alertmanager-headless.adhar-system.svc.cluster.local.;
           proxy_pass      http://$alertmanager:8080$request_uri;
         }
         location = /multitenant_alertmanager/status {
-          set $alertmanager mimir-alertmanager-headless.monitoring.svc.cluster.local.;
+          set $alertmanager mimir-alertmanager-headless.adhar-system.svc.cluster.local.;
           proxy_pass      http://$alertmanager:8080$request_uri;
         }
         location = /multitenant_alertmanager/configs {
-          set $alertmanager mimir-alertmanager-headless.monitoring.svc.cluster.local.;
+          set $alertmanager mimir-alertmanager-headless.adhar-system.svc.cluster.local.;
           proxy_pass      http://$alertmanager:8080$request_uri;
         }
         location = /api/v1/alerts {
-          set $alertmanager mimir-alertmanager-headless.monitoring.svc.cluster.local.;
+          set $alertmanager mimir-alertmanager-headless.adhar-system.svc.cluster.local.;
           proxy_pass      http://$alertmanager:8080$request_uri;
         }
     
         # Ruler endpoints
         location /prometheus/config/v1/rules {
-          set $ruler mimir-ruler.monitoring.svc.cluster.local.;
+          set $ruler mimir-ruler.adhar-system.svc.cluster.local.;
           proxy_pass      http://$ruler:8080$request_uri;
         }
         location /prometheus/api/v1/rules {
-          set $ruler mimir-ruler.monitoring.svc.cluster.local.;
+          set $ruler mimir-ruler.adhar-system.svc.cluster.local.;
           proxy_pass      http://$ruler:8080$request_uri;
         }
     
         location /prometheus/api/v1/alerts {
-          set $ruler mimir-ruler.monitoring.svc.cluster.local.;
+          set $ruler mimir-ruler.adhar-system.svc.cluster.local.;
           proxy_pass      http://$ruler:8080$request_uri;
         }
         location = /ruler/ring {
-          set $ruler mimir-ruler.monitoring.svc.cluster.local.;
+          set $ruler mimir-ruler.adhar-system.svc.cluster.local.;
           proxy_pass      http://$ruler:8080$request_uri;
         }
     
         # Rest of /prometheus goes to the query frontend
         location /prometheus {
-          set $query_frontend mimir-query-frontend.monitoring.svc.cluster.local.;
+          set $query_frontend mimir-query-frontend.adhar-system.svc.cluster.local.;
           proxy_pass      http://$query_frontend:8080$request_uri;
         }
     
         # Buildinfo endpoint can go to any component
         location = /api/v1/status/buildinfo {
-          set $query_frontend mimir-query-frontend.monitoring.svc.cluster.local.;
+          set $query_frontend mimir-query-frontend.adhar-system.svc.cluster.local.;
           proxy_pass      http://$query_frontend:8080$request_uri;
         }
     
         # Compactor endpoint for uploading blocks
         location /api/v1/upload/block/ {
-          set $compactor mimir-compactor.monitoring.svc.cluster.local.;
+          set $compactor mimir-compactor.adhar-system.svc.cluster.local.;
           proxy_pass      http://$compactor:8080$request_uri;
         }
       }
@@ -884,7 +884,7 @@ metadata:
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 data:
   mimir.yaml: |
     
@@ -900,7 +900,7 @@ data:
       s3:
         access_key_id: grafana-mimir
         bucket_name: mimir-ruler
-        endpoint: mimir-minio.monitoring.svc:9000
+        endpoint: mimir-minio.adhar-system.svc:9000
         insecure: true
         secret_access_key: supersecret
     blocks_storage:
@@ -910,7 +910,7 @@ data:
       s3:
         access_key_id: grafana-mimir
         bucket_name: mimir-tsdb
-        endpoint: mimir-minio.monitoring.svc:9000
+        endpoint: mimir-minio.adhar-system.svc:9000
         insecure: true
         secret_access_key: supersecret
       tsdb:
@@ -936,15 +936,15 @@ data:
         heartbeat_timeout: 4m
     frontend:
       parallelize_shardable_queries: true
-      scheduler_address: mimir-query-scheduler-headless.monitoring.svc:9095
+      scheduler_address: mimir-query-scheduler-headless.adhar-system.svc:9095
     frontend_worker:
       grpc_client_config:
         max_send_msg_size: 419430400
-      scheduler_address: mimir-query-scheduler-headless.monitoring.svc:9095
+      scheduler_address: mimir-query-scheduler-headless.adhar-system.svc:9095
     ingest_storage:
       enabled: true
       kafka:
-        address: mimir-kafka.monitoring.svc.cluster.local.:9092
+        address: mimir-kafka.adhar-system.svc.cluster.local.:9092
         auto_create_topic_default_partitions: 100
         auto_create_topic_enabled: true
         topic: mimir-ingest
@@ -970,13 +970,13 @@ data:
       abort_if_cluster_join_fails: false
       compression_enabled: false
       join_members:
-      - dns+mimir-gossip-ring.monitoring.svc.cluster.local.:7946
+      - dns+mimir-gossip-ring.adhar-system.svc.cluster.local.:7946
     querier:
       max_concurrent: 16
     query_scheduler:
       max_outstanding_requests_per_tenant: 800
     ruler:
-      alertmanager_url: dnssrvnoa+http://_http-metrics._tcp.mimir-alertmanager-headless.monitoring.svc.cluster.local./alertmanager
+      alertmanager_url: dnssrvnoa+http://_http-metrics._tcp.mimir-alertmanager-headless.adhar-system.svc.cluster.local./alertmanager
       enable_api: true
       rule_path: /data
     ruler_storage:
@@ -984,7 +984,7 @@ data:
       s3:
         access_key_id: grafana-mimir
         bucket_name: mimir-ruler
-        endpoint: mimir-minio.monitoring.svc:9000
+        endpoint: mimir-minio.adhar-system.svc:9000
         insecure: true
         secret_access_key: supersecret
     runtime_config:
@@ -1013,7 +1013,7 @@ metadata:
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
 data:
   runtime.yaml: |
     
@@ -1064,14 +1064,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: mimir-rollout-operator
-    namespace: "monitoring"
+    namespace: "adhar-system"
 ---
 # Source: mimir-distributed/charts/rollout_operator/templates/role.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: mimir-rollout-operator
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: rollout-operator-0.37.1
     app.kubernetes.io/name: rollout-operator
@@ -1125,7 +1125,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: mimir-rollout-operator-webhook-role
-  namespace: "monitoring"
+  namespace: "adhar-system"
 rules:
   - apiGroups:
       - ""
@@ -1148,7 +1148,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: mimir-rollout-operator
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: rollout-operator-0.37.1
     app.kubernetes.io/name: rollout-operator
@@ -1168,7 +1168,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: mimir-rollout-operator-webhook-rolebinding
-  namespace: "monitoring"
+  namespace: "adhar-system"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1176,7 +1176,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: mimir-rollout-operator
-    namespace: "monitoring"
+    namespace: "adhar-system"
 ---
 # Source: mimir-distributed/charts/minio/templates/console-service.yaml
 apiVersion: v1
@@ -1226,7 +1226,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mimir-rollout-operator
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: rollout-operator-0.37.1
     app.kubernetes.io/name: rollout-operator
@@ -1260,7 +1260,7 @@ metadata:
     prometheus.io/service-monitor: "false"
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   clusterIP: None
@@ -1297,7 +1297,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1330,7 +1330,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1364,7 +1364,7 @@ metadata:
     prometheus.io/service-monitor: "false"
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   clusterIP: None
@@ -1397,7 +1397,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1429,7 +1429,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1459,7 +1459,7 @@ metadata:
     app.kubernetes.io/component: gossip-ring
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
-  namespace: "monitoring"
+  namespace: "adhar-system"
   annotations:
     {}
 spec:
@@ -1493,7 +1493,7 @@ metadata:
     prometheus.io/service-monitor: "false"
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   clusterIP: None
@@ -1529,7 +1529,7 @@ metadata:
     zone: zone-a
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1567,7 +1567,7 @@ metadata:
     zone: zone-b
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1605,7 +1605,7 @@ metadata:
     zone: zone-c
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1640,7 +1640,7 @@ metadata:
     prometheus.io/service-monitor: "false"
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   # The headless service is used by Kafka brokers for discovering other brokers
@@ -1677,7 +1677,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   ports:
@@ -1704,7 +1704,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1737,7 +1737,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1769,7 +1769,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1792,7 +1792,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mimir-query-scheduler-headless
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: mimir-distributed-6.0.6
     app.kubernetes.io/name: mimir
@@ -1826,7 +1826,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mimir-query-scheduler
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: mimir-distributed-6.0.6
     app.kubernetes.io/name: mimir
@@ -1868,7 +1868,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1898,7 +1898,7 @@ metadata:
     prometheus.io/service-monitor: "false"
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   clusterIP: None
@@ -1934,7 +1934,7 @@ metadata:
     zone: zone-a
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -1972,7 +1972,7 @@ metadata:
     zone: zone-b
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -2010,7 +2010,7 @@ metadata:
     zone: zone-c
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   type: ClusterIP
   internalTrafficPolicy: Cluster
@@ -2120,7 +2120,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mimir-rollout-operator
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: rollout-operator-0.37.1
     app.kubernetes.io/name: rollout-operator
@@ -2141,7 +2141,7 @@ spec:
       maxUnavailable: 1
   template:
     metadata:
-      namespace: "monitoring"
+      namespace: "adhar-system"
       labels:
         app.kubernetes.io/name: rollout-operator
         app.kubernetes.io/instance: mimir
@@ -2168,7 +2168,7 @@ spec:
           - -kubernetes.namespace=monitoring
           - -server-tls.enabled=true
           - -server-tls.self-signed-cert.secret-name=certificate
-          - -server-tls.self-signed-cert.dns-name=mimir-rollout-operator.monitoring.svc
+          - -server-tls.self-signed-cert.dns-name=mimir-rollout-operator.adhar-system.svc
           ports:
             - name: http-metrics
               containerPort: 8001
@@ -2204,7 +2204,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   # If replicas is not number (when using values file it's float64, when using --set arg it's int64) and is false (i.e. null) don't set it
   replicas: 1
@@ -2230,7 +2230,7 @@ spec:
         app.kubernetes.io/part-of: memberlist
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -2333,7 +2333,7 @@ metadata:
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
   name: mimir-gateway
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   replicas: 1
   selector:
@@ -2357,7 +2357,7 @@ spec:
         app.kubernetes.io/component: gateway
       annotations:
         checksum/config: 0014d2c789cb308088dd688640f421cf831abdc7daa2ea46a870cd1a6aeffdeb
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -2439,7 +2439,7 @@ metadata:
     app.kubernetes.io/version: "3.0.4"
     app.kubernetes.io/managed-by: Helm
   name: mimir-overrides-exporter
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   replicas: 1
   selector:
@@ -2463,7 +2463,7 @@ spec:
         app.kubernetes.io/component: overrides-exporter
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -2551,7 +2551,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   # If replicas is not number (when using values file it's float64, when using --set arg it's int64) and is false (i.e. null) don't set it
   replicas: 2
@@ -2673,7 +2673,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   # If replicas is not number (when using values file it's float64, when using --set arg it's int64) and is false (i.e. null) don't set it
   replicas: 1
@@ -2698,7 +2698,7 @@ spec:
         app.kubernetes.io/component: query-frontend
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -2784,7 +2784,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mimir-query-scheduler
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: mimir-distributed-6.0.6
     app.kubernetes.io/name: mimir
@@ -2909,7 +2909,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   replicas: 1
   selector:
@@ -2934,7 +2934,7 @@ spec:
         app.kubernetes.io/part-of: memberlist
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -3031,7 +3031,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   replicas: 1
   selector:
@@ -3066,7 +3066,7 @@ spec:
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
         checksum/alertmanager-fallback-config: a43197005eb22a8f0f5ffbf386374cedee9677599d0a7f5c93dddf0f84361ba2
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -3173,7 +3173,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   podManagementPolicy: OrderedReady
   replicas: 1
@@ -3208,7 +3208,7 @@ spec:
         app.kubernetes.io/part-of: memberlist
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -3309,7 +3309,7 @@ metadata:
     rollout-max-unavailable: "50"
     grafana.com/prepare-downscale-http-path: ingester/prepare-shutdown
     grafana.com/prepare-downscale-http-port: "8080"
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   podManagementPolicy: Parallel
   replicas: 1
@@ -3349,7 +3349,7 @@ spec:
         zone: zone-a
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -3454,7 +3454,7 @@ metadata:
     grafana.com/prepare-downscale-http-path: ingester/prepare-shutdown
     grafana.com/prepare-downscale-http-port: "8080"
     grafana.com/rollout-downscale-leader: mimir-ingester-zone-a
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   podManagementPolicy: Parallel
   replicas: 1
@@ -3494,7 +3494,7 @@ spec:
         zone: zone-b
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -3599,7 +3599,7 @@ metadata:
     grafana.com/prepare-downscale-http-path: ingester/prepare-shutdown
     grafana.com/prepare-downscale-http-port: "8080"
     grafana.com/rollout-downscale-leader: mimir-ingester-zone-b
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   podManagementPolicy: Parallel
   replicas: 1
@@ -3639,7 +3639,7 @@ spec:
         zone: zone-c
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -3735,7 +3735,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   podManagementPolicy: Parallel
   replicas: 1
@@ -3756,7 +3756,7 @@ spec:
         app.kubernetes.io/component: kafka
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -3795,10 +3795,10 @@ spec:
             - name: KAFKA_LISTENERS
               value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
             - name: KAFKA_ADVERTISED_LISTENERS
-              value: PLAINTEXT://$(_POD_NAME).mimir-kafka-headless.monitoring.svc.cluster.local.:9092
+              value: PLAINTEXT://$(_POD_NAME).mimir-kafka-headless.adhar-system.svc.cluster.local.:9092
             - name: KAFKA_CONTROLLER_QUORUM_VOTERS
               # Kafka fails to resolve DNS name with a trailing dot, e.g. "example.cluster.local." Thus, "trimSuffix" is here for the clusterDomain.
-              value: "0@mimir-kafka-0.mimir-kafka-headless.monitoring.svc.cluster.local:9093"
+              value: "0@mimir-kafka-0.mimir-kafka-headless.adhar-system.svc.cluster.local:9093"
             - name: KAFKA_CONTROLLER_LISTENER_NAMES
               value: "CONTROLLER"
             - name: KAFKA_INTER_BROKER_LISTENER_NAME
@@ -3878,7 +3878,7 @@ metadata:
     rollout-max-unavailable: "50"
     grafana.com/prepare-downscale-http-path: store-gateway/prepare-shutdown
     grafana.com/prepare-downscale-http-port: "8080"
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   podManagementPolicy: OrderedReady
   replicas: 1
@@ -3918,7 +3918,7 @@ spec:
         zone: zone-a
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -4025,7 +4025,7 @@ metadata:
     grafana.com/prepare-downscale-http-path: store-gateway/prepare-shutdown
     grafana.com/prepare-downscale-http-port: "8080"
     grafana.com/rollout-downscale-leader: mimir-store-gateway-zone-a
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   podManagementPolicy: OrderedReady
   replicas: 1
@@ -4065,7 +4065,7 @@ spec:
         zone: zone-b
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -4172,7 +4172,7 @@ metadata:
     grafana.com/prepare-downscale-http-path: store-gateway/prepare-shutdown
     grafana.com/prepare-downscale-http-port: "8080"
     grafana.com/rollout-downscale-leader: mimir-store-gateway-zone-b
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   podManagementPolicy: OrderedReady
   replicas: 1
@@ -4212,7 +4212,7 @@ spec:
         zone: zone-c
       annotations:
         checksum/config: 81b1c80e7f969b443be194606fca5c96e93253d58bcce569d56f9162677e6239
-      namespace: "monitoring"
+      namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -4305,7 +4305,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: mimir-make-minio-buckets-5.4.0
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app: mimir-distributed-make-bucket-job
     chart: mimir-distributed-6.0.6
@@ -4351,7 +4351,7 @@ metadata:
   name: prepare-downscale-monitoring
   labels:
     grafana.com/inject-rollout-operator-ca: "true"
-    grafana.com/namespace: "monitoring"
+    grafana.com/namespace: "adhar-system"
     helm.sh/chart: rollout-operator-0.37.1
     app.kubernetes.io/name: rollout-operator
     app.kubernetes.io/instance: mimir
@@ -4361,7 +4361,7 @@ webhooks:
   - name: prepare-downscale-monitoring.grafana.com
     clientConfig:
       service:
-        namespace: "monitoring"
+        namespace: "adhar-system"
         name: mimir-rollout-operator
         path: /admission/prepare-downscale
         port: 443
@@ -4393,7 +4393,7 @@ metadata:
   name: no-downscale-monitoring
   labels:
     grafana.com/inject-rollout-operator-ca: "true"
-    grafana.com/namespace: "monitoring"
+    grafana.com/namespace: "adhar-system"
     helm.sh/chart: rollout-operator-0.37.1
     app.kubernetes.io/name: rollout-operator
     app.kubernetes.io/instance: mimir
@@ -4403,7 +4403,7 @@ webhooks:
   - name: no-downscale-monitoring.grafana.com
     clientConfig:
       service:
-        namespace: "monitoring"
+        namespace: "adhar-system"
         name: mimir-rollout-operator
         path: /admission/no-downscale
         port: 443
@@ -4433,7 +4433,7 @@ metadata:
   name: pod-eviction-monitoring
   labels:
     grafana.com/inject-rollout-operator-ca: "true"
-    grafana.com/namespace: "monitoring"
+    grafana.com/namespace: "adhar-system"
     helm.sh/chart: rollout-operator-0.37.1
     app.kubernetes.io/name: rollout-operator
     app.kubernetes.io/instance: mimir
@@ -4443,7 +4443,7 @@ webhooks:
   - name: pod-eviction-monitoring.grafana.com
     clientConfig:
       service:
-        namespace: "monitoring"
+        namespace: "adhar-system"
         name: mimir-rollout-operator
         path: /admission/pod-eviction
         port: 443
@@ -4472,7 +4472,7 @@ metadata:
   name: zpdb-validation-monitoring
   labels:
     grafana.com/inject-rollout-operator-ca: "true"
-    grafana.com/namespace: "monitoring"
+    grafana.com/namespace: "adhar-system"
     helm.sh/chart: rollout-operator-0.37.1
     app.kubernetes.io/name: rollout-operator
     app.kubernetes.io/instance: mimir
@@ -4482,7 +4482,7 @@ webhooks:
   - name: zpdb-validation-monitoring.grafana.com
     clientConfig:
       service:
-        namespace: "monitoring"
+        namespace: "adhar-system"
         name: mimir-rollout-operator
         path: /admission/zpdb-validation
         port: 443
@@ -4592,7 +4592,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     "helm.sh/hook": test
-  namespace: "monitoring"
+  namespace: "adhar-system"
 spec:
   backoffLimit: 5
   completions: 1
@@ -4626,8 +4626,8 @@ spec:
             - "-target=continuous-test"
             - "-activity-tracker.filepath="
             - "-tests.smoke-test"
-            - "-tests.write-endpoint=http://mimir-gateway.monitoring.svc:80"
-            - "-tests.read-endpoint=http://mimir-gateway.monitoring.svc:80/prometheus"
+            - "-tests.write-endpoint=http://mimir-gateway.adhar-system.svc:80"
+            - "-tests.read-endpoint=http://mimir-gateway.adhar-system.svc:80/prometheus"
             - "-tests.tenant-id="
             - "-tests.write-read-series-test.num-series=1000"
             - "-tests.write-read-series-test.max-query-age=48h"

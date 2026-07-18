@@ -1256,7 +1256,7 @@ data:
     leaderElection:
       resourceLock: leases
       resourceName: user-scheduler-lock
-      resourceNamespace: "jupyterhub"
+      resourceNamespace: "adhar-system"
     profiles:
       - schedulerName: jupyterhub-user-scheduler
         plugins:
@@ -1543,7 +1543,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: user-scheduler
-    namespace: "jupyterhub"
+    namespace: "adhar-system"
 roleRef:
   kind: ClusterRole
   name: jupyterhub-user-scheduler
@@ -1592,7 +1592,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: hub
-    namespace: "jupyterhub"
+    namespace: "adhar-system"
 roleRef:
   kind: Role
   name: hub
@@ -2314,7 +2314,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: hook-image-awaiter
-    namespace: "jupyterhub"
+    namespace: "adhar-system"
 roleRef:
   kind: Role
   name: hook-image-awaiter

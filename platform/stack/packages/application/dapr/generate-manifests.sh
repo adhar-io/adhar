@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/da
 
 helm repo add dapr https://dapr.github.io/helm-charts/ --force-update
 helm repo update
-helm template --namespace dapr-system dapr dapr/dapr -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}
+helm template --namespace adhar-system dapr dapr/dapr -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}

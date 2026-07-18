@@ -9,13 +9,13 @@ config:
   publicUri: "https://adhar.localtest.me:8443/penpot"
   flags: "enable-registration enable-login-with-password disable-email-verification disable-secure-session-cookies"
   postgresql:
-    host: "penpot-postgresql.penpot.svc.cluster.local"
+    host: "penpot-postgresql.adhar-system.svc.cluster.local"
     port: 5432
     username: "penpot"
     password: "penpot"
     database: "penpot"
   redis:
-    host: "penpot-valkey.penpot.svc.cluster.local"
+    host: "penpot-valkey.adhar-system.svc.cluster.local"
     port: 6379
     database: "0"
 

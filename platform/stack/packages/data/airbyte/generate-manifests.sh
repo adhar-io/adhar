@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/airbyte/g
 
 helm repo add airbyte https://airbytehq.github.io/helm-charts --force-update
 helm repo update airbyte
-helm template --include-crds --namespace airbyte airbyte airbyte/airbyte -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system airbyte airbyte/airbyte -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

@@ -5,7 +5,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: "kargo-cluster-secrets"
+  name: "adhar-system"
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -17,7 +17,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: kargo-shared-resources
+  name: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -29,7 +29,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: "kargo-system-resources"
+  name: "adhar-system"
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -42,7 +42,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-api
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -56,7 +56,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-controller
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -70,7 +70,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-external-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -84,7 +84,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-garbage-collector
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -98,7 +98,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -112,7 +112,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-management-controller
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -126,7 +126,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-admin
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -140,7 +140,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-project-creator
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -154,7 +154,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-user
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -168,7 +168,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kargo-viewer
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -182,7 +182,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: kargo-api
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -212,7 +212,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: kargo-controller
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -255,7 +255,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: kargo-external-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -278,7 +278,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: kargo-garbage-collector
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -300,7 +300,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: kargo-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -321,7 +321,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: kargo-management-controller
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7146,7 +7146,7 @@ roleRef:
   name: kargo-api
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-api
 ---
 # Source: kargo/templates/api/cluster-role-bindings.yaml
@@ -7167,7 +7167,7 @@ roleRef:
   name: kargo-api-rollouts
 subjects:
   - kind: ServiceAccount
-    namespace: kargo
+    namespace: adhar-system
     name: kargo-api
 ---
 # Source: kargo/templates/controller/cluster-role-bindings.yaml
@@ -7188,7 +7188,7 @@ roleRef:
   name: kargo-controller
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-controller
 ---
 # Source: kargo/templates/controller/cluster-role-bindings.yaml
@@ -7209,7 +7209,7 @@ roleRef:
   name: kargo-controller-argocd
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-controller
 ---
 # Source: kargo/templates/controller/cluster-role-bindings.yaml
@@ -7230,7 +7230,7 @@ roleRef:
   name: kargo-controller-rollouts
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-controller
 ---
 # Source: kargo/templates/external-webhooks-server/cluster-role-binding.yaml
@@ -7251,7 +7251,7 @@ roleRef:
   name: kargo-external-webhooks-server
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-external-webhooks-server
 ---
 # Source: kargo/templates/garbage-collector/cluster-role-bindings.yaml
@@ -7272,7 +7272,7 @@ roleRef:
   name: kargo-garbage-collector
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-garbage-collector
 ---
 # Source: kargo/templates/kubernetes-webhooks-server/cluster-role-binding.yaml
@@ -7293,7 +7293,7 @@ roleRef:
   name: kargo-webhooks-server
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-webhooks-server
 ---
 # Source: kargo/templates/kubernetes-webhooks-server/cluster-role-binding.yaml
@@ -7356,7 +7356,7 @@ roleRef:
   name: kargo-management-controller
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-management-controller
 ---
 # Source: kargo/templates/users/cluster-role-bindings.yaml
@@ -7376,7 +7376,7 @@ roleRef:
   name: kargo-admin
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-admin
 ---
 # Source: kargo/templates/users/cluster-role-bindings.yaml
@@ -7396,7 +7396,7 @@ roleRef:
   name: kargo-project-creator
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-project-creator
 ---
 # Source: kargo/templates/users/cluster-role-bindings.yaml
@@ -7416,7 +7416,7 @@ roleRef:
   name: kargo-user
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-user
 ---
 # Source: kargo/templates/users/cluster-role-bindings.yaml
@@ -7436,7 +7436,7 @@ roleRef:
   name: kargo-viewer
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-viewer
 ---
 # Source: kargo/templates/api/roles.yaml
@@ -7444,7 +7444,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kargo-api
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7472,7 +7472,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kargo-cluster-secrets-reader
-  namespace: kargo-cluster-secrets
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7494,7 +7494,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kargo-cluster-secrets-admin
-  namespace: kargo-cluster-secrets
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7514,7 +7514,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kargo-controller
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7539,7 +7539,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kargo-shared-resources-reader
-  namespace: kargo-shared-resources
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7561,7 +7561,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kargo-shared-resources-admin
-  namespace: kargo-shared-resources
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7582,7 +7582,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kargo-system-resources-reader
-  namespace: kargo-system-resources
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7604,7 +7604,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kargo-system-resources-admin
-  namespace: kargo-system-resources
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7624,7 +7624,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kargo-admin
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7644,7 +7644,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kargo-api
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7657,7 +7657,7 @@ roleRef:
   name: kargo-api
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-api
 ---
 # Source: kargo/templates/cluster-secrets-namespace/role-bindings.yaml
@@ -7665,7 +7665,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kargo-cluster-secrets-reader
-  namespace: kargo-cluster-secrets
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7678,10 +7678,10 @@ roleRef:
   name: kargo-cluster-secrets-reader
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-controller
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-external-webhooks-server
 ---
 # Source: kargo/templates/cluster-secrets-namespace/role-bindings.yaml
@@ -7689,7 +7689,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kargo-cluster-secrets-admin
-  namespace: kargo-cluster-secrets
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7702,10 +7702,10 @@ roleRef:
   name: kargo-cluster-secrets-admin
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-api
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-admin
 ---
 # Source: kargo/templates/controller/role-bindings.yaml
@@ -7713,7 +7713,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kargo-controller
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7727,7 +7727,7 @@ roleRef:
   name: kargo-controller
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-controller
 ---
 # Source: kargo/templates/shared-resources-namespace/role-bindings.yaml
@@ -7735,7 +7735,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kargo-shared-resources-reader
-  namespace: kargo-shared-resources
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7748,13 +7748,13 @@ roleRef:
   name: kargo-shared-resources-reader
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-user
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-viewer
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-project-creator
 ---
 # Source: kargo/templates/shared-resources-namespace/role-bindings.yaml
@@ -7762,7 +7762,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kargo-shared-resources-admin
-  namespace: kargo-shared-resources
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7775,13 +7775,13 @@ roleRef:
   name: kargo-shared-resources-admin
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-admin
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-controller
 - kind: ServiceAccount
-  namespace:  kargo
+  namespace:  adhar-system
   name: kargo-api
 ---
 # Source: kargo/templates/system-resources-namespace/role-bindings.yaml
@@ -7789,7 +7789,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kargo-system-resources-reader
-  namespace: kargo-system-resources
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7802,10 +7802,10 @@ roleRef:
   name: kargo-system-resources-reader
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-controller
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-external-webhooks-server
 ---
 # Source: kargo/templates/system-resources-namespace/role-bindings.yaml
@@ -7813,7 +7813,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kargo-system-resources-admin
-  namespace: kargo-system-resources
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7826,10 +7826,10 @@ roleRef:
   name: kargo-system-resources-admin
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-api
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-admin
 ---
 # Source: kargo/templates/users/role-bindings.yaml
@@ -7837,7 +7837,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kargo-admin
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7850,7 +7850,7 @@ roleRef:
   name: kargo-admin
 subjects:
 - kind: ServiceAccount
-  namespace: kargo
+  namespace: adhar-system
   name: kargo-admin
 ---
 # Source: kargo/templates/api/service.yaml
@@ -7858,7 +7858,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kargo-api
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7882,7 +7882,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kargo-external-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7906,7 +7906,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kargo-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -7930,7 +7930,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kargo-api
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -8035,7 +8035,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kargo-controller
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -8101,7 +8101,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kargo-external-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -8192,7 +8192,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kargo-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -8265,7 +8265,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kargo-management-controller
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -8325,7 +8325,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: kargo-garbage-collector
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -8392,7 +8392,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: kargo-api
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -8414,7 +8414,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: kargo-external-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
   labels:
     helm.sh/chart: kargo-1.10.5
     app.kubernetes.io/name: kargo
@@ -8436,10 +8436,10 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: kargo-webhooks-server
-  namespace: kargo
+  namespace: adhar-system
 spec:
   dnsNames:
-  - kargo-webhooks-server.kargo.svc
+  - kargo-webhooks-server.adhar-system.svc
   issuerRef:
     group: cert-manager.io
     kind: Issuer
@@ -8451,7 +8451,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: kargo-selfsigned-cert-issuer
-  namespace: kargo
+  namespace: adhar-system
 spec:
   selfSigned: {}
 ---
@@ -8475,7 +8475,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /mutate-kargo-akuity-io-v1alpha1-freight
   rules:
@@ -8490,7 +8490,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /mutate-kargo-akuity-io-v1alpha1-promotion
   rules:
@@ -8505,7 +8505,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /mutate-kargo-akuity-io-v1alpha1-stage
   rules:
@@ -8520,7 +8520,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /mutate-kargo-akuity-io-v1alpha1-warehouse
   rules:
@@ -8551,7 +8551,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-kargo-akuity-io-v1alpha1-clusterconfig
   rules:
@@ -8566,7 +8566,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-kargo-akuity-io-v1alpha1-clusterpromotiontask
   rules:
@@ -8581,7 +8581,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-kargo-akuity-io-v1alpha1-freight
   rules:
@@ -8596,7 +8596,7 @@ webhooks:
   sideEffects: NoneOnDryRun
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-kargo-akuity-io-v1alpha1-project
   rules:
@@ -8611,7 +8611,7 @@ webhooks:
   sideEffects: NoneOnDryRun
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-kargo-akuity-io-v1alpha1-projectconfig
   rules:
@@ -8626,7 +8626,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-kargo-akuity-io-v1alpha1-promotion
   rules:
@@ -8641,7 +8641,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-kargo-akuity-io-v1alpha1-promotiontask
   rules:
@@ -8656,7 +8656,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-kargo-akuity-io-v1alpha1-stage
   rules:
@@ -8671,7 +8671,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-kargo-akuity-io-v1alpha1-warehouse
   rules:
@@ -8686,7 +8686,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-v1-replicated-resource
   rules:
@@ -8709,7 +8709,7 @@ webhooks:
   sideEffects: None
   clientConfig:
     service:
-      namespace: kargo
+      namespace: adhar-system
       name: kargo-webhooks-server
       path: /validate-v1-replicated-resource
   rules:

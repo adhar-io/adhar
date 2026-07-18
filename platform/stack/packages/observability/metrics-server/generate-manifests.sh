@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/observability/
 
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server --force-update
 helm repo update metrics-server
-helm template --namespace kube-system metrics-server metrics-server/metrics-server -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system metrics-server metrics-server/metrics-server -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

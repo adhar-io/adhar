@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/tetra
 
 helm repo add cilium https://helm.cilium.io/ --force-update
 helm repo update cilium
-helm template --include-crds --namespace kube-system tetragon cilium/tetragon -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system tetragon cilium/tetragon -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

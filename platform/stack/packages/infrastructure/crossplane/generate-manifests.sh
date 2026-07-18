@@ -26,4 +26,4 @@ echo "# REDUNDANT with the bootstrap Crossplane install; kept only for GitOps pa
 
 helm repo add crossplane https://charts.crossplane.io/stable --force-update
 helm repo update crossplane
-helm template --namespace crossplane-system crossplane crossplane/crossplane -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system crossplane crossplane/crossplane -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}

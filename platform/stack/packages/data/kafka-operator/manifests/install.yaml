@@ -14609,7 +14609,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: strimzi-cluster-operator
-  namespace: kafka
+  namespace: adhar-system
   labels:
     app: strimzi
     chart: strimzi-kafka-operator-1.1.0
@@ -14622,7 +14622,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: strimzi-cluster-operator
-  namespace: kafka
+  namespace: adhar-system
   labels:
     app: strimzi
     chart: strimzi-kafka-operator-1.1.0
@@ -15150,7 +15150,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: strimzi-cluster-operator
-    namespace: kafka
+    namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: strimzi-cluster-operator-namespaced
@@ -15170,7 +15170,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: strimzi-cluster-operator
-    namespace: kafka
+    namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: strimzi-cluster-operator-global
@@ -15190,7 +15190,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: strimzi-cluster-operator
-    namespace: kafka
+    namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: strimzi-cluster-operator-watched
@@ -15212,7 +15212,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: strimzi-cluster-operator
-    namespace: kafka
+    namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: strimzi-kafka-broker
@@ -15234,7 +15234,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: strimzi-cluster-operator
-    namespace: kafka
+    namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: strimzi-entity-operator
@@ -15257,7 +15257,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: strimzi-cluster-operator
-    namespace: kafka
+    namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: strimzi-kafka-client
@@ -15268,7 +15268,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: strimzi-cluster-operator-leader-election
-  namespace: kafka
+  namespace: adhar-system
   labels:
     app: strimzi
     chart: strimzi-kafka-operator-1.1.0
@@ -15278,7 +15278,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: strimzi-cluster-operator
-    namespace: kafka
+    namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: strimzi-cluster-operator-leader-election
@@ -15289,7 +15289,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: strimzi-cluster-operator
-  namespace: kafka
+  namespace: adhar-system
   labels:
     app: strimzi
     chart: strimzi-kafka-operator-1.1.0

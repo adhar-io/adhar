@@ -7,7 +7,7 @@ kind: ServiceAccount
 automountServiceAccountToken: true
 metadata:
   name: argo-events-controller-manager
-  namespace: "argo-events"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: argo-events-2.4.21
     app.kubernetes.io/name: argo-events-controller-manager
@@ -22,7 +22,7 @@ kind: ServiceAccount
 automountServiceAccountToken: true
 metadata:
   name: argo-events-events-webhook
-  namespace: "argo-events"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: argo-events-2.4.21
     app.kubernetes.io/name: argo-events-events-webhook
@@ -36,7 +36,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: argo-events-controller-manager
-  namespace: "argo-events"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: argo-events-2.4.21
     app.kubernetes.io/name: argo-events-controller-manager
@@ -359,14 +359,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: argo-events-controller-manager
-  namespace: "argo-events"
+  namespace: "adhar-system"
 ---
 # Source: argo-events/templates/argo-events-controller/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: argo-events-controller-manager
-  namespace: "argo-events"
+  namespace: "adhar-system"
   labels:
     helm.sh/chart: argo-events-2.4.21
     app.kubernetes.io/name: argo-events-controller-manager

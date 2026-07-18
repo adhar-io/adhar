@@ -9,6 +9,6 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/kubes
 
 helm repo add kubescape https://kubescape.github.io/helm-charts/ --force-update
 helm repo update kubescape
-helm template --include-crds --namespace kubescape kubescape kubescape/kubescape-operator -f values.yaml --version ${CHART_VERSION} \
+helm template --include-crds --namespace adhar-system kubescape kubescape/kubescape-operator -f values.yaml --version ${CHART_VERSION} \
   --set clusterName=adhar \
   --set capabilities.continuousScan=enable >>${INSTALL_YAML}

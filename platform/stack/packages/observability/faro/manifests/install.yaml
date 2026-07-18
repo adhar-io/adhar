@@ -7,7 +7,7 @@ kind: ServiceAccount
 automountServiceAccountToken: true
 metadata:
   name: faro-alloy
-  namespace: faro
+  namespace: adhar-system
   labels:
     helm.sh/chart: alloy-1.8.2
     app.kubernetes.io/name: alloy
@@ -22,7 +22,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: faro-alloy
-  namespace: faro
+  namespace: adhar-system
   labels:
     helm.sh/chart: alloy-1.8.2
     app.kubernetes.io/name: alloy
@@ -47,13 +47,13 @@ data:
     
     loki.write "default" {
       endpoint {
-        url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+        url = "http://loki.adhar-system.svc.cluster.local:3100/loki/api/v1/push"
       }
     }
     
     otelcol.exporter.otlp "tempo" {
       client {
-        endpoint = "tempo.monitoring.svc.cluster.local:4317"
+        endpoint = "tempo.adhar-system.svc.cluster.local:4317"
         tls {
           insecure = true
         }
@@ -208,14 +208,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: faro-alloy
-    namespace: faro
+    namespace: adhar-system
 ---
 # Source: alloy/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: faro-alloy
-  namespace: faro
+  namespace: adhar-system
   labels:
     helm.sh/chart: alloy-1.8.2
     app.kubernetes.io/name: alloy
@@ -245,7 +245,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: faro-alloy
-  namespace: faro
+  namespace: adhar-system
   labels:
     helm.sh/chart: alloy-1.8.2
     app.kubernetes.io/name: alloy

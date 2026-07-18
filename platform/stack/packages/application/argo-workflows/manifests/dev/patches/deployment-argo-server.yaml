@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: argo-server
-  namespace: argo
+  namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: "20"
 spec:

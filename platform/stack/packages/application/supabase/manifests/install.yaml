@@ -1409,7 +1409,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: supabase-supabase-vector
-    namespace: supabase
+    namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: supabase-reader

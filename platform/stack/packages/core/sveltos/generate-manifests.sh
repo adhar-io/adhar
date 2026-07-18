@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/core/sveltos/g
 
 helm repo add projectsveltos https://projectsveltos.github.io/helm-charts --force-update
 helm repo update projectsveltos
-helm template --namespace projectsveltos projectsveltos projectsveltos/projectsveltos -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system projectsveltos projectsveltos/projectsveltos -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}

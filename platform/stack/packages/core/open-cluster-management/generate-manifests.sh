@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/core/open-clus
 
 helm repo add ocm https://open-cluster-management.io/helm-charts --force-update
 helm repo update ocm
-helm template --namespace open-cluster-management cluster-manager ocm/cluster-manager -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system cluster-manager ocm/cluster-manager -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}

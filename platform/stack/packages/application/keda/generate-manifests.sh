@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/ke
 
 helm repo add kedacore https://kedacore.github.io/charts --force-update
 helm repo update
-helm template --namespace keda keda kedacore/keda -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}
+helm template --namespace adhar-system keda kedacore/keda -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}

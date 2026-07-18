@@ -9,6 +9,6 @@ spec:
   credentials:
     source: Secret
     secretRef:
-      namespace: crossplane-system
+      namespace: adhar-system
       name: local-secret
       key: creds

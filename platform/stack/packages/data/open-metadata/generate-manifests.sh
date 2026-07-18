@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/open-meta
 
 helm repo add open-metadata https://helm.open-metadata.org --force-update
 helm repo update open-metadata
-helm template --include-crds --namespace open-metadata openmetadata open-metadata/openmetadata -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system openmetadata open-metadata/openmetadata -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

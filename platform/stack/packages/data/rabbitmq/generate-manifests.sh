@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/rabbitmq/
 
 helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
 helm repo update bitnami
-helm template --include-crds --namespace rabbitmq rabbitmq bitnami/rabbitmq -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system rabbitmq bitnami/rabbitmq -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

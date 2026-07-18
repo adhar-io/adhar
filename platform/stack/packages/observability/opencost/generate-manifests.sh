@@ -10,4 +10,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/observability/
 
 helm repo add opencost https://opencost.github.io/opencost-helm-chart --force-update
 helm repo update
-helm template --namespace monitoring opencost opencost/opencost -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system opencost opencost/opencost -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

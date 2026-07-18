@@ -13,7 +13,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: cloud-conn-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
@@ -26,7 +26,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
@@ -40,7 +40,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
@@ -54,7 +54,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: cloud-conn-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
@@ -67,7 +67,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
@@ -81,7 +81,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
@@ -95,7 +95,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: cloud-conn-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
@@ -108,7 +108,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
@@ -122,7 +122,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/00_secrets.yaml
 apiVersion: v1
@@ -134,7 +134,7 @@ metadata:
   labels:
     
   name: pl-cluster-secrets
-  namespace: pl
+  namespace: adhar-system
 stringData:
   sentry-dsn: ""
 ---
@@ -148,7 +148,7 @@ metadata:
   labels:
     
   name: pl-deploy-secrets
-  namespace: pl
+  namespace: adhar-system
 stringData:
   deploy-key: ""
 ---
@@ -166,7 +166,7 @@ metadata:
   labels:
     
   name: pl-cloud-config
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/00_secrets.yaml
 apiVersion: v1
@@ -175,7 +175,7 @@ data:
   PL_CUSTOM_LABELS: ""
   PL_DISABLE_AUTO_UPDATE: "false"
   PL_ETCD_OPERATOR_ENABLED: "false"
-  PL_MD_ETCD_SERVER: https://pl-etcd-client.pl.svc:2379
+  PL_MD_ETCD_SERVER: https://pl-etcd-client.adhar-system.svc:2379
   PX_MEMORY_LIMIT: ""
   PX_MEMORY_REQUEST: ""
 kind: ConfigMap
@@ -186,7 +186,7 @@ metadata:
   labels:
     
   name: pl-cluster-config
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/01_nats.yaml
 apiVersion: v1
@@ -209,7 +209,7 @@ metadata:
     
     app: pl-monitoring
   name: nats-config
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
@@ -229,7 +229,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-tls-config
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
@@ -248,7 +248,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-tls-config
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
@@ -268,7 +268,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-tls-config
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
@@ -287,7 +287,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-tls-config
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
@@ -307,7 +307,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-tls-config
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
@@ -326,7 +326,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-tls-config
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
@@ -339,7 +339,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: metadata-pv-claim
-  namespace: pl
+  namespace: adhar-system
 spec:
   accessModes:
   - ReadWriteOnce
@@ -358,7 +358,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: metadata-pv-claim
-  namespace: pl
+  namespace: adhar-system
 spec:
   accessModes:
   - ReadWriteOnce
@@ -378,7 +378,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -408,7 +408,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-node-view
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -431,7 +431,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-cluster-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -457,7 +457,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -486,7 +486,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -516,7 +516,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-node-view
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -539,7 +539,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-cluster-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -565,7 +565,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -594,7 +594,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -624,7 +624,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-node-view
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -647,7 +647,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-cluster-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -673,7 +673,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -702,7 +702,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -710,7 +710,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cloud-conn-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -723,7 +723,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-node-view-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -731,7 +731,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: default
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -745,7 +745,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -766,7 +766,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -774,7 +774,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -787,7 +787,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-node-view-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -795,7 +795,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -809,7 +809,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -817,7 +817,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cloud-conn-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -830,7 +830,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-node-view-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -838,7 +838,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: default
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -852,7 +852,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -873,7 +873,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -881,7 +881,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -894,7 +894,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-node-view-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -902,7 +902,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -916,7 +916,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -924,7 +924,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cloud-conn-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -937,7 +937,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-node-view-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -945,7 +945,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: default
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -959,7 +959,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -980,7 +980,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -988,7 +988,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1001,7 +1001,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-node-view-cluster-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -1009,7 +1009,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1023,7 +1023,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-ns-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1064,7 +1064,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1102,7 +1102,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-vizier-crd-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - px.dev
@@ -1125,7 +1125,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1146,7 +1146,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-ns-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1187,7 +1187,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1225,7 +1225,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-vizier-crd-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - px.dev
@@ -1248,7 +1248,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1269,7 +1269,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-ns-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1310,7 +1310,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1348,7 +1348,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-vizier-crd-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - px.dev
@@ -1371,7 +1371,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-role
-  namespace: pl
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ""
@@ -1392,7 +1392,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1400,7 +1400,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cloud-conn-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1414,7 +1414,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1422,7 +1422,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: pl-updater-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1435,7 +1435,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-crd-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1443,7 +1443,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: default
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1456,7 +1456,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-crd-metadata-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1464,7 +1464,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1477,7 +1477,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1485,7 +1485,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1499,7 +1499,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1507,7 +1507,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cloud-conn-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1521,7 +1521,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1529,7 +1529,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: pl-updater-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1542,7 +1542,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-crd-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1550,7 +1550,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: default
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1563,7 +1563,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-crd-metadata-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1571,7 +1571,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1584,7 +1584,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1592,7 +1592,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1606,7 +1606,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-cloud-connector-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1614,7 +1614,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cloud-conn-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1628,7 +1628,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: pl-updater-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1636,7 +1636,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: pl-updater-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1649,7 +1649,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-crd-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1657,7 +1657,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: default
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1670,7 +1670,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-crd-metadata-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1678,7 +1678,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1691,7 +1691,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-binding
-  namespace: pl
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1699,7 +1699,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: metadata-service-account
-  namespace: pl
+  namespace: adhar-system
 ---
 # Source: pixie-chart/templates/01_nats.yaml
 apiVersion: v1
@@ -1712,7 +1712,7 @@ metadata:
     app: pl-monitoring
     name: pl-nats
   name: pl-nats
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: client
@@ -1732,7 +1732,7 @@ metadata:
     app: pl-monitoring
     name: pl-nats
   name: pl-nats-mgmt
-  namespace: pl
+  namespace: adhar-system
 spec:
   clusterIP: None
   ports:
@@ -1761,7 +1761,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: kelvin-service
-  namespace: pl
+  namespace: adhar-system
 spec:
   clusterIP: None
   ports:
@@ -1787,7 +1787,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: vizier-cloud-connector-svc
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: tcp-http2
@@ -1812,7 +1812,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-metadata-svc
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: tcp-http2
@@ -1836,7 +1836,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker-svc
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: tcp-http2
@@ -1864,7 +1864,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: kelvin-service
-  namespace: pl
+  namespace: adhar-system
 spec:
   clusterIP: None
   ports:
@@ -1890,7 +1890,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: vizier-cloud-connector-svc
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: tcp-http2
@@ -1915,7 +1915,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-metadata-svc
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: tcp-http2
@@ -1939,7 +1939,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker-svc
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: tcp-http2
@@ -1967,7 +1967,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: kelvin-service
-  namespace: pl
+  namespace: adhar-system
 spec:
   clusterIP: None
   ports:
@@ -1993,7 +1993,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: vizier-cloud-connector-svc
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: tcp-http2
@@ -2018,7 +2018,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-metadata-svc
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: tcp-http2
@@ -2042,7 +2042,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker-svc
-  namespace: pl
+  namespace: adhar-system
 spec:
   ports:
   - name: tcp-http2
@@ -2070,7 +2070,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-pem
-  namespace: pl
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -2225,7 +2225,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-pem
-  namespace: pl
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -2401,7 +2401,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-pem
-  namespace: pl
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -2577,7 +2577,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: kelvin
-  namespace: pl
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -2726,7 +2726,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: vizier-cloud-connector
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -2853,7 +2853,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -2990,7 +2990,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: kelvin
-  namespace: pl
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -3139,7 +3139,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: vizier-cloud-connector
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -3266,7 +3266,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-metadata
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -3403,7 +3403,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -3540,7 +3540,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: kelvin
-  namespace: pl
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -3689,7 +3689,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: vizier-cloud-connector
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -3816,7 +3816,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -3953,7 +3953,7 @@ metadata:
     app: pl-monitoring
     name: pl-nats
   name: pl-nats
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -4049,7 +4049,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-metadata
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -4171,7 +4171,7 @@ metadata:
     app: pl-monitoring
     component: vizier
   name: vizier-metadata
-  namespace: pl
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -4294,7 +4294,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: cert-provisioner-job
-  namespace: pl
+  namespace: adhar-system
 spec:
   backoffLimit: 1
   completions: 1
@@ -4336,7 +4336,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: cert-provisioner-job
-  namespace: pl
+  namespace: adhar-system
 spec:
   backoffLimit: 1
   completions: 1
@@ -4378,7 +4378,7 @@ metadata:
     component: vizier
     vizier-bootstrap: "true"
   name: cert-provisioner-job
-  namespace: pl
+  namespace: adhar-system
 spec:
   backoffLimit: 1
   completions: 1

@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/ha
 
 helm repo add harbor https://helm.goharbor.io --force-update
 helm repo update
-helm template --namespace harbor harbor harbor/harbor -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system harbor harbor/harbor -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/pl
 
 helm repo add plane https://helm.plane.so --force-update
 helm repo update
-helm template --namespace plane plane plane/plane-ce -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system plane plane/plane-ce -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

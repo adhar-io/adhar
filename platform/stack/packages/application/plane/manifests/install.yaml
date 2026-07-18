@@ -6,7 +6,7 @@ apiVersion: v1
 automountServiceAccountToken: true
 kind: ServiceAccount
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-srv-account
 ---
 # Source: plane-ce/templates/config-secrets/app-env.yaml
@@ -14,21 +14,21 @@ apiVersion: v1
 kind: Secret
 type: Opaque
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-app-secrets
 stringData:
   SECRET_KEY: "60gp0byfz2dvffa45cxl20p1scy9xbpf6d8c5y0geejgkyp1b5"
   LIVE_SERVER_SECRET_KEY: "htbqvBJAgpm9bzvf3r4urJer0ENReatceh"
-  REDIS_URL: "redis://plane-redis.plane.svc.cluster.local:6379/"
-  DATABASE_URL: "postgresql://plane:plane@plane-pgdb.plane.svc.cluster.local/plane"
-  AMQP_URL: "amqp://plane:plane@plane-rabbitmq.plane.svc.cluster.local/"
+  REDIS_URL: "redis://plane-redis.adhar-system.svc.cluster.local:6379/"
+  DATABASE_URL: "postgresql://plane:plane@plane-pgdb.adhar-system.svc.cluster.local/plane"
+  AMQP_URL: "amqp://plane:plane@plane-rabbitmq.adhar-system.svc.cluster.local/"
 ---
 # Source: plane-ce/templates/config-secrets/doc-store.yaml
 apiVersion: v1
 kind: Secret
 type: Opaque
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-doc-store-secrets
 stringData:
   FILE_SIZE_LIMIT: "5242880"
@@ -45,18 +45,18 @@ apiVersion: v1
 kind: Secret
 type: Opaque
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-live-secrets
 stringData:
   LIVE_SERVER_SECRET_KEY: "htbqvBJAgpm9bzvf3r4urJer0ENReatceh"
-  REDIS_URL: "redis://plane-redis.plane.svc.cluster.local:6379/"
+  REDIS_URL: "redis://plane-redis.adhar-system.svc.cluster.local:6379/"
 ---
 # Source: plane-ce/templates/config-secrets/pgdb.yaml
 apiVersion: v1
 kind: Secret
 type: Opaque
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-pgdb-secrets
 stringData:
   POSTGRES_PASSWORD: "plane"
@@ -68,7 +68,7 @@ apiVersion: v1
 kind: Secret
 type: Opaque
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-rabbitmq-secrets
 stringData:
   RABBITMQ_DEFAULT_USER: "plane"
@@ -78,7 +78,7 @@ stringData:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-app-vars
 data:
   SENTRY_DSN: ""
@@ -95,17 +95,17 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-live-vars
 data:
-  API_BASE_URL: "http://plane-api.plane.svc.cluster.local:8000/"
+  API_BASE_URL: "http://plane-api.adhar-system.svc.cluster.local:8000/"
   LIVE_BASE_PATH: "/live"
 ---
 # Source: plane-ce/templates/workloads/admin.deployment.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-admin
   labels:
     app.name: plane-plane-admin
@@ -123,7 +123,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-api
   labels:
     app.name: plane-plane-api
@@ -141,7 +141,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-live
   labels:
     app.name: plane-plane-live
@@ -159,7 +159,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-minio
   labels:
     app.name: plane-plane-minio
@@ -181,7 +181,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-pgdb
   labels:
     app.name: plane-plane-pgdb
@@ -199,7 +199,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-rabbitmq
   labels:
     app.name: plane-plane-rabbitmq
@@ -221,7 +221,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-redis
   labels:
     app.name: plane-plane-redis
@@ -239,7 +239,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-space
   labels:
     app.name: plane-plane-space
@@ -257,7 +257,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-web
   labels:
     app.name: plane-plane-web
@@ -275,7 +275,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-admin-wl
 spec:
   replicas: 1
@@ -284,7 +284,7 @@ spec:
       app.name: plane-plane-admin
   template:
     metadata:
-      namespace: plane
+      namespace: adhar-system
       labels:
         app.name: plane-plane-admin
       annotations:
@@ -310,7 +310,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-api-wl
 spec:
   replicas: 1
@@ -319,7 +319,7 @@ spec:
       app.name: plane-plane-api
   template:
     metadata:
-      namespace: plane
+      namespace: adhar-system
       labels:
         app.name: plane-plane-api
       annotations:
@@ -366,7 +366,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-beat-worker-wl
 spec:
   replicas: 1
@@ -375,7 +375,7 @@ spec:
       app.name: plane-plane-beat-worker
   template:
     metadata:
-      namespace: plane
+      namespace: adhar-system
       labels:
         app.name: plane-plane-beat-worker
       annotations:
@@ -413,7 +413,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-live-wl
 spec:
   replicas: 1
@@ -422,7 +422,7 @@ spec:
       app.name: plane-plane-live
   template:
     metadata:
-      namespace: plane
+      namespace: adhar-system
       labels:
         app.name: plane-plane-live
       annotations:
@@ -455,7 +455,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-space-wl
 spec:
   replicas: 1
@@ -464,7 +464,7 @@ spec:
       app.name: plane-plane-space
   template:
     metadata:
-      namespace: plane
+      namespace: adhar-system
       labels:
         app.name: plane-plane-space
       annotations:
@@ -490,7 +490,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-web-wl
 spec:
   replicas: 1
@@ -499,7 +499,7 @@ spec:
       app.name: plane-plane-web
   template:
     metadata:
-      namespace: plane
+      namespace: adhar-system
       labels:
         app.name: plane-plane-web
       annotations:
@@ -525,7 +525,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-worker-wl
 spec:
   replicas: 1
@@ -534,7 +534,7 @@ spec:
       app.name: plane-plane-worker
   template:
     metadata:
-      namespace: plane
+      namespace: adhar-system
       labels:
         app.name: plane-plane-worker
       annotations:
@@ -572,7 +572,7 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-minio-wl
 spec:
   selector:
@@ -611,7 +611,7 @@ spec:
     kind: PersistentVolumeClaim
     metadata:
       creationTimestamp: null
-      namespace: plane
+      namespace: adhar-system
       name: pvc-plane-minio-vol
     spec:
       accessModes:
@@ -626,7 +626,7 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-pgdb-wl
 spec:
   selector:
@@ -661,7 +661,7 @@ spec:
     kind: PersistentVolumeClaim
     metadata:
       creationTimestamp: null
-      namespace: plane
+      namespace: adhar-system
       name: pvc-plane-pgdb-vol
     spec:
       accessModes:
@@ -676,7 +676,7 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-rabbitmq-wl
 spec:
   selector:
@@ -709,7 +709,7 @@ spec:
     kind: PersistentVolumeClaim
     metadata:
       creationTimestamp: null
-      namespace: plane
+      namespace: adhar-system
       name: pvc-plane-rabbitmq-vol
     spec:
       accessModes:
@@ -726,7 +726,7 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-redis-wl
 spec:
   selector:
@@ -755,7 +755,7 @@ spec:
     kind: PersistentVolumeClaim
     metadata:
       creationTimestamp: null
-      namespace: plane
+      namespace: adhar-system
       name: pvc-plane-redis-vol
     spec:
       accessModes:
@@ -770,7 +770,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-api-migrate-1
 spec:
   backoffLimit: 3
@@ -805,20 +805,20 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  namespace: plane
+  namespace: adhar-system
   name: plane-minio-bucket-1
 spec:
   backoffLimit: 6
   completionMode: NonIndexed
   template:
     metadata:
-      namespace: plane
+      namespace: adhar-system
     spec:
       restartPolicy: OnFailure
       initContainers:
         - name: init
           image: busybox
-          command: ['sh', '-c', "until nslookup  plane-minio.plane.svc.cluster.local; do echo waiting for  plane-minio; sleep 2; done"]
+          command: ['sh', '-c', "until nslookup  plane-minio.adhar-system.svc.cluster.local; do echo waiting for  plane-minio; sleep 2; done"]
       containers:
         - command:
             - /bin/sh
@@ -826,7 +826,7 @@ spec:
             - '-c'
             - >-
               /usr/bin/mc config host add plane-app-minio
-              http://plane-minio.plane.svc.cluster.local:9000 "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY"; 
+              http://plane-minio.adhar-system.svc.cluster.local:9000 "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY"; 
               /usr/bin/mc mb plane-app-minio/$AWS_S3_BUCKET_NAME; 
               /usr/bin/mc anonymous set download plane-app-minio/$AWS_S3_BUCKET_NAME; exit 0;
           envFrom:

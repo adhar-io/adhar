@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/falco
 
 helm repo add falcosecurity https://falcosecurity.github.io/charts --force-update
 helm repo update falcosecurity
-helm template --include-crds --namespace falco falco falcosecurity/falco -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system falco falcosecurity/falco -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

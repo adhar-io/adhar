@@ -21,7 +21,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: devtron
-  namespace: devtroncd
+  namespace: adhar-system
   labels:
     release: devtron
   annotations:
@@ -32,7 +32,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: chart-sync
-  namespace: devtroncd
+  namespace: adhar-system
   labels:
     release: devtron
 ---
@@ -41,7 +41,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: devtron-default-sa
-  namespace: devtroncd
+  namespace: adhar-system
   labels:
     release: devtron
 ---
@@ -55,7 +55,7 @@ metadata:
   annotations:
     "helm.sh/resource-policy": keep
   name: argocd-secret
-  namespace: devtroncd
+  namespace: adhar-system
 type: Opaque
 ---
 # Source: devtron-operator/templates/dashboard.yaml
@@ -355,7 +355,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: migrator-override-cm
-  namespace:  devtroncd
+  namespace:  adhar-system
 data:
   override: |
 ---
@@ -364,7 +364,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: devtron-common-cm
-  namespace: devtroncd
+  namespace: adhar-system
   labels:
     release: devtron
   annotations:
@@ -376,7 +376,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: devtron-common-cm
-  namespace: argo
+  namespace: adhar-system
   labels:
     release: devtron
   annotations:
@@ -532,7 +532,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: devtron
-    namespace: devtroncd
+    namespace: adhar-system
 ---
 # Source: devtron-operator/templates/dex.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -614,7 +614,7 @@ metadata:
   annotations:
     "helm.sh/resource-policy": keep
   name: devtron-service
-  namespace: devtroncd
+  namespace: adhar-system
 spec:
   ports:
   - name: devtron
@@ -664,7 +664,7 @@ metadata:
   labels:
     app: kubelink
   name: kubelink-service-headless
-  namespace: devtroncd
+  namespace: adhar-system
   annotations:
     "helm.sh/resource-policy": keep
 spec:
@@ -684,7 +684,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgresql-postgresql
-  namespace: devtroncd
+  namespace: adhar-system
   labels:
     app: postgresql
     release: "devtron"
@@ -707,7 +707,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgresql-postgresql-headless
-  namespace: devtroncd
+  namespace: adhar-system
   labels:
     app: postgresql
     release: "devtron"
@@ -731,7 +731,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgresql-postgresql-metrics
-  namespace: devtroncd
+  namespace: adhar-system
   labels:
     app: postgresql
     release: "devtron"
@@ -1298,7 +1298,7 @@ spec:
       initContainers:
       - name: migration-wait
         image: quay.io/devtron/kubectl:latest
-        command: ['sh', '-c', 'while [ ! $(kubectl -n devtroncd get $(kubectl -n devtroncd get job -l job=postgresql-migrate-devtron -o name) -o jsonpath="{.status.succeeded}")  ]; do sleep 10; done']      
+        command: ['sh', '-c', 'while [ ! $(kubectl -n adhar-system get $(kubectl -n adhar-system get job -l job=postgresql-migrate-devtron -o name) -o jsonpath="{.status.succeeded}")  ]; do sleep 10; done']      
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001
@@ -1430,7 +1430,7 @@ spec:
       containers:
       - name: devtron-rollout
         image: quay.io/devtron/kubectl:latest
-        command: ['sh', '-c', 'kubectl rollout restart deployment/devtron -n devtroncd && kubectl rollout restart deployment/kubelink -n devtroncd']
+        command: ['sh', '-c', 'kubectl rollout restart deployment/devtron -n adhar-system && kubectl rollout restart deployment/kubelink -n devtroncd']
         envFrom:
           - configMapRef:
               name: devtron-common-cm 
@@ -1640,7 +1640,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgresql-postgresql-customscripts
-  namespace: devtroncd
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/instance: devtron
@@ -1664,7 +1664,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgresql-postgresql-scripts
-  namespace: devtroncd
+  namespace: adhar-system
   labels:
     helm.sh/chart: postgres-0.4.0
     app.kubernetes.io/name: postgres

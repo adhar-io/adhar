@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/kyver
 
 helm repo add kyverno https://kyverno.github.io/kyverno/ --force-update
 helm repo update kyverno
-helm template --namespace kyverno kyverno-policies kyverno/kyverno-policies -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}
+helm template --namespace adhar-system kyverno-policies kyverno/kyverno-policies -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}

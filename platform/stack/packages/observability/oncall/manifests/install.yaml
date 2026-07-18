@@ -13,14 +13,14 @@ metadata:
     app.kubernetes.io/version: "11.1.4"
     app.kubernetes.io/managed-by: Helm
   name: oncall-grafana
-  namespace: monitoring
+  namespace: adhar-system
 ---
 # Source: oncall/charts/mariadb/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: oncall-mariadb
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: mariadb
     helm.sh/chart: mariadb-12.2.5
@@ -34,7 +34,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: oncall-rabbitmq
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: rabbitmq
     helm.sh/chart: rabbitmq-12.0.0
@@ -50,7 +50,7 @@ kind: ServiceAccount
 automountServiceAccountToken: true
 metadata:
   name: oncall-redis
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -74,7 +74,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: oncall-grafana
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: grafana-8.4.6
     app.kubernetes.io/name: grafana
@@ -93,7 +93,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: oncall-mariadb
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: mariadb
     helm.sh/chart: mariadb-12.2.5
@@ -108,7 +108,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: oncall-rabbitmq-config
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: rabbitmq
     helm.sh/chart: rabbitmq-12.0.0
@@ -124,7 +124,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: oncall-rabbitmq
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: rabbitmq
     helm.sh/chart: rabbitmq-12.0.0
@@ -141,7 +141,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: oncall-redis
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -172,7 +172,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: oncall-grafana
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: grafana-8.4.6
     app.kubernetes.io/name: grafana
@@ -207,7 +207,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: oncall-mariadb
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: mariadb
     helm.sh/chart: mariadb-12.2.5
@@ -250,7 +250,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: oncall-redis-configuration
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -282,7 +282,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: oncall-redis-health
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -389,7 +389,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: oncall-redis-scripts
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -486,7 +486,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: oncall-grafana
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: grafana-8.4.6
     app.kubernetes.io/name: grafana
@@ -529,7 +529,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: oncall-grafana
-    namespace: monitoring
+    namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: oncall-grafana-clusterrole
@@ -540,7 +540,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: oncall-grafana
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: grafana-8.4.6
     app.kubernetes.io/name: grafana
@@ -554,7 +554,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: oncall-rabbitmq-endpoint-reader
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: rabbitmq
     helm.sh/chart: rabbitmq-12.0.0
@@ -573,7 +573,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: oncall-grafana
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: grafana-8.4.6
     app.kubernetes.io/name: grafana
@@ -587,14 +587,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: oncall-grafana
-  namespace: monitoring
+  namespace: adhar-system
 ---
 # Source: oncall/charts/rabbitmq/templates/rolebinding.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: oncall-rabbitmq-endpoint-reader
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: rabbitmq
     helm.sh/chart: rabbitmq-12.0.0
@@ -613,7 +613,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: oncall-grafana
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: grafana-8.4.6
     app.kubernetes.io/name: grafana
@@ -636,7 +636,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: oncall-mariadb
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: mariadb
     helm.sh/chart: mariadb-12.2.5
@@ -663,7 +663,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: oncall-rabbitmq-headless
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: rabbitmq
     helm.sh/chart: rabbitmq-12.0.0
@@ -694,7 +694,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: oncall-rabbitmq
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: rabbitmq
     helm.sh/chart: rabbitmq-12.0.0
@@ -729,7 +729,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: oncall-redis-headless
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -753,7 +753,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: oncall-redis-master
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -779,7 +779,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: oncall-redis-replicas
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -829,7 +829,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: oncall-grafana
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: grafana-8.4.6
     app.kubernetes.io/name: grafana
@@ -1472,7 +1472,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: oncall-mariadb
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: mariadb
     helm.sh/chart: mariadb-12.2.5
@@ -1522,7 +1522,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: mariadb
-          image: docker.io/bitnami/mariadb:10.11.4-debian-11-r0
+          image: docker.io/bitnamilegacy/mariadb:10.11.4-debian-11-r0
           imagePullPolicy: "IfNotPresent"
           securityContext:
             allowPrivilegeEscalation: false
@@ -1610,7 +1610,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: oncall-rabbitmq
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: rabbitmq
     helm.sh/chart: rabbitmq-12.0.0
@@ -1659,7 +1659,7 @@ spec:
       initContainers:
       containers:
         - name: rabbitmq
-          image: docker.io/bitnami/rabbitmq:3.12.0-debian-11-r0
+          image: docker.io/bitnamilegacy/rabbitmq:3.12.0-debian-11-r0
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsNonRoot: true
@@ -1797,7 +1797,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: oncall-redis-master
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -1851,7 +1851,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: redis
-          image: docker.io/bitnami/redis:6.2.7-debian-11-r11
+          image: docker.io/bitnamilegacy/redis:6.2.7-debian-11-r11
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsUser: 1001
@@ -1954,7 +1954,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: oncall-redis-replicas
-  namespace: "monitoring"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/name: redis
     helm.sh/chart: redis-16.13.2
@@ -2008,7 +2008,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: redis
-          image: docker.io/bitnami/redis:6.2.7-debian-11-r11
+          image: docker.io/bitnamilegacy/redis:6.2.7-debian-11-r11
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsUser: 1001
@@ -2023,7 +2023,7 @@ spec:
             - name: REDIS_REPLICATION_MODE
               value: slave
             - name: REDIS_MASTER_HOST
-              value: oncall-redis-master-0.oncall-redis-headless.monitoring.svc.cluster.local
+              value: oncall-redis-master-0.oncall-redis-headless.adhar-system.svc.cluster.local
             - name: REDIS_MASTER_PORT_NUMBER
               value: "6379"
             - name: ALLOW_EMPTY_PASSWORD
@@ -2272,7 +2272,7 @@ metadata:
     app.kubernetes.io/version: "11.1.4"
     app.kubernetes.io/managed-by: Helm
   name: oncall-grafana-test
-  namespace: monitoring
+  namespace: adhar-system
   annotations:
     "helm.sh/hook": test
     "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
@@ -2282,7 +2282,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: oncall-grafana-test
-  namespace: monitoring
+  namespace: adhar-system
   annotations:
     "helm.sh/hook": test
     "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
@@ -2315,7 +2315,7 @@ metadata:
   annotations:
     "helm.sh/hook": test
     "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
-  namespace: monitoring
+  namespace: adhar-system
 spec:
   serviceAccountName: oncall-grafana-test
   containers:

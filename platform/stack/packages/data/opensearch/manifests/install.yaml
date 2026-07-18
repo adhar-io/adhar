@@ -372,7 +372,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: opensearch-dashboards-dashboards
-  namespace: opensearch
+  namespace: adhar-system
 ---
 # Source: opensearch-dashboards/templates/service.yaml
 apiVersion: v1

@@ -9,7 +9,7 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: posthog
-  namespace: posthog
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: posthog
     app.kubernetes.io/instance: posthog

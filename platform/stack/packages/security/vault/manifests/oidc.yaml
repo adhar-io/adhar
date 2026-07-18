@@ -8,7 +8,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: vault-oidc
-  namespace: vault
+  namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: "40"
 spec:
@@ -32,7 +32,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: vault-ca
-  namespace: vault
+  namespace: adhar-system
 spec:
   refreshInterval: "1h"
   secretStoreRef:

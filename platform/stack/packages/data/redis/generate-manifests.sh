@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/redis/gen
 
 helm repo add ot-container-kit https://ot-container-kit.github.io/helm-charts --force-update
 helm repo update ot-container-kit
-helm template --namespace redis-operator redis ot-container-kit/redis-operator -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system redis ot-container-kit/redis-operator -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}

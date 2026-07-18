@@ -184,7 +184,7 @@ data:
       class: K8sRunLauncher
       config:
         load_incluster_config: true
-        job_namespace: dagster
+        job_namespace: adhar-system
         image_pull_policy: Always
         service_account_name: dagster
         dagster_home: "/opt/dagster/dagster_home"
@@ -779,7 +779,7 @@ spec:
         fsGroup: 1001
       initContainers:
         - name: init-chmod-data
-          image: docker.io/bitnami/minideb:stretch
+          image: docker.io/bitnamilegacy/minideb:stretch
           imagePullPolicy: "Always"
           resources:
             requests:

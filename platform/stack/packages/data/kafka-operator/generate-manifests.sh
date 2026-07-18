@@ -15,7 +15,7 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/kafka-ope
 helm repo add strimzi https://strimzi.io/charts/ --force-update
 helm repo update strimzi
 helm template strimzi-cluster-operator strimzi/strimzi-kafka-operator \
-  --namespace kafka \
+  --namespace adhar-system \
   --version ${CHART_VERSION} \
   --include-crds \
   --set watchAnyNamespace=true \

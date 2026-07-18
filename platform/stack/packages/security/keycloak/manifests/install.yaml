@@ -25,7 +25,7 @@ metadata:
   labels:
     app: keycloak
   name: keycloak
-  namespace: keycloak
+  namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 spec:
@@ -77,7 +77,7 @@ data:
     db=postgres
     
     # The username of the database user.
-    db-url=jdbc:postgresql://keycloak-db-rw.keycloak.svc.cluster.local:5432/keycloak
+    db-url=jdbc:postgresql://keycloak-db-rw.adhar-system.svc.cluster.local:5432/keycloak
 
     # The proxy address forwarding mode if the server is behind a reverse proxy.
     proxy=edge
@@ -100,7 +100,7 @@ data:
 kind: ConfigMap
 metadata:
   name: keycloak-config
-  namespace: keycloak
+  namespace: adhar-system
 ---
 # Keycloak's database is provisioned by CloudNativePG (the platform's CNPG
 # operator) instead of a hand-rolled single-pod postgres StatefulSet. CNPG gives
@@ -114,7 +114,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: keycloak-db
-  namespace: keycloak
+  namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: "5"
 spec:

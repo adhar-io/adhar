@@ -6,7 +6,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: opencost
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: opencost-2.5.22
     app.kubernetes.io/name: opencost
@@ -21,7 +21,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: opencost-ui-nginx-config
-  namespace: monitoring
+  namespace: adhar-system
 data:
   nginx.conf: |
     gzip_static  on;
@@ -207,14 +207,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: opencost
-    namespace: monitoring
+    namespace: adhar-system
 ---
 # Source: opencost/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: opencost
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: opencost-2.5.22
     app.kubernetes.io/name: opencost
@@ -243,7 +243,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: opencost
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: opencost-2.5.22
     app.kubernetes.io/name: opencost
@@ -322,7 +322,7 @@ spec:
             - name: API_PORT
               value: "9003"
             - name: PROMETHEUS_SERVER_ENDPOINT
-              value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+              value: "http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090"
             - name: INSECURE_SKIP_VERIFY
               value: "false"
             - name: CLUSTER_ID

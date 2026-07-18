@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/de
 
 helm repo add devtron https://helm.devtron.ai --force-update
 helm repo update
-helm template --namespace devtron devtron devtron/devtron-operator -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system devtron devtron/devtron-operator -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

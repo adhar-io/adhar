@@ -9,13 +9,13 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: victoria-metrics-single-0.39.0
   name: victoria-metrics-victoria-metrics-single-server
-  namespace: victoria-metrics
+  namespace: adhar-system
 ---
 # Source: victoria-metrics-single/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: victoria-metrics
+  namespace: adhar-system
   labels: 
     app.kubernetes.io/component: server
     app.kubernetes.io/instance: victoria-metrics
@@ -42,7 +42,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: victoria-metrics-victoria-metrics-single-server
-  namespace: victoria-metrics
+  namespace: adhar-system
   labels: 
     app.kubernetes.io/component: server
     app.kubernetes.io/instance: victoria-metrics

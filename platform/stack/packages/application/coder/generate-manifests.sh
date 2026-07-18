@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/co
 
 helm repo add coder-v2 https://helm.coder.com/v2 --force-update
 helm repo update
-helm template --namespace coder coder coder-v2/coder -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system coder coder-v2/coder -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

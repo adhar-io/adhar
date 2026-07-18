@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: workflow-controller-configmap
-  namespace: argo
+  namespace: adhar-system
 data:
   config: |
     sso:

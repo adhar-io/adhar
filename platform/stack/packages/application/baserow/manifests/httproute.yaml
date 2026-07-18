@@ -8,7 +8,7 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: baserow
-  namespace: baserow
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: baserow
     app.kubernetes.io/instance: baserow

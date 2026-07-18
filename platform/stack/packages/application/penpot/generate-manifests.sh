@@ -9,7 +9,7 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/pe
 
 helm repo add penpot https://helm.penpot.app --force-update
 helm repo update
-helm template --namespace penpot penpot penpot/penpot -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system penpot penpot/penpot -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
 
 # NOTE: manifests/dependencies.yaml (in-namespace Postgres + Valkey) and
 # manifests/httproute.yaml are static and intentionally NOT regenerated here.

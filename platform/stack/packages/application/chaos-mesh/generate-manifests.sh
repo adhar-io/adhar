@@ -12,4 +12,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/ch
 
 helm repo add chaos-mesh https://charts.chaos-mesh.org --force-update
 helm repo update chaos-mesh
-helm template --namespace chaos-mesh chaos-mesh chaos-mesh/chaos-mesh -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system chaos-mesh chaos-mesh/chaos-mesh -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

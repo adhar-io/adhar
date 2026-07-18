@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/trivy
 
 helm repo add aqua https://aquasecurity.github.io/helm-charts/ --force-update
 helm repo update aqua
-helm template --include-crds --namespace trivy-system trivy-operator aqua/trivy-operator -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system trivy-operator aqua/trivy-operator -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

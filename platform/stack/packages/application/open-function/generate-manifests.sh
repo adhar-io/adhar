@@ -13,4 +13,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/op
 
 helm repo add openfunction https://openfunction.github.io/charts/ --force-update
 helm repo update openfunction
-helm template --namespace openfunction openfunction openfunction/openfunction -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system openfunction openfunction/openfunction -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}

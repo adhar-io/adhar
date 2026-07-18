@@ -7,7 +7,7 @@ kind: ServiceAccount
 automountServiceAccountToken: true
 metadata:
   name: alloy
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: alloy-1.8.2
     app.kubernetes.io/name: alloy
@@ -22,7 +22,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: alloy
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: alloy-1.8.2
     app.kubernetes.io/name: alloy
@@ -210,14 +210,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: alloy
-    namespace: monitoring
+    namespace: adhar-system
 ---
 # Source: alloy/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: alloy
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: alloy-1.8.2
     app.kubernetes.io/name: alloy
@@ -243,7 +243,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: alloy
-  namespace: monitoring
+  namespace: adhar-system
   labels:
     helm.sh/chart: alloy-1.8.2
     app.kubernetes.io/name: alloy

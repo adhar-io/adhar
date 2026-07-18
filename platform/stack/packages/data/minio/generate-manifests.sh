@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/minio/gen
 
 helm repo add minio https://charts.min.io --force-update
 helm repo update minio
-helm template --namespace minio minio minio/minio -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system minio minio/minio -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}

@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/lakefs/ge
 
 helm repo add lakefs https://charts.lakefs.io --force-update
 helm repo update lakefs
-helm template --include-crds --namespace lakefs lakefs lakefs/lakefs -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system lakefs lakefs/lakefs -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

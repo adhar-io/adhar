@@ -24344,7 +24344,7 @@ kind: ServiceAccount
 automountServiceAccountToken: true
 metadata:
   name: redis-operator
-  namespace: redis-operator
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name : redis-operator
     helm.sh/chart : redis-operator-0.24.0
@@ -24498,7 +24498,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: redis-operator
-  namespace: redis-operator
+  namespace: adhar-system
 roleRef:
   kind: ClusterRole
   name: redis-operator
@@ -24509,7 +24509,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: redis-operator
-  namespace: redis-operator
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: redis-operator
     helm.sh/chart: redis-operator-0.24.0

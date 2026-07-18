@@ -6,7 +6,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: harbor-core
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -33,7 +33,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: "harbor-database"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -53,7 +53,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: "harbor-jobservice"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -74,7 +74,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: "harbor-registry"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -95,7 +95,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: "harbor-registry-htpasswd"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -115,7 +115,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: "harbor-registryctl"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -134,7 +134,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: harbor-core
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -191,7 +191,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: "harbor-jobservice-env"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -223,7 +223,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: "harbor-jobservice"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -274,7 +274,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: harbor-nginx
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -409,7 +409,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: "harbor-portal"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -461,7 +461,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: "harbor-registry"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -535,7 +535,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: "harbor-registryctl"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -553,7 +553,7 @@ kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: harbor-jobservice
-  namespace: "harbor"
+  namespace: "adhar-system"
   annotations:
     helm.sh/resource-policy: keep
   labels:
@@ -580,7 +580,7 @@ kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: harbor-registry
-  namespace: "harbor"
+  namespace: "adhar-system"
   annotations:
     helm.sh/resource-policy: keep
   labels:
@@ -607,7 +607,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: harbor-core
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -633,7 +633,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: "harbor-database"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -657,7 +657,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: "harbor-jobservice"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -683,7 +683,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: harbor
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -710,7 +710,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: "harbor-portal"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -735,7 +735,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: harbor-redis
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -759,7 +759,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: "harbor-registry"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -787,7 +787,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: harbor-core
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -929,7 +929,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: "harbor-jobservice"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -1043,7 +1043,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: harbor-nginx
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -1134,7 +1134,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: "harbor-portal"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -1225,7 +1225,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: "harbor-registry"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -1406,7 +1406,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: "harbor-database"
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor
@@ -1544,7 +1544,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: harbor-redis
-  namespace: "harbor"
+  namespace: "adhar-system"
   labels:
     heritage: Helm
     release: harbor

@@ -6,14 +6,14 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: falco-falcosidekick
-  namespace: falco
+  namespace: adhar-system
 ---
 # Source: falco/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: falco
-  namespace: falco
+  namespace: adhar-system
   labels:
     helm.sh/chart: falco-9.0.0
     app.kubernetes.io/name: falco
@@ -26,7 +26,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: falco-falcosidekick
-  namespace: falco
+  namespace: adhar-system
   labels:
     helm.sh/chart: falcosidekick-0.12.1
     app.kubernetes.io/name: falcosidekick
@@ -542,7 +542,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: falco
-  namespace: falco
+  namespace: adhar-system
   labels:
     helm.sh/chart: falco-9.0.0
     app.kubernetes.io/name: falco
@@ -688,7 +688,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: falco-falcoctl
-  namespace: falco
+  namespace: adhar-system
   labels:
     helm.sh/chart: falco-9.0.0
     app.kubernetes.io/name: falco
@@ -726,7 +726,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: falco-falcosidekick
-  namespace: falco
+  namespace: adhar-system
   labels:
     helm.sh/chart: falcosidekick-0.12.1
     app.kubernetes.io/name: falcosidekick
@@ -749,7 +749,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: falco-falcosidekick
-  namespace: falco
+  namespace: adhar-system
   labels:
     helm.sh/chart: falcosidekick-0.12.1
     app.kubernetes.io/name: falcosidekick
@@ -771,7 +771,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: falco-falcosidekick
-  namespace: falco
+  namespace: adhar-system
   labels:
     helm.sh/chart: falcosidekick-0.12.1
     app.kubernetes.io/name: falcosidekick
@@ -803,7 +803,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: falco
-  namespace: falco
+  namespace: adhar-system
   labels:
     helm.sh/chart: falco-9.0.0
     app.kubernetes.io/name: falco
@@ -1017,7 +1017,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: falco-falcosidekick
-  namespace: falco
+  namespace: adhar-system
   labels:
     helm.sh/chart: falcosidekick-0.12.1
     app.kubernetes.io/name: falcosidekick
@@ -1105,7 +1105,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: "falco-falcosidekick-test-connection"
-  namespace: falco
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: falcosidekick
     helm.sh/chart: falcosidekick-0.12.1

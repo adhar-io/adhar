@@ -6,7 +6,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: n8n
-  namespace: n8n
+  namespace: adhar-system
   labels:
     helm.sh/chart: n8n-2.0.1
     app.kubernetes.io/name: n8n
@@ -19,7 +19,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: n8n-app-config
-  namespace: n8n
+  namespace: adhar-system
   labels:
     helm.sh/chart: n8n-2.0.1
     app.kubernetes.io/name: n8n
@@ -37,7 +37,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: n8n
-  namespace: n8n
+  namespace: adhar-system
   labels:
     helm.sh/chart: n8n-2.0.1
     app.kubernetes.io/name: n8n
@@ -61,7 +61,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: n8n
-  namespace: n8n
+  namespace: adhar-system
   labels:
     helm.sh/chart: n8n-2.0.1
     app.kubernetes.io/name: n8n

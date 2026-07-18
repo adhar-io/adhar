@@ -2,7 +2,7 @@ apiVersion: kyverno.io/v2beta1
 kind: PolicyException
 metadata:
   name: argocd-adhar-operation
-  namespace: kyverno
+  namespace: adhar-system
 spec:
   exceptions:
   - policyName: disallow-privilege-escalation

@@ -39,7 +39,7 @@ serviceAccount:
 
 service:
   name: webhook-service
-  namespace: redis-operator
+  namespace: adhar-system
 
 certificate:
   name: serving-cert

@@ -6,7 +6,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: argo-rollouts
-  namespace: "argo-rollouts"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/component: rollouts-controller
     helm.sh/chart: argo-rollouts-2.41.0
@@ -21,7 +21,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: argo-rollouts-dashboard
-  namespace: "argo-rollouts"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/component: rollouts-dashboard
     helm.sh/chart: argo-rollouts-2.41.0
@@ -36,7 +36,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: argo-rollouts-config
-  namespace: "argo-rollouts"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/component: rollouts-controller
     helm.sh/chart: argo-rollouts-2.41.0
@@ -52,7 +52,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: argo-rollouts-notification-configmap
-  namespace: "argo-rollouts"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/component: rollouts-controller
     helm.sh/chart: argo-rollouts-2.41.0
@@ -18953,7 +18953,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: argo-rollouts
-  namespace: "argo-rollouts"
+  namespace: "adhar-system"
 ---
 # Source: argo-rollouts/templates/dashboard/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -18975,14 +18975,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: argo-rollouts-dashboard
-  namespace: "argo-rollouts"
+  namespace: "adhar-system"
 ---
 # Source: argo-rollouts/templates/dashboard/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: argo-rollouts-dashboard
-  namespace: "argo-rollouts"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/component: rollouts-dashboard
     helm.sh/chart: argo-rollouts-2.41.0
@@ -19009,7 +19009,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: argo-rollouts
-  namespace: "argo-rollouts"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/component: rollouts-controller
     helm.sh/chart: argo-rollouts-2.41.0
@@ -19101,7 +19101,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: argo-rollouts-dashboard
-  namespace: "argo-rollouts"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/component: rollouts-dashboard
     helm.sh/chart: argo-rollouts-2.41.0

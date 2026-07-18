@@ -13,7 +13,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: gitea-oauth-config
-  namespace: keycloak
+  namespace: adhar-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -39,7 +39,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: gitea-oauth-config
-    namespace: keycloak
+    namespace: adhar-system
 roleRef:
   kind: Role
   name: gitea-oauth-config
@@ -54,7 +54,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: gitea-oauth-config
-  namespace: keycloak
+  namespace: adhar-system
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
@@ -64,11 +64,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: gitea-oauth-config
-  namespace: keycloak
+  namespace: adhar-system
 subjects:
   - kind: ServiceAccount
     name: gitea-oauth-config
-    namespace: keycloak
+    namespace: adhar-system
 roleRef:
   kind: Role
   name: gitea-oauth-config
@@ -78,7 +78,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: gitea-oauth-config
-  namespace: keycloak
+  namespace: adhar-system
   annotations:
     # Sync wave 30: after the realm 'config' job (wave 20) has written
     # keycloak-clients (this job reads the gitea client secret from it).
@@ -119,13 +119,13 @@ spec:
               # Wait until Keycloak has published the gitea client secret.
               set +e
               for i in $(seq 1 60); do
-                $KUBECTL -n keycloak get secret keycloak-clients &> /dev/null && break
+                $KUBECTL -n adhar-system get secret keycloak-clients &> /dev/null && break
                 echo "waiting for keycloak-clients secret ($i)"
                 sleep 10
               done
               set -e
-              CLIENT_ID=$($KUBECTL -n keycloak get secret keycloak-clients -o go-template='{{index .data "GITEA_CLIENT_ID" | base64decode}}')
-              CLIENT_SECRET=$($KUBECTL -n keycloak get secret keycloak-clients -o go-template='{{index .data "GITEA_CLIENT_SECRET" | base64decode}}')
+              CLIENT_ID=$($KUBECTL -n adhar-system get secret keycloak-clients -o go-template='{{index .data "GITEA_CLIENT_ID" | base64decode}}')
+              CLIENT_SECRET=$($KUBECTL -n adhar-system get secret keycloak-clients -o go-template='{{index .data "GITEA_CLIENT_SECRET" | base64decode}}')
               # Locate the running Gitea pod in adhar-system.
               GITEA_POD=$($KUBECTL -n adhar-system get pods -l app=gitea -o jsonpath='{.items[0].metadata.name}')
               ISSUER="https://keycloak.adhar.localtest.me:8443/realms/adhar"

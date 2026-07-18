@@ -2,7 +2,7 @@ apiVersion: kyverno.io/v2beta1
 kind: PolicyException
 metadata:
   name: crossplane-system-adhar-operation
-  namespace: kyverno
+  namespace: adhar-system
 spec:
   exceptions:
   - policyName: disallow-capabilities-strict

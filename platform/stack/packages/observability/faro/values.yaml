@@ -23,13 +23,13 @@ alloy:
 
       loki.write "default" {
         endpoint {
-          url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+          url = "http://loki.adhar-system.svc.cluster.local:3100/loki/api/v1/push"
         }
       }
 
       otelcol.exporter.otlp "tempo" {
         client {
-          endpoint = "tempo.monitoring.svc.cluster.local:4317"
+          endpoint = "tempo.adhar-system.svc.cluster.local:4317"
           tls {
             insecure = true
           }

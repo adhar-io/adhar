@@ -6,7 +6,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: vault-agent-injector
-  namespace: vault
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: vault-agent-injector
     app.kubernetes.io/instance: vault
@@ -17,7 +17,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: vault
-  namespace: vault
+  namespace: adhar-system
   labels:
     helm.sh/chart: vault-0.32.0
     app.kubernetes.io/name: vault
@@ -29,7 +29,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: vault-config
-  namespace: vault
+  namespace: adhar-system
   labels:
     helm.sh/chart: vault-0.32.0
     app.kubernetes.io/name: vault
@@ -103,7 +103,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: vault-agent-injector
-  namespace: vault
+  namespace: adhar-system
 ---
 # Source: vault/templates/server-clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -122,14 +122,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: vault
-  namespace: vault
+  namespace: adhar-system
 ---
 # Source: vault/templates/injector-service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: vault-agent-injector-svc
-  namespace: vault
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: vault-agent-injector
     app.kubernetes.io/instance: vault
@@ -151,7 +151,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vault-internal
-  namespace: vault
+  namespace: adhar-system
   labels:
     helm.sh/chart: vault-0.32.0
     app.kubernetes.io/name: vault
@@ -181,7 +181,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vault
-  namespace: vault
+  namespace: adhar-system
   labels:
     helm.sh/chart: vault-0.32.0
     app.kubernetes.io/name: vault
@@ -210,7 +210,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vault-ui
-  namespace: vault
+  namespace: adhar-system
   labels:
     helm.sh/chart: vault-0.32.0
     app.kubernetes.io/name: vault-ui
@@ -234,7 +234,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vault-agent-injector
-  namespace: vault
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: vault-agent-injector
     app.kubernetes.io/instance: vault
@@ -293,7 +293,7 @@ spec:
             - name: AGENT_INJECT_LOG_LEVEL
               value: info
             - name: AGENT_INJECT_VAULT_ADDR
-              value: http://vault.vault.svc:8200
+              value: http://vault.adhar-system.svc:8200
             - name: AGENT_INJECT_VAULT_AUTH_PATH
               value: auth/kubernetes
             - name: AGENT_INJECT_VAULT_IMAGE
@@ -301,7 +301,7 @@ spec:
             - name: AGENT_INJECT_TLS_AUTO
               value: vault-agent-injector-cfg
             - name: AGENT_INJECT_TLS_AUTO_HOSTS
-              value: vault-agent-injector-svc,vault-agent-injector-svc.vault,vault-agent-injector-svc.vault.svc
+              value: vault-agent-injector-svc,vault-agent-injector-svc.vault,vault-agent-injector-svc.adhar-system.svc
             - name: AGENT_INJECT_LOG_FORMAT
               value: standard
             - name: AGENT_INJECT_REVOKE_ON_SHUTDOWN
@@ -363,7 +363,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: vault
-  namespace: vault
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: vault
     app.kubernetes.io/instance: vault
@@ -556,7 +556,7 @@ webhooks:
     clientConfig:
       service:
         name: vault-agent-injector-svc
-        namespace: vault
+        namespace: adhar-system
         path: "/mutate"
       caBundle: ""
     rules:
@@ -577,7 +577,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: vault-server-test
-  namespace: vault
+  namespace: adhar-system
   annotations:
     "helm.sh/hook": test
 spec:
@@ -588,7 +588,7 @@ spec:
       imagePullPolicy: IfNotPresent
       env:
         - name: VAULT_ADDR
-          value: http://vault.vault.svc:8200
+          value: http://vault.adhar-system.svc:8200
         
       command:
         - /bin/sh

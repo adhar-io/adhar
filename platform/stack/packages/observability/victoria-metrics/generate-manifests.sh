@@ -10,4 +10,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/observability/
 
 helm repo add victoria-metrics https://victoriametrics.github.io/helm-charts/ --force-update
 helm repo update victoria-metrics
-helm template --namespace victoria-metrics victoria-metrics victoria-metrics/victoria-metrics-single -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system victoria-metrics victoria-metrics/victoria-metrics-single -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

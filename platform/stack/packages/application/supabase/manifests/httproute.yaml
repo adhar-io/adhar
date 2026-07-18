@@ -7,7 +7,7 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: supabase
-  namespace: supabase
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: supabase
     app.kubernetes.io/instance: supabase

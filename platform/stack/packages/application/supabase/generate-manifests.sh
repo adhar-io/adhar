@@ -10,4 +10,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/su
 # Community chart maintained by supabase-community/supabase-kubernetes.
 helm repo add supabase https://supabase-community.github.io/supabase-kubernetes/ --force-update
 helm repo update
-helm template --namespace supabase supabase supabase/supabase -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system supabase supabase/supabase -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

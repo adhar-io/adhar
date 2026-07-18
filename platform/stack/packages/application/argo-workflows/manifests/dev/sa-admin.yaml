@@ -15,7 +15,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: admin
-  namespace: argo
+  namespace: adhar-system
   annotations:
     workflows.argoproj.io/rbac-rule: "'platform-admin' in groups"
     workflows.argoproj.io/rbac-rule-precedence: "10"
@@ -24,7 +24,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: admin.service-account-token
-  namespace: argo
+  namespace: adhar-system
   annotations:
     kubernetes.io/service-account.name: admin
 type: kubernetes.io/service-account-token
@@ -40,14 +40,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: admin
-    namespace: argo
+    namespace: adhar-system
 ---
 # platform-developer -> create/run/manage workflows in the argo namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: developer
-  namespace: argo
+  namespace: adhar-system
   annotations:
     workflows.argoproj.io/rbac-rule: "'platform-developer' in groups"
     workflows.argoproj.io/rbac-rule-precedence: "5"
@@ -56,7 +56,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: developer.service-account-token
-  namespace: argo
+  namespace: adhar-system
   annotations:
     kubernetes.io/service-account.name: developer
 type: kubernetes.io/service-account-token
@@ -65,7 +65,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: argo-sso-developer
-  namespace: argo
+  namespace: adhar-system
 rules:
   - apiGroups: ["argoproj.io"]
     resources:
@@ -86,7 +86,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: argo-sso-developer
-  namespace: argo
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -94,14 +94,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: developer
-    namespace: argo
+    namespace: adhar-system
 ---
 # platform-viewer -> read-only in the argo namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: viewer
-  namespace: argo
+  namespace: adhar-system
   annotations:
     workflows.argoproj.io/rbac-rule: "'platform-viewer' in groups"
     workflows.argoproj.io/rbac-rule-precedence: "1"
@@ -110,7 +110,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: viewer.service-account-token
-  namespace: argo
+  namespace: adhar-system
   annotations:
     kubernetes.io/service-account.name: viewer
 type: kubernetes.io/service-account-token
@@ -119,7 +119,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: argo-sso-viewer
-  namespace: argo
+  namespace: adhar-system
 rules:
   - apiGroups: ["argoproj.io"]
     resources:
@@ -137,7 +137,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: argo-sso-viewer
-  namespace: argo
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -145,4 +145,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: viewer
-    namespace: argo
+    namespace: adhar-system

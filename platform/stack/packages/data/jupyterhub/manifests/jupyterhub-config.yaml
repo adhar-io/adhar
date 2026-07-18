@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: jupyterhub-config-job
-  namespace: keycloak
+  namespace: adhar-system
 data:
   jupyterhub-client-payload.json: |
     {
@@ -38,7 +38,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: jupyterhub-config
-  namespace: keycloak
+  namespace: adhar-system
 spec:
   template:
     metadata:
@@ -75,14 +75,14 @@ spec:
               
               echo "checking if we're ready to start"
               set +e
-              ./kubectl get secret -n keycloak keycloak-clients &> /dev/null
+              ./kubectl get secret -n adhar-system keycloak-clients &> /dev/null
               if [ $? -ne 0 ]; then
                 exit 1
               fi
               set -e
               
               ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
-              KEYCLOAK_URL=http://keycloak.keycloak.svc.cluster.local:8080
+              KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080
               KEYCLOAK_TOKEN=$(curl -sS  --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
                 --data-urlencode "username=adhar-admin" \
                 --data-urlencode "password=${ADMIN_PASSWORD}" \
@@ -115,7 +115,7 @@ spec:
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
               
-              ./kubectl patch secret -n keycloak keycloak-clients --type=json \
+              ./kubectl patch secret -n adhar-system keycloak-clients --type=json \
                 -p='[{
                 "op" : "add" ,
                 "path" : "/data/JUPYTERHUB_CLIENT_SECRET" ,

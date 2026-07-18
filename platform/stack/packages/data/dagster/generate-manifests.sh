@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/data/dagster/g
 
 helm repo add dagster https://dagster-io.github.io/helm --force-update
 helm repo update dagster
-helm template --include-crds --namespace dagster dagster dagster/dagster -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system dagster dagster/dagster -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

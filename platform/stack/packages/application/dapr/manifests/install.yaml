@@ -6,7 +6,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: dapr-scheduler-server-disruption-budget
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-scheduler-server
     app.kubernetes.io/component: scheduler
@@ -30,7 +30,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: dapr-injector
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -43,7 +43,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: dapr-operator
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -56,7 +56,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: dapr-placement
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -69,7 +69,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: dapr-scheduler
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -82,7 +82,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: dapr-sentry
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -95,7 +95,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: dapr-trust-bundle
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-sentry
     app.kubernetes.io/component: sentry
@@ -109,7 +109,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: dapr-trust-bundle
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-sentry
     app.kubernetes.io/component: sentry
@@ -249,7 +249,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: dapr-injector
-  namespace: dapr-system
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -269,7 +269,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: dapr-operator
-  namespace: dapr-system
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -289,7 +289,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: dapr-placement
-  namespace: dapr-system
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -309,7 +309,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: dapr-scheduler
-  namespace: dapr-system
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -329,7 +329,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: dapr-sentry
-  namespace: dapr-system
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -340,7 +340,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: dapr-injector
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -364,7 +364,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: dapr-operator
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -411,7 +411,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: dapr-sentry
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -436,7 +436,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: dapr-injector
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -446,7 +446,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: dapr-injector
-  namespace: dapr-system
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -457,7 +457,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: dapr-operator
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -467,7 +467,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: dapr-operator
-  namespace: dapr-system
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -498,7 +498,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: dapr-sentry
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/managed-by: Helm
@@ -508,7 +508,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: dapr-sentry
-  namespace: dapr-system
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -519,7 +519,7 @@ kind: Service
 apiVersion: v1
 metadata:
   name: dapr-api
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: operator
     app.kubernetes.io/managed-by: Helm
@@ -558,7 +558,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dapr-webhook
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: operator
     app.kubernetes.io/managed-by: Helm
@@ -579,7 +579,7 @@ kind: Service
 apiVersion: v1
 metadata:
   name: dapr-placement-server
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-placement-server
     app.kubernetes.io/component: placement
@@ -613,7 +613,7 @@ kind: Service
 apiVersion: v1
 metadata:
   name: dapr-scheduler-server-a
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-scheduler-server
     app.kubernetes.io/component: scheduler
@@ -650,7 +650,7 @@ kind: Service
 apiVersion: v1
 metadata:
   name: dapr-scheduler-server
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-scheduler-server
     app.kubernetes.io/component: scheduler
@@ -686,7 +686,7 @@ kind: Service
 apiVersion: v1
 metadata:
   name: dapr-sentry
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: sentry
     app.kubernetes.io/managed-by: Helm
@@ -716,7 +716,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dapr-sidecar-injector
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: sidecar-injector
     app.kubernetes.io/managed-by: Helm
@@ -746,7 +746,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dapr-operator
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-operator
     app.kubernetes.io/component: operator
@@ -865,7 +865,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dapr-sentry
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-sentry
     app.kubernetes.io/component: sentry
@@ -966,7 +966,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dapr-sidecar-injector
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-sidecar-injector
     app.kubernetes.io/component: sidecar-injector
@@ -1036,7 +1036,7 @@ spec:
         - name: DAPR_CONTROL_PLANE_TRUST_DOMAIN
           value: cluster.local
         - name: DAPR_SENTRY_ADDRESS
-          value: dapr-sentry.dapr-system.svc.cluster.local:443
+          value: dapr-sentry.adhar-system.svc.cluster.local:443
         - name: KUBE_CLUSTER_DOMAIN
           value: cluster.local
         - name: SIDECAR_IMAGE
@@ -1109,7 +1109,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: dapr-placement-server
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-placement-server
     app.kubernetes.io/component: placement
@@ -1192,7 +1192,7 @@ spec:
         - "--tls-enabled"
         - "--trust-domain=cluster.local"
         - "--trust-anchors-file=/var/run/secrets/dapr.io/tls/ca.crt"
-        - "--sentry-address=dapr-sentry.dapr-system.svc.cluster.local:443"
+        - "--sentry-address=dapr-sentry.adhar-system.svc.cluster.local:443"
         - "--mode=kubernetes"
         securityContext:
           runAsNonRoot: true
@@ -1236,7 +1236,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: dapr-scheduler-server
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app: dapr-scheduler-server
     app.kubernetes.io/component: scheduler
@@ -1325,7 +1325,7 @@ spec:
         - "--id"
         - "$(SCHEDULER_ID)"
         - "--etcd-initial-cluster"
-        - "dapr-scheduler-server-0=https://dapr-scheduler-server-0.dapr-scheduler-server.dapr-system.svc.cluster.local:2380,dapr-scheduler-server-1=https://dapr-scheduler-server-1.dapr-scheduler-server.dapr-system.svc.cluster.local:2380,dapr-scheduler-server-2=https://dapr-scheduler-server-2.dapr-scheduler-server.dapr-system.svc.cluster.local:2380"
+        - "dapr-scheduler-server-0=https://dapr-scheduler-server-0.dapr-scheduler-server.adhar-system.svc.cluster.local:2380,dapr-scheduler-server-1=https://dapr-scheduler-server-1.dapr-scheduler-server.adhar-system.svc.cluster.local:2380,dapr-scheduler-server-2=https://dapr-scheduler-server-2.dapr-scheduler-server.adhar-system.svc.cluster.local:2380"
         - "--etcd-embed=true"
         - "--log-level"
         - info
@@ -1350,7 +1350,7 @@ spec:
         - "--tls-enabled"
         - "--trust-domain=cluster.local"
         - "--trust-anchors-file=/var/run/secrets/dapr.io/tls/ca.crt"
-        - "--sentry-address=dapr-sentry.dapr-system.svc.cluster.local:443"
+        - "--sentry-address=dapr-sentry.adhar-system.svc.cluster.local:443"
         - "--mode=kubernetes"
         - "--workers=2048"
         securityContext:
@@ -1412,7 +1412,7 @@ apiVersion: dapr.io/v1alpha1
 kind: Configuration
 metadata:
   name: daprsystem
-  namespace: dapr-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: config
     app.kubernetes.io/managed-by: Helm
@@ -1425,7 +1425,7 @@ spec:
     workloadCertTTL: 24h
     allowedClockSkew: 15m
     controlPlaneTrustDomain: cluster.local
-    sentryAddress: dapr-sentry.dapr-system.svc.cluster.local:443
+    sentryAddress: dapr-sentry.adhar-system.svc.cluster.local:443
 ---
 # Source: dapr/charts/dapr_sidecar_injector/templates/dapr_sidecar_injector_webhook_config.yaml
 apiVersion: admissionregistration.k8s.io/v1
@@ -1444,7 +1444,7 @@ webhooks:
   reinvocationPolicy: IfNeeded
   clientConfig:
     service:
-      namespace: dapr-system
+      namespace: adhar-system
       name: dapr-sidecar-injector
       path: "/mutate"
   rules:

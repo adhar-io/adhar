@@ -10,4 +10,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/ba
 # Community chart maintained by christianhuth. Bundles Bitnami PostgreSQL + Redis.
 helm repo add christianhuth https://charts.christianhuth.de --force-update
 helm repo update
-helm template --namespace baserow baserow christianhuth/baserow -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system baserow christianhuth/baserow -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

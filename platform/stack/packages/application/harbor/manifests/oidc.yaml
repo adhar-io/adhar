@@ -10,7 +10,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: harbor-oidc
-  namespace: harbor
+  namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: "40"
 spec:
@@ -30,7 +30,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: harbor-oidc-config
-  namespace: harbor
+  namespace: adhar-system
 data:
   # oidc_verify_cert=false: Keycloak is served over the self-signed platform cert.
   # oidc_auto_onboard=true: create a Harbor user on first OIDC login.
@@ -54,7 +54,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: harbor-oidc-config
-  namespace: harbor
+  namespace: adhar-system
   annotations:
     # Re-run on every sync so the config is reconciled idempotently once the
     # prerequisites (Harbor up + harbor-oidc secret) are ready.
@@ -106,7 +106,7 @@ spec:
                 exit 1
               fi
               ADMIN_PW="$(cat /var/harbor/HARBOR_ADMIN_PASSWORD 2>/dev/null || echo Harbor12345)"
-              HARBOR="http://harbor-core.harbor.svc.cluster.local"
+              HARBOR="http://harbor-core.adhar-system.svc.cluster.local"
 
               echo "waiting for Harbor API"
               i=0

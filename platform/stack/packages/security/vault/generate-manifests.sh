@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/vault
 
 helm repo add hashicorp https://helm.releases.hashicorp.com --force-update
 helm repo update hashicorp
-helm template --include-crds --namespace vault vault hashicorp/vault -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system vault hashicorp/vault -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

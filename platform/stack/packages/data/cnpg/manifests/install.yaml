@@ -6,7 +6,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cnpg-cloudnative-pg
-  namespace: cnpg-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: cloudnative-pg-0.28.2
     app.kubernetes.io/name: cloudnative-pg
@@ -37,7 +37,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: cnpg-controller-manager-config
-  namespace: cnpg-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: cloudnative-pg-0.28.2
     app.kubernetes.io/name: cloudnative-pg
@@ -52,7 +52,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: cnpg-default-monitoring
-  namespace: cnpg-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: cloudnative-pg-0.28.2
     app.kubernetes.io/name: cloudnative-pg
@@ -19823,14 +19823,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cnpg-cloudnative-pg
-  namespace: cnpg-system
+  namespace: adhar-system
 ---
 # Source: cloudnative-pg/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: cnpg-webhook-service
-  namespace: cnpg-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: cloudnative-pg-0.28.2
     app.kubernetes.io/name: cloudnative-pg
@@ -19852,7 +19852,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cnpg-cloudnative-pg
-  namespace: cnpg-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: cloudnative-pg-0.28.2
     app.kubernetes.io/name: cloudnative-pg
@@ -20111,7 +20111,7 @@ webhooks:
   clientConfig:
     service:
       name: cnpg-webhook-service
-      namespace: cnpg-system
+      namespace: adhar-system
       path: /mutate-postgresql-cnpg-io-v1-backup
       port: 443
   failurePolicy: Fail
@@ -20132,7 +20132,7 @@ webhooks:
   clientConfig:
     service:
       name: cnpg-webhook-service
-      namespace: cnpg-system
+      namespace: adhar-system
       path: /mutate-postgresql-cnpg-io-v1-cluster
       port: 443
   failurePolicy: Fail
@@ -20153,7 +20153,7 @@ webhooks:
   clientConfig:
     service:
       name: cnpg-webhook-service
-      namespace: cnpg-system
+      namespace: adhar-system
       path: /mutate-postgresql-cnpg-io-v1-database
       port: 443
   failurePolicy: Fail
@@ -20174,7 +20174,7 @@ webhooks:
   clientConfig:
     service:
       name: cnpg-webhook-service
-      namespace: cnpg-system
+      namespace: adhar-system
       path: /mutate-postgresql-cnpg-io-v1-scheduledbackup
       port: 443
   failurePolicy: Fail
@@ -20208,7 +20208,7 @@ webhooks:
   clientConfig:
     service:
       name: cnpg-webhook-service
-      namespace: cnpg-system
+      namespace: adhar-system
       path: /validate-postgresql-cnpg-io-v1-backup
       port: 443
   failurePolicy: Fail
@@ -20229,7 +20229,7 @@ webhooks:
   clientConfig:
     service:
       name: cnpg-webhook-service
-      namespace: cnpg-system
+      namespace: adhar-system
       path: /validate-postgresql-cnpg-io-v1-cluster
       port: 443
   failurePolicy: Fail
@@ -20250,7 +20250,7 @@ webhooks:
   clientConfig:
     service:
       name: cnpg-webhook-service
-      namespace: cnpg-system
+      namespace: adhar-system
       path: /validate-postgresql-cnpg-io-v1-scheduledbackup
       port: 443
   failurePolicy: Fail
@@ -20271,7 +20271,7 @@ webhooks:
   clientConfig:
     service:
       name: cnpg-webhook-service
-      namespace: cnpg-system
+      namespace: adhar-system
       path: /validate-postgresql-cnpg-io-v1-database
       port: 443
   failurePolicy: Fail
@@ -20292,7 +20292,7 @@ webhooks:
   clientConfig:
     service:
       name: cnpg-webhook-service
-      namespace: cnpg-system
+      namespace: adhar-system
       path: /validate-postgresql-cnpg-io-v1-pooler
       port: 443
   failurePolicy: Fail

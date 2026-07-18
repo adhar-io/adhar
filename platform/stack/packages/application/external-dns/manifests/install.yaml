@@ -6,7 +6,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: external-dns
-  namespace: external-dns
+  namespace: adhar-system
   labels:
     helm.sh/chart: external-dns-1.21.1
     app.kubernetes.io/name: external-dns
@@ -70,14 +70,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: external-dns
-    namespace: external-dns
+    namespace: adhar-system
 ---
 # Source: external-dns/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: external-dns
-  namespace: external-dns
+  namespace: adhar-system
   labels:
     helm.sh/chart: external-dns-1.21.1
     app.kubernetes.io/name: external-dns
@@ -100,7 +100,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: external-dns
-  namespace: external-dns
+  namespace: adhar-system
   labels:
     helm.sh/chart: external-dns-1.21.1
     app.kubernetes.io/name: external-dns

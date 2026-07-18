@@ -6,7 +6,7 @@ kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
 metadata:
   name: baserow-postgresql
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -34,7 +34,7 @@ kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
 metadata:
   name: baserow-redis
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -61,7 +61,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: baserow-postgresql
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -82,7 +82,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: baserow-redis-master
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -103,7 +103,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: baserow-postgresql
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -118,7 +118,7 @@ kind: ServiceAccount
 automountServiceAccountToken: false
 metadata:
   name: baserow-redis-master
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -179,7 +179,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: baserow-postgresql
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -198,7 +198,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: baserow-redis
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -231,7 +231,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: baserow-redis-configuration
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -268,7 +268,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: baserow-redis-health
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -377,7 +377,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: baserow-redis-scripts
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -487,7 +487,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: baserow-postgresql-hl
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -517,7 +517,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: baserow-postgresql
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -542,7 +542,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: baserow-redis-headless
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -565,7 +565,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: baserow-redis-master
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -1100,7 +1100,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: baserow-postgresql
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -1157,7 +1157,7 @@ spec:
       hostIPC: false
       containers:
         - name: postgresql
-          image: registry-1.docker.io/bitnami/postgresql:latest
+          image: docker.io/bitnamilegacy/postgresql:latest
           imagePullPolicy: "IfNotPresent"
           securityContext:
             allowPrivilegeEscalation: false
@@ -1293,7 +1293,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: baserow-redis-master
-  namespace: "baserow"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: baserow
     app.kubernetes.io/managed-by: Helm
@@ -1354,7 +1354,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: redis
-          image: registry-1.docker.io/bitnami/redis:latest
+          image: docker.io/bitnamilegacy/redis:latest
           imagePullPolicy: "IfNotPresent"
           securityContext:
             allowPrivilegeEscalation: false

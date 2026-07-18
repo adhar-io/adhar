@@ -8,7 +8,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: minio-oidc
-  namespace: minio
+  namespace: adhar-system
 spec:
   refreshInterval: "0"
   secretStoreRef:
@@ -30,7 +30,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: minio-ca
-  namespace: minio
+  namespace: adhar-system
 spec:
   refreshInterval: "1h"
   secretStoreRef:

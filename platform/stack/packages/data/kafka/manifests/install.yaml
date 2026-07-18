@@ -6,7 +6,7 @@ kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
 metadata:
   name: kafka-controller
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -39,7 +39,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: kafka-broker
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -62,7 +62,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: kafka-controller
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -85,7 +85,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kafka-provisioning
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -99,7 +99,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kafka
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -114,7 +114,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: kafka-user-passwords
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -131,7 +131,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: kafka-kraft
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -148,7 +148,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: kafka-controller-configuration
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -161,7 +161,7 @@ data:
   server.properties: |-
     advertised.listeners=CLIENT://advertised-address-placeholder:9092,INTERNAL://advertised-address-placeholder:9094
     controller.listener.names=CONTROLLER
-    controller.quorum.bootstrap.servers=kafka-controller-0.kafka-controller-headless.kafka.svc.cluster.local:9093
+    controller.quorum.bootstrap.servers=kafka-controller-0.kafka-controller-headless.adhar-system.svc.cluster.local:9093
     inter.broker.listener.name=INTERNAL
     listener.name.controller.plain.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="controller_user" password="controller-password-placeholder" user_controller_user="controller-password-placeholder" user_user1="password-placeholder-0";
     listener.name.controller.scram-sha-256.sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="controller_user" password="controller-password-placeholder";
@@ -183,7 +183,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kafka-controller-headless
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -220,7 +220,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kafka
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -247,7 +247,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: kafka-controller
-  namespace: "kafka"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/instance: kafka
     app.kubernetes.io/managed-by: Helm
@@ -313,7 +313,7 @@ spec:
       initContainers:
         
         - name: prepare-config
-          image: docker.io/bitnami/kafka:4.0.0-debian-12-r10
+          image: docker.io/bitnamilegacy/kafka:4.0.0-debian-12-r10
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -451,7 +451,7 @@ spec:
               readOnly: true
       containers:
         - name: kafka
-          image: docker.io/bitnami/kafka:4.0.0-debian-12-r10
+          image: docker.io/bitnamilegacy/kafka:4.0.0-debian-12-r10
           imagePullPolicy: "IfNotPresent"
           securityContext:
             allowPrivilegeEscalation: false

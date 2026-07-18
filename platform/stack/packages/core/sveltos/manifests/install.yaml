@@ -17591,7 +17591,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'access-manager'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/addon-controller-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17611,7 +17611,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'addon-controller'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/addon-controller-rolebinding-extra-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17631,7 +17631,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'addon-controller'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/classifier-manager-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17651,7 +17651,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'classifier-manager'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/event-manager-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17671,7 +17671,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'event-manager'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/hc-manager-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17691,7 +17691,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'hc-manager'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/register-mgmt-cluster-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17711,7 +17711,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'register-mgmt-cluster'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/sc-manager-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17731,7 +17731,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'sc-manager'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/shard-manager-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17754,7 +17754,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'shard-controller'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/sveltos-mcp-server-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17774,7 +17774,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'mcp-server'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/techsupport-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17794,7 +17794,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'techsupport-controller'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/addon-controller-role-extra-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17855,7 +17855,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'addon-controller'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/shard-controller-rolebinding-extra-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -17875,7 +17875,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'shard-controller'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/addon-controller.yaml
 apiVersion: v1
@@ -18776,7 +18776,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: 'crd-manager'
-  namespace: 'projectsveltos'
+  namespace: 'adhar-system'
 ---
 # Source: projectsveltos/templates/crd-manager-job.yaml
 apiVersion: batch/v1

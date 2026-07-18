@@ -77,17 +77,20 @@ var essentialProviders = []string{"argocd", "gitea", "keycloak-admin", "keycloak
 // knownProviders maps provider names to their search configuration.
 // "keycloak-admin" and "keycloak-user" both read keycloak-config but extract different fields.
 // "keycloak" as a -p filter returns both.
+// All platform packages deploy into adhar-system.
+//
+//nolint:goconst // provider names and secret patterns repeat by design in this lookup table
 var knownProviders = map[string]providerConfig{
 	"argocd":         {namespaces: []string{"adhar-system"}, patterns: []string{"argocd-initial-admin-secret"}},
 	"gitea":          {namespaces: []string{"adhar-system"}, patterns: []string{"gitea-admin-credentials"}},
-	"keycloak-admin": {namespaces: []string{"keycloak"}, patterns: []string{"keycloak-config"}},
-	"keycloak-user":  {namespaces: []string{"keycloak"}, patterns: []string{"keycloak-config"}},
-	"keycloak":       {namespaces: []string{"keycloak"}, patterns: []string{"keycloak-config", "keycloak-clients"}},
-	"vault":          {namespaces: []string{"vault"}, patterns: []string{"vault-unseal-keys", "vault-root-token"}},
-	"postgres":       {namespaces: []string{"adhar-system", "keycloak", "cnpg-system"}, patterns: []string{"postgres", "postgresql"}},
+	"keycloak-admin": {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config"}},
+	"keycloak-user":  {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config"}},
+	"keycloak":       {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config", "keycloak-clients"}},
+	"vault":          {namespaces: []string{"adhar-system"}, patterns: []string{"vault-keys", "vault-unseal-keys", "vault-root-token"}},
+	"postgres":       {namespaces: []string{"adhar-system"}, patterns: []string{"postgres", "postgresql"}},
 	"redis":          {namespaces: []string{"adhar-system"}, patterns: []string{"redis"}},
-	"harbor":         {namespaces: []string{"harbor"}, patterns: []string{"harbor-admin", "harbor-core"}},
-	"rustfs":         {namespaces: []string{"rustfs"}, patterns: []string{"rustfs-credentials"}},
+	"harbor":         {namespaces: []string{"adhar-system"}, patterns: []string{"harbor-admin", "harbor-core"}},
+	"rustfs":         {namespaces: []string{"adhar-system"}, patterns: []string{"rustfs-credentials"}},
 }
 
 func runGetSecrets(cmd *cobra.Command, args []string) error {

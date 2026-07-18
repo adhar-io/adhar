@@ -1039,7 +1039,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cluster-manager
-  namespace: open-cluster-management
+  namespace: adhar-system
 imagePullSecrets:
   - name: open-cluster-management-image-pull-credentials
 ---
@@ -1228,14 +1228,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: cluster-manager
-  namespace: open-cluster-management
+  namespace: adhar-system
 ---
 # Source: cluster-manager/templates/operator.yaml
 kind: Deployment
 apiVersion: apps/v1
 metadata:
   name: cluster-manager
-  namespace: open-cluster-management
+  namespace: adhar-system
   labels:
     app: cluster-manager
 spec:

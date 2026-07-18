@@ -12,8 +12,8 @@ helm repo add opensearch https://opensearch-project.github.io/helm-charts/ --for
 helm repo update opensearch
 
 # OpenSearch cluster
-helm template --include-crds --namespace opensearch opensearch opensearch/opensearch -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system opensearch opensearch/opensearch -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
 
 # OpenSearch Dashboards (UI)
 echo "---" >>${INSTALL_YAML}
-helm template --include-crds --namespace opensearch opensearch-dashboards opensearch/opensearch-dashboards -f values-dashboards.yaml --version ${DASHBOARDS_VERSION} >>${INSTALL_YAML}
+helm template --include-crds --namespace adhar-system opensearch-dashboards opensearch/opensearch-dashboards -f values-dashboards.yaml --version ${DASHBOARDS_VERSION} >>${INSTALL_YAML}

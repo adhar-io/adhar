@@ -2985,7 +2985,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: trivy-operator
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -2998,7 +2998,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: trivy-operator
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3012,7 +3012,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: trivy-operator-trivy-config
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3026,7 +3026,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: trivy-operator
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3055,7 +3055,7 @@ kind: ConfigMap
 apiVersion: v1
 metadata:
   name: trivy-operator-config
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3110,7 +3110,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: trivy-operator-trivy-config
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3390,7 +3390,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: trivy-operator
-    namespace: trivy-system
+    namespace: adhar-system
 ---
 # Source: trivy-operator/templates/rbac/leader-election-role.yaml
 # permissions to do leader election.
@@ -3398,7 +3398,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: trivy-operator-leader-election
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3426,7 +3426,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: trivy-operator
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3458,7 +3458,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: trivy-operator-leader-election
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3472,14 +3472,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: trivy-operator
-    namespace: trivy-system
+    namespace: adhar-system
 ---
 # Source: trivy-operator/templates/rbac/rolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: trivy-operator
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3493,14 +3493,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: trivy-operator
-    namespace: trivy-system
+    namespace: adhar-system
 ---
 # Source: trivy-operator/templates/monitor/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: trivy-operator
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator
@@ -3525,7 +3525,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: trivy-operator
-  namespace: trivy-system
+  namespace: adhar-system
   labels:
     helm.sh/chart: trivy-operator-0.33.1
     app.kubernetes.io/name: trivy-operator

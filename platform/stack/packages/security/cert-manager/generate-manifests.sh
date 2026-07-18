@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/cert-
 
 helm repo add jetstack https://charts.jetstack.io --force-update
 helm repo update
-helm template --namespace cert-manager cert-manager jetstack/cert-manager -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}
+helm template --namespace adhar-system cert-manager jetstack/cert-manager -f values.yaml --version ${CHART_VERSION} --set crds.enabled=true >>${INSTALL_YAML}

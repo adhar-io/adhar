@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/po
 
 helm repo add posthog https://posthog.github.io/charts-clickhouse/ --force-update
 helm repo update
-helm template --namespace posthog posthog posthog/posthog -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system posthog posthog/posthog -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

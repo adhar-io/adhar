@@ -3565,7 +3565,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: velero-server
-  namespace: velero
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: velero
     app.kubernetes.io/instance: velero
@@ -3578,7 +3578,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: velero
-  namespace: velero
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: velero
     app.kubernetes.io/instance: velero
@@ -3592,7 +3592,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: velero-repo-maintenance
-  namespace: velero
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: velero
     app.kubernetes.io/instance: velero
@@ -3617,7 +3617,7 @@ metadata:
     helm.sh/chart: velero-12.0.2
 subjects:
   - kind: ServiceAccount
-    namespace: velero
+    namespace: adhar-system
     name: velero-server
 roleRef:
   kind: ClusterRole
@@ -3629,7 +3629,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: velero-server
-  namespace: velero
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: server
     app.kubernetes.io/name: velero
@@ -3649,7 +3649,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: velero-server
-  namespace: velero
+  namespace: adhar-system
   labels:
     app.kubernetes.io/component: server
     app.kubernetes.io/name: velero
@@ -3658,7 +3658,7 @@ metadata:
     helm.sh/chart: velero-12.0.2
 subjects:
   - kind: ServiceAccount
-    namespace: velero
+    namespace: adhar-system
     name: velero-server
 roleRef:
   kind: Role
@@ -3670,7 +3670,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: velero
-  namespace: velero
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: velero
     app.kubernetes.io/instance: velero
@@ -3692,7 +3692,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: velero
-  namespace: velero
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: velero
     app.kubernetes.io/instance: velero
@@ -3812,7 +3812,7 @@ apiVersion: velero.io/v1
 kind: BackupStorageLocation
 metadata:
   name: default
-  namespace: velero
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: velero
     app.kubernetes.io/instance: velero
@@ -3829,14 +3829,14 @@ spec:
   config:
     region: "minio"
     s3ForcePathStyle: "true"
-    s3Url: "http://minio.minio.svc.cluster.local:9000"
+    s3Url: "http://minio.adhar-system.svc.cluster.local:9000"
 ---
 # Source: velero/templates/upgrade-crds/serviceaccount-upgrade.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: velero-server-upgrade-crds
-  namespace: velero
+  namespace: adhar-system
   annotations:
     "helm.sh/hook": pre-install,pre-upgrade,pre-rollback
     "helm.sh/hook-weight": "-4"
@@ -3892,7 +3892,7 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 subjects:
   - kind: ServiceAccount
-    namespace: velero
+    namespace: adhar-system
     name: velero-server-upgrade-crds
 roleRef:
   kind: ClusterRole
@@ -3904,7 +3904,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: velero-upgrade-crds
-  namespace: velero
+  namespace: adhar-system
   annotations:
     "helm.sh/hook": pre-install,pre-upgrade,pre-rollback
     "helm.sh/hook-weight": "5"

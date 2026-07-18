@@ -9,4 +9,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/security/exter
 
 helm repo add external-secrets --force-update https://charts.external-secrets.io
 helm repo update external-secrets
-helm template --namespace external-secrets external-secrets external-secrets/external-secrets -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+helm template --namespace adhar-system external-secrets external-secrets/external-secrets -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

@@ -12,4 +12,4 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/ar
 
 helm repo add argo https://argoproj.github.io/argo-helm --force-update
 helm repo update argo
-helm template --namespace argo-events argo-events argo/argo-events -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system argo-events argo/argo-events -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
