@@ -1,7 +1,3 @@
-# DEVTRON INSTALL RESOURCES
-# This file is auto-generated with 'platform/stack/packages/application/devtron/generate-manifests.sh'
----
-# Source: devtron-operator/templates/dex.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -11,12 +7,11 @@ metadata:
     app.kubernetes.io/part-of: argocd
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/resource-policy": keep
-    "meta.helm.sh/release-name": devtron
-    "meta.helm.sh/release-namespace": devtron
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: devtron
+    meta.helm.sh/release-namespace: devtron
   name: argocd-dex-server
 ---
-# Source: devtron-operator/templates/rbac.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -25,9 +20,8 @@ metadata:
   labels:
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 ---
-# Source: devtron-operator/templates/workflow.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -36,7 +30,6 @@ metadata:
   labels:
     release: devtron
 ---
-# Source: devtron-operator/templates/workflow.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -45,7 +38,6 @@ metadata:
   labels:
     release: devtron
 ---
-# Source: devtron-operator/templates/argocd-secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -53,12 +45,11 @@ metadata:
     app.kubernetes.io/name: argocd-secret
     app.kubernetes.io/part-of: argocd
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
   name: argocd-secret
   namespace: adhar-system
 type: Opaque
 ---
-# Source: devtron-operator/templates/dashboard.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -66,10 +57,9 @@ metadata:
   labels:
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 type: Opaque
 ---
-# Source: devtron-operator/templates/kubelink.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -78,10 +68,9 @@ metadata:
     app: kubelink
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 type: Opaque
 ---
-# Source: devtron-operator/templates/app-sync-job.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -92,10 +81,9 @@ metadata:
 data:
   PG_ADDR: postgresql-postgresql.devtroncd
   PG_DATABASE: orchestrator
-  PG_PORT: "5432"
+  PG_PORT: '5432'
   PG_USER: postgres
 ---
-# Source: devtron-operator/templates/argocd-secret.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -103,263 +91,128 @@ metadata:
     app.kubernetes.io/name: argocd-cm
     app.kubernetes.io/part-of: argocd
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
   name: argocd-cm
 data:
-  timeout.hard.reconciliation: "0"
+  timeout.hard.reconciliation: '0'
   timeout.reconciliation: 60s
-  repositories: |-
-    - name: devtron
-      type: helm
-      url: https://helm.devtron.ai
-    - name: fluent
-      type: helm
-      url: https://fluent.github.io/helm-charts
-    - name: nginx-ingress
-      type: helm
-      url: https://kubernetes.github.io/ingress-nginx
-    - name: elastic
-      type: helm
-      url: https://helm.elastic.co
-    - name: bitnami
-      type: helm
-      url: https://charts.bitnami.com/bitnami
-    - name: prometheus-community
-      type: helm
-      url:  https://prometheus-community.github.io/helm-charts
-    - name: jetstack
-      type: helm
-      url:  https://charts.jetstack.io
-    - name: metrics-server
-      type: helm
-      url:  https://kubernetes-sigs.github.io/metrics-server
-    - name: autoscaler
-      type: helm
-      url:  https://kubernetes.github.io/autoscaler
-    - name: external-secrets
-      type: helm
-      url:  https://charts.external-secrets.io
-    - name: kedacore
-      type: helm
-      url:  https://kedacore.github.io/charts
-  resource.customizations: >
-    kubernetes-client.io/ExternalSecret:
-      health.lua: |
-        hs = {}
-        if obj.status ~= nil then
-            if obj.status.status ~= nil then
-                hs.status = "Degraded"
-                hs.message = obj.status.status
-            else
-            hs.status = "Healthy"
-            end
-        else
-            hs.status = "Healthy"
-        end
-        return hs
-    argoproj.io/Rollout:
-      health.lua: |
-        function getNumberValueOrDefault(field)
-            if field ~= nil then
-                return field
-            end
-            return 0
-        end          
-        function checkPaused(obj)
-            hs = {}
-            local paused = false
-            if obj.status.verifyingPreview ~= nil then
-            paused = obj.status.verifyingPreview
-            elseif obj.spec.paused ~= nil then
-            paused = obj.spec.paused
-            end
-
-            if paused then
-            hs.status = "Suspended"
-            hs.message = "Rollout is paused"
-            return hs
-            end
-            return nil
-        end    
-        function checkReplicasStatus(obj)
-            hs = {}
-            replicasCount = getNumberValueOrDefault(obj.spec.replicas)
-            replicasStatus = getNumberValueOrDefault(obj.status.replicas)
-            updatedReplicas = getNumberValueOrDefault(obj.status.updatedReplicas)
-            availableReplicas = getNumberValueOrDefault(obj.status.availableReplicas)
-
-            if updatedReplicas < replicasCount then
-            hs.status = "Progressing"
-            hs.message = "Waiting for roll out to finish: More replicas need to be updated"
-            return hs
-            end
-            -- Since the scale down delay can be very high, BlueGreen does not wait for all the old replicas to scale
-            -- down before marking itself healthy. As a result, only evaluate this condition if the strategy is canary.
-            if obj.spec.strategy.canary ~= nil and replicasStatus > updatedReplicas then
-            hs.status = "Progressing"
-            hs.message = "Waiting for roll out to finish: old replicas are pending termination"
-            return hs
-            end
-            if availableReplicas < updatedReplicas then
-            hs.status = "Progressing"
-            hs.message = "Waiting for roll out to finish: updated replicas are still becoming available"
-            return hs
-            end
-            return nil
-        end    
-
-        function statusfromcondition(obj)  
-            local hs={}
-            for _, condition in ipairs(obj.status.conditions) do
-                if condition.type == "InvalidSpec" then
-                    hs.status = "Degraded"
-                    hs.message = condition.message
-                return hs
-                end
-                if condition.type == "Progressing" and condition.reason == "RolloutAborted" then
-                    hs.status = "Degraded"
-                    hs.message = condition.message
-                return hs
-                end
-                if condition.type == "Progressing" and condition.reason == "ProgressDeadlineExceeded" then
-                    hs.status = "Degraded"
-                    hs.message = condition.message
-                return hs
-                end
-            end
-            return nil
-        end    
-
-        function statusfrompodhash(obj)    
-            local hs={}
-            if obj.spec.strategy.blueGreen ~= nil then
-                isPaused = checkPaused(obj)
-                if isPaused ~= nil then
-                    return isPaused
-                end
-                replicasHS = checkReplicasStatus(obj)
-                if replicasHS ~= nil then
-                    return replicasHS
-                end
-                if obj.status.blueGreen ~= nil and obj.status.blueGreen.activeSelector ~= nil and obj.status.blueGreen.activeSelector == obj.status.currentPodHash then
-                    hs.status = "Healthy"
-                    hs.message = "The active Service is serving traffic to the current pod spec"
-                    return hs
-                end
-                hs.status = "Progressing"
-                hs.message = "The current pod spec is not receiving traffic from the active service"
-                return hs
-            end
-            if obj.spec.strategy.recreate ~= nil then
-                isPaused = checkPaused(obj)
-                if isPaused ~= nil then
-                    return isPaused
-                end
-                replicasHS = checkReplicasStatus(obj)
-                if replicasHS ~= nil then
-                    return replicasHS
-                end
-                if obj.status.recreate ~= nil and obj.status.recreate.currentRS ~= nil and obj.status.recreate.currentRS == obj.status.currentPodHash then
-                    hs.status = "Healthy"
-                    hs.message = "Rollout is successful"
-                    return hs
-                end
-                hs.status = "Progressing"
-                hs.message = "Rollout is in progress"
-                return hs
-            end
-            if obj.spec.strategy.canary ~= nil then
-                if obj.status.stableRS ~= nil then
-                currentRSIsStable = obj.status.stableRS == obj.status.currentPodHash
-                end
-                if obj.status.canary.stableRS ~= nil then
-                currentRSIsStable = obj.status.canary.stableRS == obj.status.currentPodHash
-                end                
-                if obj.spec.strategy.canary.steps ~= nil and table.getn(obj.spec.strategy.canary.steps) > 0 then
-                stepCount = table.getn(obj.spec.strategy.canary.steps)
-                if obj.status.currentStepIndex ~= nil then
-                    currentStepIndex = obj.status.currentStepIndex
-                    isPaused = checkPaused(obj)
-                    if isPaused ~= nil then
-                    return isPaused
-                    end
-                
-                    if paused then
-                    hs.status = "Suspended"
-                    hs.message = "Rollout is paused"
-                    return hs
-                    end
-                    if currentRSIsStable and stepCount == currentStepIndex then
-                    replicasHS = checkReplicasStatus(obj)
-                    if replicasHS ~= nil then
-                        return replicasHS
-                    end
-                    hs.status = "Healthy"
-                    hs.message = "The rollout has completed all steps"
-                    return hs
-                    end
-                end
-                hs.status = "Progressing"
-                hs.message = "Waiting for rollout to finish steps"
-                return hs
-                end
-
-                -- The detecting the health of the Canary deployment when there are no steps
-                replicasHS = checkReplicasStatus(obj)
-                if replicasHS ~= nil then
-                return replicasHS
-                end
-                if currentRSIsStable then
-                hs.status = "Healthy"
-                hs.message = "The rollout has completed canary deployment"
-                return hs
-                end
-                hs.status = "Progressing"
-                hs.message = "Waiting for rollout to finish canary deployment"
-            end
-
-
-            return hs
-        end   
-
-        -- Main Code
-        hs = {}
-        if obj.status.phase ~= nil then
-            if obj.status.phase == "Paused" then
-                hs.status = "Progressing"
-                hs.message = "Rollout is paused"    
-            elseif obj.status.phase == "Progressing" then
-                hs=statusfromcondition(obj) or hs
-                hs=statusfrompodhash(obj) or hs   
-            elseif obj.status.phase == "Healthy" then
-                hs=statusfromcondition(obj) or hs
-                hs=statusfrompodhash(obj) or hs                  
-            else
-                hs.status = obj.status.phase
-                hs.message = obj.status.message
-            end   
-        else
-            if obj.status ~= nil then
-                if obj.status.conditions ~= nil then
-                    hs=statusfromcondition(obj)
-                end
-                if obj.status.currentPodHash ~= nil then
-                    hs=statusfrompodhash(obj)   
-                end        
-            end
-        end        
-        return hs
+  repositories: "- name: devtron\n  type: helm\n  url: https://helm.devtron.ai\n-\
+    \ name: fluent\n  type: helm\n  url: https://fluent.github.io/helm-charts\n- name:\
+    \ nginx-ingress\n  type: helm\n  url: https://kubernetes.github.io/ingress-nginx\n\
+    - name: elastic\n  type: helm\n  url: https://helm.elastic.co\n- name: bitnami\n\
+    \  type: helm\n  url: https://charts.bitnami.com/bitnami\n- name: prometheus-community\n\
+    \  type: helm\n  url:  https://prometheus-community.github.io/helm-charts\n- name:\
+    \ jetstack\n  type: helm\n  url:  https://charts.jetstack.io\n- name: metrics-server\n\
+    \  type: helm\n  url:  https://kubernetes-sigs.github.io/metrics-server\n- name:\
+    \ autoscaler\n  type: helm\n  url:  https://kubernetes.github.io/autoscaler\n\
+    - name: external-secrets\n  type: helm\n  url:  https://charts.external-secrets.io\n\
+    - name: kedacore\n  type: helm\n  url:  https://kedacore.github.io/charts"
+  resource.customizations: "kubernetes-client.io/ExternalSecret:\n  health.lua: |\n\
+    \    hs = {}\n    if obj.status ~= nil then\n        if obj.status.status ~= nil\
+    \ then\n            hs.status = \"Degraded\"\n            hs.message = obj.status.status\n\
+    \        else\n        hs.status = \"Healthy\"\n        end\n    else\n      \
+    \  hs.status = \"Healthy\"\n    end\n    return hs\nargoproj.io/Rollout:\n  health.lua:\
+    \ |\n    function getNumberValueOrDefault(field)\n        if field ~= nil then\n\
+    \            return field\n        end\n        return 0\n    end          \n\
+    \    function checkPaused(obj)\n        hs = {}\n        local paused = false\n\
+    \        if obj.status.verifyingPreview ~= nil then\n        paused = obj.status.verifyingPreview\n\
+    \        elseif obj.spec.paused ~= nil then\n        paused = obj.spec.paused\n\
+    \        end\n\n        if paused then\n        hs.status = \"Suspended\"\n  \
+    \      hs.message = \"Rollout is paused\"\n        return hs\n        end\n  \
+    \      return nil\n    end    \n    function checkReplicasStatus(obj)\n      \
+    \  hs = {}\n        replicasCount = getNumberValueOrDefault(obj.spec.replicas)\n\
+    \        replicasStatus = getNumberValueOrDefault(obj.status.replicas)\n     \
+    \   updatedReplicas = getNumberValueOrDefault(obj.status.updatedReplicas)\n  \
+    \      availableReplicas = getNumberValueOrDefault(obj.status.availableReplicas)\n\
+    \n        if updatedReplicas < replicasCount then\n        hs.status = \"Progressing\"\
+    \n        hs.message = \"Waiting for roll out to finish: More replicas need to\
+    \ be updated\"\n        return hs\n        end\n        -- Since the scale down\
+    \ delay can be very high, BlueGreen does not wait for all the old replicas to\
+    \ scale\n        -- down before marking itself healthy. As a result, only evaluate\
+    \ this condition if the strategy is canary.\n        if obj.spec.strategy.canary\
+    \ ~= nil and replicasStatus > updatedReplicas then\n        hs.status = \"Progressing\"\
+    \n        hs.message = \"Waiting for roll out to finish: old replicas are pending\
+    \ termination\"\n        return hs\n        end\n        if availableReplicas\
+    \ < updatedReplicas then\n        hs.status = \"Progressing\"\n        hs.message\
+    \ = \"Waiting for roll out to finish: updated replicas are still becoming available\"\
+    \n        return hs\n        end\n        return nil\n    end    \n\n    function\
+    \ statusfromcondition(obj)  \n        local hs={}\n        for _, condition in\
+    \ ipairs(obj.status.conditions) do\n            if condition.type == \"InvalidSpec\"\
+    \ then\n                hs.status = \"Degraded\"\n                hs.message =\
+    \ condition.message\n            return hs\n            end\n            if condition.type\
+    \ == \"Progressing\" and condition.reason == \"RolloutAborted\" then\n       \
+    \         hs.status = \"Degraded\"\n                hs.message = condition.message\n\
+    \            return hs\n            end\n            if condition.type == \"Progressing\"\
+    \ and condition.reason == \"ProgressDeadlineExceeded\" then\n                hs.status\
+    \ = \"Degraded\"\n                hs.message = condition.message\n           \
+    \ return hs\n            end\n        end\n        return nil\n    end    \n\n\
+    \    function statusfrompodhash(obj)    \n        local hs={}\n        if obj.spec.strategy.blueGreen\
+    \ ~= nil then\n            isPaused = checkPaused(obj)\n            if isPaused\
+    \ ~= nil then\n                return isPaused\n            end\n            replicasHS\
+    \ = checkReplicasStatus(obj)\n            if replicasHS ~= nil then\n        \
+    \        return replicasHS\n            end\n            if obj.status.blueGreen\
+    \ ~= nil and obj.status.blueGreen.activeSelector ~= nil and obj.status.blueGreen.activeSelector\
+    \ == obj.status.currentPodHash then\n                hs.status = \"Healthy\"\n\
+    \                hs.message = \"The active Service is serving traffic to the current\
+    \ pod spec\"\n                return hs\n            end\n            hs.status\
+    \ = \"Progressing\"\n            hs.message = \"The current pod spec is not receiving\
+    \ traffic from the active service\"\n            return hs\n        end\n    \
+    \    if obj.spec.strategy.recreate ~= nil then\n            isPaused = checkPaused(obj)\n\
+    \            if isPaused ~= nil then\n                return isPaused\n      \
+    \      end\n            replicasHS = checkReplicasStatus(obj)\n            if\
+    \ replicasHS ~= nil then\n                return replicasHS\n            end\n\
+    \            if obj.status.recreate ~= nil and obj.status.recreate.currentRS ~=\
+    \ nil and obj.status.recreate.currentRS == obj.status.currentPodHash then\n  \
+    \              hs.status = \"Healthy\"\n                hs.message = \"Rollout\
+    \ is successful\"\n                return hs\n            end\n            hs.status\
+    \ = \"Progressing\"\n            hs.message = \"Rollout is in progress\"\n   \
+    \         return hs\n        end\n        if obj.spec.strategy.canary ~= nil then\n\
+    \            if obj.status.stableRS ~= nil then\n            currentRSIsStable\
+    \ = obj.status.stableRS == obj.status.currentPodHash\n            end\n      \
+    \      if obj.status.canary.stableRS ~= nil then\n            currentRSIsStable\
+    \ = obj.status.canary.stableRS == obj.status.currentPodHash\n            end \
+    \               \n            if obj.spec.strategy.canary.steps ~= nil and table.getn(obj.spec.strategy.canary.steps)\
+    \ > 0 then\n            stepCount = table.getn(obj.spec.strategy.canary.steps)\n\
+    \            if obj.status.currentStepIndex ~= nil then\n                currentStepIndex\
+    \ = obj.status.currentStepIndex\n                isPaused = checkPaused(obj)\n\
+    \                if isPaused ~= nil then\n                return isPaused\n  \
+    \              end\n            \n                if paused then\n           \
+    \     hs.status = \"Suspended\"\n                hs.message = \"Rollout is paused\"\
+    \n                return hs\n                end\n                if currentRSIsStable\
+    \ and stepCount == currentStepIndex then\n                replicasHS = checkReplicasStatus(obj)\n\
+    \                if replicasHS ~= nil then\n                    return replicasHS\n\
+    \                end\n                hs.status = \"Healthy\"\n              \
+    \  hs.message = \"The rollout has completed all steps\"\n                return\
+    \ hs\n                end\n            end\n            hs.status = \"Progressing\"\
+    \n            hs.message = \"Waiting for rollout to finish steps\"\n         \
+    \   return hs\n            end\n\n            -- The detecting the health of the\
+    \ Canary deployment when there are no steps\n            replicasHS = checkReplicasStatus(obj)\n\
+    \            if replicasHS ~= nil then\n            return replicasHS\n      \
+    \      end\n            if currentRSIsStable then\n            hs.status = \"\
+    Healthy\"\n            hs.message = \"The rollout has completed canary deployment\"\
+    \n            return hs\n            end\n            hs.status = \"Progressing\"\
+    \n            hs.message = \"Waiting for rollout to finish canary deployment\"\
+    \n        end\n\n\n        return hs\n    end   \n\n    -- Main Code\n    hs =\
+    \ {}\n    if obj.status.phase ~= nil then\n        if obj.status.phase == \"Paused\"\
+    \ then\n            hs.status = \"Progressing\"\n            hs.message = \"Rollout\
+    \ is paused\"    \n        elseif obj.status.phase == \"Progressing\" then\n \
+    \           hs=statusfromcondition(obj) or hs\n            hs=statusfrompodhash(obj)\
+    \ or hs   \n        elseif obj.status.phase == \"Healthy\" then\n            hs=statusfromcondition(obj)\
+    \ or hs\n            hs=statusfrompodhash(obj) or hs                  \n     \
+    \   else\n            hs.status = obj.status.phase\n            hs.message = obj.status.message\n\
+    \        end   \n    else\n        if obj.status ~= nil then\n            if obj.status.conditions\
+    \ ~= nil then\n                hs=statusfromcondition(obj)\n            end\n\
+    \            if obj.status.currentPodHash ~= nil then\n                hs=statusfrompodhash(obj)\
+    \   \n            end        \n        end\n    end        \n    return hs\n"
 ---
-# Source: devtron-operator/templates/config-overrides.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: migrator-override-cm
-  namespace:  adhar-system
+  namespace: adhar-system
 data:
-  override: |
+  override: ''
 ---
-# Source: devtron-operator/templates/configmap-secret.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -368,10 +221,9 @@ metadata:
   labels:
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
-data:
+    helm.sh/resource-policy: keep
+data: null
 ---
-# Source: devtron-operator/templates/configmap-secret.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -380,10 +232,9 @@ metadata:
   labels:
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
-data:
+    helm.sh/resource-policy: keep
+data: null
 ---
-# Source: devtron-operator/templates/dashboard.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -391,59 +242,57 @@ metadata:
   labels:
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 data:
-  GA_ENABLED: "false"
-  HOTJAR_ENABLED: "false"
-  SENTRY_ENABLED: "false"
-  SENTRY_ENV: "PRODUCTION"
-  APPLICATION_METRICS_ENABLED: "true"
-  HIDE_APPLICATION_GROUPS: "false"
-  API_BATCH_SIZE: "30"
-  ENABLE_BUILD_CONTEXT: "true"
-  ENABLE_CI_JOB: "true"
-  ENABLE_EXTERNAL_ARGO_CD: "true"
-  ENABLE_RESOURCE_SCAN: "true"
-  ENABLE_RESTART_WORKLOAD: "true"
-  ENABLE_SCOPED_VARIABLES: "true"
-  FEATURE_CODE_MIRROR_ENABLE: "true"
-  FEATURE_EXTERNAL_FLUX_CD_ENABLE: "true"
-  FEATURE_GROUPED_APP_LIST_FILTERS_ENABLE: "true"
-  FEATURE_STEP_WISE_LOGS_ENABLE: "true"
-  FEATURE_USER_DEFINED_GITOPS_REPO_ENABLE: "true"
-  GLOBAL_API_TIMEOUT: "60000"
-  HIDE_EXCLUDE_INCLUDE_GIT_COMMITS: "false"
-  SERVICE_WORKER_TIMEOUT: "1"
-  TRIGGER_API_TIMEOUT: "60000"
-  USE_V2: "true"
+  GA_ENABLED: 'false'
+  HOTJAR_ENABLED: 'false'
+  SENTRY_ENABLED: 'false'
+  SENTRY_ENV: PRODUCTION
+  APPLICATION_METRICS_ENABLED: 'true'
+  HIDE_APPLICATION_GROUPS: 'false'
+  API_BATCH_SIZE: '30'
+  ENABLE_BUILD_CONTEXT: 'true'
+  ENABLE_CI_JOB: 'true'
+  ENABLE_EXTERNAL_ARGO_CD: 'true'
+  ENABLE_RESOURCE_SCAN: 'true'
+  ENABLE_RESTART_WORKLOAD: 'true'
+  ENABLE_SCOPED_VARIABLES: 'true'
+  FEATURE_CODE_MIRROR_ENABLE: 'true'
+  FEATURE_EXTERNAL_FLUX_CD_ENABLE: 'true'
+  FEATURE_GROUPED_APP_LIST_FILTERS_ENABLE: 'true'
+  FEATURE_STEP_WISE_LOGS_ENABLE: 'true'
+  FEATURE_USER_DEFINED_GITOPS_REPO_ENABLE: 'true'
+  GLOBAL_API_TIMEOUT: '60000'
+  HIDE_EXCLUDE_INCLUDE_GIT_COMMITS: 'false'
+  SERVICE_WORKER_TIMEOUT: '1'
+  TRIGGER_API_TIMEOUT: '60000'
+  USE_V2: 'true'
 ---
-# Source: devtron-operator/templates/devtron.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: "devtron-cm"
+  name: devtron-cm
   labels:
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 data:
-  CLUSTER_OVERVIEW_MAX_STALE_DATA_SECONDS: "330"
+  CLUSTER_OVERVIEW_MAX_STALE_DATA_SECONDS: '330'
   DEVTRON_HELM_RELEASE_NAME: devtron
   DEVTRON_HELM_RELEASE_NAMESPACE: devtron
-  FEATURE_MIGRATE_ARGOCD_APPLICATION_ENABLE: "true"
-  GRPC_ENFORCE_ALPN_ENABLED: "false"
+  FEATURE_MIGRATE_ARGOCD_APPLICATION_ENABLE: 'true'
+  GRPC_ENFORCE_ALPN_ENABLED: 'false'
   PG_ADDR: postgresql-postgresql.devtroncd
   PG_DATABASE: orchestrator
-  PG_PORT: "5432"
+  PG_PORT: '5432'
   PG_USER: postgres
   HELM_CLIENT_URL: kubelink-service-headless:50051
-  DASHBOARD_PORT: "80"
+  DASHBOARD_PORT: '80'
   DASHBOARD_HOST: dashboard-service.devtroncd
   DEX_HOST: http://argocd-dex-server.devtroncd
-  DEX_PORT: "5556"
+  DEX_PORT: '5556'
   APP_SYNC_IMAGE: quay.io/devtron/chart-sync:fbde4d5e-836-38757
 ---
-# Source: devtron-operator/templates/devtron.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -451,13 +300,12 @@ metadata:
   labels:
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 data:
-  POSTGRES_MIGRATED: "14"
-  INSTALLED_MODULES: ""
+  POSTGRES_MIGRATED: '14'
+  INSTALLED_MODULES: ''
   DEFAULT_CI_IMAGE: quay.io/devtron/ci-runner:fbde4d5e-138-38754
 ---
-# Source: devtron-operator/templates/devtron.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -465,17 +313,9 @@ metadata:
   labels:
     release: devtron
 data:
-  rollout.yaml: >-
-    rollout:
-      resources:
-        limits:
-          cpu: 250m
-          memory: 200Mi
-        requests:
-          cpu: 50m
-          memory: 100Mi
+  rollout.yaml: "rollout:\n  resources:\n    limits:\n      cpu: 250m\n      memory:\
+    \ 200Mi\n    requests:\n      cpu: 50m\n      memory: 100Mi"
 ---
-# Source: devtron-operator/templates/kubelink.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -484,25 +324,24 @@ metadata:
     app: kubelink
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 data:
   PG_ADDR: postgresql-postgresql.devtroncd
   PG_DATABASE: orchestrator
-  PG_PORT: "5432"
+  PG_PORT: '5432'
   PG_USER: postgres
-  ENABLE_HELM_RELEASE_CACHE: "true"
-  MANIFEST_FETCH_BATCH_SIZE: "2"
-  NATS_MSG_PROCESSING_BATCH_SIZE: "1"
+  ENABLE_HELM_RELEASE_CACHE: 'true'
+  MANIFEST_FETCH_BATCH_SIZE: '2'
+  NATS_MSG_PROCESSING_BATCH_SIZE: '1'
   NATS_SERVER_HOST: nats://devtron-nats.devtroncd:4222
-  PG_LOG_QUERY: "true"
-  USE_CUSTOM_HTTP_TRANSPORT: "true"
+  PG_LOG_QUERY: 'true'
+  USE_CUSTOM_HTTP_TRANSPORT: 'true'
 ---
-# Source: devtron-operator/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
   labels:
     app.kubernetes.io/instance: devtron
   name: devtron
@@ -518,23 +357,21 @@ rules:
   verbs:
   - '*'
 ---
-# Source: devtron-operator/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: devtron
 subjects:
-  - kind: ServiceAccount
-    name: devtron
-    namespace: adhar-system
+- kind: ServiceAccount
+  name: devtron
+  namespace: adhar-system
 ---
-# Source: devtron-operator/templates/dex.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -544,13 +381,13 @@ metadata:
     app.kubernetes.io/part-of: argocd
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/resource-policy": keep
-    "meta.helm.sh/release-name": devtron
-    "meta.helm.sh/release-namespace": devtron
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: devtron
+    meta.helm.sh/release-namespace: devtron
   name: argocd-dex-server
 rules:
 - apiGroups:
-  - ""
+  - ''
   resources:
   - secrets
   - configmaps
@@ -562,7 +399,6 @@ rules:
   - update
   - patch
 ---
-# Source: devtron-operator/templates/dex.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -572,9 +408,9 @@ metadata:
     app.kubernetes.io/part-of: argocd
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/resource-policy": keep
-    "meta.helm.sh/release-name": devtron
-    "meta.helm.sh/release-namespace": devtron
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: devtron
+    meta.helm.sh/release-namespace: devtron
   name: argocd-dex-server
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -584,7 +420,6 @@ subjects:
 - kind: ServiceAccount
   name: argocd-dex-server
 ---
-# Source: devtron-operator/templates/dashboard.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -593,18 +428,17 @@ metadata:
     app: dashboard
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 spec:
   type: ClusterIP
   ports:
-    - port: 80
-      targetPort: app
-      protocol: TCP
-      name: app
+  - port: 80
+    targetPort: app
+    protocol: TCP
+    name: app
   selector:
     app: dashboard
 ---
-# Source: devtron-operator/templates/devtron-service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -612,7 +446,7 @@ metadata:
     app: devtron
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
   name: devtron-service
   namespace: adhar-system
 spec:
@@ -626,7 +460,6 @@ spec:
   sessionAffinity: None
   type: ClusterIP
 ---
-# Source: devtron-operator/templates/dex.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -636,9 +469,9 @@ metadata:
     app.kubernetes.io/part-of: argocd
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/resource-policy": keep
-    "meta.helm.sh/release-name": devtron
-    "meta.helm.sh/release-namespace": devtron
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: devtron
+    meta.helm.sh/release-namespace: devtron
   name: argocd-dex-server
 spec:
   ports:
@@ -657,7 +490,6 @@ spec:
   selector:
     app.kubernetes.io/name: argocd-dex-server
 ---
-# Source: devtron-operator/templates/kubelink.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -666,20 +498,19 @@ metadata:
   name: kubelink-service-headless
   namespace: adhar-system
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 spec:
   ports:
-    - name: app
-      port: 50051
-      protocol: TCP
-      targetPort: app
+  - name: app
+    port: 50051
+    protocol: TCP
+    targetPort: app
   selector:
     app: kubelink
   sessionAffinity: None
   type: ClusterIP
   clusterIP: None
 ---
-# Source: devtron-operator/templates/postgresql.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -687,22 +518,21 @@ metadata:
   namespace: adhar-system
   labels:
     app: postgresql
-    release: "devtron"
+    release: devtron
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 spec:
   type: ClusterIP
   ports:
-    - name: postgres
-      port: 5432
-      protocol: TCP
-      targetPort: postgres
+  - name: postgres
+    port: 5432
+    protocol: TCP
+    targetPort: postgres
   selector:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/instance: devtron
 ---
-# Source: devtron-operator/templates/postgresql.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -710,23 +540,22 @@ metadata:
   namespace: adhar-system
   labels:
     app: postgresql
-    release: "devtron"
+    release: devtron
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 spec:
   type: ClusterIP
   clusterIP: None
   ports:
-    - name: postgres
-      port: 5432
-      protocol: TCP
-      targetPort: postgres
+  - name: postgres
+    port: 5432
+    protocol: TCP
+    targetPort: postgres
   selector:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/instance: devtron
 ---
-# Source: devtron-operator/templates/postgresql.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -734,23 +563,22 @@ metadata:
   namespace: adhar-system
   labels:
     app: postgresql
-    release: "devtron"
+    release: devtron
     app.kubernetes.io/managed-by: Helm
   annotations:
-    prometheus.io/port: "9187"
-    prometheus.io/scrape: "true"
-    "helm.sh/resource-policy": keep
+    prometheus.io/port: '9187'
+    prometheus.io/scrape: 'true'
+    helm.sh/resource-policy: keep
 spec:
   type: ClusterIP
   ports:
-    - name: http-metrics
-      port: 9187
-      targetPort: http-metrics
+  - name: http-metrics
+    port: 9187
+    targetPort: http-metrics
   selector:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/instance: devtron
 ---
-# Source: devtron-operator/templates/dashboard.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -759,7 +587,7 @@ metadata:
     app: dashboard
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 spec:
   selector:
     matchLabels:
@@ -778,58 +606,57 @@ spec:
       securityContext:
         fsGroup: 1000
         runAsGroup: 1000
-        runAsUser: 1000      
+        runAsUser: 1000
       serviceAccountName: devtron-default-sa
       containers:
-        - name: dashboard
-          image: quay.io/devtron/dashboard:8a175cbd-690-38843
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
-          livenessProbe:
-            failureThreshold: 3
-            httpGet:
-              path: /
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 5
-          readinessProbe:
-            failureThreshold: 3
-            httpGet:
-              path: /
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 5
-          ports:
-            - name: app
-              containerPort: 8080
-              protocol: TCP
-          env:
-            - name: DEVTRON_APP_NAME
-              value: dashboard
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-          envFrom:
-          - configMapRef:
-              name: dashboard-cm
-          - secretRef:
-              name: devtron-dashboard-secret
-          - configMapRef:
-              name: devtron-common-cm
-          volumeMounts: []        
+      - name: dashboard
+        image: quay.io/devtron/dashboard:8a175cbd-690-38843
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        ports:
+        - name: app
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: DEVTRON_APP_NAME
+          value: dashboard
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: dashboard-cm
+        - secretRef:
+            name: devtron-dashboard-secret
+        - configMapRef:
+            name: devtron-common-cm
+        volumeMounts: []
   revisionHistoryLimit: 3
 ---
-# Source: devtron-operator/templates/devtron.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -838,7 +665,7 @@ metadata:
     app: devtron
     release: devtron
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 spec:
   selector:
     matchLabels:
@@ -851,82 +678,81 @@ spec:
       labels:
         app: devtron
         release: devtron
-    spec:      
+    spec:
       terminationGracePeriodSeconds: 30
       restartPolicy: Always
       serviceAccountName: devtron
       volumes:
-        - configMap:
-            name: devtron-cluster-components
-          name: devtron-cluster-components-vol      
+      - configMap:
+          name: devtron-cluster-components
+        name: devtron-cluster-components-vol
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001
         runAsUser: 1001
       containers:
+      - name: devtron
+        image: quay.io/devtron/hyperion:1188d0b9-280-38819
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1001
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - ' curl -X POST -H "Content-Type: application/json" -d ''{"eventType":
+                "SIG_TERM"}'' localhost:8080/orchestrator/telemetry/summary'
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        ports:
         - name: devtron
-          image: quay.io/devtron/hyperion:1188d0b9-280-38819
-          imagePullPolicy: IfNotPresent          
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1001
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /bin/sh
-                  - -c
-                  - ' curl -X POST -H "Content-Type: application/json" -d ''{"eventType":
-                  "SIG_TERM"}'' localhost:8080/orchestrator/telemetry/summary'
-          livenessProbe:
-            failureThreshold: 3
-            httpGet:
-              path: /health
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 5
-          readinessProbe:
-            failureThreshold: 3
-            httpGet:
-              path: /health
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 5
-          ports:
-            - name: devtron
-              containerPort: 8080
-              protocol: TCP
-          env:
-            - name: DEVTRON_APP_NAME
-              value: devtron
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-          envFrom:
-          - configMapRef:
-              name: devtron-cm
-          - secretRef:
-              name: devtron-secret
-          - configMapRef:
-              name: devtron-custom-cm
-          - secretRef:
-              name: devtron-custom-secret
-          - configMapRef:
-              name: devtron-common-cm
-          volumeMounts:
-            - mountPath: /cluster/component
-              name: devtron-cluster-components-vol
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: DEVTRON_APP_NAME
+          value: devtron
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: devtron-cm
+        - secretRef:
+            name: devtron-secret
+        - configMapRef:
+            name: devtron-custom-cm
+        - secretRef:
+            name: devtron-custom-secret
+        - configMapRef:
+            name: devtron-common-cm
+        volumeMounts:
+        - mountPath: /cluster/component
+          name: devtron-cluster-components-vol
   revisionHistoryLimit: 3
 ---
-# Source: devtron-operator/templates/dex.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -936,9 +762,9 @@ metadata:
     app.kubernetes.io/part-of: argocd
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/resource-policy": keep
-    "meta.helm.sh/release-name": devtron
-    "meta.helm.sh/release-namespace": devtron
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: devtron
+    meta.helm.sh/release-namespace: devtron
   name: argocd-dex-server
 spec:
   selector:
@@ -949,7 +775,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: argocd-dex-server
-    spec:      
+    spec:
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -983,7 +809,7 @@ spec:
             name: devtron-common-cm
         volumeMounts:
         - mountPath: /shared
-          name: static-files         
+          name: static-files
       initContainers:
       - command:
         - cp
@@ -1002,13 +828,12 @@ spec:
             name: devtron-common-cm
         volumeMounts:
         - mountPath: /shared
-          name: static-files           
+          name: static-files
       serviceAccountName: argocd-dex-server
       volumes:
       - emptyDir: {}
         name: static-files
 ---
-# Source: devtron-operator/templates/kubelink.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1017,7 +842,7 @@ metadata:
     app: kubelink
     chart: kubelink-4.11.1
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 spec:
   selector:
     matchLabels:
@@ -1028,68 +853,67 @@ spec:
     metadata:
       labels:
         app: kubelink
-    spec:      
+    spec:
       terminationGracePeriodSeconds: 30
       restartPolicy: Always
-      serviceAccount: devtron      
+      serviceAccount: devtron
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001
         runAsUser: 1001
       containers:
-        - name: kubelink
-          image: quay.io/devtron/kubelink:fbde4d5e-564-38749
-          imagePullPolicy: IfNotPresent          
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1001
-          ports:
-            - name: app
-              containerPort: 50051
-              protocol: TCP
-          env:
-            - name: DEVTRON_APP_NAME
-              value: kubelink
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgresql-postgresql
-                  key: postgresql-password
-          livenessProbe:
-            failureThreshold: 3
-            httpGet:
-              path: /health
-              port: 50052
-              scheme: HTTP
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 5
-          readinessProbe:
-            failureThreshold: 3
-            httpGet:
-              path: /health
-              port: 50052
-              scheme: HTTP
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 5
-          envFrom:
-          - configMapRef:
-              name: kubelink-cm
-          - secretRef:
-              name: kubelink-secret
-          - configMapRef:
-              name: devtron-common-cm                  
+      - name: kubelink
+        image: quay.io/devtron/kubelink:fbde4d5e-564-38749
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1001
+        ports:
+        - name: app
+          containerPort: 50051
+          protocol: TCP
+        env:
+        - name: DEVTRON_APP_NAME
+          value: kubelink
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: PG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-postgresql
+              key: postgresql-password
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 50052
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 50052
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        envFrom:
+        - configMapRef:
+            name: kubelink-cm
+        - secretRef:
+            name: kubelink-secret
+        - configMapRef:
+            name: devtron-common-cm
   revisionHistoryLimit: 3
 ---
-# Source: devtron-operator/templates/postgresql.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -1098,10 +922,10 @@ metadata:
     helm.sh/chart: postgres-0.4.0
     app.kubernetes.io/name: postgres
     app.kubernetes.io/instance: devtron
-    app.kubernetes.io/version: "14.5"
+    app.kubernetes.io/version: '14.5'
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 spec:
   replicas: 1
   serviceName: postgresql-postgresql
@@ -1117,176 +941,176 @@ spec:
       labels:
         app.kubernetes.io/name: postgres
         app.kubernetes.io/instance: devtron
-    spec:      
+    spec:
       serviceAccountName: devtron-default-sa
       securityContext:
         fsGroup: 999
       initContainers:
-        - name: postgres-init
-          securityContext:
-            allowPrivilegeEscalation: false
-            privileged: false
-            readOnlyRootFilesystem: true
-            runAsGroup: 999
-            runAsNonRoot: true
-            runAsUser: 999
-          image: quay.io/devtron/postgres:14.9
-          imagePullPolicy: IfNotPresent
-          envFrom:
-            - configMapRef:
-                name: devtron-common-cm
-          volumeMounts:
-            - mountPath: /customscripts
-              name: customscripts-volume
-            - mountPath: /initscripts
-              name: initscripts
-            - mountPath: /scripts
-              name: scripts
-            - mountPath: /configs
-              name: configs
-          command: [ "/initscripts/init.sh" ]
+      - name: postgres-init
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          readOnlyRootFilesystem: true
+          runAsGroup: 999
+          runAsNonRoot: true
+          runAsUser: 999
+        image: quay.io/devtron/postgres:14.9
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: devtron-common-cm
+        volumeMounts:
+        - mountPath: /customscripts
+          name: customscripts-volume
+        - mountPath: /initscripts
+          name: initscripts
+        - mountPath: /scripts
+          name: scripts
+        - mountPath: /configs
+          name: configs
+        command:
+        - /initscripts/init.sh
       containers:
+      - name: postgres
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          readOnlyRootFilesystem: true
+          runAsGroup: 999
+          runAsNonRoot: true
+          runAsUser: 999
+        image: quay.io/devtron/postgres:14.9
+        imagePullPolicy: IfNotPresent
+        ports:
         - name: postgres
-          securityContext:
-            allowPrivilegeEscalation: false
-            privileged: false
-            readOnlyRootFilesystem: true
-            runAsGroup: 999
-            runAsNonRoot: true
-            runAsUser: 999
-          image: quay.io/devtron/postgres:14.9
-          imagePullPolicy: IfNotPresent
-          ports:
-            - name: postgres
-              containerPort: 5432
-              protocol: TCP
-          env:
-            - name: PGDATA
-              value: "/var/lib/postgresql/data/pg"
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  key: postgresql-password
-                  name: postgresql-postgresql
-            - name: POSTGRES_HOST_AUTH_METHOD
-              value: "md5"
-            - name: POSTGRES_INITDB_ARGS
-              value: "--auth-local=md5"
-          envFrom:
-            - secretRef:
-                name: postgresql-postgresql
-            - configMapRef:
-                name: devtron-common-cm
-          startupProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - pg_isready -h localhost
-            initialDelaySeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 30
-            successThreshold: 1
-            periodSeconds: 10
-          livenessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - pg_isready -h localhost
-            initialDelaySeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-            successThreshold: 1
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - pg_isready -h localhost
-            initialDelaySeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-            successThreshold: 1
-            periodSeconds: 10
-          volumeMounts:
-            - mountPath: /var/run
-              name: run
-            - mountPath: /tmp
-              name: tmp
-            - mountPath: /var/lib/postgresql/data
-              name: data
-            - mountPath: /docker-entrypoint-initdb.d
-              name: scripts
-            - mountPath: /etc/postgresql
-              name: configs
-        - name: metrics
-          image: quay.io/devtron/postgres_exporter:v0.10.1
-          imagePullPolicy: "IfNotPresent"
-          env:
-            - name: DATA_SOURCE_URI
-              value: "127.0.0.1:5432/orchestrator?sslmode=disable"
-            - name: DATA_SOURCE_PASS
-              valueFrom:
-                secretKeyRef:
-                  name: postgresql-postgresql
-                  key: postgresql-password
-            - name: DATA_SOURCE_USER
-              value: postgres
-          envFrom:
-            - configMapRef:
-                name: devtron-common-cm
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http-metrics
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            successThreshold: 1
-            failureThreshold: 6
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http-metrics
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            successThreshold: 1
-            failureThreshold: 6
-          volumeMounts:
-          ports:
-            - name: http-metrics
-              containerPort: 9187
+          containerPort: 5432
+          protocol: TCP
+        env:
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pg
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: postgresql-password
+              name: postgresql-postgresql
+        - name: POSTGRES_HOST_AUTH_METHOD
+          value: md5
+        - name: POSTGRES_INITDB_ARGS
+          value: --auth-local=md5
+        envFrom:
+        - secretRef:
+            name: postgresql-postgresql
+        - configMapRef:
+            name: devtron-common-cm
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - pg_isready -h localhost
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+          successThreshold: 1
+          periodSeconds: 10
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - pg_isready -h localhost
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - pg_isready -h localhost
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+          periodSeconds: 10
+        volumeMounts:
+        - mountPath: /var/run
+          name: run
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /var/lib/postgresql/data
+          name: data
+        - mountPath: /docker-entrypoint-initdb.d
+          name: scripts
+        - mountPath: /etc/postgresql
+          name: configs
+      - name: metrics
+        image: quay.io/devtron/postgres_exporter:v0.10.1
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: DATA_SOURCE_URI
+          value: 127.0.0.1:5432/orchestrator?sslmode=disable
+        - name: DATA_SOURCE_PASS
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-postgresql
+              key: postgresql-password
+        - name: DATA_SOURCE_USER
+          value: postgres
+        envFrom:
+        - configMapRef:
+            name: devtron-common-cm
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http-metrics
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http-metrics
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 6
+        volumeMounts: null
+        ports:
+        - name: http-metrics
+          containerPort: 9187
       volumes:
-        - name: run
-          emptyDir: {}
-        - name: tmp
-          emptyDir: {}
-        - name: scripts
-          emptyDir: {}
-        - name: configs
-          emptyDir: {}
-        - name: initscripts
-          configMap:
-            name: postgresql-postgresql-scripts
-            defaultMode: 0555
-        - name: customscripts-volume
-          configMap:
-            name: postgresql-postgresql-customscripts
-            defaultMode: 0555
+      - name: run
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      - name: scripts
+        emptyDir: {}
+      - name: configs
+        emptyDir: {}
+      - name: initscripts
+        configMap:
+          name: postgresql-postgresql-scripts
+          defaultMode: 365
+      - name: customscripts-volume
+        configMap:
+          name: postgresql-postgresql-customscripts
+          defaultMode: 365
   volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes:
-          - ReadWriteOnce        
-        resources:
-          requests:
-            storage: 20Gi
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
 ---
-# Source: devtron-operator/templates/app-sync-job.yaml
 apiVersion: batch/v1beta1
 kind: Job
 metadata:
@@ -1294,24 +1118,29 @@ metadata:
 spec:
   template:
     spec:
-      serviceAccountName: devtron      
+      serviceAccountName: devtron
       initContainers:
       - name: migration-wait
         image: quay.io/devtron/kubectl:latest
-        command: ['sh', '-c', 'while [ ! $(kubectl -n adhar-system get $(kubectl -n adhar-system get job -l job=postgresql-migrate-devtron -o name) -o jsonpath="{.status.succeeded}")  ]; do sleep 10; done']      
+        command:
+        - sh
+        - -c
+        - while [ ! $(kubectl -n adhar-system get $(kubectl -n adhar-system get job
+          -l job=postgresql-migrate-devtron -o name) -o jsonpath="{.status.succeeded}")  ];
+          do sleep 10; done
       securityContext:
         fsGroup: 1001
         runAsGroup: 1001
         runAsUser: 1001
       containers:
       - name: chart-sync
-        image: quay.io/devtron/chart-sync:fbde4d5e-836-38757        
+        image: quay.io/devtron/chart-sync:fbde4d5e-836-38757
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: true
           runAsUser: 1001
         envFrom:
-        - configMapRef: 
+        - configMapRef:
             name: app-sync-cm
         - secretRef:
             name: devtron-secret
@@ -1320,7 +1149,6 @@ spec:
       restartPolicy: OnFailure
   backoffLimit: 4
 ---
-# Source: devtron-operator/templates/migrator.yaml
 apiVersion: batch/v1beta1
 kind: Job
 metadata:
@@ -1330,90 +1158,93 @@ metadata:
     job: postgresql-migrate-devtron
 spec:
   template:
-    spec:      
+    spec:
       serviceAccountName: devtron-default-sa
       securityContext:
         fsGroup: 1000
         runAsGroup: 1000
         runAsUser: 1000
       initContainers:
-        - env:
-          - name: DB_TYPE
-            value: postgres
-          - name: DB_PORT
-            valueFrom:
-              configMapKeyRef:
-                name: devtron-cm
-                key: PG_PORT
-          envFrom:
-            - secretRef:
-                name: devtron-secret
-            - configMapRef:
-                name: devtron-cm
-            - configMapRef:
-                name: devtron-custom-cm
-            - configMapRef:
-                name: devtron-common-cm
-          image: quay.io/devtron/devtron-utils:dup-chart-repo-v1.1.0
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
-          name: clean-duplicate-chart
-        - command:
-            - /bin/sh
-            - -c
-            - cp -r /scripts/. /shared/
-          image: quay.io/devtron/hyperion:1188d0b9-280-38819
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
-          name: init-devtron
-          envFrom:
-            - configMapRef:
-                name: devtron-common-cm
-          volumeMounts:
-            - mountPath: /shared
-              name: shared-volume
+      - env:
+        - name: DB_TYPE
+          value: postgres
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: devtron-cm
+              key: PG_PORT
+        envFrom:
+        - secretRef:
+            name: devtron-secret
+        - configMapRef:
+            name: devtron-cm
+        - configMapRef:
+            name: devtron-custom-cm
+        - configMapRef:
+            name: devtron-common-cm
+        image: quay.io/devtron/devtron-utils:dup-chart-repo-v1.1.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+        name: clean-duplicate-chart
+      - command:
+        - /bin/sh
+        - -c
+        - cp -r /scripts/. /shared/
+        image: quay.io/devtron/hyperion:1188d0b9-280-38819
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+        name: init-devtron
+        envFrom:
+        - configMapRef:
+            name: devtron-common-cm
+        volumeMounts:
+        - mountPath: /shared
+          name: shared-volume
       containers:
-        - command:
-            - /bin/sh
-            - -c
-            - 'if [ $(MIGRATE_TO_VERSION) -eq "0" ]; then migrate -path $(SCRIPT_LOCATION) -database postgres://$(PG_USER):$(DB_PASSWORD)@$(PG_ADDR):$(PG_PORT)/$(PG_DATABASE)?sslmode=disable up;  else   echo $(MIGRATE_TO_VERSION); migrate -path $(SCRIPT_LOCATION)  -database postgres://$(PG_USER):$(DB_PASSWORD)@$(PG_ADDR):$(PG_PORT)/$(PG_DATABASE)?sslmode=disable goto $(MIGRATE_TO_VERSION);    fi '
-          env:
-            - name: SCRIPT_LOCATION
-              value: /shared/sql/
-            - name: DB_TYPE
-              value: postgres
-            - name: MIGRATE_TO_VERSION
-              value: "0"
-          envFrom:
-            - secretRef:
-                name: postgresql-migrator
-            - configMapRef:
-                name: devtron-cm
-            - configMapRef:
-                name: devtron-custom-cm
-            - configMapRef:
-                name: devtron-common-cm        
-          image: quay.io/devtron/migrator:v4.16.2
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
-          name: postgresql-migrate-devtron
-          volumeMounts:
-            - mountPath: /shared
-              name: shared-volume           
+      - command:
+        - /bin/sh
+        - -c
+        - 'if [ $(MIGRATE_TO_VERSION) -eq "0" ]; then migrate -path $(SCRIPT_LOCATION)
+          -database postgres://$(PG_USER):$(DB_PASSWORD)@$(PG_ADDR):$(PG_PORT)/$(PG_DATABASE)?sslmode=disable
+          up;  else   echo $(MIGRATE_TO_VERSION); migrate -path $(SCRIPT_LOCATION)  -database
+          postgres://$(PG_USER):$(DB_PASSWORD)@$(PG_ADDR):$(PG_PORT)/$(PG_DATABASE)?sslmode=disable
+          goto $(MIGRATE_TO_VERSION);    fi '
+        env:
+        - name: SCRIPT_LOCATION
+          value: /shared/sql/
+        - name: DB_TYPE
+          value: postgres
+        - name: MIGRATE_TO_VERSION
+          value: '0'
+        envFrom:
+        - secretRef:
+            name: postgresql-migrator
+        - configMapRef:
+            name: devtron-cm
+        - configMapRef:
+            name: devtron-custom-cm
+        - configMapRef:
+            name: devtron-common-cm
+        image: quay.io/devtron/migrator:v4.16.2
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+        name: postgresql-migrate-devtron
+        volumeMounts:
+        - mountPath: /shared
+          name: shared-volume
       restartPolicy: OnFailure
       volumes:
-        - emptyDir: {}
-          name: shared-volume 
+      - emptyDir: {}
+        name: shared-volume
   backoffLimit: 20
   activeDeadlineSeconds: 1500
 ---
-# Source: devtron-operator/templates/migrator.yaml
 apiVersion: batch/v1beta1
 kind: Job
 metadata:
@@ -1421,7 +1252,7 @@ metadata:
   annotations: {}
 spec:
   template:
-    spec:      
+    spec:
       serviceAccountName: devtron
       securityContext:
         fsGroup: 1000
@@ -1430,87 +1261,94 @@ spec:
       containers:
       - name: devtron-rollout
         image: quay.io/devtron/kubectl:latest
-        command: ['sh', '-c', 'kubectl rollout restart deployment/devtron -n adhar-system && kubectl rollout restart deployment/kubelink -n devtroncd']
+        command:
+        - sh
+        - -c
+        - kubectl rollout restart deployment/devtron -n adhar-system && kubectl rollout
+          restart deployment/kubelink -n devtroncd
         envFrom:
-          - configMapRef:
-              name: devtron-common-cm 
+        - configMapRef:
+            name: devtron-common-cm
       initContainers:
-        - command:
-            - /bin/sh
-            - -c
-            - cp -r /scripts/. /shared/
-          image: quay.io/devtron/hyperion:1188d0b9-280-38819
-          name: init-devtron
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
-          envFrom:
-            - configMapRef:
-                name: devtron-common-cm
-          volumeMounts:
-            - mountPath: /shared
-              name: shared-volume
-        - command:
-            - /bin/sh
-            - -c
-            - 'if [ $(MIGRATE_TO_VERSION) -eq "0" ]; then migrate -path $(SCRIPT_LOCATION) -database postgres://$(PG_USER):$(DB_PASSWORD)@$(PG_ADDR):$(PG_PORT)/$(PG_DATABASE)?sslmode=disable up;  else   echo $(MIGRATE_TO_VERSION); migrate -path $(SCRIPT_LOCATION)  -database postgres://$(PG_USER):$(DB_PASSWORD)@$(PG_ADDR):$(PG_PORT)/$(PG_DATABASE)?sslmode=disable goto $(MIGRATE_TO_VERSION);    fi '
-          env:
-            - name: SCRIPT_LOCATION
-              value: /shared/casbin/
-            - name: DB_TYPE
-              value: postgres
-            - name: MIGRATE_TO_VERSION
-              value: "0"
-            - name: PG_DATABASE
-              value: casbin
-          envFrom:
-            - secretRef:
-                name: postgresql-migrator
-            - configMapRef:
-                name: devtron-cm
-            - configMapRef:
-                name: devtron-custom-cm
-            - configMapRef:
-                name: devtron-common-cm        
-          image: quay.io/devtron/migrator:v4.16.2
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
-          name: postgresql-migrate-casbin
-          volumeMounts:
-            - mountPath: /shared
-              name: shared-volume  
+      - command:
+        - /bin/sh
+        - -c
+        - cp -r /scripts/. /shared/
+        image: quay.io/devtron/hyperion:1188d0b9-280-38819
+        name: init-devtron
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+        envFrom:
+        - configMapRef:
+            name: devtron-common-cm
+        volumeMounts:
+        - mountPath: /shared
+          name: shared-volume
+      - command:
+        - /bin/sh
+        - -c
+        - 'if [ $(MIGRATE_TO_VERSION) -eq "0" ]; then migrate -path $(SCRIPT_LOCATION)
+          -database postgres://$(PG_USER):$(DB_PASSWORD)@$(PG_ADDR):$(PG_PORT)/$(PG_DATABASE)?sslmode=disable
+          up;  else   echo $(MIGRATE_TO_VERSION); migrate -path $(SCRIPT_LOCATION)  -database
+          postgres://$(PG_USER):$(DB_PASSWORD)@$(PG_ADDR):$(PG_PORT)/$(PG_DATABASE)?sslmode=disable
+          goto $(MIGRATE_TO_VERSION);    fi '
+        env:
+        - name: SCRIPT_LOCATION
+          value: /shared/casbin/
+        - name: DB_TYPE
+          value: postgres
+        - name: MIGRATE_TO_VERSION
+          value: '0'
+        - name: PG_DATABASE
+          value: casbin
+        envFrom:
+        - secretRef:
+            name: postgresql-migrator
+        - configMapRef:
+            name: devtron-cm
+        - configMapRef:
+            name: devtron-custom-cm
+        - configMapRef:
+            name: devtron-common-cm
+        image: quay.io/devtron/migrator:v4.16.2
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+        name: postgresql-migrate-casbin
+        volumeMounts:
+        - mountPath: /shared
+          name: shared-volume
       restartPolicy: OnFailure
       volumes:
-        - emptyDir: {}
-          name: shared-volume 
+      - emptyDir: {}
+        name: shared-volume
   backoffLimit: 20
   activeDeadlineSeconds: 1500
 ---
-# Source: devtron-operator/templates/app-sync-job.yaml
 apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
   name: app-sync-cronjob
   annotations:
-    "helm.sh/resource-policy": keep
+    helm.sh/resource-policy: keep
 spec:
-  schedule: "0 19 * * *"
+  schedule: 0 19 * * *
   jobTemplate:
     spec:
       template:
         spec:
           activeDeadlineSeconds: 15000
-          serviceAccountName: chart-sync                    
+          serviceAccountName: chart-sync
           securityContext:
             fsGroup: 1001
             runAsGroup: 1001
             runAsUser: 1001
           containers:
           - name: chart-sync
-            image: quay.io/devtron/chart-sync:fbde4d5e-836-38757            
+            image: quay.io/devtron/chart-sync:fbde4d5e-836-38757
             securityContext:
               allowPrivilegeEscalation: false
               runAsNonRoot: true
@@ -1518,58 +1356,13 @@ spec:
             envFrom:
             - secretRef:
                 name: devtron-secret
-            - configMapRef: 
+            - configMapRef:
                 name: app-sync-cm
             - configMapRef:
                 name: devtron-common-cm
           restartPolicy: Never
       backoffLimit: 4
 ---
-# Source: devtron-operator/templates/workflow.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: argo
-  labels:
-    name: devtron
-  annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/resource-policy": keep
----
-# Source: devtron-operator/templates/workflow.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: devtron-ci
-  labels:
-    name: devtron
-  annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/resource-policy": keep
----
-# Source: devtron-operator/templates/workflow.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: devtron-demo
-  labels:
-    name: devtron
-  annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/resource-policy": keep
----
-# Source: devtron-operator/templates/workflow.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: devtron-cd
-  labels:
-    name: devtron
-  annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/resource-policy": keep
----
-# Source: devtron-operator/templates/configmap-secret.yaml
 apiVersion: v1
 kind: Secret
 data:
@@ -1581,14 +1374,13 @@ metadata:
   labels:
     app: postgresql
     chart: postgresql-8.6.4
-    release: "devtron"
+    release: devtron
   annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "-5"
-    "helm.sh/resource-policy": keep
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: '-5'
+    helm.sh/resource-policy: keep
 type: Opaque
 ---
-# Source: devtron-operator/templates/configmap-secret.yaml
 apiVersion: v1
 kind: Secret
 data:
@@ -1599,43 +1391,39 @@ metadata:
   labels:
     app: postgresql
     chart: postgresql-8.6.4
-    release: "devtron"
+    release: devtron
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "-4"
-    "helm.sh/resource-policy": keep
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: '-4'
+    helm.sh/resource-policy: keep
 type: Opaque
 ---
-# Source: devtron-operator/templates/configmap-secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: "devtron-secret"
+  name: devtron-secret
   labels:
     release: devtron
   annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "-3"
-    "helm.sh/resource-policy": keep
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: '-3'
+    helm.sh/resource-policy: keep
 data:
   PG_PASSWORD: MG1YMTl4NFNnRkJ2M01oelkyQmt3aUhPUlU0aFdMTTU=
 type: Opaque
 ---
-# Source: devtron-operator/templates/configmap-secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: "devtron-custom-secret"
+  name: devtron-custom-secret
   labels:
     release: devtron
   annotations:
-    "helm.sh/hook": pre-install, pre-upgrade
+    helm.sh/hook: pre-install, pre-upgrade
 data:
   ORCH_TOKEN: eU1PZ095a1lBcmxEMXYwUEttY2lDdll2b3VjT1ZZaXo=
 type: Opaque
 ---
-# Source: devtron-operator/templates/postgresql.yaml
-# Source: devtron-operator/templates/postgresql.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -1646,20 +1434,22 @@ metadata:
     app.kubernetes.io/instance: devtron
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "-2"
-    "helm.sh/resource-policy": keep
-    "meta.helm.sh/release-name": devtron
-    "meta.helm.sh/release-namespace": devtroncd
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: '-2'
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: devtron
+    meta.helm.sh/release-namespace: devtroncd
 data:
-  db_create.sql: |
-    create database casbin;
+  db_create.sql: 'create database casbin;
+
     create database git_sensor;
+
     create database lens;
+
     create database clairv4;
+
+    '
 ---
-# Source: devtron-operator/templates/postgresql.yaml
-# Source: devtron-operator/templates/postgresql.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -1669,47 +1459,26 @@ metadata:
     helm.sh/chart: postgres-0.4.0
     app.kubernetes.io/name: postgres
     app.kubernetes.io/instance: devtron
-    app.kubernetes.io/version: "14.5"
+    app.kubernetes.io/version: '14.5'
     app.kubernetes.io/managed-by: Helm
   annotations:
-    "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "-2"
-    "helm.sh/resource-policy": keep
-    "meta.helm.sh/release-name": devtron
-    "meta.helm.sh/release-namespace": devtroncd
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: '-2'
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: devtron
+    meta.helm.sh/release-namespace: devtroncd
 data:
-  01-init-userdb.sh: |
-    #!/bin/sh
-    create_user()
-    {
-    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -v USERDBNAME="$POSTGRES_DB" -v USERDBUSER="$USERDB_USER" -v USERDBPASSWORD="'$USERDB_PASSWORD'" <<-EOSQL
-      CREATE USER :USERDBUSER WITH PASSWORD :USERDBPASSWORD;
-      GRANT ALL PRIVILEGES ON DATABASE :USERDBNAME TO :USERDBUSER;
-    EOSQL
-    }
-    set -e
-    if [ ! -z "$POSTGRES_DB" ] && [ ! -z "$USERDB_USER" ] && [ ! -z "$USERDB_PASSWORD" ]; then
-      create_user
-    fi
-  init.sh: |
-    #!/bin/sh
-    echo "Start initialization"
-    echo "Copy init-userdb script"
-    cp /initscripts/01-init-userdb.sh /scripts
-    if [ -d /extrascripts ]; then
-      echo "Copy extra scripts"
-      cp /extrascripts/* /scripts
-    fi
-    if [ -d /customscripts ]; then
-      echo "Copy custom scripts"
-      cp /customscripts/* /scripts
-    fi
-    if [ -d /customconfig ]; then
-      echo "Create postgres config"
-      cat /customconfig/* >>/configs/postgresql.conf
-    fi
-    if [ -d /extraconfigs ]; then
-      echo "Add extra configs to postgres config"
-      cat /extraconfigs/* >>/configs/postgresql.conf
-    fi
-    echo "Initialization done."
+  01-init-userdb.sh: "#!/bin/sh\ncreate_user()\n{\npsql -v ON_ERROR_STOP=1 --username\
+    \ \"$POSTGRES_USER\" -v USERDBNAME=\"$POSTGRES_DB\" -v USERDBUSER=\"$USERDB_USER\"\
+    \ -v USERDBPASSWORD=\"'$USERDB_PASSWORD'\" <<-EOSQL\n  CREATE USER :USERDBUSER\
+    \ WITH PASSWORD :USERDBPASSWORD;\n  GRANT ALL PRIVILEGES ON DATABASE :USERDBNAME\
+    \ TO :USERDBUSER;\nEOSQL\n}\nset -e\nif [ ! -z \"$POSTGRES_DB\" ] && [ ! -z \"\
+    $USERDB_USER\" ] && [ ! -z \"$USERDB_PASSWORD\" ]; then\n  create_user\nfi\n"
+  init.sh: "#!/bin/sh\necho \"Start initialization\"\necho \"Copy init-userdb script\"\
+    \ncp /initscripts/01-init-userdb.sh /scripts\nif [ -d /extrascripts ]; then\n\
+    \  echo \"Copy extra scripts\"\n  cp /extrascripts/* /scripts\nfi\nif [ -d /customscripts\
+    \ ]; then\n  echo \"Copy custom scripts\"\n  cp /customscripts/* /scripts\nfi\n\
+    if [ -d /customconfig ]; then\n  echo \"Create postgres config\"\n  cat /customconfig/*\
+    \ >>/configs/postgresql.conf\nfi\nif [ -d /extraconfigs ]; then\n  echo \"Add\
+    \ extra configs to postgres config\"\n  cat /extraconfigs/* >>/configs/postgresql.conf\n\
+    fi\necho \"Initialization done.\"\n"

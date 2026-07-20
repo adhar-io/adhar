@@ -1,9 +1,4 @@
 apiVersion: v1
-kind: Namespace
-metadata:
-  name: backstage
----
-apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: backstage
@@ -14,26 +9,26 @@ kind: ClusterRole
 metadata:
   name: backstage-argo-worfklows
 rules:
-  - apiGroups:
-      - argoproj.io
-    resources:
-      - workflows
-    verbs:
-      - create
+- apiGroups:
+  - argoproj.io
+  resources:
+  - workflows
+  verbs:
+  - create
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: read-all
 rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - get
-      - list
-      - watch
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -44,9 +39,9 @@ roleRef:
   kind: ClusterRole
   name: backstage-argo-worfklows
 subjects:
-  - kind: ServiceAccount
-    name: backstage
-    namespace: adhar-system
+- kind: ServiceAccount
+  name: backstage
+  namespace: adhar-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -57,9 +52,9 @@ roleRef:
   kind: ClusterRole
   name: read-all
 subjects:
-  - kind: ServiceAccount
-    name: backstage
-    namespace: adhar-system
+- kind: ServiceAccount
+  name: backstage
+  namespace: adhar-system
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -67,136 +62,60 @@ metadata:
   name: backstage-config
   namespace: adhar-system
 data:
-  app-config.yaml: |
-    app:
-      title: Adhar Console
-      baseUrl: https://console.adhar.localtest.me:8443
-    organization:
-      name: Adhar
-    backend:
-      # Used for enabling authentication, secret is shared by all backend plugins
-      # See https://backstage.io/docs/tutorials/backend-to-backend-auth for
-      # information on the format
-      # auth:
-      #   keys:
-      #     - secret: ${BACKEND_SECRET}
-      baseUrl: https://console.adhar.localtest.me:8443
-      listen:
-        port: 7007
-        # Uncomment the following host directive to bind to specific interfaces
-        # host: 127.0.0.1
-      csp:
-        connect-src: ["'self'", 'http:', 'https:']
-        # Content-Security-Policy directives follow the Helmet format: https://helmetjs.github.io/#reference
-        # Default Helmet Content-Security-Policy values can be removed by setting the key to false
-      cors:
-        origin: https://console.adhar.localtest.me:8443
-        methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
-        credentials: true
-      database:
-        client: pg
-        connection:
-          host: ${POSTGRES_HOST}
-          port: ${POSTGRES_PORT}
-          user: ${POSTGRES_USER}
-          password: ${POSTGRES_PASSWORD}
-      cache:
-        store: memory
-      # workingDirectory: /tmp # Use this to configure a working directory for the scaffolder, defaults to the OS temp-dir
-
-    integrations:
-      gitea:
-        - baseUrl: https://gitea.adhar.localtest.me:8443
-          host: gitea.adhar.localtest.me:8443
-          username: ${GITEA_USERNAME}
-          password: ${GITEA_PASSWORD}
-        - baseUrl: https://gitea.adhar.localtest.me:8443
-          host: gitea.adhar.localtest.me:8443
-          username: ${GITEA_USERNAME}
-          password: ${GITEA_PASSWORD}
-    #  github:
-    #    - host: github.com
-    #      apps:
-    #        - $include: github-integration.yaml
-    #    - host: github.com
-    #      # This is a Personal Access Token or PAT from GitHub. You can find out how to generate this token, and more information
-    #      # about setting up the GitHub integration here: https://backstage.io/docs/getting-started/configuration#setting-up-a-github-integration
-    #      token: ${GITHUB_TOKEN}
-        ### Example for how to add your GitHub Enterprise instance using the API:
-        # - host: ghe.example.net
-        #   apiBaseUrl: https://ghe.example.net/api/v3
-        #   token: ${GHE_TOKEN}
-
-    proxy:
-      endpoints:
-        '/coder':
-          # Replace with your Coder deployment access URL (add a trailing slash)
-          target: 'https://coder.example.com/'
-
-          changeOrigin: true
-          allowedMethods: ['GET'] # Additional methods will be supported soon!
-          allowedHeaders: ['Authorization', 'Coder-Session-Token']
-          headers:
-            X-Custom-Source: backstage
-
-    # Reference documentation http://backstage.io/docs/features/techdocs/configuration
-    # Note: After experimenting with basic setup, use CI/CD to generate docs
-    # and an external cloud storage when deploying TechDocs for production use-case.
-    # https://backstage.io/docs/features/techdocs/how-to-guides#how-to-migrate-from-techdocs-basic-to-recommended-deployment-approach
-    techdocs:
-      builder: 'local' # Alternatives - 'external'
-      generator:
-        runIn: 'local'
-      publisher:
-        type: 'local' # Alternatives - 'googleGcs' or 'awsS3'. Read documentation for using alternatives.
-
-    auth:
-      environment: development
-      session:
-        secret: MW2sV-sIPngEl26vAzatV-6VqfsgAx4bPIz7PuE_2Lk=
-      providers:
-        keycloak-oidc:
-          development:
-            metadataUrl: ${KEYCLOAK_NAME_METADATA}
-            clientId: backstage
-            clientSecret: ${KEYCLOAK_CLIENT_SECRET}
-            prompt: auto
-      
-    scaffolder:
-      # see https://backstage.io/docs/features/software-templates/configuration for software template options
-        defaultAuthor:
-          name: backstage-scaffolder
-          email: noreply
-        defaultCommitMessage: "backstage scaffolder"
-    catalog:
-      import:
-        entityFilename: catalog-info.yaml
-        pullRequestBranchName: backstage-integration
-      rules:
-        - allow: [Component, System, API, Resource, Location, Template]
-      locations:
-        # Examples from a public GitHub repository.
-        - type: url
-          target: https://gitea.adhar.localtest.me:8443/giteaAdmin/adhar-adhar-backstage-templates-adhar-templates/raw/branch/main/catalog-info.yaml
-          rules:
-            - allow: [Component, System, API, Resource, Location, Template, User, Group]
-    kubernetes:
-      serviceLocatorMethod:
-        type: 'multiTenant'
-      clusterLocatorMethods:
-        - $include: k8s-config.yaml
-    argocd:
-      username: admin
-      password: ${ARGOCD_ADMIN_PASSWORD}
-      appLocatorMethods:
-        - type: 'config'
-          instances:
-            - name: in-cluster
-              url: https://argocd.adhar.localtest.me:8443
-              username: admin
-              password: ${ARGOCD_ADMIN_PASSWORD}
-    argoWorkflows:
-        baseUrl: ${ARGO_WORKFLOWS_URL}
+  app-config.yaml: "app:\n  title: Adhar Console\n  baseUrl: https://console.adhar.localtest.me:8443\n\
+    organization:\n  name: Adhar\nbackend:\n  # Used for enabling authentication,\
+    \ secret is shared by all backend plugins\n  # See https://backstage.io/docs/tutorials/backend-to-backend-auth\
+    \ for\n  # information on the format\n  # auth:\n  #   keys:\n  #     - secret:\
+    \ ${BACKEND_SECRET}\n  baseUrl: https://console.adhar.localtest.me:8443\n  listen:\n\
+    \    port: 7007\n    # Uncomment the following host directive to bind to specific\
+    \ interfaces\n    # host: 127.0.0.1\n  csp:\n    connect-src: [\"'self'\", 'http:',\
+    \ 'https:']\n    # Content-Security-Policy directives follow the Helmet format:\
+    \ https://helmetjs.github.io/#reference\n    # Default Helmet Content-Security-Policy\
+    \ values can be removed by setting the key to false\n  cors:\n    origin: https://console.adhar.localtest.me:8443\n\
+    \    methods: [GET, HEAD, PATCH, POST, PUT, DELETE]\n    credentials: true\n \
+    \ database:\n    client: pg\n    connection:\n      host: ${POSTGRES_HOST}\n \
+    \     port: ${POSTGRES_PORT}\n      user: ${POSTGRES_USER}\n      password: ${POSTGRES_PASSWORD}\n\
+    \  cache:\n    store: memory\n  # workingDirectory: /tmp # Use this to configure\
+    \ a working directory for the scaffolder, defaults to the OS temp-dir\n\nintegrations:\n\
+    \  gitea:\n    - baseUrl: https://gitea.adhar.localtest.me:8443\n      host: gitea.adhar.localtest.me:8443\n\
+    \      username: ${GITEA_USERNAME}\n      password: ${GITEA_PASSWORD}\n    - baseUrl:\
+    \ https://gitea.adhar.localtest.me:8443\n      host: gitea.adhar.localtest.me:8443\n\
+    \      username: ${GITEA_USERNAME}\n      password: ${GITEA_PASSWORD}\n#  github:\n\
+    #    - host: github.com\n#      apps:\n#        - $include: github-integration.yaml\n\
+    #    - host: github.com\n#      # This is a Personal Access Token or PAT from\
+    \ GitHub. You can find out how to generate this token, and more information\n\
+    #      # about setting up the GitHub integration here: https://backstage.io/docs/getting-started/configuration#setting-up-a-github-integration\n\
+    #      token: ${GITHUB_TOKEN}\n    ### Example for how to add your GitHub Enterprise\
+    \ instance using the API:\n    # - host: ghe.example.net\n    #   apiBaseUrl:\
+    \ https://ghe.example.net/api/v3\n    #   token: ${GHE_TOKEN}\n\nproxy:\n  endpoints:\n\
+    \    '/coder':\n      # Replace with your Coder deployment access URL (add a trailing\
+    \ slash)\n      target: 'https://coder.example.com/'\n\n      changeOrigin: true\n\
+    \      allowedMethods: ['GET'] # Additional methods will be supported soon!\n\
+    \      allowedHeaders: ['Authorization', 'Coder-Session-Token']\n      headers:\n\
+    \        X-Custom-Source: backstage\n\n# Reference documentation http://backstage.io/docs/features/techdocs/configuration\n\
+    # Note: After experimenting with basic setup, use CI/CD to generate docs\n# and\
+    \ an external cloud storage when deploying TechDocs for production use-case.\n\
+    # https://backstage.io/docs/features/techdocs/how-to-guides#how-to-migrate-from-techdocs-basic-to-recommended-deployment-approach\n\
+    techdocs:\n  builder: 'local' # Alternatives - 'external'\n  generator:\n    runIn:\
+    \ 'local'\n  publisher:\n    type: 'local' # Alternatives - 'googleGcs' or 'awsS3'.\
+    \ Read documentation for using alternatives.\n\nauth:\n  environment: development\n\
+    \  session:\n    secret: MW2sV-sIPngEl26vAzatV-6VqfsgAx4bPIz7PuE_2Lk=\n  providers:\n\
+    \    keycloak-oidc:\n      development:\n        metadataUrl: ${KEYCLOAK_NAME_METADATA}\n\
+    \        clientId: backstage\n        clientSecret: ${KEYCLOAK_CLIENT_SECRET}\n\
+    \        prompt: auto\n  \nscaffolder:\n  # see https://backstage.io/docs/features/software-templates/configuration\
+    \ for software template options\n    defaultAuthor:\n      name: backstage-scaffolder\n\
+    \      email: noreply\n    defaultCommitMessage: \"backstage scaffolder\"\ncatalog:\n\
+    \  import:\n    entityFilename: catalog-info.yaml\n    pullRequestBranchName:\
+    \ backstage-integration\n  rules:\n    - allow: [Component, System, API, Resource,\
+    \ Location, Template]\n  locations:\n    # Examples from a public GitHub repository.\n\
+    \    - type: url\n      target: https://gitea.adhar.localtest.me:8443/giteaAdmin/adhar-adhar-backstage-templates-adhar-templates/raw/branch/main/catalog-info.yaml\n\
+    \      rules:\n        - allow: [Component, System, API, Resource, Location, Template,\
+    \ User, Group]\nkubernetes:\n  serviceLocatorMethod:\n    type: 'multiTenant'\n\
+    \  clusterLocatorMethods:\n    - $include: k8s-config.yaml\nargocd:\n  username:\
+    \ admin\n  password: ${ARGOCD_ADMIN_PASSWORD}\n  appLocatorMethods:\n    - type:\
+    \ 'config'\n      instances:\n        - name: in-cluster\n          url: https://argocd.adhar.localtest.me:8443\n\
+    \          username: admin\n          password: ${ARGOCD_ADMIN_PASSWORD}\nargoWorkflows:\n\
+    \    baseUrl: ${ARGO_WORKFLOWS_URL}\n"
 ---
 apiVersion: v1
 kind: Secret
@@ -204,10 +123,10 @@ metadata:
   name: k8s-config
   namespace: adhar-system
 stringData:
-  k8s-config.yaml: "type: 'config'\nclusters:\n  - url: https://kubernetes.default.svc.cluster.local\n
-    \   name: local\n    authProvider: 'serviceAccount'\n    skipTLSVerify: true\n
-    \   skipMetricsLookup: true\n    serviceAccountToken: \n      $file: /var/run/secrets/kubernetes.io/serviceaccount/token\n
-    \   caData: \n      $file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n"
+  k8s-config.yaml: "type: 'config'\nclusters:\n  - url: https://kubernetes.default.svc.cluster.local\n\
+    \    name: local\n    authProvider: 'serviceAccount'\n    skipTLSVerify: true\n\
+    \    skipMetricsLookup: true\n    serviceAccountToken: \n      $file: /var/run/secrets/kubernetes.io/serviceaccount/token\n\
+    \    caData: \n      $file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n"
 ---
 apiVersion: v1
 kind: Service
@@ -216,24 +135,19 @@ metadata:
   namespace: adhar-system
 spec:
   ports:
-    - name: http
-      port: 7007
-      targetPort: http
+  - name: http
+    port: 7007
+    targetPort: http
   selector:
     app: backstage
 ---
-# Backstage's database, provisioned by CloudNativePG instead of a bundled
-# single-pod postgres StatefulSet. Owner role + password come from the
-# backstage-env-vars Secret (username/password keys). CNPG creates the
-# read-write Service "backstage-db-rw" automatically. sync-wave 5 so the DB is
-# created before the Backstage Deployment waits on it.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: backstage-db
   namespace: adhar-system
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: '5'
 spec:
   instances: 1
   storage:
@@ -244,12 +158,8 @@ spec:
       owner: backstage
       secret:
         name: backstage-env-vars
-      # Backstage creates one database per plugin at startup
-      # (backstage_plugin_app, _catalog, _auth, ...). The bundled postgres made
-      # POSTGRES_USER a superuser; CNPG's owner role is not, so grant CREATEDB
-      # or every plugin fails with "permission denied to create database".
       postInitApplicationSQL:
-        - ALTER ROLE backstage CREATEDB
+      - ALTER ROLE backstage CREATEDB
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -257,7 +167,7 @@ metadata:
   name: adhar-console
   namespace: adhar-system
   annotations:
-    argocd.argoproj.io/sync-wave: "20"
+    argocd.argoproj.io/sync-wave: '20'
 spec:
   replicas: 1
   selector:
@@ -269,47 +179,47 @@ spec:
         app: backstage
     spec:
       containers:
-        - command:
-            - node
-            - packages/backend
-            - --config
-            - config/app-config.yaml
-          env:
-            - name: LOG_LEVEL
-              value: debug
-            - name: NODE_TLS_REJECT_UNAUTHORIZED
-              value: "0"
-          envFrom:
-            - secretRef:
-                name: backstage-env-vars
-            - secretRef:
-                name: gitea-credentials
-            - secretRef:
-                name: argocd-credentials
-          image: ghcr.io/adhar-io/adhar-console:latest
-          name: adhar-console
-          ports:
-            - containerPort: 7007
-              name: http
-          volumeMounts:
-            - mountPath: /app/config
-              name: backstage-config
-              readOnly: true
+      - command:
+        - node
+        - packages/backend
+        - --config
+        - config/app-config.yaml
+        env:
+        - name: LOG_LEVEL
+          value: debug
+        - name: NODE_TLS_REJECT_UNAUTHORIZED
+          value: '0'
+        envFrom:
+        - secretRef:
+            name: backstage-env-vars
+        - secretRef:
+            name: gitea-credentials
+        - secretRef:
+            name: argocd-credentials
+        image: ghcr.io/adhar-io/adhar-console:latest
+        name: adhar-console
+        ports:
+        - containerPort: 7007
+          name: http
+        volumeMounts:
+        - mountPath: /app/config
+          name: backstage-config
+          readOnly: true
       serviceAccountName: backstage
       volumes:
-        - name: backstage-config
-          projected:
-            sources:
-              - configMap:
-                  items:
-                    - key: app-config.yaml
-                      path: app-config.yaml
-                  name: backstage-config
-              - secret:
-                  items:
-                    - key: k8s-config.yaml
-                      path: k8s-config.yaml
-                  name: k8s-config
+      - name: backstage-config
+        projected:
+          sources:
+          - configMap:
+              items:
+              - key: app-config.yaml
+                path: app-config.yaml
+              name: backstage-config
+          - secret:
+              items:
+              - key: k8s-config.yaml
+                path: k8s-config.yaml
+              name: k8s-config
 ---
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
@@ -320,7 +230,7 @@ spec:
   length: 36
   digits: 5
   symbols: 5
-  symbolCharacters: "/-+"
+  symbolCharacters: /-+
   noUpper: false
   allowRepeat: true
 ---
@@ -333,46 +243,43 @@ spec:
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore
-  refreshInterval: "0"
+  refreshInterval: '0'
   target:
     name: backstage-env-vars
     template:
       engineVersion: v2
       data:
         BACKSTAGE_FRONTEND_URL: https://console.adhar.localtest.me:8443
-        # Database provided by the CNPG Cluster "backstage-db" (read-write svc).
         POSTGRES_HOST: backstage-db-rw.adhar-system.svc.cluster.local
         POSTGRES_PORT: '5432'
         POSTGRES_DB: backstage
         POSTGRES_USER: backstage
-        POSTGRES_PASSWORD: "{{.POSTGRES_PASSWORD}}"
-        # username/password keys consumed by the CNPG Cluster bootstrap.initdb,
-        # so the owner role and Backstage share one ESO-generated password.
+        POSTGRES_PASSWORD: '{{.POSTGRES_PASSWORD}}'
         username: backstage
-        password: "{{.POSTGRES_PASSWORD}}"
+        password: '{{.POSTGRES_PASSWORD}}'
         ARGO_WORKFLOWS_URL: https://argo-workflows.adhar.localtest.me:8443
         KEYCLOAK_NAME_METADATA: https://keycloak.adhar.localtest.me:8443/realms/adhar/.well-known/openid-configuration
-        KEYCLOAK_CLIENT_SECRET: "{{.BACKSTAGE_CLIENT_SECRET}}"
-        ARGOCD_AUTH_TOKEN: "argocd.token={{.ARGOCD_SESSION_TOKEN}}"
-        ARGO_CD_URL: 'http://argo-cd-argocd-server.adhar-system.svc.cluster.local/api/v1/'
+        KEYCLOAK_CLIENT_SECRET: '{{.BACKSTAGE_CLIENT_SECRET}}'
+        ARGOCD_AUTH_TOKEN: argocd.token={{.ARGOCD_SESSION_TOKEN}}
+        ARGO_CD_URL: http://argo-cd-argocd-server.adhar-system.svc.cluster.local/api/v1/
   data:
-    - secretKey: ARGOCD_SESSION_TOKEN
-      remoteRef:
-        key: keycloak-clients
-        property: ARGOCD_SESSION_TOKEN
-    - secretKey: BACKSTAGE_CLIENT_SECRET
-      remoteRef:
-        key: keycloak-clients
-        property: BACKSTAGE_CLIENT_SECRET
+  - secretKey: ARGOCD_SESSION_TOKEN
+    remoteRef:
+      key: keycloak-clients
+      property: ARGOCD_SESSION_TOKEN
+  - secretKey: BACKSTAGE_CLIENT_SECRET
+    remoteRef:
+      key: keycloak-clients
+      property: BACKSTAGE_CLIENT_SECRET
   dataFrom:
-    - sourceRef:
-        generatorRef:
-          apiVersion: generators.external-secrets.io/v1alpha1
-          kind: Password
-          name: backstage
-      rewrite:
-        - transform:
-            template: "POSTGRES_PASSWORD"
+  - sourceRef:
+      generatorRef:
+        apiVersion: generators.external-secrets.io/v1alpha1
+        kind: Password
+        name: backstage
+    rewrite:
+    - transform:
+        template: POSTGRES_PASSWORD
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -383,15 +290,15 @@ spec:
   secretStoreRef:
     name: gitea
     kind: ClusterSecretStore
-  refreshInterval: "0"
+  refreshInterval: '0'
   target:
     name: gitea-credentials
   data:
-    - secretKey: GITEA_USERNAME
-      remoteRef:
-        key: gitea-credential
-        property: username
-    - secretKey: GITEA_PASSWORD
-      remoteRef:
-        key: gitea-credential
-        property: password
+  - secretKey: GITEA_USERNAME
+    remoteRef:
+      key: gitea-credential
+      property: username
+  - secretKey: GITEA_PASSWORD
+    remoteRef:
+      key: gitea-credential
+      property: password

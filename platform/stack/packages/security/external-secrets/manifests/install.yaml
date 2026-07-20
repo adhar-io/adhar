@@ -30754,9 +30754,9 @@ spec:
           - certcontroller
           - --crd-requeue-interval=5m
           - --service-name=external-secrets-webhook
-          - --service-namespace=external-secrets
+          - --service-namespace=adhar-system
           - --secret-name=external-secrets-webhook
-          - --secret-namespace=external-secrets
+          - --secret-namespace=adhar-system
           - --metrics-addr=:8080
           - --healthz-addr=:8081
           - --loglevel=info

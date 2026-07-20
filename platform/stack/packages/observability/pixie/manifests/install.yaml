@@ -1,217 +1,100 @@
-# PIXIE INSTALL RESOURCES
-# This file is auto-generated with 'platform/stack/packages/observability/pixie/generate-manifests.sh'
----
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: cloud-conn-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: metadata-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-updater-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: cloud-conn-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: cloud-conn-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/00_secrets.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  annotations:
-    
+  annotations: null
   creationTimestamp: null
-  labels:
-    
+  labels: null
   name: pl-cluster-secrets
   namespace: adhar-system
 stringData:
-  sentry-dsn: ""
+  sentry-dsn: ''
 ---
-# Source: pixie-chart/templates/00_secrets.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  annotations:
-    
+  annotations: null
   creationTimestamp: null
-  labels:
-    
+  labels: null
   name: pl-deploy-secrets
   namespace: adhar-system
 stringData:
-  deploy-key: ""
+  deploy-key: ''
 ---
-# Source: pixie-chart/templates/00_secrets.yaml
 apiVersion: v1
 data:
-  PL_CLOUD_ADDR: "withpixie.ai:443"
-  PL_CLUSTER_NAME: "adhar"
-  PL_UPDATE_CLOUD_ADDR: "withpixie.ai:443"
+  PL_CLOUD_ADDR: withpixie.ai:443
+  PL_CLUSTER_NAME: adhar
+  PL_UPDATE_CLOUD_ADDR: withpixie.ai:443
 kind: ConfigMap
 metadata:
-  annotations:
-    
+  annotations: null
   creationTimestamp: null
-  labels:
-    
+  labels: null
   name: pl-cloud-config
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/00_secrets.yaml
 apiVersion: v1
 data:
-  PL_CUSTOM_ANNOTATIONS: ""
-  PL_CUSTOM_LABELS: ""
-  PL_DISABLE_AUTO_UPDATE: "false"
-  PL_ETCD_OPERATOR_ENABLED: "false"
+  PL_CUSTOM_ANNOTATIONS: ''
+  PL_CUSTOM_LABELS: ''
+  PL_DISABLE_AUTO_UPDATE: 'false'
+  PL_ETCD_OPERATOR_ENABLED: 'false'
   PL_MD_ETCD_SERVER: https://pl-etcd-client.adhar-system.svc:2379
-  PX_MEMORY_LIMIT: ""
-  PX_MEMORY_REQUEST: ""
+  PX_MEMORY_LIMIT: ''
+  PX_MEMORY_REQUEST: ''
 kind: ConfigMap
 metadata:
-  annotations:
-    
+  annotations: null
   creationTimestamp: null
-  labels:
-    
+  labels: null
   name: pl-cluster-config
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/01_nats.yaml
 apiVersion: v1
 data:
-  nats.conf: |
-    pid_file: "/var/run/nats/nats.pid"
-    http: 8222
-
-    tls {
-      ca_file: "/etc/nats-server-tls-certs/ca.crt",
-      cert_file: "/etc/nats-server-tls-certs/server.crt",
-      key_file: "/etc/nats-server-tls-certs/server.key",
-      timeout: 3
-    }
+  nats.conf: "pid_file: \"/var/run/nats/nats.pid\"\nhttp: 8222\n\ntls {\n  ca_file:\
+    \ \"/etc/nats-server-tls-certs/ca.crt\",\n  cert_file: \"/etc/nats-server-tls-certs/server.crt\"\
+    ,\n  key_file: \"/etc/nats-server-tls-certs/server.key\",\n  timeout: 3\n}\n"
 kind: ConfigMap
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
   name: nats-config
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 data:
   PL_CLIENT_TLS_CERT: /certs/client.crt
@@ -221,17 +104,14 @@ data:
   PL_TLS_CA_CERT: /certs/ca.crt
 kind: ConfigMap
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-cloud-connector-tls-config
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 data:
   PL_CLIENT_TLS_CERT: /certs/client.crt
@@ -241,16 +121,13 @@ data:
   PL_TLS_CA_CERT: /certs/ca.crt
 kind: ConfigMap
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-tls-config
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
 data:
   PL_CLIENT_TLS_CERT: /certs/client.crt
@@ -260,17 +137,14 @@ data:
   PL_TLS_CA_CERT: /certs/ca.crt
 kind: ConfigMap
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-cloud-connector-tls-config
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
 data:
   PL_CLIENT_TLS_CERT: /certs/client.crt
@@ -280,16 +154,13 @@ data:
   PL_TLS_CA_CERT: /certs/ca.crt
 kind: ConfigMap
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-tls-config
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
 data:
   PL_CLIENT_TLS_CERT: /certs/client.crt
@@ -299,17 +170,14 @@ data:
   PL_TLS_CA_CERT: /certs/ca.crt
 kind: ConfigMap
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-cloud-connector-tls-config
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
 data:
   PL_CLIENT_TLS_CERT: /certs/client.crt
@@ -319,23 +187,18 @@ data:
   PL_TLS_CA_CERT: /certs/ca.crt
 kind: ConfigMap
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-tls-config
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: metadata-pv-claim
@@ -347,14 +210,11 @@ spec:
     requests:
       storage: 16Gi
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: metadata-pv-claim
@@ -366,22 +226,19 @@ spec:
     requests:
       storage: 16Gi
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-cloud-connector-role
   namespace: adhar-system
 rules:
 - apiGroups:
-  - ""
+  - ''
   resources:
   - nodes
   verbs:
@@ -389,7 +246,7 @@ rules:
   - watch
   - list
 - apiGroups:
-  - ""
+  - ''
   resourceNames:
   - kube-system
   resources:
@@ -397,21 +254,18 @@ rules:
   verbs:
   - get
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-node-view
   namespace: adhar-system
 rules:
 - apiGroups:
-  - ""
+  - ''
   resources:
   - nodes
   verbs:
@@ -419,17 +273,14 @@ rules:
   - watch
   - list
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-updater-cluster-role
   namespace: adhar-system
 rules:
@@ -446,21 +297,18 @@ rules:
   verbs:
   - '*'
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata
   namespace: adhar-system
 rules:
 - apiGroups:
-  - ""
+  - ''
   - apps
   resources:
   - pods
@@ -474,233 +322,14 @@ rules:
   - get
   - list
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-cloud-connector-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  verbs:
-  - get
-  - watch
-  - list
-- apiGroups:
-  - ""
-  resourceNames:
-  - kube-system
-  resources:
-  - namespaces
-  verbs:
-  - get
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-node-view
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  verbs:
-  - get
-  - watch
-  - list
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-cluster-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - rbac.authorization.k8s.io
-  - etcd.database.coreos.com
-  - nats.io
-  resources:
-  - clusterroles
-  - clusterrolebindings
-  - persistentvolumes
-  - etcdclusters
-  - natsclusters
-  verbs:
-  - '*'
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  - apps
-  resources:
-  - pods
-  - services
-  - endpoints
-  - namespaces
-  - replicasets
-  - deployments
-  verbs:
-  - watch
-  - get
-  - list
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-cloud-connector-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  verbs:
-  - get
-  - watch
-  - list
-- apiGroups:
-  - ""
-  resourceNames:
-  - kube-system
-  resources:
-  - namespaces
-  verbs:
-  - get
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-node-view
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  verbs:
-  - get
-  - watch
-  - list
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-cluster-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - rbac.authorization.k8s.io
-  - etcd.database.coreos.com
-  - nats.io
-  resources:
-  - clusterroles
-  - clusterrolebindings
-  - persistentvolumes
-  - etcdclusters
-  - natsclusters
-  verbs:
-  - '*'
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  - apps
-  resources:
-  - pods
-  - services
-  - endpoints
-  - namespaces
-  - replicasets
-  - deployments
-  verbs:
-  - watch
-  - get
-  - list
----
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-cloud-connector-cluster-binding
   namespace: adhar-system
 roleRef:
@@ -712,14 +341,11 @@ subjects:
   name: cloud-conn-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-node-view-cluster-binding
@@ -733,17 +359,14 @@ subjects:
   name: default
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-updater-cluster-binding
   namespace: adhar-system
 roleRef:
@@ -755,14 +378,11 @@ subjects:
   name: pl-updater-service-account
   namespace: __PXqgq_SUBJECT_NAMESPACE__
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-cluster-binding
@@ -776,14 +396,11 @@ subjects:
   name: metadata-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-node-view-cluster-binding
@@ -797,236 +414,19 @@ subjects:
   name: metadata-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-cloud-connector-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-cloud-connector-role
-subjects:
-- kind: ServiceAccount
-  name: cloud-conn-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-node-view-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-node-view
-subjects:
-- kind: ServiceAccount
-  name: default
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-updater-role
-subjects:
-- kind: ServiceAccount
-  name: pl-updater-service-account
-  namespace: __PXqgq_SUBJECT_NAMESPACE__
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-vizier-metadata
-subjects:
-- kind: ServiceAccount
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata-node-view-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-node-view
-subjects:
-- kind: ServiceAccount
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-cloud-connector-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-cloud-connector-role
-subjects:
-- kind: ServiceAccount
-  name: cloud-conn-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-node-view-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-node-view
-subjects:
-- kind: ServiceAccount
-  name: default
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-updater-role
-subjects:
-- kind: ServiceAccount
-  name: pl-updater-service-account
-  namespace: __PXqgq_SUBJECT_NAMESPACE__
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-vizier-metadata
-subjects:
-- kind: ServiceAccount
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata-node-view-cluster-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pl-node-view
-subjects:
-- kind: ServiceAccount
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-cloud-connector-ns-role
   namespace: adhar-system
 rules:
 - apiGroups:
-  - ""
+  - ''
   resources:
   - services
   - events
@@ -1042,7 +442,7 @@ rules:
   verbs:
   - '*'
 - apiGroups:
-  - ""
+  - ''
   - px.dev
   resources:
   - secrets
@@ -1052,22 +452,19 @@ rules:
   verbs:
   - '*'
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-updater-role
   namespace: adhar-system
 rules:
 - apiGroups:
-  - ""
+  - ''
   - apps
   - rbac.authorization.k8s.io
   - extensions
@@ -1090,17 +487,14 @@ rules:
   verbs:
   - '*'
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-vizier-crd-role
   namespace: adhar-system
 rules:
@@ -1114,283 +508,31 @@ rules:
   - list
   - watch
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-role
   namespace: adhar-system
 rules:
 - apiGroups:
-  - ""
+  - ''
   resources:
   - endpoints
   verbs:
   - '*'
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-cloud-connector-ns-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - services
-  - events
-  - pods/log
-  verbs:
-  - get
-  - watch
-  - list
-- apiGroups:
-  - batch
-  resources:
-  - jobs
-  verbs:
-  - '*'
-- apiGroups:
-  - ""
-  - px.dev
-  resources:
-  - secrets
-  - endpoints
-  - pods
-  - viziers
-  verbs:
-  - '*'
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  - apps
-  - rbac.authorization.k8s.io
-  - extensions
-  - batch
-  - policy
-  resources:
-  - configmaps
-  - secrets
-  - pods
-  - services
-  - deployments
-  - daemonsets
-  - persistentvolumes
-  - roles
-  - rolebindings
-  - serviceaccounts
-  - statefulsets
-  - cronjobs
-  - jobs
-  verbs:
-  - '*'
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-vizier-crd-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - px.dev
-  resources:
-  - viziers
-  - viziers/status
-  verbs:
-  - get
-  - list
-  - watch
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - endpoints
-  verbs:
-  - '*'
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-cloud-connector-ns-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - services
-  - events
-  - pods/log
-  verbs:
-  - get
-  - watch
-  - list
-- apiGroups:
-  - batch
-  resources:
-  - jobs
-  verbs:
-  - '*'
-- apiGroups:
-  - ""
-  - px.dev
-  resources:
-  - secrets
-  - endpoints
-  - pods
-  - viziers
-  verbs:
-  - '*'
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  - apps
-  - rbac.authorization.k8s.io
-  - extensions
-  - batch
-  - policy
-  resources:
-  - configmaps
-  - secrets
-  - pods
-  - services
-  - deployments
-  - daemonsets
-  - persistentvolumes
-  - roles
-  - rolebindings
-  - serviceaccounts
-  - statefulsets
-  - cronjobs
-  - jobs
-  verbs:
-  - '*'
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-vizier-crd-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - px.dev
-  resources:
-  - viziers
-  - viziers/status
-  verbs:
-  - get
-  - list
-  - watch
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata-role
-  namespace: adhar-system
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - endpoints
-  verbs:
-  - '*'
----
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-cloud-connector-binding
   namespace: adhar-system
 roleRef:
@@ -1402,17 +544,14 @@ subjects:
   name: cloud-conn-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: pl-updater-binding
   namespace: adhar-system
 roleRef:
@@ -1424,14 +563,11 @@ subjects:
   name: pl-updater-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-vizier-crd-binding
@@ -1445,14 +581,11 @@ subjects:
   name: default
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-vizier-crd-metadata-binding
@@ -1466,14 +599,11 @@ subjects:
   name: metadata-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: pl-vizier-metadata-binding
@@ -1487,228 +617,11 @@ subjects:
   name: metadata-service-account
   namespace: adhar-system
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-cloud-connector-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-cloud-connector-ns-role
-subjects:
-- kind: ServiceAccount
-  name: cloud-conn-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-updater-role
-subjects:
-- kind: ServiceAccount
-  name: pl-updater-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-crd-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-vizier-crd-role
-subjects:
-- kind: ServiceAccount
-  name: default
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-crd-metadata-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-vizier-crd-role
-subjects:
-- kind: ServiceAccount
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-vizier-metadata-role
-subjects:
-- kind: ServiceAccount
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-cloud-connector-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-cloud-connector-ns-role
-subjects:
-- kind: ServiceAccount
-  name: cloud-conn-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-    vizier-bootstrap: "true"
-  name: pl-updater-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-updater-role
-subjects:
-- kind: ServiceAccount
-  name: pl-updater-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-crd-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-vizier-crd-role
-subjects:
-- kind: ServiceAccount
-  name: default
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-crd-metadata-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-vizier-crd-role
-subjects:
-- kind: ServiceAccount
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  annotations:
-    
-  labels:
-    
-    app: pl-monitoring
-    component: vizier
-  name: pl-vizier-metadata-binding
-  namespace: adhar-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: pl-vizier-metadata-role
-subjects:
-- kind: ServiceAccount
-  name: metadata-service-account
-  namespace: adhar-system
----
-# Source: pixie-chart/templates/01_nats.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     name: pl-nats
   name: pl-nats
@@ -1721,14 +634,11 @@ spec:
     app: pl-monitoring
     name: pl-nats
 ---
-# Source: pixie-chart/templates/01_nats.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     name: pl-nats
   name: pl-nats-mgmt
@@ -1750,14 +660,11 @@ spec:
     app: pl-monitoring
     name: pl-nats
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: kelvin-service
@@ -1775,17 +682,14 @@ spec:
     name: kelvin
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: vizier-cloud-connector-svc
   namespace: adhar-system
 spec:
@@ -1798,17 +702,14 @@ spec:
     app: pl-monitoring
     component: vizier
     name: vizier-cloud-connector
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-metadata-svc
@@ -1825,14 +726,11 @@ spec:
     name: vizier-metadata
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker-svc
@@ -1853,14 +751,11 @@ spec:
     name: vizier-query-broker
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: kelvin-service
@@ -1878,17 +773,14 @@ spec:
     name: kelvin
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: vizier-cloud-connector-svc
   namespace: adhar-system
 spec:
@@ -1901,17 +793,14 @@ spec:
     app: pl-monitoring
     component: vizier
     name: vizier-cloud-connector
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-metadata-svc
@@ -1928,14 +817,11 @@ spec:
     name: vizier-metadata
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker-svc
@@ -1956,14 +842,11 @@ spec:
     name: vizier-query-broker
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: kelvin-service
@@ -1981,17 +864,14 @@ spec:
     name: kelvin
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: vizier-cloud-connector-svc
   namespace: adhar-system
 spec:
@@ -2004,17 +884,14 @@ spec:
     app: pl-monitoring
     component: vizier
     name: vizier-cloud-connector
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-metadata-svc
@@ -2031,14 +908,11 @@ spec:
     name: vizier-metadata
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker-svc
@@ -2059,14 +933,11 @@ spec:
     name: vizier-query-broker
   type: ClusterIP
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-pem
@@ -2079,10 +950,8 @@ spec:
       name: vizier-pem
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-pem
@@ -2110,9 +979,9 @@ spec:
       - args: []
         env:
         - name: PL_PEM_ENV_VAR_PLACEHOLDER
-          value: "true" # This is un-used, and is just a placeholder used to templatize our YAMLs for Helm.
+          value: 'true'
         - name: TCMALLOC_SAMPLE_PARAMETER
-          value: "1048576"
+          value: '1048576'
         - name: PL_CLIENT_TLS_CERT
           value: /certs/client.crt
         - name: PL_CLIENT_TLS_KEY
@@ -2120,7 +989,7 @@ spec:
         - name: PL_TLS_CA_CERT
           value: /certs/ca.crt
         - name: PL_DISABLE_SSL
-          value: "false"
+          value: 'false'
         - name: PL_HOST_PATH
           value: /host
         - name: PL_POD_NAME
@@ -2149,14 +1018,14 @@ spec:
               name: pl-cluster-secrets
               optional: true
         - name: PL_CLOCK_CONVERTER
-          value: "default"
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/pem_image:0.12.10'
+          value: default
+        image: gcr.io/pixie-oss/pixie-prod/vizier/pem_image:0.12.10
         name: pem
         resources:
           limits:
-            memory: "2Gi"
+            memory: 2Gi
           requests:
-            memory: "2Gi"
+            memory: 2Gi
         securityContext:
           capabilities:
             add:
@@ -2186,8 +1055,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-query-broker-svc
         - name: SERVICE_PORT
-          value: "50300"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50300'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: qb-wait
       terminationGracePeriodSeconds: 10
       tolerations:
@@ -2214,14 +1083,11 @@ spec:
       maxUnavailable: 20
     type: RollingUpdate
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-pem
@@ -2234,10 +1100,8 @@ spec:
       name: vizier-pem
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-pem
@@ -2265,9 +1129,9 @@ spec:
       - args: []
         env:
         - name: PL_PEM_ENV_VAR_PLACEHOLDER
-          value: "true" # This is un-used, and is just a placeholder used to templatize our YAMLs for Helm.
+          value: 'true'
         - name: TCMALLOC_SAMPLE_PARAMETER
-          value: "1048576"
+          value: '1048576'
         - name: PL_CLIENT_TLS_CERT
           value: /certs/client.crt
         - name: PL_CLIENT_TLS_KEY
@@ -2275,7 +1139,7 @@ spec:
         - name: PL_TLS_CA_CERT
           value: /certs/ca.crt
         - name: PL_DISABLE_SSL
-          value: "false"
+          value: 'false'
         - name: PL_HOST_PATH
           value: /host
         - name: PL_POD_NAME
@@ -2304,14 +1168,14 @@ spec:
               name: pl-cluster-secrets
               optional: true
         - name: PL_CLOCK_CONVERTER
-          value: "default"
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/pem_image:0.12.10'
+          value: default
+        image: gcr.io/pixie-oss/pixie-prod/vizier/pem_image:0.12.10
         name: pem
         resources:
           limits:
-            memory: "2Gi"
+            memory: 2Gi
           requests:
-            memory: "2Gi"
+            memory: 2Gi
         securityContext:
           capabilities:
             add:
@@ -2350,8 +1214,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-query-broker-svc
         - name: SERVICE_PORT
-          value: "50300"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50300'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: qb-wait
       terminationGracePeriodSeconds: 10
       tolerations:
@@ -2390,14 +1254,11 @@ spec:
       maxUnavailable: 20
     type: RollingUpdate
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-pem
@@ -2410,10 +1271,8 @@ spec:
       name: vizier-pem
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-pem
@@ -2441,9 +1300,9 @@ spec:
       - args: []
         env:
         - name: PL_PEM_ENV_VAR_PLACEHOLDER
-          value: "true" # This is un-used, and is just a placeholder used to templatize our YAMLs for Helm.
+          value: 'true'
         - name: TCMALLOC_SAMPLE_PARAMETER
-          value: "1048576"
+          value: '1048576'
         - name: PL_CLIENT_TLS_CERT
           value: /certs/client.crt
         - name: PL_CLIENT_TLS_KEY
@@ -2451,7 +1310,7 @@ spec:
         - name: PL_TLS_CA_CERT
           value: /certs/ca.crt
         - name: PL_DISABLE_SSL
-          value: "false"
+          value: 'false'
         - name: PL_HOST_PATH
           value: /host
         - name: PL_POD_NAME
@@ -2480,14 +1339,14 @@ spec:
               name: pl-cluster-secrets
               optional: true
         - name: PL_CLOCK_CONVERTER
-          value: "default"
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/pem_image:0.12.10'
+          value: default
+        image: gcr.io/pixie-oss/pixie-prod/vizier/pem_image:0.12.10
         name: pem
         resources:
           limits:
-            memory: "2Gi"
+            memory: 2Gi
           requests:
-            memory: "2Gi"
+            memory: 2Gi
         securityContext:
           capabilities:
             add:
@@ -2526,8 +1385,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-query-broker-svc
         - name: SERVICE_PORT
-          value: "50300"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50300'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: qb-wait
       terminationGracePeriodSeconds: 10
       tolerations:
@@ -2566,14 +1425,11 @@ spec:
       maxUnavailable: 20
     type: RollingUpdate
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: kelvin
@@ -2586,10 +1442,8 @@ spec:
       name: kelvin
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: kelvin
@@ -2662,11 +1516,11 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: TCMALLOC_SAMPLE_PARAMETER
-          value: "1048576"
+          value: '1048576'
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/kelvin_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/kelvin_image:0.12.10
         name: app
         ports:
         - containerPort: 59300
@@ -2688,8 +1542,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-cloud-connector-svc
         - name: SERVICE_PORT
-          value: "50800"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50800'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: cc-wait
       - command:
         - sh
@@ -2701,8 +1555,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-query-broker-svc
         - name: SERVICE_PORT
-          value: "50300"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50300'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: qb-wait
       terminationGracePeriodSeconds: 30
       volumes:
@@ -2714,17 +1568,14 @@ spec:
           type: Directory
         name: sys
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: vizier-cloud-connector
   namespace: adhar-system
 spec:
@@ -2734,18 +1585,16 @@ spec:
       app: pl-monitoring
       component: vizier
       name: vizier-cloud-connector
-      vizier-bootstrap: "true"
+      vizier-bootstrap: 'true'
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-cloud-connector
         plane: control
-        vizier-bootstrap: "true"
+        vizier-bootstrap: 'true'
     spec:
       affinity:
         nodeAffinity:
@@ -2788,16 +1637,16 @@ spec:
           valueFrom:
             secretKeyRef:
               key: deploy-key
-              name: "pl-deploy-secrets"
+              name: pl-deploy-secrets
               optional: true
         - name: PL_POD_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
         - name: PL_MAX_EXPECTED_CLOCK_SKEW
-          value: "2000"
+          value: '2000'
         - name: PL_RENEW_PERIOD
-          value: "7500"
+          value: '7500'
         envFrom:
         - configMapRef:
             name: pl-cloud-config
@@ -2806,7 +1655,7 @@ spec:
         - configMapRef:
             name: pl-cluster-config
             optional: true
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/cloud_connector_server_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/cloud_connector_server_image:0.12.10
         livenessProbe:
           httpGet:
             path: /healthz
@@ -2829,12 +1678,12 @@ spec:
         - name: SERVICE_NAME
           value: pl-nats-mgmt
         - name: SERVICE_PORT
-          value: "8222"
+          value: '8222'
         - name: HEALTH_PATH
-          value: ""
+          value: ''
         - name: PROTOCOL
           value: http
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: nats-wait
       serviceAccountName: cloud-conn-service-account
       volumes:
@@ -2842,14 +1691,11 @@ spec:
         secret:
           secretName: service-tls-certs
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker
@@ -2864,11 +1710,9 @@ spec:
   template:
     metadata:
       annotations:
-        
-        px.dev/metrics_port: "50300"
-        px.dev/metrics_scrape: "true"
+        px.dev/metrics_port: '50300'
+        px.dev/metrics_scrape: 'true'
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-query-broker
@@ -2928,11 +1772,11 @@ spec:
               key: PL_CLOUD_ADDR
               name: pl-cloud-config
         - name: PL_DATA_ACCESS
-          value: "Full"
+          value: Full
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/query_broker_server_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/query_broker_server_image:0.12.10
         livenessProbe:
           httpGet:
             path: /healthz
@@ -2955,8 +1799,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-cloud-connector-svc
         - name: SERVICE_PORT
-          value: "50800"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50800'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: cc-wait
       - command:
         - sh
@@ -2968,8 +1812,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-metadata-svc
         - name: SERVICE_PORT
-          value: "50400"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50400'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: mds-wait
       volumes:
       - name: certs
@@ -2979,14 +1823,11 @@ spec:
           name: proxy-envoy-config
         name: envoy-yaml
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: kelvin
@@ -2999,10 +1840,8 @@ spec:
       name: kelvin
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: kelvin
@@ -3075,11 +1914,11 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: TCMALLOC_SAMPLE_PARAMETER
-          value: "1048576"
+          value: '1048576'
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/kelvin_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/kelvin_image:0.12.10
         name: app
         ports:
         - containerPort: 59300
@@ -3101,8 +1940,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-cloud-connector-svc
         - name: SERVICE_PORT
-          value: "50800"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50800'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: cc-wait
       - command:
         - sh
@@ -3114,8 +1953,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-query-broker-svc
         - name: SERVICE_PORT
-          value: "50300"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50300'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: qb-wait
       terminationGracePeriodSeconds: 30
       volumes:
@@ -3127,17 +1966,14 @@ spec:
           type: Directory
         name: sys
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: vizier-cloud-connector
   namespace: adhar-system
 spec:
@@ -3147,18 +1983,16 @@ spec:
       app: pl-monitoring
       component: vizier
       name: vizier-cloud-connector
-      vizier-bootstrap: "true"
+      vizier-bootstrap: 'true'
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-cloud-connector
         plane: control
-        vizier-bootstrap: "true"
+        vizier-bootstrap: 'true'
     spec:
       affinity:
         nodeAffinity:
@@ -3201,16 +2035,16 @@ spec:
           valueFrom:
             secretKeyRef:
               key: deploy-key
-              name: "pl-deploy-secrets"
+              name: pl-deploy-secrets
               optional: true
         - name: PL_POD_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
         - name: PL_MAX_EXPECTED_CLOCK_SKEW
-          value: "2000"
+          value: '2000'
         - name: PL_RENEW_PERIOD
-          value: "7500"
+          value: '7500'
         envFrom:
         - configMapRef:
             name: pl-cloud-config
@@ -3219,7 +2053,7 @@ spec:
         - configMapRef:
             name: pl-cluster-config
             optional: true
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/cloud_connector_server_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/cloud_connector_server_image:0.12.10
         livenessProbe:
           httpGet:
             path: /healthz
@@ -3242,12 +2076,12 @@ spec:
         - name: SERVICE_NAME
           value: pl-nats-mgmt
         - name: SERVICE_PORT
-          value: "8222"
+          value: '8222'
         - name: HEALTH_PATH
-          value: ""
+          value: ''
         - name: PROTOCOL
           value: http
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: nats-wait
       serviceAccountName: cloud-conn-service-account
       volumes:
@@ -3255,14 +2089,11 @@ spec:
         secret:
           secretName: service-tls-certs
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-metadata
@@ -3277,11 +2108,9 @@ spec:
   template:
     metadata:
       annotations:
-        
-        px.dev/metrics_port: "50400"
-        px.dev/metrics_scrape: "true"
+        px.dev/metrics_port: '50400'
+        px.dev/metrics_scrape: 'true'
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-metadata
@@ -3317,17 +2146,17 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: PL_MAX_EXPECTED_CLOCK_SKEW
-          value: "2000"
+          value: '2000'
         - name: PL_RENEW_PERIOD
-          value: "7500"
+          value: '7500'
         - name: PL_MD_ETCD_SERVER
           value: https://pl-etcd-client.$(PL_POD_NAMESPACE).svc:2379
         - name: PL_ETCD_OPERATOR_ENABLED
-          value: "true"
+          value: 'true'
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/metadata_server_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/metadata_server_image:0.12.10
         livenessProbe:
           httpGet:
             path: /healthz
@@ -3358,12 +2187,12 @@ spec:
         - name: SERVICE_NAME
           value: pl-nats-mgmt
         - name: SERVICE_PORT
-          value: "8222"
+          value: '8222'
         - name: HEALTH_PATH
-          value: ""
+          value: ''
         - name: PROTOCOL
           value: http
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: nats-wait
       - command:
         - sh
@@ -3381,7 +2210,7 @@ spec:
               fieldPath: metadata.namespace
         - name: PL_MD_ETCD_SERVER
           value: https://pl-etcd-client.$(PL_POD_NAMESPACE).svc:2379
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: etcd-wait
         volumeMounts:
         - mountPath: /certs
@@ -3392,14 +2221,11 @@ spec:
         secret:
           secretName: service-tls-certs
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker
@@ -3414,11 +2240,9 @@ spec:
   template:
     metadata:
       annotations:
-        
-        px.dev/metrics_port: "50300"
-        px.dev/metrics_scrape: "true"
+        px.dev/metrics_port: '50300'
+        px.dev/metrics_scrape: 'true'
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-query-broker
@@ -3478,11 +2302,11 @@ spec:
               key: PL_CLOUD_ADDR
               name: pl-cloud-config
         - name: PL_DATA_ACCESS
-          value: "Full"
+          value: Full
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/query_broker_server_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/query_broker_server_image:0.12.10
         livenessProbe:
           httpGet:
             path: /healthz
@@ -3505,8 +2329,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-cloud-connector-svc
         - name: SERVICE_PORT
-          value: "50800"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50800'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: cc-wait
       - command:
         - sh
@@ -3518,8 +2342,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-metadata-svc
         - name: SERVICE_PORT
-          value: "50400"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50400'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: mds-wait
       volumes:
       - name: certs
@@ -3529,14 +2353,11 @@ spec:
           name: proxy-envoy-config
         name: envoy-yaml
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: kelvin
@@ -3549,10 +2370,8 @@ spec:
       name: kelvin
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: kelvin
@@ -3625,11 +2444,11 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: TCMALLOC_SAMPLE_PARAMETER
-          value: "1048576"
+          value: '1048576'
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/kelvin_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/kelvin_image:0.12.10
         name: app
         ports:
         - containerPort: 59300
@@ -3651,8 +2470,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-cloud-connector-svc
         - name: SERVICE_PORT
-          value: "50800"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50800'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: cc-wait
       - command:
         - sh
@@ -3664,8 +2483,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-query-broker-svc
         - name: SERVICE_PORT
-          value: "50300"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50300'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: qb-wait
       terminationGracePeriodSeconds: 30
       volumes:
@@ -3677,17 +2496,14 @@ spec:
           type: Directory
         name: sys
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: vizier-cloud-connector
   namespace: adhar-system
 spec:
@@ -3697,18 +2513,16 @@ spec:
       app: pl-monitoring
       component: vizier
       name: vizier-cloud-connector
-      vizier-bootstrap: "true"
+      vizier-bootstrap: 'true'
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-cloud-connector
         plane: control
-        vizier-bootstrap: "true"
+        vizier-bootstrap: 'true'
     spec:
       affinity:
         nodeAffinity:
@@ -3751,16 +2565,16 @@ spec:
           valueFrom:
             secretKeyRef:
               key: deploy-key
-              name: "pl-deploy-secrets"
+              name: pl-deploy-secrets
               optional: true
         - name: PL_POD_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
         - name: PL_MAX_EXPECTED_CLOCK_SKEW
-          value: "2000"
+          value: '2000'
         - name: PL_RENEW_PERIOD
-          value: "7500"
+          value: '7500'
         envFrom:
         - configMapRef:
             name: pl-cloud-config
@@ -3769,7 +2583,7 @@ spec:
         - configMapRef:
             name: pl-cluster-config
             optional: true
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/cloud_connector_server_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/cloud_connector_server_image:0.12.10
         livenessProbe:
           httpGet:
             path: /healthz
@@ -3792,12 +2606,12 @@ spec:
         - name: SERVICE_NAME
           value: pl-nats-mgmt
         - name: SERVICE_PORT
-          value: "8222"
+          value: '8222'
         - name: HEALTH_PATH
-          value: ""
+          value: ''
         - name: PROTOCOL
           value: http
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: nats-wait
       serviceAccountName: cloud-conn-service-account
       volumes:
@@ -3805,14 +2619,11 @@ spec:
         secret:
           secretName: service-tls-certs
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-query-broker
@@ -3827,11 +2638,9 @@ spec:
   template:
     metadata:
       annotations:
-        
-        px.dev/metrics_port: "50300"
-        px.dev/metrics_scrape: "true"
+        px.dev/metrics_port: '50300'
+        px.dev/metrics_scrape: 'true'
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-query-broker
@@ -3891,11 +2700,11 @@ spec:
               key: PL_CLOUD_ADDR
               name: pl-cloud-config
         - name: PL_DATA_ACCESS
-          value: "Full"
+          value: Full
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/query_broker_server_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/query_broker_server_image:0.12.10
         livenessProbe:
           httpGet:
             path: /healthz
@@ -3918,8 +2727,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-cloud-connector-svc
         - name: SERVICE_PORT
-          value: "50800"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50800'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: cc-wait
       - command:
         - sh
@@ -3931,8 +2740,8 @@ spec:
         - name: SERVICE_NAME
           value: vizier-metadata-svc
         - name: SERVICE_PORT
-          value: "50400"
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+          value: '50400'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: mds-wait
       volumes:
       - name: certs
@@ -3942,14 +2751,11 @@ spec:
           name: proxy-envoy-config
         name: envoy-yaml
 ---
-# Source: pixie-chart/templates/01_nats.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     name: pl-nats
   name: pl-nats
@@ -3963,10 +2769,8 @@ spec:
   serviceName: pl-nats
   template:
     metadata:
-      annotations:
-        
+      annotations: null
       labels:
-        
         app: pl-monitoring
         name: pl-nats
         plane: control
@@ -3987,7 +2791,7 @@ spec:
               fieldPath: metadata.namespace
         - name: CLUSTER_ADVERTISE
           value: $(POD_NAME).pl-nats.$(POD_NAMESPACE).svc
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier-deps/nats:2.8.4-alpine3.15'
+        image: gcr.io/pixie-oss/pixie-prod/vizier-deps/nats:2.8.4-alpine3.15
         lifecycle:
           preStop:
             exec:
@@ -4038,14 +2842,11 @@ spec:
       - emptyDir: {}
         name: pid
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-metadata
@@ -4061,11 +2862,9 @@ spec:
   template:
     metadata:
       annotations:
-        
-        px.dev/metrics_port: "50400"
-        px.dev/metrics_scrape: "true"
+        px.dev/metrics_port: '50400'
+        px.dev/metrics_scrape: 'true'
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-metadata
@@ -4101,15 +2900,15 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: PL_MAX_EXPECTED_CLOCK_SKEW
-          value: "2000"
+          value: '2000'
         - name: PL_RENEW_PERIOD
-          value: "7500"
+          value: '7500'
         - name: PL_ETCD_OPERATOR_ENABLED
-          value: "false"
+          value: 'false'
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/metadata_server_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/metadata_server_image:0.12.10
         livenessProbe:
           httpGet:
             path: /healthz
@@ -4142,12 +2941,12 @@ spec:
         - name: SERVICE_NAME
           value: pl-nats-mgmt
         - name: SERVICE_PORT
-          value: "8222"
+          value: '8222'
         - name: HEALTH_PATH
-          value: ""
+          value: ''
         - name: PROTOCOL
           value: http
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: nats-wait
       serviceAccountName: metadata-service-account
       volumes:
@@ -4160,14 +2959,11 @@ spec:
   updateStrategy:
     type: RollingUpdate
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
   name: vizier-metadata
@@ -4183,11 +2979,9 @@ spec:
   template:
     metadata:
       annotations:
-        
-        px.dev/metrics_port: "50400"
-        px.dev/metrics_scrape: "true"
+        px.dev/metrics_port: '50400'
+        px.dev/metrics_scrape: 'true'
       labels:
-        
         app: pl-monitoring
         component: vizier
         name: vizier-metadata
@@ -4223,15 +3017,15 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: PL_MAX_EXPECTED_CLOCK_SKEW
-          value: "2000"
+          value: '2000'
         - name: PL_RENEW_PERIOD
-          value: "7500"
+          value: '7500'
         - name: PL_ETCD_OPERATOR_ENABLED
-          value: "false"
+          value: 'false'
         envFrom:
         - configMapRef:
             name: pl-tls-config
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/metadata_server_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/metadata_server_image:0.12.10
         livenessProbe:
           httpGet:
             path: /healthz
@@ -4264,12 +3058,12 @@ spec:
         - name: SERVICE_NAME
           value: pl-nats-mgmt
         - name: SERVICE_PORT
-          value: "8222"
+          value: '8222'
         - name: HEALTH_PATH
-          value: ""
+          value: ''
         - name: PROTOCOL
           value: http
-        image: 'gcr.io/pixie-oss/pixie-dev-public/curl:1.0'
+        image: gcr.io/pixie-oss/pixie-dev-public/curl:1.0
         name: nats-wait
       serviceAccountName: metadata-service-account
       volumes:
@@ -4282,17 +3076,14 @@ spec:
   updateStrategy:
     type: RollingUpdate
 ---
-# Source: pixie-chart/templates/04_vizier_persistent.yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: cert-provisioner-job
   namespace: adhar-system
 spec:
@@ -4304,7 +3095,7 @@ spec:
       labels:
         app: pl-monitoring
         component: vizier
-        vizier-bootstrap: "true"
+        vizier-bootstrap: 'true'
       name: cert-provisioner-job
     spec:
       containers:
@@ -4319,22 +3110,19 @@ spec:
         - configMapRef:
             name: pl-cluster-config
             optional: true
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/cert_provisioner_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/cert_provisioner_image:0.12.10
         name: provisioner
       restartPolicy: Never
       serviceAccountName: pl-updater-service-account
 ---
-# Source: pixie-chart/templates/05_vizier_etcd_ap.yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: cert-provisioner-job
   namespace: adhar-system
 spec:
@@ -4346,7 +3134,7 @@ spec:
       labels:
         app: pl-monitoring
         component: vizier
-        vizier-bootstrap: "true"
+        vizier-bootstrap: 'true'
       name: cert-provisioner-job
     spec:
       containers:
@@ -4361,22 +3149,19 @@ spec:
         - configMapRef:
             name: pl-cluster-config
             optional: true
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/cert_provisioner_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/cert_provisioner_image:0.12.10
         name: provisioner
       restartPolicy: Never
       serviceAccountName: pl-updater-service-account
 ---
-# Source: pixie-chart/templates/06_vizier_persistent_ap.yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
-  annotations:
-    
+  annotations: null
   labels:
-    
     app: pl-monitoring
     component: vizier
-    vizier-bootstrap: "true"
+    vizier-bootstrap: 'true'
   name: cert-provisioner-job
   namespace: adhar-system
 spec:
@@ -4388,7 +3173,7 @@ spec:
       labels:
         app: pl-monitoring
         component: vizier
-        vizier-bootstrap: "true"
+        vizier-bootstrap: 'true'
       name: cert-provisioner-job
     spec:
       containers:
@@ -4403,7 +3188,7 @@ spec:
         - configMapRef:
             name: pl-cluster-config
             optional: true
-        image: 'gcr.io/pixie-oss/pixie-prod/vizier/cert_provisioner_image:0.12.10'
+        image: gcr.io/pixie-oss/pixie-prod/vizier/cert_provisioner_image:0.12.10
         name: provisioner
       restartPolicy: Never
       serviceAccountName: pl-updater-service-account

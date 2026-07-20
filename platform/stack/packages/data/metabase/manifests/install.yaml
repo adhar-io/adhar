@@ -1,17 +1,3 @@
-# METABASE INSTALL RESOURCES
-# Static manifest (not Helm). The community pmint93/metabase Helm chart serves
-# its tarballs from GitHub release assets which were returning 502 at authoring
-# time, making it unreliable for an unattended `adhar up`. Metabase is a single
-# self-contained container, so it is expressed directly here.
-# App version: metabase v0.51 (open-source). Uses the embedded H2 database by
-# default; for production point MB_DB_* env at the cnpg Postgres.
-# The UI is exposed via the Cilium Gateway API HTTPRoute (httproute.yaml) -- no
-# nginx Ingress.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: metabase
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -33,37 +19,37 @@ spec:
         app.kubernetes.io/instance: metabase
     spec:
       containers:
-        - name: metabase
-          image: metabase/metabase:v0.51.10
-          imagePullPolicy: IfNotPresent
-          ports:
-            - name: http
-              containerPort: 3000
-          env:
-            - name: MB_JETTY_PORT
-              value: "3000"
-            - name: MB_SITE_URL
-              value: https://adhar.localtest.me:8443/metabase
-          readinessProbe:
-            httpGet:
-              path: /api/health
-              port: http
-            initialDelaySeconds: 60
-            periodSeconds: 15
-            failureThreshold: 12
-          livenessProbe:
-            httpGet:
-              path: /api/health
-              port: http
-            initialDelaySeconds: 120
-            periodSeconds: 30
-            failureThreshold: 6
-          resources:
-            requests:
-              cpu: 250m
-              memory: 512Mi
-            limits:
-              memory: 1Gi
+      - name: metabase
+        image: metabase/metabase:v0.51.10
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 3000
+        env:
+        - name: MB_JETTY_PORT
+          value: '3000'
+        - name: MB_SITE_URL
+          value: https://adhar.localtest.me:8443/metabase
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          failureThreshold: 12
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          failureThreshold: 6
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 1Gi
 ---
 apiVersion: v1
 kind: Service
@@ -79,6 +65,6 @@ spec:
     app.kubernetes.io/name: metabase
     app.kubernetes.io/instance: metabase
   ports:
-    - name: http
-      port: 80
-      targetPort: http
+  - name: http
+    port: 80
+    targetPort: http

@@ -1,0 +1,4983 @@
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adhar-system-controller-cluster-access
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - nodes
+  verbs:
+  - list
+- apiGroups:
+  - tekton.dev
+  resources:
+  - tasks
+  - clustertasks
+  - taskruns
+  - pipelines
+  - pipelineruns
+  - customruns
+  - stepactions
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - tekton.dev
+  resources:
+  - verificationpolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - tekton.dev
+  resources:
+  - taskruns/finalizers
+  - pipelineruns/finalizers
+  - customruns/finalizers
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - tekton.dev
+  resources:
+  - tasks/status
+  - clustertasks/status
+  - taskruns/status
+  - pipelines/status
+  - pipelineruns/status
+  - customruns/status
+  - verificationpolicies/status
+  - stepactions/status
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - resolution.tekton.dev
+  resources:
+  - resolutionrequests
+  - resolutionrequests/status
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adhar-system-controller-tenant-access
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - events
+  verbs:
+  - create
+  - update
+  - patch
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  - limitranges
+  - secrets
+  - serviceaccounts
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adhar-system-webhook-cluster-access
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  - customresourcedefinitions/status
+  verbs:
+  - get
+  - update
+  - patch
+  resourceNames:
+  - pipelines.tekton.dev
+  - pipelineruns.tekton.dev
+  - tasks.tekton.dev
+  - clustertasks.tekton.dev
+  - taskruns.tekton.dev
+  - resolutionrequests.resolution.tekton.dev
+  - customruns.tekton.dev
+  - verificationpolicies.tekton.dev
+  - stepactions.tekton.dev
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  resourceNames:
+  - webhook.pipeline.tekton.dev
+  verbs:
+  - get
+  - update
+  - delete
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingwebhookconfigurations
+  resourceNames:
+  - validation.webhook.pipeline.tekton.dev
+  - config.webhook.pipeline.tekton.dev
+  verbs:
+  - get
+  - update
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - namespaces
+  verbs:
+  - get
+  resourceNames:
+  - adhar-system
+- apiGroups:
+  - ''
+  resources:
+  - namespaces/finalizers
+  verbs:
+  - update
+  resourceNames:
+  - adhar-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: tekton-events-controller-cluster-access
+  labels:
+    app.kubernetes.io/component: events
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - tekton.dev
+  resources:
+  - tasks
+  - clustertasks
+  - taskruns
+  - pipelines
+  - pipelineruns
+  - customruns
+  verbs:
+  - get
+  - list
+  - watch
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adhar-system-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - get
+  resourceNames:
+  - config-logging
+  - config-observability
+  - feature-flags
+  - config-leader-election-controller
+  - config-registry-cert
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adhar-system-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - get
+  resourceNames:
+  - config-logging
+  - config-observability
+  - config-leader-election-webhook
+  - feature-flags
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - get
+  - update
+  resourceNames:
+  - webhook-certs
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adhar-system-events-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: events
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - get
+  resourceNames:
+  - config-logging
+  - config-observability
+  - feature-flags
+  - config-leader-election-events
+  - config-registry-cert
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adhar-system-leader-election
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-system-info
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  resourceNames:
+  - pipelines-info
+  verbs:
+  - get
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-system-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-system-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-events-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: events
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-system-controller-cluster-access
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: adhar-system-controller
+  namespace: adhar-system
+roleRef:
+  kind: ClusterRole
+  name: adhar-system-controller-cluster-access
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-system-controller-tenant-access
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: adhar-system-controller
+  namespace: adhar-system
+roleRef:
+  kind: ClusterRole
+  name: adhar-system-controller-tenant-access
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-system-webhook-cluster-access
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: adhar-system-webhook
+  namespace: adhar-system
+roleRef:
+  kind: ClusterRole
+  name: adhar-system-webhook-cluster-access
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-events-controller-cluster-access
+  labels:
+    app.kubernetes.io/component: events
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: tekton-events-controller
+  namespace: adhar-system
+roleRef:
+  kind: ClusterRole
+  name: tekton-events-controller-cluster-access
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-system-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: adhar-system-controller
+  namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-system-controller
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-system-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: adhar-system-webhook
+  namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-system-webhook
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-system-controller-leaderelection
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: adhar-system-controller
+  namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-system-leader-election
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-system-webhook-leaderelection
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: adhar-system-webhook
+  namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-system-leader-election
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-system-info
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: Group
+  name: system:authenticated
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: adhar-system-info
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-system-events-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: events
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: tekton-events-controller
+  namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-system-events-controller
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-events-controller-leaderelection
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: events
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: tekton-events-controller
+  namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-system-leader-election
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clustertasks.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  group: tekton.dev
+  preserveUnknownFields: false
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  names:
+    kind: ClusterTask
+    plural: clustertasks
+    singular: clustertask
+    categories:
+    - tekton
+    - adhar-system
+  scope: Cluster
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: customruns.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  group: tekton.dev
+  preserveUnknownFields: false
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    additionalPrinterColumns:
+    - name: Succeeded
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].reason
+    - name: StartTime
+      type: date
+      jsonPath: .status.startTime
+    - name: CompletionTime
+      type: date
+      jsonPath: .status.completionTime
+    subresources:
+      status: {}
+  names:
+    kind: CustomRun
+    plural: customruns
+    singular: customrun
+    categories:
+    - tekton
+    - adhar-system
+  scope: Namespaced
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: pipelines.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  group: tekton.dev
+  preserveUnknownFields: false
+  versions:
+  - name: v1beta1
+    served: true
+    storage: false
+    subresources:
+      status: {}
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  names:
+    kind: Pipeline
+    plural: pipelines
+    singular: pipeline
+    categories:
+    - tekton
+    - adhar-system
+  scope: Namespaced
+  conversion:
+    strategy: Webhook
+    webhook:
+      conversionReviewVersions:
+      - v1beta1
+      - v1
+      clientConfig:
+        service:
+          name: adhar-system-webhook
+          namespace: adhar-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: pipelineruns.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  group: tekton.dev
+  preserveUnknownFields: false
+  versions:
+  - name: v1beta1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    additionalPrinterColumns:
+    - name: Succeeded
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].reason
+    - name: StartTime
+      type: date
+      jsonPath: .status.startTime
+    - name: CompletionTime
+      type: date
+      jsonPath: .status.completionTime
+    subresources:
+      status: {}
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    additionalPrinterColumns:
+    - name: Succeeded
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].reason
+    - name: StartTime
+      type: date
+      jsonPath: .status.startTime
+    - name: CompletionTime
+      type: date
+      jsonPath: .status.completionTime
+    subresources:
+      status: {}
+  names:
+    kind: PipelineRun
+    plural: pipelineruns
+    singular: pipelinerun
+    categories:
+    - tekton
+    - adhar-system
+    shortNames:
+    - pr
+    - prs
+  scope: Namespaced
+  conversion:
+    strategy: Webhook
+    webhook:
+      conversionReviewVersions:
+      - v1beta1
+      - v1
+      clientConfig:
+        service:
+          name: adhar-system-webhook
+          namespace: adhar-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: resolutionrequests.resolution.tekton.dev
+  labels:
+    resolution.tekton.dev/release: devel
+spec:
+  group: resolution.tekton.dev
+  scope: Namespaced
+  names:
+    kind: ResolutionRequest
+    plural: resolutionrequests
+    singular: resolutionrequest
+    categories:
+    - tekton
+    - adhar-system
+    shortNames:
+    - resolutionrequest
+    - resolutionrequests
+  versions:
+  - name: v1alpha1
+    served: true
+    deprecated: true
+    storage: false
+    subresources:
+      status: {}
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    additionalPrinterColumns:
+    - name: Succeeded
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Succeeded')].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Succeeded')].reason
+  - name: v1beta1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    additionalPrinterColumns:
+    - name: OwnerKind
+      type: string
+      jsonPath: .metadata.ownerReferences[0].kind
+    - name: Owner
+      type: string
+      jsonPath: .metadata.ownerReferences[0].name
+    - name: Succeeded
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Succeeded')].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Succeeded')].reason
+    - name: StartTime
+      type: string
+      jsonPath: .metadata.creationTimestamp
+    - name: EndTime
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Succeeded')].lastTransitionTime
+  conversion:
+    strategy: Webhook
+    webhook:
+      conversionReviewVersions:
+      - v1alpha1
+      - v1beta1
+      clientConfig:
+        service:
+          name: adhar-system-webhook
+          namespace: adhar-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: stepactions.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  group: tekton.dev
+  preserveUnknownFields: false
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  names:
+    kind: StepAction
+    plural: stepactions
+    singular: stepaction
+    categories:
+    - tekton
+    - adhar-system
+  scope: Namespaced
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: tasks.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  group: tekton.dev
+  preserveUnknownFields: false
+  versions:
+  - name: v1beta1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  names:
+    kind: Task
+    plural: tasks
+    singular: task
+    categories:
+    - tekton
+    - adhar-system
+  scope: Namespaced
+  conversion:
+    strategy: Webhook
+    webhook:
+      conversionReviewVersions:
+      - v1beta1
+      - v1
+      clientConfig:
+        service:
+          name: adhar-system-webhook
+          namespace: adhar-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: taskruns.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  group: tekton.dev
+  preserveUnknownFields: false
+  versions:
+  - name: v1beta1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    additionalPrinterColumns:
+    - name: Succeeded
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].reason
+    - name: StartTime
+      type: date
+      jsonPath: .status.startTime
+    - name: CompletionTime
+      type: date
+      jsonPath: .status.completionTime
+    subresources:
+      status: {}
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    additionalPrinterColumns:
+    - name: Succeeded
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Succeeded")].reason
+    - name: StartTime
+      type: date
+      jsonPath: .status.startTime
+    - name: CompletionTime
+      type: date
+      jsonPath: .status.completionTime
+    subresources:
+      status: {}
+  names:
+    kind: TaskRun
+    plural: taskruns
+    singular: taskrun
+    categories:
+    - tekton
+    - adhar-system
+    shortNames:
+    - tr
+    - trs
+  scope: Namespaced
+  conversion:
+    strategy: Webhook
+    webhook:
+      conversionReviewVersions:
+      - v1beta1
+      - v1
+      clientConfig:
+        service:
+          name: adhar-system-webhook
+          namespace: adhar-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: verificationpolicies.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  group: tekton.dev
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+  names:
+    kind: VerificationPolicy
+    plural: verificationpolicies
+    singular: verificationpolicy
+    categories:
+    - tekton
+    - adhar-system
+  scope: Namespaced
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: webhook-certs
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validation.webhook.pipeline.tekton.dev
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: adhar-system-webhook
+      namespace: adhar-system
+  failurePolicy: Fail
+  sideEffects: None
+  name: validation.webhook.pipeline.tekton.dev
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: webhook.pipeline.tekton.dev
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: adhar-system-webhook
+      namespace: adhar-system
+  failurePolicy: Fail
+  sideEffects: None
+  name: webhook.pipeline.tekton.dev
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: config.webhook.pipeline.tekton.dev
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: adhar-system-webhook
+      namespace: adhar-system
+  failurePolicy: Fail
+  sideEffects: None
+  name: config.webhook.pipeline.tekton.dev
+  objectSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-aggregate-edit
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    rbac.authorization.k8s.io/aggregate-to-edit: 'true'
+    rbac.authorization.k8s.io/aggregate-to-admin: 'true'
+rules:
+- apiGroups:
+  - tekton.dev
+  resources:
+  - tasks
+  - taskruns
+  - pipelines
+  - pipelineruns
+  - runs
+  - customruns
+  - stepactions
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-aggregate-view
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    rbac.authorization.k8s.io/aggregate-to-view: 'true'
+rules:
+- apiGroups:
+  - tekton.dev
+  resources:
+  - tasks
+  - taskruns
+  - pipelines
+  - pipelineruns
+  - runs
+  - customruns
+  - stepactions
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-defaults
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+
+    # default-timeout-minutes contains the default number of
+
+    # minutes to use for TaskRun and PipelineRun, if none is specified.
+
+    default-timeout-minutes: "60"  # 60 minutes
+
+
+    # default-service-account contains the default service account name
+
+    # to use for TaskRun and PipelineRun, if none is specified.
+
+    default-service-account: "default"
+
+
+    # default-managed-by-label-value contains the default value given to the
+
+    # "app.kubernetes.io/managed-by" label applied to all Pods created for
+
+    # TaskRuns. If a user''s requested TaskRun specifies another value for this
+
+    # label, the user''s request supercedes.
+
+    default-managed-by-label-value: "adhar-system"
+
+
+    # default-pod-template contains the default pod template to use for
+
+    # TaskRun and PipelineRun. If a pod template is specified on the
+
+    # PipelineRun, the default-pod-template is merged with that one.
+
+    # default-pod-template:
+
+
+    # default-affinity-assistant-pod-template contains the default pod template
+
+    # to use for affinity assistant pods. If a pod template is specified on the
+
+    # PipelineRun, the default-affinity-assistant-pod-template is merged with
+
+    # that one.
+
+    # default-affinity-assistant-pod-template:
+
+
+    # default-cloud-events-sink contains the default CloudEvents sink to be
+
+    # used for TaskRun and PipelineRun, when no sink is specified.
+
+    # Note that right now it is still not possible to set a PipelineRun or
+
+    # TaskRun specific sink, so the default is the only option available.
+
+    # If no sink is specified, no CloudEvent is generated
+
+    # default-cloud-events-sink:
+
+
+    # default-task-run-workspace-binding contains the default workspace
+
+    # configuration provided for any Workspaces that a Task declares
+
+    # but that a TaskRun does not explicitly provide.
+
+    # default-task-run-workspace-binding: |
+
+    #   emptyDir: {}
+
+
+    # default-max-matrix-combinations-count contains the default maximum number
+
+    # of combinations from a Matrix, if none is specified.
+
+    default-max-matrix-combinations-count: "256"
+
+
+    # default-forbidden-env contains comma seperated environment variables that cannot
+    be
+
+    # overridden by podTemplate.
+
+    default-forbidden-env:
+
+
+    # default-resolver-type contains the default resolver type to be used in the cluster,
+
+    # no default-resolver-type is specified by default
+
+    default-resolver-type:
+
+
+    # default-imagepullbackoff-timeout contains the default duration to wait
+
+    # before requeuing the TaskRun to retry, specifying 0 here is equivalent to fail
+    fast
+
+    # possible values could be 1m, 5m, 10s, 1h, etc
+
+    # default-imagepullbackoff-timeout: "5m"
+
+
+    # default-container-resource-requirements allow users to update default resource
+    requirements
+
+    # to a init-containers and containers of a pods create by the controller
+
+    # Onet: All the resource requirements are applied to init-containers and containers
+
+    # only if the existing resource requirements are empty.
+
+    # default-container-resource-requirements: |
+
+    #   place-scripts: # updates resource requirements of a ''place-scripts'' container
+
+    #     requests:
+
+    #       memory: "64Mi"
+
+    #       cpu: "250m"
+
+    #     limits:
+
+    #       memory: "128Mi"
+
+    #       cpu: "500m"
+
+    #
+
+    #   prepare: # updates resource requirements of a ''prepare'' container
+
+    #     requests:
+
+    #       memory: "64Mi"
+
+    #       cpu: "250m"
+
+    #     limits:
+
+    #       memory: "256Mi"
+
+    #       cpu: "500m"
+
+    #
+
+    #   working-dir-initializer: # updates resource requirements of a ''working-dir-initializer''
+    container
+
+    #     requests:
+
+    #       memory: "64Mi"
+
+    #       cpu: "250m"
+
+    #     limits:
+
+    #       memory: "512Mi"
+
+    #       cpu: "500m"
+
+    #
+
+    #   prefix-scripts: # updates resource requirements of containers which starts
+    with ''scripts-''
+
+    #     requests:
+
+    #       memory: "64Mi"
+
+    #       cpu: "250m"
+
+    #     limits:
+
+    #       memory: "128Mi"
+
+    #       cpu: "500m"
+
+    #
+
+    #   prefix-sidecar-scripts: # updates resource requirements of containers which
+    starts with ''sidecar-scripts-''
+
+    #     requests:
+
+    #       memory: "64Mi"
+
+    #       cpu: "250m"
+
+    #     limits:
+
+    #       memory: "128Mi"
+
+    #       cpu: "500m"
+
+    #
+
+    #   default: # updates resource requirements of init-containers and containers
+    which has empty resource resource requirements
+
+    #     requests:
+
+    #       memory: "64Mi"
+
+    #       cpu: "250m"
+
+    #     limits:
+
+    #       memory: "256Mi"
+
+    #       cpu: "500m"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-events
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+
+    # formats contains a comma seperated list of event formats to be used
+
+    # the only format supported today is "tektonv1". An empty string is not
+
+    # a valid configuration. To disable events, do not specify the sink.
+
+    formats: "tektonv1"
+
+
+    # sink contains the event sink to be used for TaskRun, PipelineRun and
+
+    # CustomRun. If no sink is specified, no CloudEvent is generated.
+
+    # This setting supercedes the "default-cloud-events-sink" from the
+
+    # "config-defaults" config map
+
+    sink: "https://events.sink/cdevents"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feature-flags
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  disable-affinity-assistant: 'false'
+  coschedule: workspaces
+  disable-creds-init: 'false'
+  await-sidecar-readiness: 'true'
+  running-in-environment-with-injected-sidecars: 'true'
+  require-git-ssh-secret-known-hosts: 'false'
+  enable-tekton-oci-bundles: 'false'
+  enable-api-fields: beta
+  send-cloudevents-for-runs: 'false'
+  trusted-resources-verification-no-match-policy: ignore
+  enable-provenance-in-status: 'true'
+  enforce-nonfalsifiability: none
+  results-from: termination-message
+  set-security-context: 'false'
+  keep-pod-on-cancel: 'false'
+  enable-cel-in-whenexpression: 'false'
+  enable-step-actions: 'false'
+  enable-artifacts: 'false'
+  enable-param-enum: 'false'
+  disable-inline-spec: ''
+  enable-concise-resolver-syntax: 'false'
+  enable-kubernetes-sidecar: 'false'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipelines-info
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  version: v0.65.0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-leader-election-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+    # lease-duration is how long non-leaders will wait to try to acquire the
+
+    # lock; 15 seconds is the value used by core kubernetes controllers.
+
+    lease-duration: "60s"
+
+    # renew-deadline is how long a leader will try to renew the lease before
+
+    # giving up; 10 seconds is the value used by core kubernetes controllers.
+
+    renew-deadline: "40s"
+
+    # retry-period is how long the leader election client waits between tries of
+
+    # actions; 2 seconds is the value used by core kubernetes controllers.
+
+    retry-period: "10s"
+
+    # buckets is the number of buckets used to partition key space of each
+
+    # Reconciler. If this number is M and the replica number of the controller
+
+    # is N, the N replicas will compete for the M buckets. The owner of a
+
+    # bucket will take care of the reconciling for the keys partitioned into
+
+    # that bucket.
+
+    buckets: "1"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-leader-election-events
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+    # lease-duration is how long non-leaders will wait to try to acquire the
+
+    # lock; 15 seconds is the value used by core kubernetes controllers.
+
+    lease-duration: "60s"
+
+    # renew-deadline is how long a leader will try to renew the lease before
+
+    # giving up; 10 seconds is the value used by core kubernetes controllers.
+
+    renew-deadline: "40s"
+
+    # retry-period is how long the leader election client waits between tries of
+
+    # actions; 2 seconds is the value used by core kubernetes controllers.
+
+    retry-period: "10s"
+
+    # buckets is the number of buckets used to partition key space of each
+
+    # Reconciler. If this number is M and the replica number of the controller
+
+    # is N, the N replicas will compete for the M buckets. The owner of a
+
+    # bucket will take care of the reconciling for the keys partitioned into
+
+    # that bucket.
+
+    buckets: "1"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-leader-election-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+    # lease-duration is how long non-leaders will wait to try to acquire the
+
+    # lock; 15 seconds is the value used by core kubernetes controllers.
+
+    lease-duration: "60s"
+
+    # renew-deadline is how long a leader will try to renew the lease before
+
+    # giving up; 10 seconds is the value used by core kubernetes controllers.
+
+    renew-deadline: "40s"
+
+    # retry-period is how long the leader election client waits between tries of
+
+    # actions; 2 seconds is the value used by core kubernetes controllers.
+
+    retry-period: "10s"
+
+    # buckets is the number of buckets used to partition key space of each
+
+    # Reconciler. If this number is M and the replica number of the controller
+
+    # is N, the N replicas will compete for the M buckets. The owner of a
+
+    # bucket will take care of the reconciling for the keys partitioned into
+
+    # that bucket.
+
+    buckets: "1"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-logging
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  zap-logger-config: "{\n  \"level\": \"info\",\n  \"development\": false,\n  \"sampling\"\
+    : {\n    \"initial\": 100,\n    \"thereafter\": 100\n  },\n  \"outputPaths\":\
+    \ [\"stdout\"],\n  \"errorOutputPaths\": [\"stderr\"],\n  \"encoding\": \"json\"\
+    ,\n  \"encoderConfig\": {\n    \"timeKey\": \"timestamp\",\n    \"levelKey\":\
+    \ \"severity\",\n    \"nameKey\": \"logger\",\n    \"callerKey\": \"caller\",\n\
+    \    \"messageKey\": \"message\",\n    \"stacktraceKey\": \"stacktrace\",\n  \
+    \  \"lineEnding\": \"\",\n    \"levelEncoder\": \"\",\n    \"timeEncoder\": \"\
+    iso8601\",\n    \"durationEncoder\": \"\",\n    \"callerEncoder\": \"\"\n  }\n\
+    }\n"
+  loglevel.controller: info
+  loglevel.webhook: info
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-observability
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+
+    # metrics.backend-destination field specifies the system metrics destination.
+
+    # It supports either prometheus (the default) or stackdriver.
+
+    # Note: Using Stackdriver will incur additional charges.
+
+    metrics.backend-destination: prometheus
+
+
+    # metrics.stackdriver-project-id field specifies the Stackdriver project ID. This
+
+    # field is optional. When running on GCE, application default credentials will
+    be
+
+    # used and metrics will be sent to the cluster''s project if this field is
+
+    # not provided.
+
+    metrics.stackdriver-project-id: "<your stackdriver project id>"
+
+
+    # metrics.allow-stackdriver-custom-metrics indicates whether it is allowed
+
+    # to send metrics to Stackdriver using "global" resource type and custom
+
+    # metric type. Setting this flag to "true" could cause extra Stackdriver
+
+    # charge.  If metrics.backend-destination is not Stackdriver, this is
+
+    # ignored.
+
+    metrics.allow-stackdriver-custom-metrics: "false"
+
+    metrics.taskrun.level: "task"
+
+    metrics.taskrun.duration-type: "histogram"
+
+    metrics.pipelinerun.level: "pipeline"
+
+    metrics.pipelinerun.duration-type: "histogram"
+
+    metrics.count.enable-reason: "false"
+
+    metrics.running-pipelinerun.level: ""
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-registry-cert
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-spire
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+    #
+
+    # spire-trust-domain specifies the SPIRE trust domain to use.
+
+    # spire-trust-domain: "example.org"
+
+    #
+
+    # spire-socket-path specifies the SPIRE agent socket for SPIFFE workload API.
+
+    # spire-socket-path: "unix:///spiffe-workload-api/spire-agent.sock"
+
+    #
+
+    # spire-server-addr specifies the SPIRE server address for workload/node registration.
+
+    # spire-server-addr: "spire-server.spire.svc.cluster.local:8081"
+
+    #
+
+    # spire-node-alias-prefix specifies the SPIRE node alias prefix to use.
+
+    # spire-node-alias-prefix: "/tekton-node/"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-tracing
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+    #
+
+    # Enable sending traces to defined endpoint by setting this to true
+
+    enabled: "true"
+
+    #
+
+    # API endpoint to send the traces to
+
+    # (optional): The default value is given below
+
+    endpoint: "http://jaeger-collector.jaeger.svc.cluster.local:14268/api/traces"
+
+    # (optional) Name of the k8s secret which contains basic auth credentials
+
+    credentialsSecret: "jaeger-creds"
+
+    '
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-system-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.65.0
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: controller
+      app.kubernetes.io/component: controller
+      app.kubernetes.io/instance: default
+      app.kubernetes.io/part-of: adhar-system
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: controller
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/version: v0.65.0
+        app.kubernetes.io/part-of: adhar-system
+        pipeline.tekton.dev/release: v0.65.0
+        app: adhar-system-controller
+        version: v0.65.0
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: NotIn
+                values:
+                - windows
+      serviceAccountName: adhar-system-controller
+      containers:
+      - name: adhar-system-controller
+        image: ghcr.io/tektoncd/pipeline/controller-10a3e32792f33651396d02b6855a6e36:v0.65.0@sha256:96cfed37cd749a696a2acbcc782b2b4cba5c0f7531b620ac52761af3d8e7d13b
+        args:
+        - -entrypoint-image
+        - ghcr.io/tektoncd/pipeline/entrypoint-bff0a22da108bc2f16c818c97641a296:v0.65.0@sha256:7b53db05ce43e10e08affddc41d8298fdd20a4ae9954f8f69f21319b1264aea1
+        - -nop-image
+        - ghcr.io/tektoncd/pipeline/nop-8eac7c133edad5df719dc37b36b62482:v0.65.0@sha256:3d7788764e58c78401c8f6bff18d8df22724446108c659baf4b14901b38030d3
+        - -sidecarlogresults-image
+        - ghcr.io/tektoncd/pipeline/sidecarlogresults-7501c6a20d741631510a448b48ab098f:v0.65.0@sha256:23db7cc51a918437d84c59946b60e95306e5157f50ba79ed927d953fd35a6534
+        - -workingdirinit-image
+        - ghcr.io/tektoncd/pipeline/workingdirinit-0c558922ec6a1b739e550e349f2d5fc1:v0.65.0@sha256:fc8af4ec91b0a6bd4da56d74f46d3d8740e2b8372f5d991bae478d98830d1332
+        - -shell-image
+        - cgr.dev/chainguard/busybox@sha256:19f02276bf8dbdd62f069b922f10c65262cc34b710eea26ff928129a736be791
+        - -shell-image-win
+        - mcr.microsoft.com/powershell:nanoserver@sha256:b6d5ff841b78bdf2dfed7550000fd4f3437385b8fa686ec0f010be24777654d6
+        volumeMounts:
+        - name: config-logging
+          mountPath: /etc/config-logging
+        - name: config-registry-cert
+          mountPath: /etc/config-registry-cert
+        env:
+        - name: SYSTEM_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CONFIG_DEFAULTS_NAME
+          value: config-defaults
+        - name: CONFIG_LOGGING_NAME
+          value: config-logging
+        - name: CONFIG_OBSERVABILITY_NAME
+          value: config-observability
+        - name: CONFIG_FEATURE_FLAGS_NAME
+          value: feature-flags
+        - name: CONFIG_LEADERELECTION_NAME
+          value: config-leader-election-controller
+        - name: CONFIG_SPIRE
+          value: config-spire
+        - name: SSL_CERT_FILE
+          value: /etc/config-registry-cert/cert
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs
+        - name: METRICS_DOMAIN
+          value: tekton.dev/pipeline
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 65532
+          runAsGroup: 65532
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        ports:
+        - name: metrics
+          containerPort: 9090
+        - name: profiling
+          containerPort: 8008
+        - name: probes
+          containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: probes
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: probes
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: config-logging
+        configMap:
+          name: config-logging
+      - name: config-registry-cert
+        configMap:
+          name: config-registry-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.65.0
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    app: adhar-system-controller
+    version: v0.65.0
+  name: adhar-system-controller
+  namespace: adhar-system
+spec:
+  ports:
+  - name: http-metrics
+    port: 9090
+    protocol: TCP
+    targetPort: 9090
+  - name: http-profiling
+    port: 8008
+    targetPort: 8008
+  - name: probes
+    port: 8080
+  selector:
+    app.kubernetes.io/name: controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tekton-events-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: events
+    app.kubernetes.io/component: events
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.65.0
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: events
+      app.kubernetes.io/component: events
+      app.kubernetes.io/instance: default
+      app.kubernetes.io/part-of: adhar-system
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: events
+        app.kubernetes.io/component: events
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/version: v0.65.0
+        app.kubernetes.io/part-of: adhar-system
+        pipeline.tekton.dev/release: v0.65.0
+        app: tekton-events-controller
+        version: v0.65.0
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: NotIn
+                values:
+                - windows
+      serviceAccountName: tekton-events-controller
+      containers:
+      - name: tekton-events-controller
+        image: ghcr.io/tektoncd/pipeline/events-a9042f7efb0cbade2a868a1ee5ddd52c:v0.65.0@sha256:923a20abe3f21c44dac6ff4ebf6a54c711153676c6c8e88e80850c7b4491cc5d
+        args: []
+        volumeMounts:
+        - name: config-logging
+          mountPath: /etc/config-logging
+        - name: config-registry-cert
+          mountPath: /etc/config-registry-cert
+        env:
+        - name: SYSTEM_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CONFIG_DEFAULTS_NAME
+          value: config-defaults
+        - name: CONFIG_LOGGING_NAME
+          value: config-logging
+        - name: CONFIG_OBSERVABILITY_NAME
+          value: config-observability
+        - name: CONFIG_LEADERELECTION_NAME
+          value: config-leader-election-events
+        - name: SSL_CERT_FILE
+          value: /etc/config-registry-cert/cert
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 65532
+          runAsGroup: 65532
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        ports:
+        - name: metrics
+          containerPort: 9090
+        - name: profiling
+          containerPort: 8008
+        - name: probes
+          containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: probes
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: probes
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: config-logging
+        configMap:
+          name: config-logging
+      - name: config-registry-cert
+        configMap:
+          name: config-registry-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: events
+    app.kubernetes.io/component: events
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.65.0
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    app: tekton-events-controller
+    version: v0.65.0
+  name: tekton-events-controller
+  namespace: adhar-system
+spec:
+  ports:
+  - name: http-metrics
+    port: 9090
+    protocol: TCP
+    targetPort: 9090
+  - name: http-profiling
+    port: 8008
+    targetPort: 8008
+  - name: probes
+    port: 8080
+  selector:
+    app.kubernetes.io/name: events
+    app.kubernetes.io/component: events
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adhar-system-resolution-request-updates
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - resolution.tekton.dev
+  resources:
+  - resolutionrequests
+  - resolutionrequests/status
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - patch
+- apiGroups:
+  - tekton.dev
+  resources:
+  - tasks
+  - pipelines
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  - serviceaccounts
+  verbs:
+  - get
+  - list
+  - watch
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adhar-system-namespace-rbac
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-system
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: adhar-system
+  namespace: adhar-system
+roleRef:
+  kind: ClusterRole
+  name: adhar-system-resolution-request-updates
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-system-namespace-rbac
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+subjects:
+- kind: ServiceAccount
+  name: adhar-system
+  namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-system-namespace-rbac
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bundleresolver-config
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  default-service-account: default
+  default-kind: task
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-resolver-config
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  default-kind: task
+  default-namespace: ''
+  allowed-namespaces: ''
+  blocked-namespaces: ''
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: resolvers-feature-flags
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  enable-bundles-resolver: 'true'
+  enable-hub-resolver: 'true'
+  enable-git-resolver: 'true'
+  enable-cluster-resolver: 'true'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-leader-election-resolvers
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+    # lease-duration is how long non-leaders will wait to try to acquire the
+
+    # lock; 15 seconds is the value used by core kubernetes controllers.
+
+    lease-duration: "60s"
+
+    # renew-deadline is how long a leader will try to renew the lease before
+
+    # giving up; 10 seconds is the value used by core kubernetes controllers.
+
+    renew-deadline: "40s"
+
+    # retry-period is how long the leader election client waits between tries of
+
+    # actions; 2 seconds is the value used by core kubernetes controllers.
+
+    retry-period: "10s"
+
+    # buckets is the number of buckets used to partition key space of each
+
+    # Reconciler. If this number is M and the replica number of the controller
+
+    # is N, the N replicas will compete for the M buckets. The owner of a
+
+    # bucket will take care of the reconciling for the keys partitioned into
+
+    # that bucket.
+
+    buckets: "1"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-logging
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  zap-logger-config: "{\n  \"level\": \"info\",\n  \"development\": false,\n  \"sampling\"\
+    : {\n    \"initial\": 100,\n    \"thereafter\": 100\n  },\n  \"outputPaths\":\
+    \ [\"stdout\"],\n  \"errorOutputPaths\": [\"stderr\"],\n  \"encoding\": \"json\"\
+    ,\n  \"encoderConfig\": {\n    \"timeKey\": \"timestamp\",\n    \"levelKey\":\
+    \ \"severity\",\n    \"nameKey\": \"logger\",\n    \"callerKey\": \"caller\",\n\
+    \    \"messageKey\": \"message\",\n    \"stacktraceKey\": \"stacktrace\",\n  \
+    \  \"lineEnding\": \"\",\n    \"levelEncoder\": \"\",\n    \"timeEncoder\": \"\
+    iso8601\",\n    \"durationEncoder\": \"\",\n    \"callerEncoder\": \"\"\n  }\n\
+    }\n"
+  loglevel.controller: info
+  loglevel.webhook: info
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-observability
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+
+    # metrics.backend-destination field specifies the system metrics destination.
+
+    # It supports either prometheus (the default) or stackdriver.
+
+    # Note: Using stackdriver will incur additional charges
+
+    metrics.backend-destination: prometheus
+
+
+    # metrics.request-metrics-backend-destination specifies the request metrics
+
+    # destination. If non-empty, it enables queue proxy to send request metrics.
+
+    # Currently supported values: prometheus, stackdriver.
+
+    metrics.request-metrics-backend-destination: prometheus
+
+
+    # metrics.stackdriver-project-id field specifies the stackdriver project ID. This
+
+    # field is optional. When running on GCE, application default credentials will
+    be
+
+    # used if this field is not provided.
+
+    metrics.stackdriver-project-id: "<your stackdriver project id>"
+
+
+    # metrics.allow-stackdriver-custom-metrics indicates whether it is allowed to
+    send metrics to
+
+    # Stackdriver using "global" resource type and custom metric type if the
+
+    # metrics are not supported by "knative_revision" resource type. Setting this
+
+    # flag to "true" could cause extra Stackdriver charge.
+
+    # If metrics.backend-destination is not Stackdriver, this is ignored.
+
+    metrics.allow-stackdriver-custom-metrics: "false"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: git-resolver-config
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  fetch-timeout: 1m
+  default-url: https://github.com/tektoncd/catalog.git
+  default-revision: main
+  scm-type: github
+  server-url: ''
+  api-token-secret-name: ''
+  api-token-secret-key: ''
+  api-token-secret-namespace: default
+  default-org: ''
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: http-resolver-config
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  fetch-timeout: 1m
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubresolver-config
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  default-tekton-hub-catalog: Tekton
+  default-artifact-hub-task-catalog: tekton-catalog-tasks
+  default-artifact-hub-pipeline-catalog: tekton-catalog-pipelines
+  default-kind: task
+  default-type: artifact
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-system-remote-resolvers
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: resolvers
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.65.0
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: resolvers
+      app.kubernetes.io/component: resolvers
+      app.kubernetes.io/instance: default
+      app.kubernetes.io/part-of: adhar-system
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: resolvers
+        app.kubernetes.io/component: resolvers
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/version: v0.65.0
+        app.kubernetes.io/part-of: adhar-system
+        pipeline.tekton.dev/release: v0.65.0
+        app: adhar-system
+        version: v0.65.0
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: resolvers
+                  app.kubernetes.io/component: resolvers
+                  app.kubernetes.io/instance: default
+                  app.kubernetes.io/part-of: adhar-system
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      serviceAccountName: adhar-system
+      containers:
+      - name: controller
+        image: ghcr.io/tektoncd/pipeline/resolvers-ff86b24f130c42b88983d3c13993056d:v0.65.0@sha256:45e3c00d345a487622353b7703f7aaeafde57a9a5135c0be3eca477af23eaff1
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+          limits:
+            cpu: 1000m
+            memory: 4Gi
+        ports:
+        - name: metrics
+          containerPort: 9090
+        - name: profiling
+          containerPort: 8008
+        - name: probes
+          containerPort: 8080
+        env:
+        - name: SYSTEM_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CONFIG_LOGGING_NAME
+          value: config-logging
+        - name: CONFIG_OBSERVABILITY_NAME
+          value: config-observability
+        - name: CONFIG_FEATURE_FLAGS_NAME
+          value: feature-flags
+        - name: CONFIG_LEADERELECTION_NAME
+          value: config-leader-election-resolvers
+        - name: METRICS_DOMAIN
+          value: tekton.dev/resolution
+        - name: PROBES_PORT
+          value: '8080'
+        - name: ARTIFACT_HUB_API
+          value: https://artifacthub.io/
+        - name: TEKTON_HUB_API
+          value: https://api.hub.tekton.dev/
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: resolvers
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.65.0
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    app: adhar-system-remote-resolvers
+    version: v0.65.0
+  name: adhar-system-remote-resolvers
+  namespace: adhar-system
+spec:
+  ports:
+  - name: http-metrics
+    port: 9090
+    protocol: TCP
+    targetPort: 9090
+  - name: http-profiling
+    port: 8008
+    targetPort: 8008
+  - name: probes
+    port: 8080
+  selector:
+    app.kubernetes.io/name: resolvers
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: adhar-system-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.65.0
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  minReplicas: 1
+  maxReplicas: 5
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: adhar-system-webhook
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 100
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-system-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.65.0
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    version: v0.65.0
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webhook
+      app.kubernetes.io/component: webhook
+      app.kubernetes.io/instance: default
+      app.kubernetes.io/part-of: adhar-system
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: webhook
+        app.kubernetes.io/component: webhook
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/version: v0.65.0
+        app.kubernetes.io/part-of: adhar-system
+        pipeline.tekton.dev/release: v0.65.0
+        app: adhar-system-webhook
+        version: v0.65.0
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: NotIn
+                values:
+                - windows
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: webhook
+                  app.kubernetes.io/component: webhook
+                  app.kubernetes.io/instance: default
+                  app.kubernetes.io/part-of: adhar-system
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      serviceAccountName: adhar-system-webhook
+      containers:
+      - name: webhook
+        image: ghcr.io/tektoncd/pipeline/webhook-d4749e605405422fd87700164e31b2d1:v0.65.0@sha256:268ccf3ec8b3f861313ab0e422b85012b734099e7135611935e92567dfd55b04
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+          limits:
+            cpu: 500m
+            memory: 500Mi
+        env:
+        - name: SYSTEM_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CONFIG_LOGGING_NAME
+          value: config-logging
+        - name: CONFIG_OBSERVABILITY_NAME
+          value: config-observability
+        - name: CONFIG_LEADERELECTION_NAME
+          value: config-leader-election-webhook
+        - name: CONFIG_FEATURE_FLAGS_NAME
+          value: feature-flags
+        - name: PROBES_PORT
+          value: '8080'
+        - name: WEBHOOK_PORT
+          value: '8443'
+        - name: WEBHOOK_ADMISSION_CONTROLLER_NAME
+          value: webhook.pipeline.tekton.dev
+        - name: WEBHOOK_SERVICE_NAME
+          value: adhar-system-webhook
+        - name: WEBHOOK_SECRET_NAME
+          value: webhook-certs
+        - name: METRICS_DOMAIN
+          value: tekton.dev/pipeline
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 65532
+          runAsGroup: 65532
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        ports:
+        - name: metrics
+          containerPort: 9090
+        - name: profiling
+          containerPort: 8008
+        - name: https-webhook
+          containerPort: 8443
+        - name: probes
+          containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: probes
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: probes
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.65.0
+    app.kubernetes.io/part-of: adhar-system
+    pipeline.tekton.dev/release: v0.65.0
+    app: adhar-system-webhook
+    version: v0.65.0
+  name: adhar-system-webhook
+  namespace: adhar-system
+spec:
+  ports:
+  - name: http-metrics
+    port: 9090
+    targetPort: metrics
+  - name: http-profiling
+    port: 8008
+    targetPort: profiling
+  - name: https-webhook
+    port: 443
+    targetPort: https-webhook
+  - name: probes
+    port: 8080
+    targetPort: probes
+  selector:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: tekton-triggers-admin
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  - services
+  - events
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - deployments/finalizers
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - clustertriggerbindings
+  - clusterinterceptors
+  - interceptors
+  - eventlisteners
+  - triggerbindings
+  - triggertemplates
+  - triggers
+  - eventlisteners/finalizers
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - clustertriggerbindings/status
+  - clusterinterceptors/status
+  - interceptors/status
+  - eventlisteners/status
+  - triggerbindings/status
+  - triggertemplates/status
+  - triggers/status
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+- apiGroups:
+  - serving.knative.dev
+  resources:
+  - '*'
+  - '*/status'
+  - '*/finalizers'
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - deletecollection
+  - patch
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - namespaces
+  verbs:
+  - get
+  resourceNames:
+  - adhar-system
+- apiGroups:
+  - ''
+  resources:
+  - namespaces/finalizers
+  verbs:
+  - update
+  resourceNames:
+  - adhar-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: tekton-triggers-core-interceptors
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: tekton-triggers-core-interceptors-secrets
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+rules:
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - clusterinterceptors
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  resourceNames:
+  - tekton-triggers-core-interceptors-certs
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-triggers-eventlistener-roles
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+rules:
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - eventlisteners
+  - triggerbindings
+  - interceptors
+  - triggertemplates
+  - triggers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - tekton.dev
+  resources:
+  - pipelineruns
+  - pipelineresources
+  - taskruns
+  verbs:
+  - create
+- apiGroups:
+  - ''
+  resources:
+  - serviceaccounts
+  verbs:
+  - impersonate
+- apiGroups:
+  - ''
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: tekton-triggers-eventlistener-clusterroles
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+rules:
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - clustertriggerbindings
+  - clusterinterceptors
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: tekton-triggers-admin-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+  - patch
+  - watch
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: tekton-triggers-core-interceptors
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-triggers-info
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  resourceNames:
+  - triggers-info
+  verbs:
+  - get
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-triggers-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-triggers-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-triggers-core-interceptors
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-triggers-controller-admin
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+subjects:
+- kind: ServiceAccount
+  name: tekton-triggers-controller
+  namespace: adhar-system
+roleRef:
+  kind: ClusterRole
+  name: tekton-triggers-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-triggers-webhook-admin
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+subjects:
+- kind: ServiceAccount
+  name: tekton-triggers-webhook
+  namespace: adhar-system
+roleRef:
+  kind: ClusterRole
+  name: tekton-triggers-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-triggers-core-interceptors
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+subjects:
+- kind: ServiceAccount
+  name: tekton-triggers-core-interceptors
+  namespace: adhar-system
+roleRef:
+  kind: ClusterRole
+  name: tekton-triggers-core-interceptors
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-triggers-core-interceptors-secrets
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+subjects:
+- kind: ServiceAccount
+  name: tekton-triggers-core-interceptors
+  namespace: adhar-system
+roleRef:
+  kind: ClusterRole
+  name: tekton-triggers-core-interceptors-secrets
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-triggers-webhook-admin
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+subjects:
+- kind: ServiceAccount
+  name: tekton-triggers-webhook
+  namespace: adhar-system
+roleRef:
+  kind: Role
+  name: tekton-triggers-admin-webhook
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-triggers-core-interceptors
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+subjects:
+- kind: ServiceAccount
+  name: tekton-triggers-core-interceptors
+  namespace: adhar-system
+roleRef:
+  kind: Role
+  name: tekton-triggers-core-interceptors
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-triggers-info
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+subjects:
+- kind: Group
+  name: system:authenticated
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-triggers-info
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterinterceptors.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+    version: v0.30.0
+spec:
+  group: triggers.tekton.dev
+  scope: Cluster
+  names:
+    kind: ClusterInterceptor
+    plural: clusterinterceptors
+    singular: clusterinterceptor
+    shortNames:
+    - ci
+    categories:
+    - tekton
+    - tekton-triggers
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clustertriggerbindings.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+    version: v0.30.0
+spec:
+  group: triggers.tekton.dev
+  scope: Cluster
+  names:
+    kind: ClusterTriggerBinding
+    plural: clustertriggerbindings
+    singular: clustertriggerbinding
+    shortNames:
+    - ctb
+    categories:
+    - tekton
+    - tekton-triggers
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  - name: v1alpha1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: eventlisteners.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+    version: v0.30.0
+spec:
+  group: triggers.tekton.dev
+  scope: Namespaced
+  names:
+    kind: EventListener
+    plural: eventlisteners
+    singular: eventlistener
+    shortNames:
+    - el
+    categories:
+    - tekton
+    - tekton-triggers
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    additionalPrinterColumns:
+    - name: Address
+      type: string
+      jsonPath: .status.address.url
+    - name: Available
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Available')].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Available')].reason
+    - name: Ready
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Ready')].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Ready')].reason
+  - name: v1alpha1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Address
+      type: string
+      jsonPath: .status.address.url
+    - name: Available
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Available')].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Available')].reason
+    - name: Ready
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Ready')].status
+    - name: Reason
+      type: string
+      jsonPath: .status.conditions[?(@.type=='Ready')].reason
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: interceptors.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+    version: v0.30.0
+spec:
+  group: triggers.tekton.dev
+  scope: Namespaced
+  names:
+    kind: Interceptor
+    plural: interceptors
+    singular: interceptor
+    shortNames:
+    - ni
+    categories:
+    - tekton
+    - tekton-triggers
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: triggers.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+    version: v0.30.0
+spec:
+  group: triggers.tekton.dev
+  scope: Namespaced
+  names:
+    kind: Trigger
+    plural: triggers
+    singular: trigger
+    shortNames:
+    - tri
+    categories:
+    - tekton
+    - tekton-triggers
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  - name: v1alpha1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: triggerbindings.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+    version: v0.30.0
+spec:
+  group: triggers.tekton.dev
+  scope: Namespaced
+  names:
+    kind: TriggerBinding
+    plural: triggerbindings
+    singular: triggerbinding
+    shortNames:
+    - tb
+    categories:
+    - tekton
+    - tekton-triggers
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  - name: v1alpha1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: triggertemplates.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+    version: v0.30.0
+spec:
+  group: triggers.tekton.dev
+  scope: Namespaced
+  names:
+    kind: TriggerTemplate
+    plural: triggertemplates
+    singular: triggertemplate
+    shortNames:
+    - tt
+    categories:
+    - tekton
+    - tekton-triggers
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+  - name: v1alpha1
+    served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: triggers-webhook-certs
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validation.webhook.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: tekton-triggers-webhook
+      namespace: adhar-system
+  failurePolicy: Fail
+  sideEffects: None
+  name: validation.webhook.triggers.tekton.dev
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: webhook.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: tekton-triggers-webhook
+      namespace: adhar-system
+  failurePolicy: Fail
+  sideEffects: None
+  name: webhook.triggers.tekton.dev
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: config.webhook.triggers.tekton.dev
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: tekton-triggers-webhook
+      namespace: adhar-system
+  failurePolicy: Fail
+  sideEffects: None
+  name: config.webhook.triggers.tekton.dev
+  namespaceSelector:
+    matchExpressions:
+    - key: triggers.tekton.dev/release
+      operator: Exists
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-triggers-aggregate-edit
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    rbac.authorization.k8s.io/aggregate-to-edit: 'true'
+    rbac.authorization.k8s.io/aggregate-to-admin: 'true'
+rules:
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - clustertriggerbindings
+  - clusterinterceptors
+  - eventlisteners
+  - interceptors
+  - triggers
+  - triggerbindings
+  - triggertemplates
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-triggers-aggregate-view
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    rbac.authorization.k8s.io/aggregate-to-view: 'true'
+rules:
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - clustertriggerbindings
+  - clusterinterceptors
+  - eventlisteners
+  - interceptors
+  - triggers
+  - triggerbindings
+  - triggertemplates
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-defaults-triggers
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+
+    # default-service-account contains the default service account name
+
+    # to use for TaskRun and PipelineRun, if none is specified.
+
+    default-service-account: "default"
+
+    default-run-as-user: "65532"
+
+    default-run-as-group: "65532"
+
+    default-fs-group: "65532"
+
+    default-run-as-non-root: "true" # allowed values are true and false
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feature-flags-triggers
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+data:
+  enable-api-fields: stable
+  labels-exclusion-pattern: ''
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: triggers-info
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+data:
+  version: v0.30.0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-leader-election-triggers-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+    # lease-duration is how long non-leaders will wait to try to acquire the
+
+    # lock; 15 seconds is the value used by core kubernetes controllers.
+
+    lease-duration: "60s"
+
+    # renew-deadline is how long a leader will try to renew the lease before
+
+    # giving up; 10 seconds is the value used by core kubernetes controllers.
+
+    renew-deadline: "40s"
+
+    # retry-period is how long the leader election client waits between tries of
+
+    # actions; 2 seconds is the value used by core kubernetes controllers.
+
+    retry-period: "10s"
+
+    # buckets is the number of buckets used to partition key space of each
+
+    # Reconciler. If this number is M and the replica number of the controller
+
+    # is N, the N replicas will compete for the M buckets. The owner of a
+
+    # bucket will take care of the reconciling for the keys partitioned into
+
+    # that bucket.
+
+    buckets: "1"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-leader-election-triggers-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+    # lease-duration is how long non-leaders will wait to try to acquire the
+
+    # lock; 15 seconds is the value used by core kubernetes controllers.
+
+    lease-duration: "60s"
+
+    # renew-deadline is how long a leader will try to renew the lease before
+
+    # giving up; 10 seconds is the value used by core kubernetes controllers.
+
+    renew-deadline: "40s"
+
+    # retry-period is how long the leader election client waits between tries of
+
+    # actions; 2 seconds is the value used by core kubernetes controllers.
+
+    retry-period: "10s"
+
+    # buckets is the number of buckets used to partition key space of each
+
+    # Reconciler. If this number is M and the replica number of the controller
+
+    # is N, the N replicas will compete for the M buckets. The owner of a
+
+    # bucket will take care of the reconciling for the keys partitioned into
+
+    # that bucket.
+
+    buckets: "1"
+
+    '
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-logging-triggers
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+data:
+  zap-logger-config: "{\n  \"level\": \"info\",\n  \"development\": false,\n  \"disableStacktrace\"\
+    : true,\n  \"sampling\": {\n    \"initial\": 100,\n    \"thereafter\": 100\n \
+    \ },\n  \"outputPaths\": [\"stdout\"],\n  \"errorOutputPaths\": [\"stderr\"],\n\
+    \  \"encoding\": \"json\",\n  \"encoderConfig\": {\n    \"timeKey\": \"timestamp\"\
+    ,\n    \"levelKey\": \"severity\",\n    \"nameKey\": \"logger\",\n    \"callerKey\"\
+    : \"caller\",\n    \"messageKey\": \"message\",\n    \"stacktraceKey\": \"stacktrace\"\
+    ,\n    \"lineEnding\": \"\",\n    \"levelEncoder\": \"\",\n    \"timeEncoder\"\
+    : \"iso8601\",\n    \"durationEncoder\": \"\",\n    \"callerEncoder\": \"\"\n\
+    \  }\n}\n"
+  loglevel.controller: info
+  loglevel.webhook: info
+  loglevel.eventlistener: info
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-observability-triggers
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+data:
+  _example: '################################
+
+    #                              #
+
+    #    EXAMPLE CONFIGURATION     #
+
+    #                              #
+
+    ################################
+
+
+    # This block is not actually functional configuration,
+
+    # but serves to illustrate the available configuration
+
+    # options and document them in a way that is accessible
+
+    # to users that `kubectl edit` this config map.
+
+    #
+
+    # These sample configuration options may be copied out of
+
+    # this example block and unindented to be in the data block
+
+    # to actually change the configuration.
+
+
+    # metrics.backend-destination field specifies the system metrics destination.
+
+    # It supports either prometheus (the default) or stackdriver.
+
+    # Note: Using stackdriver will incur additional charges
+
+    metrics.backend-destination: prometheus
+
+
+    # metrics.stackdriver-project-id field specifies the stackdriver project ID. This
+
+    # field is optional. When running on GCE, application default credentials will
+    be
+
+    # used if this field is not provided.
+
+    metrics.stackdriver-project-id: "<your stackdriver project id>"
+
+
+    # metrics.allow-stackdriver-custom-metrics indicates whether it is allowed to
+    send metrics to
+
+    # Stackdriver using "global" resource type and custom metric type if the
+
+    # metrics are not supported by "knative_revision" resource type. Setting this
+
+    # flag to "true" could cause extra Stackdriver charge.
+
+    # If metrics.backend-destination is not Stackdriver, this is ignored.
+
+    metrics.allow-stackdriver-custom-metrics: "false"
+
+    '
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.30.0
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+    app: tekton-triggers-controller
+    version: v0.30.0
+  name: tekton-triggers-controller
+  namespace: adhar-system
+spec:
+  ports:
+  - name: http-metrics
+    port: 9000
+    protocol: TCP
+    targetPort: 9000
+  selector:
+    app.kubernetes.io/name: controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tekton-triggers-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.30.0
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: controller
+      app.kubernetes.io/component: controller
+      app.kubernetes.io/instance: default
+      app.kubernetes.io/part-of: tekton-triggers
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: controller
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/version: v0.30.0
+        app.kubernetes.io/part-of: tekton-triggers
+        app: tekton-triggers-controller
+        triggers.tekton.dev/release: v0.30.0
+        version: v0.30.0
+    spec:
+      serviceAccountName: tekton-triggers-controller
+      containers:
+      - name: tekton-triggers-controller
+        image: ghcr.io/tektoncd/triggers/controller-f656ca31de179ab913fa76abc255c315:v0.30.0@sha256:522304c51a07c8d27a2d9df746fa88400a87e2269fbeec6ea8abdeb6f957c93f
+        args:
+        - -logtostderr
+        - -stderrthreshold
+        - INFO
+        - -el-image
+        - ghcr.io/tektoncd/triggers/eventlistenersink-7ad1faa98cddbcb0c24990303b220bb8:v0.30.0@sha256:ba22b87166bcc29e20f4a7dc11be3ff063d6e1276e7e0db7819b381f4e13d7a3
+        - -el-port
+        - '8080'
+        - -el-security-context=true
+        - -el-read-only-root-filesystem=true
+        - -el-events
+        - disable
+        - -el-readtimeout
+        - '5'
+        - -el-writetimeout
+        - '40'
+        - -el-idletimeout
+        - '120'
+        - -el-timeouthandler
+        - '30'
+        - -el-httpclient-readtimeout
+        - '30'
+        - -el-httpclient-keep-alive
+        - '30'
+        - -el-httpclient-tlshandshaketimeout
+        - '10'
+        - -el-httpclient-responseheadertimeout
+        - '10'
+        - -el-httpclient-expectcontinuetimeout
+        - '1'
+        - -period-seconds
+        - '10'
+        - -failure-threshold
+        - '3'
+        env:
+        - name: SYSTEM_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CONFIG_LOGGING_NAME
+          value: config-logging-triggers
+        - name: CONFIG_OBSERVABILITY_NAME
+          value: config-observability-triggers
+        - name: CONFIG_DEFAULTS_NAME
+          value: config-defaults-triggers
+        - name: METRICS_DOMAIN
+          value: tekton.dev/triggers
+        - name: METRICS_PROMETHEUS_PORT
+          value: '9000'
+        - name: CONFIG_LEADERELECTION_NAME
+          value: config-leader-election-triggers-controllers
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 65532
+          runAsGroup: 65532
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tekton-triggers-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.30.0
+    app.kubernetes.io/part-of: tekton-triggers
+    app: tekton-triggers-webhook
+    version: v0.30.0
+    triggers.tekton.dev/release: v0.30.0
+spec:
+  ports:
+  - name: https-webhook
+    port: 443
+    targetPort: 8443
+  selector:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tekton-triggers-webhook
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: webhook
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.30.0
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webhook
+      app.kubernetes.io/component: webhook
+      app.kubernetes.io/instance: default
+      app.kubernetes.io/part-of: tekton-triggers
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: webhook
+        app.kubernetes.io/component: webhook
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/version: v0.30.0
+        app.kubernetes.io/part-of: tekton-triggers
+        app: tekton-triggers-webhook
+        triggers.tekton.dev/release: v0.30.0
+        version: v0.30.0
+    spec:
+      serviceAccountName: tekton-triggers-webhook
+      containers:
+      - name: webhook
+        image: ghcr.io/tektoncd/triggers/webhook-dd1edc925ee1772a9f76e2c1bc291ef6:v0.30.0@sha256:fc72ca984313ce59f19537afb1ca4b1b3b0a593c7ec111386f96fed415550293
+        env:
+        - name: SYSTEM_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CONFIG_LOGGING_NAME
+          value: config-logging-triggers
+        - name: WEBHOOK_SERVICE_NAME
+          value: tekton-triggers-webhook
+        - name: WEBHOOK_SECRET_NAME
+          value: triggers-webhook-certs
+        - name: METRICS_DOMAIN
+          value: tekton.dev/triggers
+        - name: CONFIG_LEADERELECTION_NAME
+          value: config-leader-election-triggers-webhook
+        ports:
+        - name: metrics
+          containerPort: 9000
+        - name: profiling
+          containerPort: 8008
+        - name: https-webhook
+          containerPort: 8443
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 65532
+          runAsGroup: 65532
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tekton-triggers-core-interceptors-certs
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: core-interceptors
+    app.kubernetes.io/component: interceptors
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tekton-triggers-core-interceptors
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: core-interceptors
+    app.kubernetes.io/component: interceptors
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.30.0
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: core-interceptors
+      app.kubernetes.io/component: interceptors
+      app.kubernetes.io/instance: default
+      app.kubernetes.io/part-of: tekton-triggers
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: core-interceptors
+        app.kubernetes.io/component: interceptors
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/version: v0.30.0
+        app.kubernetes.io/part-of: tekton-triggers
+        app: tekton-triggers-core-interceptors
+        triggers.tekton.dev/release: v0.30.0
+        version: v0.30.0
+    spec:
+      serviceAccountName: tekton-triggers-core-interceptors
+      containers:
+      - name: tekton-triggers-core-interceptors
+        image: ghcr.io/tektoncd/triggers/interceptors-3176d6a3f314c3655b30bfd36e421dd5:v0.30.0@sha256:d2898b90afce06e10773af96e150f49c4d63db0ccb6ca93a466c38fa5c1ebb01
+        ports:
+        - containerPort: 8443
+        args:
+        - -logtostderr
+        - -stderrthreshold
+        - INFO
+        env:
+        - name: SYSTEM_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CONFIG_LOGGING_NAME
+          value: config-logging-triggers
+        - name: CONFIG_OBSERVABILITY_NAME
+          value: config-observability-triggers
+        - name: METRICS_DOMAIN
+          value: tekton.dev/triggers
+        - name: INTERCEPTOR_TLS_SVC_NAME
+          value: tekton-triggers-core-interceptors
+        - name: INTERCEPTOR_TLS_SECRET_NAME
+          value: tekton-triggers-core-interceptors-certs
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 65532
+          runAsGroup: 65532
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: tekton-triggers-core-interceptors
+    app.kubernetes.io/component: interceptors
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/version: v0.30.0
+    app.kubernetes.io/part-of: tekton-triggers
+    triggers.tekton.dev/release: v0.30.0
+    app: tekton-triggers-core-interceptors
+    version: v0.30.0
+  name: tekton-triggers-core-interceptors
+  namespace: adhar-system
+spec:
+  ports:
+  - name: https
+    port: 8443
+  selector:
+    app.kubernetes.io/name: core-interceptors
+    app.kubernetes.io/component: interceptors
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-triggers
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: ClusterInterceptor
+metadata:
+  name: cel
+  labels:
+    server/type: https
+spec:
+  clientConfig:
+    service:
+      name: tekton-triggers-core-interceptors
+      namespace: adhar-system
+      path: cel
+      port: 8443
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: ClusterInterceptor
+metadata:
+  name: bitbucket
+  labels:
+    server/type: https
+spec:
+  clientConfig:
+    service:
+      name: tekton-triggers-core-interceptors
+      namespace: adhar-system
+      path: bitbucket
+      port: 8443
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: ClusterInterceptor
+metadata:
+  name: slack
+  labels:
+    server/type: https
+spec:
+  clientConfig:
+    service:
+      name: tekton-triggers-core-interceptors
+      namespace: adhar-system
+      path: slack
+      port: 8443
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: ClusterInterceptor
+metadata:
+  name: github
+  labels:
+    server/type: https
+spec:
+  clientConfig:
+    service:
+      name: tekton-triggers-core-interceptors
+      namespace: adhar-system
+      path: github
+      port: 8443
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: ClusterInterceptor
+metadata:
+  name: gitlab
+  labels:
+    server/type: https
+spec:
+  clientConfig:
+    service:
+      name: tekton-triggers-core-interceptors
+      namespace: adhar-system
+      path: gitlab
+      port: 8443
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+  name: extensions.dashboard.tekton.dev
+spec:
+  group: dashboard.tekton.dev
+  names:
+    categories:
+    - tekton
+    - tekton-dashboard
+    kind: Extension
+    plural: extensions
+    shortNames:
+    - ext
+    - exts
+  preserveUnknownFields: false
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.apiVersion
+      name: API version
+      type: string
+    - jsonPath: .spec.name
+      name: Kind
+      type: string
+    - jsonPath: .spec.displayName
+      name: Display name
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+  name: tekton-dashboard
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+  name: tekton-dashboard-info
+  namespace: adhar-system
+rules:
+- apiGroups:
+  - ''
+  resourceNames:
+  - dashboard-info
+  resources:
+  - configmaps
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+  name: tekton-dashboard-backend
+rules:
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+- apiGroups:
+  - tekton.dev
+  resources:
+  - clustertasks
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - clusterinterceptors
+  - clustertriggerbindings
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - serviceaccounts
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - dashboard.tekton.dev
+  resources:
+  - extensions
+  verbs:
+  - create
+  - update
+  - delete
+  - patch
+- apiGroups:
+  - tekton.dev
+  resources:
+  - clustertasks
+  verbs:
+  - create
+  - update
+  - delete
+  - patch
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - clusterinterceptors
+  - clustertriggerbindings
+  verbs:
+  - create
+  - update
+  - delete
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+  name: tekton-dashboard-tenant
+rules:
+- apiGroups:
+  - dashboard.tekton.dev
+  resources:
+  - extensions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - events
+  - namespaces
+  - pods
+  - pods/log
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - tekton.dev
+  resources:
+  - stepactions
+  - tasks
+  - taskruns
+  - pipelines
+  - pipelineruns
+  - customruns
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - eventlisteners
+  - interceptors
+  - triggerbindings
+  - triggers
+  - triggertemplates
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - tekton.dev
+  resources:
+  - stepactions
+  - tasks
+  - taskruns
+  - pipelines
+  - pipelineruns
+  - customruns
+  verbs:
+  - create
+  - update
+  - delete
+  - patch
+- apiGroups:
+  - triggers.tekton.dev
+  resources:
+  - eventlisteners
+  - interceptors
+  - triggerbindings
+  - triggers
+  - triggertemplates
+  verbs:
+  - create
+  - update
+  - delete
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+  name: tekton-dashboard-info
+  namespace: adhar-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-dashboard-info
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:authenticated
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+    rbac.dashboard.tekton.dev/subject: tekton-dashboard
+  name: tekton-dashboard-backend
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-dashboard-backend
+subjects:
+- kind: ServiceAccount
+  name: tekton-dashboard
+  namespace: adhar-system
+---
+apiVersion: v1
+data:
+  version: v0.52.0
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+  name: dashboard-info
+  namespace: adhar-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: tekton-dashboard
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/name: dashboard
+    app.kubernetes.io/part-of: tekton-dashboard
+    app.kubernetes.io/version: v0.52.0
+    dashboard.tekton.dev/release: v0.52.0
+    version: v0.52.0
+  name: tekton-dashboard
+  namespace: adhar-system
+spec:
+  ports:
+  - name: http
+    port: 9097
+    protocol: TCP
+    targetPort: 9097
+  selector:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/name: dashboard
+    app.kubernetes.io/part-of: tekton-dashboard
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tekton-dashboard
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/name: dashboard
+    app.kubernetes.io/part-of: tekton-dashboard
+    app.kubernetes.io/version: v0.52.0
+    dashboard.tekton.dev/release: v0.52.0
+    version: v0.52.0
+  name: tekton-dashboard
+  namespace: adhar-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: dashboard
+      app.kubernetes.io/instance: default
+      app.kubernetes.io/name: dashboard
+      app.kubernetes.io/part-of: tekton-dashboard
+  template:
+    metadata:
+      labels:
+        app: tekton-dashboard
+        app.kubernetes.io/component: dashboard
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/name: dashboard
+        app.kubernetes.io/part-of: tekton-dashboard
+        app.kubernetes.io/version: v0.52.0
+      name: tekton-dashboard
+    spec:
+      containers:
+      - args:
+        - --port=9097
+        - --logout-url=
+        - --pipelines-namespace=adhar-system
+        - --triggers-namespace=adhar-system
+        - --read-only=false
+        - --log-level=info
+        - --log-format=json
+        - --default-namespace=
+        - --namespaces=
+        - --stream-logs=true
+        - --external-logs=
+        env:
+        - name: INSTALLED_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        image: ghcr.io/tektoncd/dashboard/dashboard-9623576a202fe86c8b7d1bc489905f86:v0.52.0@sha256:c01298c714fc9fa4ab8813469f15e94b4924328a749e178f984be0b70f78face
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9097
+        name: tekton-dashboard
+        ports:
+        - containerPort: 9097
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: 9097
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+          seccompProfile:
+            type: RuntimeDefault
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: tekton-dashboard
+      volumes: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+    rbac.dashboard.tekton.dev/subject: tekton-dashboard
+  name: tekton-dashboard-tenant
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-dashboard-tenant
+subjects:
+- kind: ServiceAccount
+  name: tekton-dashboard
+  namespace: adhar-system

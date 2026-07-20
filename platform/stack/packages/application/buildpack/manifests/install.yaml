@@ -1,14 +1,3 @@
-# BUILDPACK (kpack) INSTALL RESOURCES
-# This file is auto-generated with 'platform/stack/packages/application/buildpack/generate-manifests.sh'
-# kpack v0.17.1 (upstream release manifest)
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kpack
-  labels:
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/enforce-version: v1.25
----
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -372,30 +361,16 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: config-logging
+  name: buildpack-config-logging
   namespace: adhar-system
 data:
-  zap-logger-config: |
-    {
-      "level": "info",
-      "development": false,
-      "outputPaths": ["stdout"],
-      "errorOutputPaths": ["stderr"],
-      "encoding": "json",
-      "encoderConfig": {
-        "timeKey": "ts",
-        "levelKey": "level",
-        "nameKey": "logger",
-        "callerKey": "caller",
-        "messageKey": "msg",
-        "stacktraceKey": "stacktrace",
-        "lineEnding": "",
-        "levelEncoder": "",
-        "timeEncoder": "rfc3339nano",
-        "durationEncoder": "",
-        "callerEncoder": ""
-      }
-    }
+  zap-logger-config: "{\n  \"level\": \"info\",\n  \"development\": false,\n  \"outputPaths\"\
+    : [\"stdout\"],\n  \"errorOutputPaths\": [\"stderr\"],\n  \"encoding\": \"json\"\
+    ,\n  \"encoderConfig\": {\n    \"timeKey\": \"ts\",\n    \"levelKey\": \"level\"\
+    ,\n    \"nameKey\": \"logger\",\n    \"callerKey\": \"caller\",\n    \"messageKey\"\
+    : \"msg\",\n    \"stacktraceKey\": \"stacktrace\",\n    \"lineEnding\": \"\",\n\
+    \    \"levelEncoder\": \"\",\n    \"timeEncoder\": \"rfc3339nano\",\n    \"durationEncoder\"\
+    : \"\",\n    \"callerEncoder\": \"\"\n  }\n}\n"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -467,13 +442,13 @@ spec:
         image: ghcr.io/buildpacks-community/kpack/controller@sha256:05af44635858b72509dd8d63cef94a2f38459dd87c07dca73c09cd450ea46ff7
         env:
         - name: ENABLE_PRIORITY_CLASSES
-          value: "false"
+          value: 'false'
         - name: INJECTED_SIDECAR_SUPPORT
-          value: "false"
+          value: 'false'
         - name: EXPERIMENTAL_GENERATE_SLSA_ATTESTATION
-          value: "false"
+          value: 'false'
         - name: INSECURE_SSH_TRUST_UNKNOWN_HOSTS
-          value: "true"
+          value: 'true'
         - name: CONFIG_LOGGING_NAME
           value: config-logging
         - name: CONFIG_OBSERVABILITY_NAME
@@ -481,7 +456,7 @@ spec:
         - name: METRICS_DOMAIN
           value: kpack.io
         - name: SCALING_FACTOR
-          value: "1"
+          value: '1'
         - name: SYSTEM_NAMESPACE
           valueFrom:
             fieldRef:
@@ -560,7 +535,7 @@ rules:
   - patch
   - watch
 - apiGroups:
-  - ""
+  - ''
   resources:
   - secrets
   - pods/log
@@ -568,14 +543,14 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - ""
+  - ''
   resources:
   - serviceaccounts
   verbs:
   - get
   - list
 - apiGroups:
-  - ""
+  - ''
   resources:
   - persistentvolumeclaims
   - pods
@@ -587,13 +562,13 @@ rules:
   - delete
   - watch
 - apiGroups:
-  - ""
+  - ''
   resources:
   - pods
   verbs:
   - patch
 - apiGroups:
-  - ""
+  - ''
   resources:
   - nodes
   verbs:
@@ -619,7 +594,7 @@ metadata:
 aggregationRule:
   clusterRoleSelectors:
   - matchLabels:
-      servicebinding.io/controller: "true"
+      servicebinding.io/controller: 'true'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -641,7 +616,7 @@ metadata:
   namespace: adhar-system
 rules:
 - apiGroups:
-  - ""
+  - ''
   resources:
   - configmaps
   verbs:
@@ -859,7 +834,7 @@ webhooks:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: webhook-certs
+  name: buildpack-webhook-certs
   namespace: adhar-system
 ---
 apiVersion: apps/v1
@@ -934,7 +909,7 @@ metadata:
   namespace: adhar-system
 rules:
 - apiGroups:
-  - ""
+  - ''
   resources:
   - secrets
   verbs:
@@ -942,7 +917,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - ""
+  - ''
   resources:
   - secrets
   resourceNames:
@@ -950,7 +925,7 @@ rules:
   verbs:
   - update
 - apiGroups:
-  - ""
+  - ''
   resources:
   - configmaps
   verbs:
@@ -990,7 +965,7 @@ metadata:
   name: kpack-webhook-mutatingwebhookconfiguration-admin
 rules:
 - apiGroups:
-  - ""
+  - ''
   resources:
   - namespaces
   resourceNames:
@@ -998,7 +973,7 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - ""
+  - ''
   resources:
   - namespaces/finalizers
   verbs:

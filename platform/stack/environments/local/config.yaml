@@ -32,7 +32,7 @@ packages:
     manifestPath: "security/kyverno-policies/manifests"
     isChart: false
   - name: jupyterhub
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: data
     manifestPath: "data/jupyterhub/manifests"
@@ -68,7 +68,7 @@ packages:
     manifestPath: "application/harbor/manifests"
     isChart: false
   - name: kargo
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: application
     manifestPath: "application/kargo/manifests"
@@ -86,7 +86,7 @@ packages:
     manifestPath: "core/velero/manifests"
     isChart: false
   - name: spark-operator
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: data
     manifestPath: "data/spark-operator/manifests"
@@ -110,49 +110,49 @@ packages:
     manifestPath: "observability/loki-stack/manifests"
     isChart: false
   - name: opencost
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: observability
     manifestPath: "observability/opencost/manifests"
     isChart: false
   - name: alloy
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: observability
     manifestPath: "observability/alloy/manifests"
     isChart: false
   - name: oncall
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: observability
     manifestPath: "observability/oncall/manifests"
     isChart: false
   - name: tempo
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: observability
     manifestPath: "observability/tempo/manifests"
     isChart: false
   - name: mimir
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: observability
     manifestPath: "observability/mimir/manifests"
     isChart: false
   - name: k6
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: application
     manifestPath: "application/k6/manifests"
     isChart: false
   - name: crossplane
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: infrastructure
     manifestPath: "infrastructure/crossplane/manifests"
     isChart: false
   - name: terraform
-    enabled: true
+    enabled: false
     namespace: adhar-system
     category: infrastructure
     manifestPath: "infrastructure/terraform/manifests"

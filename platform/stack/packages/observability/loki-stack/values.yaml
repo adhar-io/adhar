@@ -1,6 +1,7 @@
 loki:
   enabled: true
-  isDefault: true
+  # Prometheus is Grafana's default datasource; two defaults crash provisioning.
+  isDefault: false
   url: http://{{(include "loki.serviceName" .)}}:{{ .Values.loki.service.port }}
   readinessProbe:
     httpGet:

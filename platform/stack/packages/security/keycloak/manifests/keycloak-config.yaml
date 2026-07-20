@@ -29,30 +29,6 @@ roleRef:
   name: keycloak-config
   apiGroup: rbac.authorization.k8s.io
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: keycloak-config
-  namespace: adhar-system
-rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: keycloak-config
-  namespace: adhar-system
-subjects:
-  - kind: ServiceAccount
-    name: keycloak-config
-    namespace: adhar-system
-roleRef:
-  kind: Role
-  name: keycloak-config
-  apiGroup: rbac.authorization.k8s.io
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -570,6 +546,36 @@ spec:
 
               curl --fail-with-body -H "Authorization: bearer ${KEYCLOAK_TOKEN}"  "${KEYCLOAK_URL}/admin/realms/adhar"  &> /dev/null
               if [ $? -eq 0 ]; then
+                # Realm already provisioned. The keycloak-clients Secret lives in
+                # the cluster and can be lost independently of the realm (e.g. a
+                # namespace migration) — rebuild it from Keycloak if missing,
+                # otherwise every OIDC ExternalSecret downstream stays broken.
+                SA_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                SA_CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                if ! curl -sS --fail --cacert "${SA_CA}" -H "Authorization: Bearer ${SA_TOKEN}" \
+                    "https://kubernetes.default.svc/api/v1/namespaces/adhar-system/secrets/keycloak-clients" &>/dev/null; then
+                  echo "keycloak-clients secret missing; rebuilding from Keycloak"
+                  ARCH=$(uname -m); case "${ARCH}" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; esac
+                  KVER=$(curl -sSL https://dl.k8s.io/release/stable.txt)
+                  curl -sSL -o ./kubectl "https://dl.k8s.io/release/${KVER}/bin/linux/${ARCH}/kubectl" && chmod +x ./kubectl
+                  getsec() { curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=$1" | jq -r '.[0].secret // empty'; }
+                  ARGOCD_PASSWORD=$(./kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}' 2>/dev/null || true)
+                  ARGOCD_SESSION_TOKEN=$(curl -sS http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" 2>/dev/null | jq -r '.token // empty' 2>/dev/null || true)
+                  ./kubectl -n adhar-system create secret generic keycloak-clients \
+                    --from-literal=ARGO_WORKFLOWS_CLIENT_ID=argo-workflows --from-literal=ARGO_WORKFLOWS_CLIENT_SECRET="$(getsec argo-workflows)" \
+                    --from-literal=ARGOCD_SESSION_TOKEN="${ARGOCD_SESSION_TOKEN}" \
+                    --from-literal=BACKSTAGE_CLIENT_ID=backstage --from-literal=BACKSTAGE_CLIENT_SECRET="$(getsec backstage)" \
+                    --from-literal=HEADLAMP_CLIENT_ID=headlamp --from-literal=HEADLAMP_CLIENT_SECRET="$(getsec headlamp)" \
+                    --from-literal=GRAFANA_CLIENT_ID=grafana --from-literal=GRAFANA_CLIENT_SECRET="$(getsec grafana)" \
+                    --from-literal=ARGOCD_CLIENT_ID=argocd --from-literal=ARGOCD_CLIENT_SECRET="$(getsec argocd)" \
+                    --from-literal=GITEA_CLIENT_ID=gitea --from-literal=GITEA_CLIENT_SECRET="$(getsec gitea)" \
+                    --from-literal=PROMETHEUS_CLIENT_ID=prometheus --from-literal=PROMETHEUS_CLIENT_SECRET="$(getsec prometheus)" \
+                    --from-literal=VAULT_CLIENT_ID=vault --from-literal=VAULT_CLIENT_SECRET="$(getsec vault)" \
+                    --from-literal=HARBOR_CLIENT_ID=harbor --from-literal=HARBOR_CLIENT_SECRET="$(getsec harbor)" \
+                    --from-literal=RUSTFS_CLIENT_ID=rustfs --from-literal=RUSTFS_CLIENT_SECRET="$(getsec rustfs)" \
+                    --from-literal=MINIO_CLIENT_ID=minio --from-literal=MINIO_CLIENT_SECRET="$(getsec minio)" \
+                    --dry-run=client -o yaml | ./kubectl apply -f -
+                fi
                 exit 0
               fi
               set -e

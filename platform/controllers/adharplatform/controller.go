@@ -41,6 +41,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -636,9 +637,19 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 
 	// Always persist status and conditions — including on the final pass before
 	// shutdown, so the Ready=True condition survives the controller exiting.
+	// Retry on conflict: losing this update on the last pass would permanently
+	// drop ControlPlaneApplied/Ready in local mode (no controller remains).
 	resource.Status.ObservedGeneration = resource.GetGeneration()
 	syncConditions(resource, r.lastFailureReason, r.lastFailureMessage)
-	if err := r.Status().Update(ctx, resource); err != nil {
+	desired := resource.Status.DeepCopy()
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1alpha1.AdharPlatform{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(resource), latest); err != nil {
+			return err
+		}
+		latest.Status = *desired
+		return r.Status().Update(ctx, latest)
+	}); err != nil {
 		logger.Error(err, "Failed to update resource status after reconcile")
 	}
 
