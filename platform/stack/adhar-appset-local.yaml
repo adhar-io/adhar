@@ -154,7 +154,10 @@ spec:
             manifestPath: "application/external-dns/manifests"
           - name: "open-function"
             enabled: "false"
-            namespace: "adhar-system"
+            # Own namespace: open-function vendors Knative and Tekton objects
+            # (config-defaults, config-logging, config-tracing, ...) whose names
+            # are fixed upstream and collide with the core tekton package.
+            namespace: "openfunction"
             category: "application"
             manifestPath: "application/open-function/manifests"
           - name: "coder"
@@ -394,7 +397,11 @@ spec:
       name: "{{ .name }}"
     spec:
       destination:
-        namespace: "adhar-system"
+        # Per-element so a package that cannot share adhar-system can opt out.
+        # Nearly everything uses adhar-system; open-function needs its own because
+        # it vendors Knative/Tekton objects whose names are fixed upstream and
+        # therefore collide (see platform/stack/packages/CONFLICTS.md).
+        namespace: "{{ .namespace }}"
         server: https://kubernetes.default.svc
       project: default
       sources:

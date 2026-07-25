@@ -502,6 +502,23 @@ spec:
                 
               set +e
 
+              # Master-realm admin tokens default to a 60s lifespan, but this job
+              # spends minutes in apt installs and kubectl downloads between API
+              # calls — every call after the first slow section then got HTTP 401
+              # and the job died half-provisioned. Raise the lifespan first and
+              # fetch a fresh token that carries it, so the whole script runs
+              # inside one valid token.
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT --data '{"accessTokenLifespan":1800}' \
+                "${KEYCLOAK_URL}/admin/realms/master"
+              KEYCLOAK_TOKEN=$(curl -sS --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+                --data-urlencode "username=adhar-admin" \
+                --data-urlencode "password=${ADMIN_PASSWORD}" \
+                --data-urlencode "grant_type=password" \
+                --data-urlencode "client_id=admin-cli" \
+                ${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token | jq -e -r '.access_token')
+
               # The platform runs behind the self-signed Cilium Gateway, which
               # terminates TLS and forwards to Keycloak over plain HTTP. With the
               # realm default sslRequired=external, Keycloak rejects browser logins
@@ -544,8 +561,24 @@ spec:
                 fi
               done
 
-              curl --fail-with-body -H "Authorization: bearer ${KEYCLOAK_TOKEN}"  "${KEYCLOAK_URL}/admin/realms/adhar"  &> /dev/null
-              if [ $? -eq 0 ]; then
+              # A realm can exist half-provisioned: an earlier job run that died
+              # mid-way (e.g. on token expiry) created the realm but none of the
+              # clients. Treating bare existence as "provisioned" made the
+              # early-exit below rebuild keycloak-clients with EMPTY secrets and
+              # exit 0, silently breaking SSO everywhere. Only early-exit when a
+              # sentinel client is present too; otherwise drop the partial realm
+              # and run full provisioning.
+              REALM_OK=1
+              curl --fail-with-body -H "Authorization: bearer ${KEYCLOAK_TOKEN}"  "${KEYCLOAK_URL}/admin/realms/adhar"  &> /dev/null || REALM_OK=0
+              if [ "${REALM_OK}" = "1" ]; then
+                SENTINEL=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=argocd" | jq -r '.[0].id // empty')
+                if [ -z "${SENTINEL}" ]; then
+                  echo "adhar realm exists but is half-provisioned (no argocd client); recreating"
+                  curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X DELETE "${KEYCLOAK_URL}/admin/realms/adhar"
+                  REALM_OK=0
+                fi
+              fi
+              if [ "${REALM_OK}" = "1" ]; then
                 # Realm already provisioned. The keycloak-clients Secret lives in
                 # the cluster and can be lost independently of the realm (e.g. a
                 # namespace migration) — rebuild it from Keycloak if missing,

@@ -1,7 +1,5 @@
 # Adhar Production Guide
 
-**Version**: v0.1.0
-
 How to run Adhar as production infrastructure: topology and sizing, high availability, security hardening, backup and disaster recovery, upgrades, and day-2 operations. Read the [Architecture](ARCHITECTURE.md) first — this guide assumes its terminology (topologies T1/T2/T3, bootstrap vs GitOps phases).
 
 > ⚠️ Adhar is in active development (v0.1.x). Treat this guide as the production *blueprint* the platform is built toward; validate each control in your environment before depending on it, and see the [Roadmap](ROADMAP.md) for what is implemented vs planned.

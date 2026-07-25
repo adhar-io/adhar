@@ -7,3 +7,8 @@ trivyOperator:
 
 operator:
   scannerReportTTL: "24h"
+  # Pinned explicitly rather than relying on the release namespace: a stale
+  # "trivy-system" value survived the adhar-system consolidation here because it
+  # renders as an env var value, not a `namespace:` field, and the operator then
+  # crashlooped looking for its config and leader-election lease.
+  namespace: adhar-system

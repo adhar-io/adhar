@@ -3556,7 +3556,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: OPERATOR_NAMESPACE
-              value: trivy-system
+              value: adhar-system
             - name: OPERATOR_TARGET_NAMESPACES
               value: ""
             - name: OPERATOR_EXCLUDE_NAMESPACES

@@ -42,7 +42,16 @@ nodes:
 # extraArgs is a map[string]string (NOT the v1beta4 name/value list). A patch
 # tagged apiVersion v1beta4 — or using the list form — is silently ignored. Keep
 # the map form below; verified to land on kube-controller-manager and scheduler.
+#
+# maxPods: the kubelet default of 110 is a hard scheduling ceiling on a
+# single-node cluster. The core stack alone runs ~100 pods, so enabling even a
+# few optional packages produces "Too many pods" FailedScheduling — including
+# for platform components (repo-server, metrics-server) whose pods then cannot
+# reschedule after a restart, which reads as an unrelated ArgoCD outage.
 kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    maxPods: 250
   - |
     kind: ClusterConfiguration
     controllerManager:

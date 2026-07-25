@@ -14,6 +14,10 @@ Decisions with lasting consequences for the Adhar platform are recorded here in 
 | [0008](0008-keycloak-platform-identity.md) | Keycloak as the platform identity provider (OIDC everywhere) | Accepted |
 | [0009](0009-secrets-eso-vault.md) | Secrets: ESO as sync plane, Vault as source of truth, never Git | Accepted |
 | [0010](0010-observability-lgtm-otel.md) | Observability: OTel collection, Grafana LGTM storage, hub-and-spoke | Accepted |
+| [0011](0011-shared-platform-namespace.md) | Single shared namespace (`adhar-system`) for platform packages | Accepted |
+| [0012](0012-single-node-resilience-tuning.md) | Resilience tuning for single-node local clusters | Accepted |
+| [0013](0013-sso-bootstrap-config-job.md) | SSO bootstrap via idempotent in-cluster config job | Accepted |
+| [0014](0014-package-lifecycle-operations.md) | Package lifecycle operations: toggling, verification, clean removal | Accepted |
 
 ## Proposing an ADR
 

@@ -1,7 +1,5 @@
 # Adhar Platform Documentation
 
-**Version**: v0.1.0
-
 Adhar is an open Internal Developer Platform: one command provisions a complete, production-grade, customizable platform from 50+ open-source components, on six clouds or your laptop. This is the documentation hub — every guide below is current with the v0.1.x architecture.
 
 ---

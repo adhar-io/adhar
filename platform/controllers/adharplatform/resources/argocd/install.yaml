@@ -292,10 +292,16 @@ data:
   controller.ignore.normalizer.jq.timeout: 1s
   controller.log.format: text
   controller.log.level: info
-  controller.operation.processors: "10"
+  # Parallelism capped for the single-node local cluster. The chart defaults
+  # (operation 10 / status 20 / unbounded kubectl) let the controller fire many
+  # concurrent syncs at once; on one node running ~100 core pods that saturates
+  # the kube-apiserver and stalls every sync. These low limits keep reconciliation
+  # steady instead of storming.
+  controller.operation.processors: "5"
+  controller.kubectl.parallelism.limit: "8"
   controller.repo.server.timeout.seconds: "60"
   controller.self.heal.timeout.seconds: "5"
-  controller.status.processors: "20"
+  controller.status.processors: "10"
   controller.sync.timeout.seconds: "0"
   dexserver.log.format: text
   dexserver.log.level: info
@@ -32571,19 +32577,24 @@ spec:
             path: /healthz?full=true
             port: metrics
           initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 1
+          # The chart default (timeout 1s) is too tight for a single-node local
+          # cluster: under sync load /healthz routinely takes 2-3s, so three
+          # misses kill repo-server, the cold restart is slower still, and it
+          # death-spirals — stalling every app's manifest generation. Widened so
+          # it rides out latency spikes instead of flapping.
+          periodSeconds: 30
+          timeoutSeconds: 15
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /healthz
             port: metrics
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 15
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 5
         resources:
           {}
         securityContext:
@@ -33046,19 +33057,22 @@ spec:
             path: /healthz?full=true
             port: server
           initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 1
+          # Widened from the chart default (timeout 1s): on a loaded single-node
+          # cluster the server's /healthz can take several seconds, and the tight
+          # probe was killing it into 503s during sync storms.
+          periodSeconds: 30
+          timeoutSeconds: 15
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /healthz
             port: server
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 15
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 5
         resources:
           {}
         securityContext:

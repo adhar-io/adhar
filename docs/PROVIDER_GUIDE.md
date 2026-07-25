@@ -1,7 +1,5 @@
 # Adhar Provider Guide
 
-**Version**: v0.1.0
-
 How Adhar targets different infrastructure: the provider abstraction, per-cloud setup, and how to add your own provider. Architectural context in [Architecture §5](ARCHITECTURE.md#5-infrastructure--control-plane).
 
 ---

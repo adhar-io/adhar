@@ -1,6 +1,6 @@
 # ADR-0008: Keycloak as the platform identity provider (OIDC everywhere)
 
-**Status**: Accepted (wiring lands in Roadmap Phase 1) · **Date**: 2026-07
+**Status**: Accepted (core wiring implemented; realm/client provisioning mechanics in ADR-0013) · **Date**: 2026-07
 
 ## Context
 
@@ -10,7 +10,9 @@ The platform ships many UIs (ArgoCD, Gitea, Grafana, Console, Harbor, …), each
 
 **Keycloak is the platform's identity provider.** Every identity-aware component authenticates via **OIDC against Keycloak**; authorization flows from **group claims** mapped to each service's role model (ArgoCD RBAC, Gitea orgs, Grafana roles, Kubernetes RBAC via OIDC).
 
-- Keycloak ships as a platform package (enabled in the curated core), backed by CNPG PostgreSQL in production
+- Keycloak ships as a platform package (enabled in the curated core), backed by CNPG PostgreSQL (local and production alike)
+- Realm, groups, users, and per-service OIDC clients are provisioned by the package's config job; client credentials flow to services via ESO (`keycloak-clients` → per-service secrets). The job's idempotency and failure-mode rules are ADR-0013
+- Services front their UIs with oauth2-proxy sidecars where they lack native OIDC; native OIDC (ArgoCD, Gitea, Grafana, Harbor, MinIO, Vault) is configured from the same secret chain
 - Enterprise directories (LDAP/AD/SAML/social) federate *into* Keycloak — services only ever see Keycloak, so upstream IdP changes touch one place
 - Bootstrap credentials (`gitea_admin`, ArgoCD `admin`) are day-0 only: the target flow rotates them into Vault as break-glass credentials once SSO is wired
 - Kubernetes API access uses OIDC group claims for human users; workloads use service accounts / workload identity, never Keycloak

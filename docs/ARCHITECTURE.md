@@ -1,6 +1,6 @@
 # Adhar Platform Architecture
 
-**Version**: v0.1.0 · **Status**: Living document · **Audience**: platform engineers, contributors, and adopters evaluating Adhar
+**Status**: Living document · **Audience**: platform engineers, contributors, and adopters evaluating Adhar
 
 This is the definitive description of how Adhar is designed and why. It covers the architecture as implemented today, the production topology it is designed to grow into, and the extension points that make the platform customizable without forking. Decisions with lasting consequences are recorded as [Architecture Decision Records](adr/README.md).
 

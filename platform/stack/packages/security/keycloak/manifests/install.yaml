@@ -54,6 +54,13 @@ spec:
           httpGet:
             path: /realms/master
             port: 8080
+          # Keycloak takes 2-3 min to boot (JVM + realm init) and /realms/master
+          # can take >1s to answer on a loaded node; the kube default 1s timeout
+          # made readiness flap, which repeatedly tore down the SSO config flow.
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          timeoutSeconds: 10
+          failureThreshold: 6
         volumeMounts:
         - mountPath: /opt/keycloak/conf
           name: keycloak-config

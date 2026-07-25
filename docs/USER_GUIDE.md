@@ -1,7 +1,5 @@
 # Adhar User Guide
 
-**Version**: v0.1.0
-
 The day-to-day guide for developers and platform operators using a running Adhar platform. For setup see [Getting Started](GETTING_STARTED.md); for how it works see [Architecture](ARCHITECTURE.md); for changing the platform itself see [Customization](CUSTOMIZATION.md).
 
 ---

@@ -1,7 +1,5 @@
 # Adhar Customization Guide
 
-**Version**: v0.1.0
-
 Every supported way to adapt the platform, from flipping a package on to adding a whole cloud provider. Each section maps to an extension point in the [Architecture](ARCHITECTURE.md#9-extensibility--customization-model). The golden rule: **customizations are Git changes** — made in the in-cluster Gitea repos (or your mirror of them), reviewed, and reconciled by ArgoCD. If you find yourself patching Go code for a routine customization, open an issue; that's an architecture gap.
 
 ---

@@ -1,6 +1,6 @@
 # Adhar Roadmap
 
-**Version**: v0.1.0 · Direction, not commitment — sequencing follows community needs. Discuss on [GitHub Discussions](https://github.com/adhar-io/adhar/discussions).
+Direction, not commitment — sequencing follows community needs. Discuss on [GitHub Discussions](https://github.com/adhar-io/adhar/discussions).
 
 The destination is fixed: the best open-source Internal Developer Platform — one command to a complete, production-grade, customizable platform on any infrastructure. The [Architecture](ARCHITECTURE.md) describes the target design (topologies T1→T3); **this roadmap is the main tracker** — every capability is listed under its phase with its current status.
 

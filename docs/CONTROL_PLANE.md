@@ -1,7 +1,5 @@
 # The Adhar Control Plane — Crossplane v2 In Depth
 
-**Version**: v0.1.0
-
 This guide explains the Adhar control plane from first principles: what it is, why it exists, how it is **built** from Crossplane v2 primitives, how it is **integrated** into the platform, and how it **operates** day to day. No prior Crossplane knowledge is assumed. The terse rule-book companion is [`platform/controlplane/CONVENTIONS.md`](../platform/controlplane/CONVENTIONS.md); the architectural decision is [ADR-0005](adr/0005-crossplane-v2-namespaced.md).
 
 ---

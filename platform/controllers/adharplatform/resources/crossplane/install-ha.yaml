@@ -746,6 +746,11 @@ spec:
         app.kubernetes.io/instance: crossplane
         app.kubernetes.io/version: "2.3.1"
     spec:
+      # Platform components share the adhar-system namespace, so kube injects a
+      # <SVC>_PORT env var for every Service in it. cosign's policy-controller
+      # ships a Service named "webhook", yielding WEBHOOK_PORT=tcp://<ip>:443 —
+      # which crossplane parses as its own --webhook-port flag and fails to start.
+      enableServiceLinks: false
       serviceAccountName: crossplane
       hostNetwork: false
       initContainers:
@@ -942,6 +947,9 @@ spec:
         app.kubernetes.io/instance: crossplane
         app.kubernetes.io/version: "2.3.1"
     spec:
+      # See the note on the crossplane Deployment above: shared-namespace service
+      # link env vars collide with crossplane's own flag env vars.
+      enableServiceLinks: false
       serviceAccountName: rbac-manager
       initContainers:
       - name: crossplane-init

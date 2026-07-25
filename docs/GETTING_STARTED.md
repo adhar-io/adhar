@@ -1,7 +1,5 @@
 # Getting Started with Adhar
 
-**Version**: v0.1.0
-
 From zero to a running Internal Developer Platform on your machine in under 10 minutes.
 
 ## Prerequisites
