@@ -1,0 +1,160 @@
+# Environment promotion pipeline (roadmap P2.5): dev → staging → prod as
+# first-class Git promotion over the platform's environments repository.
+#
+# Model: the environments repo's development/ tree is the promotion source.
+# Kargo's Warehouse creates Freight for each commit touching it; the staging
+# Stage auto-promotes (copies development config over staging and pushes), and
+# the production Stage promotes only on manual approval in the Kargo UI/CLI —
+# the promotion itself is still a Git commit ArgoCD then syncs (ADR-0004:
+# Git remains the only write path).
+#
+# The Project gets its own namespace (Kargo requirement — a Project owns a
+# namespace of the same name; this is a sanctioned exception to the
+# shared-namespace rule of ADR-0011, like open-function). Git credentials are
+# projected from gitea-credential via ESO using the kubernetes-backed
+# ClusterSecretStore (same mechanism as the SSO secret chain, ADR-0013).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adhar-environments
+  labels:
+    kargo.akuity.io/project: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Project
+metadata:
+  name: adhar-environments
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  promotionPolicies:
+    - stage: staging
+      autoPromotionEnabled: true
+    - stage: production
+      autoPromotionEnabled: false
+---
+# Git credentials for Kargo, projected from the platform's gitea-credential.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: kargo-gitea-creds
+  namespace: adhar-environments
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: kargo-gitea-creds
+    template:
+      metadata:
+        labels:
+          kargo.akuity.io/cred-type: git
+      data:
+        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+        username: "{{ .username }}"
+        password: "{{ .password }}"
+  data:
+    - secretKey: username
+      remoteRef:
+        key: gitea-credential
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: gitea-credential
+        property: password
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: environments
+  namespace: adhar-environments
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  subscriptions:
+    - git:
+        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+        branch: main
+        includePaths:
+          - development/**
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: staging
+  namespace: adhar-environments
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: environments
+      sources:
+        direct: true
+  promotionTemplate:
+    spec:
+      steps:
+        - uses: git-clone
+          config:
+            repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+            checkout:
+              - branch: main
+                path: ./src
+        - uses: copy
+          config:
+            inPath: ./src/development/config.yaml
+            outPath: ./src/staging/config.yaml
+        - uses: git-commit
+          config:
+            path: ./src
+            message: "promote: development -> staging"
+        - uses: git-push
+          config:
+            path: ./src
+            targetBranch: main
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: production
+  namespace: adhar-environments
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: environments
+      sources:
+        stages:
+          - staging
+  promotionTemplate:
+    spec:
+      steps:
+        - uses: git-clone
+          config:
+            repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+            checkout:
+              - branch: main
+                path: ./src
+        - uses: copy
+          config:
+            inPath: ./src/staging/config.yaml
+            outPath: ./src/production/config.yaml
+        - uses: git-commit
+          config:
+            path: ./src
+            message: "promote: staging -> production"
+        - uses: git-push
+          config:
+            path: ./src
+            targetBranch: main

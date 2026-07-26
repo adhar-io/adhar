@@ -178,48 +178,76 @@ spec:
       labels:
         app: backstage
     spec:
+      # Build a CA trust bundle = in-cluster API-server CA + the adhar gateway
+      # CA, so the console's Deno runtime trusts BOTH the Kubernetes API (used
+      # by the /api/svc/k8s proxy) and Keycloak's self-signed HTTPS endpoint
+      # (server-side OIDC code exchange + JWKS).
+      initContainers:
+      - name: ca-bundle
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - >-
+          cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt /adhar-cert/ca.crt
+          > /shared/ca-bundle.crt 2>/dev/null ||
+          cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt /adhar-cert/tls.crt
+          > /shared/ca-bundle.crt
+        volumeMounts:
+        - { name: ca-bundle, mountPath: /shared }
+        - { name: adhar-cert, mountPath: /adhar-cert, readOnly: true }
       containers:
-      - command:
-        - node
-        - packages/backend
-        - --config
-        - config/app-config.yaml
+      - name: adhar-console
+        image: adhario/adhar-console:0.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+          name: http
         env:
-        - name: LOG_LEVEL
-          value: debug
-        - name: NODE_TLS_REJECT_UNAUTHORIZED
-          value: '0'
+        - { name: PORT, value: '3000' }
+        # SSO — reuses the 'backstage' Keycloak client (confidential). This env
+        # is what flips the console from "Keycloak not configured" to real SSO.
+        - { name: KEYCLOAK_URL, value: 'https://keycloak.adhar.localtest.me:8443' }
+        - { name: KEYCLOAK_REALM, value: 'adhar' }
+        - { name: KEYCLOAK_CLIENT_ID, value: 'backstage' }
+        - { name: AUTH_PUBLIC_URL, value: 'https://console.adhar.localtest.me:8443' }
+        - { name: AUTH_SCOPES, value: 'openid profile email offline_access' }
+        - { name: AUTH_COOKIE_SECURE, value: 'true' }
+        - { name: K8S_API_URL, value: 'https://kubernetes.default.svc' }
+        - { name: DENO_CERT, value: '/shared/ca-bundle.crt' }
+        # AUTH_CLIENT_SECRET + AUTH_COOKIE_SECRET come from here (templated by
+        # the backstage-oidc ExternalSecret from the keycloak-clients secret).
         envFrom:
         - secretRef:
             name: backstage-env-vars
-        - secretRef:
-            name: gitea-credentials
-        - secretRef:
-            name: argocd-credentials
-        image: ghcr.io/adhar-io/adhar-console:latest
-        name: adhar-console
-        ports:
-        - containerPort: 7007
-          name: http
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 768Mi
+        startupProbe:
+          httpGet: { path: /healthz, port: http }
+          periodSeconds: 3
+          failureThreshold: 40
+        livenessProbe:
+          httpGet: { path: /healthz, port: http }
+          periodSeconds: 20
+          timeoutSeconds: 3
+        readinessProbe:
+          httpGet: { path: /readyz, port: http }
+          periodSeconds: 10
+          timeoutSeconds: 5
         volumeMounts:
-        - mountPath: /app/config
-          name: backstage-config
-          readOnly: true
+        - { name: ca-bundle, mountPath: /shared, readOnly: true }
       serviceAccountName: backstage
       volumes:
-      - name: backstage-config
-        projected:
-          sources:
-          - configMap:
-              items:
-              - key: app-config.yaml
-                path: app-config.yaml
-              name: backstage-config
-          - secret:
-              items:
-              - key: k8s-config.yaml
-                path: k8s-config.yaml
-              name: k8s-config
+      - name: ca-bundle
+        emptyDir: {}
+      - name: adhar-cert
+        secret:
+          secretName: adhar-cert
 ---
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
@@ -260,6 +288,15 @@ spec:
         ARGO_WORKFLOWS_URL: https://argo-workflows.adhar.localtest.me:8443
         KEYCLOAK_NAME_METADATA: https://keycloak.adhar.localtest.me:8443/realms/adhar/.well-known/openid-configuration
         KEYCLOAK_CLIENT_SECRET: '{{.BACKSTAGE_CLIENT_SECRET}}'
+        # Adhar Console (TanStack) SSO — reuses the 'backstage' Keycloak client.
+        AUTH_CLIENT_SECRET: '{{.BACKSTAGE_CLIENT_SECRET}}'
+        # Signs the console's HttpOnly session cookie (>=32 chars). Rotate for
+        # a hardened deployment; stable value keeps sessions valid across pod
+        # restarts / replicas.
+        AUTH_COOKIE_SECRET: 'adhar-console-session-signing-key-change-me-please-01'
+        # Console's own relational state (preferences, notification state). Reuses
+        # the CNPG 'backstage' database; the console auto-creates its tables.
+        DATABASE_URL: 'postgres://backstage:{{.POSTGRES_PASSWORD}}@backstage-db-rw.adhar-system.svc.cluster.local:5432/backstage'
         ARGOCD_AUTH_TOKEN: argocd.token={{.ARGOCD_SESSION_TOKEN}}
         ARGO_CD_URL: http://argo-cd-argocd-server.adhar-system.svc.cluster.local/api/v1/
   data:

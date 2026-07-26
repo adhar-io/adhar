@@ -111,3 +111,72 @@ spec:
                         name: {{ quote $secretName }}
                         namespace: {{ quote $secretNamespace }}
                       deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+    # ArgoCD auto-registration (roadmap P2.1): parse the kubeconfig from the
+    # cluster's connection details and publish an ArgoCD cluster Secret in
+    # adhar-system. Uses the credentials embedded in the provider-issued
+    # kubeconfig (client certificates or bearer token).
+    - step: register-argocd
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: templating.fn.crossplane.io/v1beta1
+        kind: Template
+        spec:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $observed := default (dict) .observed.resources -}}
+            {{- $conn := dig "civo-cluster" "connectionDetails" (dict) $observed -}}
+            {{- $raw := coalesce (get $conn "kubeconfig") (get $conn "attribute.kube_config_raw") -}}
+            apiVersion: fn.crossplane.io/v1beta1
+            kind: FunctionIO
+            desired:
+              resources:
+                {{- if $raw }}
+                {{- $kc := fromYaml (b64dec $raw) }}
+                {{- $clusters := dig "clusters" (list) $kc }}
+                {{- $users := dig "users" (list) $kc }}
+                {{- if and $clusters $users }}
+                {{- $cluster0 := dig "cluster" (dict) (index $clusters 0) }}
+                {{- $user0 := dig "user" (dict) (index $users 0) }}
+                {{- $server := dig "server" "" $cluster0 }}
+                {{- $caData := dig "certificate-authority-data" "" $cluster0 }}
+                {{- $certData := dig "client-certificate-data" "" $user0 }}
+                {{- $keyData := dig "client-key-data" "" $user0 }}
+                {{- $token := dig "token" "" $user0 }}
+                {{- if $server }}
+                - name: argocd-cluster-registration
+                  resource:
+                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
+                    kind: Object
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: civo
+                        adhar.io/argocd-registration: "true"
+                    spec:
+                      forProvider:
+                        manifest:
+                          apiVersion: v1
+                          kind: Secret
+                          metadata:
+                            name: cluster-{{ $xr.metadata.name }}
+                            namespace: adhar-system
+                            labels:
+                              argocd.argoproj.io/secret-type: cluster
+                              adhar.io/cluster: {{ quote $xr.metadata.name }}
+                          type: Opaque
+                          stringData:
+                            name: {{ quote $xr.metadata.name }}
+                            server: {{ quote $server }}
+                            config: |
+                              {{- if $token }}
+                              {"bearerToken": {{ quote $token }}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
+                              {{- else }}
+                              {"tlsClientConfig": {"caData": {{ quote $caData }}, "certData": {{ quote $certData }}, "keyData": {{ quote $keyData }}}}
+                              {{- end }}
+                      providerConfigRef:
+                        name: kubernetes-provider
+                        kind: ClusterProviderConfig
+                {{- end }}
+                {{- end }}
+                {{- end }}

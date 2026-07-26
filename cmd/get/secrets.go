@@ -18,6 +18,7 @@ package get
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -374,10 +375,21 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 			return []SecretEntry{{Icon: "🔴", Service: "Redis", Username: "default", Password: string(p)}}
 		}
 	case "vault":
-		entry := SecretEntry{Icon: "🔒", Service: "Vault"}
+		entry := SecretEntry{Icon: "🔒", Service: "Vault (root token — UI/CLI 'Token' login)"}
 		if p, ok := secret.Data["root-token"]; ok {
 			entry.Username = "root"
 			entry.Password = string(p)
+		}
+		// The vault package's bootstrap job stores the whole init response
+		// (root token + unseal key) as JSON under init.json in vault-keys.
+		if entry.Password == "" {
+			var initResp struct {
+				RootToken string `json:"root_token"`
+			}
+			if err := json.Unmarshal(secret.Data["init.json"], &initResp); err == nil && initResp.RootToken != "" {
+				entry.Username = "root"
+				entry.Password = initResp.RootToken
+			}
 		}
 		if entry.Password != "" {
 			return []SecretEntry{entry}

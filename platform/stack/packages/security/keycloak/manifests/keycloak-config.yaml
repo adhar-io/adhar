@@ -138,8 +138,8 @@ data:
     {
       "protocol": "openid-connect",
       "clientId": "backstage",
-      "name": "Backstage Client",
-      "description": "Used for Backstage SSO",
+      "name": "Adhar Console Client",
+      "description": "OIDC client for the Adhar Console (console.adhar.localtest.me). Named 'backstage' for continuity with existing keycloak-clients secret plumbing; the console reuses BACKSTAGE_CLIENT_SECRET.",
       "publicClient": false,
       "authorizationServicesEnabled": false,
       "serviceAccountsEnabled": false,
@@ -150,16 +150,18 @@ data:
       "attributes": {
         "saml_idp_initiated_sso_url_name": "",
         "oauth2.device.authorization.grant.enabled": false,
-        "oidc.ciba.grant.enabled": false
+        "oidc.ciba.grant.enabled": false,
+        "post.logout.redirect.uris": "https://console.adhar.localtest.me:8443/*"
       },
       "alwaysDisplayInConsole": false,
-      "rootUrl": "",
-      "baseUrl": "",
+      "rootUrl": "https://console.adhar.localtest.me:8443",
+      "baseUrl": "/",
       "redirectUris": [
-        "https://console.adhar.localtest.me:8443/api/auth/keycloak-oidc/handler/frame"
+        "https://console.adhar.localtest.me:8443/api/auth/callback",
+        "https://console.adhar.localtest.me:8443/*"
       ],
       "webOrigins": [
-        "/*"
+        "https://console.adhar.localtest.me:8443"
       ]
     }
 
@@ -437,6 +439,37 @@ data:
         }
       ]
     }
+  adhar-cli-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "adhar-cli",
+      "name": "Adhar CLI",
+      "description": "Public client for adhar auth login/token/whoami (password grant + refresh; groups claim for RBAC)",
+      "publicClient": true,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "frontchannelLogout": true,
+      "enabled": true
+    }
+  tekton-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "tekton",
+      "name": "Tekton Dashboard Client",
+      "description": "Used for Tekton Dashboard SSO via oauth2-proxy",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "redirectUris": ["https://tekton.adhar.localtest.me:8443/oauth2/callback"],
+      "webOrigins": ["https://tekton.adhar.localtest.me:8443"]
+    }
 
 ---
 apiVersion: batch/v1
@@ -548,7 +581,7 @@ spec:
               # setup on an already-provisioned realm, so config changes (e.g. the
               # move to per-app subdomains) never reach the clients and SSO breaks
               # with redirect_uri mismatch. Non-fatal (runs under set +e).
-              for c in argo backstage headlamp grafana argocd gitea prometheus vault harbor rustfs minio; do
+              for c in argo backstage headlamp grafana argocd gitea prometheus vault harbor rustfs minio adhar-cli tekton; do
                 pf="/var/config/${c}-client-payload.json"
                 [ -f "${pf}" ] || continue
                 cid=$(jq -r '.clientId' "${pf}")
@@ -606,6 +639,7 @@ spec:
                     --from-literal=VAULT_CLIENT_ID=vault --from-literal=VAULT_CLIENT_SECRET="$(getsec vault)" \
                     --from-literal=HARBOR_CLIENT_ID=harbor --from-literal=HARBOR_CLIENT_SECRET="$(getsec harbor)" \
                     --from-literal=RUSTFS_CLIENT_ID=rustfs --from-literal=RUSTFS_CLIENT_SECRET="$(getsec rustfs)" \
+                    --from-literal=TEKTON_CLIENT_ID=tekton --from-literal=TEKTON_CLIENT_SECRET="$(getsec tekton)" \
                     --from-literal=MINIO_CLIENT_ID=minio --from-literal=MINIO_CLIENT_SECRET="$(getsec minio)" \
                     --dry-run=client -o yaml | ./kubectl apply -f -
                 fi
@@ -931,6 +965,46 @@ spec:
               -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
               -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
 
+              # adhar-cli: public client for the CLI's login/token/whoami
+              # (password grant + refresh). No secret export — public client;
+              # the groups scope makes tokens carry the groups claim that the
+              # Kubernetes RBAC bindings key on (k8s-rbac.yaml).
+              echo "creating Adhar CLI client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/adhar-cli-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "adhar-cli") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              echo "creating Tekton client"
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/tekton-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
+              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "tekton") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+              TEKTON_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
+
               ARGOCD_PASSWORD=$(./kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
 
               # ArgoCD session token for Backstage's ArgoCD plugin. This is
@@ -973,6 +1047,8 @@ spec:
                 HARBOR_CLIENT_SECRET: \"${HARBOR_CLIENT_SECRET}\"
                 HARBOR_CLIENT_ID: \"harbor\"
                 RUSTFS_CLIENT_SECRET: \"${RUSTFS_CLIENT_SECRET}\"
+                TEKTON_CLIENT_ID: tekton
+                TEKTON_CLIENT_SECRET: \"${TEKTON_CLIENT_SECRET}\"
                 RUSTFS_CLIENT_ID: \"rustfs\"
                 MINIO_CLIENT_SECRET: \"${MINIO_CLIENT_SECRET}\"
                 MINIO_CLIENT_ID: \"minio\"

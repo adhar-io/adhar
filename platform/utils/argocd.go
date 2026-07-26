@@ -11,9 +11,13 @@ import (
 )
 
 const (
-	ArgocdInitialAdminSecretName = "argocd-admin-secret"
+	// The chart-generated initial admin secret in the shared platform
+	// namespace (ADR-0011). These previously pointed at an "argocd" namespace
+	// and a nonexistent secret name, which silently broke the dev-password
+	// patch flow.
+	ArgocdInitialAdminSecretName = "argocd-initial-admin-secret"
 	ArgocdAdminName              = "admin"
-	ArgocdNamespace              = "argocd"
+	ArgocdNamespace              = "adhar-system"
 	ArgocdURLTempl               = "%s://%s%s:%s%s"
 )
 

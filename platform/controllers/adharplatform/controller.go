@@ -267,11 +267,19 @@ func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, r
 		{v1alpha1.GatewayAPICRDsPackageName, r.ReconcileGatewayAPICRDs},
 		{v1alpha1.CiliumPackageName, r.ReconcileCilium},
 		{v1alpha1.GatewayPackageName, r.ReconcileGateway},
-		{v1alpha1.ArgoCDPackageName, r.ReconcileArgo},
-		{v1alpha1.GiteaPackageName, r.ReconcileGitea},
-		{v1alpha1.CrossplanePackageName, r.ReconcileCrossplane},
 	}
-	logger.Info("installing core packages: Gateway API CRDs -> Cilium -> Gateway -> ArgoCD -> Gitea -> Crossplane")
+	// HA mode: the CNPG operator joins the foundation so Gitea's database can
+	// run as a replicated CNPG cluster (roadmap P1.2b). It must be ready
+	// before Gitea starts, hence its slot ahead of ArgoCD/Gitea.
+	if resource.Spec.BuildCustomization.EnableHAMode {
+		installers = append(installers, namedInstaller{v1alpha1.CNPGPackageName, r.ReconcileCNPG})
+	}
+	installers = append(installers,
+		namedInstaller{v1alpha1.ArgoCDPackageName, r.ReconcileArgo},
+		namedInstaller{v1alpha1.GiteaPackageName, r.ReconcileGitea},
+		namedInstaller{v1alpha1.CrossplanePackageName, r.ReconcileCrossplane},
+	)
+	logger.Info("installing core packages: Gateway API CRDs -> Cilium -> Gateway -> [CNPG (HA)] -> ArgoCD -> Gitea -> Crossplane")
 
 	for _, inst := range installers {
 		logger.Info("installing core package", "name", inst.name)
@@ -286,8 +294,29 @@ func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, r
 	return nil
 }
 
+// ApplyPlatformStack re-seeds the GitOps repositories from StackDir (force
+// push), re-applies ArgoCD repo auth and the platform ApplicationSet, and
+// requests a refresh — the `adhar upgrade` stack push path. Requires a
+// running Gitea and a non-empty StackDir.
+func (r *AdharPlatformReconciler) ApplyPlatformStack(ctx context.Context, resource *v1alpha1.AdharPlatform) error {
+	// Upgrades must re-push even though the repos already exist: clear the
+	// bootstrap short-circuit on the in-memory object so
+	// setupGitOpsRepositories repopulates (repo creation is 409-tolerant,
+	// population is a force push). Without this the upgrade silently pushed
+	// nothing on an already-bootstrapped platform (observed live).
+	resource.Status.Gitea.RepositoriesCreated = false
+	return r.applyPlatformStack(ctx, ctrl.Request{}, resource)
+}
+
 func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
+
+	// Seeding reads the stack from the local filesystem, which only the CLI
+	// bootstrap has (the in-cluster manager runs without a stack directory and
+	// only ever reconciles an already-seeded platform).
+	if r.StackDir == "" {
+		return fmt.Errorf("platform stack is not seeded and no stack directory is configured: GitOps repository seeding requires the CLI bootstrap (adhar up)")
+	}
 
 	// CRITICAL: Setup GitOps repositories SYNCHRONOUSLY - must succeed before ApplicationSets
 	logger.Info("Setting up GitOps repositories (this may take a few minutes)...")
@@ -304,9 +333,12 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 	}
 	logger.Info("✅ ArgoCD repository authentication applied successfully")
 
-	// Only apply the platform stack ApplicationSet after GitOps is ready
-	logger.Info("Applying platform stack ApplicationSet")
-	appSetPath := filepath.Join(r.StackDir, "adhar-appset-local.yaml")
+	// Only apply the platform stack ApplicationSet after GitOps is ready.
+	// The file is provider-selected: Kind gets the curated local core, cloud
+	// and on-prem providers get the full production enablement.
+	appSetFile := appSetFileForProvider(resource.Spec.Provider)
+	logger.Info("Applying platform stack ApplicationSet", "file", appSetFile)
+	appSetPath := filepath.Join(r.StackDir, appSetFile)
 	appSetBytes, err := os.ReadFile(appSetPath)
 	if err != nil {
 		logger.Error(err, "Failed to read platform stack ApplicationSet", "path", appSetPath)
@@ -319,9 +351,35 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 	}
 
 	logger.Info("✅ Successfully applied platform stack ApplicationSet")
+
+	// The workload-cluster ApplicationSet (thin agent profile, roadmap P2.2)
+	// generates nothing until CompositeCluster registrations appear (P2.1),
+	// so applying it unconditionally is harmless on single-cluster platforms.
+	workloadAppSetPath := filepath.Join(r.StackDir, "adhar-appset-workload.yaml")
+	if workloadBytes, err := os.ReadFile(workloadAppSetPath); err == nil {
+		if err := r.applyManifest(ctx, workloadBytes, resource, "Workload cluster ApplicationSet"); err != nil {
+			logger.Error(err, "Failed to apply workload cluster ApplicationSet")
+			return err
+		}
+		logger.Info("✅ Successfully applied workload cluster ApplicationSet")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("reading workload cluster ApplicationSet %s: %w", workloadAppSetPath, err)
+	}
+
 	// Don't shut down yet - we need to wait for applications to become healthy
 	// The next reconciliation will check if everything is ready
 	return nil
+}
+
+// appSetFileForProvider selects the platform ApplicationSet for the target
+// environment: Kind (and unset, i.e. local) clusters get the curated local
+// core — a single node cannot run the full package set (ADR-0004) — while
+// cloud and on-prem providers get the full production enablement.
+func appSetFileForProvider(provider v1alpha1.EnvironmentProvider) string {
+	if provider == v1alpha1.ProviderKind || provider == "" {
+		return "adhar-appset-local.yaml"
+	}
+	return "adhar-appset-production.yaml"
 }
 
 // setupGitOpsRepositories creates and populates GitOps repositories in Gitea
@@ -459,7 +517,7 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 	}
 
 	for i := 0; i < 30; i++ {
-		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "--",
+		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--",
 			"curl", "-sf", "http://localhost:3000/api/v1/version")
 		if output, err := cmd.CombinedOutput(); err == nil {
 			logger.Info("Gitea API is responding", "version", strings.TrimSpace(string(output)))
@@ -511,12 +569,14 @@ func (r *AdharPlatformReconciler) createGiteaRepository(ctx context.Context, nam
 			`-u gitea_admin:r8sA8CPHD9!bt6d -o /dev/null -w "%%{http_code}"`,
 		name, name)
 
-	cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "--", "sh", "-c", createCmd)
+	cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", createCmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		statusCode := strings.TrimSpace(string(output))
-		// 409 means repository already exists - that's fine
-		if statusCode == "409" {
+		// 409 means repository already exists - that's fine. The combined
+		// output also carries kubectl's own stderr (e.g. "command terminated
+		// with exit code 22"), so match by prefix, not equality.
+		if strings.HasPrefix(statusCode, "409") {
 			logger.Info("Repository already exists, continuing", "name", name)
 			return nil
 		}

@@ -1,0 +1,1605 @@
+# Platform service dashboards beyond the kube-prometheus mixin set,
+# loaded by the grafana dashboard sidecar (label grafana_dashboard: "1").
+apiVersion: v1
+data:
+  argocd.json: "{\n  \"annotations\": {\n    \"list\": [\n      {\n        \"builtIn\"\
+    : 1,\n        \"datasource\": {\n          \"type\": \"datasource\",\n       \
+    \   \"uid\": \"grafana\"\n        },\n        \"enable\": true,\n        \"hide\"\
+    : true,\n        \"iconColor\": \"rgba(0, 211, 255, 1)\",\n        \"name\": \"\
+    Annotations & Alerts\",\n        \"type\": \"dashboard\"\n      }\n    ]\n  },\n\
+    \  \"editable\": true,\n  \"fiscalYearStartMonth\": 0,\n  \"graphTooltip\": 0,\n\
+    \  \"id\": 28,\n  \"links\": [],\n  \"liveNow\": false,\n  \"panels\": [\n   \
+    \ {\n      \"collapsed\": false,\n      \"datasource\": {\n        \"uid\": \"\
+    $datasource\"\n      },\n      \"gridPos\": {\n        \"h\": 1,\n        \"w\"\
+    : 24,\n        \"x\": 0,\n        \"y\": 0\n      },\n      \"id\": 68,\n    \
+    \  \"panels\": [],\n      \"targets\": [\n        {\n          \"datasource\"\
+    : {\n            \"uid\": \"$datasource\"\n          },\n          \"refId\":\
+    \ \"A\"\n        }\n      ],\n      \"title\": \"Overview\",\n      \"type\":\
+    \ \"row\"\n    },\n    {\n      \"datasource\": {\n        \"uid\": \"$datasource\"\
+    \n      },\n      \"gridPos\": {\n        \"h\": 4,\n        \"w\": 2,\n     \
+    \   \"x\": 0,\n        \"y\": 1\n      },\n      \"id\": 26,\n      \"links\"\
+    : [],\n      \"options\": {\n        \"code\": {\n          \"language\": \"plaintext\"\
+    ,\n          \"showLineNumbers\": false,\n          \"showMiniMap\": false\n \
+    \       },\n        \"content\": \"![argoimage](https://avatars1.githubusercontent.com/u/30269780?s=110&v=4)\"\
+    ,\n        \"mode\": \"markdown\"\n      },\n      \"pluginVersion\": \"10.3.1\"\
+    ,\n      \"targets\": [\n        {\n          \"datasource\": {\n            \"\
+    uid\": \"$datasource\"\n          },\n          \"refId\": \"A\"\n        }\n\
+    \      ],\n      \"transparent\": true,\n      \"type\": \"text\"\n    },\n  \
+    \  {\n      \"datasource\": {\n        \"uid\": \"$datasource\"\n      },\n  \
+    \    \"fieldConfig\": {\n        \"defaults\": {\n          \"color\": {\n   \
+    \         \"mode\": \"thresholds\"\n          },\n          \"mappings\": [\n\
+    \            {\n              \"options\": {\n                \"match\": \"null\"\
+    ,\n                \"result\": {\n                  \"text\": \"N/A\"\n      \
+    \          }\n              },\n              \"type\": \"special\"\n        \
+    \    }\n          ],\n          \"thresholds\": {\n            \"mode\": \"absolute\"\
+    ,\n            \"steps\": [\n              {\n                \"color\": \"green\"\
+    ,\n                \"value\": null\n              },\n              {\n      \
+    \          \"color\": \"red\",\n                \"value\": 80\n              }\n\
+    \            ]\n          },\n          \"unit\": \"dtdurations\",\n         \
+    \ \"unitScale\": true\n        },\n        \"overrides\": []\n      },\n     \
+    \ \"gridPos\": {\n        \"h\": 4,\n        \"w\": 3,\n        \"x\": 2,\n  \
+    \      \"y\": 1\n      },\n      \"id\": 32,\n      \"links\": [],\n      \"maxDataPoints\"\
+    : 100,\n      \"options\": {\n        \"colorMode\": \"none\",\n        \"graphMode\"\
+    : \"none\",\n        \"justifyMode\": \"auto\",\n        \"orientation\": \"horizontal\"\
+    ,\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ],\n          \"fields\": \"\",\n          \"values\": false\n   \
+    \     },\n        \"showPercentChange\": false,\n        \"textMode\": \"auto\"\
+    ,\n        \"wideLayout\": true\n      },\n      \"pluginVersion\": \"10.3.1\"\
+    ,\n      \"targets\": [\n        {\n          \"datasource\": {\n            \"\
+    uid\": \"$datasource\"\n          },\n          \"expr\": \"time() - max(process_start_time_seconds{job=\\\
+    \"argocd-server-metrics\\\",namespace=~\\\"$namespace\\\"})\",\n          \"format\"\
+    : \"time_series\",\n          \"intervalFactor\": 1,\n          \"refId\": \"\
+    A\"\n        }\n      ],\n      \"title\": \"Uptime\",\n      \"type\": \"stat\"\
+    \n    },\n    {\n      \"datasource\": {\n        \"uid\": \"$datasource\"\n \
+    \     },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"color\"\
+    : {\n            \"fixedColor\": \"rgb(31, 120, 193)\",\n            \"mode\"\
+    : \"fixed\"\n          },\n          \"mappings\": [\n            {\n        \
+    \      \"options\": {\n                \"match\": \"null\",\n                \"\
+    result\": {\n                  \"text\": \"0\"\n                }\n          \
+    \    },\n              \"type\": \"special\"\n            }\n          ],\n  \
+    \        \"thresholds\": {\n            \"mode\": \"absolute\",\n            \"\
+    steps\": [\n              {\n                \"color\": \"green\",\n         \
+    \       \"value\": null\n              },\n              {\n                \"\
+    color\": \"red\",\n                \"value\": 80\n              }\n          \
+    \  ]\n          },\n          \"unit\": \"none\",\n          \"unitScale\": true\n\
+    \        },\n        \"overrides\": []\n      },\n      \"gridPos\": {\n     \
+    \   \"h\": 4,\n        \"w\": 3,\n        \"x\": 5,\n        \"y\": 1\n      },\n\
+    \      \"id\": 94,\n      \"links\": [],\n      \"maxDataPoints\": 100,\n    \
+    \  \"options\": {\n        \"colorMode\": \"none\",\n        \"graphMode\": \"\
+    area\",\n        \"justifyMode\": \"auto\",\n        \"orientation\": \"horizontal\"\
+    ,\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ],\n          \"fields\": \"\",\n          \"values\": false\n   \
+    \     },\n        \"showPercentChange\": false,\n        \"textMode\": \"auto\"\
+    ,\n        \"wideLayout\": true\n      },\n      \"pluginVersion\": \"10.3.1\"\
+    ,\n      \"targets\": [\n        {\n          \"datasource\": {\n            \"\
+    uid\": \"$datasource\"\n          },\n          \"expr\": \"count(count by (server)\
+    \ (argocd_cluster_info{namespace=~\\\"$namespace\\\"}))\",\n          \"format\"\
+    : \"time_series\",\n          \"instant\": false,\n          \"intervalFactor\"\
+    : 1,\n          \"refId\": \"A\"\n        }\n      ],\n      \"title\": \"Clusters\"\
+    ,\n      \"type\": \"stat\"\n    },\n    {\n      \"datasource\": {\n        \"\
+    uid\": \"$datasource\"\n      },\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {\n          \"color\": {\n            \"fixedColor\": \"rgb(31, 120, 193)\"\
+    ,\n            \"mode\": \"fixed\"\n          },\n          \"mappings\": [\n\
+    \            {\n              \"options\": {\n                \"match\": \"null\"\
+    ,\n                \"result\": {\n                  \"text\": \"N/A\"\n      \
+    \          }\n              },\n              \"type\": \"special\"\n        \
+    \    }\n          ],\n          \"thresholds\": {\n            \"mode\": \"absolute\"\
+    ,\n            \"steps\": [\n              {\n                \"color\": \"green\"\
+    ,\n                \"value\": null\n              },\n              {\n      \
+    \          \"color\": \"red\",\n                \"value\": 80\n              }\n\
+    \            ]\n          },\n          \"unit\": \"none\",\n          \"unitScale\"\
+    : true\n        },\n        \"overrides\": []\n      },\n      \"gridPos\": {\n\
+    \        \"h\": 4,\n        \"w\": 3,\n        \"x\": 8,\n        \"y\": 1\n \
+    \     },\n      \"id\": 75,\n      \"links\": [],\n      \"maxDataPoints\": 100,\n\
+    \      \"options\": {\n        \"colorMode\": \"none\",\n        \"graphMode\"\
+    : \"area\",\n        \"justifyMode\": \"auto\",\n        \"orientation\": \"horizontal\"\
+    ,\n        \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ],\n          \"fields\": \"\",\n          \"values\": false\n   \
+    \     },\n        \"showPercentChange\": false,\n        \"textMode\": \"auto\"\
+    ,\n        \"wideLayout\": true\n      },\n      \"pluginVersion\": \"10.3.1\"\
+    ,\n      \"repeatDirection\": \"h\",\n      \"targets\": [\n        {\n      \
+    \    \"datasource\": {\n            \"uid\": \"$datasource\"\n          },\n \
+    \         \"expr\": \"sum(argocd_app_info{namespace=~\\\"$namespace\\\",dest_server=~\\\
+    \"$cluster\\\",health_status=~\\\"$health_status\\\",sync_status=~\\\"$sync_status\\\
+    \"})\",\n          \"format\": \"time_series\",\n          \"instant\": false,\n\
+    \          \"intervalFactor\": 1,\n          \"refId\": \"A\"\n        }\n   \
+    \   ],\n      \"title\": \"Applications\",\n      \"type\": \"stat\"\n    },\n\
+    \    {\n      \"datasource\": {\n        \"uid\": \"$datasource\"\n      },\n\
+    \      \"fieldConfig\": {\n        \"defaults\": {\n          \"color\": {\n \
+    \           \"fixedColor\": \"rgb(31, 120, 193)\",\n            \"mode\": \"fixed\"\
+    \n          },\n          \"mappings\": [\n            {\n              \"options\"\
+    : {\n                \"match\": \"null\",\n                \"result\": {\n   \
+    \               \"text\": \"0\"\n                }\n              },\n       \
+    \       \"type\": \"special\"\n            }\n          ],\n          \"thresholds\"\
+    : {\n            \"mode\": \"absolute\",\n            \"steps\": [\n         \
+    \     {\n                \"color\": \"green\",\n                \"value\": null\n\
+    \              },\n              {\n                \"color\": \"red\",\n    \
+    \            \"value\": 80\n              }\n            ]\n          },\n   \
+    \       \"unit\": \"none\",\n          \"unitScale\": true\n        },\n     \
+    \   \"overrides\": []\n      },\n      \"gridPos\": {\n        \"h\": 4,\n   \
+    \     \"w\": 3,\n        \"x\": 11,\n        \"y\": 1\n      },\n      \"id\"\
+    : 107,\n      \"links\": [],\n      \"maxDataPoints\": 100,\n      \"options\"\
+    : {\n        \"colorMode\": \"none\",\n        \"graphMode\": \"area\",\n    \
+    \    \"justifyMode\": \"auto\",\n        \"orientation\": \"horizontal\",\n  \
+    \      \"reduceOptions\": {\n          \"calcs\": [\n            \"lastNotNull\"\
+    \n          ],\n          \"fields\": \"\",\n          \"values\": false\n   \
+    \     },\n        \"showPercentChange\": false,\n        \"textMode\": \"auto\"\
+    ,\n        \"wideLayout\": true\n      },\n      \"pluginVersion\": \"10.3.1\"\
+    ,\n      \"targets\": [\n        {\n          \"datasource\": {\n            \"\
+    uid\": \"$datasource\"\n          },\n          \"expr\": \"count(count by (repo)\
+    \ (argocd_app_info{namespace=~\\\"$namespace\\\"}))\",\n          \"format\":\
+    \ \"time_series\",\n          \"instant\": false,\n          \"intervalFactor\"\
+    : 1,\n          \"refId\": \"A\"\n        }\n      ],\n      \"title\": \"Repositories\"\
+    ,\n      \"type\": \"stat\"\n    },\n    {\n      \"datasource\": {\n        \"\
+    uid\": \"$datasource\"\n      },\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {\n          \"color\": {\n            \"mode\": \"thresholds\"\n          },\n\
+    \          \"mappings\": [\n            {\n              \"id\": 0,\n        \
+    \      \"op\": \"=\",\n              \"text\": \"0\",\n              \"type\"\
+    : 1,\n              \"value\": \"null\"\n            }\n          ],\n       \
+    \   \"max\": 100,\n          \"min\": 0,\n          \"thresholds\": {\n      \
+    \      \"mode\": \"absolute\",\n            \"steps\": [\n              {\n  \
+    \              \"color\": \"green\",\n                \"value\": null\n      \
+    \        },\n              {\n                \"color\": \"red\",\n          \
+    \      \"value\": 80\n              }\n            ]\n          },\n         \
+    \ \"unit\": \"none\",\n          \"unitScale\": true\n        },\n        \"overrides\"\
+    : []\n      },\n      \"gridPos\": {\n        \"h\": 4,\n        \"w\": 3,\n \
+    \       \"x\": 14,\n        \"y\": 1\n      },\n      \"id\": 100,\n      \"links\"\
+    : [],\n      \"options\": {\n        \"minVizHeight\": 75,\n        \"minVizWidth\"\
+    : 75,\n        \"orientation\": \"horizontal\",\n        \"reduceOptions\": {\n\
+    \          \"calcs\": [\n            \"lastNotNull\"\n          ],\n         \
+    \ \"fields\": \"\",\n          \"values\": false\n        },\n        \"showThresholdLabels\"\
+    : false,\n        \"showThresholdMarkers\": true,\n        \"sizing\": \"auto\"\
+    \n      },\n      \"pluginVersion\": \"10.3.1\",\n      \"repeatDirection\": \"\
+    h\",\n      \"targets\": [\n        {\n          \"datasource\": {\n         \
+    \   \"uid\": \"$datasource\"\n          },\n          \"expr\": \"sum(argocd_app_info{namespace=~\\\
+    \"$namespace\\\",dest_server=~\\\"$cluster\\\",operation!=\\\"\\\"})\",\n    \
+    \      \"format\": \"time_series\",\n          \"instant\": true,\n          \"\
+    intervalFactor\": 1,\n          \"legendFormat\": \"\",\n          \"refId\":\
+    \ \"A\"\n        }\n      ],\n      \"title\": \"Operations\",\n      \"type\"\
+    : \"gauge\"\n    },\n    {\n      \"aliasColors\": {},\n      \"bars\": false,\n\
+    \      \"dashLength\": 10,\n      \"dashes\": false,\n      \"datasource\": {\n\
+    \        \"uid\": \"$datasource\"\n      },\n      \"fieldConfig\": {\n      \
+    \  \"defaults\": {\n          \"links\": [],\n          \"unitScale\": true\n\
+    \        },\n        \"overrides\": []\n      },\n      \"fill\": 1,\n      \"\
+    fillGradient\": 0,\n      \"gridPos\": {\n        \"h\": 4,\n        \"w\": 7,\n\
+    \        \"x\": 17,\n        \"y\": 1\n      },\n      \"hiddenSeries\": false,\n\
+    \      \"id\": 28,\n      \"legend\": {\n        \"alignAsTable\": true,\n   \
+    \     \"avg\": false,\n        \"current\": true,\n        \"hideEmpty\": true,\n\
+    \        \"hideZero\": true,\n        \"max\": false,\n        \"min\": false,\n\
+    \        \"rightSide\": true,\n        \"show\": true,\n        \"sort\": \"current\"\
+    ,\n        \"sortDesc\": true,\n        \"total\": false,\n        \"values\"\
+    : true\n      },\n      \"lines\": true,\n      \"linewidth\": 1,\n      \"links\"\
+    : [],\n      \"nullPointMode\": \"connected\",\n      \"options\": {\n       \
+    \ \"alertThreshold\": true\n      },\n      \"paceLength\": 10,\n      \"percentage\"\
+    : false,\n      \"pluginVersion\": \"10.3.1\",\n      \"pointradius\": 2,\n  \
+    \    \"points\": false,\n      \"renderer\": \"flot\",\n      \"seriesOverrides\"\
+    : [],\n      \"spaceLength\": 10,\n      \"stack\": true,\n      \"steppedLine\"\
+    : false,\n      \"targets\": [\n        {\n          \"datasource\": {\n     \
+    \       \"uid\": \"$datasource\"\n          },\n          \"expr\": \"sum(argocd_app_info{namespace=~\\\
+    \"$namespace\\\",dest_server=~\\\"$cluster\\\",health_status=~\\\"$health_status\\\
+    \",sync_status=~\\\"$sync_status\\\"}) by (namespace)\",\n          \"format\"\
+    : \"time_series\",\n          \"instant\": false,\n          \"intervalFactor\"\
+    : 1,\n          \"legendFormat\": \"{{namespace}}\",\n          \"refId\": \"\
+    A\"\n        }\n      ],\n      \"thresholds\": [],\n      \"timeRegions\": [],\n\
+    \      \"title\": \"Applications\",\n      \"tooltip\": {\n        \"shared\"\
+    : false,\n        \"sort\": 2,\n        \"value_type\": \"individual\"\n     \
+    \ },\n      \"type\": \"graph\",\n      \"xaxis\": {\n        \"mode\": \"time\"\
+    ,\n        \"show\": true,\n        \"values\": []\n      },\n      \"yaxes\"\
+    : [\n        {\n          \"decimals\": 0,\n          \"format\": \"short\",\n\
+    \          \"logBase\": 1,\n          \"show\": true\n        },\n        {\n\
+    \          \"format\": \"short\",\n          \"logBase\": 1,\n          \"show\"\
+    : true\n        }\n      ],\n      \"yaxis\": {\n        \"align\": false\n  \
+    \    }\n    },\n    {\n      \"collapsed\": true,\n      \"datasource\": {\n \
+    \       \"uid\": \"$datasource\"\n      },\n      \"gridPos\": {\n        \"h\"\
+    : 1,\n        \"w\": 24,\n        \"x\": 0,\n        \"y\": 5\n      },\n    \
+    \  \"id\": 77,\n      \"panels\": [\n        {\n          \"aliasColors\": {\n\
+    \            \"Degraded\": \"semi-dark-red\",\n            \"Healthy\": \"green\"\
+    ,\n            \"Missing\": \"semi-dark-purple\",\n            \"Progressing\"\
+    : \"semi-dark-blue\",\n            \"Suspended\": \"semi-dark-orange\",\n    \
+    \        \"Unknown\": \"rgb(255, 255, 255)\"\n          },\n          \"bars\"\
+    : false,\n          \"dashLength\": 10,\n          \"dashes\": false,\n      \
+    \    \"datasource\": {\n            \"uid\": \"$datasource\"\n          },\n \
+    \         \"fieldConfig\": {\n            \"defaults\": {\n              \"links\"\
+    : [],\n              \"unitScale\": true\n            },\n            \"overrides\"\
+    : []\n          },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n \
+    \         \"gridPos\": {\n            \"h\": 6,\n            \"w\": 12,\n    \
+    \        \"x\": 0,\n            \"y\": 6\n          },\n          \"hiddenSeries\"\
+    : false,\n          \"id\": 105,\n          \"interval\": \"\",\n          \"\
+    legend\": {\n            \"alignAsTable\": true,\n            \"avg\": false,\n\
+    \            \"current\": true,\n            \"hideEmpty\": false,\n         \
+    \   \"hideZero\": false,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"rightSide\": true,\n            \"show\": true,\n            \"\
+    sort\": \"current\",\n            \"sortDesc\": true,\n            \"total\":\
+    \ false,\n            \"values\": true\n          },\n          \"lines\": true,\n\
+    \          \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"null as zero\",\n          \"options\": {\n            \"alertThreshold\"\
+    : true\n          },\n          \"paceLength\": 10,\n          \"percentage\"\
+    : false,\n          \"pluginVersion\": \"10.3.1\",\n          \"pointradius\"\
+    : 2,\n          \"points\": false,\n          \"renderer\": \"flot\",\n      \
+    \    \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n          \"stack\"\
+    : false,\n          \"steppedLine\": false,\n          \"targets\": [\n      \
+    \      {\n              \"datasource\": {\n                \"uid\": \"$datasource\"\
+    \n              },\n              \"expr\": \"sum(argocd_app_info{namespace=~\\\
+    \"$namespace\\\",dest_server=~\\\"$cluster\\\",health_status=~\\\"$health_status\\\
+    \",sync_status=~\\\"$sync_status\\\",health_status!=\\\"\\\"}) by (health_status)\"\
+    ,\n              \"format\": \"time_series\",\n              \"instant\": false,\n\
+    \              \"intervalFactor\": 1,\n              \"legendFormat\": \"{{health_status}}\"\
+    ,\n              \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [],\n          \"timeRegions\": [],\n          \"title\": \"Health Status\"\
+    ,\n          \"tooltip\": {\n            \"shared\": true,\n            \"sort\"\
+    : 2,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 2,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {\n            \"Degraded\": \"semi-dark-red\",\n      \
+    \      \"Healthy\": \"green\",\n            \"Missing\": \"semi-dark-purple\"\
+    ,\n            \"OutOfSync\": \"semi-dark-yellow\",\n            \"Progressing\"\
+    : \"semi-dark-blue\",\n            \"Suspended\": \"semi-dark-orange\",\n    \
+    \        \"Synced\": \"semi-dark-green\",\n            \"Unknown\": \"rgb(255,\
+    \ 255, 255)\"\n          },\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\": {\n     \
+    \       \"defaults\": {\n              \"links\": [],\n              \"unitScale\"\
+    : true\n            },\n            \"overrides\": []\n          },\n        \
+    \  \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\": {\n  \
+    \          \"h\": 6,\n            \"w\": 12,\n            \"x\": 12,\n       \
+    \     \"y\": 6\n          },\n          \"hiddenSeries\": false,\n          \"\
+    id\": 106,\n          \"interval\": \"\",\n          \"legend\": {\n         \
+    \   \"alignAsTable\": true,\n            \"avg\": false,\n            \"current\"\
+    : true,\n            \"hideEmpty\": false,\n            \"hideZero\": false,\n\
+    \            \"max\": false,\n            \"min\": false,\n            \"rightSide\"\
+    : true,\n            \"show\": true,\n            \"sort\": \"current\",\n   \
+    \         \"sortDesc\": true,\n            \"total\": false,\n            \"values\"\
+    : true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"null as zero\",\n  \
+    \        \"options\": {\n            \"alertThreshold\": true\n          },\n\
+    \          \"paceLength\": 10,\n          \"percentage\": false,\n          \"\
+    pluginVersion\": \"10.3.1\",\n          \"pointradius\": 2,\n          \"points\"\
+    : false,\n          \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n\
+    \          \"spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\"\
+    : false,\n          \"targets\": [\n            {\n              \"datasource\"\
+    : {\n                \"uid\": \"$datasource\"\n              },\n            \
+    \  \"expr\": \"sum(argocd_app_info{namespace=~\\\"$namespace\\\",dest_server=~\\\
+    \"$cluster\\\",health_status=~\\\"$health_status\\\",sync_status=~\\\"$sync_status\\\
+    \",health_status!=\\\"\\\"}) by (sync_status)\",\n              \"format\": \"\
+    time_series\",\n              \"instant\": false,\n              \"intervalFactor\"\
+    : 1,\n              \"legendFormat\": \"{{sync_status}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"Sync Status\",\n          \"tooltip\"\
+    : {\n            \"shared\": true,\n            \"sort\": 2,\n            \"value_type\"\
+    : \"individual\"\n          },\n          \"type\": \"graph\",\n          \"xaxis\"\
+    : {\n            \"mode\": \"time\",\n            \"show\": true,\n          \
+    \  \"values\": []\n          },\n          \"yaxes\": [\n            {\n     \
+    \         \"format\": \"short\",\n              \"logBase\": 2,\n            \
+    \  \"show\": true\n            },\n            {\n              \"format\": \"\
+    short\",\n              \"logBase\": 1,\n              \"show\": true\n      \
+    \      }\n          ],\n          \"yaxis\": {\n            \"align\": false\n\
+    \          }\n        }\n      ],\n      \"targets\": [\n        {\n         \
+    \ \"datasource\": {\n            \"uid\": \"$datasource\"\n          },\n    \
+    \      \"refId\": \"A\"\n        }\n      ],\n      \"title\": \"Application Status\"\
+    ,\n      \"type\": \"row\"\n    },\n    {\n      \"collapsed\": true,\n      \"\
+    datasource\": {\n        \"uid\": \"$datasource\"\n      },\n      \"gridPos\"\
+    : {\n        \"h\": 1,\n        \"w\": 24,\n        \"x\": 0,\n        \"y\":\
+    \ 6\n      },\n      \"id\": 104,\n      \"panels\": [\n        {\n          \"\
+    aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\": 10,\n\
+    \          \"dashes\": false,\n          \"datasource\": {\n            \"uid\"\
+    : \"$datasource\"\n          },\n          \"fill\": 1,\n          \"fillGradient\"\
+    : 0,\n          \"gridPos\": {\n            \"h\": 6,\n            \"w\": 24,\n\
+    \            \"x\": 0,\n            \"y\": 3\n          },\n          \"hiddenSeries\"\
+    : false,\n          \"id\": 56,\n          \"interval\": \"\",\n          \"legend\"\
+    : {\n            \"alignAsTable\": true,\n            \"avg\": false,\n      \
+    \      \"current\": true,\n            \"hideEmpty\": true,\n            \"hideZero\"\
+    : true,\n            \"max\": false,\n            \"min\": false,\n          \
+    \  \"rightSide\": true,\n            \"show\": true,\n            \"sort\": \"\
+    total\",\n            \"sortDesc\": true,\n            \"total\": true,\n    \
+    \        \"values\": true\n          },\n          \"lines\": true,\n        \
+    \  \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\": \"\
+    null\",\n          \"options\": {\n            \"dataLinks\": []\n          },\n\
+    \          \"paceLength\": 10,\n          \"percentage\": false,\n          \"\
+    pointradius\": 1,\n          \"points\": false,\n          \"renderer\": \"flot\"\
+    ,\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n      \
+    \    \"stack\": true,\n          \"steppedLine\": false,\n          \"targets\"\
+    : [\n            {\n              \"datasource\": {\n                \"uid\":\
+    \ \"$datasource\"\n              },\n              \"expr\": \"sum(round(increase(argocd_app_sync_total{namespace=~\\\
+    \"$namespace\\\",dest_server=~\\\"$cluster\\\"}[$interval]))) by ($grouping)\"\
+    ,\n              \"format\": \"time_series\",\n              \"intervalFactor\"\
+    : 1,\n              \"legendFormat\": \"{{$grouping}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"Sync Activity\",\n          \"\
+    tooltip\": {\n            \"shared\": true,\n            \"sort\": 2,\n      \
+    \      \"value_type\": \"individual\"\n          },\n          \"type\": \"graph\"\
+    ,\n          \"xaxis\": {\n            \"mode\": \"time\",\n            \"show\"\
+    : true,\n            \"values\": []\n          },\n          \"yaxes\": [\n  \
+    \          {\n              \"decimals\": 0,\n              \"format\": \"short\"\
+    ,\n              \"label\": \"\",\n              \"logBase\": 1,\n           \
+    \   \"min\": \"0\",\n              \"show\": true\n            },\n          \
+    \  {\n              \"decimals\": -12,\n              \"format\": \"short\",\n\
+    \              \"label\": \"\",\n              \"logBase\": 1,\n             \
+    \ \"show\": true\n            }\n          ],\n          \"yaxis\": {\n      \
+    \      \"align\": false\n          }\n        },\n        {\n          \"aliasColors\"\
+    : {},\n          \"bars\": false,\n          \"dashLength\": 10,\n          \"\
+    dashes\": false,\n          \"datasource\": {\n            \"uid\": \"$datasource\"\
+    \n          },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n     \
+    \     \"gridPos\": {\n            \"h\": 5,\n            \"w\": 24,\n        \
+    \    \"x\": 0,\n            \"y\": 9\n          },\n          \"hiddenSeries\"\
+    : false,\n          \"id\": 73,\n          \"legend\": {\n            \"alignAsTable\"\
+    : true,\n            \"avg\": false,\n            \"current\": false,\n      \
+    \      \"hideEmpty\": true,\n            \"hideZero\": false,\n            \"\
+    max\": false,\n            \"min\": false,\n            \"rightSide\": true,\n\
+    \            \"show\": true,\n            \"sort\": \"total\",\n            \"\
+    sortDesc\": true,\n            \"total\": true,\n            \"values\": true\n\
+    \          },\n          \"lines\": true,\n          \"linewidth\": 1,\n     \
+    \     \"links\": [],\n          \"nullPointMode\": \"null\",\n          \"options\"\
+    : {\n            \"dataLinks\": []\n          },\n          \"paceLength\": 10,\n\
+    \          \"percentage\": false,\n          \"pointradius\": 2,\n          \"\
+    points\": false,\n          \"renderer\": \"flot\",\n          \"seriesOverrides\"\
+    : [],\n          \"spaceLength\": 10,\n          \"stack\": true,\n          \"\
+    steppedLine\": false,\n          \"targets\": [\n            {\n             \
+    \ \"datasource\": {\n                \"uid\": \"$datasource\"\n              },\n\
+    \              \"expr\": \"sum(round(increase(argocd_app_sync_total{namespace=~\\\
+    \"$namespace\\\",phase=~\\\"Error|Failed\\\",dest_server=~\\\"$cluster\\\"}[$interval])))\
+    \ by ($grouping, phase)\",\n              \"format\": \"time_series\",\n     \
+    \         \"intervalFactor\": 1,\n              \"legendFormat\": \"{{phase}}:\
+    \ {{$grouping}}\",\n              \"refId\": \"A\"\n            }\n          ],\n\
+    \          \"thresholds\": [],\n          \"timeRegions\": [],\n          \"title\"\
+    : \"Sync Failures\",\n          \"tooltip\": {\n            \"shared\": true,\n\
+    \            \"sort\": 2,\n            \"value_type\": \"individual\"\n      \
+    \    },\n          \"type\": \"graph\",\n          \"xaxis\": {\n            \"\
+    mode\": \"time\",\n            \"show\": true,\n            \"values\": []\n \
+    \         },\n          \"yaxes\": [\n            {\n              \"decimals\"\
+    : 0,\n              \"format\": \"none\",\n              \"label\": \"\",\n  \
+    \            \"logBase\": 1,\n              \"min\": \"0\",\n              \"\
+    show\": true\n            },\n            {\n              \"format\": \"short\"\
+    ,\n              \"label\": \"\",\n              \"logBase\": 1,\n           \
+    \   \"show\": true\n            }\n          ],\n          \"yaxis\": {\n    \
+    \        \"align\": false\n          }\n        }\n      ],\n      \"targets\"\
+    : [\n        {\n          \"datasource\": {\n            \"uid\": \"$datasource\"\
+    \n          },\n          \"refId\": \"A\"\n        }\n      ],\n      \"title\"\
+    : \"Sync Stats\",\n      \"type\": \"row\"\n    },\n    {\n      \"collapsed\"\
+    : true,\n      \"datasource\": {\n        \"uid\": \"$datasource\"\n      },\n\
+    \      \"gridPos\": {\n        \"h\": 1,\n        \"w\": 24,\n        \"x\": 0,\n\
+    \        \"y\": 7\n      },\n      \"id\": 64,\n      \"panels\": [\n        {\n\
+    \          \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    fillGradient\": 0,\n          \"gridPos\": {\n            \"h\": 6,\n        \
+    \    \"w\": 24,\n            \"x\": 0,\n            \"y\": 12\n          },\n\
+    \          \"hiddenSeries\": false,\n          \"id\": 58,\n          \"legend\"\
+    : {\n            \"alignAsTable\": true,\n            \"avg\": true,\n       \
+    \     \"current\": true,\n            \"max\": true,\n            \"min\": false,\n\
+    \            \"rightSide\": true,\n            \"show\": true,\n            \"\
+    sort\": \"total\",\n            \"sortDesc\": true,\n            \"total\": true,\n\
+    \            \"values\": true\n          },\n          \"lines\": true,\n    \
+    \      \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"null\",\n          \"options\": {\n            \"dataLinks\": []\n       \
+    \   },\n          \"paceLength\": 10,\n          \"percentage\": false,\n    \
+    \      \"pointradius\": 2,\n          \"points\": false,\n          \"renderer\"\
+    : \"flot\",\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n\
+    \          \"stack\": false,\n          \"steppedLine\": false,\n          \"\
+    targets\": [\n            {\n              \"datasource\": {\n               \
+    \ \"uid\": \"$datasource\"\n              },\n              \"expr\": \"sum(increase(argocd_app_reconcile_count{namespace=~\\\
+    \"$namespace\\\",dest_server=~\\\"$cluster\\\"}[$interval])) by ($grouping)\"\
+    ,\n              \"format\": \"time_series\",\n              \"intervalFactor\"\
+    : 1,\n              \"legendFormat\": \"{{$grouping}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"Reconciliation Activity\",\n \
+    \         \"tooltip\": {\n            \"shared\": false,\n            \"sort\"\
+    : 2,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"cards\": {},\n          \"color\": {\n            \"cardColor\": \"#b4ff00\"\
+    ,\n            \"colorScale\": \"sqrt\",\n            \"colorScheme\": \"interpolateSpectral\"\
+    ,\n            \"exponent\": 0.5,\n            \"mode\": \"spectrum\"\n      \
+    \    },\n          \"dataFormat\": \"tsbuckets\",\n          \"datasource\": {\n\
+    \            \"uid\": \"$datasource\"\n          },\n          \"gridPos\": {\n\
+    \            \"h\": 7,\n            \"w\": 24,\n            \"x\": 0,\n      \
+    \      \"y\": 18\n          },\n          \"heatmap\": {},\n          \"hideZeroBuckets\"\
+    : false,\n          \"highlightCards\": true,\n          \"id\": 60,\n       \
+    \   \"legend\": {\n            \"show\": true\n          },\n          \"links\"\
+    : [],\n          \"options\": {},\n          \"reverseYBuckets\": false,\n   \
+    \       \"targets\": [\n            {\n              \"datasource\": {\n     \
+    \           \"uid\": \"$datasource\"\n              },\n              \"expr\"\
+    : \"sum(increase(argocd_app_reconcile_bucket{namespace=~\\\"$namespace\\\"}[$interval]))\
+    \ by (le)\",\n              \"format\": \"heatmap\",\n              \"instant\"\
+    : false,\n              \"intervalFactor\": 10,\n              \"legendFormat\"\
+    : \"{{le}}\",\n              \"refId\": \"A\"\n            }\n          ],\n \
+    \         \"title\": \"Reconciliation Performance\",\n          \"tooltip\": {\n\
+    \            \"show\": true,\n            \"showHistogram\": true\n          },\n\
+    \          \"tooltipDecimals\": 0,\n          \"type\": \"heatmap\",\n       \
+    \   \"xAxis\": {\n            \"show\": true\n          },\n          \"yAxis\"\
+    : {\n            \"format\": \"short\",\n            \"logBase\": 1,\n       \
+    \     \"show\": true\n          },\n          \"yBucketBound\": \"auto\"\n   \
+    \     },\n        {\n          \"aliasColors\": {},\n          \"bars\": false,\n\
+    \          \"dashLength\": 10,\n          \"dashes\": false,\n          \"datasource\"\
+    : {\n            \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n\
+    \          \"fillGradient\": 0,\n          \"gridPos\": {\n            \"h\":\
+    \ 6,\n            \"w\": 24,\n            \"x\": 0,\n            \"y\": 25\n \
+    \         },\n          \"hiddenSeries\": false,\n          \"id\": 80,\n    \
+    \      \"legend\": {\n            \"alignAsTable\": true,\n            \"avg\"\
+    : true,\n            \"current\": true,\n            \"hideEmpty\": true,\n  \
+    \          \"hideZero\": true,\n            \"max\": false,\n            \"min\"\
+    : false,\n            \"rightSide\": true,\n            \"show\": true,\n    \
+    \        \"sort\": \"current\",\n            \"sortDesc\": true,\n           \
+    \ \"total\": false,\n            \"values\": true\n          },\n          \"\
+    lines\": true,\n          \"linewidth\": 1,\n          \"links\": [],\n      \
+    \    \"nullPointMode\": \"null as zero\",\n          \"options\": {\n        \
+    \    \"dataLinks\": []\n          },\n          \"paceLength\": 10,\n        \
+    \  \"percentage\": false,\n          \"pointradius\": 2,\n          \"points\"\
+    : false,\n          \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n\
+    \          \"spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\"\
+    : false,\n          \"targets\": [\n            {\n              \"datasource\"\
+    : {\n                \"uid\": \"$datasource\"\n              },\n            \
+    \  \"expr\": \"sum(increase(argocd_app_k8s_request_total{namespace=~\\\"$namespace\\\
+    \",server=~\\\"$cluster\\\"}[$interval])) by (verb, resource_kind)\",\n      \
+    \        \"format\": \"time_series\",\n              \"instant\": false,\n   \
+    \           \"intervalFactor\": 1,\n              \"legendFormat\": \"{{verb}}\
+    \ {{resource_kind}}\",\n              \"refId\": \"A\"\n            }\n      \
+    \    ],\n          \"thresholds\": [],\n          \"timeRegions\": [],\n     \
+    \     \"title\": \"K8s API Activity\",\n          \"tooltip\": {\n           \
+    \ \"shared\": true,\n            \"sort\": 2,\n            \"value_type\": \"\
+    individual\"\n          },\n          \"type\": \"graph\",\n          \"xaxis\"\
+    : {\n            \"mode\": \"time\",\n            \"show\": true,\n          \
+    \  \"values\": []\n          },\n          \"yaxes\": [\n            {\n     \
+    \         \"format\": \"short\",\n              \"logBase\": 1,\n            \
+    \  \"show\": true\n            },\n            {\n              \"format\": \"\
+    short\",\n              \"logBase\": 1,\n              \"show\": true\n      \
+    \      }\n          ],\n          \"yaxis\": {\n            \"align\": false\n\
+    \          }\n        },\n        {\n          \"aliasColors\": {},\n        \
+    \  \"bars\": false,\n          \"dashLength\": 10,\n          \"dashes\": false,\n\
+    \          \"datasource\": {\n            \"uid\": \"$datasource\"\n         \
+    \ },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\"\
+    : {\n            \"h\": 7,\n            \"w\": 12,\n            \"x\": 0,\n  \
+    \          \"y\": 31\n          },\n          \"hiddenSeries\": false,\n     \
+    \     \"id\": 96,\n          \"legend\": {\n            \"alignAsTable\": true,\n\
+    \            \"avg\": true,\n            \"current\": true,\n            \"hideZero\"\
+    : true,\n            \"max\": true,\n            \"min\": false,\n           \
+    \ \"rightSide\": false,\n            \"show\": true,\n            \"total\": false,\n\
+    \            \"values\": true\n          },\n          \"lines\": true,\n    \
+    \      \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"null\",\n          \"options\": {\n            \"dataLinks\": []\n       \
+    \   },\n          \"percentage\": false,\n          \"pointradius\": 2,\n    \
+    \      \"points\": false,\n          \"renderer\": \"flot\",\n          \"seriesOverrides\"\
+    : [],\n          \"spaceLength\": 10,\n          \"stack\": false,\n         \
+    \ \"steppedLine\": false,\n          \"targets\": [\n            {\n         \
+    \     \"datasource\": {\n                \"uid\": \"$datasource\"\n          \
+    \    },\n              \"expr\": \"sum(workqueue_depth{namespace=~\\\"$namespace\\\
+    \",name=~\\\"app_.*\\\"}) by (name)\",\n              \"format\": \"time_series\"\
+    ,\n              \"intervalFactor\": 1,\n              \"legendFormat\": \"{{name}}\"\
+    ,\n              \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [],\n          \"timeRegions\": [],\n          \"title\": \"Workqueue Depth\"\
+    ,\n          \"tooltip\": {\n            \"shared\": true,\n            \"sort\"\
+    : 2,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"min\": \"0\",\n              \"show\": true\n\
+    \            },\n            {\n              \"format\": \"short\",\n       \
+    \       \"logBase\": 1,\n              \"min\": \"0\",\n              \"show\"\
+    : true\n            }\n          ],\n          \"yaxis\": {\n            \"align\"\
+    : false\n          }\n        },\n        {\n          \"aliasColors\": {},\n\
+    \          \"bars\": false,\n          \"dashLength\": 10,\n          \"dashes\"\
+    : false,\n          \"datasource\": {\n            \"uid\": \"$datasource\"\n\
+    \          },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n      \
+    \    \"gridPos\": {\n            \"h\": 7,\n            \"w\": 12,\n         \
+    \   \"x\": 12,\n            \"y\": 31\n          },\n          \"hiddenSeries\"\
+    : false,\n          \"id\": 98,\n          \"legend\": {\n            \"alignAsTable\"\
+    : true,\n            \"avg\": true,\n            \"current\": true,\n        \
+    \    \"hideZero\": false,\n            \"max\": true,\n            \"min\": false,\n\
+    \            \"show\": true,\n            \"total\": false,\n            \"values\"\
+    : true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"null\",\n          \"\
+    options\": {\n            \"dataLinks\": []\n          },\n          \"percentage\"\
+    : false,\n          \"pointradius\": 2,\n          \"points\": false,\n      \
+    \    \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n          \"\
+    spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\": false,\n\
+    \          \"targets\": [\n            {\n              \"datasource\": {\n  \
+    \              \"uid\": \"$datasource\"\n              },\n              \"expr\"\
+    : \"sum(argocd_kubectl_exec_pending{namespace=~\\\"$namespace\\\"}) by (command)\"\
+    ,\n              \"format\": \"time_series\",\n              \"intervalFactor\"\
+    : 1,\n              \"legendFormat\": \"{{command}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"Pending kubectl run\",\n     \
+    \     \"tooltip\": {\n            \"shared\": true,\n            \"sort\": 2,\n\
+    \            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"decimals\": 0,\n              \"format\"\
+    : \"short\",\n              \"label\": \"\",\n              \"logBase\": 1,\n\
+    \              \"min\": \"0\",\n              \"show\": true\n            },\n\
+    \            {\n              \"decimals\": 0,\n              \"format\": \"short\"\
+    ,\n              \"label\": \"\",\n              \"logBase\": 1,\n           \
+    \   \"min\": \"0\",\n              \"show\": true\n            }\n          ],\n\
+    \          \"yaxis\": {\n            \"align\": false\n          }\n        }\n\
+    \      ],\n      \"targets\": [\n        {\n          \"datasource\": {\n    \
+    \        \"uid\": \"$datasource\"\n          },\n          \"refId\": \"A\"\n\
+    \        }\n      ],\n      \"title\": \"Controller Stats\",\n      \"type\":\
+    \ \"row\"\n    },\n    {\n      \"collapsed\": true,\n      \"datasource\": {\n\
+    \        \"uid\": \"$datasource\"\n      },\n      \"gridPos\": {\n        \"\
+    h\": 1,\n        \"w\": 24,\n        \"x\": 0,\n        \"y\": 8\n      },\n \
+    \     \"id\": 102,\n      \"panels\": [\n        {\n          \"aliasColors\"\
+    : {},\n          \"bars\": false,\n          \"dashLength\": 10,\n          \"\
+    dashes\": false,\n          \"datasource\": {\n            \"uid\": \"$datasource\"\
+    \n          },\n          \"fieldConfig\": {\n            \"defaults\": {\n  \
+    \            \"links\": [],\n              \"unitScale\": true,\n            \
+    \  \"unit\": \"bytes\"\n            },\n            \"overrides\": []\n      \
+    \    },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n          \"\
+    gridPos\": {\n            \"h\": 7,\n            \"w\": 24,\n            \"x\"\
+    : 0,\n            \"y\": 9\n          },\n          \"hiddenSeries\": false,\n\
+    \          \"id\": 34,\n          \"legend\": {\n            \"alignAsTable\"\
+    : true,\n            \"avg\": true,\n            \"current\": true,\n        \
+    \    \"max\": true,\n            \"min\": false,\n            \"rightSide\": true,\n\
+    \            \"show\": true,\n            \"sort\": \"current\",\n           \
+    \ \"sortDesc\": true,\n            \"total\": false,\n            \"values\":\
+    \ true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"connected\",\n     \
+    \     \"options\": {\n            \"alertThreshold\": true\n          },\n   \
+    \       \"paceLength\": 10,\n          \"percentage\": false,\n          \"pluginVersion\"\
+    : \"10.3.1\",\n          \"pointradius\": 5,\n          \"points\": false,\n \
+    \         \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n      \
+    \    \"spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\"\
+    : false,\n          \"targets\": [\n            {\n              \"datasource\"\
+    : {\n                \"uid\": \"$datasource\"\n              },\n            \
+    \  \"expr\": \"go_memstats_heap_alloc_bytes{job=\\\"argocd-application-controller-metrics\\\
+    \",namespace=~\\\"$namespace\\\"}\",\n              \"format\": \"time_series\"\
+    ,\n              \"intervalFactor\": 1,\n              \"legendFormat\": \"{{namespace}}\"\
+    ,\n              \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [],\n          \"timeRegions\": [],\n          \"title\": \"Memory Usage\",\n\
+    \          \"tooltip\": {\n            \"shared\": false,\n            \"sort\"\
+    : 2,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"bytes\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\": {\n     \
+    \       \"defaults\": {\n              \"links\": [],\n              \"unitScale\"\
+    : true\n            },\n            \"overrides\": []\n          },\n        \
+    \  \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\": {\n  \
+    \          \"h\": 7,\n            \"w\": 24,\n            \"x\": 0,\n        \
+    \    \"y\": 16\n          },\n          \"hiddenSeries\": false,\n          \"\
+    id\": 108,\n          \"legend\": {\n            \"alignAsTable\": true,\n   \
+    \         \"avg\": true,\n            \"current\": true,\n            \"hideEmpty\"\
+    : true,\n            \"hideZero\": true,\n            \"max\": true,\n       \
+    \     \"min\": false,\n            \"rightSide\": true,\n            \"show\"\
+    : true,\n            \"sort\": \"avg\",\n            \"sortDesc\": true,\n   \
+    \         \"total\": false,\n            \"values\": true\n          },\n    \
+    \      \"lines\": true,\n          \"linewidth\": 1,\n          \"links\": [],\n\
+    \          \"nullPointMode\": \"connected\",\n          \"options\": {\n     \
+    \       \"alertThreshold\": true\n          },\n          \"paceLength\": 10,\n\
+    \          \"percentage\": false,\n          \"pluginVersion\": \"10.3.1\",\n\
+    \          \"pointradius\": 5,\n          \"points\": false,\n          \"renderer\"\
+    : \"flot\",\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n\
+    \          \"stack\": false,\n          \"steppedLine\": false,\n          \"\
+    targets\": [\n            {\n              \"datasource\": {\n               \
+    \ \"uid\": \"$datasource\"\n              },\n              \"expr\": \"irate(process_cpu_seconds_total{job=\\\
+    \"argocd-application-controller-metrics\\\",namespace=~\\\"$namespace\\\"}[1m])\"\
+    ,\n              \"format\": \"time_series\",\n              \"intervalFactor\"\
+    : 1,\n              \"legendFormat\": \"{{namespace}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"CPU Usage\",\n          \"tooltip\"\
+    : {\n            \"shared\": false,\n            \"sort\": 2,\n            \"\
+    value_type\": \"individual\"\n          },\n          \"type\": \"graph\",\n \
+    \         \"xaxis\": {\n            \"mode\": \"time\",\n            \"show\"\
+    : true,\n            \"values\": []\n          },\n          \"yaxes\": [\n  \
+    \          {\n              \"decimals\": 1,\n              \"format\": \"none\"\
+    ,\n              \"logBase\": 1,\n              \"show\": true\n            },\n\
+    \            {\n              \"format\": \"short\",\n              \"logBase\"\
+    : 1,\n              \"show\": true\n            }\n          ],\n          \"\
+    yaxis\": {\n            \"align\": false\n          }\n        },\n        {\n\
+    \          \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\": {\n     \
+    \       \"defaults\": {\n              \"links\": [],\n              \"unitScale\"\
+    : true\n            },\n            \"overrides\": []\n          },\n        \
+    \  \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\": {\n  \
+    \          \"h\": 7,\n            \"w\": 24,\n            \"x\": 0,\n        \
+    \    \"y\": 23\n          },\n          \"hiddenSeries\": false,\n          \"\
+    id\": 62,\n          \"legend\": {\n            \"alignAsTable\": true,\n    \
+    \        \"avg\": true,\n            \"current\": true,\n            \"hideEmpty\"\
+    : false,\n            \"hideZero\": false,\n            \"max\": true,\n     \
+    \       \"min\": false,\n            \"rightSide\": true,\n            \"show\"\
+    : true,\n            \"sort\": \"current\",\n            \"sortDesc\": true,\n\
+    \            \"total\": false,\n            \"values\": true\n          },\n \
+    \         \"lines\": true,\n          \"linewidth\": 1,\n          \"links\":\
+    \ [],\n          \"nullPointMode\": \"null\",\n          \"options\": {\n    \
+    \        \"alertThreshold\": true\n          },\n          \"paceLength\": 10,\n\
+    \          \"percentage\": false,\n          \"pluginVersion\": \"10.3.1\",\n\
+    \          \"pointradius\": 5,\n          \"points\": false,\n          \"renderer\"\
+    : \"flot\",\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n\
+    \          \"stack\": false,\n          \"steppedLine\": false,\n          \"\
+    targets\": [\n            {\n              \"datasource\": {\n               \
+    \ \"uid\": \"$datasource\"\n              },\n              \"expr\": \"go_goroutines{job=\\\
+    \"argocd-application-controller-metrics\\\",namespace=~\\\"$namespace\\\"}\",\n\
+    \              \"format\": \"time_series\",\n              \"intervalFactor\"\
+    : 1,\n              \"legendFormat\": \"{{namespace}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"Goroutines\",\n          \"tooltip\"\
+    : {\n            \"shared\": false,\n            \"sort\": 2,\n            \"\
+    value_type\": \"individual\"\n          },\n          \"type\": \"graph\",\n \
+    \         \"xaxis\": {\n            \"mode\": \"time\",\n            \"show\"\
+    : true,\n            \"values\": []\n          },\n          \"yaxes\": [\n  \
+    \          {\n              \"format\": \"short\",\n              \"logBase\"\
+    : 1,\n              \"show\": true\n            },\n            {\n          \
+    \    \"format\": \"short\",\n              \"logBase\": 1,\n              \"show\"\
+    : true\n            }\n          ],\n          \"yaxis\": {\n            \"align\"\
+    : false\n          }\n        }\n      ],\n      \"targets\": [\n        {\n \
+    \         \"datasource\": {\n            \"uid\": \"$datasource\"\n          },\n\
+    \          \"refId\": \"A\"\n        }\n      ],\n      \"title\": \"Controller\
+    \ Telemetry\",\n      \"type\": \"row\"\n    },\n    {\n      \"collapsed\": true,\n\
+    \      \"datasource\": {\n        \"uid\": \"$datasource\"\n      },\n      \"\
+    gridPos\": {\n        \"h\": 1,\n        \"w\": 24,\n        \"x\": 0,\n     \
+    \   \"y\": 8\n      },\n      \"id\": 102,\n      \"panels\": [\n        {\n \
+    \         \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\": {\n     \
+    \       \"defaults\": {\n              \"links\": [],\n              \"unitScale\"\
+    : true,\n              \"unit\": \"bytes\"\n            },\n            \"overrides\"\
+    : []\n          },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n \
+    \         \"gridPos\": {\n            \"h\": 7,\n            \"w\": 24,\n    \
+    \        \"x\": 0,\n            \"y\": 9\n          },\n          \"hiddenSeries\"\
+    : false,\n          \"id\": 34,\n          \"legend\": {\n            \"alignAsTable\"\
+    : true,\n            \"avg\": true,\n            \"current\": true,\n        \
+    \    \"max\": true,\n            \"min\": false,\n            \"rightSide\": true,\n\
+    \            \"show\": true,\n            \"sort\": \"current\",\n           \
+    \ \"sortDesc\": true,\n            \"total\": false,\n            \"values\":\
+    \ true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"connected\",\n     \
+    \     \"options\": {\n            \"alertThreshold\": true\n          },\n   \
+    \       \"paceLength\": 10,\n          \"percentage\": false,\n          \"pluginVersion\"\
+    : \"10.3.1\",\n          \"pointradius\": 5,\n          \"points\": false,\n \
+    \         \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n      \
+    \    \"spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\"\
+    : false,\n          \"targets\": [\n            {\n              \"datasource\"\
+    : {\n                \"uid\": \"$datasource\"\n              },\n            \
+    \  \"expr\": \"go_memstats_heap_alloc_bytes{job=\\\"argocd-applicationset-controller-metrics\\\
+    \",namespace=~\\\"$namespace\\\"}\",\n              \"format\": \"time_series\"\
+    ,\n              \"intervalFactor\": 1,\n              \"legendFormat\": \"{{namespace}}\"\
+    ,\n              \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [],\n          \"timeRegions\": [],\n          \"title\": \"Memory Usage\",\n\
+    \          \"tooltip\": {\n            \"shared\": false,\n            \"sort\"\
+    : 2,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"bytes\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\": {\n     \
+    \       \"defaults\": {\n              \"links\": [],\n              \"unitScale\"\
+    : true\n            },\n            \"overrides\": []\n          },\n        \
+    \  \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\": {\n  \
+    \          \"h\": 7,\n            \"w\": 24,\n            \"x\": 0,\n        \
+    \    \"y\": 16\n          },\n          \"hiddenSeries\": false,\n          \"\
+    id\": 108,\n          \"legend\": {\n            \"alignAsTable\": true,\n   \
+    \         \"avg\": true,\n            \"current\": true,\n            \"hideEmpty\"\
+    : true,\n            \"hideZero\": true,\n            \"max\": true,\n       \
+    \     \"min\": false,\n            \"rightSide\": true,\n            \"show\"\
+    : true,\n            \"sort\": \"avg\",\n            \"sortDesc\": true,\n   \
+    \         \"total\": false,\n            \"values\": true\n          },\n    \
+    \      \"lines\": true,\n          \"linewidth\": 1,\n          \"links\": [],\n\
+    \          \"nullPointMode\": \"connected\",\n          \"options\": {\n     \
+    \       \"alertThreshold\": true\n          },\n          \"paceLength\": 10,\n\
+    \          \"percentage\": false,\n          \"pluginVersion\": \"10.3.1\",\n\
+    \          \"pointradius\": 5,\n          \"points\": false,\n          \"renderer\"\
+    : \"flot\",\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n\
+    \          \"stack\": false,\n          \"steppedLine\": false,\n          \"\
+    targets\": [\n            {\n              \"datasource\": {\n               \
+    \ \"uid\": \"$datasource\"\n              },\n              \"expr\": \"irate(process_cpu_seconds_total{job=\\\
+    \"argocd-applicationset-controller-metrics\\\",namespace=~\\\"$namespace\\\"}[1m])\"\
+    ,\n              \"format\": \"time_series\",\n              \"intervalFactor\"\
+    : 1,\n              \"legendFormat\": \"{{namespace}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"CPU Usage\",\n          \"tooltip\"\
+    : {\n            \"shared\": false,\n            \"sort\": 2,\n            \"\
+    value_type\": \"individual\"\n          },\n          \"type\": \"graph\",\n \
+    \         \"xaxis\": {\n            \"mode\": \"time\",\n            \"show\"\
+    : true,\n            \"values\": []\n          },\n          \"yaxes\": [\n  \
+    \          {\n              \"decimals\": 1,\n              \"format\": \"none\"\
+    ,\n              \"logBase\": 1,\n              \"show\": true\n            },\n\
+    \            {\n              \"format\": \"short\",\n              \"logBase\"\
+    : 1,\n              \"show\": true\n            }\n          ],\n          \"\
+    yaxis\": {\n            \"align\": false\n          }\n        },\n        {\n\
+    \          \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\": {\n     \
+    \       \"defaults\": {\n              \"links\": [],\n              \"unitScale\"\
+    : true\n            },\n            \"overrides\": []\n          },\n        \
+    \  \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\": {\n  \
+    \          \"h\": 7,\n            \"w\": 24,\n            \"x\": 0,\n        \
+    \    \"y\": 23\n          },\n          \"hiddenSeries\": false,\n          \"\
+    id\": 62,\n          \"legend\": {\n            \"alignAsTable\": true,\n    \
+    \        \"avg\": true,\n            \"current\": true,\n            \"hideEmpty\"\
+    : false,\n            \"hideZero\": false,\n            \"max\": true,\n     \
+    \       \"min\": false,\n            \"rightSide\": true,\n            \"show\"\
+    : true,\n            \"sort\": \"current\",\n            \"sortDesc\": true,\n\
+    \            \"total\": false,\n            \"values\": true\n          },\n \
+    \         \"lines\": true,\n          \"linewidth\": 1,\n          \"links\":\
+    \ [],\n          \"nullPointMode\": \"null\",\n          \"options\": {\n    \
+    \        \"alertThreshold\": true\n          },\n          \"paceLength\": 10,\n\
+    \          \"percentage\": false,\n          \"pluginVersion\": \"10.3.1\",\n\
+    \          \"pointradius\": 5,\n          \"points\": false,\n          \"renderer\"\
+    : \"flot\",\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n\
+    \          \"stack\": false,\n          \"steppedLine\": false,\n          \"\
+    targets\": [\n            {\n              \"datasource\": {\n               \
+    \ \"uid\": \"$datasource\"\n              },\n              \"expr\": \"go_goroutines{job=\\\
+    \"argocd-applicationset-controller-metrics\\\",namespace=~\\\"$namespace\\\"}\"\
+    ,\n              \"format\": \"time_series\",\n              \"intervalFactor\"\
+    : 1,\n              \"legendFormat\": \"{{namespace}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"Goroutines\",\n          \"tooltip\"\
+    : {\n            \"shared\": false,\n            \"sort\": 2,\n            \"\
+    value_type\": \"individual\"\n          },\n          \"type\": \"graph\",\n \
+    \         \"xaxis\": {\n            \"mode\": \"time\",\n            \"show\"\
+    : true,\n            \"values\": []\n          },\n          \"yaxes\": [\n  \
+    \          {\n              \"format\": \"short\",\n              \"logBase\"\
+    : 1,\n              \"show\": true\n            },\n            {\n          \
+    \    \"format\": \"short\",\n              \"logBase\": 1,\n              \"show\"\
+    : true\n            }\n          ],\n          \"yaxis\": {\n            \"align\"\
+    : false\n          }\n        }\n      ],\n      \"targets\": [\n        {\n \
+    \         \"datasource\": {\n            \"uid\": \"$datasource\"\n          },\n\
+    \          \"refId\": \"A\"\n        }\n      ],\n      \"title\": \"AppSet Controller\
+    \ Telemetry\",\n      \"type\": \"row\"\n    },\n    {\n      \"collapsed\": true,\n\
+    \      \"datasource\": {\n        \"uid\": \"$datasource\"\n      },\n      \"\
+    gridPos\": {\n        \"h\": 1,\n        \"w\": 24,\n        \"x\": 0,\n     \
+    \   \"y\": 9\n      },\n      \"id\": 88,\n      \"panels\": [\n        {\n  \
+    \        \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    fillGradient\": 0,\n          \"gridPos\": {\n            \"h\": 7,\n        \
+    \    \"w\": 24,\n            \"x\": 0,\n            \"y\": 27\n          },\n\
+    \          \"hiddenSeries\": false,\n          \"id\": 90,\n          \"legend\"\
+    : {\n            \"alignAsTable\": true,\n            \"avg\": false,\n      \
+    \      \"current\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"rightSide\": true,\n            \"show\": true,\n            \"\
+    sort\": \"current\",\n            \"sortDesc\": true,\n            \"total\":\
+    \ false,\n            \"values\": true\n          },\n          \"lines\": true,\n\
+    \          \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"null\",\n          \"options\": {\n            \"dataLinks\": []\n       \
+    \   },\n          \"percentage\": false,\n          \"pointradius\": 2,\n    \
+    \      \"points\": false,\n          \"renderer\": \"flot\",\n          \"seriesOverrides\"\
+    : [],\n          \"spaceLength\": 10,\n          \"stack\": false,\n         \
+    \ \"steppedLine\": false,\n          \"targets\": [\n            {\n         \
+    \     \"datasource\": {\n                \"uid\": \"$datasource\"\n          \
+    \    },\n              \"expr\": \"sum(argocd_cluster_api_resource_objects{namespace=~\\\
+    \"$namespace\\\",server=~\\\"$cluster\\\"}) by (server)\",\n              \"format\"\
+    : \"time_series\",\n              \"intervalFactor\": 1,\n              \"legendFormat\"\
+    : \"{{server}}\",\n              \"refId\": \"A\"\n            }\n          ],\n\
+    \          \"thresholds\": [],\n          \"timeRegions\": [],\n          \"title\"\
+    : \"Resource Objects Count\",\n          \"tooltip\": {\n            \"shared\"\
+    : false,\n            \"sort\": 2,\n            \"value_type\": \"individual\"\
+    \n          },\n          \"type\": \"graph\",\n          \"xaxis\": {\n     \
+    \       \"mode\": \"time\",\n            \"show\": true,\n            \"values\"\
+    : []\n          },\n          \"yaxes\": [\n            {\n              \"format\"\
+    : \"short\",\n              \"logBase\": 1,\n              \"show\": true\n  \
+    \          },\n            {\n              \"format\": \"short\",\n         \
+    \     \"logBase\": 1,\n              \"show\": true\n            }\n         \
+    \ ],\n          \"yaxis\": {\n            \"align\": false\n          }\n    \
+    \    },\n        {\n          \"aliasColors\": {},\n          \"bars\": false,\n\
+    \          \"dashLength\": 10,\n          \"dashes\": false,\n          \"datasource\"\
+    : {\n            \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n\
+    \          \"fillGradient\": 0,\n          \"gridPos\": {\n            \"h\":\
+    \ 6,\n            \"w\": 24,\n            \"x\": 0,\n            \"y\": 34\n \
+    \         },\n          \"hiddenSeries\": false,\n          \"id\": 92,\n    \
+    \      \"legend\": {\n            \"alignAsTable\": true,\n            \"avg\"\
+    : false,\n            \"current\": true,\n            \"hideEmpty\": true,\n \
+    \           \"max\": false,\n            \"min\": false,\n            \"rightSide\"\
+    : true,\n            \"show\": true,\n            \"sort\": \"current\",\n   \
+    \         \"sortDesc\": true,\n            \"total\": false,\n            \"values\"\
+    : true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"null\",\n          \"\
+    options\": {\n            \"dataLinks\": []\n          },\n          \"percentage\"\
+    : false,\n          \"pointradius\": 2,\n          \"points\": false,\n      \
+    \    \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n          \"\
+    spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\": false,\n\
+    \          \"targets\": [\n            {\n              \"datasource\": {\n  \
+    \              \"uid\": \"$datasource\"\n              },\n              \"expr\"\
+    : \"  sum(argocd_cluster_api_resources{namespace=~\\\"$namespace\\\",server=~\\\
+    \"$cluster\\\"}) by (server)\",\n              \"format\": \"time_series\",\n\
+    \              \"intervalFactor\": 1,\n              \"legendFormat\": \"{{server}}\"\
+    ,\n              \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [],\n          \"timeRegions\": [],\n          \"title\": \"API Resources Count\"\
+    ,\n          \"tooltip\": {\n            \"shared\": false,\n            \"sort\"\
+    : 2,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    fillGradient\": 0,\n          \"gridPos\": {\n            \"h\": 7,\n        \
+    \    \"w\": 24,\n            \"x\": 0,\n            \"y\": 40\n          },\n\
+    \          \"hiddenSeries\": false,\n          \"id\": 86,\n          \"legend\"\
+    : {\n            \"alignAsTable\": true,\n            \"avg\": true,\n       \
+    \     \"current\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"rightSide\": true,\n            \"show\": true,\n            \"\
+    sort\": \"current\",\n            \"sortDesc\": true,\n            \"total\":\
+    \ false,\n            \"values\": true\n          },\n          \"lines\": true,\n\
+    \          \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"null\",\n          \"options\": {\n            \"dataLinks\": []\n       \
+    \   },\n          \"percentage\": false,\n          \"pointradius\": 2,\n    \
+    \      \"points\": false,\n          \"renderer\": \"flot\",\n          \"seriesOverrides\"\
+    : [],\n          \"spaceLength\": 10,\n          \"stack\": false,\n         \
+    \ \"steppedLine\": false,\n          \"targets\": [\n            {\n         \
+    \     \"datasource\": {\n                \"uid\": \"$datasource\"\n          \
+    \    },\n              \"expr\": \"sum(increase(argocd_cluster_events_total{namespace=~\\\
+    \"$namespace\\\",server=~\\\"$cluster\\\"}[$interval])) by (server)\",\n     \
+    \         \"format\": \"time_series\",\n              \"intervalFactor\": 1,\n\
+    \              \"legendFormat\": \"{{server}}\",\n              \"refId\": \"\
+    A\"\n            }\n          ],\n          \"thresholds\": [],\n          \"\
+    timeRegions\": [],\n          \"title\": \"Cluster Events Count\",\n         \
+    \ \"tooltip\": {\n            \"shared\": false,\n            \"sort\": 2,\n \
+    \           \"value_type\": \"individual\"\n          },\n          \"type\":\
+    \ \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        }\n      ],\n      \"\
+    targets\": [\n        {\n          \"datasource\": {\n            \"uid\": \"\
+    $datasource\"\n          },\n          \"refId\": \"A\"\n        }\n      ],\n\
+    \      \"title\": \"Cluster Stats\",\n      \"type\": \"row\"\n    },\n    {\n\
+    \      \"collapsed\": true,\n      \"datasource\": {\n        \"uid\": \"$datasource\"\
+    \n      },\n      \"gridPos\": {\n        \"h\": 1,\n        \"w\": 24,\n    \
+    \    \"x\": 0,\n        \"y\": 10\n      },\n      \"id\": 70,\n      \"panels\"\
+    : [\n        {\n          \"aliasColors\": {},\n          \"bars\": false,\n \
+    \         \"dashLength\": 10,\n          \"dashes\": false,\n          \"datasource\"\
+    : {\n            \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\"\
+    : {\n            \"defaults\": {\n              \"links\": [],\n             \
+    \ \"unitScale\": true\n            },\n            \"overrides\": []\n       \
+    \   },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\"\
+    : {\n            \"h\": 8,\n            \"w\": 12,\n            \"x\": 0,\n  \
+    \          \"y\": 11\n          },\n          \"hiddenSeries\": false,\n     \
+    \     \"id\": 82,\n          \"legend\": {\n            \"avg\": false,\n    \
+    \        \"current\": false,\n            \"max\": false,\n            \"min\"\
+    : false,\n            \"show\": false,\n            \"total\": false,\n      \
+    \      \"values\": false\n          },\n          \"lines\": true,\n         \
+    \ \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\": \"\
+    null\",\n          \"options\": {\n            \"alertThreshold\": true\n    \
+    \      },\n          \"percentage\": false,\n          \"pluginVersion\": \"10.3.1\"\
+    ,\n          \"pointradius\": 2,\n          \"points\": false,\n          \"renderer\"\
+    : \"flot\",\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n\
+    \          \"stack\": false,\n          \"steppedLine\": false,\n          \"\
+    targets\": [\n            {\n              \"datasource\": {\n               \
+    \ \"uid\": \"$datasource\"\n              },\n              \"expr\": \"sum(increase(argocd_git_request_total{request_type=\\\
+    \"ls-remote\\\", namespace=~\\\"$namespace\\\"}[10m])) by (namespace)\",\n   \
+    \           \"format\": \"time_series\",\n              \"intervalFactor\": 1,\n\
+    \              \"legendFormat\": \"{{namespace}}\",\n              \"refId\":\
+    \ \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"Git Requests (ls-remote)\",\n\
+    \          \"tooltip\": {\n            \"shared\": true,\n            \"sort\"\
+    : 2,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\": {\n     \
+    \       \"defaults\": {\n              \"links\": [],\n              \"unitScale\"\
+    : true\n            },\n            \"overrides\": []\n          },\n        \
+    \  \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\": {\n  \
+    \          \"h\": 8,\n            \"w\": 12,\n            \"x\": 12,\n       \
+    \     \"y\": 11\n          },\n          \"hiddenSeries\": false,\n          \"\
+    id\": 84,\n          \"legend\": {\n            \"avg\": false,\n            \"\
+    current\": false,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"show\": false,\n            \"total\": false,\n            \"values\"\
+    : false\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"null\",\n          \"\
+    options\": {\n            \"alertThreshold\": true\n          },\n          \"\
+    percentage\": false,\n          \"pluginVersion\": \"10.3.1\",\n          \"pointradius\"\
+    : 2,\n          \"points\": false,\n          \"renderer\": \"flot\",\n      \
+    \    \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n          \"stack\"\
+    : false,\n          \"steppedLine\": false,\n          \"targets\": [\n      \
+    \      {\n              \"datasource\": {\n                \"uid\": \"$datasource\"\
+    \n              },\n              \"expr\": \"sum(increase(argocd_git_request_total{request_type=\\\
+    \"fetch\\\", namespace=~\\\"$namespace\\\"}[10m])) by (namespace)\",\n       \
+    \       \"format\": \"time_series\",\n              \"intervalFactor\": 1,\n \
+    \             \"legendFormat\": \"{{namespace}}\",\n              \"refId\": \"\
+    A\"\n            }\n          ],\n          \"thresholds\": [],\n          \"\
+    timeRegions\": [],\n          \"title\": \"Git Requests (checkout)\",\n      \
+    \    \"tooltip\": {\n            \"shared\": true,\n            \"sort\": 2,\n\
+    \            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"label\": \"\",\n              \"logBase\": 1,\n              \"show\": true\n\
+    \            },\n            {\n              \"format\": \"short\",\n       \
+    \       \"logBase\": 1,\n              \"show\": true\n            }\n       \
+    \   ],\n          \"yaxis\": {\n            \"align\": false\n          }\n  \
+    \      },\n        {\n          \"cards\": {},\n          \"color\": {\n     \
+    \       \"cardColor\": \"#b4ff00\",\n            \"colorScale\": \"sqrt\",\n \
+    \           \"colorScheme\": \"interpolateSpectral\",\n            \"exponent\"\
+    : 0.5,\n            \"mode\": \"spectrum\"\n          },\n          \"dataFormat\"\
+    : \"tsbuckets\",\n          \"datasource\": {\n            \"uid\": \"$datasource\"\
+    \n          },\n          \"fieldConfig\": {\n            \"defaults\": {\n  \
+    \            \"custom\": {\n                \"hideFrom\": {\n                \
+    \  \"legend\": false,\n                  \"tooltip\": false,\n               \
+    \   \"viz\": false\n                },\n                \"scaleDistribution\"\
+    : {\n                  \"type\": \"linear\"\n                }\n             \
+    \ },\n              \"unitScale\": true\n            },\n            \"overrides\"\
+    : []\n          },\n          \"gridPos\": {\n            \"h\": 8,\n        \
+    \    \"w\": 12,\n            \"x\": 0,\n            \"y\": 19\n          },\n\
+    \          \"heatmap\": {},\n          \"hideZeroBuckets\": false,\n         \
+    \ \"highlightCards\": true,\n          \"id\": 114,\n          \"legend\": {\n\
+    \            \"show\": false\n          },\n          \"options\": {\n       \
+    \     \"calculate\": false,\n            \"calculation\": {},\n            \"\
+    cellGap\": 2,\n            \"cellValues\": {},\n            \"color\": {\n   \
+    \           \"exponent\": 0.5,\n              \"fill\": \"#b4ff00\",\n       \
+    \       \"mode\": \"scheme\",\n              \"reverse\": false,\n           \
+    \   \"scale\": \"exponential\",\n              \"scheme\": \"Spectral\",\n   \
+    \           \"steps\": 128\n            },\n            \"exemplars\": {\n   \
+    \           \"color\": \"rgba(255,0,255,0.7)\"\n            },\n            \"\
+    filterValues\": {\n              \"le\": 1e-9\n            },\n            \"\
+    legend\": {\n              \"show\": false\n            },\n            \"rowsFrame\"\
+    : {\n              \"layout\": \"auto\"\n            },\n            \"showValue\"\
+    : \"never\",\n            \"tooltip\": {\n              \"mode\": \"single\",\n\
+    \              \"showColorScale\": false,\n              \"yHistogram\": false\n\
+    \            },\n            \"yAxis\": {\n              \"axisPlacement\": \"\
+    left\",\n              \"reverse\": false,\n              \"unit\": \"short\"\n\
+    \            }\n          },\n          \"pluginVersion\": \"10.3.1\",\n     \
+    \     \"reverseYBuckets\": false,\n          \"targets\": [\n            {\n \
+    \             \"datasource\": {\n                \"uid\": \"$datasource\"\n  \
+    \            },\n              \"expr\": \"sum(increase(argocd_git_request_duration_seconds_bucket{request_type=\\\
+    \"fetch\\\", namespace=~\\\"$namespace\\\"}[$interval])) by (le)\",\n        \
+    \      \"format\": \"heatmap\",\n              \"intervalFactor\": 10,\n     \
+    \         \"legendFormat\": \"{{le}}\",\n              \"refId\": \"A\"\n    \
+    \        }\n          ],\n          \"title\": \"Git Fetch Performance\",\n  \
+    \        \"tooltip\": {\n            \"show\": true,\n            \"showHistogram\"\
+    : false\n          },\n          \"type\": \"heatmap\",\n          \"xAxis\":\
+    \ {\n            \"show\": true\n          },\n          \"yAxis\": {\n      \
+    \      \"format\": \"short\",\n            \"logBase\": 1,\n            \"show\"\
+    : true\n          },\n          \"yBucketBound\": \"auto\"\n        },\n     \
+    \   {\n          \"cards\": {},\n          \"color\": {\n            \"cardColor\"\
+    : \"#b4ff00\",\n            \"colorScale\": \"sqrt\",\n            \"colorScheme\"\
+    : \"interpolateSpectral\",\n            \"exponent\": 0.5,\n            \"mode\"\
+    : \"spectrum\"\n          },\n          \"dataFormat\": \"tsbuckets\",\n     \
+    \     \"datasource\": {\n            \"uid\": \"$datasource\"\n          },\n\
+    \          \"fieldConfig\": {\n            \"defaults\": {\n              \"custom\"\
+    : {\n                \"hideFrom\": {\n                  \"legend\": false,\n \
+    \                 \"tooltip\": false,\n                  \"viz\": false\n    \
+    \            },\n                \"scaleDistribution\": {\n                  \"\
+    type\": \"linear\"\n                }\n              },\n              \"unitScale\"\
+    : true\n            },\n            \"overrides\": []\n          },\n        \
+    \  \"gridPos\": {\n            \"h\": 8,\n            \"w\": 12,\n           \
+    \ \"x\": 12,\n            \"y\": 19\n          },\n          \"heatmap\": {},\n\
+    \          \"hideZeroBuckets\": false,\n          \"highlightCards\": true,\n\
+    \          \"id\": 116,\n          \"legend\": {\n            \"show\": false\n\
+    \          },\n          \"options\": {\n            \"calculate\": false,\n \
+    \           \"calculation\": {},\n            \"cellGap\": 2,\n            \"\
+    cellValues\": {},\n            \"color\": {\n              \"exponent\": 0.5,\n\
+    \              \"fill\": \"#b4ff00\",\n              \"mode\": \"scheme\",\n \
+    \             \"reverse\": false,\n              \"scale\": \"exponential\",\n\
+    \              \"scheme\": \"Spectral\",\n              \"steps\": 128\n     \
+    \       },\n            \"exemplars\": {\n              \"color\": \"rgba(255,0,255,0.7)\"\
+    \n            },\n            \"filterValues\": {\n              \"le\": 1e-9\n\
+    \            },\n            \"legend\": {\n              \"show\": false\n  \
+    \          },\n            \"rowsFrame\": {\n              \"layout\": \"auto\"\
+    \n            },\n            \"showValue\": \"never\",\n            \"tooltip\"\
+    : {\n              \"mode\": \"single\",\n              \"showColorScale\": false,\n\
+    \              \"yHistogram\": false\n            },\n            \"yAxis\": {\n\
+    \              \"axisPlacement\": \"left\",\n              \"reverse\": false,\n\
+    \              \"unit\": \"short\"\n            }\n          },\n          \"\
+    pluginVersion\": \"10.3.1\",\n          \"reverseYBuckets\": false,\n        \
+    \  \"targets\": [\n            {\n              \"datasource\": {\n          \
+    \      \"uid\": \"$datasource\"\n              },\n              \"expr\": \"\
+    sum(increase(argocd_git_request_duration_seconds_bucket{request_type=\\\"ls-remote\\\
+    \", namespace=~\\\"$namespace\\\"}[$interval])) by (le)\",\n              \"format\"\
+    : \"heatmap\",\n              \"intervalFactor\": 10,\n              \"legendFormat\"\
+    : \"{{le}}\",\n              \"refId\": \"A\"\n            }\n          ],\n \
+    \         \"title\": \"Git Ls-Remote Performance\",\n          \"tooltip\": {\n\
+    \            \"show\": true,\n            \"showHistogram\": false\n         \
+    \ },\n          \"type\": \"heatmap\",\n          \"xAxis\": {\n            \"\
+    show\": true\n          },\n          \"yAxis\": {\n            \"format\": \"\
+    short\",\n            \"logBase\": 1,\n            \"show\": true\n          },\n\
+    \          \"yBucketBound\": \"auto\"\n        },\n        {\n          \"aliasColors\"\
+    : {},\n          \"bars\": false,\n          \"dashLength\": 10,\n          \"\
+    dashes\": false,\n          \"datasource\": {\n            \"uid\": \"$datasource\"\
+    \n          },\n          \"fieldConfig\": {\n            \"defaults\": {\n  \
+    \            \"links\": [],\n              \"unitScale\": true,\n            \
+    \  \"unit\": \"bytes\"\n            },\n            \"overrides\": []\n      \
+    \    },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n          \"\
+    gridPos\": {\n            \"h\": 8,\n            \"w\": 24,\n            \"x\"\
+    : 0,\n            \"y\": 27\n          },\n          \"hiddenSeries\": false,\n\
+    \          \"id\": 71,\n          \"legend\": {\n            \"avg\": false,\n\
+    \            \"current\": false,\n            \"max\": false,\n            \"\
+    min\": false,\n            \"show\": false,\n            \"total\": false,\n \
+    \           \"values\": false\n          },\n          \"lines\": true,\n    \
+    \      \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"connected\",\n          \"options\": {\n            \"dataLinks\": []\n  \
+    \        },\n          \"paceLength\": 10,\n          \"percentage\": false,\n\
+    \          \"pointradius\": 5,\n          \"points\": false,\n          \"renderer\"\
+    : \"flot\",\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n\
+    \          \"stack\": false,\n          \"steppedLine\": false,\n          \"\
+    targets\": [\n            {\n              \"datasource\": {\n               \
+    \ \"uid\": \"$datasource\"\n              },\n              \"expr\": \"go_memstats_heap_alloc_bytes{job=\\\
+    \"argocd-server-metrics\\\",namespace=~\\\"$namespace\\\"}\",\n              \"\
+    format\": \"time_series\",\n              \"intervalFactor\": 1,\n           \
+    \   \"legendFormat\": \"{{pod}}\",\n              \"refId\": \"A\"\n         \
+    \   }\n          ],\n          \"thresholds\": [],\n          \"timeRegions\"\
+    : [],\n          \"title\": \"Memory Used\",\n          \"tooltip\": {\n     \
+    \       \"shared\": true,\n            \"sort\": 2,\n            \"value_type\"\
+    : \"individual\"\n          },\n          \"type\": \"graph\",\n          \"xaxis\"\
+    : {\n            \"mode\": \"time\",\n            \"show\": true,\n          \
+    \  \"values\": []\n          },\n          \"yaxes\": [\n            {\n     \
+    \         \"format\": \"bytes\",\n              \"logBase\": 1,\n            \
+    \  \"show\": true\n            },\n            {\n              \"format\": \"\
+    short\",\n              \"logBase\": 1,\n              \"show\": true\n      \
+    \      }\n          ],\n          \"yaxis\": {\n            \"align\": false\n\
+    \          }\n        },\n        {\n          \"aliasColors\": {},\n        \
+    \  \"bars\": false,\n          \"dashLength\": 10,\n          \"dashes\": false,\n\
+    \          \"datasource\": {\n            \"uid\": \"$datasource\"\n         \
+    \ },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\"\
+    : {\n            \"h\": 7,\n            \"w\": 24,\n            \"x\": 0,\n  \
+    \          \"y\": 35\n          },\n          \"hiddenSeries\": false,\n     \
+    \     \"id\": 72,\n          \"legend\": {\n            \"avg\": false,\n    \
+    \        \"current\": false,\n            \"max\": false,\n            \"min\"\
+    : false,\n            \"show\": false,\n            \"total\": false,\n      \
+    \      \"values\": false\n          },\n          \"lines\": true,\n         \
+    \ \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\": \"\
+    null\",\n          \"options\": {\n            \"dataLinks\": []\n          },\n\
+    \          \"paceLength\": 10,\n          \"percentage\": false,\n          \"\
+    pointradius\": 5,\n          \"points\": false,\n          \"renderer\": \"flot\"\
+    ,\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n      \
+    \    \"stack\": false,\n          \"steppedLine\": false,\n          \"targets\"\
+    : [\n            {\n              \"datasource\": {\n                \"uid\":\
+    \ \"$datasource\"\n              },\n              \"expr\": \"go_goroutines{job=\\\
+    \"argocd-server-metrics\\\",namespace=~\\\"$namespace\\\"}\",\n              \"\
+    format\": \"time_series\",\n              \"intervalFactor\": 1,\n           \
+    \   \"legendFormat\": \"{{pod}}\",\n              \"refId\": \"A\"\n         \
+    \   }\n          ],\n          \"thresholds\": [],\n          \"timeRegions\"\
+    : [],\n          \"title\": \"Goroutines\",\n          \"tooltip\": {\n      \
+    \      \"shared\": true,\n            \"sort\": 2,\n            \"value_type\"\
+    : \"individual\"\n          },\n          \"type\": \"graph\",\n          \"xaxis\"\
+    : {\n            \"mode\": \"time\",\n            \"show\": true,\n          \
+    \  \"values\": []\n          },\n          \"yaxes\": [\n            {\n     \
+    \         \"format\": \"short\",\n              \"logBase\": 1,\n            \
+    \  \"show\": true\n            },\n            {\n              \"format\": \"\
+    short\",\n              \"logBase\": 1,\n              \"show\": true\n      \
+    \      }\n          ],\n          \"yaxis\": {\n            \"align\": false\n\
+    \          }\n        }\n      ],\n      \"targets\": [\n        {\n         \
+    \ \"datasource\": {\n            \"uid\": \"$datasource\"\n          },\n    \
+    \      \"refId\": \"A\"\n        }\n      ],\n      \"title\": \"Repo Server Stats\"\
+    ,\n      \"type\": \"row\"\n    },\n    {\n      \"collapsed\": true,\n      \"\
+    datasource\": {\n        \"uid\": \"$datasource\"\n      },\n      \"gridPos\"\
+    : {\n        \"h\": 1,\n        \"w\": 24,\n        \"x\": 0,\n        \"y\":\
+    \ 11\n      },\n      \"id\": 66,\n      \"panels\": [\n        {\n          \"\
+    aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\": 10,\n\
+    \          \"dashes\": false,\n          \"datasource\": {\n            \"uid\"\
+    : \"$datasource\"\n          },\n          \"fieldConfig\": {\n            \"\
+    defaults\": {\n              \"unitScale\": true,\n              \"unit\": \"\
+    bytes\"\n            },\n            \"overrides\": []\n          },\n       \
+    \   \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\": {\n \
+    \           \"h\": 8,\n            \"w\": 24,\n            \"x\": 0,\n       \
+    \     \"y\": 12\n          },\n          \"hiddenSeries\": false,\n          \"\
+    id\": 61,\n          \"legend\": {\n            \"avg\": false,\n            \"\
+    current\": false,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"show\": false,\n            \"total\": false,\n            \"values\"\
+    : false\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"connected\",\n     \
+    \     \"options\": {\n            \"alertThreshold\": true\n          },\n   \
+    \       \"paceLength\": 10,\n          \"percentage\": false,\n          \"pluginVersion\"\
+    : \"10.3.1\",\n          \"pointradius\": 5,\n          \"points\": false,\n \
+    \         \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n      \
+    \    \"spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\"\
+    : false,\n          \"targets\": [\n            {\n              \"datasource\"\
+    : {\n                \"uid\": \"$datasource\"\n              },\n            \
+    \  \"expr\": \"go_memstats_heap_alloc_bytes{job=\\\"argocd-repo-server-metrics\\\
+    \",namespace=~\\\"$namespace\\\"}\",\n              \"format\": \"time_series\"\
+    ,\n              \"intervalFactor\": 1,\n              \"legendFormat\": \"{{pod}}\"\
+    ,\n              \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [],\n          \"timeRegions\": [],\n          \"title\": \"Memory Used\",\n\
+    \          \"tooltip\": {\n            \"shared\": true,\n            \"sort\"\
+    : 2,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"bytes\",\n            \
+    \  \"logBase\": 1,\n              \"min\": \"0\",\n              \"show\": true\n\
+    \            },\n            {\n              \"format\": \"short\",\n       \
+    \       \"logBase\": 1,\n              \"show\": true\n            }\n       \
+    \   ],\n          \"yaxis\": {\n            \"align\": false\n          }\n  \
+    \      },\n        {\n          \"aliasColors\": {},\n          \"bars\": false,\n\
+    \          \"dashLength\": 10,\n          \"dashes\": false,\n          \"datasource\"\
+    : {\n            \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\"\
+    : {\n            \"defaults\": {\n              \"unitScale\": true\n        \
+    \    },\n            \"overrides\": []\n          },\n          \"fill\": 1,\n\
+    \          \"fillGradient\": 0,\n          \"gridPos\": {\n            \"h\":\
+    \ 9,\n            \"w\": 24,\n            \"x\": 0,\n            \"y\": 20\n \
+    \         },\n          \"hiddenSeries\": false,\n          \"id\": 36,\n    \
+    \      \"legend\": {\n            \"avg\": false,\n            \"current\": false,\n\
+    \            \"max\": false,\n            \"min\": false,\n            \"show\"\
+    : false,\n            \"total\": false,\n            \"values\": false\n     \
+    \     },\n          \"lines\": true,\n          \"linewidth\": 1,\n          \"\
+    links\": [],\n          \"nullPointMode\": \"null\",\n          \"options\": {\n\
+    \            \"alertThreshold\": true\n          },\n          \"paceLength\"\
+    : 10,\n          \"percentage\": false,\n          \"pluginVersion\": \"10.3.1\"\
+    ,\n          \"pointradius\": 5,\n          \"points\": false,\n          \"renderer\"\
+    : \"flot\",\n          \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n\
+    \          \"stack\": false,\n          \"steppedLine\": false,\n          \"\
+    targets\": [\n            {\n              \"datasource\": {\n               \
+    \ \"uid\": \"$datasource\"\n              },\n              \"expr\": \"go_goroutines{job=\\\
+    \"argocd-repo-server-metrics\\\",namespace=~\\\"$namespace\\\"}\",\n         \
+    \     \"format\": \"time_series\",\n              \"intervalFactor\": 1,\n   \
+    \           \"legendFormat\": \"{{pod}}\",\n              \"refId\": \"A\"\n \
+    \           }\n          ],\n          \"thresholds\": [],\n          \"timeRegions\"\
+    : [],\n          \"title\": \"Goroutines\",\n          \"tooltip\": {\n      \
+    \      \"shared\": true,\n            \"sort\": 2,\n            \"value_type\"\
+    : \"individual\"\n          },\n          \"type\": \"graph\",\n          \"xaxis\"\
+    : {\n            \"mode\": \"time\",\n            \"show\": true,\n          \
+    \  \"values\": []\n          },\n          \"yaxes\": [\n            {\n     \
+    \         \"format\": \"short\",\n              \"logBase\": 1,\n            \
+    \  \"show\": true\n            },\n            {\n              \"format\": \"\
+    short\",\n              \"logBase\": 1,\n              \"show\": true\n      \
+    \      }\n          ],\n          \"yaxis\": {\n            \"align\": false\n\
+    \          }\n        },\n        {\n          \"aliasColors\": {},\n        \
+    \  \"bars\": false,\n          \"dashLength\": 10,\n          \"dashes\": false,\n\
+    \          \"datasource\": {\n            \"uid\": \"$datasource\"\n         \
+    \ },\n          \"fieldConfig\": {\n            \"defaults\": {\n            \
+    \  \"unitScale\": true\n            },\n            \"overrides\": []\n      \
+    \    },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n          \"\
+    gridPos\": {\n            \"h\": 9,\n            \"w\": 24,\n            \"x\"\
+    : 0,\n            \"y\": 29\n          },\n          \"hiddenSeries\": false,\n\
+    \          \"id\": 38,\n          \"legend\": {\n            \"avg\": false,\n\
+    \            \"current\": false,\n            \"max\": false,\n            \"\
+    min\": false,\n            \"show\": true,\n            \"total\": false,\n  \
+    \          \"values\": false\n          },\n          \"lines\": true,\n     \
+    \     \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"connected\",\n          \"options\": {\n            \"alertThreshold\": true\n\
+    \          },\n          \"paceLength\": 10,\n          \"percentage\": false,\n\
+    \          \"pluginVersion\": \"10.3.1\",\n          \"pointradius\": 5,\n   \
+    \       \"points\": false,\n          \"renderer\": \"flot\",\n          \"seriesOverrides\"\
+    : [],\n          \"spaceLength\": 10,\n          \"stack\": false,\n         \
+    \ \"steppedLine\": false,\n          \"targets\": [\n            {\n         \
+    \     \"datasource\": {\n                \"uid\": \"$datasource\"\n          \
+    \    },\n              \"expr\": \"go_gc_duration_seconds{job=\\\"argocd-server-metrics\\\
+    \", quantile=~\\\"1.0|1\\\", namespace=~\\\"$namespace\\\"}\",\n             \
+    \ \"format\": \"time_series\",\n              \"intervalFactor\": 2,\n       \
+    \       \"legendFormat\": \"{{pod}}\",\n              \"refId\": \"A\"\n     \
+    \       }\n          ],\n          \"thresholds\": [],\n          \"timeRegions\"\
+    : [],\n          \"title\": \"GC Time Quantiles\",\n          \"tooltip\": {\n\
+    \            \"shared\": true,\n            \"sort\": 0,\n            \"value_type\"\
+    : \"individual\"\n          },\n          \"type\": \"graph\",\n          \"xaxis\"\
+    : {\n            \"mode\": \"time\",\n            \"show\": true,\n          \
+    \  \"values\": []\n          },\n          \"yaxes\": [\n            {\n     \
+    \         \"format\": \"short\",\n              \"logBase\": 1,\n            \
+    \  \"show\": true\n            },\n            {\n              \"format\": \"\
+    short\",\n              \"logBase\": 1,\n              \"show\": true\n      \
+    \      }\n          ],\n          \"yaxis\": {\n            \"align\": false\n\
+    \          }\n        },\n        {\n          \"content\": \"#### gRPC Services:\"\
+    ,\n          \"gridPos\": {\n            \"h\": 2,\n            \"w\": 24,\n \
+    \           \"x\": 0,\n            \"y\": 38\n          },\n          \"id\":\
+    \ 54,\n          \"links\": [],\n          \"mode\": \"markdown\",\n         \
+    \ \"transparent\": true,\n          \"type\": \"text\"\n        },\n        {\n\
+    \          \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    gridPos\": {\n            \"h\": 9,\n            \"w\": 12,\n            \"x\"\
+    : 0,\n            \"y\": 40\n          },\n          \"id\": 40,\n          \"\
+    legend\": {\n            \"alignAsTable\": true,\n            \"avg\": true,\n\
+    \            \"current\": true,\n            \"hideEmpty\": true,\n          \
+    \  \"hideZero\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"rightSide\": false,\n            \"show\": true,\n            \"\
+    sort\": \"total\",\n            \"sortDesc\": true,\n            \"total\": true,\n\
+    \            \"values\": true\n          },\n          \"lines\": true,\n    \
+    \      \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"null as zero\",\n          \"paceLength\": 10,\n          \"percentage\":\
+    \ false,\n          \"pointradius\": 5,\n          \"points\": false,\n      \
+    \    \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n          \"\
+    spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\": false,\n\
+    \          \"targets\": [\n            {\n              \"datasource\": {\n  \
+    \              \"uid\": \"$datasource\"\n              },\n              \"expr\"\
+    : \"sum(increase(grpc_server_handled_total{job=\\\"argocd-server-metrics\\\",grpc_service=\\\
+    \"application.ApplicationService\\\",namespace=~\\\"$namespace\\\"}[$interval]))\
+    \ by (grpc_code, grpc_method)\",\n              \"format\": \"time_series\",\n\
+    \              \"intervalFactor\": 1,\n              \"legendFormat\": \"{{grpc_code}},{{grpc_method}}\"\
+    ,\n              \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [],\n          \"timeRegions\": [],\n          \"title\": \"ApplicationService\
+    \ Requests\",\n          \"tooltip\": {\n            \"shared\": false,\n    \
+    \        \"sort\": 2,\n            \"value_type\": \"individual\"\n          },\n\
+    \          \"type\": \"graph\",\n          \"xaxis\": {\n            \"mode\"\
+    : \"time\",\n            \"show\": true,\n            \"values\": []\n       \
+    \   },\n          \"yaxes\": [\n            {\n              \"format\": \"short\"\
+    ,\n              \"logBase\": 1,\n              \"show\": true\n            },\n\
+    \            {\n              \"format\": \"short\",\n              \"logBase\"\
+    : 1,\n              \"show\": true\n            }\n          ],\n          \"\
+    yaxis\": {\n            \"align\": false\n          }\n        },\n        {\n\
+    \          \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    gridPos\": {\n            \"h\": 9,\n            \"w\": 12,\n            \"x\"\
+    : 12,\n            \"y\": 40\n          },\n          \"id\": 42,\n          \"\
+    legend\": {\n            \"alignAsTable\": true,\n            \"avg\": true,\n\
+    \            \"current\": true,\n            \"hideEmpty\": true,\n          \
+    \  \"hideZero\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"rightSide\": false,\n            \"show\": true,\n            \"\
+    total\": true,\n            \"values\": true\n          },\n          \"lines\"\
+    : true,\n          \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"null as zero\",\n          \"paceLength\": 10,\n          \"percentage\":\
+    \ false,\n          \"pointradius\": 5,\n          \"points\": false,\n      \
+    \    \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n          \"\
+    spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\": false,\n\
+    \          \"targets\": [\n            {\n              \"datasource\": {\n  \
+    \              \"uid\": \"$datasource\"\n              },\n              \"expr\"\
+    : \"sum(increase(grpc_server_handled_total{job=\\\"argocd-server-metrics\\\",grpc_service=\\\
+    \"cluster.ClusterService\\\",namespace=~\\\"$namespace\\\"}[$interval])) by (grpc_code,\
+    \ grpc_method)\",\n              \"format\": \"time_series\",\n              \"\
+    intervalFactor\": 1,\n              \"legendFormat\": \"{{grpc_code}},{{grpc_method}}\"\
+    ,\n              \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [],\n          \"timeRegions\": [],\n          \"title\": \"ClusterService Requests\"\
+    ,\n          \"tooltip\": {\n            \"shared\": false,\n            \"sort\"\
+    : 2,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    gridPos\": {\n            \"h\": 9,\n            \"w\": 12,\n            \"x\"\
+    : 0,\n            \"y\": 49\n          },\n          \"id\": 44,\n          \"\
+    legend\": {\n            \"alignAsTable\": true,\n            \"avg\": true,\n\
+    \            \"current\": true,\n            \"hideEmpty\": true,\n          \
+    \  \"hideZero\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"rightSide\": false,\n            \"show\": true,\n            \"\
+    total\": true,\n            \"values\": true\n          },\n          \"lines\"\
+    : true,\n          \"linewidth\": 1,\n          \"links\": [],\n          \"nullPointMode\"\
+    : \"null as zero\",\n          \"paceLength\": 10,\n          \"percentage\":\
+    \ false,\n          \"pointradius\": 5,\n          \"points\": false,\n      \
+    \    \"renderer\": \"flot\",\n          \"seriesOverrides\": [],\n          \"\
+    spaceLength\": 10,\n          \"stack\": false,\n          \"steppedLine\": false,\n\
+    \          \"targets\": [\n            {\n              \"datasource\": {\n  \
+    \              \"uid\": \"$datasource\"\n              },\n              \"expr\"\
+    : \"sum(increase(grpc_server_handled_total{job=\\\"argocd-server-metrics\\\",grpc_service=\\\
+    \"project.ProjectService\\\",namespace=~\\\"$namespace\\\"}[$interval])) by (grpc_code,\
+    \ grpc_method)\",\n              \"format\": \"time_series\",\n              \"\
+    intervalFactor\": 1,\n              \"legendFormat\": \"{{grpc_code}},{{grpc_method}}\"\
+    ,\n              \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [],\n          \"timeRegions\": [],\n          \"title\": \"ProjectService Requests\"\
+    ,\n          \"tooltip\": {\n            \"shared\": true,\n            \"sort\"\
+    : 0,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    gridPos\": {\n            \"h\": 9,\n            \"w\": 12,\n            \"x\"\
+    : 12,\n            \"y\": 49\n          },\n          \"id\": 46,\n          \"\
+    legend\": {\n            \"alignAsTable\": true,\n            \"avg\": true,\n\
+    \            \"current\": true,\n            \"hideEmpty\": true,\n          \
+    \  \"hideZero\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"show\": true,\n            \"total\": true,\n            \"values\"\
+    : true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"null as zero\",\n  \
+    \        \"paceLength\": 10,\n          \"percentage\": false,\n          \"pointradius\"\
+    : 5,\n          \"points\": false,\n          \"renderer\": \"flot\",\n      \
+    \    \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n          \"stack\"\
+    : false,\n          \"steppedLine\": false,\n          \"targets\": [\n      \
+    \      {\n              \"datasource\": {\n                \"uid\": \"$datasource\"\
+    \n              },\n              \"expr\": \"sum(increase(grpc_server_handled_total{job=\\\
+    \"argocd-server-metrics\\\",grpc_service=\\\"repository.RepositoryService\\\"\
+    ,namespace=~\\\"$namespace\\\"}[$interval])) by (grpc_code, grpc_method)\",\n\
+    \              \"format\": \"time_series\",\n              \"intervalFactor\"\
+    : 1,\n              \"legendFormat\": \"{{grpc_code}},{{grpc_method}}\",\n   \
+    \           \"refId\": \"A\"\n            }\n          ],\n          \"thresholds\"\
+    : [\n            {\n              \"colorMode\": \"critical\",\n             \
+    \ \"fill\": true,\n              \"line\": true,\n              \"op\": \"gt\"\
+    ,\n              \"yaxis\": \"left\"\n            }\n          ],\n          \"\
+    timeRegions\": [],\n          \"title\": \"RepositoryService Requests\",\n   \
+    \       \"tooltip\": {\n            \"shared\": true,\n            \"sort\": 0,\n\
+    \            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    gridPos\": {\n            \"h\": 9,\n            \"w\": 12,\n            \"x\"\
+    : 0,\n            \"y\": 58\n          },\n          \"id\": 48,\n          \"\
+    legend\": {\n            \"alignAsTable\": true,\n            \"avg\": true,\n\
+    \            \"current\": true,\n            \"hideEmpty\": true,\n          \
+    \  \"hideZero\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"show\": true,\n            \"total\": true,\n            \"values\"\
+    : true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"null as zero\",\n  \
+    \        \"paceLength\": 10,\n          \"percentage\": false,\n          \"pointradius\"\
+    : 5,\n          \"points\": false,\n          \"renderer\": \"flot\",\n      \
+    \    \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n          \"stack\"\
+    : false,\n          \"steppedLine\": false,\n          \"targets\": [\n      \
+    \      {\n              \"datasource\": {\n                \"uid\": \"$datasource\"\
+    \n              },\n              \"expr\": \"sum(increase(grpc_server_handled_total{job=\\\
+    \"argocd-server-metrics\\\",grpc_service=\\\"session.SessionService\\\",namespace=~\\\
+    \"$namespace\\\"}[$interval])) by (grpc_code, grpc_method)\",\n              \"\
+    format\": \"time_series\",\n              \"intervalFactor\": 1,\n           \
+    \   \"legendFormat\": \"{{grpc_code}},{{grpc_method}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"SessionService Requests\",\n \
+    \         \"tooltip\": {\n            \"shared\": true,\n            \"sort\"\
+    : 0,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    gridPos\": {\n            \"h\": 9,\n            \"w\": 12,\n            \"x\"\
+    : 12,\n            \"y\": 58\n          },\n          \"id\": 49,\n          \"\
+    legend\": {\n            \"alignAsTable\": true,\n            \"avg\": true,\n\
+    \            \"current\": true,\n            \"hideEmpty\": true,\n          \
+    \  \"hideZero\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"show\": true,\n            \"total\": true,\n            \"values\"\
+    : true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"null as zero\",\n  \
+    \        \"paceLength\": 10,\n          \"percentage\": false,\n          \"pointradius\"\
+    : 5,\n          \"points\": false,\n          \"renderer\": \"flot\",\n      \
+    \    \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n          \"stack\"\
+    : false,\n          \"steppedLine\": false,\n          \"targets\": [\n      \
+    \      {\n              \"datasource\": {\n                \"uid\": \"$datasource\"\
+    \n              },\n              \"expr\": \"sum(increase(grpc_server_handled_total{job=\\\
+    \"argocd-server-metrics\\\",grpc_service=\\\"version.VersionService\\\",namespace=~\\\
+    \"$namespace\\\"}[$interval])) by (grpc_code, grpc_method)\",\n              \"\
+    format\": \"time_series\",\n              \"intervalFactor\": 1,\n           \
+    \   \"legendFormat\": \"{{grpc_code}},{{grpc_method}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"VersionService Requests\",\n \
+    \         \"tooltip\": {\n            \"shared\": true,\n            \"sort\"\
+    : 0,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    gridPos\": {\n            \"h\": 9,\n            \"w\": 12,\n            \"x\"\
+    : 0,\n            \"y\": 67\n          },\n          \"id\": 50,\n          \"\
+    legend\": {\n            \"alignAsTable\": true,\n            \"avg\": true,\n\
+    \            \"current\": true,\n            \"hideEmpty\": true,\n          \
+    \  \"hideZero\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"show\": true,\n            \"total\": true,\n            \"values\"\
+    : true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"null as zero\",\n  \
+    \        \"paceLength\": 10,\n          \"percentage\": false,\n          \"pointradius\"\
+    : 5,\n          \"points\": false,\n          \"renderer\": \"flot\",\n      \
+    \    \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n          \"stack\"\
+    : false,\n          \"steppedLine\": false,\n          \"targets\": [\n      \
+    \      {\n              \"datasource\": {\n                \"uid\": \"$datasource\"\
+    \n              },\n              \"expr\": \"sum(increase(grpc_server_handled_total{job=\\\
+    \"argocd-server-metrics\\\",grpc_service=\\\"account.AccountService\\\",namespace=~\\\
+    \"$namespace\\\"}[$interval])) by (grpc_code, grpc_method)\",\n              \"\
+    format\": \"time_series\",\n              \"intervalFactor\": 1,\n           \
+    \   \"legendFormat\": \"{{grpc_code}},{{grpc_method}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"AccountService Requests\",\n \
+    \         \"tooltip\": {\n            \"shared\": true,\n            \"sort\"\
+    : 0,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        },\n        {\n      \
+    \    \"aliasColors\": {},\n          \"bars\": false,\n          \"dashLength\"\
+    : 10,\n          \"dashes\": false,\n          \"datasource\": {\n           \
+    \ \"uid\": \"$datasource\"\n          },\n          \"fill\": 1,\n          \"\
+    gridPos\": {\n            \"h\": 9,\n            \"w\": 12,\n            \"x\"\
+    : 12,\n            \"y\": 67\n          },\n          \"id\": 99,\n          \"\
+    legend\": {\n            \"alignAsTable\": true,\n            \"avg\": true,\n\
+    \            \"current\": true,\n            \"hideEmpty\": true,\n          \
+    \  \"hideZero\": true,\n            \"max\": false,\n            \"min\": false,\n\
+    \            \"show\": true,\n            \"total\": true,\n            \"values\"\
+    : true\n          },\n          \"lines\": true,\n          \"linewidth\": 1,\n\
+    \          \"links\": [],\n          \"nullPointMode\": \"null as zero\",\n  \
+    \        \"paceLength\": 10,\n          \"percentage\": false,\n          \"pointradius\"\
+    : 5,\n          \"points\": false,\n          \"renderer\": \"flot\",\n      \
+    \    \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n          \"stack\"\
+    : false,\n          \"steppedLine\": false,\n          \"targets\": [\n      \
+    \      {\n              \"datasource\": {\n                \"uid\": \"$datasource\"\
+    \n              },\n              \"expr\": \"sum(increase(grpc_server_handled_total{job=\\\
+    \"argocd-server-metrics\\\",grpc_service=\\\"cluster.SettingsService\\\",namespace=~\\\
+    \"$namespace\\\"}[$interval])) by (grpc_code, grpc_method)\",\n              \"\
+    format\": \"time_series\",\n              \"intervalFactor\": 1,\n           \
+    \   \"legendFormat\": \"{{grpc_code}},{{grpc_method}}\",\n              \"refId\"\
+    : \"A\"\n            }\n          ],\n          \"thresholds\": [],\n        \
+    \  \"timeRegions\": [],\n          \"title\": \"SettingsService Requests\",\n\
+    \          \"tooltip\": {\n            \"shared\": true,\n            \"sort\"\
+    : 0,\n            \"value_type\": \"individual\"\n          },\n          \"type\"\
+    : \"graph\",\n          \"xaxis\": {\n            \"mode\": \"time\",\n      \
+    \      \"show\": true,\n            \"values\": []\n          },\n          \"\
+    yaxes\": [\n            {\n              \"format\": \"short\",\n            \
+    \  \"logBase\": 1,\n              \"show\": true\n            },\n           \
+    \ {\n              \"format\": \"short\",\n              \"logBase\": 1,\n   \
+    \           \"show\": true\n            }\n          ],\n          \"yaxis\":\
+    \ {\n            \"align\": false\n          }\n        }\n      ],\n      \"\
+    targets\": [\n        {\n          \"datasource\": {\n            \"uid\": \"\
+    $datasource\"\n          },\n          \"refId\": \"A\"\n        }\n      ],\n\
+    \      \"title\": \"Server Stats\",\n      \"type\": \"row\"\n    },\n    {\n\
+    \      \"collapsed\": true,\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"$datasource\"\n      },\n      \"gridPos\": {\n        \"\
+    h\": 1,\n        \"w\": 24,\n        \"x\": 0,\n        \"y\": 12\n      },\n\
+    \      \"id\": 110,\n      \"panels\": [\n        {\n          \"aliasColors\"\
+    : {},\n          \"bars\": false,\n          \"dashLength\": 10,\n          \"\
+    dashes\": false,\n          \"datasource\": {\n            \"type\": \"prometheus\"\
+    ,\n            \"uid\": \"$datasource\"\n          },\n          \"fieldConfig\"\
+    : {\n            \"defaults\": {\n              \"links\": [],\n             \
+    \ \"unitScale\": true\n            },\n            \"overrides\": []\n       \
+    \   },\n          \"fill\": 1,\n          \"fillGradient\": 0,\n          \"gridPos\"\
+    : {\n            \"h\": 7,\n            \"w\": 24,\n            \"x\": 0,\n  \
+    \          \"y\": 13\n          },\n          \"hiddenSeries\": false,\n     \
+    \     \"id\": 112,\n          \"legend\": {\n            \"avg\": false,\n   \
+    \         \"current\": false,\n            \"max\": false,\n            \"min\"\
+    : false,\n            \"show\": true,\n            \"total\": false,\n       \
+    \     \"values\": false\n          },\n          \"lines\": true,\n          \"\
+    linewidth\": 1,\n          \"nullPointMode\": \"null\",\n          \"options\"\
+    : {\n            \"alertThreshold\": true\n          },\n          \"percentage\"\
+    : false,\n          \"pluginVersion\": \"10.3.1\",\n          \"pointradius\"\
+    : 2,\n          \"points\": false,\n          \"renderer\": \"flot\",\n      \
+    \    \"seriesOverrides\": [],\n          \"spaceLength\": 10,\n          \"stack\"\
+    : false,\n          \"steppedLine\": false,\n          \"targets\": [\n      \
+    \      {\n              \"datasource\": {\n                \"type\": \"prometheus\"\
+    ,\n                \"uid\": \"$datasource\"\n              },\n              \"\
+    expr\": \"sum(increase(argocd_redis_request_total{namespace=~\\\"$namespace\\\"\
+    }[$interval])) by (failed)\",\n              \"refId\": \"A\"\n            }\n\
+    \          ],\n          \"thresholds\": [],\n          \"timeRegions\": [],\n\
+    \          \"title\": \"Requests by result\",\n          \"tooltip\": {\n    \
+    \        \"shared\": true,\n            \"sort\": 0,\n            \"value_type\"\
+    : \"individual\"\n          },\n          \"type\": \"graph\",\n          \"xaxis\"\
+    : {\n            \"mode\": \"time\",\n            \"show\": true,\n          \
+    \  \"values\": []\n          },\n          \"yaxes\": [\n            {\n     \
+    \         \"format\": \"short\",\n              \"logBase\": 1,\n            \
+    \  \"show\": true\n            },\n            {\n              \"format\": \"\
+    short\",\n              \"logBase\": 1,\n              \"show\": true\n      \
+    \      }\n          ],\n          \"yaxis\": {\n            \"align\": false\n\
+    \          }\n        }\n      ],\n      \"targets\": [\n        {\n         \
+    \ \"datasource\": {\n            \"type\": \"prometheus\",\n            \"uid\"\
+    : \"$datasource\"\n          },\n          \"refId\": \"A\"\n        }\n     \
+    \ ],\n      \"title\": \"Redis Stats\",\n      \"type\": \"row\"\n    }\n  ],\n\
+    \  \"refresh\": \"\",\n  \"schemaVersion\": 39,\n  \"tags\": [],\n  \"templating\"\
+    : {\n    \"list\": [\n      {\n        \"current\": {\n          \"selected\"\
+    : false,\n          \"text\": \"Prometheus\",\n          \"value\": \"prometheus\"\
+    \n        },\n        \"hide\": 0,\n        \"includeAll\": false,\n        \"\
+    multi\": false,\n        \"name\": \"datasource\",\n        \"options\": [],\n\
+    \        \"query\": \"prometheus\",\n        \"queryValue\": \"\",\n        \"\
+    refresh\": 1,\n        \"regex\": \"\",\n        \"skipUrlSync\": false,\n   \
+    \     \"type\": \"datasource\"\n      },\n      {\n        \"allValue\": \".*\"\
+    ,\n        \"current\": {\n          \"selected\": false,\n          \"text\"\
+    : \"All\",\n          \"value\": \"$__all\"\n        },\n        \"datasource\"\
+    : {\n          \"type\": \"prometheus\",\n          \"uid\": \"$datasource\"\n\
+    \        },\n        \"definition\": \"label_values(kube_pod_info, namespace)\"\
+    ,\n        \"hide\": 0,\n        \"includeAll\": true,\n        \"multi\": false,\n\
+    \        \"name\": \"namespace\",\n        \"options\": [],\n        \"query\"\
+    : \"label_values(kube_pod_info, namespace)\",\n        \"refresh\": 1,\n     \
+    \   \"regex\": \".*argocd.*\",\n        \"skipUrlSync\": false,\n        \"sort\"\
+    : 0,\n        \"tagValuesQuery\": \"\",\n        \"tagsQuery\": \"\",\n      \
+    \  \"type\": \"query\",\n        \"useTags\": false\n      },\n      {\n     \
+    \   \"auto\": true,\n        \"auto_count\": 30,\n        \"auto_min\": \"1m\"\
+    ,\n        \"current\": {\n          \"selected\": false,\n          \"text\"\
+    : \"auto\",\n          \"value\": \"$__auto_interval_interval\"\n        },\n\
+    \        \"hide\": 0,\n        \"name\": \"interval\",\n        \"options\": [\n\
+    \          {\n            \"selected\": true,\n            \"text\": \"auto\"\
+    ,\n            \"value\": \"$__auto_interval_interval\"\n          },\n      \
+    \    {\n            \"selected\": false,\n            \"text\": \"1m\",\n    \
+    \        \"value\": \"1m\"\n          },\n          {\n            \"selected\"\
+    : false,\n            \"text\": \"5m\",\n            \"value\": \"5m\"\n     \
+    \     },\n          {\n            \"selected\": false,\n            \"text\"\
+    : \"10m\",\n            \"value\": \"10m\"\n          },\n          {\n      \
+    \      \"selected\": false,\n            \"text\": \"30m\",\n            \"value\"\
+    : \"30m\"\n          },\n          {\n            \"selected\": false,\n     \
+    \       \"text\": \"1h\",\n            \"value\": \"1h\"\n          },\n     \
+    \     {\n            \"selected\": false,\n            \"text\": \"2h\",\n   \
+    \         \"value\": \"2h\"\n          },\n          {\n            \"selected\"\
+    : false,\n            \"text\": \"4h\",\n            \"value\": \"4h\"\n     \
+    \     },\n          {\n            \"selected\": false,\n            \"text\"\
+    : \"8h\",\n            \"value\": \"8h\"\n          }\n        ],\n        \"\
+    query\": \"1m,5m,10m,30m,1h,2h,4h,8h\",\n        \"refresh\": 2,\n        \"skipUrlSync\"\
+    : false,\n        \"type\": \"interval\"\n      },\n      {\n        \"allValue\"\
+    : \"\",\n        \"current\": {\n          \"selected\": false,\n          \"\
+    text\": \"namespace\",\n          \"value\": \"namespace\"\n        },\n     \
+    \   \"hide\": 0,\n        \"includeAll\": false,\n        \"multi\": false,\n\
+    \        \"name\": \"grouping\",\n        \"options\": [\n          {\n      \
+    \      \"selected\": true,\n            \"text\": \"namespace\",\n           \
+    \ \"value\": \"namespace\"\n          },\n          {\n            \"selected\"\
+    : false,\n            \"text\": \"name\",\n            \"value\": \"name\"\n \
+    \         },\n          {\n            \"selected\": false,\n            \"text\"\
+    : \"project\",\n            \"value\": \"project\"\n          }\n        ],\n\
+    \        \"query\": \"namespace,name,project\",\n        \"queryValue\": \"\"\
+    ,\n        \"skipUrlSync\": false,\n        \"type\": \"custom\"\n      },\n \
+    \     {\n        \"allValue\": \".*\",\n        \"current\": {\n          \"selected\"\
+    : false,\n          \"text\": \"All\",\n          \"value\": \"$__all\"\n    \
+    \    },\n        \"datasource\": {\n          \"type\": \"prometheus\",\n    \
+    \      \"uid\": \"$datasource\"\n        },\n        \"definition\": \"label_values(argocd_cluster_info,\
+    \ server)\",\n        \"hide\": 0,\n        \"includeAll\": true,\n        \"\
+    multi\": false,\n        \"name\": \"cluster\",\n        \"options\": [],\n  \
+    \      \"query\": \"label_values(argocd_cluster_info, server)\",\n        \"refresh\"\
+    : 1,\n        \"regex\": \"\",\n        \"skipUrlSync\": false,\n        \"sort\"\
+    : 1,\n        \"tagValuesQuery\": \"\",\n        \"tagsQuery\": \"\",\n      \
+    \  \"type\": \"query\",\n        \"useTags\": false\n      },\n      {\n     \
+    \   \"allValue\": \".*\",\n        \"current\": {\n          \"selected\": false,\n\
+    \          \"text\": \"All\",\n          \"value\": \"$__all\"\n        },\n \
+    \       \"hide\": 0,\n        \"includeAll\": true,\n        \"multi\": false,\n\
+    \        \"name\": \"health_status\",\n        \"options\": [\n          {\n \
+    \           \"selected\": true,\n            \"text\": \"All\",\n            \"\
+    value\": \"$__all\"\n          },\n          {\n            \"selected\": false,\n\
+    \            \"text\": \"Healthy\",\n            \"value\": \"Healthy\"\n    \
+    \      },\n          {\n            \"selected\": false,\n            \"text\"\
+    : \"Progressing\",\n            \"value\": \"Progressing\"\n          },\n   \
+    \       {\n            \"selected\": false,\n            \"text\": \"Suspended\"\
+    ,\n            \"value\": \"Suspended\"\n          },\n          {\n         \
+    \   \"selected\": false,\n            \"text\": \"Missing\",\n            \"value\"\
+    : \"Missing\"\n          },\n          {\n            \"selected\": false,\n \
+    \           \"text\": \"Degraded\",\n            \"value\": \"Degraded\"\n   \
+    \       },\n          {\n            \"selected\": false,\n            \"text\"\
+    : \"Unknown\",\n            \"value\": \"Unknown\"\n          }\n        ],\n\
+    \        \"query\": \"Healthy,Progressing,Suspended,Missing,Degraded,Unknown\"\
+    ,\n        \"skipUrlSync\": false,\n        \"type\": \"custom\"\n      },\n \
+    \     {\n        \"allValue\": \".*\",\n        \"current\": {\n          \"selected\"\
+    : false,\n          \"text\": \"All\",\n          \"value\": \"$__all\"\n    \
+    \    },\n        \"hide\": 0,\n        \"includeAll\": true,\n        \"multi\"\
+    : false,\n        \"name\": \"sync_status\",\n        \"options\": [\n       \
+    \   {\n            \"selected\": true,\n            \"text\": \"All\",\n     \
+    \       \"value\": \"$__all\"\n          },\n          {\n            \"selected\"\
+    : false,\n            \"text\": \"Synced\",\n            \"value\": \"Synced\"\
+    \n          },\n          {\n            \"selected\": false,\n            \"\
+    text\": \"OutOfSync\",\n            \"value\": \"OutOfSync\"\n          },\n \
+    \         {\n            \"selected\": false,\n            \"text\": \"Unknown\"\
+    ,\n            \"value\": \"Unknown\"\n          }\n        ],\n        \"query\"\
+    : \"Synced,OutOfSync,Unknown\",\n        \"skipUrlSync\": false,\n        \"type\"\
+    : \"custom\"\n      }\n    ]\n  },\n  \"time\": {\n    \"from\": \"now-30m\",\n\
+    \    \"to\": \"now\"\n  },\n  \"timepicker\": {\n    \"refresh_intervals\": [\n\
+    \      \"5s\",\n      \"10s\",\n      \"30s\",\n      \"1m\",\n      \"5m\",\n\
+    \      \"15m\",\n      \"30m\",\n      \"1h\",\n      \"2h\",\n      \"1d\"\n\
+    \    ],\n    \"time_options\": [\n      \"5m\",\n      \"15m\",\n      \"1h\"\
+    ,\n      \"6h\",\n      \"12h\",\n      \"24h\",\n      \"2d\",\n      \"7d\"\
+    ,\n      \"30d\"\n    ]\n  },\n  \"timezone\": \"\",\n  \"title\": \"ArgoCD\"\
+    ,\n  \"uid\": \"LCAgc9rWz\",\n  \"version\": 2,\n  \"weekStart\": \"\"\n}\n"
+kind: ConfigMap
+metadata:
+  annotations:
+    grafana_folder: Platform
+  labels:
+    adhar.io/component: observability
+    grafana_dashboard: '1'
+  name: dashboard-argocd
+  namespace: adhar-system

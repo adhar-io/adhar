@@ -21,10 +21,10 @@ limitations under the License.
 //
 //   - Local development mode (default): creates a local Kind cluster and runs
 //     the platform controllers in-process (see local.go).
-//   - Production mode (-f config.yaml): provisions a cloud cluster from a
-//     resolved configuration file using the provider factory (see production.go).
-//
-// Shared helpers used by both modes live in common.go.
+//   - Production mode (-f config.yaml): provisions a cloud or on-prem cluster
+//     from a resolved configuration file using the provider factory
+//     (see production.go), then bootstraps the platform onto it with the same
+//     controller-driven flow as local mode (see bootstrap.go).
 package up
 
 import (
@@ -53,6 +53,9 @@ const (
 	extraPackagesUsage             = "📦 Paths to custom package locations"
 	packageCustomizationFilesUsage = "⚙️ Package customization files (e.g., argocd:/tmp/argocd.yaml)"
 	noExitUsage                    = "🔄 Keep running to continuously sync directories"
+	inClusterUsage                 = "🎛️ Install the controller manager in-cluster for continuous reconciliation after the CLI exits"
+	haModeUsage                    = "🏗️ Render foundation components in HA mode (replicas, PDBs); default for production configs with enableHAMode"
+	controllerImageUsage           = "📦 Container image for the in-cluster controller manager (default: ghcr.io/adhar-io/adhar:<version>)"
 )
 
 var (
@@ -72,6 +75,9 @@ var (
 	port                      string
 	pathRouting               bool
 	verbose                   bool
+	inClusterController       bool
+	controllerImage           string
+	haMode                    bool
 
 	// Production cluster provisioning flags
 	configFile  string
@@ -155,6 +161,9 @@ func init() {
 	UpCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{"platform/stack"}, extraPackagesUsage)
 	UpCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, packageCustomizationFilesUsage)
 	UpCmd.Flags().Bool("no-exit", false, "Keep running after initial sync (don't exit)")
+	UpCmd.Flags().BoolVar(&inClusterController, "in-cluster", false, inClusterUsage)
+	UpCmd.Flags().StringVar(&controllerImage, "controller-image", "", controllerImageUsage)
+	UpCmd.Flags().BoolVar(&haMode, "ha", false, haModeUsage)
 
 	// adhar related flags
 	UpCmd.Flags().BoolVarP(&noExit, "watch", "w", true, noExitUsage)

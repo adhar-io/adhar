@@ -103,3 +103,35 @@ spec:
       owner: keycloak
       secret:
         name: keycloak-config
+  # Scheduled base backups + WAL archiving to the platform object store
+  # (roadmap P1.5). Credentials are MinIO's root-creds (the minio package
+  # creates bucket adhar-backups); point destinationPath/endpointURL at real
+  # object storage in cloud environments. WAL archiving logs warnings until
+  # the minio package is healthy, then self-heals.
+  backup:
+    retentionPolicy: 30d
+    barmanObjectStore:
+      destinationPath: s3://adhar-backups/cnpg/keycloak-db
+      endpointURL: http://minio.adhar-system.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId:
+          name: root-creds
+          key: rootUser
+        secretAccessKey:
+          name: root-creds
+          key: rootPassword
+---
+# Daily base backup at 01:30 UTC (before the Velero object backup at 02:00);
+# point-in-time recovery between base backups comes from WAL archiving.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: keycloak-db-daily
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: '6'
+spec:
+  schedule: "0 30 1 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: keycloak-db

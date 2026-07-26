@@ -85,6 +85,8 @@ type LocalOptions struct {
 	StackDir                  string
 	Scheme                    *runtime.Scheme
 	CancelFunc                context.CancelFunc
+	InClusterController       bool
+	ControllerImage           string
 }
 
 // LocalProvisioner handles local development environment creation
@@ -384,6 +386,12 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		exitOnSync = !noExit
 	}
 
+	// The in-process (--no-exit) and in-cluster controller managers would both
+	// reconcile the same AdharPlatform without sharing leader election.
+	if inClusterController && !exitOnSync {
+		return fmt.Errorf("--in-cluster cannot be combined with --no-exit: only one controller manager may reconcile the platform")
+	}
+
 	// If registry-config is unset we pass nil
 	// If registry-config is change (--registry-config=foo) we pass the new value
 	// If registry-config is set but unchanged (--registry-confg) we pass ""
@@ -430,6 +438,8 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		PackageCustomization:      o,
 		Scheme:                    k8s.GetScheme(),
 		CancelFunc:                ctxCancel,
+		InClusterController:       inClusterController,
+		ControllerImage:           controllerImage,
 		TemplateData: v1alpha1.BuildCustomizationSpec{
 			Protocol:       protocol,
 			Host:           host,
@@ -437,6 +447,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 			Port:           port,
 			UsePathRouting: pathRouting,
 			StaticPassword: devPassword,
+			EnableHAMode:   haMode,
 		},
 	}
 
@@ -458,7 +469,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 			GlobalSettings: &config.GlobalSettings{
 				AdharContext: "provider-mode",
 				DefaultHost:  globals.DefaultHostName,
-				EnableHAMode: false,
+				EnableHAMode: haMode,
 				Email:        "admin@" + globals.DefaultHostName,
 			},
 		}
@@ -478,6 +489,19 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 	}
 
 	logger.GetLogger().FinishOperation("Local Development Cluster", "Platform ready for development")
+
+	// Hand reconciliation over to an in-cluster manager so the platform keeps
+	// self-healing after this process exits. Runs on a fresh context: the
+	// provisioning context is already cancelled by the controller's shutdown.
+	if options.InClusterController {
+		if err := installInClusterController(provisioner); err != nil {
+			return fmt.Errorf("installing in-cluster controller manager: %w", err)
+		}
+		logger.InfoWithFields("In-cluster controller manager installed", map[string]interface{}{
+			"deployment": "adhar-controller-manager",
+			"namespace":  globals.AdharSystemNamespace,
+		})
+	}
 
 	// Check if the context has been cancelled
 	if cmd.Context().Err() != nil {
@@ -582,6 +606,34 @@ func printSuccessMsg() {
 	fmt.Println()
 	fmt.Println(helpers.RenderReadyPanel(access, hints))
 	fmt.Println()
+}
+
+// installInClusterController deploys the controller manager Deployment (and its
+// RBAC) into the cluster so reconciliation continues after the CLI exits. It
+// uses a fresh context because the provisioning context is cancelled once the
+// in-process controller shuts down.
+func installInClusterController(b *LocalProvisioner) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	kubeConfig, err := b.GetKubeConfig()
+	if err != nil {
+		return err
+	}
+	kubeClient, err := b.GetKubeClient(kubeConfig)
+	if err != nil {
+		return err
+	}
+
+	image := b.options.ControllerImage
+	if image == "" {
+		image = defaultControllerImage()
+	}
+
+	return controllers.EnsureControllerManager(ctx, kubeClient, controllers.ManagerConfig{
+		Image:     image,
+		Namespace: globals.AdharSystemNamespace,
+	})
 }
 
 // behindProxy checks if we are in codespaces
@@ -745,5 +797,6 @@ func isBuildCustomizationSpecEqual(s1, s2 v1alpha1.BuildCustomizationSpec) bool 
 		s1.Port == s2.Port &&
 		s1.UsePathRouting == s2.UsePathRouting &&
 		s1.SelfSignedCert == s2.SelfSignedCert &&
-		s1.StaticPassword == s2.StaticPassword
+		s1.StaticPassword == s2.StaticPassword &&
+		s1.EnableHAMode == s2.EnableHAMode
 }

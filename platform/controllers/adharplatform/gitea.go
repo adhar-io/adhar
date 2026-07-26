@@ -27,8 +27,12 @@ func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.R
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling Gitea core package")
 
-	// Apply install.yaml
+	// Apply install.yaml, or the HA rendering (replicated PostgreSQL, PDBs)
+	// when enableHAMode is set (roadmap P1.2).
 	giteaManifestPath := "resources/gitea/install.yaml"
+	if resource.Spec.BuildCustomization.EnableHAMode {
+		giteaManifestPath = "resources/gitea/install-ha.yaml"
+	}
 	manifestBytes, err := giteaFS.ReadFile(giteaManifestPath)
 	if err != nil {
 		logger.Error(err, "Failed to read Gitea install manifest", "path", giteaManifestPath)

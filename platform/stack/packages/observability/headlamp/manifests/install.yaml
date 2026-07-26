@@ -14,14 +14,10 @@ metadata:
     app.kubernetes.io/version: "0.43.0"
     app.kubernetes.io/managed-by: Helm
 ---
-# Source: headlamp/templates/secret.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: oidc
-  namespace: adhar-system
-type: Opaque
-data:
+# NOTE: the chart's empty `oidc` Secret is intentionally removed — the
+# ExternalSecret in oidc.yaml populates a Secret of the same name from the
+# keycloak `headlamp` client (keycloak-clients), enabling the OIDC sign-in
+# option on the login page.
 ---
 # Source: headlamp/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -95,6 +91,11 @@ spec:
         app.kubernetes.io/instance: headlamp
     spec:
       serviceAccountName: headlamp
+      volumes:
+        - name: platform-ca
+          secret:
+            secretName: adhar-cert
+            items: [{key: tls.crt, path: tls.crt}]
       automountServiceAccountToken: true
       hostUsers: true
       securityContext:
@@ -110,12 +111,39 @@ spec:
           imagePullPolicy: IfNotPresent
           
           env:
+            # Trust the platform's self-signed certificate for OIDC discovery
+            # against the external Keycloak URL (Go honors SSL_CERT_FILE).
+            - name: SSL_CERT_FILE
+              value: /platform-ca/tls.crt
+            # OIDC sign-in (keycloak `headlamp` client). On clusters whose API
+            # server trusts the realm (k8s-rbac.yaml documents the flags) this
+            # is full SSO; locally the token sign-in remains available too.
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef: {name: oidc, key: clientID}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: oidc, key: clientSecret}
+            - name: OIDC_ISSUER_URL
+              valueFrom:
+                secretKeyRef: {name: oidc, key: issuerURL}
+            - name: OIDC_SCOPES
+              valueFrom:
+                secretKeyRef: {name: oidc, key: scopes}
           args:
             - "-in-cluster"
             - "-in-cluster-context-name=main"
+            - "-oidc-client-id=$(OIDC_CLIENT_ID)"
+            - "-oidc-client-secret=$(OIDC_CLIENT_SECRET)"
+            - "-oidc-idp-issuer-url=$(OIDC_ISSUER_URL)"
+            - "-oidc-scopes=$(OIDC_SCOPES)"
             - "-plugins-dir=/headlamp/plugins"
             - "-session-ttl=86400"
             # Check if externalSecret is disabled
+          volumeMounts:
+            - name: platform-ca
+              mountPath: /platform-ca
+              readOnly: true
           ports:
             - name: http
               containerPort: 4466

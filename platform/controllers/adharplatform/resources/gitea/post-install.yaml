@@ -60,3 +60,100 @@ type: Opaque
 stringData:
   username: gitea_admin
   password: r8sA8CPHD9!bt6d
+---
+# Ensures gitea-credential carries an admin API token (key `token`). The chart
+# secret ships username/password only; consumers that need token auth
+# (Lighthouse's oauth secret, the preview-environments PR generator) read the
+# `token` key. Idempotent: exits immediately when the key already exists. The
+# dev-password flow also (re)writes this key when rotating the password.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitea-token-gen
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitea-token-gen
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitea-token-gen
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: gitea-token-gen
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: gitea-token-gen
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-token-gen
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: gitea
+    app.kubernetes.io/part-of: gitea
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      serviceAccountName: gitea-token-gen
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      containers:
+        - name: token-gen
+          image: docker.io/library/ubuntu:22.04
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              #!/bin/bash
+              set -e -o pipefail
+              apt -qq update && apt -qq install -y curl jq >/dev/null
+
+              NS=adhar-system
+              API=https://kubernetes.default.svc
+              SA=/var/run/secrets/kubernetes.io/serviceaccount
+              TOKEN=$(cat ${SA}/token)
+              K8S=(curl -sS --cacert ${SA}/ca.crt -H "Authorization: Bearer ${TOKEN}")
+
+              SECRET=$("${K8S[@]}" "${API}/api/v1/namespaces/${NS}/secrets/gitea-credential")
+              if [ "$(echo "${SECRET}" | jq -r '.data.token // empty')" != "" ]; then
+                echo "gitea-credential already carries a token; nothing to do"
+                exit 0
+              fi
+              USER=$(echo "${SECRET}" | jq -r '.data.username' | base64 -d)
+              PASS=$(echo "${SECRET}" | jq -r '.data.password' | base64 -d)
+
+              GITEA=http://gitea-http.${NS}.svc.cluster.local:3000
+              # Wait for the Gitea API (cold bootstrap ordering).
+              for i in $(seq 1 60); do
+                curl -sf "${GITEA}/api/healthz" >/dev/null && break
+                sleep 5
+              done
+
+              NAME="adhar-platform-$(date -u +%s)"
+              APITOKEN=$(curl -sS --fail-with-body -u "${USER}:${PASS}" \
+                -H 'Content-Type: application/json' \
+                -d "{\"name\": \"${NAME}\", \"scopes\": [\"all\"]}" \
+                "${GITEA}/api/v1/users/${USER}/tokens" | jq -r '.sha1')
+              [ -n "${APITOKEN}" ] && [ "${APITOKEN}" != "null" ]
+
+              "${K8S[@]}" --fail-with-body -X PATCH \
+                -H 'Content-Type: application/merge-patch+json' \
+                -d "{\"stringData\": {\"token\": \"${APITOKEN}\"}}" \
+                "${API}/api/v1/namespaces/${NS}/secrets/gitea-credential" >/dev/null
+              echo "admin API token ${NAME} written to gitea-credential"
+          # No dropped capabilities: apt needs setgroups during package
+          # install (observed: "setgroups Operation not permitted" crashloop
+          # with drop ALL). Same posture as the keycloak config job.

@@ -43,6 +43,11 @@ spec:
                 description: BuildCustomizationSpec fields cannot change once a cluster
                   is created
                 properties:
+                  enableHAMode:
+                    description: |-
+                      EnableHAMode renders the foundation components (ArgoCD, Gitea) with
+                      production replica counts, PodDisruptionBudgets, and topology spread.
+                    type: boolean
                   host:
                     type: string
                   ingressHost:

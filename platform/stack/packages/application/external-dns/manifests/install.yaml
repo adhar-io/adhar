@@ -151,6 +151,15 @@ spec:
             - --source=gateway-httproute
             - --policy=upsert-only
             - --registry=txt
+            # Records created from platform HTTPRoutes are owned by this id so
+            # several clusters can share a DNS zone without clobbering each
+            # other's records.
+            - --txt-owner-id=adhar
+            # Per-environment: replace with your DNS provider (aws, google,
+            # azure, digitalocean, civo, ...) plus its credentials; `fake`
+            # keeps the package inert until configured. Keep the
+            # gateway-httproute source — it is what wires DNS to the platform
+            # Gateway (roadmap P1.3).
             - --provider=fake
           ports:
             - name: http

@@ -40,7 +40,7 @@ Keep them thin: Cilium, Alloy collectors, Kyverno, Falco, plus your apps. Everyt
 ### Identity & access
 
 - [ ] Keycloak as OIDC provider for ArgoCD, Gitea, Grafana, Console; humans never use local admin accounts after bootstrap
-- [ ] Rotate bootstrap credentials (`gitea_admin`, ArgoCD `admin`) immediately; store break-glass credentials in Vault
+- [ ] Rotate bootstrap credentials (`gitea_admin`, ArgoCD `admin`) immediately: enable the `credential-rotation` package (on by default in the production environment set) once SSO login is verified — it rotates both to random values and stores break-glass copies in Vault (`secret/adhar/bootstrap-credentials`); delete the `bootstrap-credentials-rotated` marker Secret to rotate again
 - [ ] Kubernetes API via OIDC group claims; RBAC per team namespace; no cluster-admin for humans in daily work
 - [ ] Cloud credentials to Crossplane via workload identity (IRSA / Workload Identity / Managed Identity) — never long-lived keys in Secrets
 
@@ -65,9 +65,58 @@ Keep them thin: Cilium, Alloy collectors, Kyverno, Falco, plus your apps. Everyt
 
 ## 4. The Edge: DNS, TLS, Load Balancing
 
-1. Point `*.platform.example.com` at the Gateway's LoadBalancer (external-dns automates record management)
-2. cert-manager `ClusterIssuer` (ACME DNS-01 for wildcard, or your corporate CA); reference the certificate from the `adhar-gateway` TLS listener
-3. Set `globalSettings.host: platform.example.com` — every service becomes `argocd.platform.example.com`, `gitea.platform.example.com`, … exactly as in local (`*.adhar.localtest.me`), keeping runbooks identical across environments
+On cloud/on-prem providers the platform Gateway deploys in its production
+variant automatically: a LoadBalancer Service (instead of Kind's pinned
+NodePorts), an HTTPS listener carrying the platform wildcard hostname, and
+certificate management delegated to cert-manager via the
+`cert-manager.io/cluster-issuer` annotation (default: `adhar-selfsigned`,
+which needs no external configuration).
+
+To go from self-signed to publicly trusted:
+
+1. **DNS**: enable the `external-dns` package (enabled in the production
+   environment set) and set `--provider=<your-dns>` plus credentials in its
+   manifest — it publishes records for every platform HTTPRoute hostname
+   against the Gateway's LoadBalancer address (`--txt-owner-id=adhar` keeps
+   multi-cluster zones safe)
+2. **TLS**: the cert-manager package ships `adhar-selfsigned`,
+   `adhar-letsencrypt-staging` and `adhar-letsencrypt-prod` ClusterIssuers
+   (ACME issuers use the HTTP-01 solver through `adhar-gateway`; set the
+   registration email from `globalSettings.email`). For the platform
+   *wildcard* certificate add a DNS-01 solver with your DNS credentials, then
+   point the Gateway's `cert-manager.io/cluster-issuer` annotation at that
+   issuer — HTTP-01 cannot issue wildcards
+3. Set `globalSettings.host: platform.example.com` — every service becomes
+   `argocd.platform.example.com`, `gitea.platform.example.com`, … exactly as
+   in local (`*.adhar.localtest.me`), keeping runbooks identical across
+   environments
+
+### 4.1 Cluster Mesh and workload identity (T3)
+
+Every Adhar cluster ships mesh-ready Cilium identity (management cluster:
+`cluster.name: adhar-mgmt`, `cluster.id: 1`); workload clusters must use
+unique names and IDs 2–255 in their Cilium values (roadmap P2.4). To connect
+management and workload clusters:
+
+1. All meshed clusters must share a Cilium CA — copy the management cluster's
+   `cilium-ca` secret into each workload cluster **before** Cilium starts
+   there, and ensure Pod CIDRs don't overlap
+2. Enable the clustermesh-apiserver on each cluster
+   (`clustermesh.useAPIServer: true` in Cilium values; expose via
+   LoadBalancer) and connect pairs with `cilium clustermesh connect
+   --context <mgmt> --destination-context <workload>`
+3. Verify with `cilium clustermesh status` and a cross-cluster
+   service-affinity test
+
+**SPIFFE mutual authentication** ships enabled: the foundation includes a
+SPIRE server (StatefulSet) and agents in `adhar-system`, trust domain
+`adhar.io`, wired into Cilium's mutual auth. Workloads get SPIFFE identities
+automatically; enforcement is per-policy — add `authentication.mode:
+required` to a CiliumNetworkPolicy to require mutually authenticated peers.
+The trust domain is shared platform-wide so identities remain valid across
+Cluster Mesh members. Note that mutual auth secures the handshake; pair it
+with WireGuard/IPsec (encryption block in the Cilium values) for full mTLS
+semantics.
 
 ## 5. Backup and Disaster Recovery
 
@@ -81,6 +130,8 @@ Keep them thin: Cilium, Alloy collectors, Kyverno, Falco, plus your apps. Everyt
 | Cluster API objects | Velero cluster backup | Daily |
 | Crossplane state | Nothing extra — managed resources reconverge from Git-declared XRs | — |
 
+**What ships enabled (roadmap P1.5):** the velero package carries two Schedules — `adhar-platform-daily` (02:00 UTC, `adhar-system` + cluster-scoped objects, 30-day TTL) and `adhar-cluster-weekly` (Sunday 03:00 UTC, all namespaces, 90-day TTL) — against the `default` BackupStorageLocation (in-cluster MinIO bucket `adhar-backups`; repoint it at real object storage in cloud). The platform CNPG databases (`keycloak-db`, and `gitea-db` in HA mode) have WAL archiving plus a daily 01:30 UTC base backup (`ScheduledBackup`, 30-day retention) to the same bucket. Velero's node agent is not deployed: Velero covers *objects*, CNPG covers *database data* — generic PVC file data needs CSI snapshots or the node agent if you have stateful workloads outside these databases.
+
 The Crossplane CronOperations shipped with the platform schedule daily backups and weekly secret rotation; verify they are enabled (`--enable-operations`) and pointed at your object store.
 
 ### 5.2 Targets
@@ -92,29 +143,52 @@ The Crossplane CronOperations shipped with the platform schedule daily backups a
 | Workload cluster loss (T3) | 0 for config; app-data per its backups | ≤ 1 h (reprovision + resync) |
 | Management cluster loss | ≤ 1 h | ≤ 4 h |
 
-### 5.3 Management-cluster recovery runbook (outline)
+### 5.3 Management-cluster recovery runbook
 
 1. `adhar up` against a fresh cluster (same config.yaml) → foundation bootstraps deterministically
-2. Restore Gitea (CNPG restore + repo storage) **before** the controller seeds repos, or let it seed and force-push your backed-up state
-3. Restore Velero-backed PVs for stateful platform services
+2. Restore the databases from object storage — a CNPG `Cluster` with a `bootstrap.recovery` section pointing at the barman store recovers to the latest WAL (or a `recoveryTarget` for PITR):
+
+   ```yaml
+   spec:
+     bootstrap:
+       recovery:
+         source: gitea-db
+     externalClusters:
+       - name: gitea-db
+         barmanObjectStore:
+           destinationPath: s3://adhar-backups/cnpg/gitea-db
+           endpointURL: <your object store>
+           s3Credentials: { ... same as backup ... }
+   ```
+
+   Restore Gitea's database **before** the controller seeds repos, or let it seed and force-push your backed-up state
+3. Restore platform objects that live outside Git (one-off Secrets, ad-hoc resources): `velero restore create --from-backup adhar-platform-daily-<ts>` — review with `--preserve-nodeports=false` and exclude anything ArgoCD owns (it re-syncs those from Git anyway)
 4. ArgoCD reconciles the entire package set from restored Git state; Crossplane reconverges infrastructure
-5. Verify: `adhar get status`, ArgoCD app health, smoke-test SSO and one golden-path deploy
+5. Verify: `adhar get status`, ArgoCD app health, `velero backup get` shows the schedules running, smoke-test SSO and one golden-path deploy
 
 ### 5.4 Practice
 
 - Quarterly: full management-cluster restore into an isolated VPC
-- Monthly: destroy and reprovision one non-prod workload cluster from Git (T3) — this doubles as the reconstructability test
+- Monthly: the shipped reconstructability drill (roadmap P2.6,
+  `configuration/operations/reconstructability-drill.yaml`, requires
+  `--enable-operations`) creates a drill CompositeCluster on the 1st of each
+  month; its observer WatchOperation records time-to-Ready against the 1-hour
+  SLO in the operation output. Review the verdict, then delete the drill XR
+  (`kubectl -n adhar-system delete compositecluster drill-reconstructability`).
+  For T3, additionally destroy and reprovision one non-prod *cloud* workload
+  cluster from Git each month — same SLO, real provider
 
 ## 6. Upgrades
 
 Two independent upgrade streams:
 
-**Platform (Adhar release)** — new binary upgrades foundation components (embedded manifests) and stack content:
+**Platform (Adhar release)** — new binary upgrades foundation components (embedded manifests) and stack content via `adhar upgrade` (roadmap P1.6):
 
 1. Read release notes; upgrade a staging platform first
 2. Take a pre-upgrade backup (§5)
-3. Run the new `adhar up` against the existing cluster — SSA idempotently converges foundation components; stack updates arrive as Git diffs you can review in Gitea before syncing
-4. Watch ArgoCD until all apps are `Healthy/Synced`; roll back = previous binary + Git revert
+3. `adhar upgrade --diff-only` — shows what the new release would change in the GitOps repositories without touching anything
+4. `adhar upgrade` — converges the foundation to the release's embedded manifests (SSA-idempotent; unchanged components are no-ops), shows the stack diff, and on confirmation force-pushes the stack and requests an ArgoCD refresh (`--yes` for CI)
+5. Watch ArgoCD until all apps are `Healthy/Synced` (`adhar get status`); roll back = previous binary's `adhar upgrade` + Git revert
 
 **Packages (chart bumps)** — per-package: bump `CHART_VERSION` in `generate-manifests.sh`, re-render, review the manifest diff, merge (see [Customization §2](CUSTOMIZATION.md#2-change-a-packages-configuration)). Automate with a CI job that re-renders and opens PRs.
 

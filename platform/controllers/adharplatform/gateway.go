@@ -9,6 +9,7 @@ import (
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/k8s"
+	"adhar-io/adhar/platform/utils/files"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -59,31 +60,52 @@ func (r *AdharPlatformReconciler) ReconcileGatewayAPICRDs(ctx context.Context, r
 }
 
 // ReconcileGateway installs the platform GatewayClass, CiliumGatewayClassConfig
-// and Gateway, then pins the generated Service's node ports so Kind's host
-// port-mapping continues to route to the platform.
+// and Gateway. On Kind it pins the generated Service's node ports so the host
+// port-mapping continues to route to the platform; on cloud/on-prem providers
+// it applies the production edge variant instead (LoadBalancer Service,
+// cert-manager-managed listener certificate — roadmap P1.3).
 func (r *AdharPlatformReconciler) ReconcileGateway(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Gateway (Cilium Gateway API)")
 
-	manifestBytes, err := gatewayFS.ReadFile("resources/gateway/gateway.yaml")
+	// An unset provider means a locally created platform (Kind).
+	isKind := resource.Spec.Provider == v1alpha1.ProviderKind || resource.Spec.Provider == ""
+	logger.Info("Reconciling Gateway (Cilium Gateway API)", "kindProvider", isKind)
+
+	manifestPath := "resources/gateway/gateway.yaml"
+	if !isKind {
+		manifestPath = "resources/gateway/gateway-cloud.yaml"
+	}
+	manifestBytes, err := gatewayFS.ReadFile(manifestPath)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("reading gateway manifest: %w", err)
+		return ctrl.Result{}, fmt.Errorf("reading gateway manifest %s: %w", manifestPath, err)
+	}
+	if !isKind {
+		// The cloud variant carries the platform wildcard hostname on its
+		// HTTPS listener for cert-manager.
+		manifestBytes, err = files.ApplyTemplate(manifestBytes, r.Config)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("rendering gateway manifest %s: %w", manifestPath, err)
+		}
 	}
 	if err := r.applyManifest(ctx, manifestBytes, resource, "Gateway"); err != nil {
 		return ctrl.Result{}, fmt.Errorf("applying gateway manifest: %w", err)
 	}
 
-	// Cilium creates the gateway Service asynchronously once the Gateway is
-	// accepted. Pin its node ports so the Kind host port-mapping (8080/8443 ->
-	// 30080/30443) works. This is intentionally NON-FATAL: on a cold cluster
-	// Cilium may need more than one reconcile to program the Gateway and create
-	// the Service. Failing here must not abort the core install (ArgoCD/Gitea/
-	// Crossplane). We leave Status.Gateway.Available unset so the core-install
-	// gate re-runs this reconciler until the Service is pinned, while the rest of
-	// the install still proceeds this pass.
-	if err := r.pinGatewayNodePorts(ctx); err != nil {
-		logger.Info("Gateway Service node ports not pinned yet; will retry on the next reconcile", "error", err)
-		return ctrl.Result{}, nil
+	// Kind only: Cilium creates the gateway Service asynchronously once the
+	// Gateway is accepted. Pin its node ports so the Kind host port-mapping
+	// (8080/8443 -> 30080/30443) works. This is intentionally NON-FATAL: on a
+	// cold cluster Cilium may need more than one reconcile to program the
+	// Gateway and create the Service. Failing here must not abort the core
+	// install (ArgoCD/Gitea/Crossplane). We leave Status.Gateway.Available
+	// unset so the core-install gate re-runs this reconciler until the Service
+	// is pinned, while the rest of the install still proceeds this pass.
+	// Cloud providers use a LoadBalancer Service, where port allocation is the
+	// LB implementation's concern and pinning would never converge.
+	if isKind {
+		if err := r.pinGatewayNodePorts(ctx); err != nil {
+			logger.Info("Gateway Service node ports not pinned yet; will retry on the next reconcile", "error", err)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	resource.Status.Gateway.Available = true

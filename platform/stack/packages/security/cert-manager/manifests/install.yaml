@@ -13485,6 +13485,11 @@ spec:
           - --leader-election-namespace=kube-system
           - --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:v1.20.2
           - --max-concurrent-challenges=60
+          # Gateway API support: watch Gateways annotated with
+          # cert-manager.io/cluster-issuer and manage their listener
+          # certificates (production edge, ADR/roadmap P1.3). Keep this flag
+          # when regenerating the manifest.
+          - --enable-gateway-api
           ports:
           - containerPort: 9402
             name: http-metrics

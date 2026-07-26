@@ -1,51 +1,50 @@
 package auth
 
 import (
+	"context"
 	"fmt"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
 
-var (
-	logoutCmd = &cobra.Command{
-		Use:   "logout",
-		Short: "Logout from the platform",
-		Long:  "Logout from the Adhar platform and clear authentication session",
-		RunE:  runLogout,
-	}
-
-	// Logout specific flags
-	allSessions bool
-	clearTokens bool
-)
-
-func init() {
-	logoutCmd.Flags().BoolVarP(&allSessions, "all", "a", false, "Logout from all sessions")
-	logoutCmd.Flags().BoolVarP(&clearTokens, "clear-tokens", "c", false, "Clear stored authentication tokens")
+var logoutCmd = &cobra.Command{
+	Use:   "logout",
+	Short: "Logout from the platform",
+	Long: `End the current session: the refresh token is invalidated at Keycloak's
+logout endpoint (best effort) and the local session file is removed.`,
+	RunE: runLogout,
 }
 
 func runLogout(cmd *cobra.Command, args []string) error {
-	fmt.Println("🚪 Logging out from Adhar Platform...")
-
-	if allSessions {
-		fmt.Println("🗑️  Logging out from all sessions...")
-	} else {
-		fmt.Println("🔓 Logging out from current session...")
+	s, err := loadSession()
+	if err != nil {
+		return err
+	}
+	if s == nil {
+		fmt.Println("Not logged in; nothing to do.")
+		return nil
 	}
 
-	if clearTokens {
-		fmt.Println("🧹 Clearing stored authentication tokens...")
+	// Best effort: the local session is removed even if Keycloak is
+	// unreachable, so logout always leaves the machine clean.
+	if s.RefreshToken != "" {
+		kc := settings()
+		kc.Issuer = s.Issuer
+		kc.ClientID = s.ClientID
+		kc.Insecure = kc.Insecure || s.Insecure
+		if err := kc.endSession(context.Background(), s.RefreshToken); err != nil {
+			fmt.Println(helpers.CreateMuted("   (server-side session invalidation failed: " + err.Error() + ")"))
+		} else {
+			fmt.Println("🔓 Server-side session invalidated")
+		}
 	}
 
-	// TODO: Implement actual logout logic
-	// This would typically involve:
-	// 1. Invalidating current session
-	// 2. Clearing stored tokens
-	// 3. Updating session status
-	// 4. Cleaning up local cache
-
-	fmt.Println("✅ Successfully logged out")
-	fmt.Println("👋 Goodbye! Please login again to continue.")
-
+	if err := deleteSession(); err != nil {
+		return fmt.Errorf("removing local session: %w", err)
+	}
+	fmt.Println(helpers.CreateSuccess("✅ Logged out"))
+	fmt.Printf("👤 %s — session removed from %s\n", s.Username, credentialsPath())
 	return nil
 }

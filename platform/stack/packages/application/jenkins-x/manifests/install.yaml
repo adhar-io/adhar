@@ -1,0 +1,963 @@
+---
+# Source: lighthouse/templates/foghorn-sa.yaml
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: lighthouse-foghorn
+---
+# Source: lighthouse/templates/gc-jobs-sa.yaml
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: lighthouse-gc-jobs
+---
+# Source: lighthouse/templates/keeper-sa.yaml
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: lighthouse-keeper
+---
+# Source: lighthouse/templates/tekton-controller-sa.yaml
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: lighthouse-tekton-controller
+---
+# Source: lighthouse/templates/webhooks-sa.yaml
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: lighthouse-webhooks
+---
+# Source: lighthouse/templates/config-cm.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config
+  labels:
+    app: lighthouse-lighthouse
+    chart: "lighthouse-1.33.1"
+    release: "lighthouse"
+data:
+  config.yaml: |
+    branch-protection:
+      orgs: {}
+      protect-tested-repos: true
+    github:
+      LinkURL: null
+    owners_dir_excludes:
+      default: null
+      repos: null
+    plank: {}
+    pod_namespace: adhar-system
+    postsubmits: {}
+    presubmits: {}
+    prowjob_namespace: adhar-system
+    push_gateway:
+      serve_metrics: false
+    tide:
+      context_options:
+        from-branch-protection: true
+        required-if-present-contexts: []
+        skip-unknown-contexts: false
+      merge_method: {}
+      queries: []
+      # Example configuration for a query
+      # - labels:
+      #   - approved
+      #   missingLabels:
+      #   - do-not-merge
+      #   - do-not-merge/hold
+      #   - do-not-merge/work-in-progress
+      #   - needs-ok-to-test
+      #   repos:
+      #   - org/repo
+---
+# Source: lighthouse/templates/config-external-plugins.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lighthouse-external-plugins
+  labels:
+    app: lighthouse-lighthouse
+    chart: "lighthouse-1.33.1"
+    release: "lighthouse"
+data:
+  config.yaml: |-
+    - name: cd-indicators
+      requiredResources:
+      - kind: Service
+        name: cd-indicators
+        namespace: jx
+    - name: lighthouse-webui-plugin
+      requiredResources:
+      - kind: Service
+        name: lighthouse-webui-plugin
+        namespace: jx
+---
+# Source: lighthouse/templates/plugins-cm.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plugins
+  labels:
+    app: lighthouse-lighthouse
+    chart: "lighthouse-1.33.1"
+    release: "lighthouse"
+data:
+  plugins.yaml: |
+    approve:
+    - lgtm_acts_as_approve: true
+      repos: []
+      # repos are specified here as:
+      # - org/repo
+      require_self_approval: true
+    cat: {}
+    cherry_pick_unapproved: {}
+    config_updater:
+      gzip: false
+      maps: {}
+    external_plugins: {}
+    label:
+      additional_labels: null
+    owners: {}
+    plugins: {}
+    # Example of configuration for a repository
+    # org/repo:
+    #   - approve
+    #   - assign
+    #   - cat
+    #   - dog
+    #   - help
+    #   - hold
+    #   - label
+    #   - lgtm
+    #   - lifecycle
+    #   - override
+    #   - pony
+    #   - shrug
+    #   - size
+    #   - skip
+    #   - trigger
+    #   - wip
+    #   - yuks
+    requiresig: {}
+    sigmention: {}
+    size:
+      l: 0
+      m: 0
+      s: 0
+      xl: 0
+      xxl: 0
+    triggers: []
+    # Example triggers configuration:
+    # - repos:
+    #     - org/repo
+    #   trusted_org: org
+    welcome:
+    - message_template: Welcome
+---
+# Source: lighthouse/templates/lighthousebreakpoints-crd.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: lighthousebreakpoints.lighthouse.jenkins.io
+spec:
+  group: lighthouse.jenkins.io
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          # One can use x-kubernetes-preserve-unknown-fields: true
+          # at the root of the schema (and inside any properties, additionalProperties)
+          # to get the traditional CRD behaviour that nothing is pruned, despite
+          # setting spec.preserveUnknownProperties: false.
+          #
+          # See https://kubernetes.io/blog/2019/06/20/crd-structural-schema/
+          # See issue: https://github.com/knative/serving/issues/912
+          x-kubernetes-preserve-unknown-fields: true
+  names:
+    kind: LighthouseBreakpoint
+    singular: lighthousebreakpoint
+    plural: lighthousebreakpoints
+    shortNames:
+      - lhbp
+  scope: Namespaced
+---
+# Source: lighthouse/templates/lighthousejobs-crd.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: lighthousejobs.lighthouse.jenkins.io
+spec:
+  group: lighthouse.jenkins.io
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          # One can use x-kubernetes-preserve-unknown-fields: true
+          # at the root of the schema (and inside any properties, additionalProperties)
+          # to get the traditional CRD behaviour that nothing is pruned, despite
+          # setting spec.preserveUnknownProperties: false.
+          #
+          # See https://kubernetes.io/blog/2019/06/20/crd-structural-schema/
+          # See issue: https://github.com/knative/serving/issues/912
+          x-kubernetes-preserve-unknown-fields: true
+  names:
+    kind: LighthouseJob
+    singular: lighthousejob
+    plural: lighthousejobs
+    shortNames:
+      - lhjob
+  scope: Namespaced
+---
+# Source: lighthouse/templates/foghorn-role.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-foghorn
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - configmaps
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - lighthouse.jenkins.io
+  resources:
+  - lighthousejobs
+  verbs:
+  - create
+  - delete
+  - list
+  - update
+  - get
+  - watch
+  - patch
+- apiGroups:
+  - lighthouse.jenkins.io
+  resources:
+  - lighthousejobs/status
+  verbs:
+  - create
+  - delete
+  - list
+  - update
+  - get
+  - watch
+  - patch
+---
+# Source: lighthouse/templates/gc-jobs-role.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-gc-jobs
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - configmaps
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - lighthouse.jenkins.io
+  resources:
+  - lighthousejobs
+  verbs:
+  - create
+  - delete
+  - list
+  - update
+  - get
+  - watch
+  - patch
+- apiGroups:
+  - lighthouse.jenkins.io
+  resources:
+  - lighthousejobs/status
+  verbs:
+  - create
+  - delete
+  - list
+  - update
+  - get
+  - watch
+  - patch
+---
+# Source: lighthouse/templates/keeper-role.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-keeper
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - tekton.dev
+    resources:
+      - pipelineresources
+      - tasks
+      - pipelines
+      - pipelineruns
+    verbs:
+      - create
+      - list
+      - get
+      - update
+      - watch
+      - patch
+      - delete
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs/status
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+---
+# Source: lighthouse/templates/tekton-controller-role.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-tekton-controller
+rules:
+- apiGroups:
+  - tekton.dev
+  resources:
+  - pipelines
+  - taskruns
+  - customruns
+  verbs:
+  - get
+- apiGroups:
+  - tekton.dev
+  resources:
+  - pipelineruns
+  verbs:
+  - create
+  - list
+  - get
+  - watch
+- apiGroups:
+  - lighthouse.jenkins.io
+  resources:
+  - lighthousebreakpoints
+  - lighthousejobs
+  verbs:
+  - get
+  - update
+  - list
+  - watch
+- apiGroups:
+  - lighthouse.jenkins.io
+  resources:
+  - lighthousejobs/status
+  verbs:
+  - update
+  - get
+  - watch
+  - patch
+---
+# Source: lighthouse/templates/webhooks-role.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-webhooks
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - configmaps
+  - secrets
+  verbs:
+  - get
+  - update
+  - create
+  - list
+  - watch
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  verbs:
+  - get
+  - update
+  - create
+  - list
+  - watch
+  - patch
+  - delete
+- apiGroups:
+  - lighthouse.jenkins.io
+  resources:
+  - lighthousejobs
+  verbs:
+  - create
+  - delete
+  - list
+  - update
+  - get
+  - watch
+  - patch
+- apiGroups:
+  - lighthouse.jenkins.io
+  resources:
+  - lighthousejobs/status
+  verbs:
+  - create
+  - delete
+  - list
+  - update
+  - get
+  - watch
+  - patch
+---
+# Source: lighthouse/templates/foghorn-rb.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-foghorn
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lighthouse-foghorn
+subjects:
+- kind: ServiceAccount
+  name: lighthouse-foghorn
+---
+# Source: lighthouse/templates/gc-jobs-rb.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-gc-jobs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lighthouse-gc-jobs
+subjects:
+- kind: ServiceAccount
+  name: lighthouse-gc-jobs
+---
+# Source: lighthouse/templates/keeper-rb.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-keeper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lighthouse-keeper
+subjects:
+- kind: ServiceAccount
+  name: lighthouse-keeper
+---
+# Source: lighthouse/templates/tekton-controller-rb.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-tekton-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lighthouse-tekton-controller
+subjects:
+- kind: ServiceAccount
+  name: lighthouse-tekton-controller
+---
+# Source: lighthouse/templates/webhooks-rb.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-webhooks
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lighthouse-webhooks
+subjects:
+- kind: ServiceAccount
+  name: lighthouse-webhooks
+---
+# Source: lighthouse/templates/keeper-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: lighthouse-keeper
+spec:
+  type: ClusterIP
+  selector:
+    app: lighthouse-keeper
+  ports:
+  - port: 80
+    targetPort: 8888
+    protocol: TCP
+    name: http
+---
+# Source: lighthouse/templates/tekton-controller-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: lighthouse-tekton-controller
+  labels:
+    chart: "lighthouse-1.33.1"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app: lighthouse-tekton-controller
+---
+# Source: lighthouse/templates/webhooks-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hook
+  labels:
+    chart: "lighthouse-1.33.1"
+  annotations:
+    {}
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: lighthouse-webhooks
+---
+# Source: lighthouse/templates/foghorn-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lighthouse-foghorn
+  labels:
+    chart: "lighthouse-1.33.1"
+    app: lighthouse-foghorn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lighthouse-foghorn
+  template:
+    metadata:
+      labels:
+        app: lighthouse-foghorn
+    spec:
+      serviceAccountName: lighthouse-foghorn
+      containers:
+      - name: lighthouse-foghorn
+        image: ghcr.io/jenkins-x/lighthouse-foghorn:1.33.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--namespace=adhar-system"
+          - "--skip-terminated-reconciles=false"
+          - "--max-concurrent-reconciles=1"
+        env:
+          - name: "GIT_KIND"
+            value: "gitea"
+          - name: "GIT_SERVER"
+            value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
+          - name: "GIT_USER"
+            value: gitea_admin
+          - name: "GIT_TOKEN"
+            valueFrom:
+              secretKeyRef:
+                name: lighthouse-oauth-token
+                key: oauth
+          - name: "HMAC_TOKEN"
+            valueFrom:
+              secretKeyRef:
+                name: lighthouse-hmac-token
+                key: hmac
+          - name: "JX_LOG_FORMAT"
+            value: "json"
+          - name: "LOGRUS_FORMAT"
+            value: "json"
+          - name: LOGRUS_SERVICE
+            value: "lighthouse"
+          - name: LOG_LEVEL
+            value: "info"
+          - name: LOGRUS_SERVICE_VERSION
+            value: "1.33.1"
+          - name: LOGRUS_STACK_SKIP
+            value: ""
+          - name: JX_DEFAULT_IMAGE
+            value: ""
+        securityContext:
+            {}
+        resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 80m
+              memory: 128Mi
+        volumeMounts:
+      volumes:
+      terminationGracePeriodSeconds: 180
+---
+# Source: lighthouse/templates/keeper-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lighthouse-keeper
+  labels:
+    chart: "lighthouse-1.33.1"
+    app: lighthouse-keeper
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: lighthouse-keeper
+  template:
+    metadata:
+      annotations:
+        ad.datadoghq.com/keeper.logs: '[{"source":"lighthouse","service":"keeper"}]'
+      labels:
+        app: lighthouse-keeper
+    spec:
+      serviceAccountName: lighthouse-keeper
+      terminationGracePeriodSeconds: 30
+      shareProcessNamespace: true
+      containers:
+      - name: lighthouse-keeper
+        image: ghcr.io/jenkins-x/lighthouse-keeper:1.33.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--namespace=adhar-system"
+        ports:
+          - name: http
+            containerPort: 8888
+            protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 120
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        env:
+        - name: "GIT_KIND"
+          value: "gitea"
+        - name: "GIT_SERVER"
+          value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
+        - name: "GIT_USER"
+          value: gitea_admin
+        - name: "GIT_TOKEN"
+          valueFrom:
+            secretKeyRef:
+              name: lighthouse-oauth-token
+              key: oauth
+        - name: "JX_LOG_FORMAT"
+          value: "json"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: "LOGRUS_FORMAT"
+          value: "json"
+        - name: LOGRUS_SERVICE
+          value: "lighthouse"
+        - name: LOGRUS_SERVICE_VERSION
+          value: "1.33.1"
+        - name: LOGRUS_STACK_SKIP
+          value: ""
+        - name: "LIGHTHOUSE_KEEPER_STATUS_CONTEXT_LABEL"
+          value: "Lighthouse Merge Status"
+        envFrom:
+        - secretRef:
+            name: jx-boot-job-env-vars
+            optional: true
+        securityContext:
+          {}
+        resources:
+          limits:
+            cpu: 400m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        volumeMounts:
+      volumes:
+---
+# Source: lighthouse/templates/tekton-controller-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lighthouse-tekton-controller
+  labels:
+    chart: "lighthouse-1.33.1"
+    app: lighthouse-tekton-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lighthouse-tekton-controller
+  template:
+    metadata:
+      labels:
+        app: lighthouse-tekton-controller
+      annotations:
+        {}
+    spec:
+      serviceAccountName: lighthouse-tekton-controller
+      containers:
+      - name: lighthouse-tekton-controller
+        image: ghcr.io/jenkins-x/lighthouse-tekton-controller:1.33.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - --namespace=adhar-system
+          - --dashboard-url=
+          - --dashboard-template=
+          - --enable-rerun-status-update=false
+          - --skip-terminated-reconciles=false
+          - --max-concurrent-reconciles=1
+        ports:
+          - name: metrics
+            containerPort: 8080
+        env:
+          - name: "LOGRUS_FORMAT"
+            value: "json"
+          - name: LOGRUS_SERVICE
+            value: "lighthouse"
+          - name: LOG_LEVEL
+            value: "info"
+          - name: LOGRUS_SERVICE_VERSION
+            value: "1.33.1"
+          - name: LOGRUS_STACK_SKIP
+            value: ""
+          - name: JX_DEFAULT_IMAGE
+            value: ""
+        envFrom:
+        - secretRef:
+            name: jx-boot-job-env-vars
+            optional: true
+        securityContext:
+            {}
+        resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 80m
+              memory: 128Mi
+      terminationGracePeriodSeconds: 180
+      nodeSelector:
+        {}
+      affinity:
+        {}
+      tolerations:
+        []
+      securityContext:
+        {}
+---
+# Source: lighthouse/templates/webhooks-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lighthouse-webhooks
+  labels:
+    chart: "lighthouse-1.33.1"
+    app: lighthouse-webhooks
+  annotations:
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lighthouse-webhooks
+  template:
+    metadata:
+      labels:
+        app: lighthouse-webhooks
+    spec:
+      serviceAccountName: lighthouse-webhooks
+      shareProcessNamespace: true
+      containers:
+      - name: lighthouse-webhooks
+        image: ghcr.io/jenkins-x/lighthouse-webhooks:1.33.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--namespace=adhar-system"
+        env:
+          - name: SERVICE_ACCOUNT
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.serviceAccountName
+          - name: "GIT_KIND"
+            value: "gitea"
+          - name: "LH_CUSTOM_TRIGGER_COMMAND"
+            value: ""
+          - name: "GIT_SERVER"
+            value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
+          - name: "GIT_USER"
+            value: gitea_admin
+          - name: "GIT_TOKEN"
+            valueFrom:
+              secretKeyRef:
+                name: lighthouse-oauth-token
+                key: oauth
+          - name: "HMAC_TOKEN"
+            valueFrom:
+              secretKeyRef:
+                name: lighthouse-hmac-token
+                key: hmac
+          - name: "JX_LOG_FORMAT"
+            value: "json"
+          - name: "LOGRUS_FORMAT"
+            value: "json"
+          - name: LOGRUS_SERVICE
+            value: "lighthouse"
+          - name: LOG_LEVEL
+            value: "info"
+          - name: LOGRUS_SERVICE_VERSION
+            value: "1.33.1"
+          - name: LOGRUS_STACK_SKIP
+            value: ""
+          - name: JX_DEFAULT_IMAGE
+            value: ""
+        envFrom:
+        - secretRef:
+            name: jx-boot-job-env-vars
+            optional: true
+        ports:
+        - containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        securityContext:
+            {}
+        resources:
+            limits:
+              cpu: 100m
+              memory: 512Mi
+            requests:
+              cpu: 80m
+              memory: 128Mi
+        volumeMounts:
+      volumes:
+      terminationGracePeriodSeconds: 180
+---
+# Source: lighthouse/templates/gc-jobs-cj.yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: lighthouse-gc-jobs
+  labels:
+    app: jenkins-x-lighthouse-gcjobs
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 6
+      template:
+        metadata:
+          labels:
+            app: lighthouse-gc-jobs
+            release: lighthouse
+        spec:
+          containers:
+            - command:
+                - /home/jx/gc-jobs
+              image: ghcr.io/jenkins-x/lighthouse-gc-jobs:1.33.1
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--namespace=adhar-system"
+                - "--max-age=168h"
+              env:
+              - name: LOG_LEVEL
+                value: "info"
+              name: lighthouse-gc-jobs
+              resources: {}
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+          dnsPolicy: ClusterFirst
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext: {}
+          terminationGracePeriodSeconds: 30
+          serviceAccountName: lighthouse-gc-jobs
+  successfulJobsHistoryLimit: 3
+  schedule: "0/30 * * * *"
+  startingDeadlineSeconds: 4000
+  suspend: false

@@ -1,0 +1,25 @@
+# Populates the `oidc` Secret headlamp's deployment reads for its OIDC
+# sign-in option, from the keycloak `headlamp` client.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: headlamp-oidc
+  namespace: adhar-system
+spec:
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: oidc
+    template:
+      engineVersion: v2
+      data:
+        clientID: headlamp
+        clientSecret: "{{ .HEADLAMP_CLIENT_SECRET }}"
+        issuerURL: https://keycloak.adhar.localtest.me:8443/realms/adhar
+        scopes: openid,profile,email
+  data:
+    - secretKey: HEADLAMP_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: HEADLAMP_CLIENT_SECRET

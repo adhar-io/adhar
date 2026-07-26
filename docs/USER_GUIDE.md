@@ -97,6 +97,32 @@ spec:
 
 Locally this becomes a CNPG PostgreSQL; on AWS the same request becomes RDS. Quotas and policies (Kyverno) apply automatically.
 
+### The local-first development workflow
+
+The local platform is a scaled-down twin of production (same manifests, same
+wiring — pillar 4, ADR-0015), so the whole development loop runs on your
+laptop before anything reaches a remote cluster:
+
+1. **Code** against the in-cluster Gitea (`adhar auth login`, push to your
+   repo) — or mirror from your external forge
+2. **CI fires on push**: the jenkins-x package (Lighthouse, ADR-0018) receives
+   the webhook, triggers Tekton pipelines, and reports status and ChatOps
+   (`/test`, `/lgtm`) back to the PR. Locally it is `enabled: "false"` by
+   default — flip it in the ApplicationSet to run the full loop
+3. **Preview per PR** (ADR-0017): copy
+   [`examples/preview-environments-appset.yaml`](../examples/preview-environments-appset.yaml)
+   for your repo — every PR labeled `preview` gets its own namespace at its
+   PR head, updated on push, pruned on close
+4. **Cluster-grade isolation when you need it** (ADR-0016): enable the
+   `vcluster` package to test operators/CRDs/webhooks in a disposable virtual
+   cluster instead of resetting the platform
+5. **Promotion is Git** (ADR-0004/P2.5): merging updates the environments
+   repo; Kargo promotes dev → staging → prod, ArgoCD deploys — identical
+   mechanics locally and in production
+
+Because production runs the same stack (fuller enablement, real DNS/TLS), a
+change that works locally needs no translation to ship remotely.
+
 ## 5. Operating the Platform Day-to-Day
 
 ### Watching state

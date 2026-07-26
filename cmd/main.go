@@ -28,6 +28,7 @@ import (
 	"adhar-io/adhar/cmd/backup"
 	"adhar-io/adhar/cmd/cluster"
 	"adhar-io/adhar/cmd/config"
+	controllercmd "adhar-io/adhar/cmd/controller"
 	"adhar-io/adhar/cmd/db"
 	"adhar-io/adhar/cmd/down"
 	"adhar-io/adhar/cmd/env"
@@ -48,6 +49,7 @@ import (
 	"adhar-io/adhar/cmd/storage"
 	"adhar-io/adhar/cmd/traces"
 	"adhar-io/adhar/cmd/up"
+	"adhar-io/adhar/cmd/upgrade"
 	"adhar-io/adhar/cmd/version"
 	"adhar-io/adhar/cmd/webhook"
 	"adhar-io/adhar/globals"
@@ -107,6 +109,8 @@ func init() {
 	down.DownCmd.GroupID = GroupPlatform
 	health.HealthCmd.GroupID = GroupPlatform
 	get.GetCmd.GroupID = GroupPlatform
+	controllercmd.ControllerCmd.GroupID = GroupPlatform
+	upgrade.UpgradeCmd.GroupID = GroupPlatform
 
 	cluster.ClusterCmd.GroupID = GroupCluster
 	env.EnvCmd.GroupID = GroupCluster
@@ -138,16 +142,18 @@ func init() {
 
 	// Add modular commands
 	AddCommand(
-		up.UpCmd,             // Up command for platform creation
-		down.DownCmd,         // Down command for platform teardown
-		get.GetCmd,           // Get command for resource information
-		apps.AppsCmd,         // Apps command for application management
-		cluster.ClusterCmd,   // Cluster command for cluster management
-		config.ConfigCmd,     // Config command for configuration management
-		env.EnvCmd,           // Environment command for environment management
-		health.HealthCmd,     // Health command for platform health monitoring
-		logs.LogsCmd,         // Logs command for centralized logging
-		security.SecurityCmd, // Security command for security operations
+		up.UpCmd,                    // Up command for platform creation
+		down.DownCmd,                // Down command for platform teardown
+		controllercmd.ControllerCmd, // Controller command for in-cluster manager mode
+		upgrade.UpgradeCmd,          // Upgrade command: converge foundation + stack diff/sync
+		get.GetCmd,                  // Get command for resource information
+		apps.AppsCmd,                // Apps command for application management
+		cluster.ClusterCmd,          // Cluster command for cluster management
+		config.ConfigCmd,            // Config command for configuration management
+		env.EnvCmd,                  // Environment command for environment management
+		health.HealthCmd,            // Health command for platform health monitoring
+		logs.LogsCmd,                // Logs command for centralized logging
+		security.SecurityCmd,        // Security command for security operations
 
 		auth.AuthCmd,         // Auth command for authentication and authorization
 		gitops.GitOpsCmd,     // GitOps command for GitOps operations

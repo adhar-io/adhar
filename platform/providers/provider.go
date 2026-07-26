@@ -286,7 +286,16 @@ type ProvisionOptions struct {
 }
 
 // ProvisionEnvironment provisions using the appropriate provider based on configuration
-func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) error {
+// ProvisionResult is the outcome of a successful ProvisionEnvironment call: the
+// provider instance and the created cluster, so callers can continue with
+// post-provisioning steps (kubeconfig retrieval, platform bootstrap). It is nil
+// for dry runs.
+type ProvisionResult struct {
+	Provider Provider
+	Cluster  *types.Cluster
+}
+
+func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *config.ResolvedEnvironmentConfig, opts ProvisionOptions) (*ProvisionResult, error) {
 	providerType := strings.ToLower(envConfig.ResolvedProvider)
 
 	// Build provider configuration from environment config
@@ -295,29 +304,29 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	// Create provider instance
 	prov, err := pm.factory.CreateProvider(providerType, providerConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create %s provider: %w", providerType, err)
+		return nil, fmt.Errorf("failed to create %s provider: %w", providerType, err)
 	}
 
 	if opts.DryRun {
 		fmt.Printf("DRY-RUN: Would create %s cluster '%s' in region '%s'\n",
 			envConfig.ResolvedProvider, envConfig.Name, envConfig.ResolvedRegion)
-		return nil
+		return nil, nil
 	}
 
 	// Build cluster specification based on provider and environment
 	spec, err := buildClusterSpec(envConfig)
 	if err != nil {
-		return fmt.Errorf("failed to build cluster specification: %w", err)
+		return nil, fmt.Errorf("failed to build cluster specification: %w", err)
 	}
 
 	// Authenticate with the provider
 	if err := prov.Authenticate(ctx, buildCredentials(envConfig)); err != nil {
-		return fmt.Errorf("authentication failed for %s provider: %w", providerType, err)
+		return nil, fmt.Errorf("authentication failed for %s provider: %w", providerType, err)
 	}
 
 	// Validate permissions
 	if err := prov.ValidatePermissions(ctx); err != nil {
-		return fmt.Errorf("permission validation failed for %s provider: %w", providerType, err)
+		return nil, fmt.Errorf("permission validation failed for %s provider: %w", providerType, err)
 	}
 
 	// Create the cluster
@@ -325,12 +334,12 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 
 	cluster, err := prov.CreateCluster(ctx, spec)
 	if err != nil {
-		return fmt.Errorf("failed to create %s cluster: %w", providerType, err)
+		return nil, fmt.Errorf("failed to create %s cluster: %w", providerType, err)
 	}
 
 	logger.Infof("Cluster created successfully - ID: %s, Status: %s", cluster.ID, cluster.Status)
 
-	return nil
+	return &ProvisionResult{Provider: prov, Cluster: cluster}, nil
 }
 
 // buildProviderConfig creates provider-specific configuration from environment config

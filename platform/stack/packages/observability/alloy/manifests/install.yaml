@@ -61,6 +61,79 @@ data:
     discovery.kubernetes "ingresses" {
     	role = "ingress"
     }
+
+    // ---------------------------------------------------------------
+    // Hub shipping (roadmap P2.3): everything collected here is written
+    // to the observability hub. Endpoints come from the observability-hub
+    // ConfigMap (envFrom) — in-cluster service URLs on the hub itself,
+    // external Gateway URLs on workload-cluster spokes. Every sample and
+    // stream carries the cluster label for hub-side separation.
+    // ---------------------------------------------------------------
+    prometheus.scrape "annotated_pods" {
+    	targets    = discovery.relabel.scrape_pods.output
+    	forward_to = [prometheus.remote_write.hub.receiver]
+    }
+
+    discovery.relabel "scrape_pods" {
+    	targets = discovery.kubernetes.pods.targets
+    	rule {
+    		source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+    		regex         = "true"
+    		action        = "keep"
+    	}
+    	rule {
+    		source_labels = ["__meta_kubernetes_namespace"]
+    		target_label  = "namespace"
+    	}
+    	rule {
+    		source_labels = ["__meta_kubernetes_pod_name"]
+    		target_label  = "pod"
+    	}
+    }
+
+    prometheus.remote_write "hub" {
+    	endpoint {
+    		url = sys.env("HUB_MIMIR_URL")
+    	}
+    	external_labels = {
+    		cluster = sys.env("HUB_CLUSTER_NAME"),
+    	}
+    }
+
+    loki.source.kubernetes "pods" {
+    	targets    = discovery.kubernetes.pods.targets
+    	forward_to = [loki.write.hub.receiver]
+    }
+
+    loki.write "hub" {
+    	endpoint {
+    		url = sys.env("HUB_LOKI_URL")
+    	}
+    	external_labels = {
+    		cluster = sys.env("HUB_CLUSTER_NAME"),
+    	}
+    }
+
+    otelcol.receiver.otlp "workloads" {
+    	grpc {
+    		endpoint = "0.0.0.0:4317"
+    	}
+    	http {
+    		endpoint = "0.0.0.0:4318"
+    	}
+    	output {
+    		traces = [otelcol.exporter.otlphttp.hub.input]
+    	}
+    }
+
+    otelcol.exporter.otlphttp "hub" {
+    	client {
+    		endpoint = sys.env("HUB_TEMPO_URL")
+    		tls {
+    			insecure_skip_verify = true
+    		}
+    	}
+    }
 ---
 # Source: alloy/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -288,6 +361,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+          # Hub endpoints for the shipping pipelines in config.alloy
+          # (roadmap P2.3). Keep when regenerating this manifest.
+          envFrom:
+            - configMapRef:
+                name: observability-hub
           ports:
             - containerPort: 12345
               name: http-metrics

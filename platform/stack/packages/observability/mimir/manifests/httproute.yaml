@@ -1,0 +1,22 @@
+# Ingestion route for workload-cluster spokes (roadmap P2.3): Alloy agents on
+# workload clusters ship to this hostname through the platform Gateway.
+# In-cluster consumers keep using the Service directly.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mimir
+  namespace: adhar-system
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - mimir.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: mimir-distributor
+          port: 8080

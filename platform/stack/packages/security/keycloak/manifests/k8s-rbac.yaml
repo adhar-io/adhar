@@ -1,0 +1,67 @@
+# Kubernetes RBAC from Keycloak groups (ADR-0008: authorization flows from
+# group claims; humans authenticate to the API server via OIDC).
+#
+# The realm's platform groups map onto Kubernetes' standard aggregated roles:
+#
+#   platform-admin     -> cluster-admin
+#   platform-developer -> edit  (cluster-wide here; tighten to per-namespace
+#                                RoleBindings for tenant isolation)
+#   platform-viewer    -> view
+#
+# Group subjects use the "oidc:" prefix — configure the API server (or your
+# managed cluster's OIDC settings) accordingly:
+#
+#   --oidc-issuer-url=https://keycloak.<host>/realms/adhar
+#   --oidc-client-id=adhar-cli
+#   --oidc-username-claim=preferred_username
+#   --oidc-username-prefix=oidc:
+#   --oidc-groups-claim=groups
+#   --oidc-groups-prefix=oidc:
+#
+# The prefix keeps OIDC identities from ever colliding with built-in
+# system: users/groups. kubectl can then use the CLI session directly:
+#   kubectl --token "$(adhar auth token)" get pods
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-oidc-platform-admin
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:platform-admin
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-oidc-platform-developer
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:platform-developer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-oidc-platform-viewer
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:platform-viewer

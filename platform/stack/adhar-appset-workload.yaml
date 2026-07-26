@@ -1,0 +1,90 @@
+# Thin workload-cluster profile (roadmap P2.2).
+#
+# Deploys the minimal agent set onto every workload cluster that
+# CompositeCluster auto-registered with ArgoCD (roadmap P2.1 — registration
+# secrets carry the adhar.io/cluster label this generator selects on). The
+# management cluster stays the hub: Git, GitOps, identity, and observability
+# storage live there (ADR-0001, ADR-0010); workload clusters run only what
+# workloads need locally.
+#
+# Same schema as the platform ApplicationSet (ADR-0004): every package is a
+# list element with an enabled gate, filtered by the generator selector.
+# Cilium is not in this list: on managed clusters (EKS/AKS/GKE/DOKS) the
+# provider CNI is present at cluster build; Cilium-on-workload-clusters
+# arrives with the Cluster Mesh work (roadmap P2.4).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: adhar-workload-clusters
+  namespace: adhar-system
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  generators:
+    - matrix:
+        generators:
+          # Every ArgoCD-registered workload cluster (P2.1 registration
+          # secrets). The local/management cluster is not matched: its
+          # in-cluster destination has no adhar.io/cluster label.
+          - clusters:
+              selector:
+                matchExpressions:
+                  - key: adhar.io/cluster
+                    operator: Exists
+          - list:
+              elements:
+                - packageName: "metrics-server"
+                  enabled: "true"
+                  namespace: "adhar-system"
+                  category: "observability"
+                  manifestPath: "observability/metrics-server/manifests"
+                - packageName: "kyverno"
+                  enabled: "true"
+                  namespace: "adhar-system"
+                  category: "security"
+                  manifestPath: "security/kyverno/manifests"
+                - packageName: "kyverno-policies"
+                  enabled: "true"
+                  namespace: "adhar-system"
+                  category: "security"
+                  manifestPath: "security/kyverno-policies/manifests"
+                # Telemetry shipper: collects on the workload cluster, ships
+                # to the management-cluster hub (roadmap P2.3; endpoints come
+                # from the alloy package's observability-hub ConfigMap).
+                - packageName: "alloy"
+                  enabled: "true"
+                  namespace: "adhar-system"
+                  category: "observability"
+                  manifestPath: "observability/alloy/manifests"
+            # Sibling of `list`, not nested inside it — the enabled gate.
+            selector:
+              matchLabels:
+                enabled: "true"
+  template:
+    metadata:
+      finalizers:
+        - resources-finalizer.argoproj.io
+      labels:
+        adhar.io/package-name: "{{ .packageName }}"
+        adhar.io/category: "{{ .category }}"
+        adhar.io/cluster: "{{ .name }}"
+        environment: "workload"
+      # <cluster>-<package>, e.g. prod-eks-1-kyverno
+      name: "{{ .name }}-{{ .packageName }}"
+    spec:
+      project: default
+      source:
+        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+        targetRevision: main
+        path: "{{ .manifestPath }}"
+      destination:
+        server: "{{ .server }}"
+        namespace: "{{ .namespace }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

@@ -28,12 +28,13 @@ import (
 	"time"
 )
 
-// Default Keycloak endpoints for the local Adhar platform. Override with the
+// Default Keycloak endpoints for the local Adhar platform (per-app subdomain
+// routing, same URLs the SSO chain uses — ADR-0013). Override with the
 // persistent flags on the auth command.
 const (
-	defaultIssuer      = "https://adhar.localtest.me:8443/keycloak/realms/adhar"
-	defaultClientID    = "admin-cli"
-	defaultAdminAPIURL = "https://adhar.localtest.me:8443/keycloak"
+	defaultIssuer      = "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+	defaultClientID    = "adhar-cli"
+	defaultAdminAPIURL = "https://keycloak.adhar.localtest.me:8443"
 	defaultRealm       = "adhar"
 )
 

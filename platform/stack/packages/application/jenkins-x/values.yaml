@@ -1,0 +1,21 @@
+# Lighthouse: the Jenkins X webhook/ChatOps/trigger layer on Tekton
+# (ADR-0018 — jx pipeline model for CI; ArgoCD/Kargo stay the CD engines).
+git:
+  # In-cluster Gitea is the default forge (ADR-0003).
+  kind: gitea
+  server: http://gitea-http.adhar-system.svc.cluster.local:3000
+user: gitea_admin
+# Secrets come from the cluster, never from Git (ADR-0009): the oauth token is
+# projected from gitea-credential by ESO; the hmac webhook secret is generated
+# in-cluster (see secrets.yaml).
+oauthSecretName: lighthouse-oauth-token
+hmacSecretName: lighthouse-hmac-token
+engines:
+  # Tekton executes pipelines; the legacy jx engine stays off.
+  jx: false
+  tekton: true
+  jenkins: false
+configMaps:
+  # Minimal Prow-style config/plugins ConfigMaps so Lighthouse boots; teams
+  # register repositories by editing these (or wiring config-updater).
+  create: true

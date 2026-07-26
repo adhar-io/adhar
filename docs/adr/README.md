@@ -18,6 +18,14 @@ Decisions with lasting consequences for the Adhar platform are recorded here in 
 | [0012](0012-single-node-resilience-tuning.md) | Resilience tuning for single-node local clusters | Accepted |
 | [0013](0013-sso-bootstrap-config-job.md) | SSO bootstrap via idempotent in-cluster config job | Accepted |
 | [0014](0014-package-lifecycle-operations.md) | Package lifecycle operations: toggling, verification, clean removal | Accepted |
+| [0015](0015-idp-critical-pillars.md) | Critical pillars of the IDP — the tests every addition must pass | Accepted |
+| [0016](0016-vcluster-local-first-development.md) | vCluster as the virtual-cluster primitive for local-first development and tenancy | Accepted |
+| [0017](0017-preview-environments.md) | Ephemeral preview environments per pull request | Accepted |
+| [0018](0018-jenkins-x-ci-model.md) | CI on the platform: Jenkins X pipeline model on Tekton, promotion via GitOps | Accepted |
+| [0019](0019-secure-supply-chain-chainguard.md) | Secure software supply chain: Chainguard images, Sigstore signing, policy admission | Accepted |
+| [0020](0020-iceberg-data-lakehouse.md) | Data lakehouse on Apache Iceberg over platform object storage | Accepted |
+| [0021](0021-day2-operations-first-class.md) | Day-2 operations as a first-class product surface | Accepted |
+| [0022](0022-custom-clusters-no-managed-k8s.md) | Custom clusters on raw cloud infrastructure — no managed Kubernetes | Accepted |
 
 ## Proposing an ADR
 

@@ -45,6 +45,12 @@ reads `WEBHOOK_PORT` as its `--webhook-port` flag and crashlooped with
 `expected a valid 64 bit int`. Fixed by setting `enableServiceLinks: false` on
 the crossplane Deployments.
 
+Known risk (unrenamable): the jenkins-x package's Lighthouse chart hardcodes
+`Service/hook` (its webhook receiver), which injects `HOOK_PORT` into every
+service-linked pod in the namespace. No collision has been observed yet;
+components that parse `*_PORT`-shaped env vars must set
+`enableServiceLinks: false` (the standing ADR-0011 rule).
+
 Generically-named Services currently in the stack — `webhook` (cosign,
 buildpack), `controller` (buildpack, open-function), `operator` / `storage`
 (kubescape), `proxy` (jupyterhub), `dashboard` (devtron).

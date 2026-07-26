@@ -1,0 +1,74 @@
+# Production edge variant of the platform Gateway (roadmap P1.3), selected by
+# the controller for non-Kind providers and rendered with the platform host.
+#
+# Differences from gateway.yaml (the Kind variant):
+#   - Service type LoadBalancer (cloud LB / on-prem LB implementation) instead
+#     of NodePort + pinned ports
+#   - HTTPS listener carries the platform wildcard hostname so cert-manager's
+#     gateway support can manage its certificate
+#   - cert-manager.io/cluster-issuer defaults to adhar-selfsigned (works with
+#     zero external configuration, same trust posture as local); switch the
+#     annotation to a DNS-01-configured ACME issuer for publicly trusted
+#     wildcard certificates (see the adhar-letsencrypt-* ClusterIssuers in the
+#     cert-manager package)
+#   - no 8443 listener (that exists only for Kind's host port-mapping)
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumGatewayClassConfig
+metadata:
+  name: adhar-gateway-config
+  namespace: adhar-system
+spec:
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Cluster
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: adhar
+spec:
+  controllerName: io.cilium/gateway-controller
+  parametersRef:
+    group: cilium.io
+    kind: CiliumGatewayClassConfig
+    name: adhar-gateway-config
+    namespace: adhar-system
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: adhar-gateway
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-gateway
+    app.kubernetes.io/managed-by: adhar
+  annotations:
+    cert-manager.io/cluster-issuer: adhar-selfsigned
+spec:
+  gatewayClassName: adhar
+  listeners:
+    # HTTP listener stays open for ACME HTTP-01 solver routes and plain
+    # redirects; external-dns publishes records from HTTPRoute hostnames.
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.{{ .Host }}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          # Populated by cert-manager (gateway support) from the ClusterIssuer
+          # named in the annotation above; the bootstrap self-signed secret
+          # seeds it so the listener serves TLS before cert-manager syncs.
+          - kind: Secret
+            group: ""
+            name: adhar-cert
+      allowedRoutes:
+        namespaces:
+          from: All

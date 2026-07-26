@@ -110,11 +110,13 @@ cluster:
   # * It must begin and end with a lower case alphanumeric character;
   # * It may contain lower case alphanumeric characters and dashes between.
   # The "default" name cannot be used if the Cluster ID is different from 0.
-  name: default
+  # Adhar (roadmap P2.4): mesh-ready identity for the management cluster.
+  # Workload clusters joining the mesh use unique names and IDs 2-255.
+  name: adhar-mgmt
   # -- (int) Unique ID of the cluster. Must be unique across all connected
   # clusters and in the range of 1 to 255. Only required for Cluster Mesh,
   # may be 0 if Cluster Mesh is not used.
-  id: 0
+  id: 1
 # -- Define serviceAccount names for components.
 # @default -- Component's fully qualified name.
 serviceAccounts:
@@ -2724,8 +2726,8 @@ operator:
     useDigest: false
     pullPolicy: "IfNotPresent"
     suffix: ""
-  # -- Number of replicas to run for the cilium-operator deployment
-  replicas: 2
+  # (replicas is set once above with the single-node rationale, ADR-0012 —
+  # a duplicate key here would win YAML parsing and silently undo it)
   # -- The priority class to use for cilium-operator
   priorityClassName: ""
   # -- DNS policy for Cilium operator pods.
@@ -3635,7 +3637,10 @@ authentication:
     # Settings for SPIRE
     spire:
       # -- Enable SPIRE integration (beta)
-      enabled: false
+      # Adhar (roadmap P2.4): SPIFFE mutual authentication ships enabled —
+      # workloads get SPIFFE identities enforceable in CiliumNetworkPolicy
+      # (authentication.mode: required).
+      enabled: true
       # -- Annotations to be added to all top-level spire objects (resources under templates/spire)
       annotations: {}
       # Settings to control the SPIRE installation and configuration
@@ -3644,9 +3649,12 @@ authentication:
         # This will only take effect only if authentication.mutual.spire.enabled is true
         enabled: true
         # -- SPIRE namespace to install into
-        namespace: cilium-spire
+        # Adhar: SPIRE joins the shared platform namespace (ADR-0011);
+        # existingNamespace keeps the chart from emitting a Namespace object
+        # (which would carry pod-security labels and fight the platform's).
+        namespace: adhar-system
         # -- SPIRE namespace already exists. Set to true if Helm should not create, manage, and import the SPIRE namespace.
-        existingNamespace: false
+        existingNamespace: true
         # -- init container image of SPIRE agent and server
         initImage:
           # @schema
@@ -3798,7 +3806,9 @@ authentication:
       # Example values: 10.0.0.1:8081, spire-server.cilium-spire.svc:8081
       serverAddress: ~
       # -- SPIFFE trust domain to use for fetching certificates
-      trustDomain: spiffe.cilium
+      # Adhar: one trust domain across the platform so identities stay valid
+      # across Cluster Mesh members (roadmap P2.4).
+      trustDomain: adhar.io
       # -- SPIRE socket path where the SPIRE delegated api agent is listening
       adminSocketPath: /run/spire/sockets/admin.sock
       # -- SPIRE socket path where the SPIRE workload agent is listening.

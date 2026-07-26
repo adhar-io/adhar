@@ -1,0 +1,178 @@
+# Bootstrap credential rotation (roadmap P1.4, ADR-0008 target flow).
+#
+# The bootstrap credentials (gitea_admin and the ArgoCD admin user) are day-0
+# artifacts: once SSO works (keycloak package healthy, OIDC login verified),
+# they should stop being well-known values. This Job rotates both to strong
+# random passwords and records them as break-glass credentials:
+#
+#   - Gitea admin password is changed via the admin API and the
+#     gitea-credential Secret is updated in place (the CLI and controller keep
+#     working from that Secret)
+#   - ArgoCD admin password is bcrypt-hashed into argocd-secret;
+#     argocd-initial-admin-secret is updated so `adhar get secrets -p argocd`
+#     stays truthful
+#   - Both new values are written to Vault (KV v2, secret/adhar/
+#     bootstrap-credentials) when the vault package is installed; the
+#     Kubernetes Secrets remain the in-cluster copy either way
+#
+# Enablement is the gate (ADR-0004): this package ships disabled locally
+# (default credentials are documented for development) and enabled in the
+# production environment set. The Job is idempotent — a marker Secret
+# (bootstrap-credentials-rotated) short-circuits re-runs, so re-syncing the
+# package is always safe. Delete the marker to force another rotation.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: credential-rotation
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: credential-rotation
+    adhar.io/component: security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: credential-rotation
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: credential-rotation
+    adhar.io/component: security
+rules:
+  # get: read current credentials and the marker; patch: write rotated values;
+  # create: the marker Secret and the break-glass copy. Scoped to the platform
+  # namespace only.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: credential-rotation
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: credential-rotation
+    adhar.io/component: security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: credential-rotation
+subjects:
+  - kind: ServiceAccount
+    name: credential-rotation
+    namespace: adhar-system
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap-credential-rotation
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: credential-rotation
+    adhar.io/component: security
+  annotations:
+    # Re-run on every sync (idempotent via the marker Secret); BeforeHookCreation
+    # replaces the previous Job object so immutable-spec conflicts cannot occur.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: credential-rotation
+    spec:
+      serviceAccountName: credential-rotation
+      restartPolicy: Never
+      enableServiceLinks: false
+      containers:
+        - name: rotate
+          image: docker.io/library/ubuntu:22.04
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              #!/bin/bash
+              set -e -o pipefail
+
+              apt -qq update && apt -qq install -y curl jq apache2-utils openssl >/dev/null
+
+              NS=adhar-system
+              API=https://kubernetes.default.svc
+              SA=/var/run/secrets/kubernetes.io/serviceaccount
+              TOKEN=$(cat ${SA}/token)
+              CURL_K8S=(curl -sS --cacert ${SA}/ca.crt -H "Authorization: Bearer ${TOKEN}")
+
+              kget() { "${CURL_K8S[@]}" -o /tmp/kget.json -w '%{http_code}' "${API}/api/v1/namespaces/${NS}/secrets/$1"; }
+              kpatch() { "${CURL_K8S[@]}" --fail-with-body -X PATCH -H 'Content-Type: application/merge-patch+json' -d "$2" "${API}/api/v1/namespaces/${NS}/secrets/$1" >/dev/null; }
+
+              # ------------------------------------------------------------
+              # 0. Idempotence: never rotate twice.
+              # ------------------------------------------------------------
+              if [ "$(kget bootstrap-credentials-rotated)" = "200" ]; then
+                echo "bootstrap credentials already rotated; nothing to do"
+                exit 0
+              fi
+
+              # ------------------------------------------------------------
+              # 1. Current Gitea admin credentials.
+              # ------------------------------------------------------------
+              [ "$(kget gitea-credential)" = "200" ] || { echo "gitea-credential secret not found"; exit 1; }
+              GITEA_USER=$(jq -r '.data.username' /tmp/kget.json | base64 -d)
+              GITEA_PASS=$(jq -r '.data.password' /tmp/kget.json | base64 -d)
+
+              # ------------------------------------------------------------
+              # 2. Generate replacements (32 chars, URL-safe).
+              # ------------------------------------------------------------
+              GITEA_NEW=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 32)
+              ARGOCD_NEW=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 32)
+
+              # ------------------------------------------------------------
+              # 3. Rotate Gitea via the admin API, then the Secret.
+              # ------------------------------------------------------------
+              GITEA_URL=http://gitea-http.${NS}.svc.cluster.local:3000
+              curl -sS --fail-with-body -X PATCH "${GITEA_URL}/api/v1/admin/users/${GITEA_USER}" \
+                -u "${GITEA_USER}:${GITEA_PASS}" -H 'Content-Type: application/json' \
+                -d "{\"login_name\": \"${GITEA_USER}\", \"source_id\": 0, \"password\": \"${GITEA_NEW}\", \"must_change_password\": false}" >/dev/null
+              kpatch gitea-credential "{\"stringData\": {\"password\": \"${GITEA_NEW}\"}}"
+              echo "gitea admin password rotated"
+
+              # ------------------------------------------------------------
+              # 4. Rotate ArgoCD admin: bcrypt into argocd-secret; keep the
+              #    initial-admin secret truthful for `adhar get secrets`.
+              # ------------------------------------------------------------
+              HASH=$(htpasswd -nbBC 10 "" "${ARGOCD_NEW}" | tr -d ':\n')
+              NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              kpatch argocd-secret "{\"stringData\": {\"admin.password\": \"${HASH}\", \"admin.passwordMtime\": \"${NOW}\"}}"
+              if [ "$(kget argocd-initial-admin-secret)" = "200" ]; then
+                kpatch argocd-initial-admin-secret "{\"stringData\": {\"password\": \"${ARGOCD_NEW}\"}}"
+              fi
+              echo "argocd admin password rotated"
+
+              # ------------------------------------------------------------
+              # 5. Break-glass copy to Vault (best effort: the Kubernetes
+              #    Secrets above remain authoritative in-cluster).
+              # ------------------------------------------------------------
+              if [ "$(kget vault-keys)" = "200" ]; then
+                VAULT_TOKEN=$(jq -r '.data["init.json"]' /tmp/kget.json | base64 -d | jq -r '.root_token')
+                VAULT_ADDR=http://vault.${NS}.svc.cluster.local:8200
+                if curl -sS --fail-with-body -X POST "${VAULT_ADDR}/v1/secret/data/adhar/bootstrap-credentials" \
+                  -H "X-Vault-Token: ${VAULT_TOKEN}" \
+                  -d "{\"data\": {\"gitea_admin\": \"${GITEA_NEW}\", \"argocd_admin\": \"${ARGOCD_NEW}\", \"rotated_at\": \"${NOW}\"}}" >/dev/null; then
+                  echo "break-glass credentials written to Vault (secret/adhar/bootstrap-credentials)"
+                else
+                  echo "WARNING: could not write break-glass credentials to Vault; in-cluster Secrets remain the only copy"
+                fi
+              else
+                echo "vault-keys secret not found; skipping Vault break-glass copy"
+              fi
+
+              # ------------------------------------------------------------
+              # 6. Marker: rotation completed.
+              # ------------------------------------------------------------
+              "${CURL_K8S[@]}" --fail-with-body -X POST -H 'Content-Type: application/json' \
+                "${API}/api/v1/namespaces/${NS}/secrets" \
+                -d "{\"apiVersion\": \"v1\", \"kind\": \"Secret\", \"metadata\": {\"name\": \"bootstrap-credentials-rotated\", \"labels\": {\"app.kubernetes.io/name\": \"credential-rotation\"}}, \"stringData\": {\"rotatedAt\": \"${NOW}\"}}" >/dev/null
+              echo "rotation complete at ${NOW}"
+          # No dropped capabilities: apt needs setgroups during package
+          # install (observed on the gitea-token-gen job: "setgroups
+          # Operation not permitted" crashloop with drop ALL).

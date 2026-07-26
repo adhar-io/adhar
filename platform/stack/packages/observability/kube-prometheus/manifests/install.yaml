@@ -75258,6 +75258,7 @@ data:
     check_for_updates = true
     [auth.generic_oauth]
     allow_assign_grafana_admin = true
+    auto_login = true
     api_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/userinfo
     auth_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth
     client_id = grafana

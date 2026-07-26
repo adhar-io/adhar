@@ -66,7 +66,7 @@ spec:
                           kind: AppProject
                           metadata:
                             name: {{ quote (required "project.name must be provided" (get $project "name")) }}
-                            namespace: argocd
+                            namespace: adhar-system
                             labels:
                               adhar.io/gitops: {{ quote $xr.metadata.name }}
                           spec:
@@ -147,7 +147,7 @@ spec:
                           kind: ApplicationSet
                           metadata:
                             name: {{ quote (default (printf "%s-appset-%d" $xr.metadata.name $index) (get $appset "name")) }}
-                            namespace: argocd
+                            namespace: adhar-system
                             labels:
                               project: {{ quote (get $project "name") }}
                               adhar.io/gitops: {{ quote $xr.metadata.name }}

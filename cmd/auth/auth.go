@@ -61,6 +61,7 @@ func init() {
 	// Add subcommands
 	AuthCmd.AddCommand(loginCmd)
 	AuthCmd.AddCommand(logoutCmd)
+	AuthCmd.AddCommand(whoamiCmd)
 	AuthCmd.AddCommand(userCmd)
 	AuthCmd.AddCommand(groupCmd)
 	AuthCmd.AddCommand(roleCmd)
@@ -74,8 +75,9 @@ func runAuth(cmd *cobra.Command, args []string) error {
 	fmt.Println("🔐 Adhar Platform Authentication & Authorization")
 	fmt.Println("")
 	fmt.Println("Available commands:")
-	fmt.Println("  login     - Authenticate with the platform")
+	fmt.Println("  login     - Authenticate with the platform (session is persisted)")
 	fmt.Println("  logout    - Logout from the platform")
+	fmt.Println("  whoami    - Show the logged-in identity and groups")
 	fmt.Println("  user      - Manage users and accounts")
 	fmt.Println("  group     - Manage user groups")
 	fmt.Println("  role      - Manage roles and permissions")

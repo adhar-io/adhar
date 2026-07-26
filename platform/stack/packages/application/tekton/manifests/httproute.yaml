@@ -1,4 +1,5 @@
-# Tekton Dashboard through the shared platform Gateway
+# Tekton Dashboard through the shared platform Gateway, gated by Keycloak SSO
+# (oauth2-proxy; see dashboard-sso.yaml). The dashboard itself has no auth.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -11,5 +12,5 @@ spec:
   hostnames: ["tekton.adhar.localtest.me"]
   rules:
     - backendRefs:
-        - name: tekton-dashboard
-          port: 9097
+        - name: tekton-oauth2-proxy
+          port: 4180

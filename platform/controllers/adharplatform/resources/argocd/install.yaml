@@ -161,6 +161,26 @@ data:
       groups:
         essential: true
   oidc.tls.insecure.skip.verify: "true"
+  # Fast health evaluation for CNPG Clusters (phase-based). Without this,
+  # ArgoCD's bundled community Lua for postgresql.cnpg.io can exceed its
+  # evaluation deadline on a loaded single node ("context deadline exceeded"),
+  # wedging app health at Unknown (observed live; ADR-0012 class).
+  resource.customizations.health.postgresql.cnpg.io_Cluster: |
+    health_status = {}
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      health_status.message = obj.status.phase
+      if obj.status.phase == "Cluster in healthy state" then
+        health_status.status = "Healthy"
+      elseif obj.status.phase == "Failed" then
+        health_status.status = "Degraded"
+      else
+        health_status.status = "Progressing"
+      end
+      return health_status
+    end
+    health_status.status = "Progressing"
+    health_status.message = "Waiting for cluster status"
+    return health_status
   resource.customizations.ignoreResourceUpdates.ConfigMap: |
     jqPathExpressions:
       # Ignore the cluster-autoscaler status

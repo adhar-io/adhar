@@ -1,0 +1,147 @@
+# Supply-chain policies (ADR-0019). All ship in Audit mode: findings appear in
+# PolicyReports without blocking anything. The staged rollout is Audit
+# everywhere -> Enforce in production workload namespaces once golden-path
+# pipelines sign and attest by default (ADR-0018 makes the pipeline catalog the
+# enforcement point at build time; these policies are the admission-time half).
+# Platform namespaces are excluded: foundation images are pinned by digest-able
+# release manifests and verified at the release boundary, and an admission gate
+# on the platform's own control loop is an ADR-0012-class cluster-wide risk.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify Image Signatures
+    policies.kyverno.io/category: Supply Chain (ADR-0019)
+    policies.kyverno.io/description: >-
+      Images built by the platform pipelines (pushed to the in-cluster Harbor
+      or the adhar organization registry) must carry a Sigstore keyless
+      signature from the platform's CI identity. Audit mode: unsigned images
+      are reported, not blocked. Adjust the subject/issuer patterns to your
+      forge and CI identity before enforcing.
+spec:
+  validationFailureAction: Audit
+  background: false
+  webhookTimeoutSeconds: 15
+  failurePolicy: Ignore
+  rules:
+    - name: verify-platform-built-images
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - adhar-system
+                - kube-system
+                - crossplane-system
+      verifyImages:
+        - imageReferences:
+            - "harbor.*/library/*"
+            - "ghcr.io/adhar-io/*"
+          attestors:
+            - entries:
+                - keyless:
+                    subject: "https://lighthouse.*"
+                    issuer: "https://keycloak.*/realms/adhar"
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          mutateDigest: true
+          verifyDigest: false
+          required: false
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow :latest Tag
+    policies.kyverno.io/category: Supply Chain (ADR-0019)
+    policies.kyverno.io/description: >-
+      Mutable tags make deployments unreproducible and rollbacks meaningless.
+      Audit mode reports workloads using :latest or no tag at all.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: require-image-tag
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces: ["kube-system"]
+      validate:
+        message: "An explicit image tag is required (':latest' or untagged images are not reproducible)."
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image }}"
+                    operator: Equals
+                    value: "*:latest"
+                  - key: "{{ contains(element.image, ':') }}"
+                    operator: Equals
+                    value: false
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+  annotations:
+    policies.kyverno.io/title: Restrict Image Registries
+    policies.kyverno.io/category: Supply Chain (ADR-0019)
+    policies.kyverno.io/description: >-
+      Workload images should come from the platform registry (Harbor, which
+      scans on push and can proxy-cache upstreams) or explicitly trusted
+      registries. Audit mode reports everything else; extend the allowlist to
+      your organization's registries before enforcing.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: allowed-registries
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - adhar-system
+                - kube-system
+                - crossplane-system
+      validate:
+        message: "Image registry is not in the platform allowlist (Harbor / trusted registries)."
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "harbor.*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "ghcr.io/adhar-io/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "cgr.dev/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "registry.k8s.io/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "quay.io/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "docker.io/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "ghcr.io/*"

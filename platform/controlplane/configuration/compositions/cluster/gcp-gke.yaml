@@ -154,3 +154,57 @@ spec:
                         kind: ClusterProviderConfig
                       deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
                 {{- end }}
+    # ArgoCD auto-registration (roadmap P2.1): publish an ArgoCD cluster
+    # Secret once GKE reports its endpoint and CA. Auth uses ArgoCD's
+    # argocd-k8s-auth gcp exec plugin — the ArgoCD pods authenticate with
+    # their GCP identity (Workload Identity); no static tokens are stored.
+    - step: register-argocd
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: templating.fn.crossplane.io/v1beta1
+        kind: Template
+        spec:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $observed := default (dict) .observed.resources -}}
+            {{- $cluster := dig "gke-cluster" "resource" (dict) $observed -}}
+            {{- $at := dig "status" "atProvider" (dict) $cluster -}}
+            {{- $endpoint := dig "endpoint" "" $at -}}
+            {{- $authList := dig "masterAuth" (list) $at -}}
+            apiVersion: fn.crossplane.io/v1beta1
+            kind: FunctionIO
+            desired:
+              resources:
+                {{- if and $endpoint $authList }}
+                {{- $caData := dig "clusterCaCertificate" "" (index $authList 0) }}
+                - name: argocd-cluster-registration
+                  resource:
+                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
+                    kind: Object
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: gcp
+                        adhar.io/argocd-registration: "true"
+                    spec:
+                      forProvider:
+                        manifest:
+                          apiVersion: v1
+                          kind: Secret
+                          metadata:
+                            name: cluster-{{ $xr.metadata.name }}
+                            namespace: adhar-system
+                            labels:
+                              argocd.argoproj.io/secret-type: cluster
+                              adhar.io/cluster: {{ quote $xr.metadata.name }}
+                          type: Opaque
+                          stringData:
+                            name: {{ quote $xr.metadata.name }}
+                            server: https://{{ $endpoint }}
+                            config: |
+                              {"execProviderConfig": {"command": "argocd-k8s-auth", "args": ["gcp"], "apiVersion": "client.authentication.k8s.io/v1beta1"}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
+                      providerConfigRef:
+                        name: kubernetes-provider
+                        kind: ClusterProviderConfig
+                {{- end }}

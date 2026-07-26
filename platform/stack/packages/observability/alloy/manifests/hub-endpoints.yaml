@@ -1,0 +1,24 @@
+# Observability hub endpoints (roadmap P2.3) consumed by Alloy's shipping
+# pipelines (config.alloy, envFrom on the alloy container).
+#
+# Defaults are the hub's own in-cluster services — correct when Alloy runs ON
+# the management/hub cluster. On workload-cluster spokes, override this
+# ConfigMap with the hub's external Gateway URLs, e.g.:
+#   HUB_MIMIR_URL:    https://mimir.<host>/api/v1/push
+#   HUB_LOKI_URL:     https://loki.<host>/loki/api/v1/push
+#   HUB_TEMPO_URL:    https://tempo.<host>
+#   HUB_CLUSTER_NAME: <workload cluster name>
+# (the mimir/loki/tempo packages ship HTTPRoutes for these hostnames).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-hub
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: observability-hub
+    adhar.io/component: observability
+data:
+  HUB_MIMIR_URL: http://mimir-distributor.adhar-system.svc.cluster.local:8080/api/v1/push
+  HUB_LOKI_URL: http://loki.adhar-system.svc.cluster.local:3100/loki/api/v1/push
+  HUB_TEMPO_URL: http://tempo.adhar-system.svc.cluster.local:4318
+  HUB_CLUSTER_NAME: management

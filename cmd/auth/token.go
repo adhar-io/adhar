@@ -16,13 +16,17 @@ var (
 		Short: "Obtain an OIDC token from Keycloak",
 		Long: `Obtain an OIDC access token from the Keycloak realm.
 
-With no subcommand, this mints a token: if --user is set it uses the password
-grant (prompting for the password), otherwise it uses the client_credentials
-grant for the configured client. Subcommands (create/list/...) manage
-client/personal tokens and require admin wiring; they report clearly when not
-configured.
+With no flags, prints a valid access token for the logged-in session
+(auto-refreshing it when expired) — suitable for piping:
+  curl -H "Authorization: Bearer $(adhar auth token)" ...
+
+With --user it mints a fresh token via the password grant; with
+--client-secret it uses the client_credentials grant for the configured
+client. Subcommands (create/list/...) manage client/personal tokens and
+require admin wiring; they report clearly when not configured.
 
 Examples:
+  adhar auth token
   adhar auth token --user admin --insecure
   adhar auth token --client-id my-svc --client-secret xxxx`,
 		RunE: runToken,
@@ -50,6 +54,24 @@ func init() {
 func runToken(cmd *cobra.Command, args []string) error {
 	kc := settings()
 	ctx := context.Background()
+
+	// Default path: the logged-in session, refreshed as needed. Raw token on
+	// stdout so it composes with curl/kubectl.
+	if tokenUser == "" && kcClientSecret == "" {
+		s, err := currentSession(ctx)
+		if err != nil {
+			return err
+		}
+		if output == "json" {
+			return helpers.PrintJSON(map[string]any{
+				"accessToken": s.AccessToken,
+				"expiresAt":   s.AccessExpiry,
+				"username":    s.Username,
+			})
+		}
+		fmt.Println(s.AccessToken)
+		return nil
+	}
 
 	var (
 		tr  *tokenResponse

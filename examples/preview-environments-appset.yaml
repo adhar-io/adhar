@@ -1,0 +1,60 @@
+# Preview environments per pull request (ADR-0017) — copy per application
+# repository that opts in, replace <app> with the repo name, and commit it to
+# the environments repo (or apply it directly). One preview namespace per open
+# PR labeled `preview`; closing the PR prunes everything.
+#
+# Lifecycle is fully declarative: ArgoCD's Pull Request generator polls Gitea
+# for open PRs — CI never creates or deletes environments (it only builds the
+# image and posts the preview URL). Guardrails (quotas, policies) come from
+# the platform's Kyverno pack; put a ResourceQuota in your app manifests to
+# cap each preview.
+#
+# The token secret must carry the Gitea API token under the `token` key; the
+# platform's gitea-credential secret already does (adhar-system).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: preview-<app>
+  namespace: adhar-system
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  generators:
+    - pullRequest:
+        requeueAfterSeconds: 60
+        gitea:
+          owner: gitea_admin
+          repo: <app>
+          api: http://gitea-http.adhar-system.svc.cluster.local:3000
+          tokenRef:
+            secretName: gitea-credential
+            key: token
+        # Previews are opt-in per PR: add the `preview` label on the PR.
+        labels:
+          - preview
+  template:
+    metadata:
+      name: "preview-<app>-pr-{{ .number }}"
+      labels:
+        adhar.io/preview: "true"
+        adhar.io/preview-app: "<app>"
+      finalizers:
+        - resources-finalizer.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/<app>
+        # Deploy the PR head so every push updates the preview.
+        targetRevision: "{{ .head_sha }}"
+        path: manifests
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "preview-<app>-pr-{{ .number }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

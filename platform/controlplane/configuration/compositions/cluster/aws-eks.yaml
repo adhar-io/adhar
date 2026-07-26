@@ -251,3 +251,60 @@ spec:
                         kind: ClusterProviderConfig
                       deletionPolicy: {{ $deletionPolicy }}
                 {{- end }}
+    # ArgoCD auto-registration (roadmap P2.1): once the EKS control plane
+    # reports its endpoint and CA, publish an ArgoCD cluster Secret in
+    # adhar-system on the management cluster. Auth uses ArgoCD's native EKS
+    # IAM support (awsAuthConfig) — the ArgoCD controller/server pods need an
+    # IAM identity (IRSA) mapped into the workload cluster's aws-auth; no
+    # static tokens are stored.
+    - step: register-argocd
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: templating.fn.crossplane.io/v1beta1
+        kind: Template
+        spec:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $observed := default (dict) .observed.resources -}}
+            {{- $cluster := dig "eks-cluster" "resource" (dict) $observed -}}
+            {{- $at := dig "status" "atProvider" (dict) $cluster -}}
+            {{- $endpoint := dig "endpoint" "" $at -}}
+            {{- $caList := dig "certificateAuthority" (list) $at -}}
+            {{- $extName := dig "metadata" "annotations" "crossplane.io/external-name" $xr.metadata.name $cluster -}}
+            apiVersion: fn.crossplane.io/v1beta1
+            kind: FunctionIO
+            desired:
+              resources:
+                {{- if and $endpoint $caList }}
+                {{- $caData := dig "data" "" (index $caList 0) }}
+                - name: argocd-cluster-registration
+                  resource:
+                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
+                    kind: Object
+                    metadata:
+                      labels:
+                        feature: cluster
+                        provider: aws
+                        adhar.io/argocd-registration: "true"
+                    spec:
+                      forProvider:
+                        manifest:
+                          apiVersion: v1
+                          kind: Secret
+                          metadata:
+                            name: cluster-{{ $xr.metadata.name }}
+                            namespace: adhar-system
+                            labels:
+                              argocd.argoproj.io/secret-type: cluster
+                              adhar.io/cluster: {{ quote $xr.metadata.name }}
+                          type: Opaque
+                          stringData:
+                            name: {{ quote $xr.metadata.name }}
+                            server: {{ quote $endpoint }}
+                            config: |
+                              {"awsAuthConfig": {"clusterName": {{ quote $extName }}}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
+                      providerConfigRef:
+                        name: kubernetes-provider
+                        kind: ClusterProviderConfig
+                {{- end }}

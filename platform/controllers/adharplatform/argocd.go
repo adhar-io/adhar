@@ -31,9 +31,14 @@ func (r *AdharPlatformReconciler) ReconcileArgo(ctx context.Context, req ctrl.Re
 
 	// ArgoCD will be installed using direct manifest application
 
-	// Apply install.yaml
-	logger.Info("Applying ArgoCD install manifest")
+	// Apply install.yaml, or the HA rendering (replicas, PDBs, HA redis) when
+	// enableHAMode is set (roadmap P1.2). Both files are pre-rendered from the
+	// same chart version by the hack/ generation scripts.
+	logger.Info("Applying ArgoCD install manifest", "haMode", resource.Spec.BuildCustomization.EnableHAMode)
 	argocdManifestPath := "resources/argocd/install.yaml"
+	if resource.Spec.BuildCustomization.EnableHAMode {
+		argocdManifestPath = "resources/argocd/install-ha.yaml"
+	}
 	manifestBytes, err := argoCDFS.ReadFile(argocdManifestPath)
 	if err != nil {
 		logger.Error(err, "Failed to read ArgoCD install manifest", "path", argocdManifestPath)

@@ -42,6 +42,7 @@ const (
 	GatewayPackageName        = "gateway"
 	GatewayAPICRDsPackageName = "gateway-api-crds"
 	CiliumPackageName         = "cilium"
+	CNPGPackageName           = "cnpg"
 	CrossplanePackageName     = "crossplane"
 )
 
@@ -52,6 +53,8 @@ const (
 	ProviderAzure EnvironmentProvider = "azure"
 	ProviderCivo  EnvironmentProvider = "civo"
 	ProviderKind  EnvironmentProvider = "kind"
+	// ProviderCustom is a bring-your-own (on-prem) Kubernetes cluster.
+	ProviderCustom EnvironmentProvider = "custom"
 )
 
 // AdharPlatformSpec defines the desired state of AdharPlatform.
@@ -97,6 +100,9 @@ type BuildCustomizationSpec struct {
 	UsePathRouting bool   `json:"usePathRouting,omitempty"`
 	SelfSignedCert string `json:"selfSignedCert,omitempty"`
 	StaticPassword bool   `json:"staticPassword,omitempty"`
+	// EnableHAMode renders the foundation components (ArgoCD, Gitea) with
+	// production replica counts, PodDisruptionBudgets, and topology spread.
+	EnableHAMode bool `json:"enableHAMode,omitempty"`
 }
 
 // PackageCustomization defines how packages are customized

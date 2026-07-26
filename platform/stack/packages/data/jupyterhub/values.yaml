@@ -23,3 +23,12 @@ hub:
       allow_all: true # Allows all oauth authenticated users to use Jupyterhub. For finer grained control, you can use `allowed_users`: https://jupyterhub.readthedocs.io/en/stable/tutorial/getting-started/authenticators-users-basics.html#deciding-who-is-allowed
     JupyterHub:
       authenticator_class: generic-oauth
+# Image pre-pulling disabled: the hook blocks ArgoCD sync (hook-image-awaiter)
+# until the ~2GB singleuser image lands on every node, wedging the app at
+# Progressing for the whole pull. Without it the image pulls lazily on first
+# notebook spawn instead of blocking platform convergence.
+prePuller:
+  hook:
+    enabled: false
+  continuous:
+    enabled: false

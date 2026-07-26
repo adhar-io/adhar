@@ -1,0 +1,106 @@
+# In-cluster controller manager: keeps AdharPlatform, GitRepository and
+# CustomPackage reconciliation running continuously after the CLI exits.
+# Applied by the CLI (adhar up --in-cluster); not part of the reconciler's
+# own resource set.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-controller-manager
+  namespace: {{ .Namespace }}
+  labels:
+    app.kubernetes.io/name: adhar-controller-manager
+    adhar.io/component: controller-manager
+---
+# The manager server-side-applies the entire platform foundation (CRDs, RBAC,
+# cluster-scoped resources, arbitrary embedded manifests), so a hand-scoped
+# ClusterRole would drift on every foundation change. cluster-admin matches the
+# authority the CLI already exercises at bootstrap.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-controller-manager
+  labels:
+    app.kubernetes.io/name: adhar-controller-manager
+    adhar.io/component: controller-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: adhar-controller-manager
+    namespace: {{ .Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-controller-manager
+  namespace: {{ .Namespace }}
+  labels:
+    app.kubernetes.io/name: adhar-controller-manager
+    adhar.io/component: controller-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-controller-manager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-controller-manager
+        adhar.io/component: controller-manager
+    spec:
+      serviceAccountName: adhar-controller-manager
+      # Service-link env vars from other Services in the shared namespace can
+      # hijack flag parsing (ADR-0011).
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: {{ .Image }}
+          args:
+            - controller
+            - --leader-elect=true
+          # Probe windows sized for a loaded single-node cluster (ADR-0012):
+          # a healthy manager can take seconds to answer under convergence load.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # The manager materializes git worktrees and rendered manifests
+            # under /tmp; the root filesystem stays read-only.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

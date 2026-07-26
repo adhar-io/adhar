@@ -1,0 +1,190 @@
+---
+# Cluster reconstructability drill (roadmap P2.6).
+#
+# The platform's DR promise is "any cluster is rebuildable from Git in under
+# an hour" (ADR-0021, Production Guide §5). A promise that is never exercised
+# decays into fiction, so this pair of Operations turns it into a scheduled,
+# measured drill:
+#
+#   1. The CronOperation creates a small drill CompositeCluster (kind-backed
+#      composition, so it runs on the management cluster without cloud spend)
+#      on the first Sunday cadence of every month.
+#   2. The WatchOperation observes every CompositeCluster labeled
+#      adhar.io/drill=true and, on each status change, records elapsed time
+#      since creation and whether the Ready condition was reached — pass/fail
+#      against the 1-hour SLO lands in the operation output history.
+#
+# Teardown is deliberate (a human reviews the result, then deletes):
+#   kubectl -n adhar-system delete compositecluster drill-reconstructability
+# Deleting the XR before the next monthly run is part of the drill runbook;
+# the CronOperation refuses to double-create (server-side apply is idempotent
+# on the same name).
+#
+# Requires the core --enable-operations flag (see hack/crossplane/values*.yaml).
+apiVersion: ops.crossplane.io/v1alpha1
+kind: CronOperation
+metadata:
+  name: adhar-reconstructability-drill
+  labels:
+    feature: drill
+    provider: kubernetes
+spec:
+  # 04:00 UTC on the 1st of every month.
+  schedule: "0 4 1 * *"
+  concurrencyPolicy: Forbid
+  successfulHistoryLimit: 3
+  failedHistoryLimit: 3
+  startingDeadlineSeconds: 900
+  operationTemplate:
+    metadata:
+      labels:
+        feature: drill
+    spec:
+      mode: Pipeline
+      pipeline:
+        - step: create-drill-cluster
+          functionRef:
+            name: function-python
+          input:
+            apiVersion: python.fn.crossplane.io/v1beta1
+            kind: Script
+            script: |
+              import datetime
+
+              from crossplane.function.proto.v1 import run_function_pb2 as fnv1
+
+
+              def operate(req: fnv1.RunFunctionRequest,
+                          rsp: fnv1.RunFunctionResponse):
+                  """Start the monthly rebuild-from-Git drill."""
+                  now = datetime.datetime.now(datetime.timezone.utc)
+                  stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+                  rsp.desired.resources["drill-cluster"].resource.update({
+                      "apiVersion": "platform.adhar.io/v1alpha1",
+                      "kind": "CompositeCluster",
+                      "metadata": {
+                          "name": "drill-reconstructability",
+                          "namespace": "adhar-system",
+                          "labels": {
+                              "adhar.io/drill": "true",
+                              "adhar.io/managed": "true",
+                          },
+                          "annotations": {
+                              "adhar.io/drill-started-at": stamp,
+                          },
+                      },
+                      "spec": {
+                          "compositionSelector": {
+                              "matchLabels": {
+                                  "feature": "cluster",
+                                  "provider": "kind",
+                              },
+                          },
+                          "parameters": {
+                              "version": "1.31",
+                              "region": "local",
+                              "nodePools": [
+                                  {
+                                      "name": "drill",
+                                      "count": 1,
+                                      "instanceType": "local",
+                                  },
+                              ],
+                          },
+                      },
+                  })
+
+                  rsp.output["drillStartedAt"] = stamp
+                  rsp.output["message"] = (
+                      "Requested drill CompositeCluster "
+                      "adhar-system/drill-reconstructability; the drill "
+                      "observer records time-to-Ready against the 1h SLO"
+                  )
+---
+apiVersion: ops.crossplane.io/v1alpha1
+kind: WatchOperation
+metadata:
+  name: adhar-reconstructability-drill-observer
+  labels:
+    feature: drill
+    provider: kubernetes
+spec:
+  watch:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCluster
+    namespace: adhar-system
+    matchLabels:
+      adhar.io/drill: "true"
+  concurrencyPolicy: Forbid
+  successfulHistoryLimit: 10
+  failedHistoryLimit: 5
+  operationTemplate:
+    metadata:
+      labels:
+        feature: drill
+    spec:
+      mode: Pipeline
+      pipeline:
+        - step: record-drill-progress
+          functionRef:
+            name: function-python
+          input:
+            apiVersion: python.fn.crossplane.io/v1beta1
+            kind: Script
+            script: |
+              import datetime
+
+              from crossplane.function import request, response
+
+
+              SLO_SECONDS = 3600
+
+
+              def operate(req, rsp):
+                  """Measure time-to-Ready for the drill cluster (1h SLO)."""
+                  watched = request.get_required_resource(
+                      req, "ops.crossplane.io/watched-resource"
+                  )
+                  if not watched:
+                      response.set_output(
+                          rsp, {"error": "no watched resource present"}
+                      )
+                      return
+
+                  meta = watched.get("metadata", {})
+                  status = watched.get("status", {}) or {}
+                  conditions = status.get("conditions", []) or []
+                  ready = next(
+                      (c for c in conditions if c.get("type") == "Ready"),
+                      {},
+                  )
+                  is_ready = ready.get("status") == "True"
+
+                  now = datetime.datetime.now(datetime.timezone.utc)
+                  created = meta.get("creationTimestamp")
+                  elapsed = None
+                  if created:
+                      start = datetime.datetime.fromisoformat(
+                          created.replace("Z", "+00:00")
+                      )
+                      elapsed = int((now - start).total_seconds())
+
+                  verdict = "in-progress"
+                  if is_ready and elapsed is not None:
+                      verdict = "pass" if elapsed <= SLO_SECONDS else "FAIL"
+                  elif elapsed is not None and elapsed > SLO_SECONDS:
+                      verdict = "FAIL"
+
+                  response.set_output(rsp, {
+                      "observedAt": now.isoformat(),
+                      "cluster": meta.get("name", "<unknown>"),
+                      "ready": is_ready,
+                      "elapsedSeconds": elapsed,
+                      "sloSeconds": SLO_SECONDS,
+                      "verdict": verdict,
+                      "message": (
+                          f"Drill cluster {meta.get('name')}: ready={is_ready}"
+                          f" elapsed={elapsed}s verdict={verdict}"
+                      ),
+                  })

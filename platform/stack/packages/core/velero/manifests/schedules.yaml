@@ -1,0 +1,46 @@
+# Platform backup schedules (roadmap P1.5). Shipped enabled: backups that are
+# not scheduled do not exist.
+#
+# Scope: Kubernetes objects (platform state). The node agent is not deployed,
+# so PVC file data is NOT part of these backups — databases are covered by
+# CNPG's own scheduled barman backups (see the keycloak/cnpg packages), and
+# Git content is recoverable from the platform's own repos plus the
+# reconstructability model (Git is the source of truth, ADR-0001/0021).
+# Storage: the `default` BackupStorageLocation (in-cluster MinIO bucket
+# adhar-backups; point it at real object storage in cloud environments).
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: adhar-platform-daily
+  namespace: adhar-system
+  labels:
+    adhar.io/component: backup
+spec:
+  # 02:00 UTC daily; keep 30 days.
+  schedule: "0 2 * * *"
+  template:
+    includedNamespaces:
+      - adhar-system
+    includeClusterResources: true
+    snapshotVolumes: false
+    storageLocation: default
+    ttl: 720h0m0s
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: adhar-cluster-weekly
+  namespace: adhar-system
+  labels:
+    adhar.io/component: backup
+spec:
+  # Sunday 03:00 UTC: full-cluster object backup (all namespaces), kept 90
+  # days, as the coarse-grained fallback behind the daily platform backup.
+  schedule: "0 3 * * 0"
+  template:
+    includedNamespaces:
+      - "*"
+    includeClusterResources: true
+    snapshotVolumes: false
+    storageLocation: default
+    ttl: 2160h0m0s
