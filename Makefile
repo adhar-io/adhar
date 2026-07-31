@@ -81,7 +81,7 @@ e2e: build ## Run the e2e tests. Creates (and destroys) a local Kind cluster nam
 		echo "Docker is not running. The e2e tests bootstrap a Kind cluster and need Docker."; \
 		exit 1; \
 	}
-	go test -v -p 1 -timeout 25m --tags=e2e ./tests/e2e/...
+	go test -v -p 1 -timeout 120m --tags=e2e ./tests/e2e/...
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

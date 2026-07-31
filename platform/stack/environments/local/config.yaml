@@ -1,11 +1,8 @@
 environment: local
 type: nonprod
 # Local package enablement — mirrors adhar-appset-local.yaml exactly (the
-# curated core a single Kind node can run; ADR-0004). Same wiring as
-# production (environments/production/config.yaml), different enablement:
-# local-production parity is structural (pillar 4, ADR-0015) — flip a
-# package's enabled flag to bring local closer to production, resources
-# permitting, in small waves (ADR-0014).
+# curated core a single Kind node can run; ADR-0004). Regenerate from the
+# appset when it changes; the parity tests enforce the match.
 packages:
 
   - name: "external-secrets"
@@ -139,7 +136,7 @@ packages:
     category: "application"
     manifestPath: "application/argo-rollout/manifests"
   - name: "buildpack"
-    enabled: "false"
+    enabled: "true"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/buildpack/manifests"
@@ -219,7 +216,7 @@ packages:
     category: "core"
     manifestPath: "core/Kamaji/manifests"
   - name: "cert-manager"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "security"
     manifestPath: "security/cert-manager/manifests"
@@ -264,7 +261,7 @@ packages:
     category: "application"
     manifestPath: "application/jenkins-x/manifests"
   - name: "argo-workflows"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/argo-workflows/manifests/dev"
@@ -284,7 +281,7 @@ packages:
     category: "application"
     manifestPath: "application/kargo/manifests"
   - name: "minio"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "data"
     manifestPath: "data/minio/manifests"
@@ -294,7 +291,7 @@ packages:
     category: "data"
     manifestPath: "data/rustfs/manifests"
   - name: "velero"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "core"
     manifestPath: "core/velero/manifests"
@@ -304,7 +301,7 @@ packages:
     category: "data"
     manifestPath: "data/spark-operator/manifests"
   - name: "metrics-server"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "observability"
     manifestPath: "observability/metrics-server/manifests"
@@ -324,7 +321,7 @@ packages:
     category: "observability"
     manifestPath: "observability/opencost/manifests"
   - name: "alloy"
-    enabled: "false"
+    enabled: "true"
     namespace: "adhar-system"
     category: "observability"
     manifestPath: "observability/alloy/manifests"
@@ -344,7 +341,7 @@ packages:
     category: "observability"
     manifestPath: "observability/mimir/manifests"
   - name: "k6"
-    enabled: "false"
+    enabled: "true"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/k6/manifests"
@@ -359,12 +356,12 @@ packages:
     category: "infrastructure"
     manifestPath: "infrastructure/terraform/manifests"
   - name: "dapr"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/dapr/manifests"
   - name: "redis"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "data"
     manifestPath: "data/redis/manifests"
@@ -374,12 +371,12 @@ packages:
     category: "data"
     manifestPath: "data/valkey/manifests"
   - name: "kafka-operator"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "data"
     manifestPath: "data/kafka-operator/manifests"
   - name: "keda"
-    enabled: "true"
+    enabled: "false"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/keda/manifests"

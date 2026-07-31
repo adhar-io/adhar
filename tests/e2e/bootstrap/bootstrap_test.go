@@ -25,24 +25,103 @@ import (
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
 
-// healthProbePackages are curated-core packages whose ArgoCD Applications must
-// reach Healthy — lightweight, dependency-free representatives of the stack.
-var healthProbePackages = []string{"cert-manager", "external-secrets", "metrics-server"}
+// healthProbeCandidates are lightweight, dependency-free packages that make
+// good convergence probes. The actual probe set is the intersection of these
+// with what the local ApplicationSet really enables (see resolveHealthProbes):
+// hardcoding names drifts silently — a probe for a package that is no longer
+// enabled generates no Application at all, so the wait can only ever time out.
+var healthProbeCandidates = []string{
+	"external-secrets", "cert-manager", "metrics-server",
+	"hubble", "kyverno", "valkey", "alloy",
+}
+
+// localAppSetPath is the ApplicationSet the controller applies for Kind.
+const localAppSetPath = "../../../platform/stack/adhar-appset-local.yaml"
+
+// resolveHealthProbes returns the candidates that the local ApplicationSet
+// actually enables, so the probe set follows the curated core as it changes.
+func resolveHealthProbes(t *testing.T) []string {
+	t.Helper()
+
+	raw, err := os.ReadFile(localAppSetPath)
+	require.NoError(t, err, "reading %s", localAppSetPath)
+
+	var doc struct {
+		Spec struct {
+			Generators []struct {
+				List struct {
+					Elements []struct {
+						Name    string `json:"name"`
+						Enabled string `json:"enabled"`
+					} `json:"elements"`
+				} `json:"list"`
+			} `json:"generators"`
+		} `json:"spec"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &doc), "parsing %s", localAppSetPath)
+	require.NotEmpty(t, doc.Spec.Generators, "no generators in %s", localAppSetPath)
+
+	enabled := map[string]bool{}
+	for _, e := range doc.Spec.Generators[0].List.Elements {
+		if e.Enabled == "true" {
+			enabled[e.Name] = true
+		}
+	}
+
+	var probes []string
+	for _, c := range healthProbeCandidates {
+		if enabled[c] {
+			probes = append(probes, c)
+		}
+	}
+	// An empty probe set would make this phase vacuous, so say so loudly
+	// rather than passing on nothing.
+	require.NotEmpty(t, probes,
+		"none of the health-probe candidates %v are enabled in %s — update healthProbeCandidates",
+		healthProbeCandidates, localAppSetPath)
+	return probes
+}
+
+// Timeout budgets. A cold bootstrap is dominated by container image pulls for
+// the whole curated core (Keycloak, Harbor, kube-prometheus, Vault, SPIRE, …):
+// measured well over an hour on a laptop with an empty image cache, so the
+// defaults are generous and every budget is overridable for CI tuning.
+//
+//	ADHAR_E2E_TIMEOUT       overall test budget (default 90m)
+//	ADHAR_E2E_UP_TIMEOUT    `adhar up` budget (default 60m)
+//	ADHAR_E2E_HEALTH_TIMEOUT package-health wait (default 25m)
+var (
+	overallTimeout = envDuration("ADHAR_E2E_TIMEOUT", 90*time.Minute)
+	upTimeout      = envDuration("ADHAR_E2E_UP_TIMEOUT", 60*time.Minute)
+	healthTimeout  = envDuration("ADHAR_E2E_HEALTH_TIMEOUT", 25*time.Minute)
+)
+
+// envDuration reads a Go duration string from env, falling back to def.
+func envDuration(key string, def time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return def
+}
 
 func Test_FullBootstrapSequence(t *testing.T) {
 	skipUp := os.Getenv("ADHAR_E2E_SKIP_UP") != ""
 	keep := os.Getenv("ADHAR_E2E_KEEP") != ""
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), overallTimeout)
 	defer cancel()
 
 	if !skipUp {
-		t.Log("running adhar up --recreate (full bootstrap)")
-		b, err := e2e.RunAdhar(ctx, 15*time.Minute, "up", "--recreate")
+		t.Logf("running adhar up --recreate (full bootstrap, budget %s)", upTimeout)
+		b, err := e2e.RunAdhar(ctx, upTimeout, "up", "--recreate")
 		require.NoError(t, err, "adhar up failed: %s", string(b))
 
 		if !keep {
@@ -102,6 +181,21 @@ func Test_FullBootstrapSequence(t *testing.T) {
 		for _, list := range []client.ObjectList{&v1alpha1.GitRepositoryList{}, &v1alpha1.CustomPackageList{}} {
 			assert.NoError(t, kubeClient.List(ctx, list, client.InNamespace(e2e.PlatformNamespace)))
 		}
+
+		// SPIFFE workload identity ships in the foundation (ADR-0022/P2.4):
+		// the SPIRE server runs in the platform namespace.
+		spire := appsv1.StatefulSet{}
+		assert.NoError(t, kubeClient.Get(ctx,
+			client.ObjectKey{Namespace: e2e.PlatformNamespace, Name: "spire-server"}, &spire),
+			"SPIRE server must be part of the foundation")
+
+		// ArgoCD must carry the fast CNPG health script: the bundled community
+		// Lua times out under load and wedges every app that owns a database.
+		argocdCM := corev1.ConfigMap{}
+		require.NoError(t, kubeClient.Get(ctx,
+			client.ObjectKey{Namespace: e2e.PlatformNamespace, Name: "argocd-cm"}, &argocdCM))
+		assert.Contains(t, argocdCM.Data, "resource.customizations.health.postgresql.cnpg.io_Cluster",
+			"argocd-cm must define CNPG Cluster health")
 	})
 
 	// Phase 3 — GitOps content: the seeded Gitea repos exist and are reachable
@@ -117,6 +211,14 @@ func Test_FullBootstrapSequence(t *testing.T) {
 		for _, want := range []string{"environments", "packages"} {
 			assert.True(t, found[want], "expected gitea repo %q, have %v", want, names)
 		}
+
+		// gitea-credential must carry an admin API token: Lighthouse's oauth
+		// secret and the preview-environment PR generator both read the
+		// `token` key, which the chart secret does not ship on its own.
+		creds := corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx,
+			client.ObjectKey{Namespace: e2e.PlatformNamespace, Name: e2e.GiteaCredentialSecret}, &creds))
+		assert.NotEmpty(t, creds.Data["token"], "gitea-credential must carry an API token")
 	})
 
 	// Phase 4 — ArgoCD API is reachable through the Gateway and accepts the
@@ -138,9 +240,12 @@ func Test_FullBootstrapSequence(t *testing.T) {
 		require.NoError(t, kubeClient.List(ctx, &apps, client.InNamespace(e2e.PlatformNamespace)))
 		assert.NotEmpty(t, apps.Items, "ApplicationSet generated no applications")
 
-		healthCtx, healthCancel := context.WithTimeout(ctx, 8*time.Minute)
+		probes := resolveHealthProbes(t)
+		t.Logf("probing convergence of enabled packages: %v", probes)
+
+		healthCtx, healthCancel := context.WithTimeout(ctx, healthTimeout)
 		defer healthCancel()
-		assert.NoError(t, e2e.WaitForAppsHealthy(healthCtx, kubeClient, healthProbePackages))
+		assert.NoError(t, e2e.WaitForAppsHealthy(healthCtx, kubeClient, probes))
 
 		for i := range apps.Items {
 			app := apps.Items[i]

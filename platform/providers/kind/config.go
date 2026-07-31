@@ -26,6 +26,17 @@ type TemplateConfig struct {
 	RegistryCertsDir  string
 	HTTPPort          int
 	HTTPSPort         int
+	// OIDCIssuerURL, when set, configures kube-apiserver to trust the platform
+	// Keycloak realm so tokens minted for users (headlamp sign-in,
+	// `adhar auth login`) authenticate against the Kubernetes API and map onto
+	// the RBAC bindings in the keycloak package (ADR-0008).
+	OIDCIssuerURL string
+	// OIDCCAPath is the in-node path of the platform certificate used as
+	// --oidc-ca-file (the issuer is served with the platform's own cert).
+	OIDCCAPath string
+	// PKIHostPath is the host directory holding the pre-generated platform
+	// certificate, mounted into the node at OIDCCAPath's directory.
+	PKIHostPath string
 }
 
 //go:embed resources/* testdata/custom-kind.yaml.tmpl

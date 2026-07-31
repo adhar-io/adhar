@@ -162,6 +162,30 @@ data:
       ],
       "webOrigins": [
         "https://console.adhar.localtest.me:8443"
+      ],
+      "protocolMappers": [
+        {
+          "name": "kubernetes-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "adhar-cli",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
       ]
     }
 
@@ -186,8 +210,21 @@ data:
       "alwaysDisplayInConsole": false,
       "rootUrl": "",
       "baseUrl": "",
+      "protocolMappers": [
+        {
+          "name": "kubernetes-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "kubernetes",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ],
       "redirectUris": [
         "https://headlamp.adhar.localtest.me:8443/oauth2/callback",
+        "https://headlamp.adhar.localtest.me:8443/oidc-callback",
         "https://headlamp.adhar.localtest.me:8443/*"
       ],
       "webOrigins": [
@@ -452,7 +489,19 @@ data:
       "directAccessGrantsEnabled": true,
       "standardFlowEnabled": false,
       "frontchannelLogout": true,
-      "enabled": true
+      "enabled": true,
+      "protocolMappers": [
+        {
+          "name": "kubernetes-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "kubernetes",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
     }
   tekton-client-payload.json: |
     {

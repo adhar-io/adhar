@@ -32,6 +32,13 @@ const (
 	// service type but cannot pin port numbers, so the controller patches them.
 	gatewayHTTPNodePort  = 30080
 	gatewayHTTPSNodePort = 30443
+	// The 8443 listener is pinned to the SAME node port number so that, on the
+	// node itself, https://keycloak.<host>:8443 (which resolves to loopback)
+	// reaches the Gateway. kube-apiserver performs OIDC discovery against that
+	// exact issuer URL, and cannot be given a different port. Requires the
+	// widened service-node-port-range in the Kind config.
+	gatewayAltHTTPSPort     = 8443
+	gatewayAltHTTPSNodePort = 8443
 )
 
 // RawGatewayInstallResources returns the Gateway/GatewayClass manifest so it can
@@ -153,8 +160,19 @@ func (r *AdharPlatformReconciler) pinGatewayNodePorts(ctx context.Context) error
 // already match the fixed values Kind maps host ports to.
 func gatewayNodePortsPinned(svc *corev1.Service) bool {
 	for _, p := range svc.Spec.Ports {
-		if (p.Port == 80 && p.NodePort != gatewayHTTPNodePort) || (p.Port == 443 && p.NodePort != gatewayHTTPSNodePort) {
-			return false
+		switch p.Port {
+		case 80:
+			if p.NodePort != gatewayHTTPNodePort {
+				return false
+			}
+		case 443:
+			if p.NodePort != gatewayHTTPSNodePort {
+				return false
+			}
+		case gatewayAltHTTPSPort:
+			if p.NodePort != gatewayAltHTTPSNodePort {
+				return false
+			}
 		}
 	}
 	return true
@@ -168,6 +186,8 @@ func setGatewayNodePorts(svc *corev1.Service) {
 			svc.Spec.Ports[idx].NodePort = gatewayHTTPNodePort
 		case 443:
 			svc.Spec.Ports[idx].NodePort = gatewayHTTPSNodePort
+		case gatewayAltHTTPSPort:
+			svc.Spec.Ports[idx].NodePort = gatewayAltHTTPSNodePort
 		}
 	}
 }

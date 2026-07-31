@@ -1,14 +1,8 @@
 environment: prod
 type: prod
-# Production package enablement — the full catalog minus the documented
-# mutual exclusions (platform/stack/packages/CONFLICTS.md). This is the same
-# set the production ApplicationSet (adhar-appset-production.yaml) deploys;
-# keep the two in sync. Per-package notes:
-#   - external-dns needs --provider + DNS credentials before it manages real records
-#   - credential-rotation runs once SSO login is verified (roadmap P1.4)
-#   - disabled entries: knative/open-function/cosign (collide with tekton),
-#     mimir (bundled MinIO collides with minio), victoria-metrics (alternative
-#     to kube-prometheus) — see CONFLICTS.md before enabling any of them
+# Production package enablement — mirrors adhar-appset-production.yaml exactly
+# (full catalog minus CONFLICTS.md exclusions). Regenerate from the appset
+# when it changes; the parity tests enforce the match.
 packages:
 
   - name: "external-secrets"

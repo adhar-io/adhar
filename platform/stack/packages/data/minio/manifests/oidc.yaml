@@ -10,7 +10,10 @@ metadata:
   name: minio-oidc
   namespace: adhar-system
 spec:
-  refreshInterval: "0"
+  # 1h, not "0": sync-once is a single attempt with no retry, so any ES created
+  # before the Keycloak realm job has written keycloak-clients wedges as
+  # SecretSyncedError forever.
+  refreshInterval: 1h
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore

@@ -24,7 +24,12 @@ metadata:
   name: rustfs-credentials
   namespace: adhar-system
 spec:
-  refreshInterval: "0"
+  # CreatedOnce + 5m: retry until the source exists, then freeze so the
+  # generated credentials never rotate. A bare refreshInterval "0" is one
+  # attempt with NO retry — an ES whose first sync fails stays
+  # SecretSyncedError forever.
+  refreshPolicy: CreatedOnce
+  refreshInterval: 5m
   target:
     name: rustfs-credentials
     template:

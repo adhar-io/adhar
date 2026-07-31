@@ -40,6 +40,15 @@ metadata:
   name: jupyterhub-config
   namespace: adhar-system
 spec:
+  # This job polls for the keycloak-clients Secret, which is written by a
+  # DIFFERENT ArgoCD Application (keycloak) — sync waves cannot order across
+  # Applications, so it always starts before Keycloak is ready and exits 1
+  # until it is. The default backoffLimit of 6 gives up after ~10 minutes,
+  # long before a cold local bootstrap finishes bringing up keycloak-db ->
+  # keycloak -> the realm config job; the Job then stays Failed forever and
+  # JupyterHub never gets its OIDC client. Retry for ~2h instead (capped at
+  # the 6-minute inter-retry backoff Kubernetes tops out at).
+  backoffLimit: 40
   template:
     metadata:
       generateName: jupyterhub-config
@@ -70,7 +79,18 @@ spec:
               set -ex -o pipefail
               apt -qq update && apt -qq install curl jq gettext-base -y
               
-              curl -sS -LO "https://dl.k8s.io/release/v1.28.3//bin/linux/amd64/kubectl"
+              # Fetch a kubectl matching the cluster's architecture. The old
+              # hardcoded "v1.28.3//bin/linux/amd64" URL had a double slash AND
+              # forced amd64, so on an arm64 node it downloaded an XML error page
+              # (NoSuchKey) instead of a binary — every ./kubectl call then failed
+              # with "syntax error near unexpected token `<`".
+              KVER="$(curl -sSL https://dl.k8s.io/release/stable.txt)"
+              ARCH="$(uname -m)"
+              case "${ARCH}" in
+                x86_64) ARCH="amd64" ;;
+                aarch64|arm64) ARCH="arm64" ;;
+              esac
+              curl -sS -LO "https://dl.k8s.io/release/${KVER}/bin/linux/${ARCH}/kubectl"
               chmod +x kubectl
               
               echo "checking if we're ready to start"

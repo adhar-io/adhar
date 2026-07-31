@@ -2169,7 +2169,14 @@ nodePort:
   # -- Enable the Cilium NodePort service implementation.
   enabled: true
   # -- Port range to use for NodePort services.
-  # range: "30000,32767"
+  # Adhar: widened down to 8443 so Cilium's BPF NodePort handling covers the
+  # Gateway's 8443 listener, which the controller pins to node port 8443. The
+  # kube-apiserver performs OIDC discovery against
+  # https://keycloak.<host>:8443/... — on the node that name resolves to
+  # loopback, and without this range Cilium simply does not intercept the port
+  # (connection refused), so API-server OIDC trust silently never works.
+  # Must stay in sync with service-node-port-range in the Kind config.
+  range: "8443,32767"
 
   # @schema
   # type: [null, string, array]

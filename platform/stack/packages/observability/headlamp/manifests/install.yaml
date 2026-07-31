@@ -95,6 +95,7 @@ spec:
         - name: platform-ca
           secret:
             secretName: adhar-cert
+            optional: true
             items: [{key: tls.crt, path: tls.crt}]
       automountServiceAccountToken: true
       hostUsers: true
@@ -111,25 +112,29 @@ spec:
           imagePullPolicy: IfNotPresent
           
           env:
-            # Trust the platform's self-signed certificate for OIDC discovery
-            # against the external Keycloak URL (Go honors SSL_CERT_FILE).
-            - name: SSL_CERT_FILE
-              value: /platform-ca/tls.crt
             # OIDC sign-in (keycloak `headlamp` client). On clusters whose API
             # server trusts the realm (k8s-rbac.yaml documents the flags) this
             # is full SSO; locally the token sign-in remains available too.
+            # optional: the `oidc` Secret is produced by ESO from the keycloak
+            # `headlamp` client, which only exists once the whole SSO chain has
+            # run (keycloak-db -> keycloak -> config job -> keycloak-clients).
+            # Without `optional: true` headlamp cannot start until then —
+            # CreateContainerConfigError on every fresh bootstrap, and forever
+            # on installs with keycloak disabled. Empty values simply mean
+            # "OIDC not configured" (headlamp starts and offers token auth);
+            # it picks up SSO on its next restart after the Secret appears.
             - name: OIDC_CLIENT_ID
               valueFrom:
-                secretKeyRef: {name: oidc, key: clientID}
+                secretKeyRef: {name: oidc, key: clientID, optional: true}
             - name: OIDC_CLIENT_SECRET
               valueFrom:
-                secretKeyRef: {name: oidc, key: clientSecret}
+                secretKeyRef: {name: oidc, key: clientSecret, optional: true}
             - name: OIDC_ISSUER_URL
               valueFrom:
-                secretKeyRef: {name: oidc, key: issuerURL}
+                secretKeyRef: {name: oidc, key: issuerURL, optional: true}
             - name: OIDC_SCOPES
               valueFrom:
-                secretKeyRef: {name: oidc, key: scopes}
+                secretKeyRef: {name: oidc, key: scopes, optional: true}
           args:
             - "-in-cluster"
             - "-in-cluster-context-name=main"
@@ -137,6 +142,14 @@ spec:
             - "-oidc-client-secret=$(OIDC_CLIENT_SECRET)"
             - "-oidc-idp-issuer-url=$(OIDC_ISSUER_URL)"
             - "-oidc-scopes=$(OIDC_SCOPES)"
+            # Discovery runs against the external issuer URL, which serves the
+            # platform's self-signed certificate: hand headlamp the platform CA
+            # explicitly (purpose-built flag; do not rely on the image's trust
+            # store). Without it: "x509: certificate signed by unknown authority".
+            - "-oidc-ca-file=/platform-ca/tls.crt"
+            # Headlamp's OIDC callback path; must match a redirect URI on the
+            # keycloak `headlamp` client.
+            - "-oidc-callback-url=https://headlamp.adhar.localtest.me:8443/oidc-callback"
             - "-plugins-dir=/headlamp/plugins"
             - "-session-ttl=86400"
             # Check if externalSecret is disabled

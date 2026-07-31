@@ -35,7 +35,12 @@ metadata:
   name: prometheus-oauth2-proxy
   namespace: adhar-system
 spec:
-  refreshInterval: "0"
+  # CreatedOnce + 5m: retry until keycloak-clients exists, then freeze so the
+  # generated cookie secret never rotates. A bare refreshInterval "0" is one
+  # attempt with NO retry — any ES created before the Keycloak realm job
+  # finishes (always, on a cold bootstrap) stays SecretSyncedError forever.
+  refreshPolicy: CreatedOnce
+  refreshInterval: 5m
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore

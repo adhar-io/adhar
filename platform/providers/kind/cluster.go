@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 
 	"adhar-io/adhar/platform/utils"
 	"adhar-io/adhar/platform/utils/files"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/globals"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -112,6 +114,9 @@ func (c *Cluster) getConfig() ([]byte, error) {
 		RegistryCertsDir:       registryCertsDir,
 		HTTPPort:               httpPort,
 		HTTPSPort:              httpsPort,
+		OIDCIssuerURL:          c.oidcIssuerURL(),
+		OIDCCAPath:             filepath.Join(NodePKIPath, PlatformCertFileName),
+		PKIHostPath:            PlatformPKIDirName,
 	}); err != nil {
 		return nil, err
 	}
@@ -215,6 +220,10 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 			}
 			return nil
 		}
+	}
+
+	if err := c.ensurePlatformPKI(); err != nil {
+		return err
 	}
 
 	rawConfig, err := c.getConfig()
@@ -341,4 +350,32 @@ func findFreePort(desired int) (int, error) {
 		return port, nil
 	}
 	return 0, fmt.Errorf("no free port found in range %d-%d", desired, desired+100)
+}
+
+// oidcIssuerURL is the platform Keycloak realm issuer, derived from the same
+// host/port the platform serves on. kube-apiserver performs OIDC discovery
+// against this exact URL; on the node it resolves to loopback and reaches the
+// Gateway through the pinned 8443 node port (see gateway.go).
+func (c *Cluster) oidcIssuerURL() string {
+	host := c.cfg.Host
+	if host == "" {
+		host = globals.DefaultHostName
+	}
+	port := c.cfg.Port
+	if port == "" {
+		port = "8443"
+	}
+	return fmt.Sprintf("https://keycloak.%s:%s/realms/adhar", host, port)
+}
+
+// ensurePlatformPKI generates the platform certificate on the host before the
+// cluster is created. kube-apiserver refuses to start when --oidc-ca-file is
+// missing, so the certificate has to exist before the node does; the same
+// material is later adopted as the in-cluster TLS Secret.
+func (c *Cluster) ensurePlatformPKI() error {
+	_, _, err := EnsurePlatformCertificateOnDisk(PlatformPKIDirName, PlatformCertificateSANs(c.cfg))
+	if err != nil {
+		return fmt.Errorf("pre-generating platform certificate: %w", err)
+	}
+	return nil
 }

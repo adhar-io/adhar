@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"os"
+	"path/filepath"
 	"time"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -192,22 +194,14 @@ func SetupSelfSignedCertificate(ctx context.Context, kubeclient client.Client, c
 		return nil, err
 	}
 
-	sans := []string{
-		globals.DefaultHostName,
-		globals.DefaultSANWildcard,
-	}
-	if config.Host != globals.DefaultHostName {
-		sans = []string{
-			config.Host,
-			fmt.Sprintf("*.%s", config.Host),
-		}
-	}
-	if config.IngressHost != config.Host {
-		sans = append(sans, config.IngressHost, fmt.Sprintf("*.%s", config.IngressHost))
-	}
+	sans := PlatformCertificateSANs(config)
 
 	logger.Debug("Creating/getting certificate")
-	cert, privateKey, err := getOrCreateIngressCertificateAndKey(ctx, kubeclient, globals.SelfSignedCertSecretName, globals.AdharSystemNamespace, sans)
+	// Adopt the certificate pre-generated on disk before cluster creation (it
+	// is mounted into the node as the API server's OIDC CA), so the Secret the
+	// Gateway serves and the CA the API server trusts are the same material.
+	cert, privateKey, err := getOrCreateIngressCertificateAndKeyFromDisk(
+		ctx, kubeclient, globals.SelfSignedCertSecretName, globals.AdharSystemNamespace, sans, PlatformPKIDirName)
 	if err != nil {
 		return nil, err
 	}
@@ -224,4 +218,86 @@ func SetupSelfSignedCertificate(ctx context.Context, kubeclient client.Client, c
 		return nil, err
 	}
 	return cert, nil
+}
+
+// PlatformPKIDirName is the host directory (relative to the working dir) that
+// holds the pre-generated platform certificate. It is mounted into the Kind
+// node so kube-apiserver can trust the Keycloak issuer for OIDC
+// (--oidc-ca-file) from its very first start — the API server refuses to boot
+// if that file is missing, so the certificate cannot be generated later.
+const PlatformPKIDirName = ".adhar/pki"
+
+// PlatformCertFileName / PlatformKeyFileName are the file names inside
+// PlatformPKIDirName, and inside the node at NodePKIPath.
+const (
+	PlatformCertFileName = "tls.crt"
+	PlatformKeyFileName  = "tls.key"
+	// NodePKIPath is where PlatformPKIDirName is mounted inside the node.
+	NodePKIPath = "/etc/adhar/pki"
+)
+
+// EnsurePlatformCertificateOnDisk generates the platform certificate and key
+// into dir when absent and returns them. Idempotent: an existing pair is
+// reused so the API server's CA file and the in-cluster Secret always hold the
+// same material. Called before cluster creation (see cluster.Reconcile).
+func EnsurePlatformCertificateOnDisk(dir string, sans []string) ([]byte, []byte, error) {
+	certPath := filepath.Join(dir, PlatformCertFileName)
+	keyPath := filepath.Join(dir, PlatformKeyFileName)
+
+	cert, cErr := os.ReadFile(certPath)
+	key, kErr := os.ReadFile(keyPath)
+	if cErr == nil && kErr == nil && len(cert) > 0 && len(key) > 0 {
+		return cert, key, nil
+	}
+
+	cert, key, err := createSelfSignedCertificate(sans)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, nil, fmt.Errorf("creating pki dir %s: %w", dir, err)
+	}
+	if err := os.WriteFile(certPath, cert, 0o644); err != nil {
+		return nil, nil, fmt.Errorf("writing %s: %w", certPath, err)
+	}
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		return nil, nil, fmt.Errorf("writing %s: %w", keyPath, err)
+	}
+	return cert, key, nil
+}
+
+// PlatformCertificateSANs returns the SANs the platform certificate must carry
+// for the given build configuration.
+func PlatformCertificateSANs(config v1alpha1.BuildCustomizationSpec) []string {
+	sans := []string{globals.DefaultHostName, globals.DefaultSANWildcard}
+	if config.Host != globals.DefaultHostName && config.Host != "" {
+		sans = []string{config.Host, fmt.Sprintf("*.%s", config.Host)}
+	}
+	if config.IngressHost != config.Host && config.IngressHost != "" {
+		sans = append(sans, config.IngressHost, fmt.Sprintf("*.%s", config.IngressHost))
+	}
+	return sans
+}
+
+// getOrCreateIngressCertificateAndKeyFromDisk behaves like
+// getOrCreateIngressCertificateAndKey but, when the Secret does not exist yet,
+// seeds it from the certificate pre-generated in pkiDir instead of minting a
+// fresh one. Falls back to generating when the directory holds nothing.
+func getOrCreateIngressCertificateAndKeyFromDisk(ctx context.Context, kubeClient client.Client, name, namespace string, sans []string, pkiDir string) ([]byte, []byte, error) {
+	c, p, err := getIngressCertificateAndKey(ctx, kubeClient, name, namespace)
+	if err == nil {
+		return c, p, nil
+	}
+	if !k8serrors.IsNotFound(err) {
+		return nil, nil, fmt.Errorf("getting secret %s: %w", name, err)
+	}
+
+	cert, privateKey, cErr := EnsurePlatformCertificateOnDisk(pkiDir, sans)
+	if cErr != nil {
+		return nil, nil, cErr
+	}
+	if cErr = createCertificateAndKeySecret(ctx, kubeClient, name, namespace, cert, privateKey); cErr != nil {
+		return nil, nil, fmt.Errorf("creating secret %s: %w", name, cErr)
+	}
+	return cert, privateKey, nil
 }

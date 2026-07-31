@@ -24,6 +24,12 @@ nodes:
   extraMounts:
   - hostPath: .adhar/backup
     containerPath: /backup
+  # Platform certificate, generated on the host BEFORE the cluster exists so
+  # kube-apiserver can trust the Keycloak issuer for OIDC from its first start
+  # (it refuses to boot when --oidc-ca-file is missing).
+  - hostPath: {{ .PKIHostPath }}
+    containerPath: /etc/adhar/pki
+    readOnly: true
 {{- if .RegistryConfig }}
   - containerPath: /var/lib/kubelet/config.json
     hostPath: {{ .RegistryConfig }}
@@ -54,6 +60,37 @@ kubeadmConfigPatches:
     maxPods: 250
   - |
     kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+        # Trust the platform Keycloak realm so human identities authenticate
+        # against the Kubernetes API (ADR-0008): headlamp's OIDC sign-in and
+        # `adhar auth login` tokens map onto the group-based RBAC bindings the
+        # keycloak package ships (k8s-rbac.yaml). The oidc: prefixes keep
+        # federated identities from ever colliding with system: users/groups.
+        #
+        # Discovery runs against the issuer URL verbatim; on the node that
+        # hostname resolves to loopback and reaches the Gateway through the
+        # node port pinned to 8443 (see gateway.go) — which is why the
+        # node-port range is widened to include it.
+        oidc-issuer-url: "{{ .OIDCIssuerURL }}"
+        oidc-client-id: "kubernetes"
+        oidc-ca-file: "{{ .OIDCCAPath }}"
+        oidc-username-claim: "preferred_username"
+        oidc-username-prefix: "oidc:"
+        oidc-groups-claim: "groups"
+        oidc-groups-prefix: "oidc:"
+        service-node-port-range: "8443-32767"
+      # kubeadm mounts only a fixed set of paths into the kube-apiserver static
+      # pod, so the node-level extraMount above is NOT visible to the process:
+      # without this volume the API server dies at boot with
+      # "open {{ .OIDCCAPath }}: no such file or directory" and the cluster
+      # never finishes kubeadm init.
+      extraVolumes:
+      - name: adhar-pki
+        hostPath: /etc/adhar/pki
+        mountPath: /etc/adhar/pki
+        readOnly: true
+        pathType: DirectoryOrCreate
     controllerManager:
       extraArgs:
         leader-elect-lease-duration: "60s"

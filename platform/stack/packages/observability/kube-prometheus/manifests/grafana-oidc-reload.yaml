@@ -81,8 +81,14 @@ spec:
               # 1. Wait (bounded) for the OAuth client secret to be populated by the
               #    keycloak realm job -> ExternalSecret chain. Non-fatal on timeout:
               #    a later sync re-runs this hook once Keycloak has finished.
+              # 60 x 10s (10 min) was shorter than a cold bootstrap takes to get
+              # through keycloak-db -> keycloak -> realm job -> ExternalSecret, so
+              # this hook routinely gave up. "Retry next sync" does not save it:
+              # PostSync hooks only re-run when a sync actually happens, and once
+              # the app is Synced nothing triggers one — Grafana then stays without
+              # OIDC until someone rolls it out by hand. 240 x 10s = 40 min.
               ok=""
-              for i in $(seq 1 60); do
+              for i in $(seq 1 240); do
                 if kubectl -n "$NS" get secret "$SECRET" \
                      -o jsonpath='{.data.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}' 2>/dev/null | grep -q .; then
                   ok=1; break
