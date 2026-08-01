@@ -33,8 +33,8 @@ builds:
       - goos: windows
         goarch: arm64
     ldflags:
-      - -X adhar-io/adhar/cmd/version.Version={{ .Version }}
-      - -X adhar-io/adhar/cmd/version.GitCommit={{ .FullCommit }}
+      - -X adhar-io/adhar/cmd/version.Version=v{{ .Version }}
+      - -X adhar-io/adhar/cmd/version.GitCommit={{ .ShortCommit }}
       - -X adhar-io/adhar/cmd/version.BuildDate={{ .CommitDate }}
       - -w
       - -s

@@ -30,9 +30,9 @@ import (
 
 // Version information - these are set at build time via ldflags
 var (
-	Version   string = "0.0.1-dev" // Set at build time
-	BuildDate string = "unknown"   // Set at build time
-	GitCommit string = "unknown"   // Set at build time
+	Version   string = "v0.0.1-dev" // Set at build time
+	BuildDate string = "unknown"    // Set at build time
+	GitCommit string = "unknown"    // Set at build time
 
 	// Version command flags
 	short bool

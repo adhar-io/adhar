@@ -1,6 +1,5 @@
 # Adhar Platform Release Guide
 
----
 
 ## 📋 Table of Contents
 
