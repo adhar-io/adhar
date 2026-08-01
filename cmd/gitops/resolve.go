@@ -61,8 +61,8 @@ func init() {
 	GitOpsCmd.AddCommand(resolveCmd)
 
 	resolveCmd.Flags().BoolVar(&validateOnly, "validate-only", false, "Only validate adhar:// references without resolving")
-	resolveCmd.Flags().StringVar(&packagesRepo, "packages-repo", "http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages", "Packages repository URL")
-	resolveCmd.Flags().StringVar(&environmentsRepo, "environments-repo", "http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/environments", "Environments repository URL")
+	resolveCmd.Flags().StringVar(&packagesRepo, "packages-repo", "http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/packages", "Packages repository URL")
+	resolveCmd.Flags().StringVar(&environmentsRepo, "environments-repo", "http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/environments", "Environments repository URL")
 }
 
 func runResolve(cmd *cobra.Command, args []string) error {

@@ -1,13 +1,22 @@
-# Headlamp runs WITHOUT its own OIDC. Keycloak SSO is enforced by an oauth2-proxy
-# in front of Headlamp (manifests/headlamp-oauth2-proxy.yaml), mirroring the
-# Prometheus/RustFS pattern.
+# Headlamp runs with NATIVE Keycloak OIDC (no oauth2-proxy): the login page's
+# sign-in button runs the code flow against the `headlamp` client, and headlamp
+# forwards the user's Keycloak token to the kube-apiserver on every cluster
+# call. The Kind apiserver trusts the realm (kind.yaml.tmpl sets the oidc-*
+# flags with the oidc: prefix), so per-user Kubernetes RBAC applies via the
+# group bindings in keycloak's k8s-rbac.yaml (platform-admin -> cluster-admin,
+# platform-developer -> edit, platform-viewer -> view).
 #
-# Why not Headlamp-native OIDC: Headlamp forwards the logged-in user's OIDC token
-# to the Kubernetes API server, but the Kind apiserver is not configured to trust
-# Keycloak as an OIDC issuer, so every cluster call came back 401 (login appeared
-# broken). With no -oidc flags, Headlamp's backend proxies to the API server using
-# its own in-cluster ServiceAccount, which the chart binds to cluster-admin — so
-# authenticated SSO users (already gated by oauth2-proxy) get a working dashboard.
-# Trade-off: all SSO users share the cluster-admin view; per-user K8s RBAC would
-# require apiserver OIDC trust instead.
+# For token validation to work the apiserver (host netns on the node) must
+# reach the issuer URL https://keycloak.<host>:8443. Three pieces make that
+# true and all are required:
+#   1. the Gateway's 8443 listener is pinned to node port 8443 (gateway.go);
+#   2. Cilium socketLB is enabled (hack/cilium/values.yaml) so host-namespace
+#      connects to node-port/cluster-IP services are translated;
+#   3. the oidc-loopback-proxy DaemonSet (keycloak package) listens on the
+#      node's 127.0.0.1:8443 and forwards to the Gateway, because
+#      *.localtest.me resolves to 127.0.0.1 and Cilium does not translate
+#      loopback node-port connects.
+# If any of these regress, headlamp logins bounce back to the sign-in screen
+# with every cluster call returning 401 (token validation fails when the
+# apiserver cannot do OIDC discovery).
 config: {}

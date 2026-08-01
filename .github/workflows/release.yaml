@@ -60,8 +60,10 @@ jobs:
       - name: Verify build
         run: OUT_FILE=/tmp/adhar make build
 
-      # make build regenerates the control-plane .xpkg (non-deterministic
-      # tarball on GNU tar); goreleaser refuses to release from a dirty tree.
+      # make build can regenerate tracked files (manifests, deepcopy code);
+      # goreleaser refuses to release from a dirty tree. The control-plane
+      # .xpkg is no exposure anymore: it builds into the gitignored
+      # platform/controlplane/dist/ and is uploaded via release.extra_files.
       - name: Reset build side effects
         run: |
           git status --porcelain

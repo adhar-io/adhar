@@ -69,9 +69,11 @@ kubeadmConfigPatches:
         # federated identities from ever colliding with system: users/groups.
         #
         # Discovery runs against the issuer URL verbatim; on the node that
-        # hostname resolves to loopback and reaches the Gateway through the
-        # node port pinned to 8443 (see gateway.go) — which is why the
-        # node-port range is widened to include it.
+        # hostname resolves to loopback, where the oidc-loopback-proxy
+        # DaemonSet (keycloak package) forwards 127.0.0.1:8443 to the Gateway.
+        # Requires Cilium socketLB (hack/cilium/values.yaml) so host-namespace
+        # connects reach cluster Services; the widened node-port range below
+        # keeps the Gateway's 8443 listener pinnable (gateway.go).
         oidc-issuer-url: "{{ .OIDCIssuerURL }}"
         oidc-client-id: "kubernetes"
         oidc-ca-file: "{{ .OIDCCAPath }}"

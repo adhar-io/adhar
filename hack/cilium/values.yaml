@@ -1093,8 +1093,13 @@ hostPort:
   enabled: true
 # -- Configure socket LB
 socketLB:
-  # -- Enable socket LB
-  enabled: false
+  # -- Enable socket LB. REQUIRED for platform OIDC: with kube-proxy
+  # replacement, processes in the node's host namespace (kube-apiserver) can
+  # only reach node-port/cluster-IP services when the socket LB translates
+  # their connect() calls. The apiserver performs OIDC discovery against the
+  # Keycloak issuer through the Gateway's 8443 node port; without socket LB
+  # that connection fails and every OIDC token is rejected with 401.
+  enabled: true
   # -- Disable socket lb for non-root ns. This is used to enable Istio routing rules.
   # hostNamespaceOnly: false
   # -- Enable terminating pod connections to deleted service backends.

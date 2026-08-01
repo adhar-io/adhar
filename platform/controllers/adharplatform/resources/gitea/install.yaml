@@ -189,6 +189,16 @@ stringData:
     USER=gitea
   indexer: ISSUE_INDEXER_TYPE=db
   metrics: ENABLED=false
+  # Keycloak is the platform identity source: first SSO login auto-creates the
+  # Gitea account (username/email from the OIDC claims) instead of stalling on
+  # the interactive "Register" page — required for the auth source's
+  # group-team-map to grant org/team membership on first login. Account
+  # linking by email covers users that pre-exist locally.
+  oauth2_client: |-
+    ENABLE_AUTO_REGISTRATION=true
+    USERNAME=preferred_username
+    ACCOUNT_LINKING=auto
+    UPDATE_AVATAR=false
   queue: |-
     CONN_STR=redis://:changeme@gitea-valkey-primary.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
     TYPE=redis
@@ -1073,7 +1083,17 @@ spec:
               mountPath: /tmp
             - name: data
               mountPath: /data
-            
+            # Platform CA dropped into the system trust dir (Go reads every
+            # file in SSL_CERT_DIR=/etc/ssl/certs): gitea's Keycloak OAuth2
+            # source does OIDC discovery against the external issuer URL,
+            # which serves the self-signed platform certificate. Without this
+            # the auth source fails to register ("x509: certificate signed by
+            # unknown authority") and /user/oauth2/keycloak returns 500.
+            - name: platform-ca
+              mountPath: /etc/ssl/certs/adhar-platform-ca.pem
+              subPath: tls.crt
+              readOnly: true
+
       volumes:
         - name: init
           secret:
@@ -1091,6 +1111,13 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: gitea-shared-storage
+        # optional: the platform cert is created by the controller after the
+        # first components come up; gitea must still start without it.
+        - name: platform-ca
+          secret:
+            secretName: adhar-cert
+            optional: true
+            items: [{key: tls.crt, path: tls.crt}]
 ---
 # Source: gitea/charts/postgresql/templates/primary/statefulset.yaml
 apiVersion: apps/v1

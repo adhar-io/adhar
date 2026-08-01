@@ -307,7 +307,8 @@ data:
       "attributes": {
         "saml_idp_initiated_sso_url_name": "",
         "oauth2.device.authorization.grant.enabled": false,
-        "oidc.ciba.grant.enabled": false
+        "oidc.ciba.grant.enabled": false,
+        "post.logout.redirect.uris": "https://gitea.adhar.localtest.me:8443/*"
       },
       "alwaysDisplayInConsole": false,
       "rootUrl": "",

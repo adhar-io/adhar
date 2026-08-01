@@ -95,7 +95,7 @@ kubectl logs -n adhar-system deployment/argo-cd-argocd-repo-server
 ```bash
 # Test service connectivity
 kubectl run test-connectivity --image=curlimages/curl --rm -it --restart=Never -- \
-  curl -v "http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages"
+  curl -v "http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/packages"
 
 # Check service endpoints
 kubectl get endpoints gitea-argocd -n adhar-system
@@ -108,8 +108,8 @@ kubectl run test-dns --image=busybox --rm -it --restart=Never -- \
 ## 📋 Service URLs
 
 ### Current Configuration
-- **Environments**: `http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/environments`
-- **Packages**: `http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages`
+- **Environments**: `http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/environments`
+- **Packages**: `http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/packages`
 
 ### Fallback URLs
 - **Primary**: `gitea-argocd.adhar-system.svc.cluster.local`
@@ -244,7 +244,7 @@ spec:
   project: default
   sources:
     - path: "adhar://packages/security/cert-manager/manifests"
-      repoURL: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+      repoURL: http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/packages
       targetRevision: main
   syncPolicy:
     automated:
@@ -286,7 +286,7 @@ spec:
       project: default
       sources:
         - path: "{{ .adharPath }}/manifests"
-          repoURL: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+          repoURL: http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/packages
           targetRevision: main
 ```
 
@@ -364,7 +364,7 @@ path: "adhar://packages/security/cert-manager/manifests"
 
 # Output
 path: "packages/security/cert-manager/manifests"
-repoURL: "http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages"
+repoURL: "http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/packages"
 ```
 
 ### Component Mapping
@@ -410,7 +410,7 @@ kubectl get gitrepositories -n adhar-system
 kubectl get applications -n adhar-system
 
 # Check Gitea repositories
-kubectl exec -n adhar-system deployment/gitea -- ls /data/git/gitea-repositories/gitea_admin/
+kubectl exec -n adhar-system deployment/gitea -- ls /data/git/gitea-repositories/adhar/
 
 # Validate adhar:// references
 adhar gitops resolve --validate-only
@@ -421,8 +421,8 @@ adhar gitops resolve --validate-only
 ### Repository URLs
 
 Default configuration:
-- **Packages Repository**: `http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages`
-- **Environments Repository**: `http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/environments`
+- **Packages Repository**: `http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/packages`
+- **Environments Repository**: `http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/environments`
 
 ### Custom Configuration
 

@@ -38,8 +38,8 @@ type GitOpsResolver struct {
 func NewGitOpsResolver() *GitOpsResolver {
 	return &GitOpsResolver{
 		BasePath:         "platform/stack",
-		PackagesRepo:     "http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages",
-		EnvironmentsRepo: "http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/environments",
+		PackagesRepo:     "http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/packages",
+		EnvironmentsRepo: "http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/environments",
 	}
 }
 

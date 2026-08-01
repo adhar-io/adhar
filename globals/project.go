@@ -40,6 +40,23 @@ const (
 	SelfSignedCertCMKeyName  = "ca.crt"
 	DefaultSANWildcard       = "*.adhar.localtest.me"
 	DefaultHostName          = "adhar.localtest.me"
+
+	// GiteaPlatformOrg is the Gitea organization owning the platform GitOps
+	// repos (packages, environments). Keycloak groups map onto its teams via
+	// the auth source's --group-team-map (gitea-oauth-config.yaml):
+	// platform-admin -> Owners, platform-developer -> developers (read),
+	// platform-viewer -> viewers (read). Membership syncs on every SSO login.
+	GiteaPlatformOrg = "adhar"
+
+	// Gitea bootstrap admin credentials. Day-0 values; rotated in-cluster by
+	// the credential-rotation package. Also present in the embedded gitea
+	// manifest and platform/stack/argocd-auth.yaml — keep in sync.
+	GiteaAdminUser     = "gitea_admin"
+	GiteaAdminPassword = "r8sA8CPHD9!bt6d"
+
+	// Platform GitOps repository names created under GiteaPlatformOrg.
+	GitOpsRepoPackages     = "packages"
+	GitOpsRepoEnvironments = "environments"
 )
 
 func GetProjectNamespace(name string) string {

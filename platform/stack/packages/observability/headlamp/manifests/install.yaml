@@ -112,9 +112,14 @@ spec:
           imagePullPolicy: IfNotPresent
           
           env:
-            # OIDC sign-in (keycloak `headlamp` client). On clusters whose API
-            # server trusts the realm (k8s-rbac.yaml documents the flags) this
-            # is full SSO; locally the token sign-in remains available too.
+            # OIDC sign-in (keycloak `headlamp` client). The kube-apiserver
+            # trusts the realm (kind.yaml.tmpl configures the oidc-* flags;
+            # keycloak's k8s-rbac.yaml maps groups onto cluster roles), so the
+            # user's Keycloak token is forwarded to the API server and per-user
+            # RBAC applies: platform-admin -> cluster-admin, platform-developer
+            # -> edit, platform-viewer -> view. Requires the issuer to be
+            # reachable from the node's host namespace: Cilium socketLB plus
+            # the apiserver-oidc-hosts DaemonSet (keycloak package).
             # optional: the `oidc` Secret is produced by ESO from the keycloak
             # `headlamp` client, which only exists once the whole SSO chain has
             # run (keycloak-db -> keycloak -> config job -> keycloak-clients).

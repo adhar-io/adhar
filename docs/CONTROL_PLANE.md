@@ -73,7 +73,8 @@ platform/controlplane/
 │   └── operations/              # day-2: CronOperations + WatchOperation
 ├── CONVENTIONS.md               # the rule book (authoritative)
 ├── embed.go                     # go:embed of configuration/ into the Adhar binary
-└── adhar-control-plane-v0.1.0.xpkg  # the same content as a Crossplane package
+└── dist/adhar-control-plane-<version>.xpkg  # same content as a Crossplane package
+                                 # (gitignored; versioned from the git tag, published as a release asset)
 ```
 
 ### The API layer (XRDs)

@@ -6,7 +6,11 @@ LD_FLAGS=-ldflags " \
 
 # Image URL to use all building/pushing image targets
 IMG ?= adhar:latest
-VERSION ?= v0.1.0
+# Single source of truth for the platform version: the latest git tag. Used for
+# both the binary ldflags and the control-plane package name, so `make build`
+# and a GoReleaser release stamp the same version everywhere. Falls back to
+# v0.1.0 on tagless checkouts (fresh forks, shallow clones).
+VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.1.0)
 
 # The name of the binary. Defaults to adhar
 OUT_FILE ?= adhar
@@ -107,19 +111,24 @@ build-control-plane: ## Build Crossplane control-plane configuration package
 	@# A Crossplane v2 Configuration package contains only the meta (crossplane.yaml),
 	@# XRDs and Compositions. ProviderConfigs, Function CRs and Operations are runtime
 	@# resources (applied by the controller from configuration/), not package contents.
+	@# Output goes to the gitignored platform/controlplane/dist/ — the package is
+	@# a versioned release artifact (uploaded by GoReleaser), not a tracked file;
+	@# the controller applies the embedded configuration/ tree directly.
+	@mkdir -p platform/controlplane/dist
+	@rm -f platform/controlplane/dist/adhar-control-plane-*.xpkg
 	@if command -v crossplane >/dev/null 2>&1; then \
 		mkdir -p platform/controlplane/dist/examples; \
 		crossplane xpkg build \
 			--package-root=platform/controlplane/configuration \
 			--examples-root=platform/controlplane/dist/examples \
 			--ignore="providers/*,providers/config/*,providers/cloud/*,functions/*,operations/*" \
-			-o platform/controlplane/adhar-control-plane-$(VERSION).xpkg; \
+			-o platform/controlplane/dist/adhar-control-plane-$(VERSION).xpkg; \
 		rm -rf platform/controlplane/dist/examples; \
 	else \
 		echo "  crossplane CLI not found; falling back to tarball bundle"; \
-		tar -czf platform/controlplane/adhar-control-plane-$(VERSION).xpkg -C platform/controlplane/configuration .; \
+		tar -czf platform/controlplane/dist/adhar-control-plane-$(VERSION).xpkg -C platform/controlplane/configuration .; \
 	fi
-	@echo "✓ Control-plane package ready: platform/controlplane/adhar-control-plane-$(VERSION).xpkg"
+	@echo "✓ Control-plane package ready: platform/controlplane/dist/adhar-control-plane-$(VERSION).xpkg"
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.

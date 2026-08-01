@@ -44,7 +44,7 @@ Adhar uses a two-phase deployment model:
    - Install ArgoCD (install + post-install HTTPRoute)
    - Install Gitea (install + post-install HTTPRoute)
 8. Wait for Gitea API readiness (deployment + pod + HTTP probe)
-9. Create `environments` and `packages` repos in Gitea (via API with `auto_init: true`)
+9. Create the `adhar` Gitea org (teams `Owners`/`developers`/`viewers`, mapped from Keycloak groups via the auth source's `--group-team-map`) and the `environments` and `packages` repos under it (via API with `auto_init: true`); constants in `globals/project.go` (`GiteaPlatformOrg`, `GitOpsRepo*`)
 10. Populate repos: `kubectl cp` from `platform/stack/{packages,environments}` → Gitea pod → git push
 11. Apply ArgoCD auth (repo secrets + dedicated `gitea-argocd` service)
 12. Apply `adhar-appset-local.yaml` (ApplicationSet wiring 69 packages; a `selector` on `enabled: "true"` deploys a curated local-safe core (~16), the rest are wired but disabled)
@@ -253,7 +253,7 @@ Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
 - **5 Functions** — function-kcl, function-go-templating, function-patch-and-transform, function-auto-ready, function-python.
 - **3 Operations** in `configuration/operations/` — CronOperation (daily backup, weekly secret rotation) + WatchOperation (ConfigMap drift); requires core `--enable-operations`.
 - **ProviderConfigs** — shared `ClusterProviderConfig` per cloud family (AWS/Azure/GCP), plus provider-kubernetes & provider-helm (`ClusterProviderConfig`); DigitalOcean/Civo remain legacy `ProviderConfig`.
-- **Package .xpkg** at `platform/controlplane/adhar-control-plane-v0.1.0.xpkg`, built via `crossplane xpkg build` (`make build-control-plane`).
+- **Package .xpkg** built via `crossplane xpkg build` (`make build-control-plane`) into the gitignored `platform/controlplane/dist/adhar-control-plane-<version>.xpkg`, versioned from the latest git tag (Makefile `VERSION`) and uploaded as a release asset by GoReleaser; the controller applies the embedded `configuration/` tree directly, so the file is not tracked in git.
 - Install order: Crossplane core → wait for ready → XRDs → Compositions → Functions → ProviderConfigs → Operations
 
 ### GitOps Phase (69 packages wired via ApplicationSet; curated core enabled for local, rest toggleable)

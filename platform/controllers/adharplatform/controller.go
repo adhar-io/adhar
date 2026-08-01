@@ -399,13 +399,20 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 		return fmt.Errorf("Gitea not ready: %w", err)
 	}
 
+	// Create the platform org and its group-mapped teams first: the repos
+	// live under the org so Keycloak group membership (via the auth source's
+	// --group-team-map) grants repo access without per-user collaborators.
+	if err := r.createGiteaOrg(ctx); err != nil {
+		return fmt.Errorf("failed to create platform org: %w", err)
+	}
+
 	// Create environments repository
-	if err := r.createGiteaRepository(ctx, "environments"); err != nil {
+	if err := r.createGiteaRepository(ctx, globals.GitOpsRepoEnvironments); err != nil {
 		return fmt.Errorf("failed to create environments repository: %w", err)
 	}
 
 	// Create packages repository
-	if err := r.createGiteaRepository(ctx, "packages"); err != nil {
+	if err := r.createGiteaRepository(ctx, globals.GitOpsRepoPackages); err != nil {
 		return fmt.Errorf("failed to create packages repository: %w", err)
 	}
 
@@ -551,7 +558,64 @@ func (r *AdharPlatformReconciler) getGiteaPodName(ctx context.Context) (string, 
 	return pods.Items[0].Name, nil
 }
 
-// createGiteaRepository creates a repository in Gitea via API
+// giteaAdminCurlCred is the -u argument for Gitea API calls made from
+// inside the gitea pod during bootstrap.
+var giteaAdminCurlCred = globals.GiteaAdminUser + ":" + globals.GiteaAdminPassword
+
+// createGiteaOrg creates the platform org (globals.GiteaPlatformOrg) and its
+// group-mapped teams so Keycloak group membership grants repo access without
+// per-user collaborators (see the constant's doc in globals/project.go).
+// Idempotent: "already exists" responses (409/422) are tolerated.
+func (r *AdharPlatformReconciler) createGiteaOrg(ctx context.Context) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Creating Gitea platform org", "org", globals.GiteaPlatformOrg)
+
+	podName, err := r.getGiteaPodName(ctx)
+	if err != nil {
+		return err
+	}
+
+	runAPI := func(what, path, payload string) error {
+		cmd := fmt.Sprintf(
+			`curl -sf -X POST "http://localhost:3000/api/v1/%s" `+
+				`-H "Content-Type: application/json" `+
+				`-d '%s' `+
+				`-u `+giteaAdminCurlCred+` -o /dev/null -w "%%{http_code}"`,
+			path, payload)
+		out, err := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", cmd).CombinedOutput()
+		if err != nil {
+			status := strings.TrimSpace(string(out))
+			// 409 (conflict) and 422 (validation: name taken) mean it exists.
+			if strings.HasPrefix(status, "409") || strings.HasPrefix(status, "422") {
+				logger.Info("Already exists, continuing", "resource", what)
+				return nil
+			}
+			return fmt.Errorf("creating %s (status: %s): %w", what, status, err)
+		}
+		return nil
+	}
+
+	if err := runAPI("org "+globals.GiteaPlatformOrg, "orgs",
+		fmt.Sprintf(`{"username":"%s","full_name":"Adhar Platform","description":"Platform GitOps repositories","visibility":"public"}`, globals.GiteaPlatformOrg)); err != nil {
+		return err
+	}
+	// Group-mapped teams. Owners is built in; developers/viewers get read on
+	// every org repo (write to platform config stays with platform-admin).
+	teamPayload := `{"name":"%s","description":"%s","permission":"read","includes_all_repositories":true,"units":["repo.code","repo.issues","repo.pulls","repo.releases","repo.wiki"]}`
+	if err := runAPI("team developers", "orgs/"+globals.GiteaPlatformOrg+"/teams",
+		fmt.Sprintf(teamPayload, "developers", "Mapped from the Keycloak platform-developer group")); err != nil {
+		return err
+	}
+	if err := runAPI("team viewers", "orgs/"+globals.GiteaPlatformOrg+"/teams",
+		fmt.Sprintf(teamPayload, "viewers", "Mapped from the Keycloak platform-viewer group")); err != nil {
+		return err
+	}
+
+	logger.Info("Successfully ensured platform org and teams", "org", globals.GiteaPlatformOrg)
+	return nil
+}
+
+// createGiteaRepository creates a repository under the platform org via API
 func (r *AdharPlatformReconciler) createGiteaRepository(ctx context.Context, name string) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Creating Gitea repository", "name", name)
@@ -563,11 +627,11 @@ func (r *AdharPlatformReconciler) createGiteaRepository(ctx context.Context, nam
 
 	// Create repository using Gitea API via kubectl exec with proper shell invocation
 	createCmd := fmt.Sprintf(
-		`curl -sf -X POST "http://localhost:3000/api/v1/admin/users/gitea_admin/repos" `+
+		`curl -sf -X POST "http://localhost:3000/api/v1/orgs/%s/repos" `+
 			`-H "Content-Type: application/json" `+
 			`-d '{"name":"%s","description":"%s repository","private":false,"default_branch":"main","auto_init":true}' `+
-			`-u gitea_admin:r8sA8CPHD9!bt6d -o /dev/null -w "%%{http_code}"`,
-		name, name)
+			`-u `+giteaAdminCurlCred+` -o /dev/null -w "%%{http_code}"`,
+		globals.GiteaPlatformOrg, name, name)
 
 	cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", createCmd)
 	output, err := cmd.CombinedOutput()
@@ -598,11 +662,11 @@ func (r *AdharPlatformReconciler) populateRepositories(ctx context.Context) erro
 	}
 	logger.Info("Using Gitea pod", "podName", podName)
 
-	if err := r.populateGiteaRepo(ctx, podName, "packages", filepath.Join(r.StackDir, "packages")); err != nil {
+	if err := r.populateGiteaRepo(ctx, podName, globals.GitOpsRepoPackages, filepath.Join(r.StackDir, globals.GitOpsRepoPackages)); err != nil {
 		return fmt.Errorf("failed to populate packages repository: %w", err)
 	}
 
-	if err := r.populateGiteaRepo(ctx, podName, "environments", filepath.Join(r.StackDir, "environments")); err != nil {
+	if err := r.populateGiteaRepo(ctx, podName, globals.GitOpsRepoEnvironments, filepath.Join(r.StackDir, globals.GitOpsRepoEnvironments)); err != nil {
 		return fmt.Errorf("failed to populate environments repository: %w", err)
 	}
 
@@ -619,7 +683,7 @@ func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName
 	ns := globals.AdharSystemNamespace
 	workDir := "/tmp/" + repoName + "-working"
 	stagingDir := "/tmp/" + repoName + "-staging"
-	bareRepoPath := fmt.Sprintf("http://gitea_admin:r8sA8CPHD9!bt6d@localhost:3000/gitea_admin/%s.git", repoName)
+	bareRepoPath := fmt.Sprintf("http://%s:%s@localhost:3000/%s/%s.git", globals.GiteaAdminUser, globals.GiteaAdminPassword, globals.GiteaPlatformOrg, repoName)
 
 	// Helper to run kubectl exec with sh -c for proper shell expansion
 	kubectlExecSh := func(script string) ([]byte, error) {

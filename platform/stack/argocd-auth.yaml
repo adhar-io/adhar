@@ -61,7 +61,7 @@ metadata:
     argocd.argoproj.io/secret-type: repository
 stringData:
   type: git
-  url: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+  url: http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/environments
   username: gitea_admin
   password: r8sA8CPHD9!bt6d
   insecure: "true"
@@ -75,7 +75,7 @@ metadata:
     argocd.argoproj.io/secret-type: repository
 stringData:
   type: git
-  url: http://gitea-argocd.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+  url: http://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/packages
   username: gitea_admin
   password: r8sA8CPHD9!bt6d
   insecure: "true"

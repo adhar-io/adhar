@@ -75,7 +75,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/packages
+        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/packages
         targetRevision: main
         path: "{{ .manifestPath }}"
       destination:

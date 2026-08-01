@@ -21,7 +21,9 @@ spec:
         clientID: headlamp
         clientSecret: "{{ .HEADLAMP_CLIENT_SECRET }}"
         issuerURL: https://keycloak.adhar.localtest.me:8443/realms/adhar
-        scopes: openid,profile,email
+        # groups: the id_token must carry the groups claim so the API server
+        # (oidc-groups-claim=groups) maps users onto the k8s-rbac.yaml bindings.
+        scopes: openid,profile,email,groups
   data:
     - secretKey: HEADLAMP_CLIENT_SECRET
       remoteRef:

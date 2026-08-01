@@ -410,7 +410,7 @@ Manages backup and disaster recovery policies.
 
 ```sh
 cd control-plane
-make build            # Produces adhar-control-plane.xpkg
+make build-control-plane   # Produces dist/adhar-control-plane-<version>.xpkg (version = latest git tag)
 make lint             # Validates manifests and registry
 make test             # Runs unit tests
 make clean            # Removes build artifacts
@@ -421,7 +421,7 @@ make clean            # Removes build artifacts
 ```sh
 # Install to existing Crossplane runtime
 kubectl crossplane install configuration \
-  file://adhar-control-plane.xpkg
+  file://dist/adhar-control-plane-<version>.xpkg
 
 # Or push to registry
 kubectl crossplane push configuration \
@@ -683,7 +683,7 @@ Each XRD maps to a CLI command:
 ### Build Status
 
 ```
-✓ Control-plane package ready: platform/controlplane/adhar-control-plane-v0.1.0.xpkg
+✓ Control-plane package ready: platform/controlplane/dist/adhar-control-plane-v0.1.1.xpkg
 ```
 
 **Total**: 11 XRDs, 14 KCL Compositions - **Production Ready 🚀**

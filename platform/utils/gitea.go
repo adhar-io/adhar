@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/utils/idp"
 
 	"code.gitea.io/sdk/gitea"
@@ -22,7 +23,7 @@ const (
 	// "gitea" namespace); the admin credential Secret lives there too.
 	GiteaNamespace           = "adhar-system"
 	GiteaAdminSecret         = "gitea-credential"
-	GiteaAdminName           = "gitea_admin"
+	GiteaAdminName           = globals.GiteaAdminUser
 	GiteaAdminTokenName      = "admin"
 	GiteaAdminTokenFieldName = "token"
 	GiteaURLTempl            = "%s://%s%s:%s%s"

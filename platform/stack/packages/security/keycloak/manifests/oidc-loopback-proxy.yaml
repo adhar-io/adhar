@@ -1,0 +1,66 @@
+# Node-loopback proxy for the platform issuer: 127.0.0.1:8443 -> Gateway :8443.
+#
+# Why: processes in the node's HOST network namespace — kube-apiserver above
+# all — must reach the Keycloak issuer at its public URL
+# https://keycloak.<host>:8443 to validate OIDC tokens (discovery + JWKS).
+# *.localtest.me resolves to 127.0.0.1, but nothing listens on the node's
+# loopback:8443: the Kind port-mapping (host 8443 -> node 30443) exists only on
+# the Docker host side, and Cilium does not translate loopback node-port
+# connects. Editing /etc/hosts does not work either: kubelet snapshots the
+# node's /etc/hosts into every hostNetwork pod at pod start, so the apiserver
+# never sees later edits (and on cold bootstraps it starts long before
+# Keycloak exists).
+#
+# This DaemonSet listens on the node's 127.0.0.1:8443 and TCP-forwards (TLS
+# passthrough) to the Gateway Service's 8443 listener, which serves the
+# platform certificate — so certificate hostname validation against the
+# platform CA works unchanged. The connect to the Gateway ClusterIP from the
+# host namespace is translated by Cilium socketLB (hack/cilium/values.yaml),
+# which is REQUIRED for this to work. Bonus: every other host-namespace client
+# of *.adhar.localtest.me:8443 (e.g. containerd pulling from the Gitea
+# registry) starts working on the node too.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: oidc-loopback-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: oidc-loopback-proxy
+    app.kubernetes.io/part-of: keycloak
+  annotations:
+    # Wave 0: must exist before anything validates OIDC tokens; no deps.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  selector:
+    matchLabels:
+      app: oidc-loopback-proxy
+  template:
+    metadata:
+      labels:
+        app: oidc-loopback-proxy
+    spec:
+      # Control-plane nodes included — that is where the apiserver runs.
+      tolerations:
+        - operator: Exists
+      hostNetwork: true
+      # Cluster DNS despite hostNetwork: socat must resolve the Gateway
+      # Service name (the ClusterIP is not stable across bootstraps).
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: socat
+          image: alpine/socat:1.8.0.0
+          args:
+            - "TCP4-LISTEN:8443,bind=127.0.0.1,fork,reuseaddr"
+            - "TCP:cilium-gateway-adhar-gateway.adhar-system.svc.cluster.local:8443"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          readinessProbe:
+            tcpSocket:
+              host: 127.0.0.1
+              port: 8443
+            periodSeconds: 10
+      restartPolicy: Always

@@ -6,11 +6,17 @@ before:
   hooks:
     - go mod tidy
     - go generate ./...
+    # Control-plane package versioned in lockstep with the release tag; lands
+    # in the gitignored platform/controlplane/dist/ and is uploaded via
+    # release.extra_files below.
+    - make build-control-plane VERSION={{ .Tag }}
 
 release:
   # Tags containing a prerelease suffix (e.g. v0.2.0-rc.1) are marked as prerelease
   prerelease: auto
   draft: false
+  extra_files:
+    - glob: platform/controlplane/dist/adhar-control-plane-*.xpkg
   header: |
     ## Adhar {{ .Tag }}
 

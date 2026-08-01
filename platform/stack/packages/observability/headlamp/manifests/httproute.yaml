@@ -1,6 +1,8 @@
-# Headlamp UI on its own host (headlamp.adhar.localtest.me). The whole host
-# forwards to the oauth2-proxy (Keycloak SSO gate), which reverse-proxies to
-# Headlamp once the user is authenticated. See manifests/headlamp-oauth2-proxy.yaml.
+# Headlamp UI on its own host (headlamp.adhar.localtest.me), served directly.
+# Authentication is Headlamp-native OIDC against Keycloak: the login page's
+# sign-in button runs the code flow, and the resulting Keycloak token is
+# forwarded to the kube-apiserver, which trusts the realm — so Kubernetes RBAC
+# applies per user/group (see keycloak's k8s-rbac.yaml).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -18,5 +20,5 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: headlamp-oauth2-proxy
-          port: 4180
+        - name: headlamp
+          port: 80

@@ -55,7 +55,7 @@ spec:
         labels:
           kargo.akuity.io/cred-type: git
       data:
-        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/environments
         username: "{{ .username }}"
         password: "{{ .password }}"
   data:
@@ -79,7 +79,7 @@ metadata:
 spec:
   subscriptions:
     - git:
-        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/environments
         branch: main
         includePaths:
           - development/**
@@ -104,7 +104,7 @@ spec:
       steps:
         - uses: git-clone
           config:
-            repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+            repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/environments
             checkout:
               - branch: main
                 path: ./src
@@ -142,7 +142,7 @@ spec:
       steps:
         - uses: git-clone
           config:
-            repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/environments
+            repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/environments
             checkout:
               - branch: main
                 path: ./src
