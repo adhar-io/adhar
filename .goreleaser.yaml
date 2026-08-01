@@ -103,11 +103,14 @@ brews:
     license: "Apache-2.0"
     # Skipped automatically when no Homebrew tap token is available
     # (e.g. local snapshots or releases from forks); also skipped for prereleases.
-    skip_upload: '{{ if envOrDefault "HOMEBREW_TOKEN" "" }}auto{{ else }}true{{ end }}'
+    # skip_upload uses the full template engine; the token is resolved with
+    # goreleaser's restricted single-env engine, which only accepts the exact
+    # form '{{ .Env.VAR }}' — and is only evaluated when skip_upload != true.
+    skip_upload: '{{ if index .Env "HOMEBREW_TOKEN" }}auto{{ else }}true{{ end }}'
     repository:
       owner: adhar-io
       name: homebrew-tap
-      token: '{{ envOrDefault "HOMEBREW_TOKEN" "" }}'
+      token: '{{ .Env.HOMEBREW_TOKEN }}'
     commit_author:
       name: "AdharAutomation"
       email: "noreply@adhar.io"
