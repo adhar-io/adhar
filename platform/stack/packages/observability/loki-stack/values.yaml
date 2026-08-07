@@ -1,27 +1,73 @@
+# Loki 3.x (grafana/loki chart) in SingleBinary mode for the local platform.
+# Replaces the deprecated loki-stack chart (Loki 2.6.1): log collection is
+# Alloy's job (loki.source.kubernetes -> loki.write), so no fluent-bit here.
+# The Service keeps the name `loki` on :3100 — Alloy's HUB_LOKI_URL, the
+# HTTPRoute and the Grafana datasource all point at it.
+deploymentMode: SingleBinary
+
 loki:
-  enabled: true
-  # Prometheus is Grafana's default datasource; two defaults crash provisioning.
-  isDefault: false
-  url: http://{{(include "loki.serviceName" .)}}:{{ .Values.loki.service.port }}
-  readinessProbe:
-    httpGet:
-      path: /ready
-      port: http-metrics
-    initialDelaySeconds: 45
-  livenessProbe:
-    httpGet:
-      path: /ready
-      port: http-metrics
-    initialDelaySeconds: 45
-  datasource:
-    jsonData: "{}"
-    uid: ""
-fluent-bit:
-  enabled: true
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  limits_config:
+    # Grafana's "logs volume" panel queries /loki/api/v1/index/volume;
+    # without this it shows "Log volume has not been configured".
+    volume_enabled: true
+    allow_structured_metadata: true
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 10Gi
   resources:
-    limits:
-      # 100Mi default OOM-kills under platform log volume
-      memory: 256Mi
     requests:
       cpu: 100m
-      memory: 128Mi
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# Zero out the scalable-mode targets; SingleBinary carries everything.
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+# No nginx gateway in front — clients hit the `loki` Service directly.
+gateway:
+  enabled: false
+
+# Local-profile trimming: no canary, no helm test, no memcached tiers.
+lokiCanary:
+  enabled: false
+test:
+  enabled: false
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+
+monitoring:
+  selfMonitoring:
+    enabled: false
+    grafanaAgent:
+      installOperator: false
+  serviceMonitor:
+    enabled: false
+
+sidecar:
+  rules:
+    enabled: false

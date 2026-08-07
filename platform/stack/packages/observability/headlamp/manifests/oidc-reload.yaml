@@ -1,0 +1,109 @@
+# Restarts Headlamp once the Keycloak OIDC client secret exists.
+#
+# Problem: headlamp's args reference env vars ($(OIDC_CLIENT_ID), ...) that come
+# from the `oidc` Secret with `optional: true` (so headlamp can boot before
+# Keycloak exists on a cold bootstrap). Kubernetes only substitutes $(VAR) when
+# the env var is DEFINED — with the Secret absent at pod start, the args keep
+# the LITERAL string "$(OIDC_ISSUER_URL)", and headlamp's OIDC discovery then
+# fails with: unsupported protocol scheme "" (login broken). Nothing restarts
+# headlamp when the Secret appears minutes later, so it stays broken.
+#
+# Fix (same pattern as kube-prometheus/grafana-oidc-reload): a PostSync hook
+# that waits for the Secret, then restarts headlamp ONLY if the running pod
+# started BEFORE the Secret existed. Timestamp comparison keeps it idempotent
+# without exec'ing into the container: after one restart the pod is newer than
+# the Secret, so steady-state syncs are a no-op.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp-oidc-reload
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: headlamp-oidc-reload
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: headlamp-oidc-reload
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-oidc-reload
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: headlamp-oidc-reload
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: headlamp-oidc-reload
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      generateName: headlamp-oidc-reload
+    spec:
+      serviceAccountName: headlamp-oidc-reload
+      restartPolicy: Never
+      containers:
+        - name: kubectl
+          image: docker.io/alpine/k8s:1.31.0
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              NS=adhar-system
+              DEPLOY=headlamp
+              SECRET=oidc
+
+              # 1. Bounded wait for the Secret (produced by the keycloak realm
+              #    job -> headlamp-oidc ExternalSecret chain; ~40 min covers a
+              #    cold bootstrap — see grafana-oidc-reload for the rationale).
+              ok=""
+              for i in $(seq 1 240); do
+                if kubectl -n "$NS" get secret "$SECRET" \
+                     -o jsonpath='{.data.clientSecret}' 2>/dev/null | grep -q .; then
+                  ok=1; break
+                fi
+                echo "waiting for $SECRET clientSecret ($i)"
+                sleep 10
+              done
+              if [ -z "$ok" ]; then
+                echo "secret not ready yet; leaving headlamp as-is (retries next sync)"
+                exit 0
+              fi
+
+              # 2. Restart only if the running pod predates the Secret — i.e. it
+              #    started with the env undefined and literal $(...) args.
+              SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
+              POD_TS=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=headlamp \
+                         -o jsonpath='{.items[0].status.startTime}' 2>/dev/null || true)
+              if [ -n "$POD_TS" ] && [ "$(date -d "$POD_TS" +%s)" -gt "$(date -d "$SECRET_TS" +%s)" ]; then
+                echo "headlamp pod ($POD_TS) is newer than the oidc secret ($SECRET_TS); nothing to do."
+                exit 0
+              fi
+
+              echo "Restarting $DEPLOY to substitute OIDC env into its args..."
+              kubectl -n "$NS" rollout restart deployment "$DEPLOY"
+              kubectl -n "$NS" rollout status deployment "$DEPLOY" --timeout=180s || true
+              echo "Headlamp OIDC reload complete."

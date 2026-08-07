@@ -1,0 +1,293 @@
+# Platform pipeline catalog (ADR-0018): the reusable Tekton building blocks
+# that .lighthouse/triggers.yaml files in app repos reference. Teams inherit
+# these; fixing a step here fixes every consumer on their next run.
+#
+# Shipped pipelines:
+#   adhar-pr-verify — presubmit: clone the PR revision, run the repo's tests
+#   adhar-release   — postsubmit on main: clone, test, then open a promotion PR
+#                     against the environments repo (CI ends at a Git commit;
+#                     Kargo/ArgoCD own everything after — ADR-0018).
+# Image publishing runs through the buildpack package (kpack Image CRs);
+# pointing kpack at Harbor needs the platform CA trust wiring and is the
+# documented follow-up before the release pipeline's build step is added here.
+#
+# Example .lighthouse/triggers.yaml in an app repo:
+#   presubmits:
+#     - name: verify
+#       context: verify
+#       alwaysRun: true
+#       pipelineRunSpec:
+#         pipelineRef: {name: adhar-pr-verify}
+#         workspaces: [{name: source, emptyDir: {}}]
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: adhar-git-clone
+  namespace: adhar-system
+  labels: {adhar.io/component: pipeline-catalog}
+spec:
+  description: Clone a repository revision into the source workspace.
+  params:
+    - name: url
+      type: string
+    - name: revision
+      type: string
+      default: main
+  workspaces:
+    - name: source
+  steps:
+    - name: clone
+      image: docker.io/alpine/git:2.47.2
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -e
+        git init .
+        git remote add origin "$(params.url)"
+        git fetch --depth 1 origin "$(params.revision)"
+        git checkout FETCH_HEAD
+        git log -1 --oneline
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: adhar-test
+  namespace: adhar-system
+  labels: {adhar.io/component: pipeline-catalog}
+spec:
+  description: >-
+    Run the repo's tests: ./ci/test.sh when present, else `make test` when a
+    Makefile defines it, else succeed with a notice. Teams override by adding
+    ci/test.sh (the golden-path hook) or replacing this task in their trigger.
+  params:
+    - name: image
+      type: string
+      # Toolchain image for the test step; override per repo/language.
+      default: docker.io/library/ubuntu:24.04
+  workspaces:
+    - name: source
+  steps:
+    - name: test
+      image: $(params.image)
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -e
+        if [ -x ci/test.sh ]; then
+          echo "Running ci/test.sh"
+          ./ci/test.sh
+        elif [ -f Makefile ] && grep -qE '^test:' Makefile; then
+          echo "Running make test"
+          make test
+        else
+          echo "No ci/test.sh or Makefile test target — nothing to run."
+        fi
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: adhar-promote-pr
+  namespace: adhar-system
+  labels: {adhar.io/component: pipeline-catalog}
+spec:
+  description: >-
+    CI's terminal act (ADR-0018): open a version-bump PR against the
+    environments repo. Updates the given file's image tag on a branch and opens
+    a PR via the Gitea API; Kargo/ArgoCD take over from the merge.
+  params:
+    - name: app
+      type: string
+    - name: version
+      type: string
+    - name: environmentsRepo
+      type: string
+      default: adhar/environments
+    - name: targetFile
+      type: string
+      # Path inside the environments repo that carries the app's image tag.
+      default: ""
+  steps:
+    - name: open-pr
+      image: docker.io/alpine/k8s:1.31.0
+      env:
+        - name: GITEA_TOKEN
+          valueFrom:
+            secretKeyRef: {name: lighthouse-oauth-token, key: oauth}
+      script: |
+        #!/bin/bash
+        set -eu -o pipefail
+        API=http://gitea-http.adhar-system.svc.cluster.local:3000/api/v1
+        REPO="$(params.environmentsRepo)"
+        APP="$(params.app)"
+        VER="$(params.version)"
+        BR="promote-${APP}-${VER}"
+        AUTH="Authorization: token ${GITEA_TOKEN}"
+        # Branch off main (idempotent: 409 if the branch already exists).
+        curl -sS -H "$AUTH" -X POST "$API/repos/$REPO/branches" \
+          -H 'Content-Type: application/json' \
+          -d "{\"new_branch_name\":\"$BR\",\"old_ref_name\":\"main\"}" || true
+        FILE="$(params.targetFile)"
+        if [ -n "$FILE" ]; then
+          SHA=$(curl -sS -H "$AUTH" "$API/repos/$REPO/contents/$FILE?ref=$BR" | jq -r '.sha // empty')
+          CONTENT=$(curl -sS -H "$AUTH" "$API/repos/$REPO/contents/$FILE?ref=$BR" | jq -r '.content // empty' | base64 -d || true)
+          NEW=$(printf '%s' "$CONTENT" | sed -E "s|(image:.*${APP}[^:]*:)[^\"' ]+|\\1${VER}|")
+          B64=$(printf '%s' "$NEW" | base64 -w0)
+          curl -sS -H "$AUTH" -X PUT "$API/repos/$REPO/contents/$FILE" \
+            -H 'Content-Type: application/json' \
+            -d "{\"message\":\"promote ${APP} to ${VER}\",\"content\":\"$B64\",\"branch\":\"$BR\"$( [ -n "$SHA" ] && echo ",\"sha\":\"$SHA\"" )}"
+        fi
+        # Open the PR (409 if one already exists for the branch — fine).
+        curl -sS -H "$AUTH" -X POST "$API/repos/$REPO/pulls" \
+          -H 'Content-Type: application/json' \
+          -d "{\"title\":\"promote ${APP} to ${VER}\",\"head\":\"$BR\",\"base\":\"main\",\"body\":\"Automated promotion PR from the adhar-release pipeline.\"}" || true
+        echo "Promotion PR for ${APP}@${VER} ensured."
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: adhar-pr-verify
+  namespace: adhar-system
+  labels: {adhar.io/component: pipeline-catalog}
+spec:
+  description: Presubmit verification for pull requests (clone + tests).
+  params:
+    - name: REPO_URL
+      type: string
+      default: $(params.REPO_URL)
+    - name: PULL_PULL_SHA
+      type: string
+      default: main
+  workspaces:
+    - name: source
+  tasks:
+    - name: clone
+      taskRef: {name: adhar-git-clone}
+      params:
+        - {name: url, value: $(params.REPO_URL)}
+        - {name: revision, value: $(params.PULL_PULL_SHA)}
+      workspaces: [{name: source, workspace: source}]
+    - name: test
+      runAfter: [clone]
+      taskRef: {name: adhar-test}
+      workspaces: [{name: source, workspace: source}]
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: adhar-release
+  namespace: adhar-system
+  labels: {adhar.io/component: pipeline-catalog}
+spec:
+  description: >-
+    Postsubmit release on main: clone + test, then open the promotion PR. The
+    kpack build/publish step joins once Harbor CA trust for kpack lands.
+  params:
+    - name: REPO_URL
+      type: string
+    - name: PULL_BASE_SHA
+      type: string
+      default: main
+    - name: APP_NAME
+      type: string
+    - name: VERSION
+      type: string
+      default: $(params.PULL_BASE_SHA)
+    - name: TARGET_FILE
+      type: string
+      default: ""
+  workspaces:
+    - name: source
+  tasks:
+    - name: clone
+      taskRef: {name: adhar-git-clone}
+      params:
+        - {name: url, value: $(params.REPO_URL)}
+        - {name: revision, value: $(params.PULL_BASE_SHA)}
+      workspaces: [{name: source, workspace: source}]
+    - name: test
+      runAfter: [clone]
+      taskRef: {name: adhar-test}
+      workspaces: [{name: source, workspace: source}]
+    - name: promote
+      runAfter: [test]
+      taskRef: {name: adhar-promote-pr}
+      params:
+        - {name: app, value: $(params.APP_NAME)}
+        - {name: version, value: $(params.VERSION)}
+        - {name: targetFile, value: $(params.TARGET_FILE)}
+---
+# Registers the Gitea SYSTEM webhook that feeds Lighthouse: every repo event
+# (push, PR, comment) on the forge is delivered to the in-cluster hook Service
+# signed with the lighthouse HMAC. System-level (admin API) so app repos get
+# CI with zero per-repo setup — the IDP promise.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: lighthouse-webhook-register
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lighthouse-webhook-register
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: lighthouse-webhook-register
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: lighthouse-webhook-register
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: lighthouse-webhook-register
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lighthouse-webhook-register
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      generateName: lighthouse-webhook-register
+    spec:
+      serviceAccountName: lighthouse-webhook-register
+      restartPolicy: Never
+      containers:
+        - name: register
+          image: docker.io/alpine/k8s:1.31.0
+          env:
+            - name: GITEA_TOKEN
+              valueFrom:
+                secretKeyRef: {name: lighthouse-oauth-token, key: oauth}
+            - name: HMAC
+              valueFrom:
+                secretKeyRef: {name: lighthouse-hmac-token, key: hmac}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              API=http://gitea-http.adhar-system.svc.cluster.local:3000/api/v1
+              HOOK_URL=http://hook.adhar-system.svc.cluster.local/hook
+              AUTH="Authorization: token ${GITEA_TOKEN}"
+              if curl -sS -H "$AUTH" "$API/admin/hooks" | jq -e --arg u "$HOOK_URL" '.[] | select(.config.url==$u)' >/dev/null; then
+                echo "Lighthouse system webhook already registered."
+                exit 0
+              fi
+              curl -sS --fail-with-body -H "$AUTH" -X POST "$API/admin/hooks" \
+                -H 'Content-Type: application/json' \
+                -d "{\"type\":\"gitea\",\"active\":true,\"events\":[\"push\",\"pull_request\",\"pull_request_comment\",\"issue_comment\",\"create\",\"delete\"],\"config\":{\"url\":\"$HOOK_URL\",\"content_type\":\"json\",\"secret\":\"$HMAC\"}}"
+              echo "Lighthouse system webhook registered."

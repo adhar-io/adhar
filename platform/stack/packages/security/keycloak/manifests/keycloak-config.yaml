@@ -248,7 +248,8 @@ data:
       "attributes": {
         "saml_idp_initiated_sso_url_name": "",
         "oauth2.device.authorization.grant.enabled": false,
-        "oidc.ciba.grant.enabled": false
+        "oidc.ciba.grant.enabled": false,
+        "post.logout.redirect.uris": "https://grafana.adhar.localtest.me:8443/*"
       },
       "alwaysDisplayInConsole": false,
       "rootUrl": "",
@@ -554,7 +555,10 @@ spec:
             name: config-job
       containers:
         - name: kubectl
-          image: docker.io/library/ubuntu:22.04
+          # alpine/k8s ships bash+curl+jq+kubectl preinstalled: the previous
+          # ubuntu:22.04 spent minutes on apt update/install + kubectl download
+          # on EVERY keycloak sync, dominating platform provisioning time.
+          image: docker.io/alpine/k8s:1.31.0
           volumeMounts:
             - name: keycloak-config
               readOnly: true
@@ -568,8 +572,6 @@ spec:
               #! /bin/bash
   
               set -ex -o pipefail
-              
-              apt -qq update && apt -qq install curl jq -y
               
               ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
               USER1_PASSWORD=$(cat /var/secrets/USER_PASSWORD)
@@ -671,13 +673,10 @@ spec:
                 if ! curl -sS --fail --cacert "${SA_CA}" -H "Authorization: Bearer ${SA_TOKEN}" \
                     "https://kubernetes.default.svc/api/v1/namespaces/adhar-system/secrets/keycloak-clients" &>/dev/null; then
                   echo "keycloak-clients secret missing; rebuilding from Keycloak"
-                  ARCH=$(uname -m); case "${ARCH}" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; esac
-                  KVER=$(curl -sSL https://dl.k8s.io/release/stable.txt)
-                  curl -sSL -o ./kubectl "https://dl.k8s.io/release/${KVER}/bin/linux/${ARCH}/kubectl" && chmod +x ./kubectl
                   getsec() { curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=$1" | jq -r '.[0].secret // empty'; }
-                  ARGOCD_PASSWORD=$(./kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}' 2>/dev/null || true)
+                  ARGOCD_PASSWORD=$(kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}' 2>/dev/null || true)
                   ARGOCD_SESSION_TOKEN=$(curl -sS http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" 2>/dev/null | jq -r '.token // empty' 2>/dev/null || true)
-                  ./kubectl -n adhar-system create secret generic keycloak-clients \
+                  kubectl -n adhar-system create secret generic keycloak-clients \
                     --from-literal=ARGO_WORKFLOWS_CLIENT_ID=argo-workflows --from-literal=ARGO_WORKFLOWS_CLIENT_SECRET="$(getsec argo-workflows)" \
                     --from-literal=ARGOCD_SESSION_TOKEN="${ARGOCD_SESSION_TOKEN}" \
                     --from-literal=BACKSTAGE_CLIENT_ID=backstage --from-literal=BACKSTAGE_CLIENT_SECRET="$(getsec backstage)" \
@@ -691,26 +690,11 @@ spec:
                     --from-literal=RUSTFS_CLIENT_ID=rustfs --from-literal=RUSTFS_CLIENT_SECRET="$(getsec rustfs)" \
                     --from-literal=TEKTON_CLIENT_ID=tekton --from-literal=TEKTON_CLIENT_SECRET="$(getsec tekton)" \
                     --from-literal=MINIO_CLIENT_ID=minio --from-literal=MINIO_CLIENT_SECRET="$(getsec minio)" \
-                    --dry-run=client -o yaml | ./kubectl apply -f -
+                    --dry-run=client -o yaml | kubectl apply -f -
                 fi
                 exit 0
               fi
               set -e
-              
-              # Fetch a kubectl matching the cluster's architecture. The old
-              # hardcoded "v1.28.3//bin/linux/amd64" URL had a double slash AND
-              # forced amd64, so on an arm64 node it downloaded an XML error page
-              # (NoSuchKey) instead of a binary — every ./kubectl call then failed
-              # with "syntax error near unexpected token `<`", so keycloak-clients
-              # was never written and the whole OIDC chain stalled.
-              KVER="$(curl -sSL https://dl.k8s.io/release/stable.txt)"
-              ARCH="$(uname -m)"
-              case "${ARCH}" in
-                x86_64) ARCH="amd64" ;;
-                aarch64|arm64) ARCH="arm64" ;;
-              esac
-              curl -sS -LO "https://dl.k8s.io/release/${KVER}/bin/linux/${ARCH}/kubectl"
-              chmod +x kubectl
               
               echo "creating adhar realm and groups"
               
@@ -1055,7 +1039,7 @@ spec:
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
 
-              ARGOCD_PASSWORD=$(./kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
+              ARGOCD_PASSWORD=$(kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
 
               # ArgoCD session token for Backstage's ArgoCD plugin. This is
               # best-effort: ArgoCD runs insecure HTTP (port 80, not 443), and if
@@ -1104,5 +1088,5 @@ spec:
                 MINIO_CLIENT_ID: \"minio\"
               " > /tmp/secret.yaml
               
-              ./kubectl apply -f /tmp/secret.yaml
+              kubectl apply -f /tmp/secret.yaml
               

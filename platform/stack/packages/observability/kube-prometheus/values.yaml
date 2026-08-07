@@ -1334,6 +1334,28 @@ grafana:
       role_attribute_path: contains(groups[*], 'platform-admin') && 'Admin' || contains(groups[*], 'platform-developer') && 'Editor' || 'Viewer'
       role_attribute_strict: false
       allow_assign_grafana_admin: true
+      # Identity claims from Keycloak so accounts get stable logins/emails
+      # instead of derived ones.
+      login_attribute_path: preferred_username
+      email_attribute_path: email
+      name_attribute_path: name
+      # Refresh the session against Keycloak instead of forcing re-login when
+      # the (short) access token expires.
+      use_refresh_token: true
+    auth:
+      # Grafana sign-out also ends the Keycloak SSO session (RP-initiated
+      # logout); requires the grafana client's post-logout redirect URI
+      # registered in keycloak-config.yaml. Without this, "Sign out" drops the
+      # Grafana session but the next login silently re-enters via SSO.
+      signout_redirect_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/logout?client_id=grafana&post_logout_redirect_uri=https%3A%2F%2Fgrafana.adhar.localtest.me%3A8443%2Flogin
+
+  # Requests give Grafana real CPU scheduling weight on the saturated local
+  # node — without them startup outlives the liveness probe and the container
+  # is killed in a loop before ever turning Ready.
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
 
   rbac:
     ## If true, Grafana PSPs will be created
@@ -1473,7 +1495,109 @@ grafana:
 
   ## Configure additional grafana datasources (passed through tpl)
   ## ref: https://grafana.com/docs/grafana/latest/administration/provisioning/#datasources
-  additionalDataSources: []
+  # LGTM datasources alongside the chart-provisioned Prometheus/Alertmanager:
+  # Loki (logs), Tempo (traces), Mimir (long-term metrics via Alloy
+  # remote_write). Loki's derived field links log lines carrying trace_id
+  # straight to the Tempo trace view.
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.adhar-system.svc.cluster.local:3100
+      editable: false
+      jsonData:
+        derivedFields:
+          - name: TraceID
+            matcherRegex: '"?trace_id"?[=:]"?(\w+)"?'
+            url: "$${__value.raw}"
+            datasourceUid: tempo
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      access: proxy
+      url: http://tempo.adhar-system.svc.cluster.local:3200
+      editable: false
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+        serviceMap:
+          datasourceUid: prometheus
+    - name: Mimir
+      type: prometheus
+      uid: mimir
+      access: proxy
+      url: http://mimir-query-frontend.adhar-system.svc.cluster.local:8080/prometheus
+      editable: false
+
+  # Preprovisioned open-source dashboards covering the platform components.
+  # Downloaded from grafana.com by the chart's download-dashboards init
+  # container at pod start (the sidecar provisions them into the folders
+  # below); `datasource` rewrites each dashboard's DS_* template inputs.
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: adhar-platform
+          orgId: 1
+          folder: Adhar Platform
+          type: file
+          disableDeletion: true
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/adhar-platform
+        - name: adhar-kubernetes
+          orgId: 1
+          folder: Kubernetes
+          type: file
+          disableDeletion: true
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/adhar-kubernetes
+
+  dashboards:
+    adhar-kubernetes:
+      node-exporter-full:
+        gnetId: 1860
+        revision: 45
+        datasource: Prometheus
+      k8s-views-global:
+        gnetId: 15757
+        revision: 43
+        datasource: Prometheus
+      k8s-views-namespaces:
+        gnetId: 15758
+        revision: 46
+        datasource: Prometheus
+      k8s-views-pods:
+        gnetId: 15760
+        revision: 39
+        datasource: Prometheus
+    adhar-platform:
+      argocd:
+        gnetId: 14584
+        revision: 1
+        datasource: Prometheus
+      cilium-agent:
+        gnetId: 16611
+        revision: 1
+        datasource: Prometheus
+      gitea:
+        gnetId: 13192
+        revision: 1
+        datasource: Prometheus
+      keycloak:
+        gnetId: 10441
+        revision: 2
+        datasource: Prometheus
+      cloudnative-pg:
+        gnetId: 20417
+        revision: 4
+        datasource: Prometheus
+      loki-app-logs:
+        gnetId: 13639
+        revision: 2
+        datasource: Loki
   # - name: prometheus-sample
   #   access: proxy
   #   basicAuth: true

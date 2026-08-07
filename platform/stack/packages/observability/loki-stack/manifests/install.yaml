@@ -1,504 +1,294 @@
-# LOKI-STACK INSTALL RESOURCES
+# LOKI INSTALL RESOURCES
 # This file is auto-generated with 'platform/stack/packages/observability/loki-stack/generate-manifests.sh'
 ---
-# Source: loki-stack/charts/fluent-bit/templates/serviceaccount.yaml
+# Source: loki/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  labels:
-    app: fluent-bit-loki
-    chart: fluent-bit-2.6.0
-    heritage: Helm
-    release: loki
-  name: loki-fluent-bit-loki
+  name: loki
   namespace: adhar-system
+  labels:
+    helm.sh/chart: loki-7.2.0
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/version: "3.6.11"
 automountServiceAccountToken: true
 ---
-# Source: loki-stack/charts/loki/templates/serviceaccount.yaml
+# Source: loki/templates/config.yaml
 apiVersion: v1
-kind: ServiceAccount
+kind: ConfigMap
 metadata:
+  name: loki
+  namespace: adhar-system
   labels:
-    app: loki
-    chart: loki-2.16.0
-    release: loki
-    heritage: Helm
-  annotations:
+    helm.sh/chart: loki-7.2.0
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/version: "3.6.11"
+data:
+  config.yaml: |
+    
+    auth_enabled: false
+    bloom_build:
+      builder:
+        planner_address: ""
+      enabled: false
+    bloom_gateway:
+      client:
+        addresses: ""
+      enabled: false
+    common:
+      compactor_grpc_address: 'loki.adhar-system.svc.cluster.local:9095'
+      path_prefix: /var/loki
+      replication_factor: 1
+      storage:
+        filesystem:
+          chunks_directory: /var/loki/chunks
+          rules_directory: /var/loki/rules
+    frontend:
+      scheduler_address: ""
+      tail_proxy_url: ""
+    frontend_worker:
+      scheduler_address: ""
+    index_gateway:
+      mode: simple
+    limits_config:
+      allow_structured_metadata: true
+      max_cache_freshness_per_query: 10m
+      query_timeout: 300s
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      split_queries_by_interval: 15m
+      volume_enabled: true
+    memberlist:
+      join_members:
+      - loki-memberlist.adhar-system.svc.cluster.local
+    pattern_ingester:
+      enabled: false
+    query_range:
+      align_queries_with_step: true
+    ruler:
+      storage:
+        type: local
+      wal:
+        dir: /var/loki/ruler-wal
+    runtime_config:
+      file: /etc/loki/runtime-config/runtime-config.yaml
+    schema_config:
+      configs:
+      - from: "2024-01-01"
+        index:
+          period: 24h
+          prefix: index_
+        object_store: filesystem
+        schema: v13
+        store: tsdb
+    server:
+      grpc_listen_port: 9095
+      http_listen_port: 3100
+      http_server_read_timeout: 600s
+      http_server_write_timeout: 600s
+    storage_config:
+      bloom_shipper:
+        working_directory: /var/loki/data/bloomshipper
+      boltdb_shipper:
+        index_gateway_client:
+          server_address: ""
+      hedging:
+        at: 250ms
+        max_per_second: 20
+        up_to: 3
+      tsdb_shipper:
+        index_gateway_client:
+          server_address: ""
+      use_thanos_objstore: false
+    tracing:
+      enabled: false
+---
+# Source: loki/templates/runtime-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-runtime
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: loki-7.2.0
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/version: "3.6.11"
+data:
+  runtime-config.yaml: |
     {}
-  name: loki
-  namespace: adhar-system
-automountServiceAccountToken: true
 ---
-# Source: loki-stack/charts/loki/templates/secret.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: loki
-  namespace: adhar-system
-  labels:
-    app: loki
-    chart: loki-2.16.0
-    release: loki
-    heritage: Helm
-data:
-  loki.yaml: YXV0aF9lbmFibGVkOiBmYWxzZQpjaHVua19zdG9yZV9jb25maWc6CiAgbWF4X2xvb2tfYmFja19wZXJpb2Q6IDBzCmNvbXBhY3RvcjoKICBzaGFyZWRfc3RvcmU6IGZpbGVzeXN0ZW0KICB3b3JraW5nX2RpcmVjdG9yeTogL2RhdGEvbG9raS9ib2x0ZGItc2hpcHBlci1jb21wYWN0b3IKaW5nZXN0ZXI6CiAgY2h1bmtfYmxvY2tfc2l6ZTogMjYyMTQ0CiAgY2h1bmtfaWRsZV9wZXJpb2Q6IDNtCiAgY2h1bmtfcmV0YWluX3BlcmlvZDogMW0KICBsaWZlY3ljbGVyOgogICAgcmluZzoKICAgICAgcmVwbGljYXRpb25fZmFjdG9yOiAxCiAgbWF4X3RyYW5zZmVyX3JldHJpZXM6IDAKICB3YWw6CiAgICBkaXI6IC9kYXRhL2xva2kvd2FsCmxpbWl0c19jb25maWc6CiAgZW5mb3JjZV9tZXRyaWNfbmFtZTogZmFsc2UKICBtYXhfZW50cmllc19saW1pdF9wZXJfcXVlcnk6IDUwMDAKICByZWplY3Rfb2xkX3NhbXBsZXM6IHRydWUKICByZWplY3Rfb2xkX3NhbXBsZXNfbWF4X2FnZTogMTY4aAptZW1iZXJsaXN0OgogIGpvaW5fbWVtYmVyczoKICAtICdsb2tpLW1lbWJlcmxpc3QnCnNjaGVtYV9jb25maWc6CiAgY29uZmlnczoKICAtIGZyb206ICIyMDIwLTEwLTI0IgogICAgaW5kZXg6CiAgICAgIHBlcmlvZDogMjRoCiAgICAgIHByZWZpeDogaW5kZXhfCiAgICBvYmplY3Rfc3RvcmU6IGZpbGVzeXN0ZW0KICAgIHNjaGVtYTogdjExCiAgICBzdG9yZTogYm9sdGRiLXNoaXBwZXIKc2VydmVyOgogIGdycGNfbGlzdGVuX3BvcnQ6IDkwOTUKICBodHRwX2xpc3Rlbl9wb3J0OiAzMTAwCnN0b3JhZ2VfY29uZmlnOgogIGJvbHRkYl9zaGlwcGVyOgogICAgYWN0aXZlX2luZGV4X2RpcmVjdG9yeTogL2RhdGEvbG9raS9ib2x0ZGItc2hpcHBlci1hY3RpdmUKICAgIGNhY2hlX2xvY2F0aW9uOiAvZGF0YS9sb2tpL2JvbHRkYi1zaGlwcGVyLWNhY2hlCiAgICBjYWNoZV90dGw6IDI0aAogICAgc2hhcmVkX3N0b3JlOiBmaWxlc3lzdGVtCiAgZmlsZXN5c3RlbToKICAgIGRpcmVjdG9yeTogL2RhdGEvbG9raS9jaHVua3MKdGFibGVfbWFuYWdlcjoKICByZXRlbnRpb25fZGVsZXRlc19lbmFibGVkOiBmYWxzZQogIHJldGVudGlvbl9wZXJpb2Q6IDBz
----
-# Source: loki-stack/charts/fluent-bit/templates/configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: loki-fluent-bit-loki
-  namespace: adhar-system
-  labels:
-    app: fluent-bit-loki
-    chart: fluent-bit-2.6.0
-    release: loki
-    heritage: Helm
-data:
-  fluent-bit.conf: |-
-    [SERVICE]
-        HTTP_Server    On
-        HTTP_Listen    0.0.0.0
-        HTTP_PORT      2020
-        Flush          1
-        Daemon         Off
-        Log_Level      warn
-        Parsers_File   parsers.conf
-    [INPUT]
-        Name              tail
-        Tag               kube.*
-        Path              /var/log/containers/*.log
-        Parser            docker
-        DB                /run/fluent-bit/flb_kube.db
-        Mem_Buf_Limit     5MB
-        Buffer_Chunk_size 32k
-        Buffer_Max_size   32k
-    [FILTER]
-        Name           kubernetes
-        Match          kube.*
-        Kube_URL       https://kubernetes.default.svc:443
-        Merge_Log On
-        K8S-Logging.Exclude Off
-        K8S-Logging.Parser Off
-    [Output]
-        Name grafana-loki
-        Match *
-        Url http://loki:3100/api/prom/push
-        TenantID ""
-        BatchWait 1
-        BatchSize 1048576
-        Labels {job="fluent-bit"}
-        RemoveKeys kubernetes,stream
-        AutoKubernetesLabels false
-        LabelMapPath /fluent-bit/etc/labelmap.json
-        LineFormat json
-        LogLevel warn
-  parsers.conf: |-
-    [PARSER]
-        Name        docker
-        Format      json
-        Time_Key    time
-        Time_Format %Y-%m-%dT%H:%M:%S.%L
-
-  labelmap.json: |-
-    {
-      "kubernetes": {
-        "container_name": "container",
-        "host": "node",
-        "labels": {
-          "app": "app",
-          "release": "release"
-        },
-        "namespace_name": "namespace",
-        "pod_name": "instance"
-      },
-      "stream": "stream"
-    }
----
-# Source: loki-stack/templates/datasources.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: loki-loki-stack
-  namespace: adhar-system
-  labels:
-    app: loki-stack
-    chart: loki-stack-2.10.3
-    release: loki
-    heritage: Helm
-    grafana_datasource: "1"
-data:
-  loki-stack-datasource.yaml: |-
-    apiVersion: 1
-    datasources:
-    - name: Loki
-      type: loki
-      access: proxy
-      url: "http://loki:3100"
-      version: 1
-      # Prometheus (kube-prometheus) is the default datasource; with all
-      # packages in one namespace both sidecars feed the same Grafana, and two
-      # defaults crash provisioning.
-      isDefault: false
-      jsonData:
-        {}
----
-# Source: loki-stack/templates/tests/loki-test-configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: loki-loki-stack-test
-  labels:
-    app: loki-stack
-    chart: loki-stack-2.10.3
-    release: loki
-    heritage: Helm
-data:
-  test.sh: |
-    #!/usr/bin/env bash
-
-    LOKI_URI="http://${LOKI_SERVICE}:${LOKI_PORT}"
-
-    function setup() {
-      apk add -u curl jq
-      until (curl -s ${LOKI_URI}/loki/api/v1/label/app/values | jq -e '.data[] | select(. == "loki")'); do
-        sleep 1
-      done
-    }
-
-    @test "Has labels" {
-      curl -s ${LOKI_URI}/loki/api/v1/labels | \
-      jq -e '.data[] | select(. == "app")'
-    }
-
-    @test "Query log entry" {
-      curl -sG ${LOKI_URI}/api/prom/query?limit=10 --data-urlencode 'query={app="loki"}' | \
-      jq -e '.streams[].entries | length >=1'
-    }
-
-    @test "Push log entry" {
-      local timestamp=$(date +%s000000000)
-      local data=$(jq -n --arg timestamp "${timestamp}" '{"streams": [{"stream": {"app": "loki-test"}, "values": [[$timestamp, "foobar"]]}]}')
-
-      curl -s -X POST -H "Content-Type: application/json" ${LOKI_URI}/loki/api/v1/push --data-raw "${data}"
-
-      curl -sG ${LOKI_URI}/loki/api/v1/query_range?limit=1 --data-urlencode 'query={app="loki-test"}' | \
-      jq -e '.data.result[].values[][1] == "foobar"'
-    }
----
-# Source: loki-stack/charts/fluent-bit/templates/clusterrole.yaml
+# Source: loki/templates/backend/clusterrole.yaml
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   labels:
-    app: fluent-bit-loki
-    chart: fluent-bit-2.6.0
-    release: loki
-    heritage: Helm
-  name: loki-fluent-bit-loki-clusterrole
-rules:
-- apiGroups: [""] # "" indicates the core API group
-  resources:
-  - namespaces
-  - pods
-  verbs: ["get", "watch", "list"]
+    helm.sh/chart: loki-7.2.0
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/version: "3.6.11"
+  name: loki-clusterrole
+rules: []
 ---
-# Source: loki-stack/charts/fluent-bit/templates/clusterrolebinding.yaml
+# Source: loki/templates/backend/clusterrolebinding.yaml
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: loki-fluent-bit-loki-clusterrolebinding
+  name: loki-clusterrolebinding
   labels:
-    app: fluent-bit-loki
-    chart: fluent-bit-2.6.0
-    release: loki
-    heritage: Helm
+    helm.sh/chart: loki-7.2.0
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/version: "3.6.11"
 subjects:
   - kind: ServiceAccount
-    name: loki-fluent-bit-loki
+    name: loki
     namespace: adhar-system
 roleRef:
   kind: ClusterRole
-  name: loki-fluent-bit-loki-clusterrole
+  name: loki-clusterrole
   apiGroup: rbac.authorization.k8s.io
 ---
-# Source: loki-stack/charts/fluent-bit/templates/role.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: loki-fluent-bit-loki
-  namespace: adhar-system
-  labels:
-    app: fluent-bit-loki
-    chart: fluent-bit-2.6.0
-    heritage: Helm
-    release: loki
-rules:
-- apiGroups:      ['extensions']
-  resources:      ['podsecuritypolicies']
-  verbs:          ['use']
-  resourceNames:  [loki-fluent-bit-loki]
----
-# Source: loki-stack/charts/loki/templates/role.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: loki
-  namespace: adhar-system
-  labels:
-    app: loki
-    chart: loki-2.16.0
-    release: loki
-    heritage: Helm
-rules:
-- apiGroups:      ['extensions']
-  resources:      ['podsecuritypolicies']
-  verbs:          ['use']
-  resourceNames:  [loki]
----
-# Source: loki-stack/charts/fluent-bit/templates/rolebinding.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: loki-fluent-bit-loki
-  namespace: adhar-system
-  labels:
-    app: fluent-bit-loki
-    chart: fluent-bit-2.6.0
-    heritage: Helm
-    release: loki
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: loki-fluent-bit-loki
-subjects:
-- kind: ServiceAccount
-  name: loki-fluent-bit-loki
----
-# Source: loki-stack/charts/loki/templates/rolebinding.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: loki
-  namespace: adhar-system
-  labels:
-    app: loki
-    chart: loki-2.16.0
-    release: loki
-    heritage: Helm
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: loki
-subjects:
-- kind: ServiceAccount
-  name: loki
----
-# Source: loki-stack/charts/loki/templates/service-headless.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: loki-headless
-  namespace: adhar-system
-  labels:
-    app: loki
-    chart: loki-2.16.0
-    release: loki
-    heritage: Helm
-    variant: headless
-spec:
-  clusterIP: None
-  ports:
-    - port: 3100
-      protocol: TCP
-      name: http-metrics
-      targetPort: http-metrics
-  selector:
-    app: loki
-    release: loki
----
-# Source: loki-stack/charts/loki/templates/service-memberlist.yaml
+# Source: loki/templates/service-memberlist.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: loki-memberlist
   namespace: adhar-system
   labels:
-    app: loki
-    chart: loki-2.16.0
-    release: loki
-    heritage: Helm
+    helm.sh/chart: loki-7.2.0
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/version: "3.6.11"
+  annotations:
 spec:
   type: ClusterIP
   clusterIP: None
-  publishNotReadyAddresses: true
   ports:
-    - name: http
+    - name: tcp
       port: 7946
-      targetPort: memberlist-port
+      targetPort: http-memberlist
       protocol: TCP
   selector:
-    app: loki
-    release: loki
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/part-of: memberlist
 ---
-# Source: loki-stack/charts/loki/templates/service.yaml
+# Source: loki/templates/single-binary/service-headless.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-headless
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: loki-7.2.0
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/version: "3.6.11"
+    variant: headless
+    prometheus.io/service-monitor: "false"
+  annotations:
+spec:
+  clusterIP: None
+  ports:
+    - name: http-metrics
+      port: 3100
+      targetPort: http-metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+---
+# Source: loki/templates/single-binary/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: loki
   namespace: adhar-system
   labels:
-    app: loki
-    chart: loki-2.16.0
-    release: loki
-    heritage: Helm
+    helm.sh/chart: loki-7.2.0
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/version: "3.6.11"
   annotations:
-    {}
 spec:
   type: ClusterIP
   ports:
-    - port: 3100
-      protocol: TCP
-      name: http-metrics
+    - name: http-metrics
+      port: 3100
       targetPort: http-metrics
+      protocol: TCP
+    - name: grpc
+      port: 9095
+      targetPort: grpc
+      protocol: TCP
   selector:
-    app: loki
-    release: loki
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/component: single-binary
 ---
-# Source: loki-stack/charts/fluent-bit/templates/daemonset.yaml
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: loki-fluent-bit-loki
-  namespace: adhar-system
-  labels:
-    app: fluent-bit-loki
-    chart: fluent-bit-2.6.0
-    release: loki
-    heritage: Helm
-  annotations:
-    {}
-spec:
-  selector:
-    matchLabels:
-      app: fluent-bit-loki
-      release: loki
-  updateStrategy:
-    type: RollingUpdate
-  template:
-    metadata:
-      labels:
-        app: fluent-bit-loki
-        release: loki
-      annotations:
-        checksum/config: f1034795be0b1364e58c8d84b71196d086aa63624d638e39d15ee83603bcf1a8
-        prometheus.io/path: /api/v1/metrics/prometheus
-        prometheus.io/port: "2020"
-        prometheus.io/scrape: "true"
-    spec:
-      automountServiceAccountToken: true
-      serviceAccountName: loki-fluent-bit-loki
-      containers:
-        - name: fluent-bit-loki
-          image: "grafana/fluent-bit-plugin-loki:2.1.0-amd64"
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: config
-              mountPath: /fluent-bit/etc
-            - name: run
-              mountPath: /run/fluent-bit
-            - mountPath: /var/log
-              name: varlog
-            - mountPath: /var/lib/docker/containers
-              name: varlibdockercontainers
-              readOnly: true
-          ports:
-            - containerPort: 2020
-              name: http-metrics
-          resources:
-            limits:
-              memory: 256Mi
-            requests:
-              cpu: 100m
-              memory: 128Mi
-      nodeSelector:
-        {}
-      affinity:
-        {}
-      tolerations:
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/master
-      terminationGracePeriodSeconds: 10
-      volumes:
-        - name: config
-          configMap:
-            name: loki-fluent-bit-loki
-        - name: run
-          hostPath:
-            path: /run/fluent-bit
-        - hostPath:
-            path: /var/log
-          name: varlog
-        - hostPath:
-            path: /var/lib/docker/containers
-          name: varlibdockercontainers
----
-# Source: loki-stack/charts/loki/templates/statefulset.yaml
+# Source: loki/templates/single-binary/statefulset.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: loki
   namespace: adhar-system
   labels:
-    app: loki
-    chart: loki-2.16.0
-    release: loki
-    heritage: Helm
-  annotations:
-    {}
+    helm.sh/chart: loki-7.2.0
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/version: "3.6.11"
+    app.kubernetes.io/component: single-binary
+    app.kubernetes.io/part-of: memberlist
 spec:
-  podManagementPolicy: OrderedReady
   replicas: 1
+  podManagementPolicy: Parallel
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+  serviceName: loki-headless
+  revisionHistoryLimit: 10
+  
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Delete
   selector:
     matchLabels:
-      app: loki
-      release: loki
-  serviceName: loki-headless
-  updateStrategy:
-    type: RollingUpdate
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: loki
+      app.kubernetes.io/component: single-binary
   template:
     metadata:
-      labels:
-        app: loki
-        name: loki
-        release: loki
       annotations:
-        checksum/config: 8543d68a9795066423a4ce0ff28f2c56950acfa1bac20e850c016a4fd91a9300
-        prometheus.io/port: http-metrics
-        prometheus.io/scrape: "true"
+        checksum/config: a3cbc042e8cfbf937daf0dd673f43977b38cc6059d5abb1ffbad69001eb916fe
+        storage/size: "10Gi"
+        kubectl.kubernetes.io/default-container: "loki"
+      labels:
+        app.kubernetes.io/name: loki
+        app.kubernetes.io/instance: loki
+        app.kubernetes.io/component: single-binary
+        app.kubernetes.io/part-of: memberlist
     spec:
       serviceAccountName: loki
+      automountServiceAccountToken: true
+      enableServiceLinks: true
+      
       securityContext:
         fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 10001
         runAsNonRoot: true
         runAsUser: 10001
-      initContainers:
-        []
+      terminationGracePeriodSeconds: 30
       containers:
         - name: loki
-          image: "grafana/loki:2.6.1"
+          image: docker.io/grafana/loki:3.6.11
           imagePullPolicy: IfNotPresent
           args:
-            - "-config.file=/etc/loki/loki.yaml"
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-            - name: config
-              mountPath: /etc/loki
-            - name: storage
-              mountPath: "/data"
-              subPath: 
+            - -config.file=/etc/loki/config/config.yaml
+            - -target=all
           ports:
             - name: http-metrics
               containerPort: 3100
@@ -506,69 +296,68 @@ spec:
             - name: grpc
               containerPort: 9095
               protocol: TCP
-            - name: memberlist-port
+            - name: http-memberlist
               containerPort: 7946
               protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /ready
-              port: http-metrics
-            initialDelaySeconds: 45
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: http-metrics
-            initialDelaySeconds: 45
-          resources:
-            {}
           securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
             readOnlyRootFilesystem: true
-          env:
-      nodeSelector:
-        {}
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /ready
+              port: http-metrics
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /etc/loki/config
+            - name: runtime-config
+              mountPath: /etc/loki/runtime-config
+            - name: storage
+              mountPath: /var/loki
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
       affinity:
-        {}
-      tolerations:
-        []
-      terminationGracePeriodSeconds: 4800
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: single-binary
+                app.kubernetes.io/instance: 'loki'
+                app.kubernetes.io/name: 'loki'
+            topologyKey: kubernetes.io/hostname
       volumes:
         - name: tmp
           emptyDir: {}
         - name: config
-          secret:
-            secretName: loki
-        - name: storage
-          emptyDir: {}
----
-# Source: loki-stack/templates/tests/loki-test-pod.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  annotations:
-    "helm.sh/hook": test-success
-  labels:
-    app: loki-stack
-    chart: loki-stack-2.10.3
-    release: loki
-    heritage: Helm
-  name: loki-loki-stack-test
-spec:
-  containers:
-  - name: test
-    image: "bats/bats:1.8.2"
-    imagePullPolicy: ""
-    args:
-    - /var/lib/loki/test.sh
-    env:
-    - name: LOKI_SERVICE
-      value: loki
-    - name: LOKI_PORT
-      value: "3100"
-    volumeMounts:
-    - name: tests
-      mountPath: /var/lib/loki
-  restartPolicy: Never
-  volumes:
-  - name: tests
-    configMap:
-      name: loki-loki-stack-test
+          configMap:
+            name: loki
+            items:
+              - key: "config.yaml"
+                path: "config.yaml"
+        - name: runtime-config
+          configMap:
+            name: loki-runtime
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: "10Gi"

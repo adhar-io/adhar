@@ -40,38 +40,34 @@ metadata:
     release: "lighthouse"
 data:
   config.yaml: |
-    branch-protection:
-      orgs: {}
-      protect-tested-repos: true
-    github:
-      LinkURL: null
-    owners_dir_excludes:
-      default: null
-      repos: null
-    plank: {}
     pod_namespace: adhar-system
-    postsubmits: {}
-    presubmits: {}
     prowjob_namespace: adhar-system
+    in_repo_config:
+      enabled:
+        "*": true
+    branch-protection:
+      protect-tested-repos: true
+    plank: {}
     push_gateway:
       serve_metrics: false
     tide:
+      merge_method:
+        adhar: merge
+      target_url: https://lighthouse.adhar.localtest.me:8443
+      queries:
+        - labels:
+            - approved
+          missingLabels:
+            - do-not-merge
+            - do-not-merge/hold
+            - do-not-merge/work-in-progress
+            - needs-ok-to-test
+          orgs:
+            - adhar
       context_options:
         from-branch-protection: true
         required-if-present-contexts: []
         skip-unknown-contexts: false
-      merge_method: {}
-      queries: []
-      # Example configuration for a query
-      # - labels:
-      #   - approved
-      #   missingLabels:
-      #   - do-not-merge
-      #   - do-not-merge/hold
-      #   - do-not-merge/work-in-progress
-      #   - needs-ok-to-test
-      #   repos:
-      #   - org/repo
 ---
 # Source: lighthouse/templates/config-external-plugins.yaml
 apiVersion: v1
@@ -106,56 +102,23 @@ metadata:
     release: "lighthouse"
 data:
   plugins.yaml: |
+    plugins:
+      adhar:
+        - approve
+        - assign
+        - help
+        - hold
+        - label
+        - lgtm
+        - lifecycle
+        - size
+        - trigger
+        - wip
     approve:
-    - lgtm_acts_as_approve: true
-      repos: []
-      # repos are specified here as:
-      # - org/repo
-      require_self_approval: true
-    cat: {}
-    cherry_pick_unapproved: {}
-    config_updater:
-      gzip: false
-      maps: {}
-    external_plugins: {}
-    label:
-      additional_labels: null
-    owners: {}
-    plugins: {}
-    # Example of configuration for a repository
-    # org/repo:
-    #   - approve
-    #   - assign
-    #   - cat
-    #   - dog
-    #   - help
-    #   - hold
-    #   - label
-    #   - lgtm
-    #   - lifecycle
-    #   - override
-    #   - pony
-    #   - shrug
-    #   - size
-    #   - skip
-    #   - trigger
-    #   - wip
-    #   - yuks
-    requiresig: {}
-    sigmention: {}
-    size:
-      l: 0
-      m: 0
-      s: 0
-      xl: 0
-      xxl: 0
-    triggers: []
-    # Example triggers configuration:
-    # - repos:
-    #     - org/repo
-    #   trusted_org: org
-    welcome:
-    - message_template: Welcome
+      - repos:
+          - adhar
+        lgtm_acts_as_approve: true
+        require_self_approval: false
 ---
 # Source: lighthouse/templates/lighthousebreakpoints-crd.yaml
 apiVersion: apiextensions.k8s.io/v1

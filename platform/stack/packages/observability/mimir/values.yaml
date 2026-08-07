@@ -1,0 +1,118 @@
+# Minimal single-node Mimir for the local platform. The chart's defaults are a
+# production-grade distributed topology (3-zone ingesters/store-gateways,
+# Kafka ingest storage, multi-replica query path — ~20 pods), which starves a
+# single-node Kind cluster. This profile collapses everything to one replica
+# with classic (non-Kafka) ingest and replication factor 1; MinIO stays as the
+# object store. Alloy remote_writes to mimir-distributor:8080; Grafana queries
+# mimir-query-frontend:8080/prometheus.
+# Classic ingest path (direct remote_write to ingesters) — the chart's
+# default Kafka-based ingest-storage architecture is a whole Kafka StatefulSet
+# we don't want on a single node.
+kafka:
+  enabled: false
+
+mimir:
+  structuredConfig:
+    # Classic ingest: kafka.enabled=false removes the Kafka StatefulSet, but
+    # the rendered mimir.yaml still defaults to the ingest-storage
+    # architecture — without this, every ingester/distributor crashloops with
+    # "invalid ingest storage config: the Kafka address has not been
+    # configured".
+    ingest_storage:
+      enabled: false
+    common:
+      storage:
+        backend: s3
+    ingester:
+      # Chart 6.x disables the ingester Push gRPC method assuming Kafka
+      # ingest-storage carries writes; with classic ingest the distributor
+      # still pushes over gRPC, and Mimir refuses to start with the method
+      # disabled ("cannot disable Push gRPC method in ingester, while ingest
+      # storage is not enabled").
+      push_grpc_method_enabled: true
+      ring:
+        replication_factor: 1
+        zone_awareness_enabled: false
+    store_gateway:
+      sharding_ring:
+        replication_factor: 1
+        zone_awareness_enabled: false
+
+ingester:
+  replicas: 1
+  zoneAwareReplication:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+store_gateway:
+  replicas: 1
+  zoneAwareReplication:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+distributor:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+querier:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+query_frontend:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+query_scheduler:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+compactor:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 256Mi
+ruler:
+  enabled: false
+alertmanager:
+  enabled: false
+overrides_exporter:
+  enabled: false
+rollout_operator:
+  enabled: false
+gateway:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+
+minio:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Local profile: no meta-monitoring or dashboards from this chart —
+# kube-prometheus owns Grafana and scraping.
+metaMonitoring:
+  serviceMonitor:
+    enabled: false
+  grafanaAgent:
+    enabled: false
+nginx:
+  enabled: false

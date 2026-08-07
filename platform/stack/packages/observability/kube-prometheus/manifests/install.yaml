@@ -75256,19 +75256,24 @@ data:
   grafana.ini: |
     [analytics]
     check_for_updates = true
+    [auth]
+    signout_redirect_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/logout?client_id=grafana&post_logout_redirect_uri=https%3A%2F%2Fgrafana.adhar.localtest.me%3A8443%2Flogin
     [auth.generic_oauth]
     allow_assign_grafana_admin = true
-    auto_login = true
     api_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/userinfo
     auth_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth
     client_id = grafana
+    email_attribute_path = email
     enabled = true
+    login_attribute_path = preferred_username
     name = Keycloak
+    name_attribute_path = name
     role_attribute_path = contains(groups[*], 'platform-admin') && 'Admin' || contains(groups[*], 'platform-developer') && 'Editor' || 'Viewer'
     role_attribute_strict = false
     scopes = openid profile email groups
     tls_skip_verify_insecure = true
     token_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/token
+    use_refresh_token = true
     [log]
     mode = console
     [paths]
@@ -75282,6 +75287,150 @@ data:
     serve_from_sub_path = false
     [unified_storage]
     index_path = /var/lib/grafana-search/bleve
+  dashboardproviders.yaml: |
+    apiVersion: 1
+    providers:
+    - disableDeletion: true
+      editable: false
+      folder: Adhar Platform
+      name: adhar-platform
+      options:
+        path: /var/lib/grafana/dashboards/adhar-platform
+      orgId: 1
+      type: file
+    - disableDeletion: true
+      editable: false
+      folder: Kubernetes
+      name: adhar-kubernetes
+      options:
+        path: /var/lib/grafana/dashboards/adhar-kubernetes
+      orgId: 1
+      type: file
+  download_dashboards.sh: |
+    #!/usr/bin/env sh
+    set -euf
+    mkdir -p /var/lib/grafana/dashboards/adhar-platform
+    mkdir -p /var/lib/grafana/dashboards/adhar-kubernetes
+  
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/15757/revisions/43/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Prometheus",/g' \
+    > "/var/lib/grafana/dashboards/adhar-kubernetes/k8s-views-global.json"
+      
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/15758/revisions/46/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Prometheus",/g' \
+    > "/var/lib/grafana/dashboards/adhar-kubernetes/k8s-views-namespaces.json"
+      
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/15760/revisions/39/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Prometheus",/g' \
+    > "/var/lib/grafana/dashboards/adhar-kubernetes/k8s-views-pods.json"
+      
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/1860/revisions/45/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Prometheus",/g' \
+    > "/var/lib/grafana/dashboards/adhar-kubernetes/node-exporter-full.json"
+      
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/14584/revisions/1/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Prometheus",/g' \
+    > "/var/lib/grafana/dashboards/adhar-platform/argocd.json"
+      
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/16611/revisions/1/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Prometheus",/g' \
+    > "/var/lib/grafana/dashboards/adhar-platform/cilium-agent.json"
+      
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/20417/revisions/4/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Prometheus",/g' \
+    > "/var/lib/grafana/dashboards/adhar-platform/cloudnative-pg.json"
+      
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/13192/revisions/1/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Prometheus",/g' \
+    > "/var/lib/grafana/dashboards/adhar-platform/gitea.json"
+      
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/10441/revisions/2/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Prometheus",/g' \
+    > "/var/lib/grafana/dashboards/adhar-platform/keycloak.json"
+      
+    curl -skf \
+    --connect-timeout 60 \
+    --max-time 60 \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json;charset=UTF-8" \
+      "https://grafana.com/api/dashboards/13639/revisions/2/download" \
+      | sed '/-- .* --/! s/"datasource":.*,/"datasource": "Loki",/g' \
+    > "/var/lib/grafana/dashboards/adhar-platform/loki-app-logs.json"
+---
+# Source: kube-prometheus-stack/charts/grafana/templates/dashboards-json-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-grafana-dashboards-adhar-kubernetes
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: grafana-12.7.2
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/version: "13.1.0"
+    dashboard-provider: adhar-kubernetes
+data:
+  {}
+---
+# Source: kube-prometheus-stack/charts/grafana/templates/dashboards-json-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-grafana-dashboards-adhar-platform
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: grafana-12.7.2
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/version: "13.1.0"
+    dashboard-provider: adhar-platform
+data:
+  {}
 ---
 # Source: kube-prometheus-stack/templates/grafana/configmaps-datasources.yaml
 apiVersion: v1
@@ -75321,6 +75470,35 @@ data:
       jsonData:
         handleGrafanaManagedAlerts: false
         implementation: prometheus
+    - access: proxy
+      editable: false
+      jsonData:
+        derivedFields:
+        - datasourceUid: tempo
+          matcherRegex: '"?trace_id"?[=:]"?(\w+)"?'
+          name: TraceID
+          url: $${__value.raw}
+      name: Loki
+      type: loki
+      uid: loki
+      url: http://loki.adhar-system.svc.cluster.local:3100
+    - access: proxy
+      editable: false
+      jsonData:
+        serviceMap:
+          datasourceUid: prometheus
+        tracesToLogsV2:
+          datasourceUid: loki
+      name: Tempo
+      type: tempo
+      uid: tempo
+      url: http://tempo.adhar-system.svc.cluster.local:3200
+    - access: proxy
+      editable: false
+      name: Mimir
+      type: prometheus
+      uid: mimir
+      url: http://mimir-query-frontend.adhar-system.svc.cluster.local:8080/prometheus
 ---
 # Source: kube-prometheus-stack/templates/grafana/dashboards-1.14/alertmanager-overview.yaml
 apiVersion: v1
@@ -76867,7 +77045,8 @@ spec:
         app.kubernetes.io/instance: prometheus
         app.kubernetes.io/version: "13.1.0"
       annotations:
-        checksum/config: 698845e5c8dd2bc7bdbbee3966a37ed8f8b2c8d0b20f236f541ea05831733efb
+        checksum/config: 43529a7704d1107b52210912dd3ce537ae59ff812e140b8468dea67aa68207cb
+        checksum/dashboards-json-config: 7246b56cbdf64ae1dff75e9b1186a4adc63d1708ef0998e3d4d36111d0b1404d
         checksum/sc-dashboard-provider-config: e70bf6a851099d385178a76de9757bb0bef8299da6d8443602590e44f05fdf24
         checksum/secret: 032056e9c62bbe9d1daa41ee49cd3d9524c076f51ca4c65adadf4ef08ef28712
         kubectl.kubernetes.io/default-container: grafana
@@ -76881,6 +77060,26 @@ spec:
         runAsGroup: 472
         runAsNonRoot: true
         runAsUser: 472
+      initContainers:
+        - name: download-dashboards
+          image: "docker.io/curlimages/curl:8.21.0"
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: [ "-c", "mkdir -p /var/lib/grafana/dashboards/default && /bin/sh -x /etc/grafana/download_dashboards.sh" ]
+          env:
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: "/etc/grafana/download_dashboards.sh"
+              subPath: download_dashboards.sh
+            - name: storage
+              mountPath: "/var/lib/grafana"
       enableServiceLinks: true
       containers:
         - name: grafana-sc-dashboard
@@ -76980,6 +77179,9 @@ spec:
               mountPath: "/var/lib/grafana"
             - name: search
               mountPath: "/var/lib/grafana-search"
+            - name: config
+              mountPath: "/etc/grafana/provisioning/dashboards/dashboardproviders.yaml"
+              subPath: "dashboardproviders.yaml"
             - name: sc-dashboard-volume
               mountPath: "/tmp/dashboards"
             - name: sc-dashboard-provider
@@ -77040,10 +77242,20 @@ spec:
             httpGet:
               path: /api/health
               port: grafana
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
       volumes:
         - name: config
           configMap:
             name: prometheus-grafana
+        - name: dashboards-adhar-kubernetes
+          configMap:
+            name: prometheus-grafana-dashboards-adhar-kubernetes
+        - name: dashboards-adhar-platform
+          configMap:
+            name: prometheus-grafana-dashboards-adhar-platform
         - name: storage
           emptyDir: {}
         - name: search

@@ -19,3 +19,57 @@ configMaps:
   # Minimal Prow-style config/plugins ConfigMaps so Lighthouse boots; teams
   # register repositories by editing these (or wiring config-updater).
   create: true
+
+  # Fully-featured pipeline config (replaces the chart's empty skeleton):
+  # - in_repo_config: every repo may carry pipeline-as-code under .lighthouse/
+  #   (triggers.yaml referencing the platform pipeline catalog Tasks/Pipelines)
+  # - keeper (tide): label-driven merge automation for the adhar org
+  config: |
+    pod_namespace: adhar-system
+    prowjob_namespace: adhar-system
+    in_repo_config:
+      enabled:
+        "*": true
+    branch-protection:
+      protect-tested-repos: true
+    plank: {}
+    push_gateway:
+      serve_metrics: false
+    tide:
+      merge_method:
+        adhar: merge
+      target_url: https://lighthouse.adhar.localtest.me:8443
+      queries:
+        - labels:
+            - approved
+          missingLabels:
+            - do-not-merge
+            - do-not-merge/hold
+            - do-not-merge/work-in-progress
+            - needs-ok-to-test
+          orgs:
+            - adhar
+      context_options:
+        from-branch-protection: true
+        required-if-present-contexts: []
+        skip-unknown-contexts: false
+  # ChatOps for every adhar-org repo: /approve, /lgtm, /hold, /retest, labels,
+  # size hints and the trigger plugin that launches the Tekton pipelines.
+  plugins: |
+    plugins:
+      adhar:
+        - approve
+        - assign
+        - help
+        - hold
+        - label
+        - lgtm
+        - lifecycle
+        - size
+        - trigger
+        - wip
+    approve:
+      - repos:
+          - adhar
+        lgtm_acts_as_approve: true
+        require_self_approval: false

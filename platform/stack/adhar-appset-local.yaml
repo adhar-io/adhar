@@ -229,8 +229,10 @@ spec:
             namespace: "adhar-system"
             category: "core"
             manifestPath: "core/Kamaji/manifests"
+          # Required by kargo (webhook/api Certificates + Issuer come from
+          # cert-manager CRDs).
           - name: "cert-manager"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/cert-manager/manifests"
@@ -272,7 +274,7 @@ spec:
           # Jenkins X pipeline layer on Tekton (ADR-0018): Lighthouse webhooks,
           # ChatOps and Tekton triggering against the in-cluster Gitea.
           - name: "jenkins-x"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/jenkins-x/manifests"
@@ -292,17 +294,17 @@ spec:
             category: "application"
             manifestPath: "application/harbor/manifests"
           - name: "kargo"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/kargo/manifests"
           - name: "minio"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/minio/manifests"
           - name: "rustfs"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/rustfs/manifests"
@@ -317,7 +319,7 @@ spec:
             category: "data"
             manifestPath: "data/spark-operator/manifests"
           - name: "metrics-server"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/metrics-server/manifests"
@@ -347,12 +349,12 @@ spec:
             category: "observability"
             manifestPath: "observability/oncall/manifests"
           - name: "tempo"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/tempo/manifests"
           - name: "mimir"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/mimir/manifests"
@@ -377,17 +379,17 @@ spec:
             category: "application"
             manifestPath: "application/dapr/manifests"
           - name: "redis"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/redis/manifests"
           - name: "valkey"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/valkey/manifests"
           - name: "kafka-operator"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/kafka-operator/manifests"
@@ -428,12 +430,16 @@ spec:
         automated:
           prune: true
           selfHeal: true
+        # Fail-fast retries: with limit 30 / 3m backoff a doomed sync (e.g.
+        # waiting on resources an old chart render can never make healthy)
+        # blocks newer manifests for 90+ minutes. Failing after ~5 minutes lets
+        # the next automated sync pick up the corrected revision instead.
         retry:
           backoff:
             duration: 5s
             factor: 2
-            maxDuration: 3m0s
-          limit: 30
+            maxDuration: 1m0s
+          limit: 6
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
