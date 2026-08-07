@@ -126,8 +126,10 @@ spec:
         - { name: adhar-cert, mountPath: /adhar-cert, readOnly: true }
       containers:
       - name: adhar-console
-        image: ghcr.io/adhar-io/adhar-console:0.1.0
-        imagePullPolicy: IfNotPresent
+        # Track the latest published console build; Always-pull so pod restarts
+        # pick up new pushes to the mutable :latest tag.
+        image: ghcr.io/adhar-io/adhar-console:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 3000
           name: http
