@@ -360,7 +360,7 @@ spec:
             manifestPath: "observability/tempo/manifests"
           # mimir disabled in production: CONFLICTS.md: bundled MinIO SA collides with the minio package; re-render against external object storage
           - name: "mimir"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/mimir/manifests"

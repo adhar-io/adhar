@@ -1065,6 +1065,20 @@ data:
   application.instanceLabelKey: argocd.argoproj.io/instance
   application.sync.impersonation.enabled: "false"
   exec.enabled: "false"
+  oidc.config: |
+    name: Keycloak
+    issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
+    clientID: argocd
+    clientSecret: $oidc.keycloak.clientSecret
+    requestedScopes:
+      - openid
+      - profile
+      - email
+      - groups
+    requestedIDTokenClaims:
+      groups:
+        essential: true
+  oidc.tls.insecure.skip.verify: "true"
   resource.customizations.ignoreResourceUpdates.ConfigMap: |
     jqPathExpressions:
       # Ignore the cluster-autoscaler status
@@ -33016,7 +33030,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 39e3d55f4c4f662b87a117d967f664794b649651466848c5c55a8b2ea20f11ee
+        checksum/cmd-params: 8a791d5cb9725926a0eefd4a4138204cd2602f8ac9dd22ff1550da0b39711017
       labels:
         helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-applicationset-controller
@@ -33312,7 +33326,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 39e3d55f4c4f662b87a117d967f664794b649651466848c5c55a8b2ea20f11ee
+        checksum/cmd-params: 8a791d5cb9725926a0eefd4a4138204cd2602f8ac9dd22ff1550da0b39711017
       labels:
         helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-notifications-controller
@@ -33444,8 +33458,8 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 39e3d55f4c4f662b87a117d967f664794b649651466848c5c55a8b2ea20f11ee
-        checksum/cm: d538afb17eae2768fe404db8692c8ef25fed5d54ae081f5a28d2667792b63e5b
+        checksum/cmd-params: 8a791d5cb9725926a0eefd4a4138204cd2602f8ac9dd22ff1550da0b39711017
+        checksum/cm: 4210b9faf532bd64b13a1e64871d4301d780cbb14669da7a5408f96c3913bf93
       labels:
         helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-repo-server
@@ -33870,8 +33884,8 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 39e3d55f4c4f662b87a117d967f664794b649651466848c5c55a8b2ea20f11ee
-        checksum/cm: d538afb17eae2768fe404db8692c8ef25fed5d54ae081f5a28d2667792b63e5b
+        checksum/cmd-params: 8a791d5cb9725926a0eefd4a4138204cd2602f8ac9dd22ff1550da0b39711017
+        checksum/cm: 4210b9faf532bd64b13a1e64871d4301d780cbb14669da7a5408f96c3913bf93
       labels:
         helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-server
@@ -34333,7 +34347,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 39e3d55f4c4f662b87a117d967f664794b649651466848c5c55a8b2ea20f11ee
+        checksum/cmd-params: 8a791d5cb9725926a0eefd4a4138204cd2602f8ac9dd22ff1550da0b39711017
       labels:
         helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-dex-server
@@ -34842,8 +34856,8 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/cmd-params: 39e3d55f4c4f662b87a117d967f664794b649651466848c5c55a8b2ea20f11ee
-        checksum/cm: d538afb17eae2768fe404db8692c8ef25fed5d54ae081f5a28d2667792b63e5b
+        checksum/cmd-params: 8a791d5cb9725926a0eefd4a4138204cd2602f8ac9dd22ff1550da0b39711017
+        checksum/cm: 4210b9faf532bd64b13a1e64871d4301d780cbb14669da7a5408f96c3913bf93
       labels:
         helm.sh/chart: argo-cd-9.5.19
         app.kubernetes.io/name: argocd-application-controller

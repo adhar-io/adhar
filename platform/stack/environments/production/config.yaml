@@ -336,7 +336,7 @@ packages:
     category: "observability"
     manifestPath: "observability/tempo/manifests"
   - name: "mimir"
-    enabled: "false"
+    enabled: "true"
     namespace: "adhar-system"
     category: "observability"
     manifestPath: "observability/mimir/manifests"

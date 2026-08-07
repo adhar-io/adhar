@@ -244,6 +244,32 @@ configs:
     #     - profile
     #     - email
 
+    # ArgoCD's server-side OIDC client talks to Keycloak through the adhar
+    # gateway, which terminates TLS with the self-signed adhar-cert generated at
+    # bootstrap; skip verification for the server-side OIDC HTTPS client only
+    # (mirrors values.yaml — keep both variants in sync).
+    oidc.tls.insecure.skip.verify: "true"
+
+    # Keycloak OIDC (Single Sign-On) for the core platform realm `adhar`.
+    # NOTE (bootstrap timing): OIDC only becomes usable once the Keycloak GitOps
+    # package has synced, created the `argocd` client + keycloak-clients Secret, and
+    # the ExternalSecret has populated `oidc.keycloak.clientSecret` into argocd-secret.
+    # Until then, log in with the break-glass local `admin` user (admin.enabled: true).
+    # `$oidc.keycloak.clientSecret` resolves to that key in argocd-secret.
+    oidc.config: |
+      name: Keycloak
+      issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
+      clientID: argocd
+      clientSecret: $oidc.keycloak.clientSecret
+      requestedScopes:
+        - openid
+        - profile
+        - email
+        - groups
+      requestedIDTokenClaims:
+        groups:
+          essential: true
+
     # Extension Configuration
     ## Ref: https://argo-cd.readthedocs.io/en/latest/developer-guide/extensions/proxy-extensions/
     # extension.config: |
