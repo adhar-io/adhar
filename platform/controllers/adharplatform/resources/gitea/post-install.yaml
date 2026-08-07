@@ -43,7 +43,7 @@ spec:
 ---
 # Gitea admin credential, consumed by:
 #   * the controller's gitea admin password-sync flow (utils.GiteaAdminSecret),
-#   * Backstage's `gitea-credentials` ExternalSecret via the `gitea`
+#   * The console's `gitea-credentials` ExternalSecret via the `gitea`
 #     ClusterSecretStore (remoteNamespace: adhar-system).
 # Values mirror the break-glass admin defined in hack/gitea/values.yaml. When
 # StaticPassword mode is enabled the controller rotates the password and patches

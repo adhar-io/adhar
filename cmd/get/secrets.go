@@ -334,9 +334,9 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 		}
 		if strings.Contains(secret.Name, "keycloak-clients") {
 			entries = append(entries, SecretEntry{
-				Icon: "⚙️", Service: "Keycloak (backstage)",
-				Username: string(secret.Data["BACKSTAGE_CLIENT_ID"]),
-				Password: string(secret.Data["BACKSTAGE_CLIENT_SECRET"]),
+				Icon: "⚙️", Service: "Keycloak (adhar-console)",
+				Username: string(secret.Data["ADHAR_CONSOLE_CLIENT_ID"]),
+				Password: string(secret.Data["ADHAR_CONSOLE_CLIENT_SECRET"]),
 			})
 		}
 		return entries

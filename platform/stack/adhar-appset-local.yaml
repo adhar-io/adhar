@@ -13,7 +13,7 @@ spec:
     - list:
         elements:
           - name: "external-secrets"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/external-secrets/manifests"
@@ -62,7 +62,7 @@ spec:
             category: "security"
             manifestPath: "security/kubescape/manifests"
           - name: "tetragon"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/tetragon/manifests"
@@ -232,7 +232,7 @@ spec:
           # Required by kargo (webhook/api Certificates + Issuer come from
           # cert-manager CRDs).
           - name: "cert-manager"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/cert-manager/manifests"
@@ -294,7 +294,7 @@ spec:
             category: "application"
             manifestPath: "application/harbor/manifests"
           - name: "kargo"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/kargo/manifests"
@@ -374,7 +374,7 @@ spec:
             category: "infrastructure"
             manifestPath: "infrastructure/terraform/manifests"
           - name: "dapr"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/dapr/manifests"

@@ -14,7 +14,7 @@ set -e
 #
 # Keep GATEWAY_API_VERSION in sync with the Cilium version in hack/cilium.
 
-GATEWAY_API_VERSION="v1.5.1"
+GATEWAY_API_VERSION="v1.6.1"
 OUT="platform/controllers/adharplatform/resources/gateway-api/crds.yaml"
 URL="https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/experimental-install.yaml"
 

@@ -1,7 +1,7 @@
 apiVersion: kyverno.io/v2beta1
 kind: PolicyException
 metadata:
-  name: backstage-adhar-operation
+  name: console-adhar-operation
   namespace: adhar-system
 spec:
   exceptions:
@@ -29,7 +29,7 @@ spec:
         - Deployment
         - ReplicaSet
         namespaces:
-        - backstage
+        - adhar-system
         names:
-        # TODO: this should be more targeted than blanket *
-        - backstage*
+        - adhar-console*
+        - console-db*

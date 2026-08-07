@@ -258,7 +258,7 @@ spec:
             manifestPath: "application/argo-workflows/manifests/dev"
           - name: "adhar-console"
             enabled: "true"
-            namespace: "backstage"
+            namespace: "adhar-system"
             category: "core"
             manifestPath: "core/adhar-console/manifests"
           - name: "harbor"

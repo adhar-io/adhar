@@ -134,34 +134,37 @@ data:
       ]
     }
 
-  backstage-client-payload.json: |
+  adhar-console-client-payload.json: |
     {
       "protocol": "openid-connect",
-      "clientId": "backstage",
-      "name": "Adhar Console Client",
-      "description": "OIDC client for the Adhar Console (console.adhar.localtest.me). Named 'backstage' for continuity with existing keycloak-clients secret plumbing; the console reuses BACKSTAGE_CLIENT_SECRET.",
+      "clientId": "adhar-console",
+      "name": "Adhar Console",
+      "description": "Confidential OIDC client for the Adhar Console (console.adhar.localtest.me). Server-side BFF authorization-code flow; access tokens carry the 'kubernetes' audience (matching the kube-apiserver --oidc-client-id) + the groups claim, enabling per-user kube-apiserver impersonation and RBAC.",
       "publicClient": false,
       "authorizationServicesEnabled": false,
       "serviceAccountsEnabled": false,
       "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": true,
+      "directAccessGrantsEnabled": false,
       "standardFlowEnabled": true,
       "frontchannelLogout": true,
       "attributes": {
         "saml_idp_initiated_sso_url_name": "",
         "oauth2.device.authorization.grant.enabled": false,
         "oidc.ciba.grant.enabled": false,
-        "post.logout.redirect.uris": "https://console.adhar.localtest.me:8443/*"
+        "post.logout.redirect.uris": "https://console.adhar.localtest.me:8443/*##http://localhost:5100/*"
       },
       "alwaysDisplayInConsole": false,
       "rootUrl": "https://console.adhar.localtest.me:8443",
       "baseUrl": "/",
       "redirectUris": [
         "https://console.adhar.localtest.me:8443/api/auth/callback",
-        "https://console.adhar.localtest.me:8443/*"
+        "https://console.adhar.localtest.me:8443/*",
+        "http://localhost:5100/api/auth/callback",
+        "http://localhost:5100/*"
       ],
       "webOrigins": [
-        "https://console.adhar.localtest.me:8443"
+        "https://console.adhar.localtest.me:8443",
+        "http://localhost:5100"
       ],
       "protocolMappers": [
         {
@@ -169,7 +172,7 @@ data:
           "protocol": "openid-connect",
           "protocolMapper": "oidc-audience-mapper",
           "config": {
-            "included.custom.audience": "adhar-cli",
+            "included.custom.audience": "kubernetes",
             "id.token.claim": "false",
             "access.token.claim": "true"
           }
@@ -633,7 +636,7 @@ spec:
               # setup on an already-provisioned realm, so config changes (e.g. the
               # move to per-app subdomains) never reach the clients and SSO breaks
               # with redirect_uri mismatch. Non-fatal (runs under set +e).
-              for c in argo backstage headlamp grafana argocd gitea prometheus vault harbor rustfs minio adhar-cli tekton; do
+              for c in argo adhar-console headlamp grafana argocd gitea prometheus vault harbor rustfs minio adhar-cli tekton; do
                 pf="/var/config/${c}-client-payload.json"
                 [ -f "${pf}" ] || continue
                 cid=$(jq -r '.clientId' "${pf}")
@@ -643,8 +646,40 @@ spec:
                   echo "reconciling client ${cid}"
                   curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                     -X PUT --data @"${pf}" "${KEYCLOAK_URL}/admin/realms/adhar/clients/${id}" >/dev/null 2>&1 || true
+                else
+                  # Client missing on an already-provisioned realm (e.g. a newly
+                  # added client like adhar-console). Create it and attach the
+                  # groups default scope so its tokens carry the groups claim.
+                  echo "creating missing client ${cid}"
+                  curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    -X POST --data @"${pf}" "${KEYCLOAK_URL}/admin/realms/adhar/clients" >/dev/null 2>&1 || true
+                  id=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
+                  gid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    "${KEYCLOAK_URL}/admin/realms/adhar/client-scopes" | jq -r '.[] | select(.name=="groups") | .id')
+                  if [ -n "${id}" ] && [ -n "${gid}" ]; then
+                    curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                      -X PUT "${KEYCLOAK_URL}/admin/realms/adhar/clients/${id}/default-client-scopes/${gid}" >/dev/null 2>&1 || true
+                  fi
                 fi
               done
+
+              # Ensure the adhar-console client secret is present in the
+              # keycloak-clients Secret even on an already-provisioned realm (the
+              # full create-path + rebuild-if-missing below only run on fresh /
+              # absent state). Lets the console's console-oidc ExternalSecret
+              # resolve ADHAR_CONSOLE_CLIENT_SECRET after this client is added.
+              # Non-fatal (runs under set +e).
+              ACS_ID=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=adhar-console" | jq -r '.[0].id // empty')
+              if [ -n "${ACS_ID}" ]; then
+                ACS=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients/${ACS_ID}" | jq -r '.secret // empty')
+                if [ -n "${ACS}" ] && kubectl -n adhar-system get secret keycloak-clients >/dev/null 2>&1; then
+                  kubectl -n adhar-system patch secret keycloak-clients --type merge \
+                    -p "{\"stringData\":{\"ADHAR_CONSOLE_CLIENT_ID\":\"adhar-console\",\"ADHAR_CONSOLE_CLIENT_SECRET\":\"${ACS}\"}}" >/dev/null 2>&1 || true
+                fi
+              fi
 
               # A realm can exist half-provisioned: an earlier job run that died
               # mid-way (e.g. on token expiry) created the realm but none of the
@@ -679,7 +714,7 @@ spec:
                   kubectl -n adhar-system create secret generic keycloak-clients \
                     --from-literal=ARGO_WORKFLOWS_CLIENT_ID=argo-workflows --from-literal=ARGO_WORKFLOWS_CLIENT_SECRET="$(getsec argo-workflows)" \
                     --from-literal=ARGOCD_SESSION_TOKEN="${ARGOCD_SESSION_TOKEN}" \
-                    --from-literal=BACKSTAGE_CLIENT_ID=backstage --from-literal=BACKSTAGE_CLIENT_SECRET="$(getsec backstage)" \
+                    --from-literal=ADHAR_CONSOLE_CLIENT_ID=adhar-console --from-literal=ADHAR_CONSOLE_CLIENT_SECRET="$(getsec adhar-console)" \
                     --from-literal=HEADLAMP_CLIENT_ID=headlamp --from-literal=HEADLAMP_CLIENT_SECRET="$(getsec headlamp)" \
                     --from-literal=GRAFANA_CLIENT_ID=grafana --from-literal=GRAFANA_CLIENT_SECRET="$(getsec grafana)" \
                     --from-literal=ARGOCD_CLIENT_ID=argocd --from-literal=ARGOCD_CLIENT_SECRET="$(getsec argocd)" \
@@ -793,20 +828,28 @@ spec:
               -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
               -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
               
-              echo "creating Backstage client"
+              # adhar-console: the dedicated confidential client for the Adhar
+              # Console. Access tokens carry aud=kubernetes (matches the
+              # apiserver --oidc-client-id) + the groups claim, so per-user
+              # kube-apiserver impersonation + RBAC work end-to-end.
+              echo "creating Adhar Console client"
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/backstage-client-payload.json \
-                  ${KEYCLOAK_URL}/admin/realms/adhar/clients
-              
+                -X POST --data @/var/config/adhar-console-client-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/clients
+
               CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "backstage") | .id')
-              
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-              curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-              
-              BACKSTAGE_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
+                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "adhar-console") | .id')
+              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
+
+              ADHAR_CONSOLE_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
 
@@ -1041,7 +1084,7 @@ spec:
 
               ARGOCD_PASSWORD=$(kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
 
-              # ArgoCD session token for Backstage's ArgoCD plugin. This is
+              # ArgoCD session token for the console's ArgoCD integration. This is
               # best-effort: ArgoCD runs insecure HTTP (port 80, not 443), and if
               # it is briefly unreachable we must NOT abort — otherwise (set -e)
               # the job dies before writing keycloak-clients below and the whole
@@ -1060,12 +1103,12 @@ spec:
                 # when ArgoCD login is briefly unavailable) is written as an
                 # empty string rather than YAML null — otherwise kubectl drops
                 # the key entirely and every ExternalSecret that reads it (e.g.
-                # backstage-oidc) fails with 'could not get secret data'.
+                # console-oidc) fails with 'could not get secret data'.
                 ARGO_WORKFLOWS_CLIENT_SECRET: \"${ARGO_WORKFLOWS_CLIENT_SECRET}\"
                 ARGO_WORKFLOWS_CLIENT_ID: \"argo-workflows\"
                 ARGOCD_SESSION_TOKEN: \"${ARGOCD_SESSION_TOKEN}\"
-                BACKSTAGE_CLIENT_SECRET: \"${BACKSTAGE_CLIENT_SECRET}\"
-                BACKSTAGE_CLIENT_ID: \"backstage\"
+                ADHAR_CONSOLE_CLIENT_SECRET: \"${ADHAR_CONSOLE_CLIENT_SECRET}\"
+                ADHAR_CONSOLE_CLIENT_ID: \"adhar-console\"
                 HEADLAMP_CLIENT_SECRET: \"${HEADLAMP_CLIENT_SECRET}\"
                 HEADLAMP_CLIENT_ID: \"headlamp\"
                 GRAFANA_CLIENT_SECRET: \"${GRAFANA_CLIENT_SECRET}\"
