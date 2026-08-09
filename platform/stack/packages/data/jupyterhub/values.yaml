@@ -13,22 +13,23 @@ hub:
           key: JUPYTERHUB_OAUTH_CLIENT_SECRET
   config:
     GenericOAuthenticator:
-      # Browser-facing endpoints stay on the external gateway host (the user's
-      # redirect + callback must be reachable from their browser).
-      # Must be on the jupyterhub.* host: nothing routes adhar.localtest.me/jupyterhub.
+      # ALL endpoints use the SAME external gateway host. The browser hits the
+      # external authorize endpoint, so the issued token's `iss` claim is the
+      # external issuer (https://keycloak.adhar.localtest.me:8443/realms/adhar).
+      # The server-side token + userinfo calls must therefore ALSO go to that
+      # same external host: a previous attempt pointed token_url/userdata_url at
+      # the in-cluster Service and Keycloak rejected the userinfo call with
+      # HTTP 401 (token issuer != endpoint host). Connectivity to the external
+      # gateway from the hub works now that the chart NetworkPolicy is disabled
+      # (see below); the self-signed gateway cert is handled by disabling TLS
+      # verification for these server-side calls (validate_server_cert: false /
+      # OAUTH_TLS_VERIFY=0). This mirrors the working grafana OIDC setup.
       oauth_callback_url: https://jupyterhub.adhar.localtest.me:8443/hub/oauth_callback
       client_id: jupyterhub
       authorize_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth
-      # Server-side calls (code->token exchange, userinfo) go DIRECT to the
-      # in-cluster Keycloak Service, NOT through the Cilium Gateway. The hub pod
-      # is wrapped in the JupyterHub chart's egress NetworkPolicy; routing its
-      # backend OAuth calls through the external gateway returned HTTP 403
-      # (whereas unrestricted pods got 200 to the same URL). Going straight to
-      # the ClusterIP Service also drops the self-signed-cert dependency.
-      # GenericOAuthenticator with explicit token_url does no issuer discovery,
-      # so a browser-external authorize_url + cluster-internal token_url is fine.
-      token_url: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/token
-      userdata_url: http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/userinfo
+      token_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/token
+      userdata_url: https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/userinfo
+      validate_server_cert: false
       scope:
         - openid
         - profile
