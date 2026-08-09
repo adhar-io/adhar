@@ -1,0 +1,31 @@
+# Continuous profiling backend (Grafana Pyroscope). Runs as a single
+# all-in-one instance for the local/dev profile — no microservices, no
+# object storage, filesystem-backed. Alloy (already in the stack) can be
+# configured to scrape pprof endpoints and push profiles here; Grafana gets a
+# Pyroscope datasource so the Explore / Profiles drilldown works out of the box.
+pyroscope:
+  # Single-binary "all" target: one Deployment/StatefulSet running every
+  # component. Keeps the local footprint small.
+  components: {}
+  replicaCount: 1
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  extraArgs:
+    # Filesystem storage under the pod's data dir (no S3/MinIO dependency).
+    storage.backend: filesystem
+
+# The chart bundles an optional Alloy for self-profiling; the platform already
+# runs its own Alloy, so disable the bundled one.
+alloy:
+  enabled: false
+
+# No separate ingress object; the platform exposes Pyroscope via the Cilium
+# Gateway HTTPRoute (manifests/httproute.yaml).
+ingress:
+  enabled: false

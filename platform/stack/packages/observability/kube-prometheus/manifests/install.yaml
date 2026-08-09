@@ -75490,6 +75490,12 @@ data:
       type: prometheus
       uid: mimir
       url: http://mimir-query-frontend.adhar-system.svc.cluster.local:8080/prometheus
+    - access: proxy
+      editable: false
+      name: Pyroscope
+      type: grafana-pyroscope-datasource
+      uid: pyroscope
+      url: http://pyroscope.adhar-system.svc.cluster.local:4040
 ---
 # Source: kube-prometheus-stack/templates/grafana/dashboards-1.14/alertmanager-overview.yaml
 apiVersion: v1

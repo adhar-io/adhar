@@ -1534,6 +1534,14 @@ grafana:
       access: proxy
       url: http://mimir-query-frontend.adhar-system.svc.cluster.local:8080/prometheus
       editable: false
+    # Continuous profiling (Grafana Pyroscope). Powers the Explore > Profiles
+    # view and flame graphs. The `pyroscope` package must be enabled.
+    - name: Pyroscope
+      type: grafana-pyroscope-datasource
+      uid: pyroscope
+      access: proxy
+      url: http://pyroscope.adhar-system.svc.cluster.local:4040
+      editable: false
 
   # Preprovisioned open-source dashboards covering the platform components.
   # Downloaded from grafana.com by the chart's download-dashboards init
