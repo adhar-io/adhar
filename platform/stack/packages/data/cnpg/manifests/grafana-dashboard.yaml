@@ -3584,7 +3584,7 @@ data:
 kind: ConfigMap
 metadata:
   annotations:
-    grafana_folder: Databases
+    grafana_folder: "Data & Storage"
   labels:
     adhar.io/component: observability
     grafana_dashboard: '1'

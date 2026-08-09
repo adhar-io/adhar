@@ -1231,8 +1231,10 @@ grafana:
   forceDeployDashboards: false
 
   ## Deploy default dashboards
-  ##
-  defaultDashboardsEnabled: true
+  ## Disabled: the chart's ~28 bundled kubernetes-mixin dashboards land
+  ## unfoldered in "General" and cluttered the UI. The curated, foldered set
+  ## under `grafana.dashboards` below replaces them with cleaner coverage.
+  defaultDashboardsEnabled: false
 
   ## Deploy GrafanaDashboard CRDs that reference dashboards from ConfigMaps when grafana-operator is used
   ## These settings control how dashboards are integrated with the Grafana Operator
@@ -1433,6 +1435,11 @@ grafana:
       ## Annotations for Grafana dashboard configmaps
       ##
       annotations: {}
+      # File sidecar-provisioned dashboards (shipped by packages: CloudNativePG,
+      # Redis, Kafka, Pyroscope, …) into the folder named by their
+      # `grafana_dashboard_folder` annotation instead of dumping them all in
+      # "General". Packages set that annotation on their dashboard ConfigMaps.
+      folderAnnotation: grafana_folder
       multicluster:
         global:
           enabled: false
@@ -1440,6 +1447,8 @@ grafana:
           enabled: false
       provider:
         allowUiUpdates: false
+        # Honour the folder path/annotation so sidecar dashboards are foldered.
+        foldersFromFilesStructure: true
     datasources:
       enabled: true
       defaultDatasourceEnabled: true
@@ -1544,74 +1553,74 @@ grafana:
       editable: false
 
   # Preprovisioned open-source dashboards covering the platform components.
-  # Downloaded from grafana.com by the chart's download-dashboards init
-  # container at pod start (the sidecar provisions them into the folders
-  # below); `datasource` rewrites each dashboard's DS_* template inputs.
+  # 360° platform observability, organized into deliberate folders. Each
+  # provider below is a Grafana folder; the `dashboards` map assigns curated
+  # community dashboards (downloaded from grafana.com by the chart's
+  # download-dashboards init container) to a folder via its top-level key.
+  # `datasource` rewrites each dashboard's DS_* template inputs.
+  #
+  # The kube-prometheus-stack's ~28 bundled kubernetes-mixin dashboards are
+  # DISABLED (defaultDashboardsEnabled: false above) — they dumped unfoldered
+  # into "General" and were the clutter this replaces. The curated K8s/Views
+  # series + node-exporter + kube-state-metrics below give cleaner, foldered
+  # coverage of the same ground.
+  #
+  # Data-tier dashboards (CloudNativePG, Redis, Kafka) are shipped by their own
+  # packages as sidecar ConfigMaps (work without internet egress) and are filed
+  # into the "Data & Storage" folder via the grafana_dashboard_folder
+  # annotation (sidecar.dashboards.folderAnnotation, set above).
   dashboardProviders:
     dashboardproviders.yaml:
       apiVersion: 1
       providers:
-        - name: adhar-platform
-          orgId: 1
-          folder: Adhar Platform
-          type: file
-          disableDeletion: true
-          editable: false
-          options:
-            path: /var/lib/grafana/dashboards/adhar-platform
-        - name: adhar-kubernetes
-          orgId: 1
-          folder: Kubernetes
-          type: file
-          disableDeletion: true
-          editable: false
-          options:
-            path: /var/lib/grafana/dashboards/adhar-kubernetes
+        - {name: infrastructure, orgId: 1, folder: Infrastructure, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/infrastructure}}
+        - {name: kubernetes, orgId: 1, folder: Kubernetes, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/kubernetes}}
+        - {name: networking, orgId: 1, folder: Networking, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/networking}}
+        - {name: platform-core, orgId: 1, folder: Platform Core, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/platform-core}}
+        - {name: data-storage, orgId: 1, folder: Data & Storage, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/data-storage}}
+        - {name: observability, orgId: 1, folder: Observability, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/observability}}
+        - {name: cicd-registry, orgId: 1, folder: CI/CD & Registry, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/cicd-registry}}
+        - {name: security-policy, orgId: 1, folder: Security & Policy, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/security-policy}}
 
   dashboards:
-    adhar-kubernetes:
-      node-exporter-full:
-        gnetId: 1860
-        revision: 45
-        datasource: Prometheus
-      k8s-views-global:
-        gnetId: 15757
-        revision: 43
-        datasource: Prometheus
-      k8s-views-namespaces:
-        gnetId: 15758
-        revision: 46
-        datasource: Prometheus
-      k8s-views-pods:
-        gnetId: 15760
-        revision: 39
-        datasource: Prometheus
-    adhar-platform:
-      argocd:
-        gnetId: 14584
-        revision: 1
-        datasource: Prometheus
-      cilium-agent:
-        gnetId: 16611
-        revision: 1
-        datasource: Prometheus
-      gitea:
-        gnetId: 13192
-        revision: 1
-        datasource: Prometheus
-      keycloak:
-        gnetId: 10441
-        revision: 2
-        datasource: Prometheus
-      # NOTE: the CloudNativePG dashboard is NOT downloaded here — the cnpg
-      # package ships the official upstream dashboard as a sidecar ConfigMap
-      # (data/cnpg/manifests/grafana-dashboard.yaml), the same contract used by
-      # the redis and kafka-operator packages. Keeping it there avoids a
-      # duplicate "CloudNativePG" entry and works without internet egress.
-      loki-app-logs:
-        gnetId: 13639
-        revision: 2
-        datasource: Loki
+    # --- Infrastructure: hardware / OS / node-level ---------------------------
+    infrastructure:
+      node-exporter-full: {gnetId: 1860, revision: 45, datasource: Prometheus}
+    # --- Kubernetes: cluster / namespaces / nodes / pods / workloads ----------
+    kubernetes:
+      k8s-views-global: {gnetId: 15757, revision: 43, datasource: Prometheus}
+      k8s-views-namespaces: {gnetId: 15758, revision: 46, datasource: Prometheus}
+      k8s-views-nodes: {gnetId: 15759, revision: 40, datasource: Prometheus}
+      k8s-views-pods: {gnetId: 15760, revision: 39, datasource: Prometheus}
+      kube-state-metrics: {gnetId: 13332, revision: 12, datasource: Prometheus}
+    # --- Networking: CNI / eBPF dataplane / DNS ------------------------------
+    networking:
+      cilium-agent: {gnetId: 16611, revision: 1, datasource: Prometheus}
+      cilium-operator: {gnetId: 16612, revision: 1, datasource: Prometheus}
+      cilium-hubble: {gnetId: 16613, revision: 1, datasource: Prometheus}
+      coredns: {gnetId: 15762, revision: 22, datasource: Prometheus}
+    # --- Platform Core: GitOps / SCM / IdP / secrets -------------------------
+    platform-core:
+      # ArgoCD dashboard is shipped offline by extra-dashboards.yaml (foldered
+      # into Platform Core via its grafana_folder annotation) — not duplicated
+      # here.
+      gitea: {gnetId: 13192, revision: 1, datasource: Prometheus}
+      keycloak: {gnetId: 17878, revision: 1, datasource: Prometheus}
+      vault: {gnetId: 12904, revision: 2, datasource: Prometheus}
+    # --- Data & Storage: object store (CNPG/Redis/Kafka come from packages) ---
+    data-storage:
+      minio: {gnetId: 13502, revision: 1, datasource: Prometheus}
+    # --- Observability: the LGTM stack itself --------------------------------
+    observability:
+      prometheus: {gnetId: 19105, revision: 9, datasource: Prometheus}
+      loki: {gnetId: 13407, revision: 1, datasource: Loki}
+    # --- CI/CD & Registry ----------------------------------------------------
+    cicd-registry:
+      harbor: {gnetId: 14075, revision: 2, datasource: Prometheus}
+    # --- Security & Policy ---------------------------------------------------
+    security-policy:
+      cert-manager: {gnetId: 11001, revision: 1, datasource: Prometheus}
+      kyverno: {gnetId: 15987, revision: 2, datasource: Prometheus}
   # - name: prometheus-sample
   #   access: proxy
   #   basicAuth: true
