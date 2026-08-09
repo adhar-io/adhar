@@ -153,42 +153,6 @@ func (p *Provider) createSecurityGroups(ctx context.Context, vpcID, clusterName 
 			ToPort:     aws.Int32(6443),
 			IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("0.0.0.0/0")}},
 		},
-		// etcd server client API
-		{
-			IpProtocol: aws.String("tcp"),
-			FromPort:   aws.Int32(2379),
-			ToPort:     aws.Int32(2380),
-			UserIdGroupPairs: []ec2types.UserIdGroupPair{
-				{GroupId: aws.String(sgID)},
-			},
-		},
-		// Kubelet API
-		{
-			IpProtocol: aws.String("tcp"),
-			FromPort:   aws.Int32(10250),
-			ToPort:     aws.Int32(10250),
-			UserIdGroupPairs: []ec2types.UserIdGroupPair{
-				{GroupId: aws.String(sgID)},
-			},
-		},
-		// kube-scheduler
-		{
-			IpProtocol: aws.String("tcp"),
-			FromPort:   aws.Int32(10259),
-			ToPort:     aws.Int32(10259),
-			UserIdGroupPairs: []ec2types.UserIdGroupPair{
-				{GroupId: aws.String(sgID)},
-			},
-		},
-		// kube-controller-manager
-		{
-			IpProtocol: aws.String("tcp"),
-			FromPort:   aws.Int32(10257),
-			ToPort:     aws.Int32(10257),
-			UserIdGroupPairs: []ec2types.UserIdGroupPair{
-				{GroupId: aws.String(sgID)},
-			},
-		},
 		// NodePort Services
 		{
 			IpProtocol: aws.String("tcp"),
@@ -196,20 +160,16 @@ func (p *Provider) createSecurityGroups(ctx context.Context, vpcID, clusterName 
 			ToPort:     aws.Int32(32767),
 			IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("0.0.0.0/0")}},
 		},
-		// Cilium health checks and metrics
-		{
-			IpProtocol: aws.String("tcp"),
-			FromPort:   aws.Int32(4240),
-			ToPort:     aws.Int32(4240),
-			UserIdGroupPairs: []ec2types.UserIdGroupPair{
-				{GroupId: aws.String(sgID)},
-			},
-		},
-		// Cilium VXLAN
 		{
 			IpProtocol: aws.String("udp"),
-			FromPort:   aws.Int32(8472),
-			ToPort:     aws.Int32(8472),
+			FromPort:   aws.Int32(30000),
+			ToPort:     aws.Int32(32767),
+			IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("0.0.0.0/0")}},
+		},
+		// Unrestricted traffic between cluster members (etcd, kubelet,
+		// Cilium VXLAN/Geneve/health, etc.)
+		{
+			IpProtocol: aws.String("-1"),
 			UserIdGroupPairs: []ec2types.UserIdGroupPair{
 				{GroupId: aws.String(sgID)},
 			},

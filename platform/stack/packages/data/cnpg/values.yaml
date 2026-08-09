@@ -1,0 +1,17 @@
+# CloudNativePG operator (Helm chart) values.
+#
+# monitoring.podMonitorEnabled — create a PodMonitor for the operator so its
+# controller-runtime metrics (reconcile counts, work-queue, Go runtime) are
+# scraped out of the box. Prometheus discovers it because the kube-prometheus
+# values set podMonitorSelectorNilUsesHelmValues=false (select-all), so the
+# missing `release: prometheus` label no longer hides it.
+#
+# Per-database metrics (cnpg_*) come from the Cluster instance pods, not the
+# operator: create a Cluster with `spec.monitoring.enablePodMonitor: true` and
+# the shipped "CloudNativePG" dashboard (manifests/grafana-dashboard.yaml)
+# populates. grafanaDashboard.create stays false here because that dashboard is
+# shipped as a standalone sidecar ConfigMap in this package.
+monitoring:
+  podMonitorEnabled: true
+  grafanaDashboard:
+    create: false

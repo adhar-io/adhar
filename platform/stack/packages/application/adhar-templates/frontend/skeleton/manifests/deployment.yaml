@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{values.name | dump}}
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${{values.name}}
+  template:
+    metadata:
+      labels:
+        entity-id: ${{values.name}}
+        app.kubernetes.io/name: ${{values.name}}
+        adhar.io/owner: ${{values.owner}}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          # Placeholder until the paved-road pipeline (jenkins-x.yml) builds
+          # the repo's Dockerfile (same base image, same port and probe
+          # contract). Replace with your registry image on first release.
+          image: docker.io/nginxinc/nginx-unprivileged:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

@@ -1,0 +1,35 @@
+apiVersion: v1alpha1
+kind: Config
+
+# DigitalOcean test environment configuration.
+# Requires a valid token: either fill in providers.digitalocean.token below or
+# export DIGITALOCEAN_TOKEN before running.
+environments:
+  do-test:
+    name: adhar-do-test
+    type: production
+    provider: digitalocean
+    region: blr1
+
+providers:
+  digitalocean:
+    type: digitalocean
+    region: blr1
+    primary: true
+    # token: "YOUR_DIGITALOCEAN_TOKEN"
+    useEnvironment: true # read DIGITALOCEAN_TOKEN from the environment
+    # Default: raw droplets + kubeadm (adhar-managed Kubernetes). Set
+    # useManagedK8s: true for the managed DOKS service instead.
+    # useManagedK8s: true
+    config:
+      droplet_size: "s-2vcpu-2gb"
+      image: "ubuntu-22-04-x64"
+      vpc_uuid: "" # empty -> create/reuse a VPC
+      vpc_cidr: "10.3.0.0/16"
+      reuse_existing_vpc: true
+      tags:
+        - "adhar-test"
+
+globalSettings:
+  defaultHost: adhar.localtest.me
+  httpsPort: 8443

@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
 )
 
@@ -55,31 +56,29 @@ func (p *Provider) TestCleanup(ctx context.Context) error {
 // UpgradeCluster upgrades a Kubernetes cluster by updating node AMIs and Kubernetes version
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
 	clusterName := extractClusterName(clusterID)
-	log.Printf("Upgrading cluster %s to version %s", clusterName, version)
+	log.Printf("Upgrading self-managed AWS cluster %s to version %s via kubeadm", clusterName, version)
 
-	// Get current cluster infrastructure
 	infrastructure, err := p.getClusterInfrastructure(ctx, clusterName)
 	if err != nil {
 		return fmt.Errorf("failed to get cluster infrastructure: %w", err)
 	}
-
-	// For a real implementation, this would:
-	// 1. Update master nodes one by one to maintain availability
-	// 2. Drain and update worker nodes in rolling fashion
-	// 3. Update kubeadm, kubelet, and kubectl on all nodes
-	// 4. Upgrade cluster components (kube-apiserver, kube-controller-manager, etc.)
-
-	log.Printf("Cluster upgrade initiated for %d master nodes and %d worker nodes",
-		len(infrastructure.MasterNodes), len(infrastructure.WorkerNodes))
-
-	// Log the upgrade process that would happen
-	log.Printf("  🔄 Upgrade process:")
-	log.Printf("    1. Update cluster-wide components to %s", version)
-	log.Printf("    2. Rolling upgrade of master nodes")
-	log.Printf("    3. Rolling upgrade of worker nodes")
-	log.Printf("    4. Verify cluster health after upgrade")
-
-	log.Printf("✓ Cluster %s upgrade to %s completed", clusterName, version)
+	if len(infrastructure.MasterNodes) == 0 || infrastructure.MasterNodes[0].PublicIP == "" {
+		return fmt.Errorf("no reachable control-plane instance for cluster %s", clusterName)
+	}
+	signer, err := provider.LoadClusterSSHKey(clusterName)
+	if err != nil {
+		return err
+	}
+	var workerIPs []string
+	for _, w := range infrastructure.WorkerNodes {
+		if w.PublicIP != "" {
+			workerIPs = append(workerIPs, w.PublicIP)
+		}
+	}
+	if err := provider.KubeadmUpgradeCluster(ctx, signer, awsSSHUser, infrastructure.MasterNodes[0].PublicIP, workerIPs, version); err != nil {
+		return fmt.Errorf("kubeadm upgrade of cluster %s failed: %w", clusterName, err)
+	}
+	log.Printf("Successfully upgraded cluster %s to %s", clusterName, version)
 	return nil
 }
 

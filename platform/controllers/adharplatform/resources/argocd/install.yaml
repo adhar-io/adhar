@@ -171,6 +171,11 @@ data:
     jsonPointers:
       - /metadata
       - /subsets
+  resource.customizations.health.postgresql.cnpg.io_ScheduledBackup: |
+    hs = {}
+    hs.status = "Healthy"
+    hs.message = "ScheduledBackup is declarative cron configuration; first-run state must not gate sync waves"
+    return hs
   resource.customizations.ignoreResourceUpdates.all: |
     jsonPointers:
       - /status
@@ -257,8 +262,8 @@ data:
   server.rbac.log.enforce.enable: "false"
   statusbadge.enabled: "false"
   timeout.hard.reconciliation: 0s
-  timeout.reconciliation: 30s
-  timeout.reconciliation.jitter: 10s
+  timeout.reconciliation: 300s
+  timeout.reconciliation.jitter: 60s
   url: https://argocd.adhar.localtest.me:8443
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-cmd-params-cm.yaml
@@ -288,10 +293,11 @@ data:
   controller.ignore.normalizer.jq.timeout: 1s
   controller.log.format: text
   controller.log.level: info
-  controller.operation.processors: "10"
+  controller.kubectl.parallelism.limit: "4"
+  controller.operation.processors: "4"
   controller.repo.server.timeout.seconds: "60"
   controller.self.heal.timeout.seconds: "5"
-  controller.status.processors: "20"
+  controller.status.processors: "8"
   controller.sync.timeout.seconds: "0"
   dexserver.log.format: text
   dexserver.log.level: info
@@ -33045,18 +33051,18 @@ spec:
           httpGet:
             path: /healthz?full=true
             port: server
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           successThreshold: 1
-          failureThreshold: 3
+          failureThreshold: 6
         readinessProbe:
           httpGet:
             path: /healthz
             port: server
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           successThreshold: 1
           failureThreshold: 3
         resources:

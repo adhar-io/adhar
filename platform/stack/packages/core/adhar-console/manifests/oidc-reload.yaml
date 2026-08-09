@@ -1,0 +1,109 @@
+# Restarts adhar-console once its Keycloak OIDC client secret is available.
+#
+# Problem: the console reads AUTH_CLIENT_SECRET (and the other auth env) from
+# the `console-env-vars` Secret via envFrom. Env vars are read ONCE at container
+# start, but console-env-vars is produced by the console-oidc ExternalSecret,
+# which depends on Keycloak's realm job (keycloak-clients) that finishes minutes
+# AFTER the console pod has already started. So the console boots with an empty
+# AUTH_CLIENT_SECRET and crash-loops ("Auth is not configured but
+# NODE_ENV=production"). Nothing restarts it when the secret appears, so it stays
+# down. (Same failure mode fixed for grafana and headlamp.)
+#
+# Fix: a PostSync hook that waits for the secret to carry a non-empty
+# AUTH_CLIENT_SECRET, then restarts the console ONLY if the running pod started
+# before the secret existed — idempotent via timestamp comparison, so
+# steady-state syncs are a no-op.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-console-oidc-reload
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-console-oidc-reload
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-console-oidc-reload
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: adhar-console-oidc-reload
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-console-oidc-reload
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adhar-console-oidc-reload
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      generateName: adhar-console-oidc-reload
+    spec:
+      serviceAccountName: adhar-console-oidc-reload
+      restartPolicy: Never
+      containers:
+        - name: kubectl
+          image: docker.io/alpine/k8s:1.31.0
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              NS=adhar-system
+              DEPLOY=adhar-console
+              SECRET=console-env-vars
+
+              # 1. Bounded wait for the Secret to carry a real client secret
+              #    (keycloak realm job -> console-oidc ExternalSecret chain;
+              #    ~40 min covers a cold bootstrap).
+              ok=""
+              for i in $(seq 1 240); do
+                if kubectl -n "$NS" get secret "$SECRET" \
+                     -o jsonpath='{.data.AUTH_CLIENT_SECRET}' 2>/dev/null | grep -q .; then
+                  ok=1; break
+                fi
+                echo "waiting for $SECRET AUTH_CLIENT_SECRET ($i)"
+                sleep 10
+              done
+              if [ -z "$ok" ]; then
+                echo "secret not ready yet; leaving console as-is (retries next sync)"
+                exit 0
+              fi
+
+              # 2. Restart only if the running pod predates the Secret — i.e. it
+              #    started with an empty AUTH_CLIENT_SECRET and crash-looped.
+              SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
+              POD_TS=$(kubectl -n "$NS" get pods -l app=console \
+                         -o jsonpath='{.items[0].status.startTime}' 2>/dev/null || true)
+              if [ -n "$POD_TS" ] && [ "$(date -d "$POD_TS" +%s)" -gt "$(date -d "$SECRET_TS" +%s)" ]; then
+                echo "console pod ($POD_TS) is newer than $SECRET ($SECRET_TS); nothing to do."
+                exit 0
+              fi
+
+              echo "Restarting $DEPLOY to pick up the OIDC client secret..."
+              kubectl -n "$NS" rollout restart deployment "$DEPLOY"
+              kubectl -n "$NS" rollout status deployment "$DEPLOY" --timeout=180s || true
+              echo "Console OIDC reload complete."

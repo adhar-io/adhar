@@ -15,7 +15,10 @@ set -e
 # Keep GATEWAY_API_VERSION in sync with the Cilium version in hack/cilium.
 
 GATEWAY_API_VERSION="v1.6.1"
-OUT="platform/controllers/adharplatform/resources/gateway-api/crds.yaml"
+HACK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Anchored to the script location so output lands in the same place regardless
+# of the directory the script is invoked from.
+OUT="$HACK_DIR/../../platform/controllers/adharplatform/resources/gateway-api/crds.yaml"
 URL="https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/experimental-install.yaml"
 
 echo "Downloading Gateway API ${GATEWAY_API_VERSION} (experimental channel)..."

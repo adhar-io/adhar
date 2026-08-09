@@ -1,8 +1,10 @@
 #!/bin/bash
 
 # Update Cilium manifest using Helm
-INSTALL_YAML="platform/controllers/adharplatform/resources/cilium/install.yaml"
 HACK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Anchored to the script location so output lands in the same place regardless
+# of the directory the script is invoked from.
+INSTALL_YAML="$HACK_DIR/../../platform/controllers/adharplatform/resources/cilium/install.yaml"
 CILIUM_VERSION="1.20.0"
 CILIUM_NAMESPACE="adhar-system"
 

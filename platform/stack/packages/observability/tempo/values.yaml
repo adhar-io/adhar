@@ -1,0 +1,23 @@
+# Enable the metrics-generator so Grafana's Traces Drilldown (TraceQL metrics
+# like `{...} | rate() by(...)`) and service graphs work. With it disabled
+# (chart default) those queries fail with "error finding generators: empty
+# ring" because no generator is registered in the ring.
+tempo:
+  metricsGenerator:
+    enabled: true
+    # span-metrics / service-graphs are remote-written to Mimir so they are
+    # queryable as Prometheus metrics; local-blocks powers TraceQL metrics
+    # (rate/quantile_over_time) queried directly from Tempo.
+    remoteWriteUrl: "http://mimir-gateway.adhar-system.svc.cluster.local/api/v1/push"
+    processor:
+      local_blocks:
+        # Required for TraceQL metrics over recent traces via the drilldown.
+        flush_to_storage: true
+  overrides:
+    defaults:
+      metrics_generator:
+        processors:
+          - local-blocks
+          - service-graphs
+          - span-metrics
+        generate_native_histograms: both

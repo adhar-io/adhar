@@ -256,6 +256,12 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/kyverno-policies/manifests"
+          # Opt-in compliance profiles (CIS / SOC2-oriented), Audit mode.
+          - name: "policy-packs"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "security"
+            manifestPath: "security/policy-packs/manifests"
           - name: "jupyterhub"
             enabled: "true"
             namespace: "adhar-system"
@@ -358,7 +364,9 @@ spec:
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/tempo/manifests"
-          # mimir disabled in production: CONFLICTS.md: bundled MinIO SA collides with the minio package; re-render against external object storage
+          # mimir's bundled MinIO now uses a dedicated SA (mimir-minio-sa), so
+          # the collision with the minio package is resolved and the metrics
+          # hub backend is enabled for production.
           - name: "mimir"
             enabled: "true"
             namespace: "adhar-system"

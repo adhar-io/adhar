@@ -346,6 +346,14 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 func buildProviderConfig(envConfig *config.ResolvedEnvironmentConfig) map[string]interface{} {
 	providerConfig := make(map[string]interface{})
 
+	// Start from the provider's own block (credentials such as token, plus the
+	// nested `config:` section) so provisioning sees the same map that
+	// `cluster create` builds via ToProviderMap. Environment-level values
+	// below override it.
+	if envConfig.ProviderConfig != nil {
+		providerConfig = envConfig.ProviderConfig.ToProviderMap()
+	}
+
 	// Add region
 	if envConfig.ResolvedRegion != "" {
 		providerConfig["region"] = envConfig.ResolvedRegion

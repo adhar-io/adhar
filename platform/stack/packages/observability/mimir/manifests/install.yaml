@@ -173,7 +173,7 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: "minio-sa"
+  name: "mimir-minio-sa"
 ---
 # Source: mimir-distributed/templates/serviceaccount.yaml
 apiVersion: v1
@@ -1426,7 +1426,7 @@ spec:
         runAsGroup: 1000
         runAsUser: 1000
       
-      serviceAccountName: minio-sa
+      serviceAccountName: mimir-minio-sa
       containers:
         - name: minio
           image: "quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z"
@@ -2547,7 +2547,7 @@ spec:
                   name: mimir-minio
               - secret:
                   name: mimir-minio
-      serviceAccountName: minio-sa
+      serviceAccountName: mimir-minio-sa
       containers:
         - name: minio-make-bucket
           image: "quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z"

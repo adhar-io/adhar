@@ -2799,7 +2799,7 @@ metadata:
     {}
 spec:
   accessModes:
-      - ReadWriteMany
+      - ReadWriteOnce
   volumeMode: Filesystem
   
   resources:
@@ -2929,12 +2929,9 @@ metadata:
     version: "1.26.1"
     app.kubernetes.io/managed-by: Helm
 spec:
-  replicas: 2
+  replicas: 1
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 100%
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: gitea

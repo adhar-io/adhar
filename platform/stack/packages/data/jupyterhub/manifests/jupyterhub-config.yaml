@@ -27,7 +27,7 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://adhar.localtest.me:8443/jupyterhub/hub/oauth_callback"
+        "https://jupyterhub.adhar.localtest.me:8443/hub/oauth_callback"
       ],
       "webOrigins": [
         "/*"

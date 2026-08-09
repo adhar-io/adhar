@@ -1,2 +1,10 @@
 crds:
   enabled: true
+# Register policy webhooks with failurePolicy Ignore instead of Fail. On a
+# single-node local cluster the admission controller gets probe-killed under
+# load; with Fail webhooks every API write in the cluster is then rejected,
+# which stalls ArgoCD syncs and kubelet pod creation until kyverno recovers.
+# Policies still enforce whenever kyverno is up.
+features:
+  forceFailurePolicyIgnore:
+    enabled: true

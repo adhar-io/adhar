@@ -15,6 +15,7 @@ func (c *ConfigProviderConfig) ToProviderMap() map[string]interface{} {
 		result["credentials_file"] = c.CredentialsFile
 	}
 	result["useEnvironment"] = c.UseEnvironment
+	result["useManagedK8s"] = c.UseManagedK8s
 
 	// AWS authentication
 	if c.AccessKeyID != "" {

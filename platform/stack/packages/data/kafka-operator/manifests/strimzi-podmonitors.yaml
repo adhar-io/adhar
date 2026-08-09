@@ -1,0 +1,98 @@
+# Strimzi PodMonitors (adapted from upstream
+# examples/metrics/prometheus-install/strimzi-pod-monitor.yaml).
+#
+# Differences from upstream:
+#  * namespaceSelector.any: true  — the cluster operator runs with
+#    watchAnyNamespace=true, so Kafka/KafkaConnect CRs may live in any
+#    namespace; discover their pods everywhere (upstream pins "myproject").
+#  * These live in adhar-system (where kube-prometheus runs); the Prometheus
+#    CR now selects PodMonitors cluster-wide
+#    (podMonitorSelectorNilUsesHelmValues=false in the kube-prometheus values).
+#
+# cluster-operator-metrics works immediately (the operator is always running).
+# kafka-resources-metrics only produces data once a Kafka CR runs with
+# metricsConfig referencing the kafka-metrics ConfigMap (kafka-metrics-configmap.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: strimzi-cluster-operator-metrics
+  namespace: adhar-system
+  labels:
+    app: strimzi
+    adhar.io/component: data
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/kind: cluster-operator
+  namespaceSelector:
+    any: true
+  podMetricsEndpoints:
+    - path: /metrics
+      port: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: strimzi-entity-operator-metrics
+  namespace: adhar-system
+  labels:
+    app: strimzi
+    adhar.io/component: data
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: entity-operator
+  namespaceSelector:
+    any: true
+  podMetricsEndpoints:
+    - path: /metrics
+      port: healthcheck
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: strimzi-kafka-resources-metrics
+  namespace: adhar-system
+  labels:
+    app: strimzi
+    adhar.io/component: data
+spec:
+  selector:
+    matchExpressions:
+      - key: "strimzi.io/kind"
+        operator: In
+        values: ["Kafka", "KafkaConnect", "KafkaMirrorMaker2"]
+  namespaceSelector:
+    any: true
+  podMetricsEndpoints:
+    - path: /metrics
+      port: tcp-prometheus
+      relabelings:
+        - separator: ;
+          regex: __meta_kubernetes_pod_label_(strimzi_io_.+)
+          replacement: $1
+          action: labelmap
+        - sourceLabels: [__meta_kubernetes_namespace]
+          separator: ;
+          regex: (.*)
+          targetLabel: namespace
+          replacement: $1
+          action: replace
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          separator: ;
+          regex: (.*)
+          targetLabel: kubernetes_pod_name
+          replacement: $1
+          action: replace
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          separator: ;
+          regex: (.*)
+          targetLabel: node_name
+          replacement: $1
+          action: replace
+        - sourceLabels: [__meta_kubernetes_pod_host_ip]
+          separator: ;
+          regex: (.*)
+          targetLabel: node_ip
+          replacement: $1
+          action: replace

@@ -65,6 +65,9 @@ type NodeInfo struct {
 // Register the AWS provider on package import
 func init() {
 	provider.DefaultFactory.RegisterProvider("aws", func(config map[string]interface{}) (provider.Provider, error) {
+		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
+			return nil, fmt.Errorf("useManagedK8s is not supported for the aws provider: adhar provisions Kubernetes on raw compute here (EKS integration is not offered); remove useManagedK8s or set it to false")
+		}
 		awsConfig := &Config{}
 
 		// Parse AWS-specific configuration with multiple auth methods
@@ -261,38 +264,11 @@ func (p *Provider) ValidatePermissions(ctx context.Context) error {
 	return nil
 }
 
-// generateRandomString generates a random string for tokens
-func generateRandomString(length int) string {
-	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-	result := make([]byte, length)
-	for i := range result {
-		result[i] = charset[time.Now().UnixNano()%int64(len(charset))]
-	}
-	return string(result)
-}
-
 // Helper function to extract cluster name from security group
 func extractClusterNameFromSG(sgID string) string {
 	// This is a simplified implementation
 	// In production, you'd query the security group tags to get the cluster name
 	return "adhar-cluster" // Default fallback
-}
-
-// Helper functions
-func (p *Provider) getClusterServiceRoleArn() string {
-	return "arn:aws:iam::123456789012:role/EKSClusterServiceRole"
-}
-
-func (p *Provider) getSubnetIds() []string {
-	return []string{"subnet-12345", "subnet-67890"}
-}
-
-func (p *Provider) getVpcId() string {
-	return "vpc-12345"
-}
-
-func generateClusterID() string {
-	return fmt.Sprintf("cluster-%d", time.Now().Unix())
 }
 
 func extractClusterName(clusterID string) string {
@@ -359,20 +335,6 @@ func (p *Provider) getUbuntuAMI(ctx context.Context) (string, error) {
 	}
 
 	return *latestAMI.ImageId, nil
-}
-
-// Helper function to convert EKS status to health status
-func getHealthFromEKSStatus(eksStatus string) string {
-	switch eksStatus {
-	case "ACTIVE":
-		return "healthy"
-	case "CREATING", "UPDATING":
-		return "pending"
-	case "DELETING", "FAILED":
-		return "unhealthy"
-	default:
-		return "unknown"
-	}
 }
 
 // isKubectlAvailable checks if kubectl is available in PATH

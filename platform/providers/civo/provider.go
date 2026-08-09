@@ -39,12 +39,21 @@ func init() {
 		if useEnv, ok := config["useEnvironment"].(bool); ok {
 			civoConfig.UseEnvironment = useEnv
 		}
+		// Canonical mode switch: raw compute (default) vs managed k3s.
+		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
+			civoConfig.ClusterMode = "k3s"
+		}
 		if region, ok := config["region"].(string); ok {
 			civoConfig.Region = region
 		}
 
 		// Parse configuration section
 		if configSection, ok := config["config"].(map[string]interface{}); ok {
+
+			// Cluster creation mode: "compute" (default) or "k3s"
+			if mode, ok := configSection["cluster_mode"].(string); ok {
+				civoConfig.ClusterMode = mode
+			}
 
 			// Basic configuration
 			if size, ok := configSection["size"].(string); ok {
@@ -132,9 +141,17 @@ type Provider struct {
 }
 
 type Config struct {
-	Token                string               `json:"token"`
-	TokenFile            string               `json:"tokenFile,omitempty"`
-	UseEnvironment       bool                 `json:"useEnvironment,omitempty"`
+	Token          string `json:"token"`
+	TokenFile      string `json:"tokenFile,omitempty"`
+	UseEnvironment bool   `json:"useEnvironment,omitempty"`
+
+	// ClusterMode selects how clusters are created:
+	//   "compute" (default) — raw Civo instances + kubeadm, Kubernetes managed
+	//   by adhar itself (Cilium replaces kube-proxy during bootstrap, matching
+	//   the local Kind flow).
+	//   "k3s" — Civo's managed Kubernetes service.
+	ClusterMode string `json:"clusterMode,omitempty"`
+
 	Region               string               `json:"region"`
 	Size                 string               `json:"size"`
 	DiskImage            string               `json:"diskImage"`
@@ -254,6 +271,17 @@ func (p *Provider) ValidatePermissions(ctx context.Context) error {
 }
 
 func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
+	// Default mode: self-managed Kubernetes on raw instances. The managed k3s
+	// service is an explicit opt-in via cluster_mode: k3s.
+	switch strings.ToLower(p.config.ClusterMode) {
+	case "", "compute", "instances", "self-managed":
+		return p.createComputeCluster(ctx, spec)
+	case "k3s", "managed":
+		// fall through to the managed k3s implementation below
+	default:
+		return nil, fmt.Errorf("unknown cluster_mode %q (expected \"compute\" or \"k3s\")", p.config.ClusterMode)
+	}
+
 	log.Printf("Creating managed Civo Kubernetes cluster: %s in region %s", spec.Name, p.config.Region)
 
 	if err := p.validateClusterSpec(spec); err != nil {
@@ -860,6 +888,10 @@ func (p *Provider) waitForInstanceReady(ctx context.Context, instanceID string) 
 }
 
 func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
+	if p.isComputeCluster(clusterID) {
+		return p.deleteComputeCluster(ctx, clusterID)
+	}
+
 	log.Printf("Deleting managed Civo Kubernetes cluster: %s", clusterID)
 
 	id, err := p.resolveCivoClusterID(clusterID)
@@ -918,6 +950,10 @@ func (p *Provider) resolveCivoClusterID(clusterID string) (string, error) {
 }
 
 func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
+	if p.isComputeCluster(clusterID) {
+		return p.computeGetKubeconfig(computeClusterName(clusterID))
+	}
+
 	log.Printf("Fetching kubeconfig for Civo cluster: %s", clusterID)
 
 	id, err := p.resolveCivoClusterID(clusterID)
@@ -967,6 +1003,20 @@ func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *ty
 }
 
 func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Cluster, error) {
+	if p.isComputeCluster(clusterID) {
+		name := computeClusterName(clusterID)
+		instances, err := p.computeClusterInstances(name)
+		if err != nil {
+			return nil, err
+		}
+		if len(instances) == 0 {
+			return nil, fmt.Errorf("compute cluster %s not found", name)
+		}
+		cluster := p.computeClusterFromInstances(name, instances)
+		p.clusters[cluster.ID] = cluster
+		return cluster, nil
+	}
+
 	id, err := p.resolveCivoClusterID(clusterID)
 	if err != nil {
 		if cluster, exists := p.clusters[clusterID]; exists {
@@ -986,21 +1036,28 @@ func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Clu
 }
 
 func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
-	log.Printf("Listing managed Civo Kubernetes clusters")
+	log.Printf("Listing Civo clusters (compute + managed k3s)")
+
+	clusters, err := p.listComputeClusters()
+	if err != nil {
+		log.Printf("Warning: failed to discover compute-mode clusters: %v", err)
+	}
+	for _, c := range clusters {
+		p.clusters[c.ID] = c
+	}
 
 	page, err := p.client.ListKubernetesClusters()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list Civo Kubernetes clusters: %w", err)
 	}
 
-	var clusters []*types.Cluster
 	for i := range page.Items {
 		cluster := p.civoToCluster(&page.Items[i])
 		p.clusters[cluster.ID] = cluster
 		clusters = append(clusters, cluster)
 	}
 
-	log.Printf("Found %d managed Civo Kubernetes clusters", len(clusters))
+	log.Printf("Found %d Civo clusters", len(clusters))
 	return clusters, nil
 }
 
@@ -1260,6 +1317,10 @@ func (p *Provider) GetStorage(ctx context.Context, storageID string) (*types.Sto
 	return nil, fmt.Errorf("not implemented")
 }
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
+	if p.isComputeCluster(clusterID) {
+		return p.upgradeComputeCluster(ctx, clusterID, version)
+	}
+
 	id, err := p.resolveCivoClusterID(clusterID)
 	if err != nil {
 		return err

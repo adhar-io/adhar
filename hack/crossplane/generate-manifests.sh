@@ -1,9 +1,11 @@
 #!/bin/bash
 
 # Update Crossplane manifest using Helm
-INSTALL_YAML="platform/controllers/adharplatform/resources/crossplane/install.yaml"
-INSTALL_HA_YAML="platform/controllers/adharplatform/resources/crossplane/install-ha.yaml"
 HACK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Anchored to the script location so output lands in the same place regardless
+# of the directory the script is invoked from.
+INSTALL_YAML="$HACK_DIR/../../platform/controllers/adharplatform/resources/crossplane/install.yaml"
+INSTALL_HA_YAML="$HACK_DIR/../../platform/controllers/adharplatform/resources/crossplane/install-ha.yaml"
 CROSSPLANE_VERSION="v2.3.1"
 CROSSPLANE_NAMESPACE="adhar-system"
 

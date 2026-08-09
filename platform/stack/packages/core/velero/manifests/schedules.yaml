@@ -23,6 +23,8 @@ spec:
       - adhar-system
     includeClusterResources: true
     snapshotVolumes: false
+    # PVC file data rides along via the node agent (restic/kopia FSB).
+    defaultVolumesToFsBackup: true
     storageLocation: default
     ttl: 720h0m0s
 ---
@@ -42,5 +44,7 @@ spec:
       - "*"
     includeClusterResources: true
     snapshotVolumes: false
+    # PVC file data rides along via the node agent (restic/kopia FSB).
+    defaultVolumesToFsBackup: true
     storageLocation: default
     ttl: 2160h0m0s

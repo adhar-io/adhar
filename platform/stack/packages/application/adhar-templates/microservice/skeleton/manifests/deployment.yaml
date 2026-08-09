@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{values.name | dump}}
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${{values.name}}
+  template:
+    metadata:
+      labels:
+        entity-id: ${{values.name}}
+        app.kubernetes.io/name: ${{values.name}}
+        adhar.io/owner: ${{values.owner}}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          # Placeholder until the paved-road pipeline (jenkins-x.yml) builds
+          # and promotes your image: podinfo serves the same contract as the
+          # scaffolded service (/healthz, /readyz on :8080). Replace with your
+          # registry image on first release.
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          command: ["./podinfo", "--port=8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi

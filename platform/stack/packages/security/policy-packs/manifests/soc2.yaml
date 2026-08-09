@@ -1,0 +1,289 @@
+# Policy pack: SOC2-oriented (roadmap Phase 3). An opt-in compliance profile
+# focused on change-management and availability evidence: reproducible
+# deployments (pinned images from known registries), ownership traceability
+# (required labels), and operational readiness (probes, network segmentation).
+# Every policy is labeled `adhar.io/policy-pack: soc2` so findings can be
+# filtered per profile, and every policy ships in Audit mode: violations
+# appear in PolicyReports without blocking anything (ADR-0019 staged rollout).
+# Policy names carry the `soc2-` prefix so the pack can coexist with the
+# baseline security/kyverno-policies package's cluster-scoped policies.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: soc2-require-pinned-images
+  labels:
+    adhar.io/policy-pack: soc2
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "SOC2: Require Pinned Images"
+    policies.kyverno.io/category: "Policy Pack: SOC2"
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Change management requires reproducible deployments: images must be
+      pinned by digest or an explicit tag, and the mutable `:latest` tag is
+      disallowed. Audit mode: violations are reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: require-digest-or-tag
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          Images must be pinned by digest (`@sha256:...`) or an explicit tag;
+          `:latest` and untagged images are not reproducible.
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image }}"
+                    operator: Equals
+                    value: "*:latest"
+                  - key: "{{ (contains(element.image, ':') || contains(element.image, '@')) }}"
+                    operator: Equals
+                    value: false
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: soc2-require-workload-labels
+  labels:
+    adhar.io/policy-pack: soc2
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "SOC2: Require Ownership Labels"
+    policies.kyverno.io/category: "Policy Pack: SOC2"
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/subject: Pod,Deployment
+    policies.kyverno.io/description: >-
+      Every workload must be attributable to an application and an owner for
+      audit trails and incident routing: the labels `app.kubernetes.io/name`
+      and `adhar.io/owner` are required (the golden-path templates set both).
+      Audit mode: violations are reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: require-app-and-owner-labels
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          The labels `app.kubernetes.io/name` and `adhar.io/owner` are
+          required on workload controllers.
+        pattern:
+          metadata:
+            labels:
+              app.kubernetes.io/name: "?*"
+              adhar.io/owner: "?*"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: soc2-restrict-image-registries
+  labels:
+    adhar.io/policy-pack: soc2
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "SOC2: Restrict Image Registries"
+    policies.kyverno.io/category: "Policy Pack: SOC2"
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Vendor management requires software to come from approved sources.
+      Images must be pulled from the platform's own registries or an approved
+      allowlist. PLACEHOLDER ALLOWLIST — the list below contains the
+      platform's registries (in-cluster Gitea/Harbor) plus common public
+      registries; replace or extend it with your organization's approved
+      registries before relying on the findings. Audit mode: violations are
+      reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: allowed-registries
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          Image registry is not in the approved allowlist (platform registries
+          / trusted public registries). Extend the allowlist in the
+          soc2-restrict-image-registries policy for your organization.
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                all:
+                  # PLACEHOLDER ALLOWLIST: platform registries first, then
+                  # common public registries. Adjust before enforcing.
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "gitea.adhar.localtest.me*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "harbor.*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "ghcr.io/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "quay.io/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "docker.io/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "registry.k8s.io/*"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: soc2-require-pod-probes
+  labels:
+    adhar.io/policy-pack: soc2
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "SOC2: Require Pod Probes"
+    policies.kyverno.io/category: "Policy Pack: SOC2"
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Availability commitments require the platform to detect and route around
+      unhealthy workloads: every container must define both a livenessProbe
+      and a readinessProbe. Audit mode: violations are reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: require-liveness-readiness
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          Every container must define both a livenessProbe and a
+          readinessProbe.
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: livenessProbe
+                    operator: AllNotIn
+                    value: "{{ element.keys(@) }}"
+                  - key: readinessProbe
+                    operator: AllNotIn
+                    value: "{{ element.keys(@) }}"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: soc2-audit-networkpolicy-presence
+  labels:
+    adhar.io/policy-pack: soc2
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "SOC2: Audit NetworkPolicy Presence"
+    policies.kyverno.io/category: "Policy Pack: SOC2"
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Namespace,NetworkPolicy
+    policies.kyverno.io/description: >-
+      Logical access controls extend to the network: every workload namespace
+      should carry at least one NetworkPolicy so traffic is segmented by
+      intent rather than flat-open (Cilium enforces the policies). This rule
+      reports namespaces with no NetworkPolicy. Audit mode: violations are
+      reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: namespace-has-networkpolicy
+      match:
+        any:
+          - resources:
+              kinds: ["Namespace"]
+      exclude:
+        any:
+          - resources:
+              names:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      context:
+        - name: policyCount
+          apiCall:
+            urlPath: "/apis/networking.k8s.io/v1/namespaces/{{ request.object.metadata.name }}/networkpolicies"
+            jmesPath: "items | length(@)"
+      validate:
+        message: >-
+          The namespace has no NetworkPolicy. Define at least one so traffic
+          in the namespace is segmented by intent.
+        deny:
+          conditions:
+            all:
+              - key: "{{ policyCount }}"
+                operator: Equals
+                value: 0

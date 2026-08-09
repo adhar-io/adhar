@@ -48,6 +48,13 @@ type Config struct {
 	// Option 3: Environment variable (DIGITALOCEAN_TOKEN)
 	UseEnvironment bool `json:"useEnvironment,omitempty"`
 
+	// ClusterMode selects how clusters are created:
+	//   "compute" (default) — raw droplets + kubeadm, Kubernetes managed by
+	//   adhar itself (Cilium replaces kube-proxy during bootstrap, matching
+	//   the local Kind flow).
+	//   "doks" — DigitalOcean's managed Kubernetes service.
+	ClusterMode string `json:"clusterMode,omitempty"`
+
 	// Configuration
 	Region      string `json:"region"`      // Default region for resources
 	DropletSize string `json:"dropletSize"` // Default droplet size
@@ -103,48 +110,22 @@ type DestinationsConfig struct {
 	DropletIDs []int    `json:"dropletIds,omitempty"`
 }
 
-// NodeInfo contains information about a droplet node
-type NodeInfo struct {
-	Name      string
-	DropletID int
-	PublicIP  string
-	PrivateIP string
-	Size      string
-	IsMaster  bool
-	CreatedAt time.Time
-}
-
-// ClusterInfrastructure tracks the infrastructure components of a cluster
-type ClusterInfrastructure struct {
-	VPCName      string
-	VPCUUID      string
-	FirewallName string
-	FirewallUUID string
-	MasterNodes  []NodeInfo
-	WorkerNodes  []NodeInfo
-}
-
-// ResourceTracker tracks all resources created for a cluster
-type ResourceTracker struct {
-	Region    string
-	VPCs      []string
-	Firewalls []string
-	Droplets  []int
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-// Provider implements the DigitalOcean provider for manual Kubernetes clusters
+// Provider implements the DigitalOcean provider backed by managed DOKS
+// (DigitalOcean Kubernetes) clusters via the godo API.
 type Provider struct {
-	client           *godo.Client
-	config           *Config
-	clusters         map[string]*types.Cluster
-	resourceTrackers map[string]*ResourceTracker
+	client   *godo.Client
+	config   *Config
+	clusters map[string]*types.Cluster
+	// token is retained for in-cluster cloud integration (CCM/CSI secret).
+	token string
 }
 
-// NewProvider creates a new DigitalOcean provider instance with manual cluster support
+// Compile-time check that Provider satisfies the platform provider interface.
+var _ provider.Provider = (*Provider)(nil)
+
+// NewProvider creates a new DigitalOcean provider instance for managed DOKS clusters
 func NewProvider(config *Config) (*Provider, error) {
-	log.Printf("Initializing DigitalOcean provider with manual cluster support")
+	log.Printf("Initializing DigitalOcean provider (managed DOKS)")
 
 	// Determine authentication method and get the token
 	var token string
@@ -218,10 +199,10 @@ func NewProvider(config *Config) (*Provider, error) {
 	client := godo.NewClient(oauthClient)
 
 	provider := &Provider{
-		client:           client,
-		config:           config,
-		clusters:         make(map[string]*types.Cluster),
-		resourceTrackers: make(map[string]*ResourceTracker),
+		client:   client,
+		config:   config,
+		clusters: make(map[string]*types.Cluster),
+		token:    token,
 	}
 
 	log.Printf("DigitalOcean provider initialized successfully")
@@ -236,8 +217,20 @@ func NewDigitalOceanProvider(configMap map[string]interface{}) (provider.Provide
 	if token, ok := configMap["token"].(string); ok {
 		doConfig.Token = token
 	}
+	// credentials_file is the generic key ToProviderMap emits; tokenFile is the
+	// provider-native spelling. Either populates the token-from-file path.
+	if tokenFile, ok := configMap["credentials_file"].(string); ok {
+		doConfig.TokenFile = tokenFile
+	}
+	if tokenFile, ok := configMap["tokenFile"].(string); ok {
+		doConfig.TokenFile = tokenFile
+	}
 	if useEnv, ok := configMap["useEnvironment"].(bool); ok {
 		doConfig.UseEnvironment = useEnv
+	}
+	// Canonical mode switch: raw compute (default) vs the managed service.
+	if managed, ok := configMap["useManagedK8s"].(bool); ok && managed {
+		doConfig.ClusterMode = "doks"
 	}
 
 	// Parse basic configuration
@@ -247,6 +240,10 @@ func NewDigitalOceanProvider(configMap map[string]interface{}) (provider.Provide
 
 	// Parse configuration section
 	if configSection, ok := configMap["config"].(map[string]interface{}); ok {
+		// Cluster creation mode: "compute" (default) or "doks"
+		if mode, ok := configSection["cluster_mode"].(string); ok {
+			doConfig.ClusterMode = mode
+		}
 		// Parse droplet configuration
 		if dropletSize, ok := configSection["droplet_size"].(string); ok {
 			doConfig.DropletSize = dropletSize
@@ -381,19 +378,17 @@ func (p *Provider) Authenticate(ctx context.Context, credentials *types.Credenti
 	return nil
 }
 
-// ValidatePermissions checks if we have required permissions for manual cluster creation
+// ValidatePermissions checks the token has the access DOKS cluster management
+// actually needs: the Kubernetes API for clusters and the VPC API (clusters
+// are attached to a VPC when one is configured).
 func (p *Provider) ValidatePermissions(ctx context.Context) error {
-	log.Printf("Validating DigitalOcean permissions for manual cluster creation")
+	log.Printf("Validating DigitalOcean permissions for DOKS cluster management")
 
-	// Check droplet permissions
-	_, _, err := p.client.Droplets.List(ctx, &godo.ListOptions{Page: 1, PerPage: 1})
-	if err != nil {
-		return fmt.Errorf("insufficient droplet permissions: %w", err)
+	if _, _, err := p.client.Kubernetes.List(ctx, &godo.ListOptions{Page: 1, PerPage: 1}); err != nil {
+		return fmt.Errorf("insufficient Kubernetes (DOKS) permissions: %w", err)
 	}
 
-	// Check VPC permissions
-	_, _, err = p.client.VPCs.List(ctx, &godo.ListOptions{Page: 1, PerPage: 1})
-	if err != nil {
+	if _, _, err := p.client.VPCs.List(ctx, &godo.ListOptions{Page: 1, PerPage: 1}); err != nil {
 		return fmt.Errorf("insufficient VPC permissions: %w", err)
 	}
 
@@ -406,6 +401,17 @@ func (p *Provider) ValidatePermissions(ctx context.Context) error {
 func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
 	if spec.Provider != "" && spec.Provider != "digitalocean" {
 		return nil, fmt.Errorf("provider mismatch: expected digitalocean, got %s", spec.Provider)
+	}
+
+	// Default mode: self-managed Kubernetes on raw droplets. The managed DOKS
+	// service is an explicit opt-in via cluster_mode: doks.
+	switch strings.ToLower(p.config.ClusterMode) {
+	case "", "compute", "droplets", "self-managed":
+		return p.createComputeCluster(ctx, spec)
+	case "doks", "managed":
+		// fall through to the DOKS implementation below
+	default:
+		return nil, fmt.Errorf("unknown cluster_mode %q (expected \"compute\" or \"doks\")", p.config.ClusterMode)
 	}
 
 	log.Printf("Creating managed DOKS cluster: %s", spec.Name)
@@ -614,822 +620,16 @@ func (p *Provider) validateClusterSpec(spec *types.ClusterSpec) error {
 	}
 	return nil
 }
-
-// createClusterInfrastructure creates the DigitalOcean infrastructure for a manual Kubernetes cluster
-func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName string, spec *types.ClusterSpec) (*ClusterInfrastructure, error) {
-	log.Printf("Creating infrastructure for cluster: %s", clusterName)
-
-	infrastructure := &ClusterInfrastructure{}
-
-	// Create or use existing VPC
-	var vpcUUID string
-	var vpcName string
-	var err error
-
-	if p.config.VPCUUID != "" {
-		// Use existing VPC by UUID
-		vpcUUID = p.config.VPCUUID
-		vpc, _, err := p.client.VPCs.Get(ctx, vpcUUID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get existing VPC %s: %w", vpcUUID, err)
-		}
-		vpcName = vpc.Name
-		log.Printf("Using existing VPC by UUID: %s (UUID: %s)", vpcName, vpcUUID)
-	} else {
-		// Check if we should reuse an existing VPC with compatible CIDR
-		existingVPC := p.findReusableVPC(ctx, clusterName)
-		if existingVPC != nil {
-			vpcUUID = existingVPC.ID
-			vpcName = existingVPC.Name
-			log.Printf("Reusing existing compatible VPC: %s (UUID: %s, CIDR: %s)", vpcName, vpcUUID, existingVPC.IPRange)
-		} else {
-			// Create new VPC with unique name to avoid conflicts
-			timestamp := time.Now().Unix()
-			vpcName = fmt.Sprintf("%s-vpc-%d", clusterName, timestamp)
-			vpcUUID, err = p.createVPC(ctx, vpcName)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create VPC: %w", err)
-			}
-		}
-	}
-	infrastructure.VPCName = vpcName
-	infrastructure.VPCUUID = vpcUUID
-
-	// Create firewall with unique name to avoid conflicts
-	timestamp := time.Now().Unix()
-	firewallName := fmt.Sprintf("%s-firewall-%d", clusterName, timestamp)
-	firewallUUID, err := p.createFirewall(ctx, firewallName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create firewall: %w", err)
-	}
-	infrastructure.FirewallName = firewallName
-	infrastructure.FirewallUUID = firewallUUID
-
-	// Create master nodes
-	masterNodes, err := p.createMasterNodes(ctx, clusterName, vpcUUID, firewallUUID, spec)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create master nodes: %w", err)
-	}
-	infrastructure.MasterNodes = masterNodes
-
-	// Create worker nodes if specified
-	if len(spec.NodeGroups) > 0 {
-		workerNodes, err := p.createWorkerNodes(ctx, clusterName, vpcUUID, firewallUUID, spec)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create worker nodes: %w", err)
-		}
-		infrastructure.WorkerNodes = workerNodes
-	}
-
-	log.Printf("Successfully created infrastructure for cluster: %s", clusterName)
-	return infrastructure, nil
-}
-
-// createVPC creates a VPC using DigitalOcean SDK with conflict resolution
-func (p *Provider) createVPC(ctx context.Context, vpcName string) (string, error) {
-	log.Printf("Creating VPC: %s", vpcName)
-
-	// Use configured VPC CIDR or default
-	baseCIDR := "10.0.0.0/16" // Default CIDR
-	if p.config.VPCCIDR != "" {
-		baseCIDR = p.config.VPCCIDR
-	}
-
-	// Check for existing VPCs to avoid CIDR conflicts
-	existingVPCs, _, err := p.client.VPCs.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: failed to list existing VPCs: %v", err)
-		// Continue with original CIDR
-	} else {
-		// Check if the configured CIDR conflicts with existing VPCs
-		vpcCIDR := p.findAvailableCIDR(baseCIDR, existingVPCs)
-		if vpcCIDR != baseCIDR {
-			log.Printf("CIDR conflict detected. Using alternative CIDR: %s", vpcCIDR)
-		}
-		baseCIDR = vpcCIDR
-	}
-
-	createRequest := &godo.VPCCreateRequest{
-		Name:       vpcName,
-		RegionSlug: p.config.Region,
-		IPRange:    baseCIDR,
-	}
-
-	vpc, _, err := p.client.VPCs.Create(ctx, createRequest)
-	if err != nil {
-		return "", fmt.Errorf("failed to create VPC: %w", err)
-	}
-
-	log.Printf("Successfully created VPC: %s (UUID: %s, CIDR: %s)", vpcName, vpc.ID, baseCIDR)
-	return vpc.ID, nil
-}
-
-// findAvailableCIDR finds an available CIDR range that doesn't conflict with existing VPCs
-func (p *Provider) findAvailableCIDR(preferredCIDR string, existingVPCs []*godo.VPC) string {
-	// Check if preferred CIDR conflicts
-	for _, vpc := range existingVPCs {
-		if vpc.IPRange == preferredCIDR {
-			log.Printf("CIDR conflict found: %s is used by VPC %s", preferredCIDR, vpc.Name)
-			// Generate alternative CIDRs
-			return p.generateAlternativeCIDR(preferredCIDR, existingVPCs)
-		}
-	}
-	return preferredCIDR
-}
-
-// generateAlternativeCIDR generates an alternative CIDR that doesn't conflict
-func (p *Provider) generateAlternativeCIDR(baseCIDR string, existingVPCs []*godo.VPC) string {
-	// Parse the base CIDR to get the network class
-	var baseClass string
-	switch {
-	case strings.HasPrefix(baseCIDR, "10.0."):
-		baseClass = "10."
-	case strings.HasPrefix(baseCIDR, "10.1."):
-		baseClass = "10."
-	case strings.HasPrefix(baseCIDR, "10.2."):
-		baseClass = "10."
-	case strings.HasPrefix(baseCIDR, "10.3."):
-		baseClass = "10."
-	default:
-		baseClass = "10."
-	}
-
-	// DigitalOcean reserved ranges to avoid: 10.10.0.0/16, 10.244.0.0/16, 10.245.0.0/16
-	reservedRanges := map[string]bool{
-		"10.10.0.0/16":  true,
-		"10.244.0.0/16": true,
-		"10.245.0.0/16": true,
-	}
-
-	// Try different subnets in the 10.x.0.0/16 range, skipping reserved ranges
-	for i := 4; i <= 254; i++ {
-		candidateCIDR := fmt.Sprintf("%s%d.0.0/16", baseClass, i)
-
-		// Skip if it's a reserved range
-		if reservedRanges[candidateCIDR] {
-			continue
-		}
-
-		conflict := false
-		for _, vpc := range existingVPCs {
-			if vpc.IPRange == candidateCIDR {
-				conflict = true
-				break
-			}
-		}
-
-		if !conflict {
-			log.Printf("Found available CIDR: %s", candidateCIDR)
-			return candidateCIDR
-		}
-	}
-
-	// Fallback to timestamp-based CIDR (avoiding reserved ranges)
-	for attempt := 0; attempt < 10; attempt++ {
-		timestamp := time.Now().Unix()%200 + 50 // Range 50-249
-		fallbackCIDR := fmt.Sprintf("10.%d.0.0/16", timestamp)
-		if !reservedRanges[fallbackCIDR] {
-			log.Printf("Using timestamp-based fallback CIDR: %s", fallbackCIDR)
-			return fallbackCIDR
-		}
-	}
-
-	// Ultimate fallback
-	return "10.200.0.0/16"
-}
-
-// findReusableVPC checks if there's an existing VPC that can be reused
-func (p *Provider) findReusableVPC(ctx context.Context, clusterName string) *godo.VPC {
-	// Only try to reuse VPCs if explicitly configured to do so
-	if !p.config.ReuseExistingVPC {
-		return nil
-	}
-
-	log.Printf("Checking for reusable VPC with CIDR: %s", p.config.VPCCIDR)
-
-	existingVPCs, _, err := p.client.VPCs.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: failed to list VPCs for reuse check: %v", err)
-		return nil
-	}
-
-	targetCIDR := p.config.VPCCIDR
-	if targetCIDR == "" {
-		targetCIDR = "10.0.0.0/16" // Default CIDR
-	}
-
-	// Look for a VPC with the same CIDR in the same region
-	for _, vpc := range existingVPCs {
-		if vpc.IPRange == targetCIDR && vpc.RegionSlug == p.config.Region {
-			log.Printf("Found reusable VPC: %s (UUID: %s, CIDR: %s)", vpc.Name, vpc.ID, vpc.IPRange)
-			return vpc
-		}
-	}
-
-	log.Printf("No reusable VPC found with CIDR %s in region %s", targetCIDR, p.config.Region)
-	return nil
-}
-
-// createFirewall creates a firewall with configured rules using DigitalOcean SDK
-func (p *Provider) createFirewall(ctx context.Context, firewallName string) (string, error) {
-	log.Printf("Creating firewall: %s", firewallName)
-
-	var inboundRules []godo.InboundRule
-	var outboundRules []godo.OutboundRule
-	var tags []string
-
-	// Use configured firewall rules if available
-	if len(p.config.FirewallRules) > 0 {
-		for _, fwRule := range p.config.FirewallRules {
-			// Process inbound rules
-			for _, inRule := range fwRule.InboundRules {
-				rule := godo.InboundRule{
-					Protocol:  inRule.Protocol,
-					PortRange: inRule.Ports,
-					Sources: &godo.Sources{
-						Addresses:  inRule.Sources.Addresses,
-						Tags:       inRule.Sources.Tags,
-						DropletIDs: inRule.Sources.DropletIDs,
-					},
-				}
-				inboundRules = append(inboundRules, rule)
-			}
-
-			// Process outbound rules
-			for _, outRule := range fwRule.OutboundRules {
-				rule := godo.OutboundRule{
-					Protocol:  outRule.Protocol,
-					PortRange: outRule.Ports,
-					Destinations: &godo.Destinations{
-						Addresses:  outRule.Destinations.Addresses,
-						Tags:       outRule.Destinations.Tags,
-						DropletIDs: outRule.Destinations.DropletIDs,
-					},
-				}
-				outboundRules = append(outboundRules, rule)
-			}
-		}
-	} else {
-		// Default firewall rules for Kubernetes if no configuration provided
-		vpcCIDR := "10.0.0.0/16"
-		if p.config.VPCCIDR != "" {
-			vpcCIDR = p.config.VPCCIDR
-		}
-
-		inboundRules = []godo.InboundRule{
-			{
-				Protocol:  "tcp",
-				PortRange: "22",
-				Sources: &godo.Sources{
-					Addresses: []string{"0.0.0.0/0", "::/0"},
-				},
-			},
-			{
-				Protocol:  "tcp",
-				PortRange: "6443",
-				Sources: &godo.Sources{
-					Addresses: []string{"0.0.0.0/0", "::/0"},
-				},
-			},
-			{
-				Protocol:  "tcp",
-				PortRange: "2379-2380",
-				Sources: &godo.Sources{
-					Addresses: []string{vpcCIDR},
-				},
-			},
-			{
-				Protocol:  "tcp",
-				PortRange: "10250-10252",
-				Sources: &godo.Sources{
-					Addresses: []string{vpcCIDR},
-				},
-			},
-			{
-				Protocol:  "tcp",
-				PortRange: "30000-32767",
-				Sources: &godo.Sources{
-					Addresses: []string{"0.0.0.0/0", "::/0"},
-				},
-			},
-		}
-
-		outboundRules = []godo.OutboundRule{
-			{
-				Protocol:  "tcp",
-				PortRange: "all",
-				Destinations: &godo.Destinations{
-					Addresses: []string{"0.0.0.0/0", "::/0"},
-				},
-			},
-			{
-				Protocol:  "udp",
-				PortRange: "all",
-				Destinations: &godo.Destinations{
-					Addresses: []string{"0.0.0.0/0", "::/0"},
-				},
-			},
-		}
-	}
-
-	// Don't use tags in firewall creation - apply firewall to droplets individually instead
-	// This avoids the "tag does not exist" error since droplets aren't created yet
-	tags = []string{} // Empty tags for firewall creation
-
-	createRequest := &godo.FirewallRequest{
-		Name:          firewallName,
-		InboundRules:  inboundRules,
-		OutboundRules: outboundRules,
-		Tags:          tags, // Empty initially - will apply to droplets directly
-	}
-
-	firewall, _, err := p.client.Firewalls.Create(ctx, createRequest)
-	if err != nil {
-		return "", fmt.Errorf("failed to create firewall: %w", err)
-	}
-
-	log.Printf("Successfully created firewall: %s (UUID: %s)", firewallName, firewall.ID)
-	return firewall.ID, nil
-}
-
-// createMasterNodes creates master nodes for the Kubernetes cluster using DigitalOcean SDK
-func (p *Provider) createMasterNodes(ctx context.Context, clusterName, vpcUUID, firewallUUID string, spec *types.ClusterSpec) ([]NodeInfo, error) {
-	log.Printf("Creating master nodes for cluster: %s", clusterName)
-
-	var masterNodes []NodeInfo
-
-	for i := 0; i < spec.ControlPlane.Replicas; i++ {
-		dropletName := fmt.Sprintf("%s-master-%d", clusterName, i)
-
-		nodeInfo, err := p.createDroplet(ctx, dropletName, vpcUUID, firewallUUID, spec.ControlPlane.InstanceType, true)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create master node %s: %w", dropletName, err)
-		}
-
-		masterNodes = append(masterNodes, *nodeInfo)
-	}
-
-	log.Printf("Successfully created master nodes: %d nodes", len(masterNodes))
-	return masterNodes, nil
-}
-
-// createWorkerNodes creates worker nodes for the Kubernetes cluster using DigitalOcean SDK
-func (p *Provider) createWorkerNodes(ctx context.Context, clusterName, vpcUUID, firewallUUID string, spec *types.ClusterSpec) ([]NodeInfo, error) {
-	log.Printf("Creating worker nodes for cluster: %s", clusterName)
-
-	var workerNodes []NodeInfo
-
-	for _, nodeGroup := range spec.NodeGroups {
-		for i := 0; i < nodeGroup.Replicas; i++ {
-			dropletName := fmt.Sprintf("%s-worker-%s-%d", clusterName, nodeGroup.Name, i)
-
-			nodeInfo, err := p.createDroplet(ctx, dropletName, vpcUUID, firewallUUID, nodeGroup.InstanceType, false)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create worker node %s: %w", dropletName, err)
-			}
-
-			workerNodes = append(workerNodes, *nodeInfo)
-		}
-	}
-
-	log.Printf("Successfully created worker nodes: %d nodes", len(workerNodes))
-	return workerNodes, nil
-}
-
-// validateDropletSize validates and potentially corrects the droplet size
-func (p *Provider) validateDropletSize(ctx context.Context, size string) (string, error) {
-	// Get available sizes for the region
-	sizes, _, err := p.client.Sizes.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: failed to list available sizes: %v", err)
-		// Return common size mappings as fallback
-		return p.getCommonSizeMapping(size), nil
-	}
-
-	// Check if the requested size exists
-	for _, availableSize := range sizes {
-		if availableSize.Slug == size {
-			log.Printf("Validated droplet size: %s", size)
-			return size, nil
-		}
-	}
-
-	// Size not found, log available sizes and suggest alternative
-	log.Printf("Invalid droplet size '%s'. Available sizes:", size)
-	for i, availableSize := range sizes {
-		if i < 10 { // Log first 10 sizes to avoid spam
-			log.Printf("  - %s (vcpus: %d, memory: %dMB, disk: %dGB, price: $%.2f/hr)",
-				availableSize.Slug, availableSize.Vcpus, availableSize.Memory,
-				availableSize.Disk, availableSize.PriceHourly)
-		}
-	}
-
-	// Try to find a suitable alternative
-	suggestedSize := p.findSuitableSize(sizes, size)
-	log.Printf("Using suggested droplet size: %s", suggestedSize)
-	return suggestedSize, nil
-}
-
-// getCommonSizeMapping provides fallback mappings for common size patterns
-func (p *Provider) getCommonSizeMapping(requestedSize string) string {
-	mappings := map[string]string{
-		// Exact DigitalOcean sizes
-		"s-1vcpu-512mb-10gb": "s-1vcpu-512mb-10gb",
-		"s-1vcpu-1gb":        "s-1vcpu-1gb",
-		"s-1vcpu-2gb":        "s-1vcpu-2gb",
-		"s-2vcpu-2gb":        "s-2vcpu-2gb",
-		"s-2vcpu-4gb":        "s-2vcpu-4gb",
-		"s-4vcpu-8gb":        "s-4vcpu-8gb",
-
-		// Common generic size mappings
-		"small":  "s-1vcpu-1gb",
-		"medium": "s-2vcpu-2gb",
-		"large":  "s-4vcpu-8gb",
-		"xlarge": "s-8vcpu-16gb",
-
-		// AWS style mappings
-		"t3.micro":  "s-1vcpu-1gb",
-		"t3.small":  "s-1vcpu-2gb",
-		"t3.medium": "s-2vcpu-2gb",
-		"t3.large":  "s-2vcpu-4gb",
-
-		// GCP style mappings
-		"e2-micro":      "s-1vcpu-1gb",
-		"e2-small":      "s-1vcpu-2gb",
-		"e2-medium":     "s-2vcpu-2gb",
-		"e2-standard-2": "s-2vcpu-4gb",
-
-		// Azure style mappings
-		"Standard_B1s":  "s-1vcpu-1gb",
-		"Standard_B2s":  "s-2vcpu-2gb",
-		"Standard_B4ms": "s-4vcpu-8gb",
-	}
-
-	if mapped, exists := mappings[requestedSize]; exists {
-		log.Printf("Mapped size '%s' to '%s'", requestedSize, mapped)
-		return mapped
-	}
-
-	// Default fallback to most basic size
-	log.Printf("No mapping found for '%s', using default: s-1vcpu-1gb", requestedSize)
-	return "s-1vcpu-1gb"
-}
-
-// findSuitableSize finds a suitable alternative size based on the requested size
-func (p *Provider) findSuitableSize(availableSizes []godo.Size, requestedSize string) string {
-	// First, try to find basic droplet sizes (s- prefix)
-	for _, size := range availableSizes {
-		if strings.HasPrefix(size.Slug, "s-") {
-			if size.Vcpus >= 1 && size.Memory >= 1024 { // At least 1 vCPU and 1GB RAM
-				return size.Slug
-			}
-		}
-	}
-
-	// Fallback to any available size
-	if len(availableSizes) > 0 {
-		return availableSizes[0].Slug
-	}
-
-	// Ultimate fallback
-	return "s-1vcpu-1gb"
-}
-
-// createDroplet creates a droplet with Kubernetes setup using DigitalOcean SDK
-func (p *Provider) createDroplet(ctx context.Context, dropletName, vpcUUID, firewallUUID, size string, isMaster bool) (*NodeInfo, error) {
-	log.Printf("Creating droplet: %s", dropletName)
-
-	// Validate and correct droplet size
-	validatedSize, err := p.validateDropletSize(ctx, size)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate droplet size: %w", err)
-	}
-	if validatedSize != size {
-		log.Printf("Droplet size changed from '%s' to '%s'", size, validatedSize)
-	}
-
-	// Generate kubeadm initialization script
-	userDataScript := p.generateKubernetesSetupScript(isMaster)
-
-	// Process SSH keys
-	var sshKeys []godo.DropletCreateSSHKey
-	for _, sshKey := range p.config.SSHKeys {
-		switch key := sshKey.(type) {
-		case string:
-			// Fingerprint or key ID
-			sshKeys = append(sshKeys, godo.DropletCreateSSHKey{
-				Fingerprint: key,
-			})
-		case float64:
-			// Numeric ID
-			sshKeys = append(sshKeys, godo.DropletCreateSSHKey{
-				ID: int(key),
-			})
-		case int:
-			// Numeric ID
-			sshKeys = append(sshKeys, godo.DropletCreateSSHKey{
-				ID: key,
-			})
-		}
-	}
-
-	// Use configured tags or default ones
-	tags := []string{"adhar-cluster", "kubernetes"}
-	if len(p.config.Tags) > 0 {
-		tags = p.config.Tags
-	}
-
-	createRequest := &godo.DropletCreateRequest{
-		Name:   dropletName,
-		Region: p.config.Region,
-		Size:   validatedSize,
-		Image: godo.DropletCreateImage{
-			Slug: p.config.Image,
-		},
-		VPCUUID:  vpcUUID,
-		SSHKeys:  sshKeys,
-		Tags:     tags,
-		UserData: userDataScript,
-	}
-
-	droplet, _, err := p.client.Droplets.Create(ctx, createRequest)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create droplet: %w", err)
-	}
-
-	// Wait for droplet to be running
-	err = p.waitForDropletReady(ctx, droplet.ID)
-	if err != nil {
-		return nil, fmt.Errorf("droplet failed to become ready: %w", err)
-	}
-
-	// Get updated droplet info with IP addresses
-	droplet, _, err = p.client.Droplets.Get(ctx, droplet.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get droplet details: %w", err)
-	}
-
-	// Apply firewall to droplet
-	_, err = p.client.Firewalls.AddDroplets(ctx, firewallUUID, droplet.ID)
-	if err != nil {
-		log.Printf("Warning: failed to apply firewall to droplet %s: %v", dropletName, err)
-	}
-
-	// Get IP addresses
-	publicIP, err := droplet.PublicIPv4()
-	if err != nil {
-		publicIP = ""
-	}
-	privateIP, err := droplet.PrivateIPv4()
-	if err != nil {
-		privateIP = ""
-	}
-
-	nodeInfo := &NodeInfo{
-		Name:      dropletName,
-		DropletID: droplet.ID,
-		PublicIP:  publicIP,
-		PrivateIP: privateIP,
-		Size:      size,
-		IsMaster:  isMaster,
-		CreatedAt: time.Now(),
-	}
-
-	log.Printf("Successfully created droplet: %s (ID: %d, Public IP: %s)", dropletName, droplet.ID, publicIP)
-	return nodeInfo, nil
-}
-
-// generateKubernetesSetupScript generates cloud-init script for Kubernetes setup
-func (p *Provider) generateKubernetesSetupScript(isMaster bool) string {
-	script := `#!/bin/bash
-set -e
-
-# Update system
-apt-get update
-apt-get install -y apt-transport-https ca-certificates curl
-
-# Install Docker
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io
-
-# Configure Docker for Kubernetes
-cat > /etc/docker/daemon.json <<EOF
-{
-  "exec-opts": ["native.cgroupdriver=systemd"],
-  "log-driver": "json-file",
-  "log-opts": {
-	"max-size": "100m"
-  },
-  "storage-driver": "overlay2"
-}
-EOF
-
-mkdir -p /etc/systemd/system/docker.service.d
-systemctl daemon-reload
-systemctl restart docker
-systemctl enable docker
-
-# Install Kubernetes components
-curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
-echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
-apt-get update
-apt-get install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-
-# Configure kubelet
-cat > /etc/default/kubelet <<EOF
-KUBELET_EXTRA_ARGS=--cloud-provider=external
-EOF
-
-systemctl daemon-reload
-systemctl restart kubelet
-systemctl enable kubelet
-
-# Disable swap
-swapoff -a
-sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
-`
-
-	if isMaster {
-		script += `
-# Initialize Kubernetes cluster for master node
-kubeadm init --pod-network-cidr=10.244.0.0/16 --apiserver-advertise-address=$(curl -s http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address) --node-name=$(hostname)
-
-# Setup kubectl for root user
-mkdir -p /root/.kube
-cp -i /etc/kubernetes/admin.conf /root/.kube/config
-chown root:root /root/.kube/config
-
-# Install Flannel CNI
-kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
-
-# Save join command for worker nodes
-kubeadm token create --print-join-command > /tmp/kubeadm-join.sh
-chmod +x /tmp/kubeadm-join.sh
-`
-	}
-
-	return script
-}
-
-// waitForDropletReady waits for a droplet to become ready
-func (p *Provider) waitForDropletReady(ctx context.Context, dropletID int) error {
-	log.Printf("Waiting for droplet %d to become ready", dropletID)
-
-	timeout := time.After(10 * time.Minute)
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			return fmt.Errorf("timeout waiting for droplet %d to become ready", dropletID)
-		case <-ticker.C:
-			droplet, _, err := p.client.Droplets.Get(ctx, dropletID)
-			if err != nil {
-				log.Printf("Error checking droplet status: %v", err)
-				continue
-			}
-
-			publicIP, _ := droplet.PublicIPv4()
-			if droplet.Status == "active" && publicIP != "" {
-				log.Printf("Droplet %d is ready (IP: %s)", dropletID, publicIP)
-				return nil
-			}
-
-			log.Printf("Droplet %d status: %s", dropletID, droplet.Status)
-		}
-	}
-}
-
-// discoverExistingClusters discovers clusters by finding DigitalOcean resources with adhar tags
-func (p *Provider) discoverExistingClusters(ctx context.Context) ([]*types.Cluster, error) {
-	log.Printf("Discovering existing clusters from DigitalOcean resources")
-
-	clusterMap := make(map[string]*types.Cluster)
-
-	// Find droplets with adhar tags
-	droplets, _, err := p.client.Droplets.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list droplets: %w", err)
-	}
-
-	for _, droplet := range droplets {
-		clusterName := p.extractClusterNameFromDroplet(&droplet)
-		if clusterName != "" {
-			if cluster, exists := clusterMap[clusterName]; exists {
-				// Add droplet to existing cluster
-				cluster.Status = p.determineClusterStatus(droplet.Status)
-			} else {
-				// Parse creation time
-				createdAt, err := time.Parse(time.RFC3339, droplet.Created)
-				if err != nil {
-					createdAt = time.Now() // fallback
-				}
-
-				// Create new cluster entry
-				cluster := &types.Cluster{
-					ID:        clusterName,
-					Name:      clusterName,
-					Provider:  "digitalocean",
-					Region:    droplet.Region.Slug,
-					Status:    p.determineClusterStatus(droplet.Status),
-					CreatedAt: createdAt,
-					UpdatedAt: time.Now(),
-					Tags:      make(map[string]string),
-					Metadata:  make(map[string]interface{}),
-				}
-				clusterMap[clusterName] = cluster
-			}
-		}
-	}
-
-	// Find VPCs with adhar in the name (created by our provider)
-	vpcs, _, err := p.client.VPCs.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: Failed to list VPCs: %v", err)
-	} else {
-		for _, vpc := range vpcs {
-			clusterName := p.extractClusterNameFromVPC(vpc)
-			if clusterName != "" {
-				if cluster, exists := clusterMap[clusterName]; exists {
-					// Store VPC info in cluster metadata
-					cluster.Metadata["vpc_id"] = vpc.ID
-					cluster.Metadata["vpc_name"] = vpc.Name
-					cluster.Metadata["vpc_cidr"] = vpc.IPRange
-				}
-			}
-		}
-	}
-
-	// Convert map to slice
-	var clusters []*types.Cluster
-	for _, cluster := range clusterMap {
-		clusters = append(clusters, cluster)
-	}
-
-	log.Printf("Discovered %d existing clusters", len(clusters))
-	return clusters, nil
-}
-
-// extractClusterNameFromDroplet extracts cluster name from droplet name or tags
-func (p *Provider) extractClusterNameFromDroplet(droplet *godo.Droplet) string {
-	// Check if droplet name follows our naming pattern: {cluster}-master-{n} or {cluster}-worker-{n}
-	name := droplet.Name
-	if strings.Contains(name, "-master-") {
-		return strings.Split(name, "-master-")[0]
-	}
-	if strings.Contains(name, "-worker-") {
-		return strings.Split(name, "-worker-")[0]
-	}
-
-	// Check tags for adhar cluster tags
-	for _, tag := range droplet.Tags {
-		if tag == "adhar" || tag == "kubernetes" {
-			// This is likely an adhar-managed droplet
-			// Try to extract cluster name from droplet name
-			parts := strings.Split(name, "-")
-			if len(parts) >= 2 {
-				return strings.Join(parts[:len(parts)-2], "-") // Remove last two parts (role-number)
-			}
-		}
-	}
-
-	return ""
-}
-
-// extractClusterNameFromVPC extracts cluster name from VPC name
-func (p *Provider) extractClusterNameFromVPC(vpc *godo.VPC) string {
-	// Check if VPC name follows our naming pattern: {cluster}-vpc or {cluster}-vpc-{timestamp}
-	name := vpc.Name
-	if strings.Contains(name, "-vpc") {
-		parts := strings.Split(name, "-vpc")
-		return parts[0]
-	}
-	return ""
-}
-
-// determineClusterStatus maps DigitalOcean droplet status to cluster status
-func (p *Provider) determineClusterStatus(dropletStatus string) types.ClusterStatus {
-	switch dropletStatus {
-	case "active":
-		return types.ClusterStatusRunning
-	case "new":
-		return types.ClusterStatusCreating
-	case "off":
-		return types.ClusterStatusError
-	default:
-		return types.ClusterStatusUnknown
-	}
-}
-
-// ListClusters returns all managed DOKS clusters via the godo API.
 func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
-	log.Printf("Listing managed DOKS clusters")
+	log.Printf("Listing DigitalOcean clusters (compute + DOKS)")
 
-	var clusters []*types.Cluster
+	clusters, err := p.listComputeClusters(ctx)
+	if err != nil {
+		log.Printf("Warning: failed to discover compute-mode clusters: %v", err)
+	}
+	for _, c := range clusters {
+		p.clusters[c.ID] = c
+	}
 	opts := &godo.ListOptions{Page: 1, PerPage: 200}
 	for {
 		page, resp, err := p.client.Kubernetes.List(ctx, opts)
@@ -1451,12 +651,26 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 		opts.Page = nextPage + 1
 	}
 
-	log.Printf("Found %d managed DOKS clusters", len(clusters))
+	log.Printf("Found %d DigitalOcean clusters", len(clusters))
 	return clusters, nil
 }
 
 // GetCluster returns a specific managed DOKS cluster by ID using the godo API.
 func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Cluster, error) {
+	if p.isComputeCluster(ctx, clusterID) {
+		name := computeClusterName(clusterID)
+		droplets, err := p.computeClusterDroplets(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		if len(droplets) == 0 {
+			return nil, fmt.Errorf("compute cluster %s not found", name)
+		}
+		cluster := p.computeClusterFromDroplets(name, droplets)
+		p.clusters[cluster.ID] = cluster
+		return cluster, nil
+	}
+
 	log.Printf("Getting DOKS cluster: %s", clusterID)
 
 	doCluster, _, err := p.client.Kubernetes.Get(ctx, clusterID)
@@ -1504,6 +718,10 @@ func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *ty
 // DeleteCluster deletes a managed DOKS cluster and waits for the deletion to
 // complete (the cluster disappears from the API).
 func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
+	if p.isComputeCluster(ctx, clusterID) {
+		return p.deleteComputeCluster(ctx, clusterID)
+	}
+
 	log.Printf("Deleting DOKS cluster: %s", clusterID)
 
 	if _, err := p.client.Kubernetes.Delete(ctx, clusterID); err != nil {
@@ -1529,159 +747,23 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		case <-waitCtx.Done():
 			log.Printf("Warning: timed out waiting for DOKS cluster %s deletion to finish", clusterID)
 			delete(p.clusters, clusterID)
-			delete(p.resourceTrackers, clusterID)
 			return nil
 		case <-ticker.C:
 		}
 	}
 
 	delete(p.clusters, clusterID)
-	delete(p.resourceTrackers, clusterID)
 	log.Printf("Successfully deleted DOKS cluster: %s", clusterID)
-	return nil
-}
-
-// deleteClusterResourcesByDiscovery discovers and deletes all resources for a cluster
-func (p *Provider) deleteClusterResourcesByDiscovery(ctx context.Context, clusterID string) error {
-	log.Printf("Discovering and deleting resources for cluster: %s", clusterID)
-
-	// Delete droplets by finding them with cluster name pattern
-	droplets, _, err := p.client.Droplets.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: Failed to list droplets: %v", err)
-	} else {
-		for _, droplet := range droplets {
-			if p.isClusterDroplet(&droplet, clusterID) {
-				_, err := p.client.Droplets.Delete(ctx, droplet.ID)
-				if err != nil {
-					log.Printf("Warning: Failed to delete droplet %s (%d): %v", droplet.Name, droplet.ID, err)
-				} else {
-					log.Printf("Deleted droplet: %s (%d)", droplet.Name, droplet.ID)
-				}
-			}
-		}
-	}
-
-	// Delete firewalls by finding them with cluster name pattern
-	firewalls, _, err := p.client.Firewalls.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: Failed to list firewalls: %v", err)
-	} else {
-		for _, firewall := range firewalls {
-			if p.isClusterFirewall(&firewall, clusterID) {
-				_, err := p.client.Firewalls.Delete(ctx, firewall.ID)
-				if err != nil {
-					log.Printf("Warning: Failed to delete firewall %s (%s): %v", firewall.Name, firewall.ID, err)
-				} else {
-					log.Printf("Deleted firewall: %s (%s)", firewall.Name, firewall.ID)
-				}
-			}
-		}
-	}
-
-	// Delete VPCs by finding them with cluster name pattern
-	vpcs, _, err := p.client.VPCs.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: Failed to list VPCs: %v", err)
-	} else {
-		for _, vpc := range vpcs {
-			if p.isClusterVPC(vpc, clusterID) {
-				_, err := p.client.VPCs.Delete(ctx, vpc.ID)
-				if err != nil {
-					log.Printf("Warning: Failed to delete VPC %s (%s): %v", vpc.Name, vpc.ID, err)
-				} else {
-					log.Printf("Deleted VPC: %s (%s)", vpc.Name, vpc.ID)
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-// isClusterDroplet checks if a droplet belongs to the specified cluster
-func (p *Provider) isClusterDroplet(droplet *godo.Droplet, clusterID string) bool {
-	// Check name pattern: {cluster}-master-{n} or {cluster}-worker-{n}
-	name := droplet.Name
-	return strings.HasPrefix(name, clusterID+"-master-") || strings.HasPrefix(name, clusterID+"-worker-")
-}
-
-// isClusterFirewall checks if a firewall belongs to the specified cluster
-func (p *Provider) isClusterFirewall(firewall *godo.Firewall, clusterID string) bool {
-	// Check name pattern: {cluster}-firewall or {cluster}-firewall-{timestamp}
-	name := firewall.Name
-	return strings.HasPrefix(name, clusterID+"-firewall")
-}
-
-// isClusterVPC checks if a VPC belongs to the specified cluster
-func (p *Provider) isClusterVPC(vpc *godo.VPC, clusterID string) bool {
-	// Check name pattern: {cluster}-vpc or {cluster}-vpc-{timestamp}
-	name := vpc.Name
-	return strings.HasPrefix(name, clusterID+"-vpc")
-}
-
-// deleteClusterResources deletes all resources associated with a cluster
-func (p *Provider) deleteClusterResources(ctx context.Context, tracker *ResourceTracker) error {
-	log.Printf("Deleting cluster resources in region: %s", tracker.Region)
-
-	// Helper for retries
-	retry := func(fn func() error, maxAttempts int) error {
-		var err error
-		for i := 0; i < maxAttempts; i++ {
-			err = fn()
-			if err == nil {
-				return nil
-			}
-			time.Sleep(2 * time.Second)
-		}
-		return err
-	}
-
-	// Delete droplets first
-	for _, dropletID := range tracker.Droplets {
-		_ = retry(func() error {
-			_, err := p.client.Droplets.Delete(ctx, dropletID)
-			if err != nil {
-				log.Printf("Warning: Failed to delete droplet %d: %v", dropletID, err)
-			} else {
-				log.Printf("Deleted droplet: %d", dropletID)
-			}
-			return err
-		}, 3)
-	}
-
-	// Delete firewalls next
-	for _, firewallUUID := range tracker.Firewalls {
-		_ = retry(func() error {
-			_, err := p.client.Firewalls.Delete(ctx, firewallUUID)
-			if err != nil {
-				log.Printf("Warning: Failed to delete firewall %s: %v", firewallUUID, err)
-			} else {
-				log.Printf("Deleted firewall: %s", firewallUUID)
-			}
-			return err
-		}, 3)
-	}
-
-	// Delete VPCs last
-	for _, vpcUUID := range tracker.VPCs {
-		_ = retry(func() error {
-			_, err := p.client.VPCs.Delete(ctx, vpcUUID)
-			if err != nil {
-				log.Printf("Warning: Failed to delete VPC %s: %v", vpcUUID, err)
-			} else {
-				log.Printf("Deleted VPC: %s", vpcUUID)
-			}
-			return err
-		}, 3)
-	}
-
 	return nil
 }
 
 // GetKubeconfig fetches the admin kubeconfig for a managed DOKS cluster from
 // the DigitalOcean API.
 func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
+	if p.isComputeCluster(ctx, clusterID) {
+		return p.computeGetKubeconfig(ctx, computeClusterName(clusterID))
+	}
+
 	log.Printf("Fetching kubeconfig for DOKS cluster: %s", clusterID)
 
 	cfg, _, err := p.client.Kubernetes.GetKubeConfig(ctx, clusterID, nil)
@@ -1694,244 +776,6 @@ func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string,
 
 	log.Printf("Successfully fetched kubeconfig for DOKS cluster: %s", clusterID)
 	return string(cfg.KubeconfigYAML), nil
-}
-
-// generateKubeconfigContent generates the kubeconfig YAML content by fetching it from the master node
-func (p *Provider) generateKubeconfigContent(cluster *types.Cluster) (string, error) {
-	if cluster.Endpoint == "" {
-		return "", fmt.Errorf("cluster endpoint is not available")
-	}
-
-	// Extract cluster name
-	clusterName := cluster.Name
-
-	// Get the cluster infrastructure to find the master node
-	infrastructure, err := p.getClusterInfrastructure(context.Background(), clusterName)
-	if err != nil {
-		log.Printf("Warning: Failed to get cluster infrastructure: %v", err)
-		// Fallback to basic kubeconfig generation
-		return p.generateBasicKubeconfig(cluster)
-	}
-
-	if len(infrastructure.MasterNodes) == 0 {
-		log.Printf("Warning: No master nodes found for cluster %s", cluster.Name)
-		return p.generateBasicKubeconfig(cluster)
-	}
-
-	masterNode := infrastructure.MasterNodes[0]
-
-	// Try to fetch kubeconfig from master droplet via SSH
-	kubeconfig, err := p.fetchKubeconfigFromMaster(masterNode, cluster.Name)
-	if err != nil {
-		log.Printf("Warning: Failed to fetch kubeconfig from master droplet: %v", err)
-		// Fallback to basic kubeconfig generation
-		return p.generateBasicKubeconfig(cluster)
-	}
-
-	// Update the server endpoint in the kubeconfig to use the correct public IP
-	masterIP := masterNode.PublicIP
-	if masterIP == "" {
-		masterIP = masterNode.PrivateIP
-	}
-
-	if masterIP != "" {
-		correctEndpoint := fmt.Sprintf("https://%s:6443", masterIP)
-		// Replace any localhost or private IP references with the correct endpoint
-		kubeconfig = strings.ReplaceAll(kubeconfig, "https://127.0.0.1:6443", correctEndpoint)
-		kubeconfig = strings.ReplaceAll(kubeconfig, "https://localhost:6443", correctEndpoint)
-		kubeconfig = strings.ReplaceAll(kubeconfig, fmt.Sprintf("https://%s:6443", masterNode.PrivateIP), correctEndpoint)
-
-		// Update cluster endpoint for consistency
-		cluster.Endpoint = correctEndpoint
-	}
-
-	return kubeconfig, nil
-}
-
-// fetchKubeconfigFromMaster fetches the admin kubeconfig from the master droplet
-func (p *Provider) fetchKubeconfigFromMaster(masterNode NodeInfo, clusterName string) (string, error) {
-	if masterNode.PublicIP == "" {
-		return "", fmt.Errorf("master droplet has no public IP for SSH access")
-	}
-
-	// For DigitalOcean droplets, we would typically use SSH with the configured key
-	// This is a simplified implementation - in practice, you'd use DO's SSH capabilities
-
-	// Try to retrieve the actual kubeconfig from the master droplet
-	kubeconfig := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-	certificate-authority-data: LS0tLS1CRUdJTi1DRVJUSUZJQ0FURS0tLS0t... # Would be actual CA cert
-	server: https://%s:6443
-  name: %s
-contexts:
-- context:
-	cluster: %s
-	user: %s-admin
-  name: %s
-current-context: %s
-users:
-- name: %s-admin
-  user:
-	client-certificate-data: LS0tLS1CRUdJTi1DRVJUSUZJQ0FURS0tLS0t... # Would be actual client cert
-	client-key-data: LS0tLS1CRUdJTi1QUklWQVRFIEtFWS0tLS0t... # Would be actual client key
-`, masterNode.PublicIP, clusterName, clusterName, clusterName, clusterName, clusterName, clusterName)
-
-	return kubeconfig, nil
-}
-
-// generateBasicKubeconfig generates a basic kubeconfig as fallback
-func (p *Provider) generateBasicKubeconfig(cluster *types.Cluster) (string, error) {
-	kubeconfig := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- name: %s
-  cluster:
-	server: %s
-	insecure-skip-tls-verify: true
-contexts:
-- name: %s
-  context:
-	cluster: %s
-	user: admin
-current-context: %s
-users:
-- name: admin
-  user:
-	# NOTE: Authentication token needs to be configured manually
-	# Use kubectl to configure authentication or copy admin.conf from master node
-	token: ""
-`, cluster.Name, cluster.Endpoint, cluster.Name, cluster.Name, cluster.Name)
-
-	log.Printf("Warning: Generated basic kubeconfig without authentication token")
-	log.Printf("To configure authentication, copy /etc/kubernetes/admin.conf from master node or use kubectl")
-
-	return kubeconfig, nil
-}
-
-// getClusterInfrastructure discovers and returns the current cluster infrastructure
-func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName string) (*ClusterInfrastructure, error) {
-	log.Printf("Discovering infrastructure for cluster: %s", clusterName)
-
-	infrastructure := &ClusterInfrastructure{
-		VPCName:      fmt.Sprintf("%s-vpc", clusterName),
-		FirewallName: fmt.Sprintf("%s-firewall", clusterName),
-		MasterNodes:  []NodeInfo{},
-		WorkerNodes:  []NodeInfo{},
-	}
-
-	// Discover VPCs by name pattern
-	vpcs, _, err := p.client.VPCs.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: Failed to list VPCs: %v", err)
-	} else {
-		for _, vpc := range vpcs {
-			if vpc.Name == infrastructure.VPCName {
-				infrastructure.VPCUUID = vpc.ID
-				infrastructure.VPCName = vpc.Name
-				log.Printf("Found VPC: %s (ID: %s)", vpc.Name, vpc.ID)
-				break
-			}
-		}
-	}
-
-	// Discover firewalls by name pattern
-	firewalls, _, err := p.client.Firewalls.List(ctx, &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: Failed to list firewalls: %v", err)
-	} else {
-		for _, firewall := range firewalls {
-			if firewall.Name == infrastructure.FirewallName {
-				infrastructure.FirewallUUID = firewall.ID
-				log.Printf("Found firewall: %s (ID: %s)", firewall.Name, firewall.ID)
-				break
-			}
-		}
-	}
-
-	// Discover droplets by tags and naming pattern
-	droplets, _, err := p.client.Droplets.ListByTag(ctx, "adhar-cluster", &godo.ListOptions{})
-	if err != nil {
-		log.Printf("Warning: Failed to list droplets by tag: %v", err)
-		// Fallback to listing all droplets and filtering
-		allDroplets, _, err := p.client.Droplets.List(ctx, &godo.ListOptions{})
-		if err != nil {
-			log.Printf("Warning: Failed to list all droplets: %v", err)
-		} else {
-			droplets = filterDropletsByCluster(allDroplets, clusterName)
-		}
-	}
-
-	// Categorize droplets into master and worker nodes
-	for _, droplet := range droplets {
-		if !strings.Contains(droplet.Name, clusterName) {
-			continue
-		}
-
-		// Get IP addresses
-		publicIP, err := droplet.PublicIPv4()
-		if err != nil {
-			publicIP = ""
-		}
-		privateIP, err := droplet.PrivateIPv4()
-		if err != nil {
-			privateIP = ""
-		}
-
-		// Parse creation time
-		createdAt := time.Now() // Default fallback
-		if droplet.Created != "" {
-			if parsedTime, err := time.Parse(time.RFC3339, droplet.Created); err == nil {
-				createdAt = parsedTime
-			}
-		}
-
-		nodeInfo := NodeInfo{
-			Name:      droplet.Name,
-			DropletID: droplet.ID,
-			PublicIP:  publicIP,
-			PrivateIP: privateIP,
-			Size:      droplet.SizeSlug,
-			CreatedAt: createdAt,
-		}
-
-		// Determine if it's a master or worker node based on naming
-		if strings.Contains(droplet.Name, "master") {
-			nodeInfo.IsMaster = true
-			infrastructure.MasterNodes = append(infrastructure.MasterNodes, nodeInfo)
-			log.Printf("Found master node: %s (ID: %d, Public IP: %s)", droplet.Name, droplet.ID, publicIP)
-		} else if strings.Contains(droplet.Name, "worker") {
-			nodeInfo.IsMaster = false
-			infrastructure.WorkerNodes = append(infrastructure.WorkerNodes, nodeInfo)
-			log.Printf("Found worker node: %s (ID: %d, Public IP: %s)", droplet.Name, droplet.ID, publicIP)
-		}
-	}
-
-	log.Printf("Infrastructure discovery complete - VPC: %s, Firewall: %s, Masters: %d, Workers: %d",
-		infrastructure.VPCUUID, infrastructure.FirewallUUID,
-		len(infrastructure.MasterNodes), len(infrastructure.WorkerNodes))
-
-	return infrastructure, nil
-}
-
-// filterDropletsByCluster filters droplets that belong to a specific cluster
-func filterDropletsByCluster(droplets []godo.Droplet, clusterName string) []godo.Droplet {
-	var filtered []godo.Droplet
-	for _, droplet := range droplets {
-		// Check if droplet name contains cluster name and k8s keywords
-		if strings.Contains(droplet.Name, clusterName) &&
-			(strings.Contains(droplet.Name, "master") || strings.Contains(droplet.Name, "worker")) {
-			// Additional check for kubernetes tag
-			for _, tag := range droplet.Tags {
-				if tag == "kubernetes" || tag == "adhar-cluster" {
-					filtered = append(filtered, droplet)
-					break
-				}
-			}
-		}
-	}
-	return filtered
 }
 
 // nodePoolToNodeGroup maps a godo node pool to the provider-agnostic NodeGroup.
@@ -2011,6 +855,10 @@ func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGr
 
 // ScaleNodeGroup updates the node count of a managed DOKS node pool.
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGroupName string, replicas int) error {
+	if p.isComputeCluster(ctx, clusterID) {
+		return p.scaleComputeWorkers(ctx, clusterID, replicas)
+	}
+
 	log.Printf("Scaling node pool %s in DOKS cluster %s to %d nodes", nodeGroupName, clusterID, replicas)
 
 	np, err := p.findNodePoolByName(ctx, clusterID, nodeGroupName)
@@ -2487,6 +1335,10 @@ func (p *Provider) GetStorage(ctx context.Context, storageID string) (*types.Sto
 
 // UpgradeCluster upgrades a cluster using DigitalOcean API
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
+	if p.isComputeCluster(ctx, clusterID) {
+		return p.upgradeComputeCluster(ctx, clusterID, version)
+	}
+
 	log.Printf("Upgrading DOKS cluster %s to version %s", clusterID, version)
 
 	// Resolve the requested version to a concrete upgrade slug offered for this
@@ -2524,167 +1376,149 @@ func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version
 	return nil
 }
 
-// BackupCluster creates a backup using DigitalOcean snapshots
+// BackupCluster is not supported for managed DOKS clusters: node droplets are
+// ephemeral and recreated by the control plane, so droplet snapshots cannot
+// restore a cluster. Use the platform's Velero package for workload backups.
 func (p *Provider) BackupCluster(ctx context.Context, clusterID string) (*types.Backup, error) {
-	log.Printf("Creating backup for cluster: %s", clusterID)
-
-	// Get cluster infrastructure to backup
-	infraMap, err := p.getClusterInfrastructure(ctx, clusterID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster infrastructure: %w", err)
-	}
-
-	// Generate backup ID
-	backupID := fmt.Sprintf("backup-%s-%d", clusterID, time.Now().Unix())
-	backupName := fmt.Sprintf("adhar-backup-%s", backupID)
-
-	// Combine all nodes for backup
-	allNodes := append(infraMap.MasterNodes, infraMap.WorkerNodes...)
-	log.Printf("Starting backup process for %d nodes", len(allNodes))
-
-	// Create snapshots of all cluster nodes
-	var snapshotIDs []string
-	for _, node := range allNodes {
-		snapshotName := fmt.Sprintf("%s-node-%d", backupName, node.DropletID)
-
-		log.Printf("Creating snapshot for node %s (Droplet ID: %d)", node.Name, node.DropletID)
-
-		// Create snapshot via DigitalOcean API (just name required)
-		action, _, err := p.client.DropletActions.Snapshot(ctx, node.DropletID, snapshotName)
-		if err != nil {
-			log.Printf("Warning: failed to create snapshot for droplet %d: %v", node.DropletID, err)
-			continue
-		}
-
-		snapshotIDs = append(snapshotIDs, fmt.Sprintf("%d", action.ID))
-		log.Printf("Snapshot initiated for node %s (Action ID: %d)", node.Name, action.ID)
-	}
-
-	// Create backup metadata (in a real implementation, this would be stored)
-	backup := &types.Backup{
-		ID:        backupID,
-		ClusterID: clusterID,
-		Status:    "creating",
-		CreatedAt: time.Now(),
-		Size:      fmt.Sprintf("%dGB", len(snapshotIDs)*10), // Estimated size
-	}
-
-	// Start background monitoring of snapshot completion
-	go p.monitorBackupProgress(ctx, backupID, snapshotIDs)
-
-	log.Printf("Successfully initiated backup %s for cluster %s", backupID, clusterID)
-	return backup, nil
+	return nil, fmt.Errorf("cluster backup is not supported for managed DOKS clusters; use Velero for workload backup/restore")
 }
 
-// monitorBackupProgress monitors snapshot creation progress
-func (p *Provider) monitorBackupProgress(ctx context.Context, backupID string, snapshotIDs []string) {
-	log.Printf("Monitoring backup progress for backup %s", backupID)
-
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	timeout := time.After(2 * time.Hour) // 2 hour timeout for backups
-	completedSnapshots := 0
-
-	for {
-		select {
-		case <-timeout:
-			log.Printf("Timeout waiting for backup %s to complete", backupID)
-			return
-		case <-ticker.C:
-			// In a real implementation, check snapshot status via API
-			// For now, simulate progress
-			completedSnapshots++
-			progress := float64(completedSnapshots) / float64(len(snapshotIDs)) * 100
-
-			log.Printf("Backup %s progress: %.1f%% (%d/%d snapshots)",
-				backupID, progress, completedSnapshots, len(snapshotIDs))
-
-			if completedSnapshots >= len(snapshotIDs) {
-				log.Printf("Backup %s completed successfully", backupID)
-				return
-			}
-		}
-	}
-}
-
-// RestoreCluster restores from backup using DigitalOcean snapshots
+// RestoreCluster is not supported for managed DOKS clusters; see BackupCluster.
 func (p *Provider) RestoreCluster(ctx context.Context, backupID string, targetClusterID string) error {
-	log.Printf("Restoring cluster from backup %s to %s", backupID, targetClusterID)
-
-	// For manual clusters, restoration involves:
-	// 1. Create new droplets from snapshots
-	// 2. Update networking configuration
-	// 3. Reconfigure cluster connectivity
-	// 4. Verify cluster health
-
-	restoreSteps := []string{
-		"validate-backup",
-		"create-droplets-from-snapshots",
-		"configure-networking",
-		"update-cluster-config",
-		"verify-connectivity",
-		"health-check",
-	}
-
-	for i, step := range restoreSteps {
-		log.Printf("Restore step %d/%d: %s", i+1, len(restoreSteps), step)
-
-		// Simulate restore step processing
-		time.Sleep(3 * time.Second)
-
-		switch step {
-		case "validate-backup":
-			log.Printf("Validating backup %s integrity", backupID)
-		case "create-droplets-from-snapshots":
-			log.Printf("Creating new droplets from backup snapshots")
-		case "configure-networking":
-			log.Printf("Configuring networking for restored cluster")
-		case "update-cluster-config":
-			log.Printf("Updating cluster configuration")
-		case "verify-connectivity":
-			log.Printf("Verifying node connectivity")
-		case "health-check":
-			log.Printf("Performing cluster health check")
-		}
-	}
-
-	log.Printf("Successfully restored cluster %s from backup %s", targetClusterID, backupID)
-	return nil
+	return fmt.Errorf("cluster restore is not supported for managed DOKS clusters; use Velero for workload backup/restore")
 }
 
 // GetClusterHealth retrieves cluster health
 func (p *Provider) GetClusterHealth(ctx context.Context, clusterID string) (*types.HealthStatus, error) {
-	log.Printf("Getting health for cluster: %s", clusterID)
-	return &types.HealthStatus{
-		Status: "healthy",
-		Components: map[string]types.ComponentHealth{
-			"api-server":         {Status: "healthy"},
-			"scheduler":          {Status: "healthy"},
-			"controller-manager": {Status: "healthy"},
-			"etcd":               {Status: "healthy"},
-		},
-	}, nil
+	if p.isComputeCluster(ctx, clusterID) {
+		name := computeClusterName(clusterID)
+		droplets, err := p.computeClusterDroplets(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		status := "healthy"
+		components := map[string]types.ComponentHealth{}
+		for _, d := range droplets {
+			s := "healthy"
+			if d.Status != "active" {
+				s = "degraded"
+				status = "degraded"
+			}
+			components["droplet/"+d.Name] = types.ComponentHealth{Status: s, Message: d.Status}
+		}
+		return &types.HealthStatus{Status: status, Components: components}, nil
+	}
+
+	log.Printf("Getting health for DOKS cluster: %s", clusterID)
+
+	doCluster, _, err := p.client.Kubernetes.Get(ctx, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get DOKS cluster %s: %w", clusterID, err)
+	}
+
+	status := "unhealthy"
+	if doCluster.Status != nil {
+		switch doCluster.Status.State {
+		case godo.KubernetesClusterStatusRunning:
+			status = "healthy"
+		case godo.KubernetesClusterStatusProvisioning, godo.KubernetesClusterStatusUpgrading:
+			status = "provisioning"
+		case godo.KubernetesClusterStatusDegraded:
+			status = "degraded"
+		}
+	}
+
+	components := map[string]types.ComponentHealth{}
+	if doCluster.Status != nil {
+		components["control-plane"] = types.ComponentHealth{
+			Status:  string(doCluster.Status.State),
+			Message: doCluster.Status.Message,
+		}
+	}
+	for _, pool := range doCluster.NodePools {
+		ready := 0
+		for _, node := range pool.Nodes {
+			if node.Status != nil && node.Status.State == "running" {
+				ready++
+			}
+		}
+		poolStatus := "healthy"
+		if ready < pool.Count {
+			poolStatus = "degraded"
+		}
+		components["node-pool/"+pool.Name] = types.ComponentHealth{
+			Status:  poolStatus,
+			Message: fmt.Sprintf("%d/%d nodes running", ready, pool.Count),
+		}
+	}
+
+	return &types.HealthStatus{Status: status, Components: components}, nil
 }
 
-// GetClusterMetrics retrieves cluster metrics
+// sizesBySlug returns droplet size details (cpu/memory/disk/price) keyed by
+// size slug, used to derive real capacity and cost figures for node pools.
+func (p *Provider) sizesBySlug(ctx context.Context) (map[string]godo.Size, error) {
+	sizes := map[string]godo.Size{}
+	opts := &godo.ListOptions{Page: 1, PerPage: 200}
+	for {
+		page, resp, err := p.client.Sizes.List(ctx, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list droplet sizes: %w", err)
+		}
+		for _, s := range page {
+			sizes[s.Slug] = s
+		}
+		if resp == nil || resp.Links == nil || resp.Links.IsLastPage() {
+			break
+		}
+		current, err := resp.Links.CurrentPage()
+		if err != nil {
+			break
+		}
+		opts.Page = current + 1
+	}
+	return sizes, nil
+}
+
+// GetClusterMetrics reports the cluster's aggregate node capacity derived from
+// its node pool droplet sizes. Live usage requires metrics-server inside the
+// cluster and is not reported here; usage fields are returned as zero rather
+// than fabricated.
 func (p *Provider) GetClusterMetrics(ctx context.Context, clusterID string) (*types.Metrics, error) {
-	log.Printf("Getting metrics for cluster: %s", clusterID)
+	log.Printf("Getting capacity metrics for DOKS cluster: %s", clusterID)
+
+	doCluster, _, err := p.client.Kubernetes.Get(ctx, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get DOKS cluster %s: %w", clusterID, err)
+	}
+	sizes, err := p.sizesBySlug(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var cpus, memMB, diskGB int
+	for _, pool := range doCluster.NodePools {
+		size, ok := sizes[pool.Size]
+		if !ok {
+			continue
+		}
+		cpus += size.Vcpus * pool.Count
+		memMB += size.Memory * pool.Count
+		diskGB += size.Disk * pool.Count
+	}
+
 	return &types.Metrics{
 		CPU: types.MetricValue{
-			Usage:    "1.5 cores",
-			Capacity: "3 cores",
-			Percent:  50.0,
+			Usage:    "unknown (requires metrics-server)",
+			Capacity: fmt.Sprintf("%d cores", cpus),
 		},
 		Memory: types.MetricValue{
-			Usage:    "3Gi",
-			Capacity: "6Gi",
-			Percent:  50.0,
+			Usage:    "unknown (requires metrics-server)",
+			Capacity: fmt.Sprintf("%dGi", memMB/1024),
 		},
 		Disk: types.MetricValue{
-			Usage:    "20Gi",
-			Capacity: "80Gi",
-			Percent:  25.0,
+			Usage:    "unknown (requires metrics-server)",
+			Capacity: fmt.Sprintf("%dGi", diskGB),
 		},
 	}, nil
 }
@@ -2800,61 +1634,97 @@ func (p *Provider) ListAddons(ctx context.Context, clusterID string) ([]string, 
 	return []string{"do-csi", "coredns", "kube-proxy", "cilium"}, nil
 }
 
-// GetClusterCost retrieves cluster cost
+// doksHAControlPlaneMonthlyUSD is DigitalOcean's flat monthly price for the
+// high-availability control plane option (the non-HA control plane is free).
+const doksHAControlPlaneMonthlyUSD = 40.0
+
+// GetClusterCost computes the cluster's monthly cost from its node pool
+// droplet sizes (live godo pricing) plus the HA control-plane fee when
+// enabled. Load balancers and volumes provisioned by workloads are not
+// attributed here.
 func (p *Provider) GetClusterCost(ctx context.Context, clusterID string) (float64, error) {
-	log.Printf("Getting cost for cluster: %s", clusterID)
-	return 72.0, nil // $72 per month
-}
-
-// GetCostBreakdown retrieves cost breakdown
-func (p *Provider) GetCostBreakdown(ctx context.Context, clusterID string) (map[string]float64, error) {
-	log.Printf("Getting cost breakdown for cluster: %s", clusterID)
-	return map[string]float64{
-		"control-plane": 0.0, // Free
-		"node-pools":    60.0,
-		"load-balancer": 12.0,
-	}, nil
-}
-
-// installCiliumCNI installs Cilium CNI on the cluster
-func (p *Provider) installCiliumCNI(ctx context.Context, masterNode NodeInfo) error {
-	log.Printf("Installing Cilium CNI on master %s", masterNode.Name)
-
-	// In a real implementation, this would:
-	// 1. SSH to the master node
-	// 2. Install Cilium using Helm or kubectl
-	// 3. Wait for Cilium to be ready
-
-	time.Sleep(60 * time.Second)
-	log.Printf("Cilium CNI installed successfully")
-	return nil
-}
-
-// installCNI installs the Container Network Interface
-func (p *Provider) installCNI(ctx context.Context, masterNode NodeInfo, cniType string) error {
-	switch cniType {
-	case "cilium":
-		return p.installCiliumCNI(ctx, masterNode)
-	case "calico":
-		// Install Calico CNI
-		log.Printf("Installing Calico CNI on master %s", masterNode.Name)
-		time.Sleep(30 * time.Second)
-		return nil
-	case "flannel":
-		// Install Flannel CNI
-		log.Printf("Installing Flannel CNI on master %s", masterNode.Name)
-		time.Sleep(30 * time.Second)
-		return nil
-	default:
-		// Default to Calico
-		log.Printf("Installing default Calico CNI on master %s", masterNode.Name)
-		time.Sleep(30 * time.Second)
-		return nil
+	breakdown, err := p.GetCostBreakdown(ctx, clusterID)
+	if err != nil {
+		return 0, err
 	}
+	var total float64
+	for _, v := range breakdown {
+		total += v
+	}
+	return total, nil
 }
 
-// InvestigateCluster performs comprehensive investigation of a cluster
+// GetCostBreakdown retrieves the per-component monthly cost of a DOKS cluster.
+func (p *Provider) GetCostBreakdown(ctx context.Context, clusterID string) (map[string]float64, error) {
+	log.Printf("Computing cost breakdown for DOKS cluster: %s", clusterID)
+
+	doCluster, _, err := p.client.Kubernetes.Get(ctx, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get DOKS cluster %s: %w", clusterID, err)
+	}
+	sizes, err := p.sizesBySlug(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	breakdown := map[string]float64{}
+	var nodesTotal float64
+	for _, pool := range doCluster.NodePools {
+		if size, ok := sizes[pool.Size]; ok {
+			nodesTotal += size.PriceMonthly * float64(pool.Count)
+		}
+	}
+	breakdown["node-pools"] = nodesTotal
+	if doCluster.HA {
+		breakdown["control-plane"] = doksHAControlPlaneMonthlyUSD
+	} else {
+		breakdown["control-plane"] = 0.0
+	}
+	return breakdown, nil
+}
+
+// InvestigateCluster prints a diagnostic report of a DOKS cluster: control
+// plane state and message, endpoint, version, and per-pool node states.
 func (p *Provider) InvestigateCluster(ctx context.Context, clusterID string) error {
-	// TODO: Implement DigitalOcean-specific cluster investigation
-	return fmt.Errorf("cluster investigation not yet implemented for DigitalOcean provider")
+	doCluster, _, err := p.client.Kubernetes.Get(ctx, clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to get DOKS cluster %s: %w", clusterID, err)
+	}
+
+	fmt.Printf("DOKS cluster: %s (id=%s)\n", doCluster.Name, doCluster.ID)
+	fmt.Printf("  Region:   %s\n", doCluster.RegionSlug)
+	fmt.Printf("  Version:  %s\n", doCluster.VersionSlug)
+	fmt.Printf("  Endpoint: %s\n", doCluster.Endpoint)
+	fmt.Printf("  HA:       %t  AutoUpgrade: %t  SurgeUpgrade: %t\n", doCluster.HA, doCluster.AutoUpgrade, doCluster.SurgeUpgrade)
+	if doCluster.VPCUUID != "" {
+		fmt.Printf("  VPC:      %s\n", doCluster.VPCUUID)
+	}
+	if doCluster.Status != nil {
+		fmt.Printf("  State:    %s", doCluster.Status.State)
+		if doCluster.Status.Message != "" {
+			fmt.Printf(" (%s)", doCluster.Status.Message)
+		}
+		fmt.Println()
+	}
+
+	for _, pool := range doCluster.NodePools {
+		fmt.Printf("  Node pool %q: size=%s count=%d autoscale=%t", pool.Name, pool.Size, pool.Count, pool.AutoScale)
+		if pool.AutoScale {
+			fmt.Printf(" (min=%d max=%d)", pool.MinNodes, pool.MaxNodes)
+		}
+		fmt.Println()
+		for _, node := range pool.Nodes {
+			state, msg := "unknown", ""
+			if node.Status != nil {
+				state, msg = node.Status.State, node.Status.Message
+			}
+			fmt.Printf("    node %s: %s", node.Name, state)
+			if msg != "" {
+				fmt.Printf(" (%s)", msg)
+			}
+			fmt.Println()
+		}
+	}
+
+	return nil
 }

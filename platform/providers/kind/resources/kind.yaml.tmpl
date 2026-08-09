@@ -58,8 +58,23 @@ kubeadmConfigPatches:
   - |
     kind: KubeletConfiguration
     maxPods: 250
+    # kubelet defaults to pulling images one at a time; on first `adhar up` the
+    # platform fetches 60+ images, so a serialized queue leaves pods stuck in
+    # ContainerCreating for many minutes behind a single slow pull. Parallel
+    # pulls cut initial convergence from tens of minutes to a few.
+    serializeImagePulls: false
+    maxParallelImagePulls: 8
   - |
     kind: ClusterConfiguration
+    # Skip etcd fsync (same trick kind CI uses): on Docker Desktop the etcd
+    # data dir sits on a virtualized filesystem whose fsync latency under the
+    # convergence write-storm pushes apiserver writes past the 5s leader-lease
+    # client timeouts, crashlooping every operator. Throwaway local clusters
+    # trade crash-durability for stable latency.
+    etcd:
+      local:
+        extraArgs:
+          unsafe-no-fsync: "true"
     apiServer:
       extraArgs:
         # Trust the platform Keycloak realm so human identities authenticate

@@ -1,11 +1,11 @@
 #!/bin/bash
 
-DIRECTORIES='argocd gitea ingress-nginx cilium crossplane'
+DIRECTORIES='argocd cilium crossplane gateway-api gitea'
 
 for dir in $DIRECTORIES; do
     ./hack/$dir/generate-manifests.sh;
     if [[ $? -ne 0 ]]; then
-        echo "error running script: ./hack/$dir/generate-manifests.sh"
+        echo "Error running script: ./hack/$dir/generate-manifests.sh"
         exit 1
     fi
 done

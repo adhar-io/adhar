@@ -1,8 +1,10 @@
 # JupyterHub routed through the Cilium Gateway (adhar-gateway). TLS terminates
-# at the Gateway (adhar-cert). The old nginx Ingress used use-regex with
-# rewrite-target: /jupyterhub/$2 on path /jupyterhub(/|$)(.*) -- i.e. it kept the
-# /jupyterhub prefix when forwarding (JupyterHub's base_url is /jupyterhub), so
-# we ReplacePrefixMatch to /jupyterhub. Backend proxy-public:80 (plain HTTP).
+# at the Gateway (adhar-cert). JupyterHub is served at the subdomain root (no
+# hub.baseUrl), matching the grafana/minio pattern, so no URLRewrite filter.
+# The previous ReplacePrefixMatch "/" -> "/jupyterhub" (paired with
+# baseUrl: /jupyterhub) double-prefixed every browser request after the first
+# redirect (/jupyterhub/hub/... -> /jupyterhub/jupyterhub/hub/...), leaving the
+# UI stuck loading. Backend proxy-public:80 (plain HTTP).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -20,12 +22,6 @@ spec:
         - path:
             type: PathPrefix
             value: /
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /jupyterhub
       backendRefs:
         - name: proxy-public
           port: 80

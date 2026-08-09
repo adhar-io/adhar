@@ -1,0 +1,26 @@
+# Lighthouse trigger wiring (ADR-0018): references the platform pipeline
+# catalog (application/jenkins-x package) — no per-repo pipeline authoring.
+presubmits:
+  - name: verify
+    context: verify
+    alwaysRun: true
+    pipelineRunSpec:
+      pipelineRef:
+        name: adhar-pr-verify
+      workspaces:
+        - name: source
+          emptyDir: {}
+postsubmits:
+  - name: release
+    context: release
+    branches:
+      - main
+    pipelineRunSpec:
+      pipelineRef:
+        name: adhar-release
+      params:
+        - name: APP_NAME
+          value: ${{values.name}}
+      workspaces:
+        - name: source
+          emptyDir: {}

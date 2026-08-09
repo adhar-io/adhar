@@ -167,9 +167,14 @@ customRules: {}
 ##
 defaultRules:
   create: true
+  # ADHAR: etcd / kubeControllerManager / kubeProxy / kubeScheduler* rule
+  # groups are disabled together with their scrape components (see kubeEtcd /
+  # kubeControllerManager / kubeProxy / kubeScheduler below): on kind those
+  # endpoints bind to 127.0.0.1 and kube-proxy is replaced by Cilium, so the
+  # rules could only ever fire dead-target alerts.
   rules:
     alertmanager: true
-    etcd: true
+    etcd: false
     configReloaders: true
     general: true
     k8sContainerCpuUsageSecondsTotal: true
@@ -183,17 +188,17 @@ defaultRules:
     kubeApiserverBurnrate: true
     kubeApiserverHistogram: true
     kubeApiserverSlos: true
-    kubeControllerManager: true
+    kubeControllerManager: false
     kubelet: true
-    kubeProxy: true
+    kubeProxy: false
     kubePrometheusGeneral: true
     kubePrometheusNodeRecording: true
     kubernetesApps: true
     kubernetesResources: true
     kubernetesStorage: true
     kubernetesSystem: true
-    kubeSchedulerAlerting: true
-    kubeSchedulerRecording: true
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
     kubeStateMetrics: true
     network: true
     node: true
@@ -1590,10 +1595,11 @@ grafana:
         gnetId: 10441
         revision: 2
         datasource: Prometheus
-      cloudnative-pg:
-        gnetId: 20417
-        revision: 4
-        datasource: Prometheus
+      # NOTE: the CloudNativePG dashboard is NOT downloaded here — the cnpg
+      # package ships the official upstream dashboard as a sidecar ConfigMap
+      # (data/cnpg/manifests/grafana-dashboard.yaml), the same contract used by
+      # the redis and kafka-operator packages. Keeping it there avoids a
+      # duplicate "CloudNativePG" entry and works without internet egress.
       loki-app-logs:
         gnetId: 13639
         revision: 2
@@ -1985,7 +1991,13 @@ kubelet:
 ## Component scraping the kube controller manager
 ##
 kubeControllerManager:
-  enabled: true
+  # ADHAR: disabled — on kind the kube-controller-manager binds its secure
+  # metrics port (10257) to 127.0.0.1 inside the control-plane node, so the
+  # scrape can never succeed ("connection refused" from the node IP). Leaving
+  # it enabled produces a permanently-down target, a firing
+  # KubeControllerManagerDown alert and an empty "Kubernetes / Controller
+  # Manager" dashboard. Re-enable on clusters where the component is reachable.
+  enabled: false
 
   ## If your kube controller manager is not deployed as a pod, specify IPs it can be found on
   ##
@@ -2272,7 +2284,12 @@ kubeDns:
 ## Component scraping etcd
 ##
 kubeEtcd:
-  enabled: true
+  # ADHAR: disabled — kind runs etcd with --listen-metrics-urls bound to
+  # 127.0.0.1:2381, unreachable from the pod network ("connection refused"
+  # from the node IP). Leaving it enabled produces a permanently-down target,
+  # a firing etcd alert group and an empty "etcd" dashboard. Re-enable on
+  # clusters where etcd metrics are exposed (or scrape via endpoints/certs).
+  enabled: false
 
   ## If your etcd is not deployed as a pod, specify IPs it can be found on
   ##
@@ -2381,7 +2398,11 @@ kubeEtcd:
 ## Component scraping kube scheduler
 ##
 kubeScheduler:
-  enabled: true
+  # ADHAR: disabled — on kind the kube-scheduler binds its secure metrics port
+  # (10259) to 127.0.0.1, so the scrape can never succeed. Leaving it enabled
+  # produces a permanently-down target, a firing KubeSchedulerDown alert and an
+  # empty "Kubernetes / Scheduler" dashboard. Re-enable where reachable.
+  enabled: false
 
   ## If your kube scheduler is not deployed as a pod, specify IPs it can be found on
   ##
@@ -2487,7 +2508,11 @@ kubeScheduler:
 ## Component scraping kube proxy
 ##
 kubeProxy:
-  enabled: true
+  # ADHAR: disabled — this platform replaces kube-proxy entirely with Cilium
+  # (eBPF kube-proxy replacement), so there are no kube-proxy pods anywhere and
+  # the scrape job/dashboard/alerts can never have data. Cilium itself is
+  # monitored via the hubble/cilium packages.
+  enabled: false
 
   ## If your kube proxy is not deployed as a pod, specify IPs it can be found on
   ##
@@ -4252,7 +4277,11 @@ prometheus:
     ## prometheus resource to be created with selectors based on values in the helm deployment,
     ## which will also match the PrometheusRule resources created
     ##
-    ruleSelectorNilUsesHelmValues: true
+    ## ADHAR: false — with the chart default (true) Prometheus only loads
+    ## PrometheusRules carrying the Helm release label `release: prometheus`,
+    ## ignoring rules shipped by other platform packages. Any package may ship
+    ## recording/alerting rules and have them picked up.
+    ruleSelectorNilUsesHelmValues: false
 
     ## PrometheusRules to be selected for target discovery.
     ## If {}, select all PrometheusRules
@@ -4277,7 +4306,13 @@ prometheus:
     ## prometheus resource to be created with selectors based on values in the helm deployment,
     ## which will also match the servicemonitors created
     ##
-    serviceMonitorSelectorNilUsesHelmValues: true
+    ## ADHAR: false — with the chart default (true) Prometheus only discovers
+    ## ServiceMonitors carrying the Helm release label `release: prometheus`,
+    ## silently ignoring every monitor shipped by other platform packages
+    ## (CloudNativePG, Redis, Strimzi, user applications, ...). Selecting all
+    ## ServiceMonitors in all namespaces is the platform contract: any package
+    ## can ship a ServiceMonitor and it gets scraped.
+    serviceMonitorSelectorNilUsesHelmValues: false
 
     ## ServiceMonitors to be selected for target discovery.
     ## If {}, select all ServiceMonitors
@@ -4300,7 +4335,10 @@ prometheus:
     ## prometheus resource to be created with selectors based on values in the helm deployment,
     ## which will also match the podmonitors created
     ##
-    podMonitorSelectorNilUsesHelmValues: true
+    ## ADHAR: false — discover PodMonitors from every platform package (CNPG
+    ## operator/clusters, Strimzi kafka-resources, ...), not just those labeled
+    ## with the Helm release. See serviceMonitorSelectorNilUsesHelmValues above.
+    podMonitorSelectorNilUsesHelmValues: false
 
     ## PodMonitors to be selected for target discovery.
     ## If {}, select all PodMonitors
@@ -4322,7 +4360,9 @@ prometheus:
     ## prometheus resource to be created with selectors based on values in the helm deployment,
     ## which will also match the probes created
     ##
-    probeSelectorNilUsesHelmValues: true
+    ## ADHAR: false — discover Probes from all packages (see the
+    ## serviceMonitorSelectorNilUsesHelmValues note above).
+    probeSelectorNilUsesHelmValues: false
 
     ## Probes to be selected for target discovery.
     ## If {}, select all Probes
@@ -4347,7 +4387,9 @@ prometheus:
     ## If null and scrapeConfigSelector is also null, exclude field from the prometheusSpec
     ## (keeping downward compatibility with older versions of CRD)
     ##
-    scrapeConfigSelectorNilUsesHelmValues: true
+    ## ADHAR: false — discover ScrapeConfigs from all packages (see the
+    ## serviceMonitorSelectorNilUsesHelmValues note above).
+    scrapeConfigSelectorNilUsesHelmValues: false
 
     ## scrapeConfigs to be selected for target discovery.
     ## If {}, select all scrapeConfigs

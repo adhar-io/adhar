@@ -36,4 +36,6 @@ func init() {
 	ClusterCmd.AddCommand(kubeconfigCmd)
 	ClusterCmd.AddCommand(debugCmd)
 	ClusterCmd.AddCommand(investigateCmd)
+	ClusterCmd.AddCommand(upgradeCmd)
+	ClusterCmd.AddCommand(scaleCmd)
 }

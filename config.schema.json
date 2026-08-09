@@ -159,6 +159,7 @@
         "token": { "type": "string" },
         "credentials_file": { "type": "string" },
         "useEnvironment": { "type": "boolean" },
+        "useManagedK8s": { "type": "boolean" },
         "config": {
           "type": "object",
           "description": "Provider-specific configuration. Shape varies per provider.",

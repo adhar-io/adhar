@@ -86,7 +86,7 @@ data:
   generateSuccessEvents: "false"
   excludeGroups: "system:nodes"
   resourceFilters: >-
-    [*/*,kyverno,*]
+    [*/*,adhar-system,*]
     [Event,*,*]
     [*/*,kube-system,*]
     [*/*,kube-public,*]
@@ -120,78 +120,78 @@ data:
     [ClusterRoleBinding,*,kyverno:background-controller]
     [ClusterRoleBinding,*,kyverno:cleanup-controller]
     [ClusterRoleBinding,*,kyverno:reports-controller]
-    [ServiceAccount,kyverno,kyverno-admission-controller]
-    [ServiceAccount/?*,kyverno,kyverno-admission-controller]
-    [ServiceAccount,kyverno,kyverno-background-controller]
-    [ServiceAccount/?*,kyverno,kyverno-background-controller]
-    [ServiceAccount,kyverno,kyverno-cleanup-controller]
-    [ServiceAccount/?*,kyverno,kyverno-cleanup-controller]
-    [ServiceAccount,kyverno,kyverno-reports-controller]
-    [ServiceAccount/?*,kyverno,kyverno-reports-controller]
-    [Role,kyverno,kyverno:admission-controller]
-    [Role,kyverno,kyverno:background-controller]
-    [Role,kyverno,kyverno:cleanup-controller]
-    [Role,kyverno,kyverno:reports-controller]
-    [RoleBinding,kyverno,kyverno:admission-controller]
-    [RoleBinding,kyverno,kyverno:background-controller]
-    [RoleBinding,kyverno,kyverno:cleanup-controller]
-    [RoleBinding,kyverno,kyverno:reports-controller]
-    [ConfigMap,kyverno,kyverno]
-    [ConfigMap,kyverno,kyverno-metrics]
-    [Deployment,kyverno,kyverno-admission-controller]
-    [Deployment/?*,kyverno,kyverno-admission-controller]
-    [Deployment,kyverno,kyverno-background-controller]
-    [Deployment/?*,kyverno,kyverno-background-controller]
-    [Deployment,kyverno,kyverno-cleanup-controller]
-    [Deployment/?*,kyverno,kyverno-cleanup-controller]
-    [Deployment,kyverno,kyverno-reports-controller]
-    [Deployment/?*,kyverno,kyverno-reports-controller]
-    [Pod,kyverno,kyverno-admission-controller-*]
-    [Pod/?*,kyverno,kyverno-admission-controller-*]
-    [Pod,kyverno,kyverno-background-controller-*]
-    [Pod/?*,kyverno,kyverno-background-controller-*]
-    [Pod,kyverno,kyverno-cleanup-controller-*]
-    [Pod/?*,kyverno,kyverno-cleanup-controller-*]
-    [Pod,kyverno,kyverno-reports-controller-*]
-    [Pod/?*,kyverno,kyverno-reports-controller-*]
-    [Job,kyverno,kyverno-hook-pre-delete]
-    [Job/?*,kyverno,kyverno-hook-pre-delete]
-    [NetworkPolicy,kyverno,kyverno-admission-controller]
-    [NetworkPolicy/?*,kyverno,kyverno-admission-controller]
-    [NetworkPolicy,kyverno,kyverno-background-controller]
-    [NetworkPolicy/?*,kyverno,kyverno-background-controller]
-    [NetworkPolicy,kyverno,kyverno-cleanup-controller]
-    [NetworkPolicy/?*,kyverno,kyverno-cleanup-controller]
-    [NetworkPolicy,kyverno,kyverno-reports-controller]
-    [NetworkPolicy/?*,kyverno,kyverno-reports-controller]
-    [PodDisruptionBudget,kyverno,kyverno-admission-controller]
-    [PodDisruptionBudget/?*,kyverno,kyverno-admission-controller]
-    [PodDisruptionBudget,kyverno,kyverno-background-controller]
-    [PodDisruptionBudget/?*,kyverno,kyverno-background-controller]
-    [PodDisruptionBudget,kyverno,kyverno-cleanup-controller]
-    [PodDisruptionBudget/?*,kyverno,kyverno-cleanup-controller]
-    [PodDisruptionBudget,kyverno,kyverno-reports-controller]
-    [PodDisruptionBudget/?*,kyverno,kyverno-reports-controller]
-    [Service,kyverno,kyverno-svc]
-    [Service/?*,kyverno,kyverno-svc]
-    [Service,kyverno,kyverno-svc-metrics]
-    [Service/?*,kyverno,kyverno-svc-metrics]
-    [Service,kyverno,kyverno-background-controller-metrics]
-    [Service/?*,kyverno,kyverno-background-controller-metrics]
-    [Service,kyverno,kyverno-cleanup-controller]
-    [Service/?*,kyverno,kyverno-cleanup-controller]
-    [Service,kyverno,kyverno-cleanup-controller-metrics]
-    [Service/?*,kyverno,kyverno-cleanup-controller-metrics]
-    [Service,kyverno,kyverno-reports-controller-metrics]
-    [Service/?*,kyverno,kyverno-reports-controller-metrics]
-    [ServiceMonitor,kyverno,kyverno-admission-controller]
-    [ServiceMonitor,kyverno,kyverno-background-controller]
-    [ServiceMonitor,kyverno,kyverno-cleanup-controller]
-    [ServiceMonitor,kyverno,kyverno-reports-controller]
-    [Secret,kyverno,kyverno-svc.adhar-system.svc.*]
-    [Secret,kyverno,kyverno-cleanup-controller.adhar-system.svc.*]
+    [ServiceAccount,adhar-system,kyverno-admission-controller]
+    [ServiceAccount/?*,adhar-system,kyverno-admission-controller]
+    [ServiceAccount,adhar-system,kyverno-background-controller]
+    [ServiceAccount/?*,adhar-system,kyverno-background-controller]
+    [ServiceAccount,adhar-system,kyverno-cleanup-controller]
+    [ServiceAccount/?*,adhar-system,kyverno-cleanup-controller]
+    [ServiceAccount,adhar-system,kyverno-reports-controller]
+    [ServiceAccount/?*,adhar-system,kyverno-reports-controller]
+    [Role,adhar-system,kyverno:admission-controller]
+    [Role,adhar-system,kyverno:background-controller]
+    [Role,adhar-system,kyverno:cleanup-controller]
+    [Role,adhar-system,kyverno:reports-controller]
+    [RoleBinding,adhar-system,kyverno:admission-controller]
+    [RoleBinding,adhar-system,kyverno:background-controller]
+    [RoleBinding,adhar-system,kyverno:cleanup-controller]
+    [RoleBinding,adhar-system,kyverno:reports-controller]
+    [ConfigMap,adhar-system,kyverno]
+    [ConfigMap,adhar-system,kyverno-metrics]
+    [Deployment,adhar-system,kyverno-admission-controller]
+    [Deployment/?*,adhar-system,kyverno-admission-controller]
+    [Deployment,adhar-system,kyverno-background-controller]
+    [Deployment/?*,adhar-system,kyverno-background-controller]
+    [Deployment,adhar-system,kyverno-cleanup-controller]
+    [Deployment/?*,adhar-system,kyverno-cleanup-controller]
+    [Deployment,adhar-system,kyverno-reports-controller]
+    [Deployment/?*,adhar-system,kyverno-reports-controller]
+    [Pod,adhar-system,kyverno-admission-controller-*]
+    [Pod/?*,adhar-system,kyverno-admission-controller-*]
+    [Pod,adhar-system,kyverno-background-controller-*]
+    [Pod/?*,adhar-system,kyverno-background-controller-*]
+    [Pod,adhar-system,kyverno-cleanup-controller-*]
+    [Pod/?*,adhar-system,kyverno-cleanup-controller-*]
+    [Pod,adhar-system,kyverno-reports-controller-*]
+    [Pod/?*,adhar-system,kyverno-reports-controller-*]
+    [Job,adhar-system,kyverno-hook-pre-delete]
+    [Job/?*,adhar-system,kyverno-hook-pre-delete]
+    [NetworkPolicy,adhar-system,kyverno-admission-controller]
+    [NetworkPolicy/?*,adhar-system,kyverno-admission-controller]
+    [NetworkPolicy,adhar-system,kyverno-background-controller]
+    [NetworkPolicy/?*,adhar-system,kyverno-background-controller]
+    [NetworkPolicy,adhar-system,kyverno-cleanup-controller]
+    [NetworkPolicy/?*,adhar-system,kyverno-cleanup-controller]
+    [NetworkPolicy,adhar-system,kyverno-reports-controller]
+    [NetworkPolicy/?*,adhar-system,kyverno-reports-controller]
+    [PodDisruptionBudget,adhar-system,kyverno-admission-controller]
+    [PodDisruptionBudget/?*,adhar-system,kyverno-admission-controller]
+    [PodDisruptionBudget,adhar-system,kyverno-background-controller]
+    [PodDisruptionBudget/?*,adhar-system,kyverno-background-controller]
+    [PodDisruptionBudget,adhar-system,kyverno-cleanup-controller]
+    [PodDisruptionBudget/?*,adhar-system,kyverno-cleanup-controller]
+    [PodDisruptionBudget,adhar-system,kyverno-reports-controller]
+    [PodDisruptionBudget/?*,adhar-system,kyverno-reports-controller]
+    [Service,adhar-system,kyverno-svc]
+    [Service/?*,adhar-system,kyverno-svc]
+    [Service,adhar-system,kyverno-svc-metrics]
+    [Service/?*,adhar-system,kyverno-svc-metrics]
+    [Service,adhar-system,kyverno-background-controller-metrics]
+    [Service/?*,adhar-system,kyverno-background-controller-metrics]
+    [Service,adhar-system,kyverno-cleanup-controller]
+    [Service/?*,adhar-system,kyverno-cleanup-controller]
+    [Service,adhar-system,kyverno-cleanup-controller-metrics]
+    [Service/?*,adhar-system,kyverno-cleanup-controller-metrics]
+    [Service,adhar-system,kyverno-reports-controller-metrics]
+    [Service/?*,adhar-system,kyverno-reports-controller-metrics]
+    [ServiceMonitor,adhar-system,kyverno-admission-controller]
+    [ServiceMonitor,adhar-system,kyverno-background-controller]
+    [ServiceMonitor,adhar-system,kyverno-cleanup-controller]
+    [ServiceMonitor,adhar-system,kyverno-reports-controller]
+    [Secret,adhar-system,kyverno-svc.adhar-system.svc.*]
+    [Secret,adhar-system,kyverno-cleanup-controller.adhar-system.svc.*]
   updateRequestThreshold: "1000"
-  webhooks: "{\"namespaceSelector\":{\"matchExpressions\":[{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"kube-system\"]},{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"kyverno\"]}],\"matchLabels\":null}}"
+  webhooks: "{\"namespaceSelector\":{\"matchExpressions\":[{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"kube-system\"]},{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"adhar-system\"]}],\"matchLabels\":null}}"
   webhookAnnotations: "{\"admissions.enforcer/disabled\":\"true\"}"
 ---
 # Source: kyverno/templates/config/metricsconfigmap.yaml
@@ -88358,8 +88358,8 @@ rules:
     resourceNames:
       - kyverno-cleanup-controller.adhar-system.svc.kyverno-tls-ca
       - kyverno-cleanup-controller.adhar-system.svc.kyverno-tls-pair
-      - kyverno-cleanup-controller.kyverno.metering.kyverno-tls-ca
-      - kyverno-cleanup-controller.kyverno.metering.kyverno-tls-pair
+      - kyverno-cleanup-controller.adhar-system.metering.kyverno-tls-ca
+      - kyverno-cleanup-controller.adhar-system.metering.kyverno-tls-pair
   - apiGroups:
       - ''
     resources:
@@ -88816,8 +88816,8 @@ spec:
             - --caSecretName=kyverno-svc.adhar-system.svc.kyverno-tls-ca
             - --tlsSecretName=kyverno-svc.adhar-system.svc.kyverno-tls-pair
             - --tlsKeyAlgorithm=RSA
-            - --backgroundServiceAccountName=system:serviceaccount:kyverno:kyverno-background-controller
-            - --reportsServiceAccountName=system:serviceaccount:kyverno:kyverno-reports-controller
+            - --backgroundServiceAccountName=system:serviceaccount:adhar-system:kyverno-background-controller
+            - --reportsServiceAccountName=system:serviceaccount:adhar-system:kyverno-reports-controller
             - --servicePort=443
             - --webhookServerPort=9443
             - --resyncPeriod=15m
@@ -88832,7 +88832,7 @@ spec:
             - --controllerRuntimeMetricsAddress=:8080
             - --enableDeferredLoading=true
             - --dumpPayload=false
-            - --forceFailurePolicyIgnore=false
+            - --forceFailurePolicyIgnore=true
             - --generateValidatingAdmissionPolicy=true
             - --generateMutatingAdmissionPolicy=false
             - --dumpPatches=false

@@ -25,7 +25,7 @@ namespace: "adhar-system"
 
 ## @param replicaCount number of replicas for the deployment
 ## For production HA: multiple instances for high availability
-replicaCount: 2
+replicaCount: 1  # cloud block storage is ReadWriteOnce; single writer (DB is HA via CNPG)
 
 ## @section strategy
 ## @param strategy.type strategy type
@@ -273,7 +273,9 @@ persistence:
   claimName: gitea-shared-storage
   size: 10Gi
   accessModes:
-    - ReadWriteMany
+    # Cloud block storage (DO/AWS/GCP) is ReadWriteOnce only; RWX would need
+    # object storage or NFS. Single-writer gitea over an HA CNPG database.
+    - ReadWriteOnce
   labels: {}
   storageClass:
   subPath:

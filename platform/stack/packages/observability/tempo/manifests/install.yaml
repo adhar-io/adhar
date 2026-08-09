@@ -33,7 +33,7 @@ data:
       {}
   tempo.yaml: |
     memberlist:
-      cluster_label: "tempo.monitoring"
+      cluster_label: "tempo.adhar-system"
     multitenancy_enabled: false
     usage_report:
       reporting_enabled: true
@@ -75,8 +75,24 @@ data:
     query_frontend:
           {}
     overrides:
-          defaults: {}
+          defaults:
+            metrics_generator:
+              generate_native_histograms: both
+              processors:
+              - local-blocks
+              - service-graphs
+              - span-metrics
           per_tenant_override_config: /conf/overrides.yaml
+    metrics_generator:
+      processor:
+            local_blocks:
+              flush_to_storage: true
+      storage:
+        path: "/tmp/tempo"
+        remote_write:
+          - url: http://mimir-gateway.adhar-system.svc.cluster.local/api/v1/push
+      traces_storage:
+        path: "/tmp/traces"
 ---
 # Source: tempo/templates/service.yaml
 apiVersion: v1
@@ -166,7 +182,7 @@ spec:
         app.kubernetes.io/name: tempo
         app.kubernetes.io/instance: tempo
       annotations:
-        checksum/config: cb46355f257527ccf4de20eb11bfb649e089f49545a4caa810463748828ba810
+        checksum/config: ef6bd5078dd454418b25cc66e4a1f75e60337ab117665c21afc1c0a3978c5b3b
     spec:
       serviceAccountName: tempo
       automountServiceAccountToken: true
@@ -226,6 +242,8 @@ spec:
         volumeMounts:
         - mountPath: /conf
           name: tempo-conf
+        - mountPath: /tmp
+          name: tmp
       securityContext:
         fsGroup: 10001
         runAsGroup: 10001
@@ -235,6 +253,8 @@ spec:
       - configMap:
           name: tempo
         name: tempo-conf
+      - name: tmp
+        emptyDir: {}
   updateStrategy:
     type:
       RollingUpdate

@@ -41,6 +41,11 @@ type ConfigProviderConfig struct {
 	// Common authentication fields
 	CredentialsFile string `mapstructure:"credentials_file" json:"credentialsFile"`
 	UseEnvironment  bool   `mapstructure:"useEnvironment" json:"useEnvironment"`
+	// UseManagedK8s selects the cloud's managed Kubernetes service (DOKS,
+	// Civo k3s) instead of the default: raw compute instances with adhar
+	// provisioning Kubernetes itself via kubeadm. All other platform
+	// behaviour is identical in both modes.
+	UseManagedK8s bool `mapstructure:"useManagedK8s" json:"useManagedK8s,omitempty"`
 
 	// AWS authentication
 	AccessKeyID     string `mapstructure:"accessKeyId" json:"accessKeyId"`
@@ -127,6 +132,11 @@ type ResolvedEnvironmentConfig struct {
 	ResolvedCoreServices  *ResolvedCoreServices `json:"resolvedCoreServices,omitempty"`
 	ResolvedAddons        []AddonConfig         `json:"resolvedAddons,omitempty"`
 	GlobalSettings        *GlobalSettings       `json:"globalSettings,omitempty"`
+	// ProviderConfig is the full provider block from `providers.<name>` for the
+	// resolved provider. Without it the provisioning path only sees region +
+	// cluster-config key/values, silently dropping credentials (token) and the
+	// provider's nested `config:` section.
+	ProviderConfig *ConfigProviderConfig `json:"providerConfig,omitempty"`
 }
 
 // ResolvedCoreServices holds resolved core service configurations
@@ -534,6 +544,14 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 				break
 			}
 		}
+	}
+
+	// Carry the resolved provider's full block (credentials + nested config)
+	// so provisioning can construct the provider exactly as `cluster create`
+	// does from the top-level providers section.
+	if providerCfg, exists := c.Providers[resolved.ResolvedProvider]; exists {
+		pc := providerCfg
+		resolved.ProviderConfig = &pc
 	}
 
 	// Resolve region

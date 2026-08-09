@@ -1,0 +1,16 @@
+# Paved-road CI stub (ADR-0018): pipeline-as-code kept deliberately minimal —
+# the heavy lifting (build -> test -> scan -> sign -> package -> promote-PR)
+# lives in the platform-owned pipeline catalog shipped by the
+# application/jenkins-x package, which this repo inherits. Override individual
+# steps here only when the golden path does not fit; the trigger wiring
+# against the in-cluster Tekton lives in .lighthouse/triggers.yaml.
+buildPack: none
+pipelineConfig:
+  pipelines:
+    # Inherited from the platform catalog:
+    #   adhar-pr-verify — presubmit: clone the PR revision, run ci/test.sh or
+    #                     `make test`
+    #   adhar-release   — postsubmit on main: clone + test, then open the
+    #                     promotion PR against the environments repo (CI ends
+    #                     at a Git commit; Kargo/ArgoCD own everything after)
+    overrides: []

@@ -8,19 +8,10 @@ const (
 	// Default cluster name for Kind clusters
 	DefaultClusterName string = "adhar"
 
-	// DefaultKubernetesVersion is the single source of truth for the Kubernetes
-	// version Adhar provisions (Kind node image tag and cloud cluster default).
-	// Kept current with the latest stable upstream release.
+	// DefaultKubernetesVersion is the version Adhar provisions
 	DefaultKubernetesVersion string = "v1.36.1"
-)
 
-var (
-	Version   string = "0.0.1-dev" // Default version, set at build time
-	GitCommit string = "unknown"   // Default git commit, set at build time
-	BuildDate string = "unknown"   // Default build date, set at build time
-)
-
-const (
+	// Cloud Providers
 	CloudProviderGKE   string = "gke"
 	CloudProviderAWS   string = "aws"
 	CloudProviderDO    string = "do"
@@ -28,13 +19,16 @@ const (
 	CloudProviderCivo  string = "civo"
 	CloudProviderKind  string = "kind"
 
+	// Git Providers
 	GitProviderGitea     string = "gitea"
 	GitProviderGitlab    string = "gitlab"
 	GitProviderGithub    string = "github"
 	GitProviderBitbucket string = "bitbucket"
 
+	// Default namespaces for platform components
 	AdharSystemNamespace string = "adhar-system"
 
+	// Default secret names
 	SelfSignedCertSecretName = "adhar-cert"
 	SelfSignedCertCMName     = "adhar-cert"
 	SelfSignedCertCMKeyName  = "ca.crt"
@@ -44,7 +38,8 @@ const (
 	// GiteaPlatformOrg is the Gitea organization owning the platform GitOps
 	// repos (packages, environments). Keycloak groups map onto its teams via
 	// the auth source's --group-team-map (gitea-oauth-config.yaml):
-	// platform-admin -> Owners, platform-developer -> developers (read),
+	// platform-admin -> Owners,
+	// platform-developer -> developers (read),
 	// platform-viewer -> viewers (read). Membership syncs on every SSO login.
 	GiteaPlatformOrg = "adhar"
 
@@ -57,6 +52,12 @@ const (
 	// Platform GitOps repository names created under GiteaPlatformOrg.
 	GitOpsRepoPackages     = "packages"
 	GitOpsRepoEnvironments = "environments"
+)
+
+var (
+	Version   string = "0.0.1"   // Default version, set at build time
+	GitCommit string = "unknown" // Default git commit, set at build time
+	BuildDate string = "unknown" // Default build date, set at build time
 )
 
 func GetProjectNamespace(name string) string {

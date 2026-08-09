@@ -1,0 +1,489 @@
+# Policy pack: CIS (roadmap Phase 3). An opt-in compliance profile layered on
+# top of the always-on baseline in security/kyverno-policies. Every policy is
+# labeled `adhar.io/policy-pack: cis` so findings can be filtered per profile,
+# and every policy ships in Audit mode: violations appear in PolicyReports
+# without blocking anything (the same staged rollout as ADR-0019 — Audit
+# everywhere, Enforce per-namespace once teams are clean). Policy names carry
+# the `cis-` prefix so the pack can coexist with the baseline package's
+# cluster-scoped policies. Platform namespaces are excluded: foundation
+# workloads are audited at the release boundary, and gating the platform's own
+# control loop is an ADR-0012-class risk.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cis-disallow-privileged-containers
+  labels:
+    adhar.io/policy-pack: cis
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "CIS: Disallow Privileged Containers"
+    policies.kyverno.io/category: "Policy Pack: CIS"
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Privileged mode disables most container isolation mechanisms and grants
+      the container full access to the host. CIS benchmarks require that
+      privileged containers are not admitted. Audit mode: violations are
+      reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: privileged-containers
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          Privileged mode is disallowed. The fields
+          spec.containers[*].securityContext.privileged,
+          spec.initContainers[*].securityContext.privileged, and
+          spec.ephemeralContainers[*].securityContext.privileged must be unset
+          or set to `false`.
+        pattern:
+          spec:
+            =(ephemeralContainers):
+              - =(securityContext):
+                  =(privileged): "false"
+            =(initContainers):
+              - =(securityContext):
+                  =(privileged): "false"
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cis-disallow-host-namespaces
+  labels:
+    adhar.io/policy-pack: cis
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "CIS: Disallow Host Namespaces"
+    policies.kyverno.io/category: "Policy Pack: CIS"
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Host namespaces (hostPID, hostIPC, hostNetwork) expose host processes,
+      IPC, and network to the Pod and can be used to escalate privileges. CIS
+      benchmarks require they are not admitted. Audit mode: violations are
+      reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: host-namespaces
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          Sharing the host namespaces is disallowed. The fields
+          spec.hostNetwork, spec.hostIPC, and spec.hostPID must be unset or set
+          to `false`.
+        pattern:
+          spec:
+            =(hostPID): "false"
+            =(hostIPC): "false"
+            =(hostNetwork): "false"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cis-disallow-host-path
+  labels:
+    adhar.io/policy-pack: cis
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "CIS: Disallow hostPath Volumes"
+    policies.kyverno.io/category: "Policy Pack: CIS"
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod,Volume
+    policies.kyverno.io/description: >-
+      hostPath volumes mount host directories into containers, allowing access
+      to shared host data and privilege escalation paths. CIS benchmarks
+      require workloads do not use hostPath. Audit mode: violations are
+      reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: host-path
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          hostPath volumes are forbidden. The field spec.volumes[*].hostPath
+          must be unset.
+        pattern:
+          spec:
+            =(volumes):
+              - X(hostPath): "null"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cis-require-run-as-nonroot
+  labels:
+    adhar.io/policy-pack: cis
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "CIS: Require runAsNonRoot"
+    policies.kyverno.io/category: "Policy Pack: CIS"
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Containers must not run as root. Either the Pod-level securityContext
+      sets runAsNonRoot to true, or every container (including init and
+      ephemeral containers) sets it explicitly. Audit mode: violations are
+      reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          Running as root is disallowed. Either spec.securityContext.runAsNonRoot
+          must be set to `true`, or every container must set
+          securityContext.runAsNonRoot to `true`.
+        anyPattern:
+          - spec:
+              securityContext:
+                runAsNonRoot: "true"
+          - spec:
+              =(ephemeralContainers):
+                - securityContext:
+                    runAsNonRoot: "true"
+              =(initContainers):
+                - securityContext:
+                    runAsNonRoot: "true"
+              containers:
+                - securityContext:
+                    runAsNonRoot: "true"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cis-disallow-privilege-escalation
+  labels:
+    adhar.io/policy-pack: cis
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "CIS: Disallow Privilege Escalation"
+    policies.kyverno.io/category: "Policy Pack: CIS"
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Privilege escalation (e.g. via setuid binaries) must be explicitly
+      disabled: every container must set
+      securityContext.allowPrivilegeEscalation to false. Audit mode:
+      violations are reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: privilege-escalation
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          Privilege escalation is disallowed. The fields
+          spec.containers[*].securityContext.allowPrivilegeEscalation,
+          spec.initContainers[*].securityContext.allowPrivilegeEscalation, and
+          spec.ephemeralContainers[*].securityContext.allowPrivilegeEscalation
+          must be set to `false`.
+        pattern:
+          spec:
+            =(ephemeralContainers):
+              - securityContext:
+                  allowPrivilegeEscalation: "false"
+            =(initContainers):
+              - securityContext:
+                  allowPrivilegeEscalation: "false"
+            containers:
+              - securityContext:
+                  allowPrivilegeEscalation: "false"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cis-require-drop-all-capabilities
+  labels:
+    adhar.io/policy-pack: cis
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "CIS: Require Drop ALL Capabilities"
+    policies.kyverno.io/category: "Policy Pack: CIS"
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Linux capabilities grant kernel-level privileges beyond the default set.
+      Every container must drop ALL capabilities in
+      securityContext.capabilities.drop (re-adding only NET_BIND_SERVICE where
+      needed). Audit mode: violations are reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: require-drop-all
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          Containers must drop all Linux capabilities: the field
+          securityContext.capabilities.drop must include `ALL` in every
+          container, initContainer, and ephemeralContainer.
+        foreach:
+          - list: request.object.spec.[ephemeralContainers, initContainers, containers][]
+            deny:
+              conditions:
+                all:
+                  - key: ALL
+                    operator: AnyNotIn
+                    value: "{{ element.securityContext.capabilities.drop[] || `[]` }}"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cis-require-resource-requests-limits
+  labels:
+    adhar.io/policy-pack: cis
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "CIS: Require Resource Requests and Limits"
+    policies.kyverno.io/category: "Policy Pack: CIS"
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Workloads without resource requests and limits can starve neighbors and
+      make capacity planning impossible. Every container must declare CPU and
+      memory requests and limits. Audit mode: violations are reported, not
+      blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: require-requests-limits
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          Resource requests and limits are required. Every container must set
+          resources.requests.cpu, resources.requests.memory,
+          resources.limits.cpu, and resources.limits.memory.
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    memory: "?*"
+                    cpu: "?*"
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cis-disallow-default-namespace
+  labels:
+    adhar.io/policy-pack: cis
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "CIS: Disallow Default Namespace"
+    policies.kyverno.io/category: "Policy Pack: CIS"
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      The default namespace has no isolation boundary, quota, or ownership and
+      should stay empty. Workloads must be deployed to purpose-created
+      namespaces. Audit mode: violations are reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: validate-pod-namespace
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      validate:
+        message: >-
+          Using the `default` namespace is not allowed. Deploy workloads to a
+          purpose-created namespace.
+        pattern:
+          metadata:
+            namespace: "!default"
+    - name: validate-controller-namespace
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+      validate:
+        message: >-
+          Using the `default` namespace is not allowed. Deploy workloads to a
+          purpose-created namespace.
+        pattern:
+          metadata:
+            namespace: "!default"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: cis-restrict-seccomp-runtimedefault
+  labels:
+    adhar.io/policy-pack: cis
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "CIS: Require RuntimeDefault Seccomp"
+    policies.kyverno.io/category: "Policy Pack: CIS"
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      A seccomp profile must be explicitly set to RuntimeDefault (or a vetted
+      Localhost profile), either at the Pod level or on every container, so
+      the kernel syscall surface is reduced by default. Audit mode: violations
+      are reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: check-seccomp-runtimedefault
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - adhar-system
+                - crossplane-system
+                - local-path-storage
+      validate:
+        message: >-
+          A RuntimeDefault seccomp profile is required. Either
+          spec.securityContext.seccompProfile.type or every container's
+          securityContext.seccompProfile.type must be set to `RuntimeDefault`
+          or `Localhost`.
+        anyPattern:
+          - spec:
+              securityContext:
+                seccompProfile:
+                  type: "RuntimeDefault | Localhost"
+          - spec:
+              =(ephemeralContainers):
+                - securityContext:
+                    seccompProfile:
+                      type: "RuntimeDefault | Localhost"
+              =(initContainers):
+                - securityContext:
+                    seccompProfile:
+                      type: "RuntimeDefault | Localhost"
+              containers:
+                - securityContext:
+                    seccompProfile:
+                      type: "RuntimeDefault | Localhost"

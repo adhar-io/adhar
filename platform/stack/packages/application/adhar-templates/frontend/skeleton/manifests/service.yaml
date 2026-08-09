@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{values.name | dump}}
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+spec:
+  selector:
+    app.kubernetes.io/name: ${{values.name}}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

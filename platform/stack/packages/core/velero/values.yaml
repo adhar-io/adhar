@@ -2,6 +2,10 @@ resources:
   requests:
     memory: 128Mi
 snapshotsEnabled: false
+# File-system backups: without the node agent Velero only backs up Kubernetes
+# objects — PVC file data was silently excluded from the DR story.
+deployNodeAgent: true
+defaultVolumesToFsBackup: true
 initContainers:
   - name: velero-plugin-for-aws
     image: velero/velero-plugin-for-aws:v1.8.2

@@ -1,0 +1,100 @@
+# Restarts the JupyterHub hub once its Keycloak OIDC client secret is available.
+#
+# Problem: the hub reads OAUTH_CLIENT_SECRET from the `jupyterhub-oidc` Secret
+# via a secretKeyRef env, ONCE at container start. That secret is produced by the
+# jupyterhub client Job -> jupyterhub-keycloak-oidc ExternalSecret chain, which
+# can finish after the hub has already started — so the hub comes up with an
+# empty client secret and the OAuth code exchange fails ("401 Unauthorized" on
+# /hub/oauth_callback, login 500s). Nothing restarts the hub afterwards.
+#
+# Fix: a PostSync hook (same pattern as grafana/headlamp/console) that waits for
+# the secret, then restarts the hub only if the running pod predates it.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jupyterhub-oidc-reload
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jupyterhub-oidc-reload
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jupyterhub-oidc-reload
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: jupyterhub-oidc-reload
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: jupyterhub-oidc-reload
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: jupyterhub-oidc-reload
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      generateName: jupyterhub-oidc-reload
+    spec:
+      serviceAccountName: jupyterhub-oidc-reload
+      restartPolicy: Never
+      containers:
+        - name: kubectl
+          image: docker.io/alpine/k8s:1.31.0
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              NS=adhar-system
+              DEPLOY=hub
+              SECRET=jupyterhub-oidc
+
+              ok=""
+              for i in $(seq 1 240); do
+                if kubectl -n "$NS" get secret "$SECRET" \
+                     -o jsonpath='{.data.JUPYTERHUB_OAUTH_CLIENT_SECRET}' 2>/dev/null | grep -q .; then
+                  ok=1; break
+                fi
+                echo "waiting for $SECRET JUPYTERHUB_OAUTH_CLIENT_SECRET ($i)"
+                sleep 10
+              done
+              if [ -z "$ok" ]; then
+                echo "secret not ready yet; leaving hub as-is (retries next sync)"
+                exit 0
+              fi
+
+              SECRET_TS=$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.metadata.creationTimestamp}')
+              POD_TS=$(kubectl -n "$NS" get pods -l component=hub \
+                         -o jsonpath='{.items[0].status.startTime}' 2>/dev/null || true)
+              if [ -n "$POD_TS" ] && [ "$(date -d "$POD_TS" +%s)" -gt "$(date -d "$SECRET_TS" +%s)" ]; then
+                echo "hub pod ($POD_TS) is newer than $SECRET ($SECRET_TS); nothing to do."
+                exit 0
+              fi
+
+              echo "Restarting $DEPLOY to pick up the OIDC client secret..."
+              kubectl -n "$NS" rollout restart deployment "$DEPLOY"
+              kubectl -n "$NS" rollout status deployment "$DEPLOY" --timeout=180s || true
+              echo "JupyterHub OIDC reload complete."

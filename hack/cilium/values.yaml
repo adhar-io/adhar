@@ -4470,7 +4470,18 @@ authentication:
             create: true
             name: spire-server
           # -- SPIRE server init containers
-          initContainers: []
+          # spire-server 1.12+ images run as uid 1000, but the chart mounts the
+          # private API socket dir from a root-owned hostPath, so the server
+          # cannot bind /tmp/spire-server/private/api.sock and crashloops
+          # (cilium/cilium#40533). The chart exposes no securityContext for this
+          # pod, so chown the socket dir from an init container instead.
+          initContainers:
+            - name: socket-permissions
+              image: docker.io/library/busybox:1.38.0
+              command: ["sh", "-c", "chown -R 1000:1000 /tmp/spire-server/private"]
+              volumeMounts:
+                - name: spire-server-socket
+                  mountPath: /tmp/spire-server/private
           # -- SPIRE server annotations
           annotations: {}
           # -- SPIRE server labels

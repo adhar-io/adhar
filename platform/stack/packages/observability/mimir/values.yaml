@@ -102,6 +102,12 @@ gateway:
       memory: 64Mi
 
 minio:
+  # Dedicated SA name: the standalone minio package also ships "minio-sa" in
+  # the same namespace, and ArgoCD flags the shared resource (it blocked
+  # enabling mimir in the production set).
+  serviceAccount:
+    create: true
+    name: mimir-minio-sa
   resources:
     requests:
       cpu: 50m

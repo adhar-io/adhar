@@ -203,8 +203,13 @@ configs:
     # repository. 30s (down from the 180s default): the repos live in-cluster
     # (Gitea, zero-cost polling) and fast change pickup directly shortens both
     # bootstrap convergence and day-2 GitOps feedback loops.
-    timeout.reconciliation: 30s
-    timeout.reconciliation.jitter: 10s
+    # 30s re-diffed all ~69 ApplicationSet apps continuously, keeping
+    # kube-apiserver pegged on single-node local clusters (leader-election
+    # lease renewals then time out and every operator crashloops). Gitea
+    # webhooks still deliver instant sync on push; the periodic re-diff is
+    # only a drift backstop.
+    timeout.reconciliation: 300s
+    timeout.reconciliation.jitter: 60s
 
     # -- Timeout to refresh application data as well as target manifests cache
     timeout.hard.reconciliation: 0s
@@ -282,6 +287,17 @@ configs:
     ## Default configuration for ignoreResourceUpdates.
     ## The ignoreResourceUpdates list contains K8s resource's properties that are known to be frequently updated
     ## by controllers and operators. These resources, when watched by argo, will cause many unnecessary updates.
+
+    # ArgoCD's built-in CNPG health check keeps a ScheduledBackup Progressing
+    # until its first backup fires — for a daily schedule that blocks any sync
+    # wave gated on it (e.g. keycloak's deployment) for up to 24h after
+    # bootstrap. A ScheduledBackup is declarative cron configuration; accepting
+    # the spec is all "healthy" can mean here.
+    resource.customizations.health.postgresql.cnpg.io_ScheduledBackup: |
+      hs = {}
+      hs.status = "Healthy"
+      hs.message = "ScheduledBackup is declarative cron configuration; first-run state must not gate sync waves"
+      return hs
 
     # -- Ignoring status for all resources. An update will still be sent if the status update causes the health to change.
     # @default -- See [values.yaml]
@@ -420,10 +436,16 @@ configs:
     otlp.address: ""
 
     ## Controller Properties
+    # Throttled below the chart defaults (20/10): the non-HA profile runs on
+    # single-node local clusters where the controller at full concurrency can
+    # saturate kube-apiserver during initial convergence of the ~69-app
+    # ApplicationSet, starving every other controller's leader-election lease.
     # -- Number of application status processors
-    controller.status.processors: 20
+    controller.status.processors: 8
     # -- Number of application operation processors
-    controller.operation.processors: 10
+    controller.operation.processors: 4
+    # -- Number of allowed concurrent kubectl fork/execs
+    controller.kubectl.parallelism.limit: 4
     # -- Specifies timeout between application self heal attempts
     controller.self.heal.timeout.seconds: 5
     # -- Repo server RPC call timeout seconds.
@@ -2238,6 +2260,10 @@ server:
 
   ## Readiness and liveness probes for default backend
   ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+  ## Relaxed from the chart defaults (timeout 1s / 3 failures): during initial
+  ## convergence on single-node local clusters the server cannot answer
+  ## /healthz?full=true within 1s, so kubelet SIGTERMs it every ~40s and the
+  ## UI crashloops exactly when users want to watch the rollout.
   readinessProbe:
     # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
     failureThreshold: 3
@@ -2248,19 +2274,19 @@ server:
     # -- Minimum consecutive successes for the [probe] to be considered successful after having failed
     successThreshold: 1
     # -- Number of seconds after which the [probe] times out
-    timeoutSeconds: 1
+    timeoutSeconds: 5
 
   livenessProbe:
     # -- Minimum consecutive failures for the [probe] to be considered failed after having succeeded
-    failureThreshold: 3
+    failureThreshold: 6
     # -- Number of seconds after the container has started before [probe] is initiated
-    initialDelaySeconds: 10
+    initialDelaySeconds: 30
     # -- How often (in seconds) to perform the [probe]
     periodSeconds: 10
     # -- Minimum consecutive successes for the [probe] to be considered successful after having failed
     successThreshold: 1
     # -- Number of seconds after which the [probe] times out
-    timeoutSeconds: 1
+    timeoutSeconds: 5
 
   # -- terminationGracePeriodSeconds for container lifecycle hook
   terminationGracePeriodSeconds: 30

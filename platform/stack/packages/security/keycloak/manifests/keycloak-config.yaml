@@ -134,12 +134,23 @@ data:
       ]
     }
 
+  # NOTE: keep "description" under 255 chars — Keycloak stores it in a
+  # varchar(255) column, and a longer value makes client creation fail with an
+  # opaque 500 ("unknown_error"). The create calls in the config job are
+  # non-fatal, so the client silently never exists, keycloak-clients gets an
+  # EMPTY ADHAR_CONSOLE_CLIENT_SECRET, and the console crash-loops with
+  # "Missing: AUTH_CLIENT_SECRET".
+  # Full context: confidential OIDC client for the Adhar Console
+  # (console.adhar.localtest.me), server-side BFF authorization-code flow;
+  # access tokens carry the 'kubernetes' audience (matching the kube-apiserver
+  # --oidc-client-id) + the groups claim, enabling per-user kube-apiserver
+  # impersonation and RBAC.
   adhar-console-client-payload.json: |
     {
       "protocol": "openid-connect",
       "clientId": "adhar-console",
       "name": "Adhar Console",
-      "description": "Confidential OIDC client for the Adhar Console (console.adhar.localtest.me). Server-side BFF authorization-code flow; access tokens carry the 'kubernetes' audience (matching the kube-apiserver --oidc-client-id) + the groups claim, enabling per-user kube-apiserver impersonation and RBAC.",
+      "description": "Adhar Console OIDC client (server-side BFF auth-code flow; access tokens carry aud=kubernetes + groups for per-user kube-apiserver impersonation and RBAC)",
       "publicClient": false,
       "authorizationServicesEnabled": false,
       "serviceAccountsEnabled": false,
@@ -664,21 +675,28 @@ spec:
                 fi
               done
 
-              # Ensure the adhar-console client secret is present in the
-              # keycloak-clients Secret even on an already-provisioned realm (the
-              # full create-path + rebuild-if-missing below only run on fresh /
-              # absent state). Lets the console's console-oidc ExternalSecret
-              # resolve ADHAR_CONSOLE_CLIENT_SECRET after this client is added.
-              # Non-fatal (runs under set +e).
-              ACS_ID=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=adhar-console" | jq -r '.[0].id // empty')
-              if [ -n "${ACS_ID}" ]; then
-                ACS=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                  "${KEYCLOAK_URL}/admin/realms/adhar/clients/${ACS_ID}" | jq -r '.secret // empty')
-                if [ -n "${ACS}" ] && kubectl -n adhar-system get secret keycloak-clients >/dev/null 2>&1; then
+              # Re-sync EVERY confidential client's actual Keycloak secret back
+              # into the keycloak-clients Secret on every reconcile. Client
+              # secrets live in Keycloak and can drift from keycloak-clients
+              # (a reconcile PUT/recreate, a manual regenerate, a partial realm
+              # rebuild). When they drift, the app holds a stale secret and its
+              # server-side OAuth token exchange fails — SSO silently breaks
+              # (observed on grafana; previously only adhar-console was resynced
+              # here). Keeping keycloak-clients authoritative from Keycloak fixes
+              # every OIDC ExternalSecret downstream. Non-fatal (set +e).
+              if kubectl -n adhar-system get secret keycloak-clients >/dev/null 2>&1; then
+                # clientId:KEYPREFIX pairs (KEYPREFIX matches the keycloak-clients keys).
+                for pair in argo-workflows:ARGO_WORKFLOWS adhar-console:ADHAR_CONSOLE headlamp:HEADLAMP grafana:GRAFANA argocd:ARGOCD gitea:GITEA prometheus:PROMETHEUS vault:VAULT harbor:HARBOR rustfs:RUSTFS tekton:TEKTON minio:MINIO jupyterhub:JUPYTERHUB; do
+                  cid="${pair%%:*}"; kp="${pair##*:}"
+                  rid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
+                  [ -n "${rid}" ] || continue
+                  rsec=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    "${KEYCLOAK_URL}/admin/realms/adhar/clients/${rid}" | jq -r '.secret // empty')
+                  [ -n "${rsec}" ] || continue
                   kubectl -n adhar-system patch secret keycloak-clients --type merge \
-                    -p "{\"stringData\":{\"ADHAR_CONSOLE_CLIENT_ID\":\"adhar-console\",\"ADHAR_CONSOLE_CLIENT_SECRET\":\"${ACS}\"}}" >/dev/null 2>&1 || true
-                fi
+                    -p "{\"stringData\":{\"${kp}_CLIENT_ID\":\"${cid}\",\"${kp}_CLIENT_SECRET\":\"${rsec}\"}}" >/dev/null 2>&1 || true
+                done
               fi
 
               # A realm can exist half-provisioned: an earlier job run that died

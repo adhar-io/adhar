@@ -1,0 +1,66 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  description: >-
+    Golden path: a static frontend served by nginx-unprivileged with hardened
+    Kubernetes manifests (probes, resources, securityContext), Gateway API
+    routing, and the paved-road CI stub (ADR-0018).
+  name: frontend
+  title: Golden Path - Static Frontend
+spec:
+  owner: guests
+  type: website
+  parameters:
+    - title: Configuration Options
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: name of this application
+        owner:
+          type: string
+          description: owning team recorded in the adhar.io/owner label
+          default: guests
+
+  steps:
+    - id: template
+      name: Generating component
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{parameters.name}}
+          owner: ${{parameters.owner}}
+
+    - id: publish
+      name: Publishing to a gitea git repository
+      action: publish:gitea
+      input:
+        description: Golden-path static frontend
+        # Hard coded value for this demo purposes only.
+        repoUrl: gitea.adhar.localtest.me:8443?repo=${{parameters.name}}
+        defaultBranch: main
+    - id: create-argocd-app
+      name: Create ArgoCD App
+      action: adhar:create-argocd-app
+      input:
+        appName: ${{parameters.name}}
+        appNamespace: ${{parameters.name}}
+        argoInstance: in-cluster
+        projectName: default
+        # necessary until we generate our own cert
+        repoUrl: https://gitea.adhar.localtest.me:8443/giteaAdmin/${{parameters.name}}
+        path: "manifests"
+    - id: register
+      name: Register
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: 'catalog-info.yaml'
+
+  output:
+    links:
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}

@@ -31,6 +31,13 @@ type KubeconfigManager struct {
 
 // NewKubeconfigManager creates a new kubeconfig manager
 func NewKubeconfigManager(kubeconfigPath string) *KubeconfigManager {
+	// An empty path (the flag's documented default) means ~/.kube/config;
+	// without this, merges fail with `open : no such file or directory`.
+	if kubeconfigPath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			kubeconfigPath = filepath.Join(home, ".kube", "config")
+		}
+	}
 	return &KubeconfigManager{
 		kubeconfigPath: kubeconfigPath,
 	}

@@ -25,11 +25,12 @@ The foundation everyone evaluates first: `adhar up` on a laptop must be flawless
 
 Make one managed cluster a defensible production platform. All items are code-complete with green unit/manifest tests; 🟡 marks those awaiting a live cloud run.
 
+- ✅ **Self-managed clusters on raw cloud compute (kubeadm) — DigitalOcean live-verified**: all six providers (AWS EC2, Azure VMs, GCP GCE, DigitalOcean droplets, Civo instances, custom BYO hosts) provision plain Ubuntu machines and bootstrap Kubernetes with kubeadm over SSH — containerd, kube-proxy skipped (Cilium from the platform bootstrap replaces it, matching the Kind flow); managed services (DOKS, Civo k3s) opt-in via `useManagedK8s: true` with otherwise identical behaviour; day-2 verified live on DO: worker scale-up (join) / scale-down (drain); create→API-serving in ~5 min, Cilium to `Ready`, LetsEncrypt DNS-01 + external-dns against DigitalOcean DNS all verified against a real account (2026-08); AWS/Azure/GCP/Civo share the code path, awaiting their own live runs; single control-plane today (HA control planes with LB + stacked etcd are the next step)
 - 🟡 **In-cluster controllers**: `adhar controller` runs the manager as a Deployment (leader election, health probes); installed by `adhar up --in-cluster` and by default on cloud bootstraps
 - 🟡 **HA mode end-to-end**: `enableHAMode` flows config → `AdharPlatform` CR → HA manifest variants (ArgoCD/Gitea replicas + PDBs, guarded by chart-parity tests); Gitea on a bootstrap-phase CNPG cluster (`gitea-db`), Keycloak on CNPG (`keycloak-db`)
 - 🟡 **Production edge**: cloud Gateway variant (LoadBalancer, wildcard listener, cert-manager-managed cert via `adhar-selfsigned` default; `adhar-letsencrypt-*` ClusterIssuers shipped), external-dns wired to Gateway HTTPRoutes (`--txt-owner-id=adhar`)
 - 🟡 **SSO by default**: Keycloak OIDC wired into ArgoCD (both variants), Gitea, Grafana, Console; `credential-rotation` package rotates bootstrap credentials into Vault break-glass (enabled in the production set)
-- 🟡 **Backup/DR**: Velero Schedules (daily platform / weekly cluster) + CNPG WAL archiving and daily base backups for platform databases; concrete restore runbook in [Production §5](PRODUCTION.md#5-backup-and-disaster-recovery)
+- 🟡 **Backup/DR**: Velero Schedules (daily platform / weekly cluster) with the node agent deployed and file-system backups on by default (PVC file data included, not just Kubernetes objects) + CNPG WAL archiving and daily base backups for platform databases; concrete restore runbook in [Production §5](PRODUCTION.md#5-backup-and-disaster-recovery)
 - 🟡 **Upgrade story**: `adhar upgrade` — converges the foundation through the real reconcilers, diffs the local stack against the GitOps repos (`--diff-only`, `--yes`), pushes and refreshes on confirm
 
 ## Phase 2 — Multi-Cluster Platform (T3) 🟡 IMPLEMENTED
@@ -38,7 +39,7 @@ The management cluster earns its name. Code-complete; live multi-cluster validat
 
 - 🟡 **Workload clusters via GitOps**: all five cloud `CompositeCluster` compositions auto-register clusters with ArgoCD (EKS via IAM `awsAuthConfig`, GKE via `argocd-k8s-auth gcp`, AKS/DOKS/Civo via provider kubeconfig parsing)
 - 🟡 **Thin workload-cluster profile**: `adhar-appset-workload.yaml` deploys the agent set (metrics-server, kyverno + policies, alloy) to every registered cluster automatically
-- 🟡 **Observability hub**: Alloy ships metrics/logs/traces (cluster-labeled) to hub endpoints from the `observability-hub` ConfigMap; mimir/loki/tempo ingestion HTTPRoutes; hub packages enabled in the production set
+- 🟡 **Observability hub**: Alloy ships metrics/logs/traces (cluster-labeled) to hub endpoints from the `observability-hub` ConfigMap; mimir/loki/tempo ingestion HTTPRoutes; hub packages enabled in the production set (mimir's bundled MinIO now uses a dedicated `mimir-minio-sa`, resolving the SA collision with the minio package)
 - 🟡 **Cilium Cluster Mesh + SPIFFE**: mesh-ready identity (`adhar-mgmt`/ID 1) baked in; SPIRE server + agents ship in the foundation (trust domain `adhar.io`), mutual auth enforceable per-policy; connect runbook in [Production §4.1](PRODUCTION.md#41-cluster-mesh-and-workload-identity-t3)
 - 🟡 **Environment promotion**: Kargo pipeline (Warehouse on the environments repo; staging auto-promotes, production requires approval; promotion is a Git commit)
 - 🟡 **Cluster reconstructability SLO**: monthly drill CronOperation + observer WatchOperation measuring time-to-Ready against the 1-hour SLO
@@ -52,10 +53,10 @@ From platform to product.
 - 🟡 **Supply-chain policies**: Kyverno pack (signature verification, no-latest-tag, registry allowlist — Audit mode, ADR-0019 staged rollout); trivy enabled in production; cosign package pending own-namespace re-render (CONFLICTS.md)
 - 🟡 **Platform auth CLI**: `adhar auth login/logout/token/whoami` against the `adhar-cli` Keycloak client (persisted sessions, auto-refresh); Keycloak groups → Kubernetes RBAC bindings shipped
 - 🟡 **Full production enablement**: provider-selected ApplicationSets — Kind gets the curated core, cloud/on-prem gets the full catalog (69+ enabled; conflicts documented inline)
-- 🔜 **Golden paths**: production-quality templates (microservice, frontend, data pipeline, ML) scaffolded from the Console with repo, CI, deployment, and observability pre-wired
+- 🟡 **Golden paths**: `microservice` (Go service with health/ready endpoints, graceful shutdown, distroless image, hardened manifests + HTTPRoute, ADR-0018 pipeline stub) and `frontend` (nginx-unprivileged static site, same manifest set) templates shipped in `application/adhar-templates`; Console scaffolding integration and data/ML paths still 🔜
 - 🔜 **Score cards**: per-service production-readiness scoring surfaced in the Console
 - 🔜 **Package marketplace**: community-contributed packages with a compatibility contract and provenance (signed, scanned)
-- 🔜 **Policy packs**: opt-in compliance profiles (CIS, SOC2-oriented) as Kyverno bundles
+- 🟡 **Policy packs**: `security/policy-packs` package ships CIS- and SOC2-oriented Kyverno ClusterPolicy profiles (labeled `adhar.io/policy-pack: cis|soc2`, all Audit mode), wired disabled-by-default in the ApplicationSet as an opt-in
 - 🔜 **AI-assisted operations**: platform-aware assistant for debugging and change suggestions
 
 ## Phase 4 — Data & Intelligence Platform

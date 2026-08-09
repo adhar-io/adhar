@@ -11,8 +11,41 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
+	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
 )
+
+// nodeUserData returns the base64-encoded node-preparation script (EC2
+// requires user data base64-encoded). Masters and workers run the same
+// script; kubeadm is driven over SSH afterwards.
+func nodeUserData(spec *types.ClusterSpec) string {
+	script := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(spec.Version))
+	return base64.StdEncoding.EncodeToString([]byte(script))
+}
+
+// waitForInstanceIPs waits until an instance is running with both private and
+// public IPs assigned (kubeadm is driven over SSH via the public IP).
+func (p *Provider) waitForInstanceIPs(ctx context.Context, instanceID string) (*ec2types.Instance, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	for {
+		result, err := p.ec2Client.DescribeInstances(waitCtx, &ec2.DescribeInstancesInput{
+			InstanceIds: []string{instanceID},
+		})
+		if err == nil && len(result.Reservations) > 0 && len(result.Reservations[0].Instances) > 0 {
+			inst := result.Reservations[0].Instances[0]
+			if inst.State != nil && inst.State.Name == ec2types.InstanceStateNameRunning &&
+				aws.ToString(inst.PrivateIpAddress) != "" && aws.ToString(inst.PublicIpAddress) != "" {
+				return &inst, nil
+			}
+		}
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("instance %s did not become running with a public IP in time", instanceID)
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
 
 // createMasterNodes creates EC2 instances for Kubernetes master nodes
 func (p *Provider) createMasterNodes(ctx context.Context, subnetID, sgID, clusterName string, spec *types.ClusterSpec) ([]NodeInfo, error) {
@@ -36,6 +69,8 @@ func (p *Provider) createMasterNodes(ctx context.Context, subnetID, sgID, cluste
 	}
 
 	var masterNodes []NodeInfo
+
+	userData := nodeUserData(spec)
 
 	// Ensure SSH key pair exists for cluster access
 	sshKeyName, err := p.ensureSSHKeyPair(ctx, clusterName)
@@ -67,38 +102,25 @@ func (p *Provider) createMasterNodes(ctx context.Context, subnetID, sgID, cluste
 					},
 				},
 			},
-			UserData: aws.String(p.getMasterNodeUserData(i == 0, clusterName)), // First node is the primary master
+			UserData: aws.String(userData),
 		})
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to create master node %s: %w", nodeName, err)
 		}
 
-		instance := runResult.Instances[0]
-
-		// Wait for instance to get private IP (this happens quickly)
-		time.Sleep(5 * time.Second)
-
-		// Get instance details to retrieve IP addresses
-		describeResult, err := p.ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-			InstanceIds: []string{*instance.InstanceId},
-		})
-
+		inst, err := p.waitForInstanceIPs(ctx, *runResult.Instances[0].InstanceId)
 		if err != nil {
-			return nil, fmt.Errorf("failed to describe instance %s: %w", *instance.InstanceId, err)
+			return nil, fmt.Errorf("master node %s: %w", nodeName, err)
 		}
 
-		if len(describeResult.Reservations) > 0 && len(describeResult.Reservations[0].Instances) > 0 {
-			inst := describeResult.Reservations[0].Instances[0]
-			nodeInfo := NodeInfo{
-				InstanceId:   *inst.InstanceId,
-				PrivateIP:    aws.ToString(inst.PrivateIpAddress),
-				PublicIP:     aws.ToString(inst.PublicIpAddress),
-				InstanceType: instanceType,
-				Role:         "master",
-			}
-			masterNodes = append(masterNodes, nodeInfo)
-		}
+		masterNodes = append(masterNodes, NodeInfo{
+			InstanceId:   *inst.InstanceId,
+			PrivateIP:    aws.ToString(inst.PrivateIpAddress),
+			PublicIP:     aws.ToString(inst.PublicIpAddress),
+			InstanceType: instanceType,
+			Role:         "master",
+		})
 	}
 
 	log.Printf("Successfully created %d master nodes", len(masterNodes))
@@ -108,6 +130,8 @@ func (p *Provider) createMasterNodes(ctx context.Context, subnetID, sgID, cluste
 // createWorkerNodes creates EC2 instances for Kubernetes worker nodes
 func (p *Provider) createWorkerNodes(ctx context.Context, subnetID, sgID, clusterName string, spec *types.ClusterSpec) ([]NodeInfo, error) {
 	var workerNodes []NodeInfo
+
+	userData := nodeUserData(spec)
 
 	// Ensure SSH key pair exists for cluster access
 	sshKeyName, err := p.ensureSSHKeyPair(ctx, clusterName)
@@ -156,168 +180,30 @@ func (p *Provider) createWorkerNodes(ctx context.Context, subnetID, sgID, cluste
 						},
 					},
 				},
-				UserData: aws.String(p.getWorkerNodeUserData(clusterName)),
+				UserData: aws.String(userData),
 			})
 
 			if err != nil {
 				return nil, fmt.Errorf("failed to create worker node %s: %w", nodeName, err)
 			}
 
-			instance := runResult.Instances[0]
-
-			// Wait for instance to get private IP
-			time.Sleep(5 * time.Second)
-
-			// Get instance details to retrieve IP addresses
-			describeResult, err := p.ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-				InstanceIds: []string{*instance.InstanceId},
-			})
-
+			inst, err := p.waitForInstanceIPs(ctx, *runResult.Instances[0].InstanceId)
 			if err != nil {
-				return nil, fmt.Errorf("failed to describe instance %s: %w", *instance.InstanceId, err)
+				return nil, fmt.Errorf("worker node %s: %w", nodeName, err)
 			}
 
-			if len(describeResult.Reservations) > 0 && len(describeResult.Reservations[0].Instances) > 0 {
-				inst := describeResult.Reservations[0].Instances[0]
-				nodeInfo := NodeInfo{
-					InstanceId:   *inst.InstanceId,
-					PrivateIP:    aws.ToString(inst.PrivateIpAddress),
-					PublicIP:     aws.ToString(inst.PublicIpAddress),
-					InstanceType: instanceType,
-					Role:         "worker",
-				}
-				workerNodes = append(workerNodes, nodeInfo)
-			}
+			workerNodes = append(workerNodes, NodeInfo{
+				InstanceId:   *inst.InstanceId,
+				PrivateIP:    aws.ToString(inst.PrivateIpAddress),
+				PublicIP:     aws.ToString(inst.PublicIpAddress),
+				InstanceType: instanceType,
+				Role:         "worker",
+			})
 		}
 	}
 
 	log.Printf("Successfully created %d worker nodes", len(workerNodes))
 	return workerNodes, nil
-}
-
-// getMasterNodeUserData generates cloud-init user data for master nodes based on the blog post
-func (p *Provider) getMasterNodeUserData(isPrimary bool, clusterName string) string {
-	// Following the production setup from the blog post
-	userDataScript := `#!/bin/bash
-set -e
-
-# Update system packages
-apt-get update
-apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
-
-# Install containerd
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-apt-get update
-apt-get install -y containerd.io
-
-# Configure containerd
-mkdir -p /etc/containerd
-containerd config default | tee /etc/containerd/config.toml
-sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-systemctl restart containerd
-systemctl enable containerd
-
-# Install Kubernetes components
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
-apt-get update
-apt-get install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-
-# Configure kubelet
-cat << EOF | tee /etc/default/kubelet
-KUBELET_EXTRA_ARGS="--cloud-provider=external"
-EOF
-
-# Enable kubelet
-systemctl enable kubelet
-
-# Prepare for cluster initialization
-mkdir -p /tmp/k8s-setup
-echo "Node setup complete" > /tmp/k8s-setup/node-ready
-
-# Signal that the node is ready for Kubernetes initialization
-`
-
-	if isPrimary {
-		userDataScript += `
-# Primary master node - initialize the cluster
-cat << EOF | tee /tmp/k8s-setup/kubeadm-config.yaml
-apiVersion: kubeadm.k8s.io/v1beta3
-kind: ClusterConfiguration
-kubernetesVersion: v1.29.0
-controlPlaneEndpoint: "$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4):6443"
-networking:
-  serviceSubnet: "10.96.0.0/12"
-  podSubnet: "10.244.0.0/16"
-apiServer:
-  extraArgs:
-    cloud-provider: external
-controllerManager:
-  extraArgs:
-    cloud-provider: external
----
-apiVersion: kubeadm.k8s.io/v1beta3
-kind: InitConfiguration
-nodeRegistration:
-  kubeletExtraArgs:
-    cloud-provider: external
-EOF
-
-# Initialize the cluster (will be done later via SSH)
-echo "Ready for kubeadm init" > /tmp/k8s-setup/primary-master-ready
-`
-	}
-
-	return base64.StdEncoding.EncodeToString([]byte(userDataScript))
-}
-
-// getWorkerNodeUserData generates cloud-init user data for worker nodes
-func (p *Provider) getWorkerNodeUserData(clusterName string) string {
-	userDataScript := `#!/bin/bash
-set -e
-
-# Update system packages
-apt-get update
-apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
-
-# Install containerd
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-apt-get update
-apt-get install -y containerd.io
-
-# Configure containerd
-mkdir -p /etc/containerd
-containerd config default | tee /etc/containerd/config.toml
-sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-systemctl restart containerd
-systemctl enable containerd
-
-# Install Kubernetes components
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
-apt-get update
-apt-get install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-
-# Configure kubelet
-cat << EOF | tee /etc/default/kubelet
-KUBELET_EXTRA_ARGS="--cloud-provider=external"
-EOF
-
-# Enable kubelet
-systemctl enable kubelet
-
-# Prepare for joining the cluster
-mkdir -p /tmp/k8s-setup
-echo "Worker node setup complete" > /tmp/k8s-setup/worker-ready
-
-# Signal that the node is ready to join the cluster
-`
-
-	return base64.StdEncoding.EncodeToString([]byte(userDataScript))
 }
 
 // getClusterInfrastructure retrieves the infrastructure details for a cluster

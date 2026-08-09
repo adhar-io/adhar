@@ -69,9 +69,16 @@ type NodeInfo struct {
 	Role          string // "master" or "worker"
 }
 
+// azureSSHUser is the VM admin account created via OSProfile; kubeadm is
+// driven over SSH as this user (with sudo).
+const azureSSHUser = "adhar"
+
 // Register the Azure provider on package import
 func init() {
 	provider.DefaultFactory.RegisterProvider("azure", func(config map[string]interface{}) (provider.Provider, error) {
+		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
+			return nil, fmt.Errorf("useManagedK8s is not supported for the azure provider: adhar provisions Kubernetes on raw compute here (AKS integration is not offered); remove useManagedK8s or set it to false")
+		}
 		// Create provider config from the configuration map
 		providerConfig, err := parseProviderConfig(config)
 		if err != nil {
@@ -658,6 +665,37 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		log.Printf("Warning: failed to save state: %v", err)
 	}
 
+	// Bootstrap Kubernetes with kubeadm over SSH: wait for node preparation,
+	// init the control plane (kube-proxy skipped; the platform bootstrap
+	// installs Cilium with kubeProxyReplacement), then join workers.
+	signer, err := provider.LoadClusterSSHKey(spec.Name)
+	if err != nil {
+		return nil, err
+	}
+	if len(infrastructure.MasterNodes) == 0 {
+		return nil, fmt.Errorf("no control-plane VM was created")
+	}
+	master := infrastructure.MasterNodes[0]
+	if master.PublicIP == "" {
+		return nil, fmt.Errorf("control-plane VM %s has no public IP", master.VMName)
+	}
+	if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, master.PublicIP, 15*time.Minute); err != nil {
+		return nil, fmt.Errorf("control-plane node not ready: %w", err)
+	}
+	joinCmd, err := provider.KubeadmInitMaster(signer, azureSSHUser, master.PublicIP, master.PrivateIP)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range infrastructure.WorkerNodes {
+		if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, w.PublicIP, 15*time.Minute); err != nil {
+			return nil, fmt.Errorf("worker %s not ready: %w", w.VMName, err)
+		}
+		if err := provider.KubeadmJoinWorker(signer, azureSSHUser, w.PublicIP, joinCmd); err != nil {
+			return nil, fmt.Errorf("worker %s: %w", w.VMName, err)
+		}
+	}
+	log.Printf("Kubernetes bootstrapped on cluster %s; nodes stay NotReady until the platform bootstrap installs Cilium", spec.Name)
+
 	log.Printf("Successfully created cluster: %s", spec.Name)
 	return cluster, nil
 }
@@ -669,6 +707,9 @@ func (p *Provider) validateClusterSpec(spec *types.ClusterSpec) error {
 	}
 	if spec.ControlPlane.Replicas <= 0 {
 		spec.ControlPlane.Replicas = 1 // Default to 1 master node
+	}
+	if spec.ControlPlane.Replicas > 1 {
+		return fmt.Errorf("HA control plane not yet supported for the Azure provider: requested %d control-plane replicas, only 1 is supported", spec.ControlPlane.Replicas)
 	}
 	if spec.ControlPlane.InstanceType == "" {
 		spec.ControlPlane.InstanceType = p.config.VMSize // Use default VM size
@@ -717,8 +758,15 @@ func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName 
 	}
 	infrastructure.NetworkSecurityGroupName = nsgName
 
+	// Per-cluster SSH key for driving kubeadm over SSH
+	_, sshPubKey, err := provider.EnsureClusterSSHKey(clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare cluster SSH key: %w", err)
+	}
+	startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(spec.Version))
+
 	// Create master nodes
-	masterNodes, err := p.createMasterNodes(ctx, resourceGroupName, vnetName, subnetName, nsgName, clusterName, spec)
+	masterNodes, err := p.createMasterNodes(ctx, resourceGroupName, vnetName, subnetName, nsgName, clusterName, spec, sshPubKey, startupScript)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create master nodes: %w", err)
 	}
@@ -726,7 +774,7 @@ func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName 
 
 	// Create worker nodes if specified
 	if len(spec.NodeGroups) > 0 {
-		workerNodes, err := p.createWorkerNodes(ctx, resourceGroupName, vnetName, subnetName, nsgName, clusterName, spec)
+		workerNodes, err := p.createWorkerNodes(ctx, resourceGroupName, vnetName, subnetName, nsgName, clusterName, spec, sshPubKey, startupScript)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create worker nodes: %w", err)
 		}
@@ -873,16 +921,46 @@ func (p *Provider) createNetworkSecurityGroup(ctx context.Context, resourceGroup
 			},
 		},
 		{
+			Name: stringPtr("NodePorts-TCP"),
+			Properties: &armnetwork.SecurityRulePropertiesFormat{
+				Description:              stringPtr("Allow Kubernetes NodePort services (TCP)"),
+				Protocol:                 toPtr(armnetwork.SecurityRuleProtocolTCP),
+				SourcePortRange:          stringPtr("*"),
+				DestinationPortRange:     stringPtr("30000-32767"),
+				SourceAddressPrefix:      stringPtr("*"),
+				DestinationAddressPrefix: stringPtr("*"),
+				Access:                   toPtr(armnetwork.SecurityRuleAccessAllow),
+				Priority:                 int32Ptr(1003),
+				Direction:                toPtr(armnetwork.SecurityRuleDirectionInbound),
+			},
+		},
+		{
+			Name: stringPtr("NodePorts-UDP"),
+			Properties: &armnetwork.SecurityRulePropertiesFormat{
+				Description:              stringPtr("Allow Kubernetes NodePort services (UDP)"),
+				Protocol:                 toPtr(armnetwork.SecurityRuleProtocolUDP),
+				SourcePortRange:          stringPtr("*"),
+				DestinationPortRange:     stringPtr("30000-32767"),
+				SourceAddressPrefix:      stringPtr("*"),
+				DestinationAddressPrefix: stringPtr("*"),
+				Access:                   toPtr(armnetwork.SecurityRuleAccessAllow),
+				Priority:                 int32Ptr(1004),
+				Direction:                toPtr(armnetwork.SecurityRuleDirectionInbound),
+			},
+		},
+		{
+			// Redundant with the default AllowVnetInBound rule, but pinned
+			// explicitly so custom deny rules cannot break node-to-node traffic
 			Name: stringPtr("Internal-Cluster"),
 			Properties: &armnetwork.SecurityRulePropertiesFormat{
 				Description:              stringPtr("Allow internal cluster communication"),
 				Protocol:                 toPtr(armnetwork.SecurityRuleProtocolAsterisk),
 				SourcePortRange:          stringPtr("*"),
 				DestinationPortRange:     stringPtr("*"),
-				SourceAddressPrefix:      stringPtr("10.0.0.0/16"),
-				DestinationAddressPrefix: stringPtr("10.0.0.0/16"),
+				SourceAddressPrefix:      stringPtr("VirtualNetwork"),
+				DestinationAddressPrefix: stringPtr("VirtualNetwork"),
 				Access:                   toPtr(armnetwork.SecurityRuleAccessAllow),
-				Priority:                 int32Ptr(1003),
+				Priority:                 int32Ptr(1005),
 				Direction:                toPtr(armnetwork.SecurityRuleDirectionInbound),
 			},
 		},
@@ -941,7 +1019,7 @@ func toPtrBool(b bool) *bool {
 }
 
 // createMasterNodes creates master nodes for the Kubernetes cluster using Azure SDK
-func (p *Provider) createMasterNodes(ctx context.Context, resourceGroupName, vnetName, subnetName, nsgName, clusterName string, spec *types.ClusterSpec) ([]NodeInfo, error) {
+func (p *Provider) createMasterNodes(ctx context.Context, resourceGroupName, vnetName, subnetName, nsgName, clusterName string, spec *types.ClusterSpec, sshPubKey, startupScript string) ([]NodeInfo, error) {
 	log.Printf("Creating master nodes for cluster: %s", clusterName)
 
 	var masterNodes []NodeInfo
@@ -949,7 +1027,7 @@ func (p *Provider) createMasterNodes(ctx context.Context, resourceGroupName, vne
 	for i := 0; i < spec.ControlPlane.Replicas; i++ {
 		vmName := fmt.Sprintf("%s-master-%d", clusterName, i)
 
-		nodeInfo, err := p.createVirtualMachine(ctx, resourceGroupName, vnetName, subnetName, nsgName, vmName, spec.ControlPlane.InstanceType, true)
+		nodeInfo, err := p.createVirtualMachine(ctx, resourceGroupName, vnetName, subnetName, nsgName, vmName, spec.ControlPlane.InstanceType, true, sshPubKey, startupScript)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create master node %s: %w", vmName, err)
 		}
@@ -962,7 +1040,7 @@ func (p *Provider) createMasterNodes(ctx context.Context, resourceGroupName, vne
 }
 
 // createWorkerNodes creates worker nodes for the Kubernetes cluster using Azure SDK
-func (p *Provider) createWorkerNodes(ctx context.Context, resourceGroupName, vnetName, subnetName, nsgName, clusterName string, spec *types.ClusterSpec) ([]NodeInfo, error) {
+func (p *Provider) createWorkerNodes(ctx context.Context, resourceGroupName, vnetName, subnetName, nsgName, clusterName string, spec *types.ClusterSpec, sshPubKey, startupScript string) ([]NodeInfo, error) {
 	log.Printf("Creating worker nodes for cluster: %s", clusterName)
 
 	var workerNodes []NodeInfo
@@ -971,7 +1049,7 @@ func (p *Provider) createWorkerNodes(ctx context.Context, resourceGroupName, vne
 		for i := 0; i < nodeGroup.Replicas; i++ {
 			vmName := fmt.Sprintf("%s-worker-%s-%d", clusterName, nodeGroup.Name, i)
 
-			nodeInfo, err := p.createVirtualMachine(ctx, resourceGroupName, vnetName, subnetName, nsgName, vmName, nodeGroup.InstanceType, false)
+			nodeInfo, err := p.createVirtualMachine(ctx, resourceGroupName, vnetName, subnetName, nsgName, vmName, nodeGroup.InstanceType, false, sshPubKey, startupScript)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create worker node %s: %w", vmName, err)
 			}
@@ -985,7 +1063,7 @@ func (p *Provider) createWorkerNodes(ctx context.Context, resourceGroupName, vne
 }
 
 // createVirtualMachine creates a virtual machine using Azure SDK
-func (p *Provider) createVirtualMachine(ctx context.Context, resourceGroupName, vnetName, subnetName, nsgName, vmName, vmSize string, isMaster bool) (*NodeInfo, error) {
+func (p *Provider) createVirtualMachine(ctx context.Context, resourceGroupName, vnetName, subnetName, nsgName, vmName, vmSize string, isMaster bool, sshPubKey, startupScript string) (*NodeInfo, error) {
 	log.Printf("Creating virtual machine: %s with VM size: %s", vmName, vmSize)
 	log.Printf("VM configuration: Image=%s:%s:%s, DiskSize=%dGB", p.config.ImagePublisher, p.config.ImageOffer, p.config.ImageSKU, p.config.DiskSizeGB)
 
@@ -1008,10 +1086,8 @@ func (p *Provider) createVirtualMachine(ctx context.Context, resourceGroupName, 
 		return nil, fmt.Errorf("failed to create network interface: %w", err)
 	}
 
-	// Generate startup script for Kubernetes installation
-	startupScript := p.generateStartupScript(isMaster)
-
-	// Encode the startup script in Base64 for Azure CustomData
+	// cloud-init runs the node-preparation script delivered via CustomData
+	// (Azure requires it base64-encoded)
 	encodedScript := base64.StdEncoding.EncodeToString([]byte(startupScript))
 
 	// Create virtual machine
@@ -1038,11 +1114,18 @@ func (p *Provider) createVirtualMachine(ctx context.Context, resourceGroupName, 
 			},
 			OSProfile: &armcompute.OSProfile{
 				ComputerName:  &vmName,
-				AdminUsername: stringPtr("azureuser"),
-				AdminPassword: stringPtr("AdharPlatform@2025"), // Default password
+				AdminUsername: stringPtr(azureSSHUser),
 				CustomData:    stringPtr(encodedScript),
 				LinuxConfiguration: &armcompute.LinuxConfiguration{
-					DisablePasswordAuthentication: toPtr(false), // Enable password auth for now
+					DisablePasswordAuthentication: toPtr(true),
+					SSH: &armcompute.SSHConfiguration{
+						PublicKeys: []*armcompute.SSHPublicKey{
+							{
+								Path:    stringPtr(fmt.Sprintf("/home/%s/.ssh/authorized_keys", azureSSHUser)),
+								KeyData: stringPtr(strings.TrimSpace(sshPubKey)),
+							},
+						},
+					},
 				},
 			},
 			NetworkProfile: &armcompute.NetworkProfile{
@@ -1217,46 +1300,6 @@ func (p *Provider) createNetworkInterface(ctx context.Context, resourceGroupName
 	return nil
 }
 
-// generateStartupScript generates a startup script for Kubernetes installation
-func (p *Provider) generateStartupScript(isMaster bool) string {
-	script := `#!/bin/bash
-set -e
-
-# Update and install Docker
-apt-get update -y
-apt-get install -y docker.io
-systemctl enable --now docker
-
-# Install Kubernetes components
-curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
-echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
-apt-get update -y
-apt-get install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-systemctl enable --now kubelet
-
-# Disable swap
-swapoff -a
-sed -i '/ swap / s/^/#/' /etc/fstab
-`
-
-	if isMaster {
-		script += `
-# Initialize Kubernetes master
-kubeadm init --pod-network-cidr=10.244.0.0/16
-
-# Set up kubectl
-mkdir -p /root/.kube
-cp /etc/kubernetes/admin.conf /root/.kube/config
-
-# Install CNI plugin
-kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
-`
-	}
-
-	return script
-}
-
 // DeleteCluster deletes a manual Kubernetes cluster and all associated Azure resources
 func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	log.Printf("Deleting cluster: %s", clusterID)
@@ -1266,6 +1309,9 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	if !exists {
 		return fmt.Errorf("cluster %s not found", clusterID)
 	}
+
+	// Remove local per-cluster state (SSH key used to drive kubeadm)
+	defer provider.RemoveClusterState(extractClusterName(clusterID))
 
 	// For Azure, we can delete the entire resource group if it was created by us
 	// This is more efficient and ensures complete cleanup
@@ -1521,6 +1567,22 @@ func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup
 
 	resourceTracker := p.resourceTrackers[clusterID]
 
+	signer, sshPubKey, err := provider.EnsureClusterSSHKey(cluster.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load cluster SSH key: %w", err)
+	}
+	startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(cluster.Version))
+
+	masterIP := masterIPFromEndpoint(cluster.Endpoint)
+	if masterIP == "" {
+		return nil, fmt.Errorf("cannot add node group to cluster %s: control-plane public IP unknown", clusterID)
+	}
+	joinCmd, err := provider.SSHRun(signer, azureSSHUser, masterIP, "kubeadm token create --print-join-command", 2*time.Minute)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create join token: %w", err)
+	}
+	joinCmd = strings.TrimSpace(joinCmd)
+
 	// Create additional worker nodes for the new node group
 	for i := 0; i < nodeGroup.Replicas; i++ {
 		vmName := fmt.Sprintf("%s-worker-%s-%d", cluster.Name, nodeGroup.Name, i)
@@ -1531,9 +1593,16 @@ func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup
 		subnetName := resourceTracker.Subnets[0]            // Use first subnet
 		nsgName := resourceTracker.NetworkSecurityGroups[0] // Use first NSG
 
-		nodeInfo, err := p.createVirtualMachine(ctx, resourceGroupName, vnetName, subnetName, nsgName, vmName, nodeGroup.InstanceType, false)
+		nodeInfo, err := p.createVirtualMachine(ctx, resourceGroupName, vnetName, subnetName, nsgName, vmName, nodeGroup.InstanceType, false, sshPubKey, startupScript)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create worker node %s: %w", vmName, err)
+		}
+
+		if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, nodeInfo.PublicIP, 15*time.Minute); err != nil {
+			return nil, fmt.Errorf("new worker %s not ready: %w", vmName, err)
+		}
+		if err := provider.KubeadmJoinWorker(signer, azureSSHUser, nodeInfo.PublicIP, joinCmd); err != nil {
+			return nil, fmt.Errorf("new worker %s: %w", vmName, err)
 		}
 
 		// Add to resource tracker
@@ -2230,22 +2299,42 @@ func (p *Provider) GetStorage(ctx context.Context, storageID string) (*types.Sto
 
 // UpgradeCluster upgrades cluster by updating VM configurations
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
-	log.Printf("Upgrading Azure cluster %s to version %s", clusterID, version)
+	log.Printf("Upgrading self-managed Azure cluster %s to version %s via kubeadm", clusterID, version)
 
-	// For manual clusters, upgrade is simulated by updating VM tags
-	// In real scenarios, this would update the node OS/software packages
-
-	// Get cluster information to find associated VMs
-	_, err := p.GetCluster(ctx, clusterID)
+	cluster, err := p.GetCluster(ctx, clusterID)
 	if err != nil {
 		return fmt.Errorf("failed to get cluster %s: %w", clusterID, err)
 	}
+	masterIP := masterIPFromEndpoint(cluster.Endpoint)
+	if masterIP == "" {
+		return fmt.Errorf("control-plane public IP unknown for cluster %s", clusterID)
+	}
+	signer, err := provider.LoadClusterSSHKey(cluster.Name)
+	if err != nil {
+		return err
+	}
 
-	// A real upgrade of a managed Kubernetes cluster requires the Azure
-	// Kubernetes Service (AKS) SDK (armcontainerservice), which is not a
-	// dependency of this module. Rather than simulate the operation, return a
-	// clear error so callers are not misled into believing nodes were upgraded.
-	return fmt.Errorf("UpgradeCluster is not supported for the Azure provider: the AKS SDK (github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice) is not configured in this build")
+	// Resolve worker public IPs from the tracked VM names (<vm>-pip resources).
+	var workerIPs []string
+	if tracker, ok := p.resourceTrackers[clusterID]; ok {
+		for _, vmName := range tracker.VirtualMachines {
+			if !strings.Contains(vmName, "-worker-") {
+				continue
+			}
+			pip, err := p.publicIPClient.Get(ctx, tracker.ResourceGroup, fmt.Sprintf("%s-pip", vmName), nil)
+			if err != nil || pip.Properties == nil || pip.Properties.IPAddress == nil {
+				log.Printf("Warning: could not resolve public IP for worker %s: %v", vmName, err)
+				continue
+			}
+			workerIPs = append(workerIPs, *pip.Properties.IPAddress)
+		}
+	}
+
+	if err := provider.KubeadmUpgradeCluster(ctx, signer, azureSSHUser, masterIP, workerIPs, version); err != nil {
+		return fmt.Errorf("kubeadm upgrade of cluster %s failed: %w", cluster.Name, err)
+	}
+	log.Printf("Successfully upgraded cluster %s to %s", cluster.Name, version)
+	return nil
 }
 
 // BackupCluster creates a cluster backup using disk snapshots.
@@ -2624,14 +2713,15 @@ func extractClusterName(clusterID string) string {
 	return clusterID
 }
 
-// GetKubeconfig retrieves the kubeconfig for a cluster
+// masterIPFromEndpoint extracts the control-plane public IP from a cluster
+// endpoint of the form https://<ip>:6443.
+func masterIPFromEndpoint(endpoint string) string {
+	ip := strings.TrimPrefix(endpoint, "https://")
+	return strings.TrimSuffix(ip, ":6443")
+}
+
+// GetKubeconfig retrieves the admin kubeconfig from the cluster's control plane
 func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
-	log.Printf("Generating kubeconfig for cluster: %s", clusterID)
-
-	// Extract cluster name
-	clusterName := strings.TrimPrefix(clusterID, "azure-")
-
-	// Try to find the cluster in our cache first
 	cluster, err := p.GetCluster(ctx, clusterID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get cluster: %w", err)
@@ -2641,237 +2731,33 @@ func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string,
 		return "", fmt.Errorf("cluster is not running: %s", cluster.Status)
 	}
 
-	// Get the actual endpoint from the cluster
-	endpoint := cluster.Endpoint
-	if endpoint == "" {
-		// Try to get endpoint from master nodes
-		infrastructure, err := p.getClusterInfrastructure(ctx, cluster.Name)
-		if err != nil {
-			log.Printf("Warning: failed to get cluster infrastructure: %v", err)
-			// Use a default endpoint based on region
-			endpoint = fmt.Sprintf("%s-master-0.%s.cloudapp.azure.com", clusterName, p.config.Location)
-		} else {
-			// Find master node for this cluster
-			for _, master := range infrastructure.MasterNodes {
-				if master.PublicIP != "" {
-					endpoint = master.PublicIP
-					break
-				}
-			}
-		}
-	}
-
-	// Generate a proper kubeconfig with correct authentication
-	kubeconfig := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- name: %s
-  cluster:
-    server: https://%s:6443
-    insecure-skip-tls-verify: true
-contexts:
-- name: %s-context
-  context:
-    cluster: %s
-    user: admin-%s
-current-context: %s-context
-users:
-- name: admin-%s
-  user:
-    client-certificate-data: ""
-    client-key-data: ""
-    token: ""
-`, clusterName, endpoint, clusterName, clusterName, clusterName, clusterName, clusterName)
-
-	log.Printf("Generated kubeconfig for cluster: %s with endpoint: %s", clusterName, endpoint)
-	return kubeconfig, nil
-}
-
-// generateKubeconfigContent generates the kubeconfig YAML content by fetching it from the master node
-func (p *Provider) generateKubeconfigContent(cluster *types.Cluster) (string, error) {
-	if cluster.Endpoint == "" {
-		return "", fmt.Errorf("cluster endpoint is not available")
-	}
-
-	clusterName := extractClusterName(cluster.ID)
-
-	// Get the cluster infrastructure to find the master node
-	infrastructure, err := p.getClusterInfrastructure(context.Background(), clusterName)
-	if err != nil {
-		log.Printf("Warning: Failed to get cluster infrastructure: %v", err)
-		// Fallback to basic kubeconfig generation
-		return p.generateBasicKubeconfig(cluster)
-	}
-
-	if len(infrastructure.MasterNodes) == 0 {
-		log.Printf("Warning: No master nodes found for cluster %s", cluster.Name)
-		return p.generateBasicKubeconfig(cluster)
-	}
-
-	masterNode := infrastructure.MasterNodes[0]
-
-	// Try to fetch kubeconfig from master node via SSH
-	kubeconfig, err := p.fetchKubeconfigFromMaster(masterNode, cluster.Name)
-	if err != nil {
-		log.Printf("Warning: Failed to fetch kubeconfig from master node: %v", err)
-		// Fallback to basic kubeconfig generation
-		return p.generateBasicKubeconfig(cluster)
-	}
-
-	// Update the server endpoint in the kubeconfig to use the correct public IP
-	masterIP := masterNode.PublicIP
+	masterIP := masterIPFromEndpoint(cluster.Endpoint)
 	if masterIP == "" {
-		masterIP = masterNode.PrivateIP
+		// Endpoint unknown (e.g. discovered cluster): resolve the first master's
+		// public IP resource created by createVirtualMachine.
+		clusterName := extractClusterName(clusterID)
+		resourceGroupName := fmt.Sprintf("%s-rg", clusterName)
+		if tracker, ok := p.resourceTrackers[clusterID]; ok && tracker.ResourceGroup != "" {
+			resourceGroupName = tracker.ResourceGroup
+		} else if p.config.ResourceGroup != "" {
+			resourceGroupName = p.config.ResourceGroup
+		}
+		publicIPName := fmt.Sprintf("%s-master-0-pip", clusterName)
+		publicIP, err := p.publicIPClient.Get(ctx, resourceGroupName, publicIPName, nil)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve control-plane public IP %s: %w", publicIPName, err)
+		}
+		if publicIP.Properties == nil || publicIP.Properties.IPAddress == nil {
+			return "", fmt.Errorf("control-plane public IP %s has no address", publicIPName)
+		}
+		masterIP = *publicIP.Properties.IPAddress
 	}
 
-	if masterIP != "" {
-		correctEndpoint := fmt.Sprintf("https://%s:6443", masterIP)
-		// Replace any localhost or private IP references with the correct endpoint
-		kubeconfig = strings.ReplaceAll(kubeconfig, "https://127.0.0.1:6443", correctEndpoint)
-		kubeconfig = strings.ReplaceAll(kubeconfig, "https://localhost:6443", correctEndpoint)
-		kubeconfig = strings.ReplaceAll(kubeconfig, fmt.Sprintf("https://%s:6443", masterNode.PrivateIP), correctEndpoint)
-
-		// Update cluster endpoint for consistency
-		cluster.Endpoint = correctEndpoint
+	signer, err := provider.LoadClusterSSHKey(cluster.Name)
+	if err != nil {
+		return "", err
 	}
-
-	return kubeconfig, nil
-}
-
-// fetchKubeconfigFromMaster fetches the admin kubeconfig from the master node
-func (p *Provider) fetchKubeconfigFromMaster(masterNode NodeInfo, clusterName string) (string, error) {
-	if masterNode.PublicIP == "" {
-		return "", fmt.Errorf("master node has no public IP for SSH access")
-	}
-
-	// For Azure VMs, we would typically use SSH with the configured key
-	// This is a simplified implementation - in practice, you'd use Azure's SSH capabilities
-
-	// Try to retrieve the actual kubeconfig from the master node
-	// This would typically involve SSH connection or Azure Instance Metadata Service
-	kubeconfig := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-    certificate-authority-data: LS0tLS1CRUdJTi1DRVJUSUZJQ0FURS0tLS0t... # Would be actual CA cert
-    server: https://%s:6443
-  name: %s
-contexts:
-- context:
-    cluster: %s
-    user: %s-admin
-  name: %s
-current-context: %s
-users:
-- name: %s-admin
-  user:
-    client-certificate-data: LS0tLS1CRUdJTi1DRVJUSUZJQ0FURS0tLS0t... # Would be actual client cert
-    client-key-data: LS0tLS1CRUdJTi1QUklWQVRFIEtFWS0tLS0t... # Would be actual client key
-`, masterNode.PublicIP, clusterName, clusterName, clusterName, clusterName, clusterName, clusterName)
-
-	return kubeconfig, nil
-}
-
-// generateBasicKubeconfig generates a basic kubeconfig as fallback
-func (p *Provider) generateBasicKubeconfig(cluster *types.Cluster) (string, error) {
-	clusterName := extractClusterName(cluster.ID)
-
-	kubeconfigContent := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-    server: %s
-    insecure-skip-tls-verify: true
-  name: %s
-contexts:
-- context:
-    cluster: %s
-    user: %s-admin
-  name: %s-context
-current-context: %s-context
-users:
-- name: %s-admin
-  user:
-    exec:
-      apiVersion: client.authentication.k8s.io/v1beta1
-      command: kubelogin
-      args:
-      - get-token
-      - --login
-      - azurecli
-      - --server-id
-      - 6dae42f8-4368-4678-94ff-3960e28e3630
-      env: null
-      provideClusterInfo: false
-`, cluster.Endpoint, clusterName, clusterName, clusterName, clusterName, clusterName, clusterName)
-
-	return kubeconfigContent, nil
-}
-
-// getClusterInfrastructure discovers and returns the current cluster infrastructure
-func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName string) (*ClusterInfrastructure, error) {
-	// This would typically query Azure Resource Manager to get the actual infrastructure
-	// For now, return a basic structure based on stored cluster information
-
-	infrastructure := &ClusterInfrastructure{
-		ResourceGroupName:        fmt.Sprintf("%s-rg", clusterName),
-		VirtualNetworkName:       fmt.Sprintf("%s-vnet", clusterName),
-		SubnetName:               fmt.Sprintf("%s-subnet", clusterName),
-		NetworkSecurityGroupName: fmt.Sprintf("%s-nsg", clusterName),
-		LoadBalancerName:         fmt.Sprintf("%s-lb", clusterName),
-		PublicIPName:             fmt.Sprintf("%s-pip", clusterName),
-		MasterNodes: []NodeInfo{
-			{
-				VMName:        fmt.Sprintf("%s-master-1", clusterName),
-				ResourceGroup: fmt.Sprintf("%s-rg", clusterName),
-				Location:      p.config.Location,
-				PrivateIP:     "10.0.1.4", // Would be discovered from Azure
-				PublicIP:      "",         // Would be discovered from Azure
-				VMSize:        p.config.VMSize,
-				Role:          "master",
-			},
-		},
-		WorkerNodes: []NodeInfo{}, // Would be populated based on actual infrastructure
-	}
-
-	return infrastructure, nil
-}
-
-// installCiliumCNI installs Cilium CNI on the cluster
-func (p *Provider) installCiliumCNI(ctx context.Context, masterNode NodeInfo) error {
-	log.Printf("Installing Cilium CNI on master %s", masterNode.VMName)
-
-	// In a real implementation, this would:
-	// 1. SSH to the master node
-	// 2. Install Cilium using Helm or kubectl
-	// 3. Wait for Cilium to be ready
-
-	time.Sleep(60 * time.Second)
-	log.Printf("Cilium CNI installed successfully")
-	return nil
-}
-
-// installCNI installs the Container Network Interface
-func (p *Provider) installCNI(ctx context.Context, masterNode NodeInfo, cniType string) error {
-	switch cniType {
-	case "cilium":
-		return p.installCiliumCNI(ctx, masterNode)
-	case "calico":
-		// Install Calico CNI
-		log.Printf("Installing Calico CNI on master %s", masterNode.VMName)
-		time.Sleep(30 * time.Second)
-		return nil
-	case "flannel":
-		// Install Flannel CNI
-		log.Printf("Installing Flannel CNI on master %s", masterNode.VMName)
-		time.Sleep(30 * time.Second)
-		return nil
-	default:
-		// Default to Calico
-		log.Printf("Installing default Calico CNI on master %s", masterNode.VMName)
-		time.Sleep(30 * time.Second)
-		return nil
-	}
+	return provider.FetchAdminKubeconfig(signer, azureSSHUser, masterIP)
 }
 
 // InvestigateCluster performs comprehensive investigation of a cluster

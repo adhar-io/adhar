@@ -103,9 +103,16 @@ func expandHomePath(path string) (string, error) {
 	return filepath.Join(currentUser.HomeDir, path[1:]), nil
 }
 
+// gcpSSHUser is the VM account created via instance metadata; kubeadm is
+// driven over SSH as this user (with sudo).
+const gcpSSHUser = "adhar"
+
 // Register the GCP provider on package import
 func init() {
 	provider.DefaultFactory.RegisterProvider("gcp", func(config map[string]interface{}) (provider.Provider, error) {
+		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
+			return nil, fmt.Errorf("useManagedK8s is not supported for the gcp provider: adhar provisions Kubernetes on raw compute here (GKE integration is not offered); remove useManagedK8s or set it to false")
+		}
 		gcpConfig := &Config{}
 
 		// Parse GCP-specific configuration with multiple auth methods
@@ -688,6 +695,34 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		log.Printf("Warning: Failed to save provider state: %v", err)
 	}
 
+	// Bootstrap Kubernetes with kubeadm over SSH: wait for node preparation,
+	// init the control plane (kube-proxy skipped; the platform bootstrap
+	// installs Cilium with kubeProxyReplacement), then join workers.
+	signer, err := provider.LoadClusterSSHKey(spec.Name)
+	if err != nil {
+		return nil, err
+	}
+	if len(infrastructure.MasterNodes) == 0 {
+		return nil, fmt.Errorf("no control-plane instance was created")
+	}
+	master := infrastructure.MasterNodes[0]
+	if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, master.PublicIP, 15*time.Minute); err != nil {
+		return nil, fmt.Errorf("control-plane node not ready: %w", err)
+	}
+	joinCmd, err := provider.KubeadmInitMaster(signer, gcpSSHUser, master.PublicIP, master.PrivateIP)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range infrastructure.WorkerNodes {
+		if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, w.PublicIP, 15*time.Minute); err != nil {
+			return nil, fmt.Errorf("worker %s not ready: %w", w.InstanceName, err)
+		}
+		if err := provider.KubeadmJoinWorker(signer, gcpSSHUser, w.PublicIP, joinCmd); err != nil {
+			return nil, fmt.Errorf("worker %s: %w", w.InstanceName, err)
+		}
+	}
+	log.Printf("Kubernetes bootstrapped on cluster %s; nodes stay NotReady until the platform bootstrap installs Cilium", spec.Name)
+
 	// Return cluster information
 	var endpoint string
 	if len(infrastructure.MasterNodes) > 0 {
@@ -767,8 +802,15 @@ func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName 
 	}
 	infrastructure.FirewallRules = firewallRules
 
+	// Per-cluster SSH key for driving kubeadm over SSH
+	_, sshPubKey, err := provider.EnsureClusterSSHKey(clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare cluster SSH key: %w", err)
+	}
+	startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(spec.Version))
+
 	// Create master nodes
-	masterNodeInfos, err := p.createMasterNodes(ctx, clusterName, subnetName, spec)
+	masterNodeInfos, err := p.createMasterNodes(ctx, clusterName, subnetName, spec, sshPubKey, startupScript)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create master nodes: %w", err)
 	}
@@ -776,7 +818,7 @@ func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName 
 
 	// Create worker nodes if specified
 	if len(spec.NodeGroups) > 0 {
-		workerNodeInfos, err := p.createWorkerNodes(ctx, clusterName, subnetName, spec)
+		workerNodeInfos, err := p.createWorkerNodes(ctx, clusterName, subnetName, spec, sshPubKey, startupScript)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create worker nodes: %w", err)
 		}
@@ -1010,7 +1052,7 @@ func (p *Provider) createFirewallRules(ctx context.Context, clusterName, network
 }
 
 // createMasterNodes creates master nodes for the Kubernetes cluster using Google Cloud SDK
-func (p *Provider) createMasterNodes(ctx context.Context, clusterName, subnetName string, spec *types.ClusterSpec) ([]NodeInfo, error) {
+func (p *Provider) createMasterNodes(ctx context.Context, clusterName, subnetName string, spec *types.ClusterSpec, sshPubKey, startupScript string) ([]NodeInfo, error) {
 	log.Printf("Creating master nodes for cluster: %s", clusterName)
 
 	var masterNodes []NodeInfo
@@ -1019,7 +1061,7 @@ func (p *Provider) createMasterNodes(ctx context.Context, clusterName, subnetNam
 	for i := 0; i < spec.ControlPlane.Replicas; i++ {
 		nodeName := fmt.Sprintf("%s-master-%d", clusterName, i)
 
-		nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, spec.ControlPlane.InstanceType, true)
+		nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, spec.ControlPlane.InstanceType, true, sshPubKey, startupScript)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create master node %s: %w", nodeName, err)
 		}
@@ -1032,7 +1074,7 @@ func (p *Provider) createMasterNodes(ctx context.Context, clusterName, subnetNam
 }
 
 // createWorkerNodes creates worker nodes for the Kubernetes cluster using Google Cloud SDK
-func (p *Provider) createWorkerNodes(ctx context.Context, clusterName, subnetName string, spec *types.ClusterSpec) ([]NodeInfo, error) {
+func (p *Provider) createWorkerNodes(ctx context.Context, clusterName, subnetName string, spec *types.ClusterSpec, sshPubKey, startupScript string) ([]NodeInfo, error) {
 	log.Printf("Creating worker nodes for cluster: %s", clusterName)
 
 	var workerNodes []NodeInfo
@@ -1042,7 +1084,7 @@ func (p *Provider) createWorkerNodes(ctx context.Context, clusterName, subnetNam
 		for i := 0; i < nodeGroup.Replicas; i++ {
 			nodeName := fmt.Sprintf("%s-worker-%s-%d", clusterName, nodeGroup.Name, i)
 
-			nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, nodeGroup.InstanceType, false)
+			nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, nodeGroup.InstanceType, false, sshPubKey, startupScript)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create worker node %s: %w", nodeName, err)
 			}
@@ -1056,11 +1098,8 @@ func (p *Provider) createWorkerNodes(ctx context.Context, clusterName, subnetNam
 }
 
 // createComputeInstance creates a compute instance using Google Cloud SDK
-func (p *Provider) createComputeInstance(ctx context.Context, instanceName, subnetURL, machineType string, isMaster bool) (*NodeInfo, error) {
+func (p *Provider) createComputeInstance(ctx context.Context, instanceName, subnetURL, machineType string, isMaster bool, sshPubKey, startupScript string) (*NodeInfo, error) {
 	log.Printf("Creating compute instance: %s", instanceName)
-
-	// Create startup script for Kubernetes installation
-	startupScript := p.generateStartupScript(isMaster)
 
 	// Use default machine type if not specified
 	if machineType == "" {
@@ -1107,6 +1146,12 @@ func (p *Provider) createComputeInstance(ctx context.Context, instanceName, subn
 					{
 						Key:   func() *string { s := "startup-script"; return &s }(),
 						Value: &startupScript,
+					},
+					{
+						// GCE creates this user with the key and sudo access;
+						// kubeadm is driven over SSH as this user.
+						Key:   func() *string { s := "ssh-keys"; return &s }(),
+						Value: func() *string { v := gcpSSHUser + ":" + strings.TrimSpace(sshPubKey); return &v }(),
 					},
 				},
 			},
@@ -1167,54 +1212,6 @@ func (p *Provider) createComputeInstance(ctx context.Context, instanceName, subn
 
 	log.Printf("Successfully created compute instance: %s", instanceName)
 	return nodeInfo, nil
-}
-
-// generateStartupScript generates a startup script for Kubernetes installation
-func (p *Provider) generateStartupScript(isMaster bool) string {
-	script := `#!/bin/bash
-# Update system
-apt-get update -y
-apt-get upgrade -y
-
-# Install Docker
-apt-get install -y docker.io
-systemctl enable docker
-systemctl start docker
-
-# Install kubeadm, kubelet, kubectl
-apt-get update -y
-apt-get install -y apt-transport-https ca-certificates curl
-curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
-echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | tee /etc/apt/sources.list.d/kubernetes.list
-apt-get update -y
-apt-get install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-
-# Configure kubelet
-systemctl enable kubelet
-systemctl start kubelet
-
-# Disable swap
-swapoff -a
-sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
-`
-
-	if isMaster {
-		script += `
-# Initialize Kubernetes master
-kubeadm init --pod-network-cidr=10.244.0.0/16
-
-# Set up kubectl for root user
-mkdir -p /root/.kube
-cp -i /etc/kubernetes/admin.conf /root/.kube/config
-chown root:root /root/.kube/config
-
-# Install Flannel network plugin
-kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
-`
-	}
-
-	return script
 }
 
 // waitForGlobalOperation waits for a global operation to complete using Google Cloud SDK
@@ -1315,9 +1312,12 @@ func (p *Provider) waitForZonalOperation(ctx context.Context, operationName *str
 	}
 }
 
-// DeleteCluster deletes a GKE cluster
+// DeleteCluster deletes a self-managed GCE cluster and its infrastructure
 func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	log.Printf("Deleting GCP cluster: %s", clusterID)
+
+	// Remove local per-cluster state (SSH key) regardless of tracker presence.
+	defer provider.RemoveClusterState(extractClusterName(clusterID))
 
 	// Get resource tracker for the cluster
 	tracker, exists := p.resourceTrackers[clusterID]
@@ -1568,13 +1568,35 @@ func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *ty
 
 		switch {
 		case desiredWorkers > currentWorkers:
+			clusterName := extractClusterName(clusterID)
+			signer, sshPubKey, err := provider.EnsureClusterSSHKey(clusterName)
+			if err != nil {
+				return fmt.Errorf("failed to load cluster SSH key: %w", err)
+			}
+			startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(spec.Version))
+			if len(cluster.MasterNodes) == 0 || cluster.MasterNodes[0].PublicIP == "" {
+				return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterID)
+			}
+			masterIP := cluster.MasterNodes[0].PublicIP
+			joinCmd, err := provider.SSHRun(signer, gcpSSHUser, masterIP, "kubeadm token create --print-join-command", 2*time.Minute)
+			if err != nil {
+				return fmt.Errorf("failed to create join token: %w", err)
+			}
+			joinCmd = strings.TrimSpace(joinCmd)
+
 			subnetURL := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s",
-				p.config.ProjectID, p.config.Region, fmt.Sprintf("%s-subnet", extractClusterName(clusterID)))
+				p.config.ProjectID, p.config.Region, fmt.Sprintf("%s-subnet", clusterName))
 			for i := currentWorkers; i < desiredWorkers; i++ {
-				nodeName := fmt.Sprintf("%s-worker-%d", extractClusterName(clusterID), i)
-				nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, machineType, false)
+				nodeName := fmt.Sprintf("%s-worker-%d", clusterName, i)
+				nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, machineType, false, sshPubKey, startupScript)
 				if err != nil {
 					return fmt.Errorf("failed to scale up cluster %s: %w", clusterID, err)
+				}
+				if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, nodeInfo.PublicIP, 15*time.Minute); err != nil {
+					return fmt.Errorf("new worker %s not ready: %w", nodeName, err)
+				}
+				if err := provider.KubeadmJoinWorker(signer, gcpSSHUser, nodeInfo.PublicIP, joinCmd); err != nil {
+					return fmt.Errorf("new worker %s: %w", nodeName, err)
 				}
 				cluster.WorkerNodes = append(cluster.WorkerNodes, *nodeInfo)
 			}
@@ -2422,81 +2444,34 @@ func (p *Provider) GetStorage(ctx context.Context, storageID string) (*types.Sto
 
 // UpgradeCluster upgrades cluster by creating new instance templates with newer versions
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
-	log.Printf("Upgrading GCP cluster %s to version %s", clusterID, version)
+	log.Printf("Upgrading self-managed GCP cluster %s to version %s via kubeadm", clusterID, version)
 
-	// For manual clusters, upgrade is simulated by updating instance metadata
-	// In real scenarios, this would update the node OS/software packages
-
-	// First, list instances in the cluster
-	instanceIterator := p.instanceClient.List(ctx, &computepb.ListInstancesRequest{
-		Project: p.config.ProjectID,
-		Zone:    p.config.Zone,
-		Filter:  proto.String(fmt.Sprintf("labels.cluster-id = %s", clusterID)),
-	})
-
-	upgradedCount := 0
-	for {
-		instance, err := instanceIterator.Next()
-		if err != nil {
-			break // End of instances
-		}
-
-		// Simulate upgrade by adding version metadata
-		metadata := instance.GetMetadata()
-		if metadata == nil {
-			metadata = &computepb.Metadata{}
-		}
-
-		// Add/update version metadata
-		found := false
-		for _, item := range metadata.Items {
-			if item.GetKey() == "cluster-version" {
-				item.Value = proto.String(version)
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			metadata.Items = append(metadata.Items, &computepb.Items{
-				Key:   proto.String("cluster-version"),
-				Value: proto.String(version),
-			})
-		}
-
-		// Update instance metadata
-		op, err := p.instanceClient.SetMetadata(ctx, &computepb.SetMetadataInstanceRequest{
-			Project:          p.config.ProjectID,
-			Zone:             p.config.Zone,
-			Instance:         instance.GetName(),
-			MetadataResource: metadata,
-		})
-		if err != nil {
-			log.Printf("Failed to update metadata for instance %s: %v", instance.GetName(), err)
-			continue
-		}
-
-		// Wait for metadata update
-		operationName := op.Name()
-		err = p.waitForZonalOperation(ctx, &operationName)
-		if err != nil {
-			log.Printf("Failed to wait for metadata update on instance %s: %v", instance.GetName(), err)
-			continue
-		}
-
-		upgradedCount++
-		log.Printf("Upgraded instance %s to version %s", instance.GetName(), version)
+	clusterName := extractClusterName(clusterID)
+	infrastructure, err := p.getClusterInfrastructure(ctx, clusterName)
+	if err != nil {
+		return fmt.Errorf("failed to get cluster infrastructure: %w", err)
+	}
+	if len(infrastructure.MasterNodes) == 0 || infrastructure.MasterNodes[0].PublicIP == "" {
+		return fmt.Errorf("no reachable control-plane instance for cluster %s", clusterName)
+	}
+	signer, err := provider.LoadClusterSSHKey(clusterName)
+	if err != nil {
+		return err
 	}
 
-	if upgradedCount == 0 {
-		return fmt.Errorf("no instances found for cluster %s", clusterID)
+	var workerIPs []string
+	for _, w := range infrastructure.WorkerNodes {
+		if w.PublicIP != "" {
+			workerIPs = append(workerIPs, w.PublicIP)
+		}
 	}
-
-	log.Printf("Successfully upgraded %d instances in cluster %s to version %s", upgradedCount, clusterID, version)
+	if err := provider.KubeadmUpgradeCluster(ctx, signer, gcpSSHUser, infrastructure.MasterNodes[0].PublicIP, workerIPs, version); err != nil {
+		return fmt.Errorf("kubeadm upgrade of cluster %s failed: %w", clusterName, err)
+	}
+	log.Printf("Successfully upgraded cluster %s to %s", clusterName, version)
 	return nil
 }
 
-// BackupCluster creates a cluster backup using disk snapshots
 func (p *Provider) BackupCluster(ctx context.Context, clusterID string) (*types.Backup, error) {
 	log.Printf("Creating backup for GCP cluster: %s", clusterID)
 
@@ -2781,179 +2756,31 @@ func extractClusterName(clusterID string) string {
 
 // GetKubeconfig retrieves the kubeconfig for a cluster
 func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
-	log.Printf("Generating kubeconfig for cluster: %s", clusterID)
-
-	// Extract cluster name
-	clusterName := strings.TrimPrefix(clusterID, "gcp-")
-
-	// Try to find the cluster in our cache first
 	cluster, err := p.GetCluster(ctx, clusterID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get cluster: %w", err)
 	}
 
-	if cluster.Status != types.ClusterStatusRunning {
-		return "", fmt.Errorf("cluster is not running: %s", cluster.Status)
+	infrastructure, err := p.getClusterInfrastructure(ctx, cluster.Name)
+	if err != nil {
+		return "", fmt.Errorf("failed to get cluster infrastructure: %w", err)
 	}
-
-	// Get the actual endpoint from the cluster
-	endpoint := cluster.Endpoint
-	if endpoint == "" {
-		// Try to get endpoint from master nodes
-		infrastructure, err := p.getClusterInfrastructure(ctx, cluster.Name)
-		if err != nil {
-			log.Printf("Warning: failed to get cluster infrastructure: %v", err)
-			// Use a default endpoint based on region
-			endpoint = fmt.Sprintf("%s-master-0.%s.compute.googleapis.com", clusterName, p.config.Region)
-		} else {
-			// Find master node for this cluster
-			for _, master := range infrastructure.MasterNodes {
-				if master.PublicIP != "" {
-					endpoint = master.PublicIP
-					break
-				}
-			}
+	var masterIP string
+	for _, m := range infrastructure.MasterNodes {
+		if m.PublicIP != "" {
+			masterIP = m.PublicIP
+			break
 		}
 	}
-
-	// Generate a proper kubeconfig with correct authentication
-	kubeconfig := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- name: %s
-  cluster:
-    server: https://%s:6443
-    insecure-skip-tls-verify: true
-contexts:
-- name: %s-context
-  context:
-    cluster: %s
-    user: admin-%s
-current-context: %s-context
-users:
-- name: admin-%s
-  user:
-    client-certificate-data: ""
-    client-key-data: ""
-    token: ""
-`, clusterName, endpoint, clusterName, clusterName, clusterName, clusterName, clusterName)
-
-	log.Printf("Generated kubeconfig for cluster: %s with endpoint: %s", clusterName, endpoint)
-	return kubeconfig, nil
-}
-
-// generateKubeconfigContent generates the kubeconfig YAML content by fetching it from the master node
-func (p *Provider) generateKubeconfigContent(cluster *types.Cluster) (string, error) {
-	if cluster.Endpoint == "" {
-		return "", fmt.Errorf("cluster endpoint is not available")
-	}
-
-	clusterName := extractClusterName(cluster.ID)
-
-	// Get the cluster infrastructure to find the master node
-	infrastructure, err := p.getClusterInfrastructure(context.Background(), clusterName)
-	if err != nil {
-		log.Printf("Warning: Failed to get cluster infrastructure: %v", err)
-		// Fallback to basic kubeconfig generation
-		return p.generateBasicKubeconfig(cluster)
-	}
-
-	if len(infrastructure.MasterNodes) == 0 {
-		log.Printf("Warning: No master nodes found for cluster %s", cluster.Name)
-		return p.generateBasicKubeconfig(cluster)
-	}
-
-	masterNode := infrastructure.MasterNodes[0]
-
-	// Try to fetch kubeconfig from master node via SSH
-	kubeconfig, err := p.fetchKubeconfigFromMaster(masterNode, cluster.Name)
-	if err != nil {
-		log.Printf("Warning: Failed to fetch kubeconfig from master node: %v", err)
-		// Fallback to basic kubeconfig generation
-		return p.generateBasicKubeconfig(cluster)
-	}
-
-	// Update the server endpoint in the kubeconfig to use the correct public IP
-	masterIP := masterNode.PublicIP
 	if masterIP == "" {
-		masterIP = masterNode.PrivateIP
+		return "", fmt.Errorf("no control-plane instance with a public IP found for cluster %s", cluster.Name)
 	}
 
-	if masterIP != "" {
-		correctEndpoint := fmt.Sprintf("https://%s:6443", masterIP)
-		// Replace any localhost or private IP references with the correct endpoint
-		kubeconfig = strings.ReplaceAll(kubeconfig, "https://127.0.0.1:6443", correctEndpoint)
-		kubeconfig = strings.ReplaceAll(kubeconfig, "https://localhost:6443", correctEndpoint)
-		kubeconfig = strings.ReplaceAll(kubeconfig, fmt.Sprintf("https://%s:6443", masterNode.PrivateIP), correctEndpoint)
-
-		// Update cluster endpoint for consistency
-		cluster.Endpoint = correctEndpoint
+	signer, err := provider.LoadClusterSSHKey(cluster.Name)
+	if err != nil {
+		return "", err
 	}
-
-	return kubeconfig, nil
-}
-
-// fetchKubeconfigFromMaster fetches the admin kubeconfig from the master node
-func (p *Provider) fetchKubeconfigFromMaster(masterNode NodeInfo, clusterName string) (string, error) {
-	if masterNode.PublicIP == "" {
-		return "", fmt.Errorf("master node has no public IP for SSH access")
-	}
-
-	// For GCE instances, we would typically use SSH with gcloud ssh or direct SSH
-	// This is a simplified implementation - in practice, you'd use GCP's SSH capabilities
-
-	// Try to retrieve the actual kubeconfig from the master node
-	kubeconfig := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-    certificate-authority-data: LS0tLS1CRUdJTi1DRVJUSUZJQ0FURS0tLS0t... # Would be actual CA cert
-    server: https://%s:6443
-  name: %s
-contexts:
-- context:
-    cluster: %s
-    user: %s-admin
-  name: %s
-current-context: %s
-users:
-- name: %s-admin
-  user:
-    client-certificate-data: LS0tLS1CRUdJTi1DRVJUSUZJQ0FURS0tLS0t... # Would be actual client cert
-    client-key-data: LS0tLS1CRUdJTi1QUklWQVRFIEtFWS0tLS0t... # Would be actual client key
-`, masterNode.PublicIP, clusterName, clusterName, clusterName, clusterName, clusterName, clusterName)
-
-	return kubeconfig, nil
-}
-
-// generateBasicKubeconfig generates a basic kubeconfig as fallback
-func (p *Provider) generateBasicKubeconfig(cluster *types.Cluster) (string, error) {
-	clusterName := extractClusterName(cluster.ID)
-
-	kubeconfigContent := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-    server: %s
-    insecure-skip-tls-verify: true
-  name: %s
-contexts:
-- context:
-    cluster: %s
-    user: %s-admin
-  name: %s-context
-current-context: %s-context
-users:
-- name: %s-admin
-  user:
-    exec:
-      apiVersion: client.authentication.k8s.io/v1beta1
-      command: gke-gcloud-auth-plugin
-      installHint: Install gke-gcloud-auth-plugin for use with kubectl by following https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke
-      provideClusterInfo: true
-`, cluster.Endpoint, clusterName, clusterName, clusterName, clusterName, clusterName, clusterName)
-
-	return kubeconfigContent, nil
+	return provider.FetchAdminKubeconfig(signer, gcpSSHUser, masterIP)
 }
 
 // getClusterInfrastructure discovers and returns the current cluster infrastructure
@@ -2979,43 +2806,6 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 	}
 
 	return infrastructure, nil
-}
-
-// installCiliumCNI installs Cilium CNI on the cluster
-func (p *Provider) installCiliumCNI(ctx context.Context, masterNode NodeInfo) error {
-	log.Printf("Installing Cilium CNI on master %s", masterNode.InstanceName)
-
-	// In a real implementation, this would:
-	// 1. SSH to the master node
-	// 2. Install Cilium using Helm or kubectl
-	// 3. Wait for Cilium to be ready
-
-	time.Sleep(60 * time.Second)
-	log.Printf("Cilium CNI installed successfully")
-	return nil
-}
-
-// installCNI installs the Container Network Interface
-func (p *Provider) installCNI(ctx context.Context, masterNode NodeInfo, cniType string) error {
-	switch cniType {
-	case "cilium":
-		return p.installCiliumCNI(ctx, masterNode)
-	case "calico":
-		// Install Calico CNI
-		log.Printf("Installing Calico CNI on master %s", masterNode.InstanceName)
-		time.Sleep(30 * time.Second)
-		return nil
-	case "flannel":
-		// Install Flannel CNI
-		log.Printf("Installing Flannel CNI on master %s", masterNode.InstanceName)
-		time.Sleep(30 * time.Second)
-		return nil
-	default:
-		// Default to Calico
-		log.Printf("Installing default Calico CNI on master %s", masterNode.InstanceName)
-		time.Sleep(30 * time.Second)
-		return nil
-	}
 }
 
 // InvestigateCluster performs comprehensive investigation of a cluster
