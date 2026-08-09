@@ -1,0 +1,34 @@
+# Kyverno Prometheus ServiceMonitor
+# Not emitted by the chart (serviceMonitor left default off on each component).
+# All four Kyverno controllers expose kyverno_* metrics on their *-metrics
+# Services (kyverno-svc-metrics, kyverno-background-controller-metrics,
+# kyverno-cleanup-controller-metrics, kyverno-reports-controller-metrics), each
+# on port 8000 named "metrics-port" at /metrics. The selector matches every
+# kyverno Service, but only endpoints named "metrics-port" are scraped, so the
+# non-metrics (443) Services are skipped automatically.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Kyverno Grafana dashboard (gnetId 15987).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kyverno
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: kyverno
+    app.kubernetes.io/part-of: kyverno
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: kyverno
+      app.kubernetes.io/instance: kyverno
+  endpoints:
+    - port: metrics-port
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

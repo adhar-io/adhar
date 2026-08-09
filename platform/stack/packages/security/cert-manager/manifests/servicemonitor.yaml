@@ -1,0 +1,32 @@
+# cert-manager Prometheus ServiceMonitor
+# Not emitted by the chart (prometheus.servicemonitor.enabled left default off).
+# The cert-manager controller exposes certmanager_* metrics on the "cert-manager"
+# Service, port 9402 (named tcp-prometheus-servicemonitor) at /metrics.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the cert-manager Grafana dashboard (gnetId 11001).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/instance: cert-manager
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager
+      app.kubernetes.io/instance: cert-manager
+      app.kubernetes.io/component: controller
+  endpoints:
+    - port: tcp-prometheus-servicemonitor
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

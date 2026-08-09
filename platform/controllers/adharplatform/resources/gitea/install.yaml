@@ -188,7 +188,7 @@ stringData:
     PASSWD=gitea
     USER=gitea
   indexer: ISSUE_INDEXER_TYPE=db
-  metrics: ENABLED=false
+  metrics: ENABLED=true
   # Keycloak is the platform identity source: first SSO login auto-creates the
   # Gitea account (username/email from the OIDC claims) instead of stalling on
   # the interactive "Register" page — required for the auth source's

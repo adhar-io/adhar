@@ -41,9 +41,13 @@ redis:
 trivy:
   enabled: false
 
-# No metrics/exporter locally (kube-prometheus scrapes are not needed for a demo).
+# Metrics/exporter enabled so kube-prometheus scrapes Harbor and the Grafana
+# Harbor dashboard (gnetId 14075) gets data. The exporter component exposes
+# harbor_* metrics on the harbor-exporter service (port 8001, path /metrics);
+# core/registry/jobservice also expose their own /metrics on port 8001.
+# A ServiceMonitor is shipped alongside in manifests/servicemonitor.yaml.
 metrics:
-  enabled: false
+  enabled: true
 
 # Single replica for every stateless component (chart defaults are already 1, set
 # explicitly so the intent is clear and HA never accidentally scales them up).

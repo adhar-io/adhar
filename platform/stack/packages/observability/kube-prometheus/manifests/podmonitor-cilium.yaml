@@ -1,0 +1,60 @@
+# Cilium exposes metrics only as pod ports (no dedicated metrics Services in the
+# controller-embedded install), so we scrape via PodMonitors. These live in the
+# kube-prometheus package's manifests/ dir — applied AFTER the monitoring.coreos.com
+# CRDs exist, which avoids the install-ordering problem that keeps
+# serviceMonitor.enabled=false in the Cilium chart (Cilium bootstraps before
+# kube-prometheus). Prometheus serviceMonitorSelector/podMonitorSelector are {} so
+# these are scraped as-is. Feeds Networking-folder dashboards 16611/16612/16613.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cilium-agent
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: cilium
+spec:
+  namespaceSelector:
+    matchNames: ["adhar-system", "kube-system"]
+  selector:
+    matchLabels:
+      k8s-app: cilium
+  podMetricsEndpoints:
+    - port: prometheus
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cilium-operator
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: cilium
+spec:
+  namespaceSelector:
+    matchNames: ["adhar-system", "kube-system"]
+  selector:
+    matchLabels:
+      io.cilium/app: operator
+  podMetricsEndpoints:
+    - port: prometheus
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: hubble
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: cilium
+spec:
+  namespaceSelector:
+    matchNames: ["adhar-system", "kube-system"]
+  selector:
+    matchLabels:
+      k8s-app: cilium
+  podMetricsEndpoints:
+    - port: hubble-metrics
+      path: /metrics
+      interval: 30s

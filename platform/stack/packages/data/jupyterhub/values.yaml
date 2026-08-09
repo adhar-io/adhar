@@ -70,3 +70,15 @@ prePuller:
     enabled: false
   continuous:
     enabled: false
+# The user-scheduler is a second kube-scheduler that bin-packs notebook pods
+# for node-autoscaler efficiency — pointless on a single-node Kind cluster,
+# where the default scheduler suffices. It pulls its own
+# registry.k8s.io/kube-scheduler image; when that pull stalls the deployment
+# sits ContainerCreating and drags the whole JupyterHub app to Degraded even
+# though the hub itself is healthy. Disable it (and the placeholder pods it
+# drives) so local JupyterHub converges to Healthy.
+scheduling:
+  userScheduler:
+    enabled: false
+  userPlaceholder:
+    enabled: false

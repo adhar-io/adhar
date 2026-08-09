@@ -1,0 +1,26 @@
+# Scrapes MinIO cluster metrics (minio_* metrics) so the MinIO Grafana dashboard
+# (gnetId 13502) gets data. The minio Deployment already sets
+# MINIO_PROMETHEUS_AUTH_TYPE=public, so the /minio/v2/metrics/cluster endpoint on
+# the API port (9000) needs no bearer token. Targets the "minio" service, which
+# uniquely carries the monitoring: "true" label (the minio-console service does
+# not), avoiding an accidental scrape of the console port (9001).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: minio
+  namespace: adhar-system
+  labels:
+    adhar.io/component: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app: minio
+      monitoring: "true"
+  endpoints:
+    - port: http
+      scheme: http
+      path: /minio/v2/metrics/cluster
+      interval: 30s

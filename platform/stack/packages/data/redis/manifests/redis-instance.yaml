@@ -1,0 +1,39 @@
+# Standalone Redis instance managed by the ot-container-kit redis-operator.
+# The redis package previously shipped only the operator + CRDs (no running
+# Redis), so the bundled Grafana dashboard (gnetId 763) had nothing to scrape.
+# This adds a lightweight standalone Redis with the Prometheus redis_exporter
+# sidecar enabled. With redisExporter.enabled the operator additionally creates
+# a dedicated ClusterIP service "redis-metrics" exposing only the exporter port
+# (name: redis-exporter, 9121, path /metrics) — targeted by servicemonitor.yaml.
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: Redis
+metadata:
+  name: redis
+  namespace: adhar-system
+  labels:
+    adhar.io/component: data
+spec:
+  podSecurityContext:
+    runAsUser: 1000
+    fsGroup: 1000
+  kubernetesConfig:
+    image: quay.io/opstree/redis:v7.0.15
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+  redisExporter:
+    enabled: true
+    image: quay.io/opstree/redis-exporter:v1.66.0
+    imagePullPolicy: IfNotPresent
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

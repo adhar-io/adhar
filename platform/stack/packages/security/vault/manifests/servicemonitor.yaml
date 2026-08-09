@@ -1,0 +1,35 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vault
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+spec:
+  # Prometheus serviceMonitorSelector is empty ({}) so no release label is
+  # required. Match only the non-headless `vault` Service (exclude the headless
+  # `vault-internal`, which carries the vault-internal="true" label, and
+  # `vault-ui`, whose name label differs) to avoid duplicate scrape targets.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+      app.kubernetes.io/instance: vault
+    matchExpressions:
+      - key: vault-internal
+        operator: DoesNotExist
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  endpoints:
+    # Vault serves Prometheus metrics on the API port 8200 (named "http" on the
+    # vault Service) at /v1/sys/metrics. tls_disable=1 on the listener, so http.
+    # unauthenticated_metrics_access=true (set in the listener telemetry stanza)
+    # lets Prometheus scrape without a token.
+    - port: http
+      path: /v1/sys/metrics
+      scheme: http
+      interval: 30s
+      params:
+        format:
+          - prometheus

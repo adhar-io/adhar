@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gitea
+  namespace: adhar-system
+  labels:
+    app: gitea
+spec:
+  # Prometheus serviceMonitorSelector is empty ({}) so this is picked up
+  # cluster-wide with no extra release label required.
+  #
+  # Gitea serves Prometheus metrics on its main HTTP port (3000, named "http"
+  # on the gitea-http Service) at /metrics. This requires ENABLE_METRICS=true
+  # (set via gitea.metrics.enabled=true in hack/gitea/values.yaml). The metrics
+  # token is left unset, so /metrics is anonymous (no bearer token needed).
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitea
+      app.kubernetes.io/instance: gitea
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  endpoints:
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: 30s
+      honorLabels: true

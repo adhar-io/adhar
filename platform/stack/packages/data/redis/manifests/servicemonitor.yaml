@@ -1,0 +1,25 @@
+# Scrapes the redis_exporter (redis_* metrics) so the shipped Redis dashboard
+# (gnetId 763) gets data. Targets the operator-created "redis-metrics" service,
+# which uniquely carries the label app.kubernetes.io/component: metrics and
+# exposes only the exporter port (name: redis-exporter, 9121, path /metrics).
+# kube-prometheus has an empty serviceMonitorSelector, so this is picked up
+# without any extra release label.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redis
+  namespace: adhar-system
+  labels:
+    adhar.io/component: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app: redis
+      app.kubernetes.io/component: metrics
+  endpoints:
+    - port: redis-exporter
+      path: /metrics
+      interval: 30s

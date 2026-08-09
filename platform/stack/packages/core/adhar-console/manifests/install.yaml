@@ -76,6 +76,13 @@ metadata:
   namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: '5'
+    # CNPG Clusters are large once the operator populates them, so ArgoCD's
+    # client-side apply overflows the 262144-byte last-applied annotation and
+    # falls back to replace(--force). With ServerSideApply globally on, that
+    # yields the invalid "--force cannot be used with --server-side" and the
+    # whole app sync fails (blocking the console Deployment in a later wave).
+    # Pinning ServerSideApply per-resource routes it through SSA/force-conflicts.
+    argocd.argoproj.io/sync-options: ServerSideApply=true
 spec:
   instances: 1
   storage:
@@ -140,6 +147,11 @@ spec:
         # The client's access tokens carry aud=kubernetes + the groups claim, so
         # per-user kube-apiserver impersonation + RBAC work (see keycloak-config).
         - { name: KEYCLOAK_URL, value: 'https://keycloak.adhar.localtest.me:8443' }
+        # In-cluster backchannel: the public KEYCLOAK_URL isn't routable from
+        # inside the cluster (split-horizon DNS behind the gateway), so the
+        # console does server-side OIDC (discovery/token/JWKS) against the
+        # Keycloak Service directly. Token issuer + browser redirects stay public.
+        - { name: KEYCLOAK_INTERNAL_URL, value: 'http://keycloak.adhar-system.svc.cluster.local:8080' }
         - { name: KEYCLOAK_REALM, value: 'adhar' }
         - { name: KEYCLOAK_CLIENT_ID, value: 'adhar-console' }
         - { name: AUTH_PUBLIC_URL, value: 'https://console.adhar.localtest.me:8443' }

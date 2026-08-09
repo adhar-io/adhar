@@ -11,6 +11,33 @@ injector:
 server:
   standalone:
     enabled: true
+    # Custom HCL config: enables Prometheus telemetry and allows unauthenticated
+    # access to /v1/sys/metrics so the Prometheus Operator can scrape without a
+    # token (see manifests/servicemonitor.yaml). Mirrors the chart default
+    # standalone config plus the telemetry stanzas.
+    config: |
+      ui = true
+
+      listener "tcp" {
+        tls_disable = 1
+        address = "[::]:8200"
+        cluster_address = "[::]:8201"
+        # Allow Prometheus to scrape /v1/sys/metrics without authentication.
+        telemetry {
+          unauthenticated_metrics_access = true
+        }
+      }
+
+      storage "file" {
+        path = "/vault/data"
+      }
+
+      telemetry {
+        prometheus_retention_time = "24h"
+        disable_hostname = true
+      }
+
+      disable_mlock = true
   dataStorage:
     enabled: true
     size: 1Gi

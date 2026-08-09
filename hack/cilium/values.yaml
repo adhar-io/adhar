@@ -1496,9 +1496,15 @@ hubble:
     #
     #   --set hubble.metrics.enabled="{dns:query;ignoreAAAA,drop,tcp,flow,icmp,http}"
     #
-    enabled: ~
+    enabled:
+      - dns:query;ignoreAAAA
+      - drop
+      - tcp
+      - flow
+      - icmp
+      - http
     # -- Enables exporting hubble metrics in OpenMetrics format.
-    enableOpenMetrics: false
+    enableOpenMetrics: true
     # -- Configure the port the hubble metric server listens on.
     port: 9965
     tls:
@@ -2654,8 +2660,8 @@ pprof:
   blockProfileRate: 0
 # -- Configure prometheus metrics on the configured port at /metrics
 prometheus:
-  metricsService: false
-  enabled: false
+  metricsService: true
+  enabled: true
   port: 9962
   serviceMonitor:
     # -- Enable service monitors.
@@ -3395,7 +3401,7 @@ operator:
   # -- Enable prometheus metrics for cilium-operator on the configured port at
   # /metrics
   prometheus:
-    metricsService: false
+    metricsService: true
     enabled: true
     port: 9963
     serviceMonitor:

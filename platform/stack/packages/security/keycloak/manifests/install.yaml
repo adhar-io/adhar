@@ -42,6 +42,15 @@ spec:
           value: ALL
         - name: QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY
           value: 'true'
+        # Expose Prometheus metrics (/metrics) and health (/health). On this
+        # Keycloak 22 (Quarkus) image there is NO separate management interface
+        # (port 9000 was introduced in Keycloak 25); metrics/health are served
+        # on the main HTTP port 8080. These are build-time options, applied
+        # automatically by `start-dev`.
+        - name: KC_METRICS_ENABLED
+          value: 'true'
+        - name: KC_HEALTH_ENABLED
+          value: 'true'
         envFrom:
         - secretRef:
             name: keycloak-config
@@ -93,6 +102,10 @@ metadata:
   namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: '5'
+    # See console-db: CNPG Clusters overflow client-side apply's last-applied
+    # annotation; pin ServerSideApply so ArgoCD uses SSA/force-conflicts instead
+    # of the invalid replace(--force) + --server-side combination.
+    argocd.argoproj.io/sync-options: ServerSideApply=true
 spec:
   instances: 1
   storage:

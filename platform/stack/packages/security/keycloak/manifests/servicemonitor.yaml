@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: keycloak
+  namespace: adhar-system
+  labels:
+    app: keycloak
+spec:
+  # Prometheus serviceMonitorSelector is empty ({}) so this is picked up
+  # cluster-wide with no extra release label required.
+  selector:
+    matchLabels:
+      app: keycloak
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  endpoints:
+    # Keycloak 22 (Quarkus) serves Prometheus metrics on the main HTTP port
+    # (8080, named "http" on the keycloak Service) at /metrics. The dedicated
+    # management port 9000 only exists on Keycloak 25+.
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: 30s
+      honorLabels: true

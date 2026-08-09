@@ -373,8 +373,8 @@ gitea:
   ## @param gitea.metrics.serviceMonitor.scrapeTimeout Timeout after which the scrape is ended. If not specified, global Prometheus scrape timeout is used.
   ## @param gitea.metrics.serviceMonitor.tlsConfig TLS configuration to use when scraping the metric endpoint by Prometheus.
   metrics:
-    ## LOCAL DEV: Metrics disabled to reduce resource usage
-    enabled: false
+    ## LOCAL DEV: Metrics enabled so Prometheus can scrape /metrics (anonymous, no token)
+    enabled: true
     token:
     serviceMonitor:
       enabled: false

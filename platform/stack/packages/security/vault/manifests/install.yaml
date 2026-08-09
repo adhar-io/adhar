@@ -43,30 +43,21 @@ data:
       tls_disable = 1
       address = "[::]:8200"
       cluster_address = "[::]:8201"
-      # Enable unauthenticated metrics access (necessary for Prometheus Operator)
-      #telemetry {
-      #  unauthenticated_metrics_access = "true"
-      #}
+      # Allow Prometheus to scrape /v1/sys/metrics without authentication.
+      telemetry {
+        unauthenticated_metrics_access = true
+      }
     }
+    
     storage "file" {
       path = "/vault/data"
     }
     
-    # Example configuration for using auto-unseal, using Google Cloud KMS. The
-    # GKMS keys must already exist, and the cluster must have a service account
-    # that is authorized to access GCP KMS.
-    #seal "gcpckms" {
-    #   project     = "vault-helm-dev"
-    #   region      = "global"
-    #   key_ring    = "vault-helm-unseal-kr"
-    #   crypto_key  = "vault-helm-unseal-key"
-    #}
+    telemetry {
+      prometheus_retention_time = "24h"
+      disable_hostname = true
+    }
     
-    # Example configuration for enabling Prometheus metrics in your config.
-    #telemetry {
-    #  prometheus_retention_time = "30s"
-    #  disable_hostname = true
-    #}
     disable_mlock = true
 ---
 # Source: vault/templates/injector-clusterrole.yaml
@@ -301,7 +292,7 @@ spec:
             - name: AGENT_INJECT_TLS_AUTO
               value: vault-agent-injector-cfg
             - name: AGENT_INJECT_TLS_AUTO_HOSTS
-              value: vault-agent-injector-svc,vault-agent-injector-svc.vault,vault-agent-injector-svc.adhar-system.svc
+              value: vault-agent-injector-svc,vault-agent-injector-svc.adhar-system,vault-agent-injector-svc.adhar-system.svc
             - name: AGENT_INJECT_LOG_FORMAT
               value: standard
             - name: AGENT_INJECT_REVOKE_ON_SHUTDOWN

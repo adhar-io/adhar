@@ -1089,6 +1089,22 @@ data:
     jsonPointers:
       - /metadata
       - /subsets
+  resource.customizations.health.postgresql.cnpg.io_Cluster: |
+    health_status = {}
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      health_status.message = obj.status.phase
+      if obj.status.phase == "Cluster in healthy state" then
+        health_status.status = "Healthy"
+      elseif obj.status.phase == "Failed" then
+        health_status.status = "Degraded"
+      else
+        health_status.status = "Progressing"
+      end
+      return health_status
+    end
+    health_status.status = "Progressing"
+    health_status.message = "Waiting for cluster status"
+    return health_status
   resource.customizations.health.postgresql.cnpg.io_ScheduledBackup: |
     hs = {}
     hs.status = "Healthy"

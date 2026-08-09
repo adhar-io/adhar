@@ -1597,7 +1597,7 @@ data:
 kind: ConfigMap
 metadata:
   annotations:
-    grafana_folder: "Platform Core"
+    grafana_folder: "Applications"
   labels:
     adhar.io/component: observability
     grafana_dashboard: '1'

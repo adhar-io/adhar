@@ -1576,10 +1576,12 @@ grafana:
         - {name: infrastructure, orgId: 1, folder: Infrastructure, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/infrastructure}}
         - {name: kubernetes, orgId: 1, folder: Kubernetes, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/kubernetes}}
         - {name: networking, orgId: 1, folder: Networking, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/networking}}
-        - {name: platform-core, orgId: 1, folder: Platform Core, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/platform-core}}
+        # Applications: the platform's deployed application services (GitOps,
+        # SCM, IdP, secrets, registry, CI). Distinct from the Infrastructure /
+        # Kubernetes / Networking substrate folders.
+        - {name: applications, orgId: 1, folder: Applications, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/applications}}
         - {name: data-storage, orgId: 1, folder: Data & Storage, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/data-storage}}
         - {name: observability, orgId: 1, folder: Observability, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/observability}}
-        - {name: cicd-registry, orgId: 1, folder: CI/CD & Registry, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/cicd-registry}}
         - {name: security-policy, orgId: 1, folder: Security & Policy, type: file, disableDeletion: false, editable: true, options: {path: /var/lib/grafana/dashboards/security-policy}}
 
   dashboards:
@@ -1599,14 +1601,14 @@ grafana:
       cilium-operator: {gnetId: 16612, revision: 1, datasource: Prometheus}
       cilium-hubble: {gnetId: 16613, revision: 1, datasource: Prometheus}
       coredns: {gnetId: 15762, revision: 22, datasource: Prometheus}
-    # --- Platform Core: GitOps / SCM / IdP / secrets -------------------------
-    platform-core:
+    # --- Applications: deployed platform application services -----------------
+    applications:
       # ArgoCD dashboard is shipped offline by extra-dashboards.yaml (foldered
-      # into Platform Core via its grafana_folder annotation) — not duplicated
-      # here.
+      # into Applications via its grafana_folder annotation) — not duplicated here.
       gitea: {gnetId: 13192, revision: 1, datasource: Prometheus}
       keycloak: {gnetId: 17878, revision: 1, datasource: Prometheus}
       vault: {gnetId: 12904, revision: 2, datasource: Prometheus}
+      harbor: {gnetId: 14075, revision: 2, datasource: Prometheus}
     # --- Data & Storage: object store (CNPG/Redis/Kafka come from packages) ---
     data-storage:
       minio: {gnetId: 13502, revision: 1, datasource: Prometheus}
@@ -1614,9 +1616,6 @@ grafana:
     observability:
       prometheus: {gnetId: 19105, revision: 9, datasource: Prometheus}
       loki: {gnetId: 13407, revision: 1, datasource: Loki}
-    # --- CI/CD & Registry ----------------------------------------------------
-    cicd-registry:
-      harbor: {gnetId: 14075, revision: 2, datasource: Prometheus}
     # --- Security & Policy ---------------------------------------------------
     security-policy:
       cert-manager: {gnetId: 11001, revision: 1, datasource: Prometheus}

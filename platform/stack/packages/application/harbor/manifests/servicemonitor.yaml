@@ -1,0 +1,27 @@
+# Scrapes Harbor metrics (harbor_* metrics) so the Harbor Grafana dashboard
+# (gnetId 14075) gets data. Enabled by metrics.enabled=true in values.yaml, which
+# renders the harbor-exporter component plus a "http-metrics" port (8001, path
+# /metrics) on the exporter, core, registry and jobservice services. This
+# ServiceMonitor selects all Harbor services and scrapes the ones exposing the
+# http-metrics port — the harbor-exporter service is the primary source of
+# aggregated harbor_* metrics. kube-prometheus has an empty serviceMonitorSelector
+# so no extra release label is required.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: harbor
+  namespace: adhar-system
+  labels:
+    adhar.io/component: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: harbor
+      release: harbor
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 30s
