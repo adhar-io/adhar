@@ -442,16 +442,19 @@ spec:
         automated:
           prune: true
           selfHeal: true
-        # Fail-fast retries: with limit 30 / 3m backoff a doomed sync (e.g.
-        # waiting on resources an old chart render can never make healthy)
-        # blocks newer manifests for 90+ minutes. Failing after ~5 minutes lets
-        # the next automated sync pick up the corrected revision instead.
+        # Retry budget: limit 15 with 5s/2x/1m backoff retries for ~12 minutes
+        # (5+10+20+40s then 1m caps). That covers a cold-bootstrap race where an
+        # app syncs before its dependency is ready — e.g. adhar-console's OIDC
+        # ExternalSecret waiting on Keycloak's realm client, which can take
+        # longer than the old ~3.5m (limit 6) budget, leaving console stuck
+        # until a manual re-sync. Still bounded so a genuinely doomed sync frees
+        # the queue for the next corrected revision rather than blocking forever.
         retry:
           backoff:
             duration: 5s
             factor: 2
             maxDuration: 1m0s
-          limit: 6
+          limit: 15
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
