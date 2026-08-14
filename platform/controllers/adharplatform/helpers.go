@@ -88,6 +88,19 @@ func (r *AdharPlatformReconciler) applyManifest(ctx context.Context, manifestByt
 
 		logger.V(1).Info("Applying resource", "kind", groupVersionKind.Kind, "name", obj.GetName(), "namespace", obj.GetNamespace(), "manifest", manifestName)
 		if err := r.Patch(ctx, obj, client.Apply, client.FieldOwner(v1alpha1.FieldManager), client.ForceOwnership); err != nil {
+			// A resource whose CRD is not registered yet during the imperative
+			// bootstrap (e.g. a chart-bundled ServiceMonitor in the Gitea/HA
+			// manifests, before the Prometheus-Operator CRDs arrive with the
+			// GitOps observability stack) must NOT fail the whole install: that
+			// would wedge the reconciler forever (GiteaReady never flips, so
+			// Crossplane/GitOps stay blocked). These monitoring CRs are also
+			// shipped by the kube-prometheus package, which ArgoCD applies once
+			// the CRDs exist — so skip-with-warning here is safe and idempotent.
+			if meta.IsNoMatchError(err) {
+				logger.Info("Skipping resource whose CRD is not installed yet during bootstrap; GitOps will reconcile it later",
+					"kind", groupVersionKind.Kind, "name", obj.GetName(), "manifest", manifestName)
+				continue
+			}
 			applyErrors = append(applyErrors, fmt.Errorf("applying %s %s in namespace %s: %w", groupVersionKind.Kind, obj.GetName(), obj.GetNamespace(), err))
 		}
 	}

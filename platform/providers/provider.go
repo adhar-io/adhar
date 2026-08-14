@@ -380,13 +380,14 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 	// Set defaults based on environment type
 	isProduction := envConfig.ResolvedType == config.EnvironmentTypeProduction
 
-	// Configure control plane
-	controlPlaneReplicas := 1
-	if isProduction {
-		controlPlaneReplicas = 3 // HA for production
-	}
+	// Configure control plane. Single control-plane node for now: the
+	// compute-mode (kubeadm) providers bootstrap one control plane and reject
+	// >1 (HA control planes need a load balancer + stacked etcd — the roadmap's
+	// Phase 1 "next step"). Managed providers run their own managed control
+	// plane, so 1 is the right request here regardless. Platform-level HA
+	// (ArgoCD/Gitea replicas, CNPG) is driven separately by enableHAMode.
 	spec.ControlPlane = types.ControlPlaneSpec{
-		Replicas: controlPlaneReplicas,
+		Replicas: 1,
 	}
 
 	// Configure node groups
@@ -417,7 +418,7 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 		case "kubeVersion", "version":
 			spec.Version = kv.Value
 		case "controlPlaneReplicas":
-			if replicas := parseIntOrDefault(kv.Value, controlPlaneReplicas); replicas > 0 {
+			if replicas := parseIntOrDefault(kv.Value, spec.ControlPlane.Replicas); replicas > 0 {
 				spec.ControlPlane.Replicas = replicas
 			}
 		case "workerReplicas":

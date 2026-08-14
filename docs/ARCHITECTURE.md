@@ -300,6 +300,9 @@ In topology T3, workload clusters run only collectors; the management cluster ho
 | [ADR-0008](adr/0008-keycloak-platform-identity.md) | Keycloak as the platform identity provider (OIDC everywhere) |
 | [ADR-0009](adr/0009-secrets-eso-vault.md) | Secrets: ESO as sync plane, Vault as source of truth, never Git |
 | [ADR-0010](adr/0010-observability-lgtm-otel.md) | Observability: OTel collection, Grafana LGTM storage, hub-and-spoke |
+| … | [ADR-0011 through ADR-0022](adr/README.md) — the full index |
+| [ADR-0023](adr/0023-control-dataplane-separation.md) | Control-plane / data-plane separation with a first-class DataPlane API (Proposed) |
+| [ADR-0024](adr/0024-agentic-ai-platform.md) | Agentic AI platform — MCP-native tools and a GitOps-safe agent runtime (Proposed) |
 
 ## 13. Related Documents
 

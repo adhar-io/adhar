@@ -26,6 +26,8 @@ Decisions with lasting consequences for the Adhar platform are recorded here in 
 | [0020](0020-iceberg-data-lakehouse.md) | Data lakehouse on Apache Iceberg over platform object storage | Accepted |
 | [0021](0021-day2-operations-first-class.md) | Day-2 operations as a first-class product surface | Accepted |
 | [0022](0022-custom-clusters-no-managed-k8s.md) | Custom clusters on raw cloud infrastructure — no managed Kubernetes | Accepted |
+| [0023](0023-control-dataplane-separation.md) | Control-plane / data-plane separation with a first-class DataPlane API | Proposed |
+| [0024](0024-agentic-ai-platform.md) | Agentic AI platform — MCP-native tools and a GitOps-safe agent runtime | Proposed |
 
 ## Proposing an ADR
 

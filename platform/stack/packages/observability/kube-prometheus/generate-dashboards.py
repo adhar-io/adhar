@@ -32,8 +32,24 @@ DASHBOARDS = [
     ("cilium-agent", 16611, "Platform"),
     ("cilium-operator", 16612, "Platform"),
     ("cilium-hubble", 16613, "Platform"),
-    ("coredns", 15762, "Platform"),
+    ("coredns", 14981, "Platform"),
     ("cloudnativepg", 20417, "Platform"),
+    # Networking / DNS / probing
+    ("cilium-network-monitoring", 24056, "Platform"),
+    ("blackbox-exporter", 13659, "Platform"),
+    # Cluster / nodes (node-exporter-driven variants)
+    ("kubernetes-nodes-classic", 8171, "Platform"),
+    ("k8s-cluster-overview", 15661, "Platform"),
+    # Alerting / LGTM
+    ("alertmanager", 9578, "Platform"),
+    ("loki-stack", 14055, "Platform"),
+    # Data stores / messaging (platform services)
+    ("redis-overview", 18345, "Platform"),
+    ("redis-ha", 11835, "Platform"),
+    ("rabbitmq-overview", 10991, "Platform"),
+    ("rabbitmq-stream", 14798, "Platform"),
+    # Platform application services
+    ("keycloak-metrics", 10441, "Platform"),
     ("minio", "https://raw.githubusercontent.com/minio/minio/master/docs/metrics/prometheus/grafana/minio-dashboard.json", "Platform"),
     ("prometheus", 19105, "Platform"),
     ("loki", 13407, "Platform"),
@@ -50,6 +66,8 @@ DASHBOARDS = [
     ("spring-boot-statistics", 10280, "Application"),
     ("spring-boot-apm", 12900, "Application"),
     ("jvm-micrometer", 4701, "Application"),
+    ("kafka-streams", 13966, "Application"),
+    ("nodejs", 11159, "Application"),
 ]
 
 # grafana.com input pluginId -> our provisioned datasource UID.

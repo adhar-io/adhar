@@ -89,7 +89,14 @@ data:
     hostname=keycloak.adhar.localtest.me\nhostname-port=8443\n\n# the admin url requires\
     \ its own configuration to reflect correct url\nhostname-admin=keycloak.adhar.localtest.me:8443\n\
     \nhostname-debug=true\n\n# this should only be allowed in development. NEVER in\
-    \ production.\nhostname-strict=false\nhostname-strict-backchannel=false\n"
+    \ production.\nhostname-strict=false\n\n# Pin the issuer to the fixed https frontend\
+    \ URL for BACKCHANNEL requests too. The\n# console does server-side OIDC over the\
+    \ in-cluster http backchannel\n# (KEYCLOAK_INTERNAL_URL=http://keycloak...svc:8080);\
+    \ with this=false Keycloak\n# reflected that http scheme into discovery URLs + the\
+    \ token 'iss' claim\n# (http://keycloak.adhar.localtest.me:8443/realms/adhar), which\
+    \ broke BOTH the\n# console's id-token verification AND kube-apiserver token\
+    \ acceptance (its\n# --oidc-issuer-url is https). true → always emit the https\
+    \ issuer regardless\n# of the backchannel request scheme.\nhostname-strict-backchannel=true\n"
 kind: ConfigMap
 metadata:
   name: keycloak-config

@@ -1,0 +1,1179 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-dashboard-cilium-network-monitoring
+  namespace: adhar-system
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: adhar-observability
+  annotations:
+    grafana_folder: "Platform"
+data:
+  cilium-network-monitoring.json: |
+    {
+      "__elements": {},
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "description": "Comprehensive Cilium network monitoring dashboard for Kubernetes clusters. Features instance filtering by Cilium instances (IP:port), endpoint state monitoring, BPF map usage, API performance metrics, and node connectivity status.",
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows how long it takes for Cilium agents to start up and become ready. **Overall Bootstrap** is total startup time, **Daemon Init** is core daemon initialization, and **K8s Init** is Kubernetes integration setup. Green = fast (<5s), Yellow = slow (5-10s), Red = very slow (>10s). High values may indicate resource constraints or network issues.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "orange",
+                    "value": 5
+                  },
+                  {
+                    "color": "dark-red",
+                    "value": 10
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 24,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_agent_bootstrap_seconds{scope=\"overall\", instance=~\".*\"}",
+              "legendFormat": "Overall Bootstrap - {{instance}}",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_agent_bootstrap_seconds{scope=\"daemonInit\", instance=~\".*\"}",
+              "legendFormat": "Daemon Init - {{instance}}",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_agent_bootstrap_seconds{scope=\"k8sInit\", instance=~\".*\"}",
+              "legendFormat": "K8s Init - {{instance}}",
+              "refId": "C"
+            }
+          ],
+          "title": "Cilium Agent Bootstrap Time",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the total count of errors and warnings from Cilium components across all worker nodes. **ERROR** level indicates serious issues that may affect network functionality, **WARN** level indicates potential problems, **INFO** level shows normal operational messages. Zero counts are ideal. Spikes in errors may indicate network policy conflicts, resource exhaustion, or configuration issues. Monitor for sustained error rates or unusual warning patterns.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "dark-red",
+                    "value": 3
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 3,
+            "w": 18,
+            "x": 6,
+            "y": 0
+          },
+          "id": 2,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_errors_warnings_total{level=\"ERROR\"}",
+              "legendFormat": "{{level}} {{subsystem}} {{instance}}",
+              "refId": "A",
+              "useBackend": false
+            }
+          ],
+          "title": "Cilium Errors",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the total count of errors and warnings from Cilium components across all worker nodes. **ERROR** level indicates serious issues that may affect network functionality, **WARN** level indicates potential problems, **INFO** level shows normal operational messages. Zero counts are ideal. Spikes in errors may indicate network policy conflicts, resource exhaustion, or configuration issues. Monitor for sustained error rates or unusual warning patterns.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 3
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 3,
+            "w": 18,
+            "x": 6,
+            "y": 3
+          },
+          "id": 14,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_errors_warnings_total{level=\"WARN\"}",
+              "legendFormat": "{{level}} {{subsystem}} {{instance}}",
+              "refId": "A",
+              "useBackend": false
+            }
+          ],
+          "title": "Cilium Warnings",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the distribution of API request methods across Cilium instances. **GET** requests are typically health checks and status queries, **POST** requests are policy updates and configuration changes. Higher rates indicate more active cluster management. Monitor for unusual patterns that might indicate issues or heavy administrative activity.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 25,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "normal"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 18,
+            "w": 11,
+            "x": 6,
+            "y": 6
+          },
+          "id": 4,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_agent_api_process_time_seconds_count{instance=~\".*\"}",
+              "legendFormat": "{{method}} ({{return_code}}) - {{instance}} - {{path}}",
+              "refId": "A",
+              "useBackend": false
+            }
+          ],
+          "title": "Cilium API Success Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the total count of errors and warnings from Cilium components across all worker nodes. **ERROR** level indicates serious issues that may affect network functionality, **WARN** level indicates potential problems, **INFO** level shows normal operational messages. Zero counts are ideal. Spikes in errors may indicate network policy conflicts, resource exhaustion, or configuration issues. Monitor for sustained error rates or unusual warning patterns.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "percentage",
+                "steps": [
+                  {
+                    "color": "super-light-blue",
+                    "value": 0
+                  },
+                  {
+                    "color": "light-blue",
+                    "value": 70
+                  },
+                  {
+                    "color": "blue",
+                    "value": 85
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 18,
+            "w": 7,
+            "x": 17,
+            "y": 6
+          },
+          "id": 13,
+          "options": {
+            "displayMode": "gradient",
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "maxVizHeight": 300,
+            "minVizHeight": 16,
+            "minVizWidth": 8,
+            "namePlacement": "auto",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "sizing": "auto",
+            "valueMode": "color"
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_errors_warnings_total{level=\"INFO\"}",
+              "legendFormat": "{{level}} {{subsystem}} - ({{instance}})",
+              "refId": "B",
+              "useBackend": false
+            }
+          ],
+          "title": "Cilium Errors & Warnings",
+          "type": "bargauge"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the distribution of endpoint states in your cluster. **Ready** (green) = endpoints are fully operational, **Regenerating** (yellow) = endpoints are updating policies, **Waiting-for-identity** (orange) = endpoints waiting for security identity assignment, **Restoring** (red) = endpoints recovering from failures. Most endpoints should be in 'Ready' state. High numbers of non-ready endpoints indicate network policy changes, security issues, or cluster instability.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "continuous-BlPu"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 32,
+            "w": 6,
+            "x": 0,
+            "y": 24
+          },
+          "id": 3,
+          "options": {
+            "displayMode": "gradient",
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "maxVizHeight": 300,
+            "minVizHeight": 16,
+            "minVizWidth": 8,
+            "namePlacement": "top",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "sizing": "auto",
+            "valueMode": "color"
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_endpoint_state{instance=~\".*\"}",
+              "legendFormat": "{{instance}} - {{endpoint_state}}",
+              "refId": "A",
+              "useBackend": false
+            }
+          ],
+          "title": "Cilium Endpoint States",
+          "type": "bargauge"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows total memory usage of all BPF (Berkeley Packet Filter) maps combined for each Cilium instance. BPF maps store network state like connection tracking, IP cache, load balancer backends, and container network mappings. Higher values indicate more network state being tracked. Monitor for total capacity approaching limits which could cause performance issues or packet drops.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "scaleDistribution": {
+                  "type": "linear"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 32,
+            "w": 18,
+            "x": 6,
+            "y": 24
+          },
+          "id": 5,
+          "options": {
+            "calculate": false,
+            "cellGap": 1,
+            "color": {
+              "exponent": 0.5,
+              "fill": "dark-orange",
+              "max": 8500000,
+              "mode": "scheme",
+              "reverse": false,
+              "scale": "exponential",
+              "scheme": "RdYlBu",
+              "steps": 64
+            },
+            "exemplars": {
+              "color": "rgba(255,0,255,0.7)"
+            },
+            "filterValues": {
+              "le": 1e-09
+            },
+            "legend": {
+              "show": true
+            },
+            "rowsFrame": {
+              "layout": "auto"
+            },
+            "tooltip": {
+              "mode": "single",
+              "showColorScale": false,
+              "yHistogram": false
+            },
+            "yAxis": {
+              "axisPlacement": "hidden",
+              "reverse": false
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_bpf_map_capacity{instance=~\".*\"}",
+              "legendFormat": "{{instance}} - {{map_group}}",
+              "refId": "A",
+              "useBackend": false
+            }
+          ],
+          "title": "BPF Map Memory Usage",
+          "type": "heatmap"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the processing time for API requests to Cilium agents. Higher values indicate slower API response times, which may affect cluster management operations, policy updates, or troubleshooting activities. **GET /v1/healthz** = health check latency, **GET /v1/cluster** = cluster status queries. Monitor for sustained high latency which could indicate resource constraints, network issues, or agent performance problems. Critical for operational responsiveness.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "vis": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 11,
+            "w": 24,
+            "x": 0,
+            "y": 56
+          },
+          "id": 9,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "rate(cilium_agent_api_process_time_seconds_count{instance=~\".*\"}[5m])",
+              "legendFormat": "{{method}} {{path}} - {{return_code}} ({{instance}})",
+              "refId": "A"
+            }
+          ],
+          "title": "Cilium Agent API Process Time Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Tracks the rate of Kubernetes events (create, update, delete) that Cilium agents receive from the Kubernetes API server. These events trigger network policy updates, endpoint state changes, and service discovery updates. **Create** events = new pods/services, **Update** events = configuration changes, **Delete** events = resource cleanup. High event rates may indicate cluster churn, deployments, or configuration changes. Monitor for correlation with network issues.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 25,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "normal"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 16,
+            "w": 12,
+            "x": 0,
+            "y": 67
+          },
+          "id": 7,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_kubernetes_events_received_total{instance=~\".*\"}",
+              "legendFormat": "({{instance}}) {{scope}} - {{action}}",
+              "refId": "A",
+              "useBackend": false
+            }
+          ],
+          "title": "Kubernetes Events Received",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the rate of operations (create, update, delete) on BPF maps. High operation rates indicate active network state changes like new connections, policy updates, or endpoint modifications. **Update** operations are most common during normal operation. **Delete** operations may indicate connection cleanup or policy changes. Monitor for unusual spikes that could indicate network issues, policy conflicts, or resource pressure.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "vis": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 16,
+            "w": 12,
+            "x": 12,
+            "y": 67
+          },
+          "id": 6,
+          "options": {
+            "legend": {
+              "calcs": [
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "rate(cilium_bpf_map_ops_total{instance=~\".*\"}[5m])",
+              "legendFormat": "{{map_name}} - {{operation}} ({{instance}})",
+              "refId": "A"
+            }
+          ],
+          "title": "BPF Map Operations Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the connectivity status between Cilium nodes. **Reachable** = nodes can communicate with each other, **Unreachable** = network connectivity issues, **Unknown** = status cannot be determined. All nodes should show as 'Reachable' for proper cluster operation. Unreachable nodes may indicate network failures, firewall issues, or node problems. This is critical for cluster-wide network policy enforcement and service mesh functionality.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 83
+          },
+          "id": 8,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_node_health_connectivity_status{instance=\"NODE_IP_1:9962\"}",
+              "legendFormat": "{{status}} - {{type}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Node Health Connectivity - NODE_IP_1",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the connectivity status between Cilium nodes. **Reachable** = nodes can communicate with each other, **Unreachable** = network connectivity issues, **Unknown** = status cannot be determined. All nodes should show as 'Reachable' for proper cluster operation. Unreachable nodes may indicate network failures, firewall issues, or node problems. This is critical for cluster-wide network policy enforcement and service mesh functionality.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 89
+          },
+          "id": 12,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_node_health_connectivity_status{instance=\"NODE_IP_2:9962\"}",
+              "legendFormat": "{{status}} - {{type}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Node Health Connectivity - NODE_IP_2",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the connectivity status between Cilium nodes. **Reachable** = nodes can communicate with each other, **Unreachable** = network connectivity issues, **Unknown** = status cannot be determined. All nodes should show as 'Reachable' for proper cluster operation. Unreachable nodes may indicate network failures, firewall issues, or node problems. This is critical for cluster-wide network policy enforcement and service mesh functionality.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 95
+          },
+          "id": 10,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_node_health_connectivity_status{instance=\"NODE_IP_3:9962\"}",
+              "legendFormat": "{{status}} - {{type}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Node Health Connectivity - NODE_IP_3",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Shows the connectivity status between Cilium nodes. **Reachable** = nodes can communicate with each other, **Unreachable** = network connectivity issues, **Unknown** = status cannot be determined. All nodes should show as 'Reachable' for proper cluster operation. Unreachable nodes may indicate network failures, firewall issues, or node problems. This is critical for cluster-wide network policy enforcement and service mesh functionality.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 101
+          },
+          "id": 11,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "cilium_node_health_connectivity_status{instance=\"NODE_IP_4:9962\"}",
+              "legendFormat": "{{status}} - {{type}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Node Health Connectivity - NODE_IP_4",
+          "type": "stat"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 41,
+      "tags": [],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "",
+      "title": "Cilium Network Monitoring",
+      "uid": "f59f1926-1654-40ed-a131-5f1c9c0136df",
+      "version": 9,
+      "weekStart": "",
+      "gnetId": 24056
+    }
