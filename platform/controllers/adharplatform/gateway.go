@@ -12,12 +12,20 @@ import (
 	"adhar-io/adhar/platform/utils/files"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+// gatewayClassConfigCRDName is the Cilium CRD backing the CiliumGatewayClassConfig
+// referenced by the adhar GatewayClass. It is registered asynchronously by the
+// Cilium operator.
+const gatewayClassConfigCRDName = "ciliumgatewayclassconfigs.cilium.io"
 
 //go:embed resources/gateway-api
 //go:embed resources/gateway
@@ -86,6 +94,23 @@ func (r *AdharPlatformReconciler) ReconcileGateway(ctx context.Context, req ctrl
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reading gateway manifest %s: %w", manifestPath, err)
 	}
+
+	// The Kind gateway.yaml includes a CiliumGatewayClassConfig, whose CRD
+	// (ciliumgatewayclassconfigs.cilium.io) is registered asynchronously by the
+	// Cilium operator — it may not exist yet on the pass immediately after Cilium
+	// installs. If we apply gateway.yaml before that CRD is Established, the config
+	// object does not land, the GatewayClass is rejected (InvalidParameters), the
+	// generated Service defaults to LoadBalancer instead of NodePort, and the
+	// Gateway never programs (leaving ArgoCD/Gitea unreachable on the Kind host
+	// ports). Wait (bounded) for the CRD before applying so the config always
+	// lands on the first successful pass. Non-fatal: on timeout we proceed and
+	// rely on the outer reconcile loop (Status.Gateway.Available stays false) to
+	// re-apply on a later pass once the CRD registers.
+	if isKind {
+		if err := r.waitForGatewayClassConfigCRD(ctx); err != nil {
+			logger.Info("CiliumGatewayClassConfig CRD not Established yet; applying anyway and will re-reconcile", "error", err)
+		}
+	}
 	if !isKind {
 		// The cloud variant carries the platform wildcard hostname on its
 		// HTTPS listener for cert-manager.
@@ -118,6 +143,48 @@ func (r *AdharPlatformReconciler) ReconcileGateway(ctx context.Context, req ctrl
 	resource.Status.Gateway.Available = true
 	logger.Info("Gateway reconciliation completed successfully")
 	return ctrl.Result{}, nil
+}
+
+// waitForGatewayClassConfigCRD blocks (bounded) until the Cilium
+// CiliumGatewayClassConfig CRD is Established, so the CiliumGatewayClassConfig
+// object in gateway.yaml can actually be created. Returns an error on timeout;
+// callers treat that as non-fatal and let the reconcile loop retry.
+func (r *AdharPlatformReconciler) waitForGatewayClassConfigCRD(ctx context.Context) error {
+	logger := log.FromContext(ctx)
+	for i := 0; i < 24; i++ { // up to ~60s
+		var crd unstructured.Unstructured
+		crd.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   "apiextensions.k8s.io",
+			Version: "v1",
+			Kind:    "CustomResourceDefinition",
+		})
+		err := r.Get(ctx, client.ObjectKey{Name: gatewayClassConfigCRDName}, &crd)
+		if err == nil && crdEstablished(&crd) {
+			logger.Info("CiliumGatewayClassConfig CRD is Established")
+			return nil
+		}
+		time.Sleep(2500 * time.Millisecond)
+	}
+	return fmt.Errorf("CRD %s not Established within timeout", gatewayClassConfigCRDName)
+}
+
+// crdEstablished reports whether a CustomResourceDefinition (as unstructured)
+// carries an Established=True status condition.
+func crdEstablished(crd *unstructured.Unstructured) bool {
+	conds, found, err := unstructured.NestedSlice(crd.Object, "status", "conditions")
+	if err != nil || !found {
+		return false
+	}
+	for _, c := range conds {
+		cond, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cond["type"] == "Established" && cond["status"] == "True" {
+			return true
+		}
+	}
+	return false
 }
 
 // pinGatewayNodePorts waits for the Cilium-generated gateway Service and patches

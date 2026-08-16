@@ -916,6 +916,23 @@ func (r *AdharPlatformReconciler) shouldShutDown(ctx context.Context, resource *
 		return false, nil
 	}
 
+	// The Gateway must be genuinely programmed before we declare `adhar up` done.
+	// Status.Gateway.Available is set only after the Cilium-generated Service is a
+	// NodePort (i.e. the CiliumGatewayClassConfig applied and the GatewayClass was
+	// accepted) AND its node ports were pinned to 30080/30443 — which is exactly
+	// the condition for the platform being reachable on the Kind host ports. The
+	// CiliumGatewayClassConfig CRD is registered asynchronously by the Cilium
+	// operator, so on a cold cluster the first ReconcileGateway pass can apply
+	// gateway.yaml before that CRD exists; the config then silently does not land
+	// and the Gateway never programs. Gating shutdown on Availability keeps the
+	// controller reconciling (and re-applying gateway.yaml every pass) until the
+	// config lands and the Gateway is reachable — so `adhar up` can never exit
+	// leaving ArgoCD/Gitea inaccessible behind an unprogrammed Gateway.
+	if !resource.Status.Gateway.Available {
+		logger.Info("Gateway not yet programmed / node ports not pinned, not shutting down yet")
+		return false, nil
+	}
+
 	// The control plane must be fully applied (XRDs, Compositions, Functions,
 	// kubernetes/helm Providers + ClusterProviderConfigs, Operations) before we
 	// consider `adhar up` done — this is what "controlplane fully set up as part
