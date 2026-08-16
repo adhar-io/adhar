@@ -1,0 +1,36 @@
+# Adhar AI — outward HTTP surface through the Cilium Gateway (ADR-0024 §8).
+#
+# Two hostnames, both on adhar-gateway:
+#   ai.adhar.localtest.me   -> the runtime: /healthz, /chat, and the /mcp/sse
+#                              MCP transport that EXTERNAL agents (Claude Code,
+#                              IDE assistants, ChatOps) connect to over OIDC.
+#   mcp.adhar.localtest.me   -> same runtime front door, distinct hostname for
+#                              MCP clients that want a dedicated endpoint.
+#
+# OIDC is enforced by the runtime/MCP servers (Keycloak `adhar-ai` client —
+# oidc-client.yaml), so every agent action carries an identity. Pattern mirrors
+# application/kargo/manifests/httproute.yaml.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: adhar-ai
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - ai.adhar.localtest.me
+    - mcp.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: adhar-ai-runtime
+          port: 8080

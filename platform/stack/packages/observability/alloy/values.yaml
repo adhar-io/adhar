@@ -6,10 +6,147 @@ crds:
 ## chart, this field may also be called "agent". Naming this field "agent" is
 ## deprecated and will be removed in a future release.
 alloy:
-  config:
-    clients:
-      - url: http://loki-gateway/loki/api/v1/push
-        tenant_id: 1
+  # Full Alloy config owned by this generator. The leading logging + discovery
+  # blocks mirror the chart's default template; the "Hub shipping" section
+  # (roadmap P2.3) forwards metrics/logs/traces to the observability hub via
+  # the HUB_* env vars sourced from the observability-hub ConfigMap (envFrom
+  # below). Endpoints resolve to in-cluster hub services on the management
+  # cluster, or the hub's external Gateway URLs on workload-cluster spokes.
+  configMap:
+    content: |-
+      logging {
+      	level  = "info"
+      	format = "logfmt"
+      }
+      
+      discovery.kubernetes "pods" {
+      	role = "pod"
+      }
+      
+      discovery.kubernetes "nodes" {
+      	role = "node"
+      }
+      
+      discovery.kubernetes "services" {
+      	role = "service"
+      }
+      
+      discovery.kubernetes "endpoints" {
+      	role = "endpoints"
+      }
+      
+      discovery.kubernetes "endpointslices" {
+      	role = "endpointslice"
+      }
+      
+      discovery.kubernetes "ingresses" {
+      	role = "ingress"
+      }
+      
+      // ---------------------------------------------------------------
+      // Hub shipping (roadmap P2.3): everything collected here is written
+      // to the observability hub. Endpoints come from the observability-hub
+      // ConfigMap (envFrom) — in-cluster service URLs on the hub itself,
+      // external Gateway URLs on workload-cluster spokes. Every sample and
+      // stream carries the cluster label for hub-side separation.
+      // ---------------------------------------------------------------
+      prometheus.scrape "annotated_pods" {
+      	targets    = discovery.relabel.scrape_pods.output
+      	forward_to = [prometheus.remote_write.hub.receiver]
+      }
+      
+      discovery.relabel "scrape_pods" {
+      	targets = discovery.kubernetes.pods.targets
+      	rule {
+      		source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+      		regex         = "true"
+      		action        = "keep"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_namespace"]
+      		target_label  = "namespace"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_pod_name"]
+      		target_label  = "pod"
+      	}
+      }
+      
+      prometheus.remote_write "hub" {
+      	endpoint {
+      		url = sys.env("HUB_MIMIR_URL")
+      	}
+      	external_labels = {
+      		cluster = sys.env("HUB_CLUSTER_NAME"),
+      	}
+      }
+      
+      // Carry the Kubernetes identity of every log stream: without these
+      // relabels Loki only gets job/instance, making namespace/pod filtering
+      // (and Grafana's log volume breakdowns) useless.
+      discovery.relabel "pod_logs" {
+      	targets = discovery.kubernetes.pods.targets
+      	rule {
+      		source_labels = ["__meta_kubernetes_namespace"]
+      		target_label  = "namespace"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_pod_name"]
+      		target_label  = "pod"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_pod_container_name"]
+      		target_label  = "container"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_pod_node_name"]
+      		target_label  = "node"
+      	}
+      	rule {
+      		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+      		separator     = ""
+      		target_label  = "app"
+      	}
+      }
+      
+      loki.source.kubernetes "pods" {
+      	targets    = discovery.relabel.pod_logs.output
+      	forward_to = [loki.write.hub.receiver]
+      }
+      
+      loki.write "hub" {
+      	endpoint {
+      		url = sys.env("HUB_LOKI_URL")
+      	}
+      	external_labels = {
+      		cluster = sys.env("HUB_CLUSTER_NAME"),
+      	}
+      }
+      
+      otelcol.receiver.otlp "workloads" {
+      	grpc {
+      		endpoint = "0.0.0.0:4317"
+      	}
+      	http {
+      		endpoint = "0.0.0.0:4318"
+      	}
+      	output {
+      		traces = [otelcol.exporter.otlphttp.hub.input]
+      	}
+      }
+      
+      otelcol.exporter.otlphttp "hub" {
+      	client {
+      		endpoint = sys.env("HUB_TEMPO_URL")
+      		tls {
+      			insecure_skip_verify = true
+      		}
+      	}
+      }
+  # Hub endpoints for the shipping pipelines in config.alloy (roadmap P2.3).
+  envFrom:
+    - configMapRef:
+        name: observability-hub
 
 ingress:
   # -- Enables ingress for Alloy (Faro port)

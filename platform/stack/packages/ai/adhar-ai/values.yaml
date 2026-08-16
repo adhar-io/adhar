@@ -1,0 +1,61 @@
+# Adhar AI — package values (ADR-0024).
+#
+# This package ships plain manifests (manifests/), not a Helm chart, so these
+# values are documentation of the knobs the manifests expose rather than chart
+# inputs. Override the corresponding env/ConfigMap/Secret in manifests/ to change
+# behavior; the single functional switch is the `adhar-ai-llm` secret in Vault.
+
+# Control-plane only (ADR-0023). Data planes get no AI components.
+plane: control-plane
+
+# Provider-agnostic LLM gateway. The ONE secret (Vault: secret/adhar-ai/llm)
+# drives everything; leave it unset and the platform runs unaffected/unkeyed.
+llm:
+  provider: claude            # claude | openai | azure | openai-compatible | ollama
+  model: claude-opus-4-5-20251101   # latest Claude by default
+  endpoint: ""                # for azure | openai-compatible | ollama
+  budgets:
+    perUserDailyTokens: 2000000
+    perOpMaxToolCalls: 40
+    perOpMaxTokens: 400000
+    rateLimitRequestsPerMinute: 60
+
+# Staged autonomy (agent-runtime ConfigMap adhar-ai-config).
+# read-only -> suggest -> approve-to-apply -> scoped. Default is conservative.
+autonomy:
+  default: suggest
+
+# MCP tool servers (one Deployment+Service each). read = RBAC-scoped get/list;
+# write = Gitea PR only. No kubectl_apply / cloud-mutation tool exists.
+mcpServers:
+  cluster:       {write: false}
+  gitops:        {write: true}
+  provision:     {write: true}
+  observability: {write: false}
+  security:      {write: true}
+  cost:          {write: false}
+  catalog:       {write: true}
+
+# The only write credential the agent holds: a Gitea bot token (commit-only).
+gitea:
+  botUser: adhar-ai-bot
+  writeRepos: [packages, environments]
+
+# RAG grounding store (pgvector on CNPG).
+rag:
+  enabled: true
+  database: adhar_ai_rag
+  storageSize: 5Gi
+
+# Outward surface (Gateway + OIDC).
+ingress:
+  hostnames:
+    - ai.adhar.localtest.me
+    - mcp.adhar.localtest.me
+  oidcClientId: adhar-ai
+
+# Adhar-owned images track :latest with imagePullPolicy: Always.
+images:
+  gateway: ghcr.io/adhar-io/adhar-ai-gateway:latest
+  runtime: ghcr.io/adhar-io/adhar-ai-runtime:latest
+  mcpPrefix: ghcr.io/adhar-io/adhar-ai-mcp-   # + <domain>:latest

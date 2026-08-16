@@ -290,13 +290,21 @@ extraContainers: []
 #    command: [/bin/sh, -c, 'echo "Hello world"; sleep 86400']
 
 ## @param extraVolumes Additional volumes to mount to the Gitea deployment
-extraVolumes: []
-# - name: postgres-ssl-vol
-#   secret:
-#     secretName: gitea-postgres-ssl
+# Platform CA — see values.yaml. Trusts the self-signed adhar-cert so Gitea's
+# Keycloak OAuth2 OIDC discovery/login works. optional=true so Gitea starts first.
+extraVolumes:
+  - name: platform-ca
+    secret:
+      secretName: adhar-cert
+      optional: true
+      items: [{ key: tls.crt, path: tls.crt }]
 
 ## @param extraContainerVolumeMounts Mounts that are only mapped into the Gitea runtime/main container, to e.g. override custom templates.
-extraContainerVolumeMounts: []
+extraContainerVolumeMounts:
+  - name: platform-ca
+    mountPath: /etc/ssl/certs/adhar-platform-ca.pem
+    subPath: tls.crt
+    readOnly: true
 
 ## @param extraInitVolumeMounts Mounts that are only mapped into the init-containers. Can be used for additional preconfiguration.
 extraInitVolumeMounts: []
@@ -437,6 +445,24 @@ gitea:
       PROTOCOL: http # TLS terminates at the Gateway; Gitea listens plain HTTP
       SSH_PORT: 22 # rootful image
       SSH_LISTEN_PORT: 2222 # rootless image
+    # Keycloak SSO auto-onboarding (see values.yaml): first OAuth2 login
+    # auto-creates + links the Gitea account from the preferred_username claim.
+    oauth2_client:
+      ENABLE_AUTO_REGISTRATION: true
+      USERNAME: preferred_username
+      ACCOUNT_LINKING: auto
+      UPDATE_AVATAR: false
+    # HA database is the CNPG-managed `gitea-db` cluster (roadmap P1.2b), NOT the
+    # chart-bundled PostgreSQL — the two must not both own the same database
+    # identity. We disable postgresql-ha (below) and point Gitea at the CNPG
+    # read-write service explicitly. Credentials match the gitea-db-credentials
+    # secret from resources/cnpg/gitea-db.yaml (gitea/gitea).
+    database:
+      DB_TYPE: postgres
+      HOST: gitea-db-rw.adhar-system.svc.cluster.local:5432
+      NAME: gitea
+      USER: gitea
+      PASSWD: gitea
   #
   #  security:
   #    PASSWORD_COMPLEXITY: spec
@@ -585,8 +611,11 @@ postgresql-ha:
       database: gitea
       password: gitea
       username: gitea
-  ## PRODUCTION HA: Enable PostgreSQL HA for database high availability
-  enabled: true
+  ## The chart-bundled PostgreSQL HA subchart is DISABLED: in HA mode Gitea's
+  ## database is the CNPG-managed gitea-db cluster (roadmap P1.2b), configured via
+  ## gitea.config.database above. Enabling this would create a second, conflicting
+  ## PostgreSQL owning the same database identity (asserted by ha_test.go).
+  enabled: false
   postgresql:
     repmgrPassword: changeme2
     postgresPassword: changeme1

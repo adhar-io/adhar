@@ -1,0 +1,262 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://adhar.io/schemas/marketplace/v1alpha1/adhar-package.schema.json",
+  "title": "Adhar Package Marketplace Contract",
+  "description": "Compatibility contract and provenance metadata that every Adhar platform package MUST satisfy. Each package directory under platform/stack/packages/<category>/<name>/ carries one 'adhar-package.yaml' validated against this schema. See platform/stack/packages/MARKETPLACE.md and docs/adr/0019-secure-supply-chain-chainguard.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "name",
+    "category",
+    "version",
+    "description",
+    "maintainer",
+    "license",
+    "adharCompatibility",
+    "provenance",
+    "planeAffinity",
+    "stability"
+  ],
+  "properties": {
+    "apiVersion": {
+      "description": "Contract API version. Bumped when the marketplace schema makes breaking changes.",
+      "type": "string",
+      "const": "marketplace.adhar.io/v1alpha1"
+    },
+    "kind": {
+      "description": "Resource kind. Always AdharPackage.",
+      "type": "string",
+      "const": "AdharPackage"
+    },
+    "name": {
+      "description": "Package name. MUST match the package directory name (platform/stack/packages/<category>/<name>/) and the ArgoCD Application/ApplicationSet element name. Lowercase DNS-label style.",
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+      "minLength": 2,
+      "maxLength": 63
+    },
+    "category": {
+      "description": "Marketplace category. MUST match the real top-level directory under platform/stack/packages/.",
+      "type": "string",
+      "enum": [
+        "ai",
+        "application",
+        "backup",
+        "core",
+        "data",
+        "infrastructure",
+        "observability",
+        "plugins",
+        "security"
+      ]
+    },
+    "version": {
+      "description": "Package version. Conventionally tracks the upstream chart/app version being packaged (semver, optional leading 'v').",
+      "type": "string",
+      "pattern": "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-.]+)?(?:\\+[0-9A-Za-z-.]+)?$"
+    },
+    "appVersion": {
+      "description": "Optional upstream application version this package deploys (e.g. the container image tag), distinct from the chart/package 'version'.",
+      "type": "string"
+    },
+    "description": {
+      "description": "One-line human summary of what the package provides. Shown in the marketplace listing.",
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 300
+    },
+    "maintainer": {
+      "description": "The party responsible for keeping this package current and answering issues. First-party packages use the Adhar Platform Team; community packages name their contributor.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 2
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "firstParty": {
+          "description": "True for packages maintained by adhar-io itself; false for community-contributed packages.",
+          "type": "boolean"
+        }
+      }
+    },
+    "license": {
+      "description": "SPDX license identifier of the upstream project being packaged (e.g. Apache-2.0, MIT, AGPL-3.0). Use 'Proprietary' for closed-source.",
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "homepage": {
+      "description": "Optional upstream project homepage or docs URL.",
+      "type": "string",
+      "format": "uri"
+    },
+    "adharCompatibility": {
+      "description": "The range of Adhar platform versions this package is verified against. minVersion is required; omit maxVersion for open-ended forward compatibility.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minVersion"],
+      "properties": {
+        "minVersion": {
+          "description": "Lowest Adhar platform version (globals/project.go Version) this package supports.",
+          "type": "string",
+          "pattern": "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-.]+)?$"
+        },
+        "maxVersion": {
+          "description": "Highest Adhar platform version known-good. Omit for open-ended support.",
+          "type": "string",
+          "pattern": "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-.]+)?$"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "dependencies": {
+      "description": "Other Adhar packages that MUST be enabled for this package to function. Each entry references a package by name (and optionally its category and a version constraint). Conflicts are tracked separately in CONFLICTS.md.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "ai",
+              "application",
+              "backup",
+              "core",
+              "data",
+              "infrastructure",
+              "observability",
+              "plugins",
+              "security"
+            ]
+          },
+          "versionConstraint": {
+            "description": "Optional semver range constraint on the dependency (e.g. '>=1.0.0').",
+            "type": "string"
+          },
+          "optional": {
+            "description": "True if the dependency enhances but is not required for basic operation.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "description": "Supply-chain provenance of the package artifacts, per ADR-0019 (docs/adr/0019-secure-supply-chain-chainguard.md). First-party packages are built, signed (Cosign keyless), scanned (Trivy) and SBOM'd in CI.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceRepo", "signed", "cosignKeyless", "scanned"],
+      "properties": {
+        "sourceRepo": {
+          "description": "Canonical source repository the package manifests are generated from / vendored from.",
+          "type": "string",
+          "format": "uri"
+        },
+        "upstreamChart": {
+          "description": "Optional upstream Helm chart reference (OCI or repo/chart) the manifests are rendered from.",
+          "type": "string"
+        },
+        "signed": {
+          "description": "Whether the released package artifacts carry a cryptographic signature.",
+          "type": "boolean"
+        },
+        "cosignKeyless": {
+          "description": "Whether signing uses Cosign keyless (Sigstore Fulcio + Rekor) as mandated by ADR-0019. Long-lived-key signing sets this false.",
+          "type": "boolean"
+        },
+        "scanned": {
+          "description": "Whether the packaged/reference images are scanned (Trivy) for vulnerabilities before release.",
+          "type": "boolean"
+        },
+        "scanner": {
+          "description": "Scanner used, when scanned is true (e.g. trivy).",
+          "type": "string"
+        },
+        "sbom": {
+          "description": "Path (relative to the package directory) or URI of the SBOM (SPDX/CycloneDX). Required once scanned is true for the SBOM inventory requirement of ADR-0019.",
+          "type": "string"
+        },
+        "attestation": {
+          "description": "Optional SLSA provenance attestation reference (e.g. Rekor log index or in-toto URI).",
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "signed": { "const": true } }
+          },
+          "then": {
+            "properties": { "cosignKeyless": { "type": "boolean" } },
+            "required": ["cosignKeyless"]
+          }
+        }
+      ]
+    },
+    "planeAffinity": {
+      "description": "Where the package is intended to run: 'control-plane' (management/GitOps/control logic), 'data-plane' (workload nodes, per-node agents), or 'any'.",
+      "type": "string",
+      "enum": ["control-plane", "data-plane", "any"]
+    },
+    "stability": {
+      "description": "Maturity tier. 'community' denotes an externally contributed package not yet first-party promoted. See MARKETPLACE.md for tier definitions.",
+      "type": "string",
+      "enum": ["alpha", "beta", "stable", "community"]
+    },
+    "resources": {
+      "description": "Coarse resource footprint hints used for capacity planning and local-vs-cloud gating. Values are advisory, not enforced limits.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "description": "Approximate steady-state CPU request across the package's workloads (Kubernetes quantity, e.g. '250m', '2').",
+          "type": "string"
+        },
+        "memory": {
+          "description": "Approximate steady-state memory request (Kubernetes quantity, e.g. '512Mi', '2Gi').",
+          "type": "string"
+        },
+        "storage": {
+          "description": "Persistent storage requested, if any (e.g. '10Gi', or '0' for stateless).",
+          "type": "string"
+        },
+        "footprint": {
+          "description": "Bucketed footprint for quick filtering.",
+          "type": "string",
+          "enum": ["minimal", "small", "medium", "large", "xlarge"]
+        },
+        "localSafe": {
+          "description": "Whether the package is safe to enable on a local Kind cluster (mirrors the appset enabled-gating intent).",
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "keywords": {
+      "description": "Optional search tags for the marketplace listing.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

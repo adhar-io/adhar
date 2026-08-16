@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.8.2"
+CHART_VERSION="1.11.1"
 
 echo "# ALLOY INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/alloy/generate-manifests.sh'" >>${INSTALL_YAML}

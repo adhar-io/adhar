@@ -266,6 +266,8 @@ configs:
         - profile
         - email
         - groups
+        # ArgoCD v3.5 OIDC refresh-token session renewal (see values.yaml).
+        - offline_access
       requestedIDTokenClaims:
         groups:
           essential: true
@@ -295,6 +297,27 @@ configs:
 
     # -- Ignoring status for all resources. An update will still be sent if the status update causes the health to change.
     # @default -- See [values.yaml]
+    # CNPG Cluster health: map the operator's phase string to an Argo health
+    # status so sync waves gated on a CNPG Cluster (keycloak-db, console-db,
+    # gitea-db) resolve deterministically. "Cluster in healthy state" → Healthy,
+    # "Failed" → Degraded, anything else → Progressing. (Kept in values so the
+    # generator owns it — it used to be a manual patch on the rendered manifest.)
+    resource.customizations.health.postgresql.cnpg.io_Cluster: |
+      health_status = {}
+      if obj.status ~= nil and obj.status.phase ~= nil then
+        health_status.message = obj.status.phase
+        if obj.status.phase == "Cluster in healthy state" then
+          health_status.status = "Healthy"
+        elseif obj.status.phase == "Failed" then
+          health_status.status = "Degraded"
+        else
+          health_status.status = "Progressing"
+        end
+        return health_status
+      end
+      health_status.status = "Progressing"
+      health_status.message = "Waiting for cluster status"
+      return health_status
     # ArgoCD's built-in CNPG health check keeps a ScheduledBackup Progressing
     # until its first backup fires — for a daily schedule that blocks any sync
     # wave gated on it (e.g. keycloak's deployment) for up to 24h after

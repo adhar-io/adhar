@@ -288,13 +288,26 @@ extraContainers: []
 #    command: [/bin/sh, -c, 'echo "Hello world"; sleep 86400']
 
 ## @param extraVolumes Additional volumes to mount to the Gitea deployment
-extraVolumes: []
-# - name: postgres-ssl-vol
-#   secret:
-#     secretName: gitea-postgres-ssl
+# Platform CA (self-signed adhar-cert). Gitea's Keycloak OAuth2 source does OIDC
+# discovery against the external https issuer, which serves this cert; without it
+# the auth source fails to register (x509: unknown authority) and
+# /user/oauth2/keycloak returns 500. optional=true so Gitea still starts before
+# the controller has created adhar-cert. (Kept in values so the generator owns it.)
+extraVolumes:
+  - name: platform-ca
+    secret:
+      secretName: adhar-cert
+      optional: true
+      items: [{ key: tls.crt, path: tls.crt }]
 
 ## @param extraContainerVolumeMounts Mounts that are only mapped into the Gitea runtime/main container, to e.g. override custom templates.
-extraContainerVolumeMounts: []
+# Drop the platform CA into the Go SSL_CERT_DIR (/etc/ssl/certs) of the main
+# gitea container so OIDC discovery/login trusts it.
+extraContainerVolumeMounts:
+  - name: platform-ca
+    mountPath: /etc/ssl/certs/adhar-platform-ca.pem
+    subPath: tls.crt
+    readOnly: true
 
 ## @param extraInitVolumeMounts Mounts that are only mapped into the init-containers. Can be used for additional preconfiguration.
 extraInitVolumeMounts: []
@@ -430,6 +443,15 @@ gitea:
       PROTOCOL: http # TLS terminates at the Gateway; Gitea listens plain HTTP
       SSH_PORT: 22 # rootful image
       SSH_LISTEN_PORT: 2222 # rootless image
+    # Keycloak SSO auto-onboarding: first login via the Keycloak OAuth2 source
+    # auto-creates the Gitea account (mapped from the preferred_username claim)
+    # and links it if a local account already exists — no manual user creation.
+    # (Kept in values so the generator owns it.)
+    oauth2_client:
+      ENABLE_AUTO_REGISTRATION: true
+      USERNAME: preferred_username
+      ACCOUNT_LINKING: auto
+      UPDATE_AVATAR: false
   #
   #  security:
   #    PASSWORD_COMPLEXITY: spec

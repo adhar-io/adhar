@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="87.10.1"
+CHART_VERSION="88.3.0"
 
 echo "# KUBE-PROMETHEUS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/kube-prometheus/generate-manifests.sh'" >>${INSTALL_YAML}

@@ -1,0 +1,197 @@
+# Adhar AI — agent runtime (ADR-0024 §5, Decision point 4).
+#
+# The plan-act-observe loop. Two faces:
+#   - assistant mode: interactive, Console chat + `adhar ai` CLI over /chat;
+#     writes ALWAYS become Gitea PRs a human merges (autonomous=false).
+#   - operators: event-driven (alert-triage, drift-explain, cost-advisor,
+#     upgrade-preflight). Each subscribes to a trigger and declares its own
+#     allowed_tools + autonomy level, read from the adhar-ai-config ConfigMap.
+#
+# Staged-autonomy ladder (global default `suggest` => every write is a PR;
+# nothing is ever a direct cluster mutation): read-only -> suggest ->
+# approve-to-apply -> scoped.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-ai-config
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+    adhar.io/origin: adhar-ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+data:
+  config.yaml: |
+    # -------------------------------------------------------------------------
+    # Staged autonomy. Global default is deliberately conservative: `suggest`.
+    #   read-only        : investigate + answer; no write tools offered at all
+    #   suggest          : write tools allowed, but every write yields a PR and
+    #                       pauses for a human merge (assistant-equivalent)
+    #   approve-to-apply : write yields a PR; CI may auto-merge under policy
+    #   scoped           : narrow, policy-gated auto-merge of PRs on allowlisted
+    #                       paths — still a Git PR, never a direct mutation
+    # -------------------------------------------------------------------------
+    autonomy:
+      default: suggest
+    # Global agent-loop budgets (belt-and-suspenders with the gateway budgets).
+    limits:
+      maxSteps: 12
+      maxToolCallsPerOp: 40
+    # Repos/paths the write path may target (defense-in-depth with the Kyverno
+    # guardrail + Gitea branch protection).
+    writePolicy:
+      allowedRepos: [packages, environments]
+      allowedPathPrefixes:
+        - "packages/"
+        - "environments/"
+    # Event-driven operators. Autonomy is per-operator, never above `suggest`
+    # here — bump deliberately as trust is calibrated (ADR-0024 consequences).
+    operators:
+      alert-triage:
+        trigger: alertmanager
+        autonomy: suggest
+        allowedTools: [promql, logql, app_status, correlate, propose_change]
+      drift-explain:
+        trigger: argocd-notifications
+        autonomy: read-only
+        allowedTools: [app_status, app_diff, sync_status]
+      cost-advisor:
+        trigger: cron
+        autonomy: suggest
+        allowedTools: [cost_by, budget_status, showback, propose_change]
+      upgrade-preflight:
+        trigger: manual
+        autonomy: suggest
+        allowedTools: [resource_health, app_status, findings, propose_change]
+    # MCP server endpoints the runtime mounts as tool groups.
+    mcpServers:
+      cluster:       http://adhar-ai-mcp-cluster.adhar-system.svc.cluster.local:8080
+      gitops:        http://adhar-ai-mcp-gitops.adhar-system.svc.cluster.local:8080
+      provision:     http://adhar-ai-mcp-provision.adhar-system.svc.cluster.local:8080
+      observability: http://adhar-ai-mcp-observability.adhar-system.svc.cluster.local:8080
+      security:      http://adhar-ai-mcp-security.adhar-system.svc.cluster.local:8080
+      cost:          http://adhar-ai-mcp-cost.adhar-system.svc.cluster.local:8080
+      catalog:       http://adhar-ai-mcp-catalog.adhar-system.svc.cluster.local:8080
+    # RAG grounding store (pgvector on CNPG — see pgvector-rag.yaml).
+    rag:
+      enabled: true
+      database: adhar-ai-rag
+      table: kb_chunk
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-runtime
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-runtime
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-runtime
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-runtime
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/plane: control
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runtime
+          image: ghcr.io/adhar-io/adhar-ai-runtime:latest
+          imagePullPolicy: Always
+          args: ["runtime", "--config=/etc/adhar-ai/config.yaml", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: LLM_GATEWAY_URL
+              value: "http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080"
+            - name: OIDC_ISSUER_URL
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+            - name: OIDC_CLIENT_ID
+              value: "adhar-ai"
+            # RAG connection (pgvector on CNPG). Credentials from the CNPG-issued
+            # app secret (see pgvector-rag.yaml).
+            - name: RAG_DB_HOST
+              value: "adhar-ai-rag-rw.adhar-system.svc.cluster.local"
+            - name: RAG_DB_NAME
+              value: "adhar_ai_rag"
+          envFrom:
+            # CNPG app user credentials for the RAG store.
+            - secretRef:
+                name: adhar-ai-rag-app
+                optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /etc/adhar-ai
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: adhar-ai-config
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-runtime
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-runtime
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-runtime
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

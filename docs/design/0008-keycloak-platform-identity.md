@@ -23,7 +23,15 @@ The bootstrap Job (ADR-0013) provisions, in the `adhar` realm:
 - **Test users** `user1` → `/platform-admin`, `user2` → `/platform-developer` (passwords from the ESO-generated `USER_PASSWORD`).
 - **One OIDC client per integrated service** (§3 table). Confidential clients export `.secret` into `keycloak-clients`; `adhar-cli` is public.
 
-Keycloak runs `quay.io/keycloak/keycloak:22.0.3` in `start-dev`, `proxy=edge`, `hostname=keycloak.adhar.localtest.me` / `hostname-port=8443`, and crucially **`hostname-strict-backchannel=true`** (`install.yaml` ConfigMap): the console and other services do server-side OIDC over the in-cluster HTTP backchannel (`…svc:8080`), and without this Keycloak would reflect the `http` scheme into discovery URLs and the token `iss` claim, breaking both id-token verification and kube-apiserver acceptance (whose `--oidc-issuer-url` is `https`).
+Keycloak runs `quay.io/keycloak/keycloak:26.7.1` in `start-dev` with **hostname v2** (Keycloak 26): a single absolute frontend URL **`hostname=https://keycloak.adhar.localtest.me:8443`** (plus `hostname-admin` the same), **`proxy-headers=xforwarded`** + `http-enabled=true` (TLS terminates at the Cilium Gateway; the v1 `proxy=edge`/`hostname-port`/`hostname-strict-backchannel` keys were removed in v2), all in the `install.yaml` ConfigMap. In v2 backchannel (server-side OIDC) requests resolve to that fixed `hostname` by default (this replaces the old `hostname-strict-backchannel=true`): the console and other services do server-side OIDC over the in-cluster HTTP backchannel (`…svc:8080`), and the fixed `https` frontend URL keeps discovery URLs and the token `iss` claim on `https`, so both id-token verification and kube-apiserver acceptance (whose `--oidc-issuer-url` is `https`) work. Health (`/health/*`) + metrics (`/metrics`) are served on the dedicated management interface (port 9000); readiness/liveness/startup probes and the ServiceMonitor target it. The bootstrap admin uses `KC_BOOTSTRAP_ADMIN_USERNAME/PASSWORD` (Keycloak 26 renamed the deprecated `KEYCLOAK_ADMIN*`). Login pages use the custom **`adhar`** login theme (§2.1). Hardening: non-root/dropped-caps/seccomp `securityContext`, CPU/memory requests+limits, `KC_LOG_LEVEL=INFO`.
+
+### 2.1 Login theme (Adhar branding)
+
+Every login-flow page (sign-in, registration, password reset, OTP, error) uses the custom **`adhar`** Keycloak login theme, so the SSO entry point matches the Adhar design system rather than stock Keycloak.
+
+- **Source of truth**: `security/keycloak/theme/adhar/login/` — `theme.properties` (`parent=keycloak`, `import=common/keycloak`, `styles=css/styles.css css/adhar.css`), `resources/css/adhar.css` (the full restyle), and `resources/img/adhar-{logo,symbol}.svg`. Design tokens from the brand system (`docs/images/branding/`): the Blue→Indigo→Violet gradient (`#3B82F6`→`#6366F1`→`#8B5CF6`), slate neutrals, Inter type stack (system fallback — no web-font fetch, air-gap safe), the "Open Cloud-Native Foundation" tagline and "Adhar • Built with ❤️ for developers!" footer.
+- **No FreeMarker override**: the theme ships **no `.ftl`** files — it inherits all base templates and form logic unchanged (zero risk to username/password, social login, remember-me, registration, reset). Branding is CSS-only: the logo is a `background-image` on the header, tagline/footer are `::after` content, and the primary button/hairline carry the brand gradient. Selectors target both PatternFly v4 (`.pf-c-*`) and v5 (`.pf-v5-c-*`) so it degrades gracefully.
+- **Delivery**: the theme files are baked into the `keycloak-theme-adhar` ConfigMap (`manifests/theme-configmap.yaml`) and mounted at `/opt/keycloak/themes/adhar` via a ConfigMap volume whose `items[].path` reconstructs the nested `login/…` layout (ConfigMap keys cannot contain `/`). The realm's `loginTheme` is set to `adhar` in both the realm-creation payload and the idempotent sync PUT (`keycloak-config.yaml`), so it survives realm re-imports. `start-dev` disables theme caching, so a pod `rollout restart` picks up edits. See `security/keycloak/theme/README.md` for the iteration workflow and the base-stylesheet-name caveat.
 
 ## 3. The client inventory & credential hand-off
 
@@ -62,7 +70,7 @@ oidc.config: |
   issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
   clientID: argocd
   clientSecret: $oidc.keycloak.clientSecret        # resolved from argocd-secret (ES Merge)
-  requestedScopes: [openid, profile, email, groups]
+  requestedScopes: [openid, profile, email, groups, offline_access]   # offline_access → refresh-token session renewal (ArgoCD v3.5)
   requestedIDTokenClaims: { groups: { essential: true } }
 oidc.tls.insecure.skip.verify: "true"              # self-signed issuer (INV-5)
 # policy.csv:
@@ -140,7 +148,7 @@ The issuer is served by the Cilium Gateway with the per-cluster self-signed `adh
 | Grafana | `tls_skip_verify_insecure: true` |
 | Gitea | inject `adhar-cert` into a CA bundle, `SSL_CERT_FILE` (no skip-TLS flag exists) |
 | Vault | `vault-ca` ExternalSecret → `oidc_discovery_ca_pem` |
-| adhar-console | in-cluster HTTP backchannel (`KEYCLOAK_INTERNAL_URL=http://…svc:8080`), avoids TLS entirely; `hostname-strict-backchannel=true` keeps the `iss` claim `https` |
+| adhar-console | in-cluster HTTP backchannel (`KEYCLOAK_INTERNAL_URL=http://…svc:8080`), avoids TLS entirely; the fixed hostname-v2 frontend URL keeps the `iss` claim `https` |
 | kube-apiserver | `--oidc-ca-file` = the platform cert on-node |
 | `adhar auth` CLI | `--insecure` opt-in |
 
@@ -158,7 +166,7 @@ The issuer is served by the Cilium Gateway with the per-cluster self-signed `adh
 | ES created with `refreshInterval: 0` before the Job → wedged `SecretSyncedError` | headlamp/vault set `refreshInterval: 1h` so it retries |
 | apiserver can't reach the loopback issuer | `oidc-loopback-proxy` DaemonSet + Cilium socketLB (§5.1) |
 | Grafana health gated on Keycloak | `grafana-oidc` ES lives in the *keycloak* package + `envFromSecrets … optional: true` |
-| Token `iss`/discovery scheme mismatch over backchannel | `hostname-strict-backchannel=true` forces the `https` issuer (§2) |
+| Token `iss`/discovery scheme mismatch over backchannel | the fixed hostname-v2 frontend URL (`hostname=https://…:8443`) forces the `https` issuer (§2) |
 | Client secret drift breaks server-side token exchange | realm Job's per-client secret resync loop keeps `keycloak-clients` authoritative (ADR-0013 §4.4) |
 
 ## 10. Testing
@@ -173,7 +181,7 @@ The issuer is served by the Cilium Gateway with the per-cluster self-signed `adh
 
 | Path | Responsibility |
 |---|---|
-| `platform/stack/packages/security/keycloak/manifests/install.yaml` | Keycloak Deployment/Service/ConfigMap (`hostname-strict-backchannel`), CNPG `keycloak-db` + backup |
+| `platform/stack/packages/security/keycloak/manifests/install.yaml` | Keycloak 26.7.1 Deployment/Service/ConfigMap (hostname v2, management port 9000, `securityContext`/probes/resources), the `adhar` login-theme ConfigMap mount, CNPG `keycloak-db` + backup |
 | `.../keycloak/manifests/keycloak-config.yaml` | realm/group/client provisioning Job + all payloads (owned by ADR-0013) |
 | `.../keycloak/manifests/secret-gen.yaml` | ESO Password generator, `keycloak`/`gitea` `ClusterSecretStore`s, `eso-store` SA/RBAC |
 | `.../keycloak/manifests/k8s-rbac.yaml` | `oidc:platform-*` group → aggregated ClusterRole bindings |
@@ -199,4 +207,4 @@ The issuer is served by the Cilium Gateway with the per-cluster self-signed `adh
 - **Break-glass is documented, not yet rotated into Vault.** ADR-0008 describes bootstrap creds (`gitea_admin`, ArgoCD `admin`) being rotated into Vault as break-glass once SSO is wired. As built they remain plain day-0 credentials (each service's local login is the break-glass path per INV-4); the Vault rotation is roadmap, not implemented.
 - **"oauth2-proxy where they lack native OIDC" is a 3-service minority.** The ADR lists oauth2-proxy as a general fallback; in practice only Prometheus, RustFS, and Tekton use it — every other service (including Vault, Harbor, MinIO) speaks native OIDC.
 - **Gitea SSO is imperative, not purely declarative.** The `gitea-oauth` ExternalSecret exists, but the actual login source is registered by a `gitea admin auth` Job inside the Gitea pod (wave 30), because Gitea has no declarative OIDC config surface. (Also noted in ADR-0013.)
-- **`start-dev` + `hostname-strict=false`.** The local Keycloak runs in dev mode with relaxed hostname strictness and `sslRequired=NONE` (set every sync by the realm Job) — appropriate for local, explicitly not production posture; production HA hardening is roadmap.
+- **`start-dev` (Keycloak 26).** The local Keycloak runs in dev mode with a fixed hostname-v2 frontend URL and `sslRequired=NONE` (set every sync by the realm Job) — appropriate for local, explicitly not production posture. Production hardening is `start --optimized` behind the LoadBalancer Gateway with cert-manager TLS; the config, probes, resources, and `securityContext` are already production-shaped.

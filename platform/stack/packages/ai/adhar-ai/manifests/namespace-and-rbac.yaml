@@ -1,0 +1,161 @@
+# Adhar AI — identity and RBAC (ADR-0024 §7, §9).
+#
+# The agent's authority is, by construction, exactly a *contributor's*:
+#   - READ path:  RBAC-scoped get/list/watch across the fleet (the ClusterRole
+#                 below). In production these reads are further narrowed per
+#                 request via OIDC token exchange to the caller's own grants;
+#                 this ClusterRole is the *ceiling*, never a write grant.
+#   - WRITE path: Gitea PRs ONLY. There is deliberately NO ClusterRole verb that
+#                 mutates cluster state (no create/update/patch/delete on
+#                 workloads, no argocd app mutation, no cloud API). Every change
+#                 the agent makes lands as a reviewable Git PR that ArgoCD
+#                 reconciles after a human merges. See kyverno-policy.yaml for
+#                 the admission-side guardrail that enforces this.
+#
+# Runs on the CONTROL PLANE only (ADR-0023); data planes need no AI components.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-ai
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+automountServiceAccountToken: true
+---
+# READ-ONLY ClusterRole — get/list/watch only, across the platform surfaces the
+# agent investigates. No mutating verbs anywhere in this role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-ai-readonly
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+rules:
+  # Core workload + event surfaces (mcp-cluster, alert-triage, drift-explain).
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - services
+      - endpoints
+      - events
+      - configmaps
+      - namespaces
+      - nodes
+      - persistentvolumeclaims
+      - replicationcontrollers
+      - resourcequotas
+      - limitranges
+      - serviceaccounts
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+  # GitOps state (mcp-gitops read tools): ArgoCD Applications / ApplicationSets.
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "applicationsets", "appprojects"]
+    verbs: ["get", "list", "watch"]
+  # Provisioning state (mcp-provision read tools): Crossplane XRs / claims.
+  - apiGroups: ["apiextensions.crossplane.io", "pkg.crossplane.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["platform.adhar.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  # Security posture (mcp-security read tools): Kyverno policies + reports.
+  - apiGroups: ["kyverno.io", "wgpolicyk8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  # Networking/gateway surfaces referenced by diagnostics.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes", "gatewayclasses", "referencegrants"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  # CNPG + data surfaces (read-only health).
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters", "scheduledbackups", "backups", "poolers"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-ai-readonly
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-ai-readonly
+subjects:
+  - kind: ServiceAccount
+    name: adhar-ai
+    namespace: adhar-system
+---
+# Namespaced Role — the ONLY things the agent may mutate in-cluster are its own
+# runtime artefacts (session/state ConfigMaps, audit checkpoints) inside
+# adhar-system. Crucially: this grants NO power over other packages' workloads,
+# and the actual "write" to the platform is always a Gitea PR opened over HTTP
+# by the mcp write tools (see llm/pr path in ADR-0024 §3) — not a Kubernetes
+# verb at all. This Role exists so the runtime can persist its own bookkeeping.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-ai-self
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames:
+      - adhar-ai-sessions
+      - adhar-ai-audit-checkpoint
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # Read (never write) its own secrets: the LLM key and the Gitea bot token.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - adhar-ai-llm
+      - adhar-ai-bot
+    verbs: ["get"]
+  # Emit Events on its own namespaced objects for operability.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-ai-self
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+subjects:
+  - kind: ServiceAccount
+    name: adhar-ai
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-ai-self
+  apiGroup: rbac.authorization.k8s.io

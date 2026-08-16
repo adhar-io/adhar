@@ -2,6 +2,38 @@
 
 This directory contains Helm values files for deploying ArgoCD (GitOps Continuous Delivery) in different environments, optimized for both local development and production use cases.
 
+## 🔼 Version: ArgoCD v3.5.1 (argo-cd chart 10.3.3)
+
+Bumped from v3.4.3 (chart 9.5.19). Regenerate with `./generate-manifests.sh`
+(`ARGOCD_VERSION` pins the **chart** version; chart 10.3.3 → app v3.5.1). The
+chart-9→10 major changed defaults/behaviour, not the values key surface, so the
+Adhar customizations carried over unchanged — verified via a ConfigMap-level diff
+(`argocd-cm`/`argocd-cmd-params-cm`/`argocd-rbac-cm` identical except the version
+labels).
+
+**Adopted from v3.5:**
+
+- **OIDC refresh-token session renewal** — `offline_access` added to the Keycloak
+  `oidc.config.requestedScopes`, so the Argo UI/CLI session renews silently
+  instead of forcing re-login at access-token expiry. `offline_access` is a
+  Keycloak realm default optional scope, granted to the `argocd` client on
+  request (see `security/keycloak/.../keycloak-config.yaml`).
+- **Automatic (no config) wins from the bump** most relevant to Adhar: built-in
+  health checks for **Gateway API** resources (`GatewayClass`,
+  `BackendTLSPolicy.gateway.networking.k8s.io`) — Adhar is Gateway-API-native, so
+  HTTPRoute/Gateway trees now report real health; plus RBAC glob-pattern caching,
+  repo-server mTLS support, and ApplicationSet-in-any-namespace promoted to stable.
+
+**Available to adopt later (not enabled — need a live SSO/GitOps run to verify):**
+Source Hydrator (beta; `hydrator.enabled`), server-operation impersonation, sync-
+window overrun, and webhook-refresh jitter. Note ArgoCD 3.5 bundles **Helm v4** —
+review any Helm-based Applications for v3→v4 compatibility.
+
+**Local-only manual patch folded into values:** the CNPG `Cluster` health-check
+Lua (`resource.customizations.health.postgresql.cnpg.io_Cluster`) used to be a
+hand-edit on the rendered manifest; it now lives in both values files so the
+generator is the single source of truth.
+
 ## 📁 Files Overview
 
 - `values.yaml` - **Non-HA configuration** for local development

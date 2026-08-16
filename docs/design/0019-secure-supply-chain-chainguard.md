@@ -13,7 +13,7 @@ An IDP is a supply-chain amplifier: the base images, signing posture, and admiss
 | `security/kyverno-policies` | `kyverno/kyverno-policies` 3.8.0 + `supply-chain.yaml` | `enabled: "false"` | `enabled: "true"` | Admission-time verify (Audit) — **the enforcement half that ships** |
 | `security/trivy` | `aqua/trivy-operator` 0.33.1 | `enabled: "false"` | `enabled: "true"` | Continuous in-cluster scan → CRD reports |
 | `application/harbor` | Harbor chart | `enabled: "false"` | `enabled: "true"` | Registry choke point; Trivy scan-on-push |
-| `security/cosign` | `sigstore/policy-controller` 0.10.6 (app 0.13.1) | `enabled: "false"` | `enabled: "false"` 🔜 | Sigstore `ClusterImagePolicy` admission — **shipped but disabled everywhere** |
+| `security/cosign` | `sigstore/policy-controller` 0.10.6 (app 0.13.1) | `enabled: "false"` | `enabled: "true"` | Sigstore `ClusterImagePolicy` admission (own `cosign-system` namespace) — **enabled in production, off in the local core** |
 | `security/policy-packs` | in-repo `cis.yaml`+`soc2.yaml` | `enabled: "false"` | `enabled: "false"` | Opt-in CIS/SOC2 profiles, all Audit |
 
 All packages are wired into the ApplicationSet list generators and gated by the `enabled` selector (ADR-0004 model) — flipping supply-chain posture is a one-line Git edit, not a redeploy.
@@ -65,11 +65,11 @@ The Fulcio subject/issuer pattern binds signatures to the **platform's own CI OI
 
 Only images built by the platform (`harbor.*/library/*`, `ghcr.io/adhar-io/*`) are matched; third-party images pass this rule and are governed by the registry allowlist instead. Platform namespaces are excluded because foundation images are pinned at the release boundary and an admission gate on the platform's own control loop is an ADR-0012-class cluster-wide risk.
 
-### 2.2 Sigstore policy-controller (`security/cosign`) — shipped, disabled
+### 2.2 Sigstore policy-controller (`security/cosign`) — shipped, enabled in production
 
-The `cosign` package renders `sigstore/policy-controller` 0.10.6 (`--include-crds`) into `adhar-system`: the `ClusterImagePolicy`/`TrustRoot` CRDs (`policy.sigstore.dev`), the validating webhook (`policy-controller-webhook`, PDB `minAvailable: 1`, `webhook-certs` Secret), and the `config-sigstore-keys` / `config-image-policies` ConfigMaps (shipped with only `_example` data — no live `ClusterImagePolicy` is defined). This is the native cosign admission path (air-gap-capable via `TrustRoot` for a private Sigstore).
+The `cosign` package renders `sigstore/policy-controller` 0.10.6 (`--include-crds`) into its own `cosign-system` namespace: the `ClusterImagePolicy`/`TrustRoot` CRDs (`policy.sigstore.dev`), the validating webhook (`policy-controller-webhook`, PDB `minAvailable: 1`, `webhook-certs` Secret), and the `config-sigstore-keys` / `config-image-policies` ConfigMaps (shipped with only `_example` data — no live `ClusterImagePolicy` is defined). This is the native cosign admission path (air-gap-capable via `TrustRoot` for a private Sigstore).
 
-It is `enabled: "false"` in **both** local and production. Reason (production appset inline comment / CONFLICTS): `Secret/webhook-certs` and the webhook name collide with Tekton's cosign usage; the package needs an own-namespace re-render before it can co-exist. Until then, Kyverno `verifyImages` (§2.1) is the single admission-time signature verifier.
+It is `enabled: "true"` in production and `enabled: "false"` in the local core. Moving cosign into its own `cosign-system` namespace resolved the earlier collision (CONFLICTS.md): `Secret/webhook-certs` and the webhook name no longer clash with Tekton's cosign usage in `adhar-system`, and its `Service/webhook` no longer injects `WEBHOOK_PORT` into platform pods.
 
 ## 3. Scanning plane — Trivy + Harbor
 
@@ -124,7 +124,7 @@ ADR-0019's "runtime closes the loop" — a *legitimately signed* image doing ill
 
 The rollout mirrors the ADR-0004 enabled-gating model, at two granularities:
 
-1. **Package enablement** (per environment appset): local enables none of the supply-chain packages; production enables `trivy`, `kyverno-policies`, `harbor` (not `cosign`, not `policy-packs`).
+1. **Package enablement** (per environment appset): local enables none of the supply-chain packages; production enables `trivy`, `kyverno-policies`, `harbor`, `cosign` (not `policy-packs`).
 2. **Policy action** (per ClusterPolicy): **every policy in-repo is `Audit`** — findings surface in `PolicyReport`/`ClusterPolicyReport` and Trivy CRDs, nothing is blocked. The ADR's target end state is `Enforce` in production **workload** namespaces (prod first, local stays Audit), flipping `validationFailureAction: Enforce` and `required: true` once golden-path pipelines sign-and-attest by default. That flip is ROADMAP Phase 3 and has **not** happened in any environment.
 
 Ordering/idempotency: policies are plain ArgoCD-synced manifests (SSA, self-heal). `failurePolicy: Ignore` on every webhook keeps the admission path fail-open so a restarting Kyverno on a single node cannot wedge the apiserver (ADR-0012 webhook hygiene). Platform namespaces are uniformly excluded so the platform's own reconcile loop is never gated.
@@ -133,14 +133,14 @@ Ordering/idempotency: policies are plain ArgoCD-synced manifests (SSA, self-heal
 
 - **Kyverno unavailable** → webhooks fail-open (`Ignore`); admission proceeds unverified. Acceptable in Audit; when enforcing, this is the availability/security trade-off the ADR flags.
 - **Rekor unreachable** (`verifyImages` keyless) → in Audit with `required: false` the check is advisory and does not fail admission; air-gapped/enforce deployments must run a private Sigstore or fall back to key-based signing (ADR-0019 consequence; `cosign` package's `TrustRoot` CRD is the air-gap hook).
-- **Cosign package namespace collision** → the reason the native policy-controller path stays disabled; documented in the production appset comment and ROADMAP.
+- **Cosign package namespace collision** → resolved by moving cosign into its own `cosign-system` namespace (`webhook-certs`/`WEBHOOK_PORT` no longer clash with Tekton in `adhar-system`); documented in the production appset comment and CONFLICTS.md.
 - **Trivy scan-job pressure** → `scanJobsConcurrentLimit: 5` + local disablement bound the churn.
 
 ## 9. Testing
 
 - **Kyverno `chainsaw`/`kyverno-test`** (to add, per exemplar 0023 §10): assert `disallow-latest-tag` denies `nginx:latest` in a workload namespace and admits a pinned digest; `restrict-image-registries` denies `some.random.io/x` and admits `cgr.dev/chainguard/static`; `verify-image-signatures` reports an unsigned `harbor.*/library/*` image in Audit. No such policy test exists in-repo today (`grep` of `platform/controllers/**/*_test.go` and `tests/` finds none) — a gap to close before flipping to Enforce.
 - **e2e** (`tests/e2e/bootstrap`): the production-profile assertions should verify Trivy CRDs are established and the three supply-chain ClusterPolicies exist in Audit after sync.
-- **Manual verification**: `kubectl get clusterpolicyreport` / `kubectl get vulnerabilityreports -A` surface Audit findings; `kubectl get cip` (once `cosign` is enabled) lists ClusterImagePolicies.
+- **Manual verification**: `kubectl get clusterpolicyreport` / `kubectl get vulnerabilityreports -A` surface Audit findings; `kubectl get cip` (in production, where `cosign` is enabled) lists ClusterImagePolicies.
 
 ## 10. Code & file map
 
@@ -150,14 +150,14 @@ Ordering/idempotency: policies are plain ArgoCD-synced manifests (SSA, self-heal
 | `platform/stack/packages/security/kyverno-policies/manifests/install.yaml` | Baseline PSS `restricted` policies (chart 3.8.0) |
 | `platform/stack/packages/security/kyverno-policies/manifests/exceptions/{kind,argocd,console,crossplane,ingress-nginx}.yaml` | Per-component `PolicyException`s for baseline PSS |
 | `platform/stack/packages/security/kyverno-policies/{values.yaml,generate-manifests.sh}` | Audit + fail-open config; chart render script |
-| `platform/stack/packages/security/cosign/manifests/install.yaml` | Sigstore policy-controller 0.10.6 (CIP/TrustRoot CRDs + webhook) — disabled |
+| `platform/stack/packages/security/cosign/manifests/install.yaml` | Sigstore policy-controller 0.10.6 (CIP/TrustRoot CRDs + webhook) in `cosign-system` — enabled in production |
 | `platform/stack/packages/security/cosign/{values.yaml,generate-manifests.sh}` | policy-controller render |
 | `platform/stack/packages/security/trivy/manifests/install.yaml` | trivy-operator 0.33.1 + 12 report CRDs |
 | `platform/stack/packages/security/trivy/{values.yaml,generate-manifests.sh}` | scan limits, TTL, namespace pin |
 | `platform/stack/packages/security/policy-packs/manifests/{cis,soc2}.yaml` | Opt-in CIS (9) / SOC2 (5) profiles, Audit 🔜 |
 | `platform/stack/packages/application/harbor/values.yaml` | Registry choke point; `trivy.enabled` per environment |
 | `platform/stack/adhar-appset-local.yaml` | local enablement (all supply-chain packages off) |
-| `platform/stack/adhar-appset-production.yaml` | production enablement (trivy/kyverno-policies/harbor on; cosign/policy-packs off) |
+| `platform/stack/adhar-appset-production.yaml` | production enablement (trivy/kyverno-policies/harbor/cosign on; policy-packs off) |
 | `docs/PRODUCTION.md`, `docs/ROADMAP.md` (Phase 3) | Enforcement checklist + status |
 
 ## 11. Milestones

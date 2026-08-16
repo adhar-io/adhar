@@ -1,0 +1,18 @@
+# Paved-road CI stub (ADR-0018): pipeline-as-code kept deliberately minimal —
+# the heavy lifting (lint -> dbt build -> package -> promote-PR) lives in the
+# platform-owned pipeline catalog shipped by the application/jenkins-x package,
+# which this repo inherits. Data project: buildPack `python`; the release step
+# builds the pipeline image and opens a promotion PR (Kargo/ArgoCD own delivery
+# after the Git commit). Override individual steps here only when the golden
+# path does not fit; the trigger wiring lives in .lighthouse/triggers.yaml.
+buildPack: python
+pipelineConfig:
+  pipelines:
+    # Inherited from the platform catalog:
+    #   adhar-pr-verify — presubmit: clone the PR revision, lint
+    #                     (ruff/black), then `dbt build` against an ephemeral
+    #                     schema so transforms are validated before merge
+    #   adhar-release   — postsubmit on main: clone + verify, build/push the
+    #                     pipeline image, then open the promotion PR against the
+    #                     environments repo (CI ends at a Git commit)
+    overrides: []

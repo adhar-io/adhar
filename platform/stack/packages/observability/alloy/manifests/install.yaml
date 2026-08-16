@@ -9,10 +9,10 @@ metadata:
   name: alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.11.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.18.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -24,10 +24,10 @@ metadata:
   name: alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.11.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.18.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: config
@@ -61,7 +61,7 @@ data:
     discovery.kubernetes "ingresses" {
     	role = "ingress"
     }
-
+    
     // ---------------------------------------------------------------
     // Hub shipping (roadmap P2.3): everything collected here is written
     // to the observability hub. Endpoints come from the observability-hub
@@ -73,7 +73,7 @@ data:
     	targets    = discovery.relabel.scrape_pods.output
     	forward_to = [prometheus.remote_write.hub.receiver]
     }
-
+    
     discovery.relabel "scrape_pods" {
     	targets = discovery.kubernetes.pods.targets
     	rule {
@@ -90,7 +90,7 @@ data:
     		target_label  = "pod"
     	}
     }
-
+    
     prometheus.remote_write "hub" {
     	endpoint {
     		url = sys.env("HUB_MIMIR_URL")
@@ -99,7 +99,7 @@ data:
     		cluster = sys.env("HUB_CLUSTER_NAME"),
     	}
     }
-
+    
     // Carry the Kubernetes identity of every log stream: without these
     // relabels Loki only gets job/instance, making namespace/pod filtering
     // (and Grafana's log volume breakdowns) useless.
@@ -127,12 +127,12 @@ data:
     		target_label  = "app"
     	}
     }
-
+    
     loki.source.kubernetes "pods" {
     	targets    = discovery.relabel.pod_logs.output
     	forward_to = [loki.write.hub.receiver]
     }
-
+    
     loki.write "hub" {
     	endpoint {
     		url = sys.env("HUB_LOKI_URL")
@@ -141,7 +141,7 @@ data:
     		cluster = sys.env("HUB_CLUSTER_NAME"),
     	}
     }
-
+    
     otelcol.receiver.otlp "workloads" {
     	grpc {
     		endpoint = "0.0.0.0:4317"
@@ -153,7 +153,7 @@ data:
     		traces = [otelcol.exporter.otlphttp.hub.input]
     	}
     }
-
+    
     otelcol.exporter.otlphttp "hub" {
     	client {
     		endpoint = sys.env("HUB_TEMPO_URL")
@@ -169,10 +169,10 @@ kind: ClusterRole
 metadata:
   name: alloy
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.11.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.18.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -297,10 +297,10 @@ kind: ClusterRoleBinding
 metadata:
   name: alloy
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.11.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.18.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -320,10 +320,10 @@ metadata:
   name: alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.11.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.18.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: networking
@@ -346,10 +346,10 @@ metadata:
   name: alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.11.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.18.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
 spec:
@@ -369,7 +369,7 @@ spec:
       serviceAccountName: alloy
       containers:
         - name: alloy
-          image: docker.io/grafana/alloy:v1.16.1
+          image: docker.io/grafana/alloy:v1.18.1
           imagePullPolicy: IfNotPresent
           args:
             - run
@@ -389,8 +389,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          # Hub endpoints for the shipping pipelines in config.alloy
-          # (roadmap P2.3). Keep when regenerating this manifest.
           envFrom:
             - configMapRef:
                 name: observability-hub
@@ -420,6 +418,17 @@ spec:
             requests:
               cpu: 10m
               memory: 50Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsGroup: 65534
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
       dnsPolicy: ClusterFirst
       volumes:
         - name: config

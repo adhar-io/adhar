@@ -38,11 +38,11 @@ func (r *AdharPlatformReconciler) ReconcileGitea(ctx, req, resource) (ctrl.Resul
 
 ## 3. Embedded install manifest (`resources/gitea/install.yaml`)
 
-The single-node `install.yaml` (~1500 lines) is a rendered Gitea Helm chart (`gitea-12.6.0`, app `1.26.1`) plus its bundled datastores, all pinned into `adhar-system`:
+The single-node `install.yaml` (~1500 lines) is a rendered Gitea Helm chart (`gitea-12.7.0`, app `1.27.0`) plus its bundled datastores, all pinned into `adhar-system`:
 
 | Object | Kind | Notes |
 |---|---|---|
-| `gitea` | Deployment | `replicas: 1`, image `docker.gitea.com/gitea:1.26.1-rootless`; init containers + main container mount `/data` from PVC `gitea-shared-storage` |
+| `gitea` | Deployment | `replicas: 1`, image `docker.gitea.com/gitea:1.27.0-rootless`; init containers + main container mount `/data` from PVC `gitea-shared-storage` |
 | `gitea-shared-storage` | PersistentVolumeClaim | `10Gi`, `ReadWriteOnce` (repositories, LFS, avatars) |
 | `gitea-postgresql` | StatefulSet | bundled `bitnami/postgresql`, `5Gi` PVC — Gitea's metadata DB (single-node) |
 | `gitea-valkey-primary` | StatefulSet | bundled `valkey` (`8Gi` PVC) — session + queue backend (redis protocol) |

@@ -72,7 +72,7 @@ data:
         }
     }
   realm-payload.json: |
-    {"realm":"adhar","enabled":true,"sslRequired":"NONE"}
+    {"realm":"adhar","enabled":true,"sslRequired":"NONE","loginTheme":"adhar"}
   user-password.json: |
     {
         "temporary": false,
@@ -153,7 +153,7 @@ data:
       "description": "Adhar Console OIDC client (server-side BFF auth-code flow; access tokens carry aud=kubernetes + groups for per-user kube-apiserver impersonation and RBAC)",
       "publicClient": false,
       "authorizationServicesEnabled": false,
-      "serviceAccountsEnabled": false,
+      "serviceAccountsEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "standardFlowEnabled": true,
@@ -635,10 +635,11 @@ spec:
               # 404 on the very first run before the realm exists (it is then
               # created with sslRequired=NONE from realm-payload.json below), and
               # on later runs it fixes a pre-existing realm that was created as
-              # sslRequired=external.
+              # sslRequired=external. Also (re)applies the Adhar-branded login
+              # theme on every sync so it survives realm re-imports.
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT --data '{"sslRequired":"NONE"}' \
+                -X PUT --data '{"sslRequired":"NONE","loginTheme":"adhar"}' \
                 "${KEYCLOAK_URL}/admin/realms/adhar"
 
               # Reconcile OIDC client configs (redirect URIs, scopes, web origins) on
@@ -674,6 +675,35 @@ spec:
                   fi
                 fi
               done
+
+              # Grant the adhar-console client's SERVICE ACCOUNT the realm-
+              # management roles the console needs to reflect workspace teams /
+              # org-roles into realm groups (cluster RBAC): manage-realm +
+              # manage-users cover group create/delete + user group-membership;
+              # view-users/query-groups cover lookups. The console authenticates
+              # with client_credentials using its own (already-wired) secret, so
+              # no separate admin credential is needed. Idempotent (re-POSTing
+              # existing role mappings is a no-op) and non-fatal (set +e) — on
+              # failure the console just stays "console-only" until next reconcile.
+              ac_id=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=adhar-console" | jq -r '.[0].id // empty')
+              if [ -n "${ac_id}" ]; then
+                sa_uid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients/${ac_id}/service-account-user" | jq -r '.id // empty')
+                rm_id=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=realm-management" | jq -r '.[0].id // empty')
+                if [ -n "${sa_uid}" ] && [ -n "${rm_id}" ]; then
+                  rm_roles=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    "${KEYCLOAK_URL}/admin/realms/adhar/clients/${rm_id}/roles" \
+                    | jq -c '[.[] | select(.name=="manage-realm" or .name=="manage-users" or .name=="view-users" or .name=="query-groups")]')
+                  if [ -n "${rm_roles}" ] && [ "${rm_roles}" != "[]" ]; then
+                    curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                      -X POST --data "${rm_roles}" \
+                      "${KEYCLOAK_URL}/admin/realms/adhar/users/${sa_uid}/role-mappings/clients/${rm_id}" >/dev/null 2>&1 || true
+                    echo "granted realm-management roles to adhar-console service account"
+                  fi
+                fi
+              fi
 
               # Re-sync EVERY confidential client's actual Keycloak secret back
               # into the keycloak-clients Secret on every reconcile. Client

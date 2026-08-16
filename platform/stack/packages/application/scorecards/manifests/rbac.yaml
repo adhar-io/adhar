@@ -1,0 +1,101 @@
+---
+# Read-only identity used by the scorecard scorer CronJob to gather the
+# production-readiness signals, plus a namespaced write grant so it can publish
+# the results into the adhar-scorecards ConfigMap.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-scorecard
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/name: adhar-scorecard
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+---
+# Cluster-wide READ access to every signal the score is computed from.
+# Nothing here is write; the only thing this SA mutates is one ConfigMap in
+# adhar-system (granted separately by the Role below).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-scorecard-reader
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+rules:
+  # ArgoCD Application health/sync status.
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "applicationsets"]
+    verbs: ["get", "list", "watch"]
+  # Workload specs: probes, resource requests/limits, container images.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  # Exposure signal (Gateway API).
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch"]
+  # Kyverno policy report pass/fail summaries.
+  - apiGroups: ["wgpolicyk8s.io"]
+    resources: ["policyreports", "clusterpolicyreports"]
+    verbs: ["get", "list", "watch"]
+  # Backup coverage for stateful services (Velero schedules).
+  - apiGroups: ["velero.io"]
+    resources: ["schedules"]
+    verbs: ["get", "list", "watch"]
+  # Backup coverage for stateful services (CNPG cluster backup config).
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-scorecard-reader
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-scorecard-reader
+subjects:
+  - kind: ServiceAccount
+    name: adhar-scorecard
+    namespace: adhar-system
+---
+# Namespaced write grant: the scorer publishes / patches the results ConfigMap.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-scorecard-writer
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-scorecard-writer
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: adhar-scorecard-writer
+subjects:
+  - kind: ServiceAccount
+    name: adhar-scorecard
+    namespace: adhar-system

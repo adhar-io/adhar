@@ -10,6 +10,7 @@ spec:
     - ./app-with-bucket/template.yaml
     - ./microservice/template.yaml
     - ./frontend/template.yaml
+    - ./data-pipeline/template.yaml
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Location

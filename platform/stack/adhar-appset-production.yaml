@@ -46,12 +46,32 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/vault/manifests"
-          # cosign disabled in production: CONFLICTS.md: Secret/webhook-certs collides with tekton; needs own-namespace re-render
+          # cosign now installs into its OWN cosign-system namespace (CONFLICTS.md
+          # resolved): it no longer collides with tekton's Secret/webhook-certs, and
+          # its Service/webhook no longer injects WEBHOOK_PORT into adhar-system pods.
+          # Enabled in production for keyless signature verification (ADR-0019).
           - name: "cosign"
-            enabled: "false"
-            namespace: "adhar-system"
+            enabled: "true"
+            namespace: "cosign-system"
             category: "security"
             manifestPath: "security/cosign/manifests"
+          # Agentic AI control plane (ADR-0024). Opt-in: ships disabled because it
+          # needs the ghcr.io/adhar-io/adhar-ai-* images + an LLM key (Vault). The
+          # platform runs unaffected until enabled. Write path is Gitea-PR-only; no
+          # direct cluster/cloud mutation. Runs on the control plane (adhar.io/plane).
+          - name: "adhar-ai"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/adhar-ai/manifests"
+          # Per-service production-readiness score cards (roadmap Phase 3), surfaced
+          # in the Console. Read-only scorer CronJob → adhar-scorecards ConfigMap.
+          - name: "scorecards"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/scorecards/manifests"
           # Rotates gitea_admin/argocd admin bootstrap credentials into
           # break-glass values (Vault-backed when available). Disabled locally
           # so documented dev credentials keep working; enable once SSO login
@@ -122,6 +142,16 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/mongodb/manifests"
+          - name: "mysql-operator"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/mysql-operator/manifests"
+          - name: "fluent-bit"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "observability"
+            manifestPath: "observability/fluent-bit/manifests"
           - name: "kafka"
             enabled: "true"
             namespace: "adhar-system"

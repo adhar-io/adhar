@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{values.name | dump}}
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${{values.name}}
+  template:
+    metadata:
+      labels:
+        entity-id: ${{values.name}}
+        app.kubernetes.io/name: ${{values.name}}
+        adhar.io/owner: ${{values.owner}}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dagster-webserver
+          # Placeholder until the paved-road pipeline (jenkins-x.yml) builds and
+          # promotes an image with dagster/pipeline.py + dbt/ baked in. The
+          # stock Dagster webserver serves the same UI/GraphQL contract on :3000;
+          # replace with your registry image on first release.
+          image: docker.io/dagster/dagster-webserver:1.9.5
+          command: ["dagster-webserver"]
+          args: ["-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster/workspace.yaml"]
+          envFrom:
+            - configMapRef:
+                name: ${{values.name}}-iceberg-catalog
+          env:
+            - name: DAGSTER_HOME
+              value: /opt/dagster/home
+          ports:
+            - name: http
+              containerPort: 3000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: dagster-home
+              mountPath: /opt/dagster/home
+      volumes:
+        - name: dagster-home
+          emptyDir: {}

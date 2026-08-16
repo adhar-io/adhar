@@ -2,6 +2,33 @@
 
 This directory contains Helm values files for deploying Gitea (Git hosting platform) in different environments, optimized for both local development and production use cases.
 
+## 🔼 Version: Gitea v1.27.0 (gitea chart 12.7.0)
+
+Bumped from v1.26.1 (chart 12.6.0). Regenerate with `./generate-manifests.sh`
+(optional arg overrides the chart version). Minor bump, same chart major — the
+values key surface is unchanged and a manifest diff confirmed the resource
+(`kind`) set is identical, only image/chart version labels moved.
+
+**Manual patches folded into `values.yaml`/`values-ha.yaml`** so the generator is
+now the single source of truth (they used to be hand-edits on the rendered
+manifest and were silently lost on any regen):
+
+- **Keycloak SSO auto-onboarding** — `gitea.config.oauth2_client`
+  (`ENABLE_AUTO_REGISTRATION`, `USERNAME=preferred_username`, `ACCOUNT_LINKING=auto`).
+- **Platform CA trust** — `extraVolumes` + `extraContainerVolumeMounts` drop
+  `adhar-cert` into the main container's `/etc/ssl/certs` so OIDC discovery against
+  the self-signed issuer works (both variants now carry it — HA had been missing it).
+- **HA external database** — `values-ha.yaml` now disables the chart-bundled
+  `postgresql-ha` subchart and points `gitea.config.database` at the CNPG
+  `gitea-db-rw` service (roadmap P1.2b), matching `resources/cnpg/gitea-db.yaml`.
+  Asserted by `ha_test.go`.
+
+**New in chart 12.7.0, available but not enabled:** `gatewayAPI.*` renders a
+native Gateway API `HTTPRoute`/`BackendTLSPolicy`. Left **disabled** — Adhar
+provides its own Gitea `HTTPRoute` in `resources/gitea/post-install.yaml` that
+strips the `/gitea` sub-path (a reverse-proxy detail the generic chart route would
+not replicate); enabling the chart's would create a conflicting duplicate.
+
 ## 📁 Files Overview
 
 - `values.yaml` - **Non-HA configuration** for local development

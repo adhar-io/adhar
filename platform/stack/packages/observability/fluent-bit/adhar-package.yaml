@@ -1,0 +1,45 @@
+# Adhar marketplace contract for the fluent-bit package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: fluent-bit
+category: observability
+version: 0.58.0         # tracks the fluent/fluent-bit Helm chart version (generate-manifests.sh)
+appVersion: 5.1.0       # Fluent Bit application version
+description: Fluent Bit lightweight log processor and forwarder, offered as an alternative/additional log collector to the default Grafana Alloy pipeline.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://fluentbit.io
+adharCompatibility:
+  minVersion: 0.0.1
+  notes: Disabled by default. The platform default collector is Grafana Alloy; enable fluent-bit deliberately to avoid double-ingesting container logs. A commented Loki (loki-gateway) output is ready to wire in values.yaml.
+dependencies:
+  # When forwarding to Loki, fluent-bit pushes to the loki-stack gateway.
+  - name: loki-stack
+    category: observability
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: fluent/fluent-bit
+  signed: true
+  cosignKeyless: true          # GoReleaser Cosign keyless (Sigstore Fulcio + Rekor), ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: sbom/fluent-bit.spdx.json
+planeAffinity: data-plane      # runs as a per-node DaemonSet collecting node/pod logs
+stability: stable
+resources:
+  cpu: 50m
+  memory: 64Mi
+  storage: "0"
+  footprint: minimal
+  localSafe: true
+keywords:
+  - observability
+  - logs
+  - collector
+  - forwarder
+  - fluent-bit

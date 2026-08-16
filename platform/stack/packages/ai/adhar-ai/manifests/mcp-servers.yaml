@@ -1,0 +1,765 @@
+# Adhar AI — per-domain MCP tool servers (ADR-0024 §2, Decision point 2 & 7).
+#
+# One Deployment + Service per domain. Each wraps an Adhar capability as typed
+# MCP tools tagged read/write:
+#   - READ tools are RBAC-scoped (all pods mount the `adhar-ai` ServiceAccount,
+#     whose ClusterRole is get/list/watch only — see namespace-and-rbac.yaml).
+#   - WRITE tools open Gitea PRs ONLY (via the adhar-ai-bot token); there is no
+#     kubectl_apply / argo_sync / helm_install / cloud-mutation tool anywhere.
+#
+# The servers are reachable outward (Claude Code / IDE assistants / ChatOps)
+# through the Gateway + OIDC: the runtime's /mcp/sse surface (httproute.yaml)
+# fronts these ClusterIP services. All carry adhar.io/origin=adhar-ai so the
+# Kyverno guardrail (kyverno-policy.yaml) can attribute their activity.
+#
+# Domains: cluster, gitops, provision, observability, security, cost, catalog.
+# Image per domain: ghcr.io/adhar-io/adhar-ai-mcp-<domain>:latest
+#
+# GITEA_WRITE_ENABLED marks which domains carry a write (PR-authoring) tool;
+# read-only domains keep it "false" and do not mount the bot token. The blocks
+# are intentionally uniform (fully expanded — YAML anchors do not span the ---
+# document boundaries that kubectl/ArgoCD split on).
+---
+# ---------------------------- mcp-cluster (read-only) -----------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-mcp-cluster
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-cluster
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: cluster
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-mcp-cluster
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-mcp-cluster
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/mcp-domain: cluster
+        adhar.io/plane: control
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: ghcr.io/adhar-io/adhar-ai-mcp-cluster:latest
+          imagePullPolicy: Always
+          args: ["mcp", "--domain=cluster", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MCP_DOMAIN
+              value: "cluster"
+            - name: GITEA_WRITE_ENABLED
+              value: "false"
+            - name: LLM_GATEWAY_URL
+              value: "http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080"
+            - name: OIDC_ISSUER_URL
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+            - name: OIDC_CLIENT_ID
+              value: "adhar-ai"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-mcp-cluster
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-cluster
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: cluster
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-mcp-cluster
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# ---------------------------- mcp-gitops (write: PR) ------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-mcp-gitops
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-gitops
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: gitops
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-mcp-gitops
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-mcp-gitops
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/mcp-domain: gitops
+        adhar.io/plane: control
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: ghcr.io/adhar-io/adhar-ai-mcp-gitops:latest
+          imagePullPolicy: Always
+          args: ["mcp", "--domain=gitops", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MCP_DOMAIN
+              value: "gitops"
+            - name: GITEA_WRITE_ENABLED
+              value: "true"
+            - name: GITEA_API_URL
+              value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
+            - name: GITEA_WRITE_REPOS
+              value: "packages,environments"
+            - name: LLM_GATEWAY_URL
+              value: "http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080"
+            - name: OIDC_ISSUER_URL
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+            - name: OIDC_CLIENT_ID
+              value: "adhar-ai"
+          # Bot token for the PR-only write path (commit-only rights).
+          envFrom:
+            - secretRef:
+                name: adhar-ai-bot
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-mcp-gitops
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-gitops
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: gitops
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-mcp-gitops
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# ---------------------------- mcp-provision (write: PR) ---------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-mcp-provision
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-provision
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: provision
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-mcp-provision
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-mcp-provision
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/mcp-domain: provision
+        adhar.io/plane: control
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: ghcr.io/adhar-io/adhar-ai-mcp-provision:latest
+          imagePullPolicy: Always
+          args: ["mcp", "--domain=provision", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MCP_DOMAIN
+              value: "provision"
+            - name: GITEA_WRITE_ENABLED
+              value: "true"
+            - name: GITEA_API_URL
+              value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
+            - name: GITEA_WRITE_REPOS
+              value: "packages,environments"
+            - name: LLM_GATEWAY_URL
+              value: "http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080"
+            - name: OIDC_ISSUER_URL
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+            - name: OIDC_CLIENT_ID
+              value: "adhar-ai"
+          envFrom:
+            - secretRef:
+                name: adhar-ai-bot
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-mcp-provision
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-provision
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: provision
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-mcp-provision
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# ------------------------- mcp-observability (read-only) --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-mcp-observability
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-observability
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: observability
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-mcp-observability
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-mcp-observability
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/mcp-domain: observability
+        adhar.io/plane: control
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: ghcr.io/adhar-io/adhar-ai-mcp-observability:latest
+          imagePullPolicy: Always
+          args: ["mcp", "--domain=observability", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MCP_DOMAIN
+              value: "observability"
+            - name: GITEA_WRITE_ENABLED
+              value: "false"
+            - name: PROMETHEUS_URL
+              value: "http://kube-prometheus-stack-prometheus.adhar-system.svc.cluster.local:9090"
+            - name: LOKI_URL
+              value: "http://loki.adhar-system.svc.cluster.local:3100"
+            - name: TEMPO_URL
+              value: "http://tempo.adhar-system.svc.cluster.local:3100"
+            - name: LLM_GATEWAY_URL
+              value: "http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080"
+            - name: OIDC_ISSUER_URL
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+            - name: OIDC_CLIENT_ID
+              value: "adhar-ai"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-mcp-observability
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-observability
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: observability
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-mcp-observability
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# ---------------------------- mcp-security (write: PR) ----------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-mcp-security
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-security
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: security
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-mcp-security
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-mcp-security
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/mcp-domain: security
+        adhar.io/plane: control
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: ghcr.io/adhar-io/adhar-ai-mcp-security:latest
+          imagePullPolicy: Always
+          args: ["mcp", "--domain=security", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MCP_DOMAIN
+              value: "security"
+            - name: GITEA_WRITE_ENABLED
+              value: "true"
+            - name: GITEA_API_URL
+              value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
+            - name: GITEA_WRITE_REPOS
+              value: "packages,environments"
+            - name: LLM_GATEWAY_URL
+              value: "http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080"
+            - name: OIDC_ISSUER_URL
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+            - name: OIDC_CLIENT_ID
+              value: "adhar-ai"
+          envFrom:
+            - secretRef:
+                name: adhar-ai-bot
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-mcp-security
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-security
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: security
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-mcp-security
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# ------------------------------ mcp-cost (read-only) ------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-mcp-cost
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-cost
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: cost
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-mcp-cost
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-mcp-cost
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/mcp-domain: cost
+        adhar.io/plane: control
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: ghcr.io/adhar-io/adhar-ai-mcp-cost:latest
+          imagePullPolicy: Always
+          args: ["mcp", "--domain=cost", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MCP_DOMAIN
+              value: "cost"
+            - name: GITEA_WRITE_ENABLED
+              value: "false"
+            - name: OPENCOST_URL
+              value: "http://opencost.adhar-system.svc.cluster.local:9003"
+            - name: LLM_GATEWAY_URL
+              value: "http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080"
+            - name: OIDC_ISSUER_URL
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+            - name: OIDC_CLIENT_ID
+              value: "adhar-ai"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-mcp-cost
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-cost
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: cost
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-mcp-cost
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# ---------------------------- mcp-catalog (write: PR) -----------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-mcp-catalog
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-catalog
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: catalog
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-mcp-catalog
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-mcp-catalog
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/mcp-domain: catalog
+        adhar.io/plane: control
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: ghcr.io/adhar-io/adhar-ai-mcp-catalog:latest
+          imagePullPolicy: Always
+          args: ["mcp", "--domain=catalog", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MCP_DOMAIN
+              value: "catalog"
+            - name: GITEA_WRITE_ENABLED
+              value: "true"
+            - name: GITEA_API_URL
+              value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
+            - name: GITEA_WRITE_REPOS
+              value: "packages,environments"
+            - name: LLM_GATEWAY_URL
+              value: "http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080"
+            - name: OIDC_ISSUER_URL
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+            - name: OIDC_CLIENT_ID
+              value: "adhar-ai"
+          envFrom:
+            - secretRef:
+                name: adhar-ai-bot
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-mcp-catalog
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp-catalog
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/mcp-domain: catalog
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-mcp-catalog
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

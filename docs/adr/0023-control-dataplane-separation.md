@@ -1,6 +1,6 @@
 # ADR-0023: Control-plane / data-plane separation with a first-class DataPlane API
 
-**Status**: Proposed · **Date**: 2026-08
+**Status**: Accepted (DataPlane API + controller, `adhar.io/plane` labels, control-plane Kyverno policy, and `adhar get dataplanes` / `adhar migrate split-planes` CLI scaffolded; live multi-cluster validation is Roadmap Phase 2) · **Date**: 2026-08
 
 ## Context
 

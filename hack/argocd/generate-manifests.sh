@@ -8,7 +8,7 @@ HACK_DIR="$(cd "$(dirname "$0")" && pwd)" # Ensure HACK_DIR is an absolute path
 MANIFEST_DIR="$HACK_DIR/../../platform/controllers/adharplatform/resources/argocd"
 INSTALL_YAML="$MANIFEST_DIR/install.yaml"
 INSTALL_HA_YAML="$MANIFEST_DIR/install-ha.yaml"
-ARGOCD_VERSION="9.5.19"
+ARGOCD_VERSION="10.3.3" # argo-cd chart 10.3.3 packages ArgoCD app v3.5.1
 ARGOCD_NAMESPACE="adhar-system"
 
 mkdir -p "$MANIFEST_DIR" # Ensure directory exists

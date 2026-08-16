@@ -85,7 +85,7 @@ if resource.Spec.BuildCustomization.EnableHAMode {
 
 Both are generated from the same chart version by `hack/argocd/generate-manifests.sh` out of
 `hack/argocd/values.yaml` (non-HA, the source of truth for the tuning) and
-`hack/argocd/values-ha.yaml`. Chart-image is `quay.io/argoproj/argocd:v3.4.3`.
+`hack/argocd/values-ha.yaml`. Chart-image is `quay.io/argoproj/argocd:v3.5.1`.
 
 ### 2.1 Concurrency budget — `ConfigMap/argocd-cmd-params-cm` (non-HA)
 

@@ -140,7 +140,7 @@ metadata:
     helm.sh/chart: postgresql-16.7.27
 type: Opaque
 data:
-  postgres-password: "QnRXcTJpTGNZdQ=="
+  postgres-password: "dWpKalR4UU9OSg=="
   password: "Z2l0ZWE="
   # We don't auto-generate LDAP password when it's not provided as we do for other passwords
 ---
@@ -168,12 +168,12 @@ metadata:
   name: gitea-inline-config
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -189,16 +189,11 @@ stringData:
     USER=gitea
   indexer: ISSUE_INDEXER_TYPE=db
   metrics: ENABLED=true
-  # Keycloak is the platform identity source: first SSO login auto-creates the
-  # Gitea account (username/email from the OIDC claims) instead of stalling on
-  # the interactive "Register" page — required for the auth source's
-  # group-team-map to grant org/team membership on first login. Account
-  # linking by email covers users that pre-exist locally.
   oauth2_client: |-
-    ENABLE_AUTO_REGISTRATION=true
-    USERNAME=preferred_username
     ACCOUNT_LINKING=auto
+    ENABLE_AUTO_REGISTRATION=true
     UPDATE_AVATAR=false
+    USERNAME=preferred_username
   queue: |-
     CONN_STR=redis://:changeme@gitea-valkey-primary.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
     TYPE=redis
@@ -206,7 +201,7 @@ stringData:
   security: INSTALL_LOCK=true
   server: |-
     APP_DATA_PATH=/data
-    DOMAIN=gitea.adhar.localtest.me
+    DOMAIN=adhar.localtest.me
     ENABLE_PPROF=false
     HTTP_PORT=3000
     PROTOCOL=http
@@ -226,12 +221,12 @@ metadata:
   name: gitea
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -398,12 +393,12 @@ metadata:
   name: gitea-init
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -827,22 +822,22 @@ spec:
     app.kubernetes.io/name: valkey
     app.kubernetes.io/component: primary
 ---
-# Source: gitea/templates/gitea/http-svc.yaml
+# Source: gitea/templates/gitea/httpService.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: gitea-http
-  namespace: adhar-system
+  annotations:
+    {}
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
-  annotations:
-    {}
+  name: gitea-http
+  namespace: adhar-system
 spec:
   type: ClusterIP
   clusterIP: None
@@ -854,22 +849,22 @@ spec:
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
 ---
-# Source: gitea/templates/gitea/ssh-svc.yaml
+# Source: gitea/templates/gitea/sshService.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: gitea-ssh
-  namespace: adhar-system
+  annotations:
+    {}
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
-  annotations:
-    {}
+  name: gitea-ssh
+  namespace: adhar-system
 spec:
   type: ClusterIP
   clusterIP: None
@@ -890,12 +885,12 @@ metadata:
   namespace: adhar-system
   annotations:
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -911,14 +906,14 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: c54a5e6043a00034fc5b44379ffbbddbfe8cec9a0a36cf9a94fdd1e8b1f97504
+        checksum/config: 1ac131942801038ca161afe4ee96f52bfcb2e5ab8c0f3e02c3964fc3529457b0
       labels:
-        helm.sh/chart: gitea-12.6.0
+        helm.sh/chart: gitea-12.7.0
         app: gitea
         app.kubernetes.io/name: gitea
         app.kubernetes.io/instance: gitea
-        app.kubernetes.io/version: "1.26.1"
-        version: "1.26.1"
+        app.kubernetes.io/version: "1.27.0"
+        version: "1.27.0"
         app.kubernetes.io/managed-by: Helm
     spec:
       
@@ -926,7 +921,7 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: init-directories
-          image: "docker.gitea.com/gitea:1.26.1-rootless"
+          image: "docker.gitea.com/gitea:1.27.0-rootless"
           imagePullPolicy: IfNotPresent
           command:
             - "/usr/sbinx/init_directory_structure.sh"
@@ -953,7 +948,7 @@ spec:
               cpu: 100m
               memory: 128Mi
         - name: init-app-ini
-          image: "docker.gitea.com/gitea:1.26.1-rootless"
+          image: "docker.gitea.com/gitea:1.27.0-rootless"
           imagePullPolicy: IfNotPresent
           command:
           - "/usr/sbinx/config_environment.sh"
@@ -986,7 +981,7 @@ spec:
               cpu: 100m
               memory: 128Mi
         - name: configure-gitea
-          image: "docker.gitea.com/gitea:1.26.1-rootless"
+          image: "docker.gitea.com/gitea:1.27.0-rootless"
           command:
           - "/usr/sbinx/configure_gitea.sh"
           imagePullPolicy: IfNotPresent
@@ -1025,7 +1020,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: gitea
-          image: "docker.gitea.com/gitea:1.26.1-rootless"
+          image: "docker.gitea.com/gitea:1.27.0-rootless"
           imagePullPolicy: IfNotPresent
           env:
             # SSH Port values have to be set here as well for openssh configuration
@@ -1083,17 +1078,10 @@ spec:
               mountPath: /tmp
             - name: data
               mountPath: /data
-            # Platform CA dropped into the system trust dir (Go reads every
-            # file in SSL_CERT_DIR=/etc/ssl/certs): gitea's Keycloak OAuth2
-            # source does OIDC discovery against the external issuer URL,
-            # which serves the self-signed platform certificate. Without this
-            # the auth source fails to register ("x509: certificate signed by
-            # unknown authority") and /user/oauth2/keycloak returns 500.
-            - name: platform-ca
-              mountPath: /etc/ssl/certs/adhar-platform-ca.pem
-              subPath: tls.crt
+            - mountPath: /etc/ssl/certs/adhar-platform-ca.pem
+              name: platform-ca
               readOnly: true
-
+              subPath: tls.crt
       volumes:
         - name: init
           secret:
@@ -1103,6 +1091,13 @@ spec:
           secret:
             secretName: gitea
             defaultMode: 110
+        - name: platform-ca
+          secret:
+            items:
+            - key: tls.crt
+              path: tls.crt
+            optional: true
+            secretName: adhar-cert
         - name: inline-config-sources
           secret:
             secretName: gitea-inline-config
@@ -1111,13 +1106,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: gitea-shared-storage
-        # optional: the platform cert is created by the controller after the
-        # first components come up; gitea must still start without it.
-        - name: platform-ca
-          secret:
-            secretName: adhar-cert
-            optional: true
-            items: [{key: tls.crt, path: tls.crt}]
 ---
 # Source: gitea/charts/postgresql/templates/primary/statefulset.yaml
 apiVersion: apps/v1

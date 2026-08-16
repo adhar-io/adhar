@@ -1,0 +1,516 @@
+# CILIUM CLUSTER MESH — apiserver (opt-in, roadmap P2.4)
+#
+# Auto-extracted from the Cilium 1.20.0 Helm chart with
+# `clustermesh.useAPIServer=true` (see hack/cilium/generate-clustermesh.sh). NOT part
+# of the default embedded install.yaml on purpose: the management cluster runs
+# mesh-ready identity (cluster adhar-mgmt / ID 1, SPIFFE trust domain adhar.io) out of
+# the box, but the clustermesh-apiserver pod is only needed once you federate a second
+# cluster — keeping it out of every local `adhar up` preserves the single-node
+# footprint (ADR-0012).
+#
+# Apply on the MANAGEMENT cluster to accept peers, then
+# `cilium clustermesh connect --context <mgmt> --destination-context <data-plane>`
+# (the DataPlane controller's mesh phase automates this — ADR-0023 §2.2). Endpoint
+# sync stays inert until a peer's config lands in the cilium-clustermesh secret.
+# Service is ClusterIP; expose via the Gateway or a LoadBalancer in real fleets.
+---
+# Source: cilium/templates/clustermesh-apiserver/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "clustermesh-apiserver"
+  namespace: adhar-system
+---
+# Source: cilium/templates/clustermesh-apiserver/tls-helm/admin-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clustermesh-apiserver-admin-cert
+  namespace: adhar-system
+  labels:
+    cilium.io/helm-template-non-idempotent: "true"
+  annotations:
+type: kubernetes.io/tls
+data:
+  ca.crt:  LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURGRENDQWZ5Z0F3SUJBZ0lSQUx5Nk1nczU5dU9hSEdBdVFoY0FCWGd3RFFZSktvWklodmNOQVFFTEJRQXcKRkRFU01CQUdBMVVFQXhNSlEybHNhWFZ0SUVOQk1CNFhEVEkyTURneE5URTJNVGcwTlZvWERUSTVNRGd4TkRFMgpNVGcwTlZvd0ZERVNNQkFHQTFVRUF4TUpRMmxzYVhWdElFTkJNSUlCSWpBTkJna3Foa2lHOXcwQkFRRUZBQU9DCkFROEFNSUlCQ2dLQ0FRRUF5ZFU5amovcTJ0ZFNKcmlzKyswR0dCemI3ZStPdTFnTG9neFU2RnBhUndLbXFwSzEKL01VSWRmcmVCSjhUK1JJVE5KSk1PUzVLOHNJU3I4bmVEOVVycjVGRXZPMnRzUGNiVmhTcFlacXE4aG1qRUozQgpvNWxHbUs3Yy9xcXhvZjJlOEtSNDlBd00waFgzL1k5MDk4K1FhTURGK3lMblF6a2paQmxBeXZBYnlaRFJlVWJhCkY0L25aS21xNnY0Mk5LcDUvaU0zaFNxR3duR2NDTnd5ZmZZdEd4dStEL2xtRjJyQjB6V1ZMWmo1S2hvQXhuZFQKOU43ZUxBVGtYbmVZRG1aVlZiZFZqc1JKWWFVdHlIMVViQXJvZVE0RytoN01YaXc4U0hyMUdZM3BlcUlpTWJDUAoxaDdLZVRIUW9HTUV1M1RzaVE4bnZyVFgxcDh6ZzkrSHJVenlEd0lEQVFBQm8yRXdYekFPQmdOVkhROEJBZjhFCkJBTUNBcVF3SFFZRFZSMGxCQll3RkFZSUt3WUJCUVVIQXdFR0NDc0dBUVVGQndNQ01BOEdBMVVkRXdFQi93UUYKTUFNQkFmOHdIUVlEVlIwT0JCWUVGSDBncjZNTW5xK0QwS29nNncxWXZrdXVTUk5ETUEwR0NTcUdTSWIzRFFFQgpDd1VBQTRJQkFRQ1pCKytzSWdIayt2S1kzS2xOWjZSSkJBdW1DNFJOWW14bE1nd0tOR3pIUi9BVDk1SjhOYkhCCm1GdlJXMTNUT0JWdXVXeE5uUm1kbEtROFplZ2FSaHhuWlJ4bnE5NVRzMTRRU0pLNmVKWGxpenoyMHBUNENqWG0KR3F1NHlxdXB0L3lGMjQrZXAwQ3lQU0FlRXQxTzJXcmlBd0hVRm9ta1BPRG5wM0xlRlR1MTdMZTduTDQ5Q2Z3dQpDcmhXcmtpU0JkcE9uMHZyeFcxaTZPRWtIbi9idVEvWGdLcXp6RXQxa0tFcDVsTWprV05jckhwRVlZM2FHV1hNCmw1UFgreGg5N0NQTFppWlhQWGplMXBwV1pMaWdNZWhHUXZSUGVueitTWlR3Z2JIdG1Pc3pldy9ySzNwMnlhOFkKUitxeHJzL3BjZDFSd0x0aFJwUzNac3BuYzN3UzZVNnkKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHVENDQWdHZ0F3SUJBZ0lRUEozSytCeVlteDlTLy9BYlpkb2gvREFOQmdrcWhraUc5dzBCQVFzRkFEQVUKTVJJd0VBWURWUVFERXdsRGFXeHBkVzBnUTBFd0hoY05Nall3T0RFMU1UWXhPRFE0V2hjTk1qY3dPREUxTVRZeApPRFE0V2pBYk1Sa3dGd1lEVlFRREV4QmhaRzFwYmkxaFpHaGhjaTF0WjIxME1JSUJJakFOQmdrcWhraUc5dzBCCkFRRUZBQU9DQVE4QU1JSUJDZ0tDQVFFQTRWY1crQWtueDZvSHI2aFJURVU1bXNoME50T0ZXT1IrTzg5VVVGOWQKT0JNME03SGlvNTMxMko1QUNRZ1Bla21lOHVGcXNFQk8wVkhJeHYyUlpZK2lxNmo5SFpzY0lxeUVzQnhkRzFvUQpYSDFxb2dxdlAxTnU1djRwQnZJYzFYTlZ1RE5mb2JVRGd2a1RObEM2YkxLWGVHUHNaL3VUeUxJWldzWjVmbVRWCkpLbExLTHdObGdJWDNac3l5bE5WTHI1MGZMeEh0a0U4cTJ4WWozNHh0Y085Z2RtS2UwNlFjOGpjZm5lMS9SNU0KR2xOMW05ZmZMeXBjK3NTM0tvOUwvTjBJbWp2aCs5eEFvMEt1NS9LbUhIOG4zNTRRQlB5VytZNU1xSkdqWCsyMQpxNEVMRGtMQ0RZb05OWlBHSVVwcWtOSG84SGtoMDJlQjdNN2hQK2hMS0tpV0l3SURBUUFCbzJBd1hqQU9CZ05WCkhROEJBZjhFQkFNQ0JhQXdIUVlEVlIwbEJCWXdGQVlJS3dZQkJRVUhBd0VHQ0NzR0FRVUZCd01DTUF3R0ExVWQKRXdFQi93UUNNQUF3SHdZRFZSMGpCQmd3Rm9BVWZTQ3Zvd3llcjRQUXFpRHJEVmkrUzY1SkUwTXdEUVlKS29aSQpodmNOQVFFTEJRQURnZ0VCQUp0SXBQRExydmUySm5sdnN3ZGVhdlR0Vk54US9xc1NkSXQyZjlLWXhpeTJJRUhjClpuSmI5RDNpREYrbDFtQjA1bVJIbUxIdnFBM3pub3FMVjUxY2VyTkNLRkVwZGtub29qVkY3Z2tUQ1V5N2tEVUMKWklycitTRzhyc3VpR01RL1B6cm9ybVB0TEk2RzBPQ3VBd3dxTzFVSEdzdXVjOGY4MmRsd2d1cktlMkx4NE5oUgp0N29kMmJPdU9aVmpKSFhHMlJyMHBSV3F3ZGVyWEFWWTZkcitmZkcwQ0pBcURyQk54Y1RITGFKTnFyeWlVVmJHCk56SDBlQ0VpZllHK3lYWG1DdXBCZjJmQkc1b1BjVk4wY2xic2wvWDhka3BhQ1RML2FaMVE5d3IzNFZocjBaWW0KSWpUbDBjcEV5WS9EaktRdkx2UUQ0THVob0grVldiOHJZVDBwdmg4PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBNFZjVytBa254Nm9IcjZoUlRFVTVtc2gwTnRPRldPUitPODlVVUY5ZE9CTTBNN0hpCm81MzEySjVBQ1FnUGVrbWU4dUZxc0VCTzBWSEl4djJSWlkraXE2ajlIWnNjSXF5RXNCeGRHMW9RWEgxcW9ncXYKUDFOdTV2NHBCdkljMVhOVnVETmZvYlVEZ3ZrVE5sQzZiTEtYZUdQc1ovdVR5TElaV3NaNWZtVFZKS2xMS0x3TgpsZ0lYM1pzeXlsTlZMcjUwZkx4SHRrRThxMnhZajM0eHRjTzlnZG1LZTA2UWM4amNmbmUxL1I1TUdsTjFtOWZmCkx5cGMrc1MzS285TC9OMEltanZoKzl4QW8wS3U1L0ttSEg4bjM1NFFCUHlXK1k1TXFKR2pYKzIxcTRFTERrTEMKRFlvTk5aUEdJVXBxa05IbzhIa2gwMmVCN003aFAraExLS2lXSXdJREFRQUJBb0lCQUdxTk1MbzJNZzR5Y3hIMwphQUhGbGZoL29wd3VKcGFpN0tIQlpwL2VpQWkwNC9FeHd2WVZBaVBjcUhEYzA5ekNKUnU1eFNYME1wQzl1RStICnBSRzkrbkJySnN5eUJIck0wcTBuckVyN3FsTGhwdU5hWkFWd29UY3VwUjI0ckRPdUpyRkQ4WXRZT1lIYjN0N0gKQzIvTWZ0MFplcmFzZWZQamF5UEdSN3FoV1R2TXdmMnZLdVhUVVhXMzBEdXEzM25PczdxeG8rd0ZhL1R0cmxLdQpYekFvOG42TVNEUlYwZ0YwL09MeXpXS3JwVUZpa0VjNmUzejB2WUxqYnM3UDJTMENpdXc3elJuTHhOWE1CbTFTCktBZ01HVWxQTFRRL1lTZVp1LzJvcHNrb0hWdHFla3BSV0JMY3I2RTNrcTgyVjJnNHRVc0NMY01CYUdDS1VWVzYKWXVSOVdoRUNnWUVBK2kxT0ZxNEp1d1Q1ODcxa25FWHlHUEhlSEgrVEFSQjBFMWhTZGwxTjlyVFltczZrd0p5MgoxZEVTbE1WdUhHZlZaN3BFZ2JIM3hRYjZ0a28rZVZhWDlOTXFYU24zSUU5TUZVUjR2YWxJMHJXZGpiL1BXeXBxCit3ZmFMWHlRV1BadUNxald1UVNybERFQUFaT0JyU1VCVkpvZlAvTEJYNDZZMmY2eGp6QjB4OHNDZ1lFQTVwWEwKRDZPOXBrRE1mQmhsM0hlalB4YWJtTHQvZ0NUWlRENGMwbUdONXNxaWRROUdUaXhaUmpyTkV6cE9oR1dnRllRYQp2WStSZFgrdVpjNmJZdjY3SEdWTEp5MDBjNCtrVVp1c1NmWU9uRzJsdjlQaGJXcWsxSElZTTR1eENySXZLbXZyCkRabnRCQ3E1amV6M2xUb01zTUhwNDlFOXBXRXJ4d2lMc1lkV3NBa0NnWUFueXJ6NDdvV3RzWVR3TjllZzQ1ODIKU0lKRGxpY1RyRUpLTVdvc1dYcmxHcTY1TU5VVHJkbUcrTkl6eDVOVUFVLzRSN0JOMExqUUplUUt5cFJWU0dpegpFRU5VdmpBSWU1Um1iWldtMVI0NEpac0J5Tmg2YjZ6RWNPTkxDTjBNeVdXSFhJT0t1aXR3VHJycGhVVEMvWGZRCnRSTHpZUEZRK2FWbVJ4U0c2ZllwTVFLQmdRQ0Y0cklPT2EvenFhcFIzOFM5VjRZbEtwWmIvM3FQeUZXWHpIVGwKdnhrcXlidThwb3JXOXk4NjlRZUFRNW0xakdDQVBiMWRGZENLM2dGQVFjKzlrbFRJcnhRTkFsVnpTQk5NQTB6dApnUDZJMjYyakRYN1dEbGI0dCtyUGV5dm9Idi85N0wyRm56dWM4TVhlMzVuK1ByK0Jub2FVN2ppU0h6TFJGV2d2ClEzc1ZLUUtCZ1FEa1N2WnFBTjNvV3l1dy9YV2xZa0Z2ZTNPNjNvRXExZmlDK2EyaXE2cWFFbFplZCtSZjFvd0gKeC90UWM1UDh3RDVPd3pyRVJJbkovbC80UkpBRHlZTHdzWXFJZEpoWU1qRWV2NTI0bWkrMjBKQlo5Vkw0VGZaNApicnZTL29RY1JFYmVMeXpDd2lyRVVuNmxmblNvbW1rNXkrWVQwRlAxaVZoT1VOTk44QWQ2bGc9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+---
+# Source: cilium/templates/clustermesh-apiserver/tls-helm/local-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clustermesh-apiserver-local-cert
+  namespace: adhar-system
+  labels:
+    cilium.io/helm-template-non-idempotent: "true"
+  annotations:
+type: kubernetes.io/tls
+data:
+  ca.crt:  LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURGRENDQWZ5Z0F3SUJBZ0lSQUx5Nk1nczU5dU9hSEdBdVFoY0FCWGd3RFFZSktvWklodmNOQVFFTEJRQXcKRkRFU01CQUdBMVVFQXhNSlEybHNhWFZ0SUVOQk1CNFhEVEkyTURneE5URTJNVGcwTlZvWERUSTVNRGd4TkRFMgpNVGcwTlZvd0ZERVNNQkFHQTFVRUF4TUpRMmxzYVhWdElFTkJNSUlCSWpBTkJna3Foa2lHOXcwQkFRRUZBQU9DCkFROEFNSUlCQ2dLQ0FRRUF5ZFU5amovcTJ0ZFNKcmlzKyswR0dCemI3ZStPdTFnTG9neFU2RnBhUndLbXFwSzEKL01VSWRmcmVCSjhUK1JJVE5KSk1PUzVLOHNJU3I4bmVEOVVycjVGRXZPMnRzUGNiVmhTcFlacXE4aG1qRUozQgpvNWxHbUs3Yy9xcXhvZjJlOEtSNDlBd00waFgzL1k5MDk4K1FhTURGK3lMblF6a2paQmxBeXZBYnlaRFJlVWJhCkY0L25aS21xNnY0Mk5LcDUvaU0zaFNxR3duR2NDTnd5ZmZZdEd4dStEL2xtRjJyQjB6V1ZMWmo1S2hvQXhuZFQKOU43ZUxBVGtYbmVZRG1aVlZiZFZqc1JKWWFVdHlIMVViQXJvZVE0RytoN01YaXc4U0hyMUdZM3BlcUlpTWJDUAoxaDdLZVRIUW9HTUV1M1RzaVE4bnZyVFgxcDh6ZzkrSHJVenlEd0lEQVFBQm8yRXdYekFPQmdOVkhROEJBZjhFCkJBTUNBcVF3SFFZRFZSMGxCQll3RkFZSUt3WUJCUVVIQXdFR0NDc0dBUVVGQndNQ01BOEdBMVVkRXdFQi93UUYKTUFNQkFmOHdIUVlEVlIwT0JCWUVGSDBncjZNTW5xK0QwS29nNncxWXZrdXVTUk5ETUEwR0NTcUdTSWIzRFFFQgpDd1VBQTRJQkFRQ1pCKytzSWdIayt2S1kzS2xOWjZSSkJBdW1DNFJOWW14bE1nd0tOR3pIUi9BVDk1SjhOYkhCCm1GdlJXMTNUT0JWdXVXeE5uUm1kbEtROFplZ2FSaHhuWlJ4bnE5NVRzMTRRU0pLNmVKWGxpenoyMHBUNENqWG0KR3F1NHlxdXB0L3lGMjQrZXAwQ3lQU0FlRXQxTzJXcmlBd0hVRm9ta1BPRG5wM0xlRlR1MTdMZTduTDQ5Q2Z3dQpDcmhXcmtpU0JkcE9uMHZyeFcxaTZPRWtIbi9idVEvWGdLcXp6RXQxa0tFcDVsTWprV05jckhwRVlZM2FHV1hNCmw1UFgreGg5N0NQTFppWlhQWGplMXBwV1pMaWdNZWhHUXZSUGVueitTWlR3Z2JIdG1Pc3pldy9ySzNwMnlhOFkKUitxeHJzL3BjZDFSd0x0aFJwUzNac3BuYzN3UzZVNnkKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHakNDQWdLZ0F3SUJBZ0lSQVAzWFVjdDNmdkt5am83YTBXY2F4aG93RFFZSktvWklodmNOQVFFTEJRQXcKRkRFU01CQUdBMVVFQXhNSlEybHNhWFZ0SUVOQk1CNFhEVEkyTURneE5URTJNVGcwT0ZvWERUSTNNRGd4TlRFMgpNVGcwT0Zvd0d6RVpNQmNHQTFVRUF4TVFiRzlqWVd3dFlXUm9ZWEl0YldkdGREQ0NBU0l3RFFZSktvWklodmNOCkFRRUJCUUFEZ2dFUEFEQ0NBUW9DZ2dFQkFNRnhPbEU5MVRSZjhwVVArWnpIZXJ6Q2pJZEd5UW1aVUlCZjNUV2sKWTllZmFuSnh2eHM0Ukd3SmFSMDkyV2F4Q2NSYTk4dEFhclQybmtaZE5QYk5iOGNJREdEbklDUlhBV2YzRUpHcwpyaFJadElJai9hQ1dONGNoK2FDZkRtRE1LRzNpcDk5V0hmVTdwTlBPL2J6b0cyNFFqQk9Da0t4SnFoNmlvZkNYCnBIY0gxYUNNeFBBSEdWcm9PSWFrZXV3ZEcxTWJWOUM0SytkeGVuUzhuOHNXcHJHeGJhVEloSDNSUXlqY0s5RWgKdzVYeHJORDd5SE5CU21EVnhqamNodzZxNWJZamxFRHMvL2ZQU0FsTVpTK2hhL1B4MjRNdDEwc09uVWx1RmlTKwpEK014V3YxOVVwQjgvWTA4QzlsL3hLU1JWcUxySjVvUk9USFgzcmRmMHpwZjlRc0NBd0VBQWFOZ01GNHdEZ1lEClZSMFBBUUgvQkFRREFnV2dNQjBHQTFVZEpRUVdNQlFHQ0NzR0FRVUZCd01CQmdnckJnRUZCUWNEQWpBTUJnTlYKSFJNQkFmOEVBakFBTUI4R0ExVWRJd1FZTUJhQUZIMGdyNk1NbnErRDBLb2c2dzFZdmt1dVNSTkRNQTBHQ1NxRwpTSWIzRFFFQkN3VUFBNElCQVFCUUNmYktHNDc3c2EveXhhaHhJLzMzdTg0THRiR0lNVU1yb3IwYUpBNjFJVVN4CnhpRFI2RUhENmVpS0s5Ui9BREhCZ3hWUVJ3alEwbElDR3Qvb2VLeld5akhURUtiNTVsQ3RGLzZ2RU5CQ3ZoeHQKN1NDUnUya1JzamovcTRNTXNEVGxxV01vaXJ2WW9VM2JpYU1yTUFCcE55S1VTWTlSbnhIc2VoQStWbGJ3eGVieQp2T2luWGxRN05pdk5Ycjd5MElXb1RJZTZSOUNCSEFSNVRQYTJGc0xKSnZISVVUMVlQZllIZFN3NXBMRkI4WlFHCkNCTzFYZllRclhacHUvRU95enNUVHlTYWtiTjdieGdTd2ZseDV2ZElDTFh0YTBhWjNNcmh5NW9NcmExTUxVSk8KR0ZZdEhKYWc3L2pNL1FGeW02aVlLTjBZT25hYzJGMG4rQWcyQ1NscwotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBd1hFNlVUM1ZORi95bFEvNW5NZDZ2TUtNaDBiSkNabFFnRi9kTmFSajE1OXFjbkcvCkd6aEViQWxwSFQzWlpyRUp4RnIzeTBCcXRQYWVSbDAwOXMxdnh3Z01ZT2NnSkZjQlovY1FrYXl1RkZtMGdpUDkKb0pZM2h5SDVvSjhPWU13b2JlS24zMVlkOVR1azA4Nzl2T2diYmhDTUU0S1FyRW1xSHFLaDhKZWtkd2ZWb0l6RQo4QWNaV3VnNGhxUjY3QjBiVXh0WDBMZ3I1M0Y2ZEx5Znl4YW1zYkZ0cE1pRWZkRkRLTndyMFNIRGxmR3MwUHZJCmMwRktZTlhHT055SERxcmx0aU9VUU96Lzk4OUlDVXhsTDZGcjgvSGJneTNYU3c2ZFNXNFdKTDRQNHpGYS9YMVMKa0h6OWpUd0wyWC9FcEpGV291c25taEU1TWRmZXQxL1RPbC8xQ3dJREFRQUJBb0lCQVFDa3ZrK1NQUHpFbkNvMgpkT0o2ZVJDNGpWK3RIY1c5SFFzSUtaeDFRTW1mS3k4MnhGU2pVK3BCc0VvTEUwK0JPNms3eHRWZURrQlNXZTQxCnNzK1dtU05tK0IzQ3NWUVlYdGpkdC9ZdWVrZlBJUTZ2L3dMVHJ0c2ZoUG5acDF4Ulo4M090OGVNVndVd2cxaysKNGZ3SzFBbjRWTE5YTWswUHpiVEtYbXRZUVcxWnlLRU9UdVVjQU9RbFdWVmVVU3d1ZGdhcDFENGxtMzUwVHAvbQpSYlNGWUdFdHhPSC90NFlvSzJ4Y0hEQ3FmRm1UOFptaDBYY0k3V2FQZjlIWTlObk02TGU0U3grMjVWSTRoMk1BCkgzWXk0V0piazVpYVNzc0dCbC8yS0NIUE51Z1oyakJIQzdKN3B3R0lzeVRSd1I0TUFpL3pVOWpRbkxoSVExb1EKQXAvQVdLbFJBb0dCQU5jZkU2bDgyQ1ZhTTVKdEtONTBBeHdDclA1cCtEcCtINGxoOXY4bjFacHJvWWFjT0l0RgpUczVQK1VtbERtTndZYWVhM2hWdzZqbHczTEVENDNSa1F6ZlFwWitTYzZkRUtobldXU0drWXMwVlUyUmVBWjltCi91THlvL3VDcjRnV2J1ZGxEVHNGdGx4cWMzeDc5T05WNHpZbmRtdnlGTjFFSWxsK2g3a3RPaDZGQW9HQkFPWXoKaVdiWFpJKzFyZTQvMVlSRmh5Nm9pNzJjaU4yM21hMFlTWFovNmhCZFF0eUNScm1mbkV1V2RhNC9nQWlIN0RrdwpxOU9zYmc2T3NDaHI1azBDVkRYcDlKODBVNURNSEw5c2wrTUorZHhmVWl1SHJiMVpqbC80Vzl2eURkWWduSk1FCmdranFlWENMemtTZDlUZmNseWcxV3JlQis1cFAxQ0ZhMzhEZmZZSlBBb0dCQUtHOFdyTU9DeEFpUGkzejVrdEIKMitpZVZtUTlWZ1RjT0dlNUFOUWJwZXdneWVPRDVydEhFNVhuNk53bXZhZWpvYmc2cG9obVNhT0FLRnpxT0lPVQpzamp2cE9aUlhLVEFpZ3E4N214dHhGNitqdUVpRUlSQkVwZWNxQTk3MU84ek5wVEFrKzd4UDRkQi9hdjFJa3dkCmtlTndUZ2VnalhGQ1BiVWRmWHVLOW14bEFvR0FMRkJ2ZXVTcjd4NUNSVUwwajJuekJBQmVKam9qL3NxQlF0a1MKQzBYRWdUSHkxUkFmSFV5a2djaU5EdVlhZDRueTUyOS9KRmhsTjFnd2dSZUVWZjdFeHp3cVl4dG5tdEF3R0ltSApFNld2KzhROXhUTnhOcW91eGpyQk5DMzhpK1ByUUVIMThxTndqVUhjaTBqOUU2dmJUVm80Qkd0NVM5TmlPcW1MCnVVMU1rL0VDZ1lBc2hDbG02N0Y2RDBJN0piZVJkdm9SdmVaWnowaE9jY3NBVUlyeEl0dkQ5NnBOd2JRWHJFT2wKNVFld3hPQkkxd3EvK2dITGJZVjNXM1FwRkt3MVNtT2pyckVHVTZuazZNdEF6SldOL0NoWjZIYnd5bmZXNVk1RwpPOUgvRGtTbjc1Wlg2NjFDNFB0amlmQ05VRWszVmFhNmlIeEZWbjlPUTBodHRuNXFEdHVVeGc9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+---
+# Source: cilium/templates/clustermesh-apiserver/tls-helm/remote-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clustermesh-apiserver-remote-cert
+  namespace: adhar-system
+  labels:
+    cilium.io/helm-template-non-idempotent: "true"
+  annotations:
+type: kubernetes.io/tls
+data:
+  ca.crt:  LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURGRENDQWZ5Z0F3SUJBZ0lSQUx5Nk1nczU5dU9hSEdBdVFoY0FCWGd3RFFZSktvWklodmNOQVFFTEJRQXcKRkRFU01CQUdBMVVFQXhNSlEybHNhWFZ0SUVOQk1CNFhEVEkyTURneE5URTJNVGcwTlZvWERUSTVNRGd4TkRFMgpNVGcwTlZvd0ZERVNNQkFHQTFVRUF4TUpRMmxzYVhWdElFTkJNSUlCSWpBTkJna3Foa2lHOXcwQkFRRUZBQU9DCkFROEFNSUlCQ2dLQ0FRRUF5ZFU5amovcTJ0ZFNKcmlzKyswR0dCemI3ZStPdTFnTG9neFU2RnBhUndLbXFwSzEKL01VSWRmcmVCSjhUK1JJVE5KSk1PUzVLOHNJU3I4bmVEOVVycjVGRXZPMnRzUGNiVmhTcFlacXE4aG1qRUozQgpvNWxHbUs3Yy9xcXhvZjJlOEtSNDlBd00waFgzL1k5MDk4K1FhTURGK3lMblF6a2paQmxBeXZBYnlaRFJlVWJhCkY0L25aS21xNnY0Mk5LcDUvaU0zaFNxR3duR2NDTnd5ZmZZdEd4dStEL2xtRjJyQjB6V1ZMWmo1S2hvQXhuZFQKOU43ZUxBVGtYbmVZRG1aVlZiZFZqc1JKWWFVdHlIMVViQXJvZVE0RytoN01YaXc4U0hyMUdZM3BlcUlpTWJDUAoxaDdLZVRIUW9HTUV1M1RzaVE4bnZyVFgxcDh6ZzkrSHJVenlEd0lEQVFBQm8yRXdYekFPQmdOVkhROEJBZjhFCkJBTUNBcVF3SFFZRFZSMGxCQll3RkFZSUt3WUJCUVVIQXdFR0NDc0dBUVVGQndNQ01BOEdBMVVkRXdFQi93UUYKTUFNQkFmOHdIUVlEVlIwT0JCWUVGSDBncjZNTW5xK0QwS29nNncxWXZrdXVTUk5ETUEwR0NTcUdTSWIzRFFFQgpDd1VBQTRJQkFRQ1pCKytzSWdIayt2S1kzS2xOWjZSSkJBdW1DNFJOWW14bE1nd0tOR3pIUi9BVDk1SjhOYkhCCm1GdlJXMTNUT0JWdXVXeE5uUm1kbEtROFplZ2FSaHhuWlJ4bnE5NVRzMTRRU0pLNmVKWGxpenoyMHBUNENqWG0KR3F1NHlxdXB0L3lGMjQrZXAwQ3lQU0FlRXQxTzJXcmlBd0hVRm9ta1BPRG5wM0xlRlR1MTdMZTduTDQ5Q2Z3dQpDcmhXcmtpU0JkcE9uMHZyeFcxaTZPRWtIbi9idVEvWGdLcXp6RXQxa0tFcDVsTWprV05jckhwRVlZM2FHV1hNCmw1UFgreGg5N0NQTFppWlhQWGplMXBwV1pMaWdNZWhHUXZSUGVueitTWlR3Z2JIdG1Pc3pldy9ySzNwMnlhOFkKUitxeHJzL3BjZDFSd0x0aFJwUzNac3BuYzN3UzZVNnkKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUREekNDQWZlZ0F3SUJBZ0lRZDdZMGgyWG1Ga2tNcndQTHpLNFhlakFOQmdrcWhraUc5dzBCQVFzRkFEQVUKTVJJd0VBWURWUVFERXdsRGFXeHBkVzBnUTBFd0hoY05Nall3T0RFMU1UWXhPRFE0V2hjTk1qY3dPREUxTVRZeApPRFE0V2pBUk1ROHdEUVlEVlFRREV3WnlaVzF2ZEdVd2dnRWlNQTBHQ1NxR1NJYjNEUUVCQVFVQUE0SUJEd0F3CmdnRUtBb0lCQVFEUDNTTXFiaGhyZWhMaUNWajYyeDYrQXp5eUEzck93NTdBQldMNGdGZ0FrTFhzRFNWaGVHZHAKYTlyME1uQ1ZLM091Z2h5SjduV2pGNjljeG9FMXVYcDUwRmxsOWs1N1hjUUROMUxEUk1wQzkvZDRmMnh2OVpOVQpidEtETTRueitkMUlJZXl1R3NvcnJwTVpnMzBZV2NDVHo1SFlrNEs3WUNKU2UrU090MkhiYU0rSmNZVmVQMkxGCnVZZDVySmZ6akVIV1Q2eERQcE9WZmVjc1NPSTNVai9yVkpGYlo3emZGNEhxSE91YWJRQkw3YWt6MkNyVDQyZmcKeUhDVDd3N3ZsMFBiVWo1SGorUS8yR3pBSjdSYzFoSWxwNUxQcUdQL2QzU0FrR0w0Z0NIUGt5YmlQUWtUYWFUSwo5dlk1VmdJeTJrd2xSNzVhS0R6V2NUMUd6VUtOWmU1WkFnTUJBQUdqWURCZU1BNEdBMVVkRHdFQi93UUVBd0lGCm9EQWRCZ05WSFNVRUZqQVVCZ2dyQmdFRkJRY0RBUVlJS3dZQkJRVUhBd0l3REFZRFZSMFRBUUgvQkFJd0FEQWYKQmdOVkhTTUVHREFXZ0JSOUlLK2pESjZ2ZzlDcUlPc05XTDVMcmtrVFF6QU5CZ2txaGtpRzl3MEJBUXNGQUFPQwpBUUVBT1pyYXlDMVVqcmVJRzVwVjJ0ODhvKzFHVTJOaWFwU1MyZG9XdXJoZzhnMzd6NDZwbFgwM2taV1MyYkF2CjhWSEsxUGorWG1UZ3RrbWw0MUV2UkZSeWFWVExIaXg3RUcvQjJGNGZYb1JEU25vVElvcUkzcjZKWWU2V0xDUmQKekRsM2JTU2U3VGZCQmNvZCs5VmhCZnpYUjB0Z1hlRjBCSzlJSVQ1OWxhM2lleDFqVWpmZTVwdW4zMlVxWXhFTQpjbW9rOTJFSmE4Y2lhNmt2VDA0U0FCTm9XK2ttNGxFTkIvVXlHRHhvbWJKOXpiQnVEZWl5ZUVhb3VyaEZEWEhaCkRRVTBKaEZQNUY0d3RHY21JRHIyMXBQbkhLYTRnWVJNUzE2UWxjWERhUWdEcEZqaVZHSk1mUlQwb0h1eVkzSHQKZ0pQM3dsaGYvNlhYc01xRzd4cmJNTTJnMXc9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcFFJQkFBS0NBUUVBejkwakttNFlhM29TNGdsWSt0c2V2Z004c2dONnpzT2V3QVZpK0lCWUFKQzE3QTBsCllYaG5hV3ZhOURKd2xTdHpyb0ljaWU1MW94ZXZYTWFCTmJsNmVkQlpaZlpPZTEzRUF6ZFN3MFRLUXZmM2VIOXMKYi9XVFZHN1Nnek9KOC9uZFNDSHNyaHJLSzY2VEdZTjlHRm5BazgrUjJKT0N1MkFpVW52a2pyZGgyMmpQaVhHRgpYajlpeGJtSGVheVg4NHhCMWsrc1F6NlRsWDNuTEVqaU4xSS82MVNSVzJlODN4ZUI2aHpybW0wQVMrMnBNOWdxCjArTm40TWh3ays4Tzc1ZEQyMUkrUjQva1A5aHN3Q2UwWE5ZU0phZVN6NmhqLzNkMGdKQmkrSUFoejVNbTRqMEoKRTJta3l2YjJPVllDTXRwTUpVZStXaWc4MW5FOVJzMUNqV1h1V1FJREFRQUJBb0lCQVFDV01Ja3RLamw0eHM2SQpCZ3NGem5kckFibkVRZUZsTGxFeEczTkViSytwVU9ZeHRkbnhrR2JmOUM5VFRIS3VSYVFqVGgzQ3g4cTEyZkk2ClRhK2ttdXpVd1djbTFnNGs4ejRpdU1HVEY4d3hFU3Y5STh5OUpLcWNVaXJHNCtGa3FJQnJreCtKT1JBaytkR04KbU1VMVoveE9rS2NuM29XU1Q4YmM1R25qZUxzN0pUU1BlZy9BQXZvcEcwNlRMNmdZdmZaa0JJc2d6NC9CTW9RSwoxSHAxc2tCMjJ3N1hOMGo4YjdUaW9MTHFiakh5U2FLUHIrVU91S1lOTFk1NzRhYkZIdTROd21xTjdyMTg1cmtwCk1jdnZpWkx2dkoxYWVWK0pvV3lDL2hPZEE3aExOZ29jSUVNUzJGY21LWGpNNDhtVzVCdkMzMnNSTFVBZkloVVUKVTJ2dWtwV0JBb0dCQU5VUzhEa1NhaGEvbWJ0SDFZMUswMjNsWXJmek02R0dIS0xkSXdnZEpYb2ttbXhLNkltagoyRUZtdE1WeVJpVkdWckhTQ0VTK1ltaEJTUmtpaVJ0RGZUL1pUNjB0NjNHTVRWTk1vTllGUlBUa2Z3ZG1sU3hNClloaWp1cHIrcG1leC8xY0loZ2RQRnNvS0xiNnZNc1lXck1EQTgzNnd1M1N0bkZQKzZUaWtha0h4QW9HQkFQbTkKZlphUTlydkE1UzRNdXdad3FNbDJ5SmpLQTRrMnBNekNpUHFDOFh0YW1FVnA1MnpjOHNUSS9LZVFnSEgwZmYyUQpwaVNDOHQyQUFNU1hoRVF0WXlEVEdReXNYWHZqYjQ5VUgxYkkreG13cmhQTU5jcEo3QklsaytvQjdsUVJna25tCmFCakw5ejJ4MkdYVXVyRkRwbllvRElmQmVGS1B5VTJRVDBEUFpJcnBBb0dCQUw0aFdCcVZRL1ZvbzFWcWxEU3cKUUZvZ0JpYis3V09FdUtqYml4Y0NheDdDNnNrWFRza0RXMFdBMEc0ZnVsZ29tOU94QjQvUUV4L1VvZFc3NjN4WQpqTHNjdnV4WnZXNWxNOXJRMWZRa1g1UG5FVE1aWnFOUXhYZ1hJYnlNM3hCSTFRQmtxclI2N21yN0NqYk5QeEZqCnltTjF5ZEdUQXJMcStFUTdnd0Q0TlprQkFvR0JBTXVuWmJtWnYwcStjMldKQmg2clVranZyNGRBL1g4d2ExVjYKc2Y4dk5zTHp6c2FVSlIrV1VmWjlPK05kS0JGRllsU2JWNURncERKU2hzM0tEUmNYdUFWMWY3RGhBbDdieWdhawpmK1hpZ1RtaTVXSEpubmUycm1iaDgrdlk1VVB5L3o5S1A4c3cwUTZqYjZjaXdaZDZaazFtUFVtYlVJWnJNS29xCnF5WmJ1VTY1QW9HQUdobWZSYWpEUEhqZEdBbXRUOElhM2M4aENFNWdzSGFRNlJjaXBnOW8rZ1JuU2R6YkYxYUMKd2EvS1FCbTFHN0duWVVrcCt4bFJZTEV2eC9temdIVFpTZldLVkhwbFRPUlNvL1JiRlhRMm9oZmprWnozaENaLwpqNjF4R0phOXVVM1M0K05rYXZsNURnaHBFdnZNK21DOHlzWU9rU1Q4ZER6eVlzVFIwNHpSSTFnPQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+---
+# Source: cilium/templates/clustermesh-apiserver/tls-helm/server-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clustermesh-apiserver-server-cert
+  namespace: adhar-system
+  labels:
+    cilium.io/helm-template-non-idempotent: "true"
+  annotations:
+type: kubernetes.io/tls
+data:
+  ca.crt:  LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURGRENDQWZ5Z0F3SUJBZ0lSQUx5Nk1nczU5dU9hSEdBdVFoY0FCWGd3RFFZSktvWklodmNOQVFFTEJRQXcKRkRFU01CQUdBMVVFQXhNSlEybHNhWFZ0SUVOQk1CNFhEVEkyTURneE5URTJNVGcwTlZvWERUSTVNRGd4TkRFMgpNVGcwTlZvd0ZERVNNQkFHQTFVRUF4TUpRMmxzYVhWdElFTkJNSUlCSWpBTkJna3Foa2lHOXcwQkFRRUZBQU9DCkFROEFNSUlCQ2dLQ0FRRUF5ZFU5amovcTJ0ZFNKcmlzKyswR0dCemI3ZStPdTFnTG9neFU2RnBhUndLbXFwSzEKL01VSWRmcmVCSjhUK1JJVE5KSk1PUzVLOHNJU3I4bmVEOVVycjVGRXZPMnRzUGNiVmhTcFlacXE4aG1qRUozQgpvNWxHbUs3Yy9xcXhvZjJlOEtSNDlBd00waFgzL1k5MDk4K1FhTURGK3lMblF6a2paQmxBeXZBYnlaRFJlVWJhCkY0L25aS21xNnY0Mk5LcDUvaU0zaFNxR3duR2NDTnd5ZmZZdEd4dStEL2xtRjJyQjB6V1ZMWmo1S2hvQXhuZFQKOU43ZUxBVGtYbmVZRG1aVlZiZFZqc1JKWWFVdHlIMVViQXJvZVE0RytoN01YaXc4U0hyMUdZM3BlcUlpTWJDUAoxaDdLZVRIUW9HTUV1M1RzaVE4bnZyVFgxcDh6ZzkrSHJVenlEd0lEQVFBQm8yRXdYekFPQmdOVkhROEJBZjhFCkJBTUNBcVF3SFFZRFZSMGxCQll3RkFZSUt3WUJCUVVIQXdFR0NDc0dBUVVGQndNQ01BOEdBMVVkRXdFQi93UUYKTUFNQkFmOHdIUVlEVlIwT0JCWUVGSDBncjZNTW5xK0QwS29nNncxWXZrdXVTUk5ETUEwR0NTcUdTSWIzRFFFQgpDd1VBQTRJQkFRQ1pCKytzSWdIayt2S1kzS2xOWjZSSkJBdW1DNFJOWW14bE1nd0tOR3pIUi9BVDk1SjhOYkhCCm1GdlJXMTNUT0JWdXVXeE5uUm1kbEtROFplZ2FSaHhuWlJ4bnE5NVRzMTRRU0pLNmVKWGxpenoyMHBUNENqWG0KR3F1NHlxdXB0L3lGMjQrZXAwQ3lQU0FlRXQxTzJXcmlBd0hVRm9ta1BPRG5wM0xlRlR1MTdMZTduTDQ5Q2Z3dQpDcmhXcmtpU0JkcE9uMHZyeFcxaTZPRWtIbi9idVEvWGdLcXp6RXQxa0tFcDVsTWprV05jckhwRVlZM2FHV1hNCmw1UFgreGg5N0NQTFppWlhQWGplMXBwV1pMaWdNZWhHUXZSUGVueitTWlR3Z2JIdG1Pc3pldy9ySzNwMnlhOFkKUitxeHJzL3BjZDFSd0x0aFJwUzNac3BuYzN3UzZVNnkKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURqekNDQW5lZ0F3SUJBZ0lSQUl2NElYcUZ5elIyVmQ3bmUvdjRqNTh3RFFZSktvWklodmNOQVFFTEJRQXcKRkRFU01CQUdBMVVFQXhNSlEybHNhWFZ0SUVOQk1CNFhEVEkyTURneE5URTJNVGcwT0ZvWERUSTNNRGd4TlRFMgpNVGcwT0Zvd01URXZNQzBHQTFVRUF4TW1ZMngxYzNSbGNtMWxjMmd0WVhCcGMyVnlkbVZ5TG1Ga2FHRnlMWE41CmMzUmxiUzV6ZG1Nd2dnRWlNQTBHQ1NxR1NJYjNEUUVCQVFVQUE0SUJEd0F3Z2dFS0FvSUJBUURWZUp3TUlDeEQKVkxpUmZ0Wnc3dDdWTTQ1UVcralR4YWRnQkF4T0VXSllSREZuM1NrdFJLMXNHNEtvRWFCYWlESWVyMUlFN1d5WApqS3Jaa1FkSUdTNkRnYWtXa3dDeG9LdHBXY1NRTWNnTldiS0ZvOVRzY29OMVRqdm91VUFwbVNYMHVwWlo5bHNXCnliODd5aVVhYW5jT3hyQzZuNnlvUXpnUlJjWi9USzlBN3VLNFA4ZjcweW1KcStTSzVEQmZFQ2lCZmVNYTNBQUkKVkNXT0pVeVdlOVlHVmI5WUlRUFhhSVFyeFFraExNWW00R1JwZmJSVmp1Y3VLL1F4Ylg2cjV0eUljQmlCTDY5VApzN0FvMTlScmpYSFQrWmNpRWhBN3RMZXpieVE3eWhmUlc2VHNuTTcxU2lOME1OeU1zdWo4WFJMeEJLV0lDWm1jCnZrSUp4bERjdzEvakFnTUJBQUdqZ2I0d2dic3dEZ1lEVlIwUEFRSC9CQVFEQWdXZ01CMEdBMVVkSlFRV01CUUcKQ0NzR0FRVUZCd01CQmdnckJnRUZCUWNEQWpBTUJnTlZIUk1CQWY4RUFqQUFNQjhHQTFVZEl3UVlNQmFBRkgwZwpyNk1NbnErRDBLb2c2dzFZdmt1dVNSTkRNRnNHQTFVZEVRUlVNRktDSm1Oc2RYTjBaWEp0WlhOb0xXRndhWE5sCmNuWmxjaTVoWkdoaGNpMXplWE4wWlcwdWMzWmpnaEFxTG0xbGMyZ3VZMmxzYVhWdExtbHZod1IvQUFBQmh4QUEKQUFBQUFBQUFBQUFBQUFBQUFBQUJNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SUJBUUFHTnVjSXZHcWIxU2dNVS9tOQp1RzZqQjZxUFArcnVJdGhSTlhBcVM0QzZ3S3BFc1d1OVBXRzJYT1lUajVWSXpUNTFMUkZIZTNoa1pyTlZqdXNBCjcvTkFpVlhCVi8xZlRjQkVlSWoxZDBSY1NQb2VYNGU3dlRNcUtyS2hpRmVIcUtSTURCdlMrbitsZTRYNVk4UDIKSDNDMnZXYVhObE9BbUVvSUVWVkd6WXVWNm9JUTg4UkxrUVhsdXI0TS9pa2ZyMW9GQ3FWWjJxYWFoM0JjdzdmVQpHeHVWbDlYd0VUcllWV2E4d0xEQ3IxK2tZUCtMN0hpTmlneFliYTdER1dkQmNBc0VHWWRSblowekxTODJnaE1WCkR4bWJEN3k1LzV6bGIvYjJaS2crdTBVNDlvaS93THlmVXdIKzdnQXd1UmhJV0FMYnZYNVVESWc4U1lmc2pZUmYKeHF0awotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBMVhpY0RDQXNRMVM0a1g3V2NPN2UxVE9PVUZ2bzA4V25ZQVFNVGhGaVdFUXhaOTBwCkxVU3RiQnVDcUJHZ1dvZ3lIcTlTQk8xc2w0eXEyWkVIU0JrdWc0R3BGcE1Bc2FDcmFWbkVrREhJRFZteWhhUFUKN0hLRGRVNDc2TGxBS1prbDlMcVdXZlpiRnNtL084b2xHbXAzRHNhd3VwK3NxRU00RVVYR2YweXZRTzdpdUQvSAorOU1waWF2a2l1UXdYeEFvZ1gzakd0d0FDRlFsamlWTWxudldCbFcvV0NFRDEyaUVLOFVKSVN6R0p1QmthWDIwClZZN25MaXYwTVcxK3ErYmNpSEFZZ1MrdlU3T3dLTmZVYTQxeDAvbVhJaElRTzdTM3MyOGtPOG9YMFZ1azdKek8KOVVvamRERGNqTExvL0YwUzhRU2xpQW1abkw1Q0NjWlEzTU5mNHdJREFRQUJBb0lCQVFDS09uZ3BiZWZialkrYQpQeHlTc2txK21Zek13a2NJWWxPWVcrYXY0cGZnK2Y5WDl5RER2RlhqekFpVjFod1VvMTU0K2lQTkp3U0xPYjRqCjljSldVR0FMTGJtVThZbWdlNTZqTUVxVTZIZFhGYjhBeEc2SzBUZ0lqS2xFY0RoNDl6OVpzanpMY2pmWGtMbncKK0Z1QU9ISnhzZjBjUzJyYzVmSDNWVXhNZ0JaM24wbVNXVVNSNTdIbExpQTVGbC9oRU1VeE94UU9lb0wwYktOTwpUZUtqTWJnTFplV0NPbEkyUEtHR216SkVaTmYxNFB3SzFNc1dKaVNoelJic2l1TW9EOHk3N0RoRXgrZ25qRVVMCnhSQk42aG5DOVJlWnd1bEt4NEUyMkhxTy9MMTdLU1VHS3RvaWpMRFpDQ09ld0pjSWxhS2FyWkNVajY3c3daaG8KREJoTXk2WkpBb0dCQU9lS1hpTXFHaDBGZUwrRXhVRkRVRXFxQUpQSG05K0xwZldJb01zZGxiMm9jaExzYUxtcApraE1iUitKRjV4MEdOOGZpaTI3R09GSXNaU3JlMmp3MUlRMEVSZzJSbnFYOG45U3d5ejczcDkzZEtNenBYYmNoCjRqQnU5SStERkMzb096T3ZidGN2VGtJZ1FkVmRJa1hvTE55UG5DbnBYMTk3YzluVDFrWjlKRVBOQW9HQkFPd0YKbGVIcnpMUXlIQnFyd0RUUkplUm5zenQrUEFXdlpkcVZnV2xVYjdmeTlVYmVrUzI0YytjVkRxQW5acmRxQlJWcgpRaUZNa0RyTU5iZ2RPQnJSb01YQVdiampYaXBBSlVUN2ovb0RuNytBQi9RWmpMbjQzODVQVHhpdzY3NmlZVklKCmd4N1RQb3gxYlJLWUJ5MG5zWHkyRVJ0bEkwRHREV1pUSHFhOTYrSnZBb0dCQUxNVGFqRnFPNTRjZ0VJbnJ1UUYKNnRDRVlVUHFpdHkvUmhEN3BkalNQZURjcWJXSEVJd2Y0VEZUMVNubEJKV0hISmRFMkxCSk1JQWxnKzAvUkt4eQpMdWpCV0dqZ0trS1lld2xsM3h3Sk1OVEFXdkQ0d0ptRjVFbXZWd2l6eVdTa0N6MnpQbGZCWjVadkdsdXAxM3NYCjBiS1lnNkJLdFkvRWpGcDVvMjBMRm9RMUFvR0FhT1NhbGdzN3NLSE1oN1hvK0JBemJPMEJaT0ZYUDVlU0JyRUgKRUk2c0QrNTBQNGpPc0trWEtZM2NNQ1VTcTFUODZXWC92OWpOQ0xTVTh6eFpJT0lsTjMyaTRsNTZEUUR4RDFWVgp5V0V1Nythd29qVndxMzRGeVNUS0hFa1VuR2FDSmZtQVFvVFRlWXorYXBNU0xXbEVvZzR3VUNLRXBtZ3oybFA2CmZWUk9yeFVDZ1lBcFZyV1crTXA0ODBKVTQ3YU04V1A2TkhxcTBhSGRtbTVFVnh3Y0NKV09pVGtlanIvTm43OHcKeXplTysrMXdMMWpXOTE1VkU4Vk5wWmFSaUFIQnpkeExHSDhlaUlBY1k3RExNMTlXeVdkRGdlOEJOTzFRN1JGagpDUVN1M2dIc0VVdVVCc0NjYTZoWlNXZUczTEtMWHBVYjBWZGt4dG9QVmhqU1N6ZnpBR0ZBV0E9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+---
+# Source: cilium/templates/clustermesh-apiserver/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustermesh-apiserver
+  labels:
+    app.kubernetes.io/part-of: cilium
+    helm.sh/chart: cilium-1.20.0
+rules:
+- apiGroups:
+  - cilium.io
+  resources:
+  - ciliumidentities
+  - ciliumendpoints
+  - ciliumnodes
+  - ciliumendpointslices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Source: cilium/templates/clustermesh-apiserver/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clustermesh-apiserver
+  labels:
+    app.kubernetes.io/part-of: cilium
+    helm.sh/chart: cilium-1.20.0
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clustermesh-apiserver
+subjects:
+- kind: ServiceAccount
+  name: "clustermesh-apiserver"
+  namespace: adhar-system
+---
+# Source: cilium/templates/clustermesh-apiserver/metrics-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: clustermesh-apiserver-metrics
+  namespace: adhar-system
+  labels:
+    k8s-app: clustermesh-apiserver
+    app.kubernetes.io/part-of: cilium
+    app.kubernetes.io/name: clustermesh-apiserver
+    app.kubernetes.io/component: metrics
+    helm.sh/chart: cilium-1.20.0
+
+spec:
+  clusterIP: None
+  type: ClusterIP
+  ports:
+  - name: apiserv-metrics
+    port: 9962
+    protocol: TCP
+    targetPort: apiserv-metrics
+  - name: kvmesh-metrics
+    port: 9964
+    protocol: TCP
+    targetPort: kvmesh-metrics
+  - name: etcd-metrics
+    port: 9963
+    protocol: TCP
+    targetPort: etcd-metrics
+  selector:
+    k8s-app: clustermesh-apiserver
+---
+# Source: cilium/templates/clustermesh-apiserver/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: clustermesh-apiserver
+  namespace: adhar-system
+  labels:
+    k8s-app: clustermesh-apiserver
+    app.kubernetes.io/part-of: cilium
+    app.kubernetes.io/name: clustermesh-apiserver
+    helm.sh/chart: cilium-1.20.0
+spec:
+  type: ClusterIP
+  selector:
+    k8s-app: clustermesh-apiserver
+  ports:
+  - port: 2379
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+---
+# Source: cilium/templates/clustermesh-apiserver/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clustermesh-apiserver
+  namespace: adhar-system
+  labels:
+    k8s-app: clustermesh-apiserver
+    app.kubernetes.io/part-of: cilium
+    app.kubernetes.io/name: clustermesh-apiserver
+    helm.sh/chart: cilium-1.20.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: clustermesh-apiserver
+  strategy:
+    # -- The priority class to use for clustermesh-apiserver
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: apiserver
+      labels:
+        app.kubernetes.io/part-of: cilium
+        app.kubernetes.io/name: clustermesh-apiserver
+        k8s-app: clustermesh-apiserver
+        helm.sh/chart: cilium-1.20.0
+    spec:
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+      initContainers:
+      - name: etcd-init
+        image: "quay.io/cilium/clustermesh-apiserver:v1.20.0"
+        imagePullPolicy: IfNotPresent
+        command:
+        - /usr/bin/clustermesh-apiserver
+        args:
+        - etcdinit
+        # These need to match the equivalent arguments to etcd in the main container.
+        - --etcd-cluster-name=clustermesh-apiserver
+        - --etcd-initial-cluster-token=$(INITIAL_CLUSTER_TOKEN)
+        - --etcd-data-dir=/var/run/etcd
+        env:
+          # The Cilium cluster name (specified via the `CILIUM_CLUSTER_NAME` environment variable) and the etcd cluster
+          # name (specified via the `--etcd-cluster-name` argument) are very different concepts. The Cilium cluster name
+          # is the name of the overall Cilium cluster, and is used to set the admin account username. The etcd cluster
+          # name is a concept that's only relevant for etcd itself. The etcd cluster name must be the same for both this
+          # command and the actual invocation of etcd in the main containers of this Pod, but it's otherwise not
+          # relevant to Cilium.
+        - name: CILIUM_CLUSTER_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: cilium-config
+              key: cluster-name
+        - name: INITIAL_CLUSTER_TOKEN
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: etcd-data-dir
+          mountPath: /var/run/etcd
+        terminationMessagePolicy: FallbackToLogsOnError
+      containers:
+      - name: etcd
+        # The clustermesh-apiserver container image includes an etcd binary.
+        image: "quay.io/cilium/clustermesh-apiserver:v1.20.0"
+        imagePullPolicy: IfNotPresent
+        command:
+        - /usr/bin/etcd
+        args:
+        - --data-dir=/var/run/etcd
+        - --name=clustermesh-apiserver
+        - --client-cert-auth
+        - --trusted-ca-file=/var/lib/etcd-secrets/ca.crt
+        - --cert-file=/var/lib/etcd-secrets/tls.crt
+        - --key-file=/var/lib/etcd-secrets/tls.key
+        - --listen-client-urls=https://0.0.0.0:2379
+        # We advertise localhost as client URLs for convenience, even though
+        # technically not correct. However, it doesn't matter, as this is a
+        # single replica cluster, and clients directly connect to it via the
+        # address provided as part of their configuration.
+        - --advertise-client-urls=https://localhost:2379
+        - --initial-cluster-token=$(INITIAL_CLUSTER_TOKEN)
+        - --auto-compaction-retention=1
+        - --enable-grpc-gateway=false
+        - --listen-metrics-urls=http://0.0.0.0:9963
+        - --metrics=basic
+        env:
+        - name: ETCDCTL_API
+          value: "3"
+        - name: INITIAL_CLUSTER_TOKEN
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        ports:
+        - name: etcd
+          containerPort: 2379
+          protocol: TCP
+        - name: etcd-metrics
+          containerPort: 9963
+          protocol: TCP
+        volumeMounts:
+        - name: etcd-server-secrets
+          mountPath: /var/lib/etcd-secrets
+          readOnly: true
+        - name: etcd-data-dir
+          mountPath: /var/run/etcd
+        terminationMessagePolicy: FallbackToLogsOnError
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      - name: apiserver
+        image: "quay.io/cilium/clustermesh-apiserver:v1.20.0"
+        imagePullPolicy: IfNotPresent
+        command:
+        - /usr/bin/clustermesh-apiserver
+        args:
+        - clustermesh
+        - --cluster-name=$(CLUSTER_NAME)
+        - --cluster-id=$(CLUSTER_ID)
+        - --kvstore-opt=etcd.config=/var/lib/cilium/etcd-config.yaml
+        - --kvstore-opt=etcd.qps=50
+        - --kvstore-opt=etcd.bootstrapQps=10000
+        - --max-connected-clusters=255
+        - --health-port=9880
+        - --cluster-users-enabled
+        - --cluster-users-config-path=/var/lib/cilium/etcd-config/users.yaml
+        - --prometheus-serve-addr=:9962
+        - --controller-group-metrics=all
+        - --clustermesh-default-global-namespace=true
+        
+        env:
+        - name: CLUSTER_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: cilium-config
+              key: cluster-name
+        - name: CLUSTER_ID
+          valueFrom:
+            configMapKeyRef:
+              name: cilium-config
+              key: cluster-id
+              optional: true
+        - name: ENABLE_K8S_ENDPOINT_SLICE
+          valueFrom:
+            configMapKeyRef:
+              name: cilium-config
+              key: enable-k8s-endpoint-slice
+              optional: true
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: apiserv-health
+        ports:
+        - name: apiserv-health
+          containerPort: 9880
+          protocol: TCP
+        - name: apiserv-metrics
+          containerPort: 9962
+          protocol: TCP
+        volumeMounts:
+        - name: etcd-admin-client
+          mountPath: /var/lib/cilium/etcd-secrets
+          readOnly: true
+        - name: etcd-users-config
+          mountPath: /var/lib/cilium/etcd-config
+          readOnly: true
+        terminationMessagePolicy: FallbackToLogsOnError
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      - name: kvstoremesh
+        image: "quay.io/cilium/clustermesh-apiserver:v1.20.0"
+        imagePullPolicy: IfNotPresent
+        command:
+        - /usr/bin/clustermesh-apiserver
+        args:
+        - kvstoremesh
+        - --cluster-name=$(CLUSTER_NAME)
+        - --cluster-id=$(CLUSTER_ID)
+        - --kvstore-opt=etcd.config=/var/lib/cilium/etcd-config.yaml
+        - --kvstore-opt=etcd.qps=100
+        - --kvstore-opt=etcd.bootstrapQps=10000
+        - --kvstore-opt=etcd.maxInflight=10
+        - --clustermesh-config=/var/lib/cilium/clustermesh
+        - --max-connected-clusters=255
+        - --clustermesh-cache-ttl=0s
+        - --health-port=9881
+        - --prometheus-serve-addr=:9964
+        - --controller-group-metrics=all
+        - --enable-heartbeat=false
+        
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: kvmesh-health
+        env:
+        - name: CLUSTER_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: cilium-config
+              key: cluster-name
+        - name: CLUSTER_ID
+          valueFrom:
+            configMapKeyRef:
+              name: cilium-config
+              key: cluster-id
+        ports:
+        - name: kvmesh-health
+          containerPort: 9881
+          protocol: TCP
+        - name: kvmesh-metrics
+          containerPort: 9964
+          protocol: TCP
+        volumeMounts:
+        - name: etcd-admin-client
+          mountPath: /var/lib/cilium/etcd-secrets
+          readOnly: true
+        - name: kvstoremesh-secrets
+          mountPath: /var/lib/cilium/clustermesh
+          readOnly: true
+        terminationMessagePolicy: FallbackToLogsOnError
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: etcd-server-secrets
+        projected:
+          # note: the leading zero means this number is in octal representation: do not remove it
+          defaultMode: 0400
+          sources:
+          - secret:
+              name: clustermesh-apiserver-server-cert
+              items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+              - key: ca.crt
+                path: ca.crt
+      - name: etcd-admin-client
+        projected:
+          # note: the leading zero means this number is in octal representation: do not remove it
+          defaultMode: 0400
+          sources:
+          - secret:
+              name: clustermesh-apiserver-admin-cert
+              items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+              - key: ca.crt
+                path: ca.crt
+      - name: etcd-users-config
+        configMap:
+          name: clustermesh-remote-users
+          # note: the leading zero means this number is in octal representation: do not remove it
+          defaultMode: 0400
+      - name: etcd-data-dir
+        emptyDir:
+          medium: ""
+      - name: kvstoremesh-secrets
+        projected:
+          # note: the leading zero means this number is in octal representation: do not remove it
+          defaultMode: 0400
+          sources:
+          - secret:
+              name: cilium-kvstoremesh
+              optional: true
+              # note: items are not explicitly listed here, since the entries of this secret
+              # depend on the peers configured, and that would cause a restart of this pod
+              # at every addition/removal. Leaving the field empty makes each secret entry
+              # to be automatically projected into the volume as a file whose name is the key.
+          - secret:
+              name: clustermesh-apiserver-remote-cert
+              optional: true
+              items:
+              - key: tls.key
+                path: common-etcd-client.key
+              - key: tls.crt
+                path: common-etcd-client.crt
+              - key: ca.crt
+                path: common-etcd-client-ca.crt
+      restartPolicy: Always
+      priorityClassName: system-cluster-critical
+      serviceAccountName: "clustermesh-apiserver"
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: true
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  k8s-app: clustermesh-apiserver
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      nodeSelector:
+        kubernetes.io/os: linux

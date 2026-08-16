@@ -21,7 +21,8 @@ Adhar is an open Internal Developer Platform: one command provisions a complete,
 ### Guides
 
 - **[Getting Started](GETTING_STARTED.md)** — install, `adhar up`, tour the services, first GitOps change, teardown
-- **[User Guide](USER_GUIDE.md)** — the platform mental model, CLI reference, deploying applications, requesting infrastructure, observability, day-to-day troubleshooting
+- **[User Guide](USER_GUIDE.md)** — the platform mental model, CLI reference, deploying applications, requesting infrastructure, observability, day-to-day troubleshooting, and the day-0/day-1 Bootstrap & Day-2 Operations manual (ports/URLs, flags, verify-healthy checklist, safe re-run/resume, upgrade, teardown)
+- **[Troubleshooting](TROUBLESHOOTING.md)** — per-phase bootstrap failure runbook: signatures, confirmation commands, root causes, and fixes for gateway-not-programmed, incomplete GitOps phase, degraded apps, and more
 - **[Customization Guide](CUSTOMIZATION.md)** — all nine extension points with walkthroughs: package toggles, values, custom packages, `CustomPackage` apps, environments, config layers, Crossplane APIs, providers, foundation tuning
 - **[Production Guide](PRODUCTION.md)** — topology selection, HA sizing, security hardening checklist, edge (DNS/TLS/LB), backup & disaster recovery with runbooks, upgrades, day-2 operations
 - **[Provider Guide](PROVIDER_GUIDE.md)** — the provider abstraction and setup for Kind, AWS, Azure, GCP, DigitalOcean, Civo, and bring-your-own-cluster
@@ -30,7 +31,8 @@ Adhar is an open Internal Developer Platform: one command provisions a complete,
 
 - **[Architecture](ARCHITECTURE.md)** — goals, design principles, the four platform layers, bootstrap/GitOps lifecycle, networking, security, topologies (local → single-cluster → management + workload clusters), extensibility model, quality attributes
 - **[Control Plane In Depth](CONTROL_PLANE.md)** — the Crossplane v2 control plane from first principles: how it's built (23 XRDs, 34 Compositions), integrated, and operated — no prior Crossplane knowledge assumed
-- **[Architecture Decision Records](adr/README.md)** — the ten load-bearing decisions and how to propose new ones
+- **[Architecture Decision Records](adr/README.md)** — the 24 load-bearing decisions (ADR-0001…0024) and how to propose new ones
+- **[Detailed Design Docs](design/README.md)** — one low-level design per ADR; start with [0001 — Management-cluster-first & two-phase bootstrap](design/0001-management-cluster-first.md), the authoritative as-built bootstrap/provisioning reference
 - **[Roadmap](ROADMAP.md)** — the phased path: local excellence → single-cluster production → multi-cluster platform → developer-experience ecosystem
 
 ### Project

@@ -172,9 +172,19 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// Apply platform stack (GitOps repos + ApplicationSet) - only if not already done
-	if !localBuild.Status.Gitea.RepositoriesCreated {
-		logger.Info("Applying platform stack ApplicationSet")
+	// Apply the platform stack (GitOps repo seeding + ArgoCD auth + the
+	// ApplicationSet) on EVERY reconcile that has a local stack directory — i.e.
+	// the CLI bootstrap. This is deliberate: repo seeding is self-guarded inside
+	// (RepositoriesCreated) so it stays a one-time operation, but the ArgoCD auth
+	// and ApplicationSet apply are idempotent server-side applies that must run
+	// unconditionally. Gating the appset apply on "repos already exist" was the
+	// original design flaw — a re-run of `adhar up` (or any reconcile after the
+	// ApplicationSet was removed) would find the repos present and skip the apply
+	// entirely, leaving ArgoCD empty. Re-applying every pass makes an empty
+	// ArgoCD self-correcting. The in-cluster manager runs with an empty StackDir
+	// and only maintains an already-seeded platform, so it skips this block.
+	if r.StackDir != "" {
+		logger.Info("Ensuring platform stack (repos + ArgoCD auth + ApplicationSet)")
 		err = r.applyPlatformStack(ctx, req, &localBuild)
 		if err != nil {
 			logger.Error(err, "failed applying platform stack")
@@ -326,6 +336,19 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 	}
 	logger.Info("✅ GitOps repositories setup completed successfully")
 
+	// Repos are seeded — record it so the expensive seeding (clone + force-push)
+	// becomes a one-time operation. RepositoriesCreated now means exactly that:
+	// "the GitOps repos are seeded". It deliberately does NOT gate the ArgoCD
+	// auth / ApplicationSet apply below, which re-run every reconcile so ArgoCD
+	// can never be left empty just because the repos already exist.
+	if !resource.Status.Gitea.RepositoriesCreated {
+		resource.Status.Gitea.RepositoriesCreated = true
+		if err := r.Status().Update(ctx, resource); err != nil {
+			logger.Error(err, "Failed to persist RepositoriesCreated after seeding")
+			// Non-fatal: seeding is idempotent, a re-run will retry.
+		}
+	}
+
 	logger.Info("Applying ArgoCD repository authentication and service for Gitea access")
 	if err := r.applyArgoCDRepoAuth(ctx, resource); err != nil {
 		logger.Error(err, "Failed to configure ArgoCD repository authentication")
@@ -421,13 +444,10 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 		return fmt.Errorf("failed to populate repositories: %w", err)
 	}
 
-	// Mark repositories as created to avoid recreating on every reconciliation
-	resource.Status.Gitea.RepositoriesCreated = true
-	if err := r.Status().Update(ctx, resource); err != nil {
-		logger.Error(err, "Failed to update Gitea status")
-		// Don't return error as repositories are already created
-	}
-
+	// NOTE: RepositoriesCreated is set by the caller (applyPlatformStack) right
+	// after this returns, not here — it guards only the one-time seeding, while
+	// the ApplicationSet apply remains ungated so an existing-repos reconcile
+	// still (re)applies the appset.
 	logger.Info("✅ GitOps repositories setup completed successfully")
 	return nil
 }

@@ -1,0 +1,48 @@
+# Adhar marketplace contract for the kargo package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: kargo
+category: application
+version: 1.10.5          # tracks the upstream Helm chart version (generate-manifests.sh)
+appVersion: v1.10.5     # Kargo application image tag
+description: Multi-stage GitOps promotion engine that orchestrates progressive delivery across environments.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://kargo.akuity.io
+adharCompatibility:
+  minVersion: 0.0.1
+  notes: Routed through the Cilium Gateway via manifests/httproute.yaml (no nginx Ingress).
+dependencies:
+  # Kargo renders Certificate/Issuer resources for its webhook TLS.
+  - name: cert-manager
+    category: security
+  # Promotions act on ArgoCD Applications; ArgoCD is a bootstrap core component.
+  - name: argocd
+    category: core
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: oci://ghcr.io/akuity/kargo-charts/kargo
+  signed: true
+  cosignKeyless: true          # GoReleaser Cosign keyless (Sigstore Fulcio + Rekor), ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: sbom/kargo.spdx.json
+planeAffinity: control-plane
+stability: stable
+resources:
+  cpu: 500m
+  memory: 512Mi
+  storage: "0"
+  footprint: small
+  localSafe: true
+keywords:
+  - gitops
+  - promotion
+  - continuous-delivery
+  - progressive-delivery

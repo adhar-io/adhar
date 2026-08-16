@@ -82,7 +82,7 @@ ReconcileProjectNamespace                                  (ensure adhar-<name> 
    │      → installCorePackagesSync()          (§5 — ordered foundation)   [fail → recordFailure, requeue 5s]
    │
    ├─ if !Gitea.RepositoriesCreated
-   │      → applyPlatformStack()                (§6 — seed Gitea + ApplicationSet) [fail → requeue 5s]
+   │      → applyPlatformStack()                (§6 — seed Gitea + repo auth + ApplicationSet) [fail → requeue 5s]
    │
    ├─ if !Crossplane.ControlPlaneApplied → requeue 15s   (control plane converges async in watch mode)
    │
@@ -96,7 +96,7 @@ Requeue constants: `defaultRequeueTime = 15s`, `errRequeueTime = 5s`. `installCo
 
 ### 4.1 Shutdown vs. continuous
 
-- **`ExitOnSync=true`** (local default, and the production bootstrap manager): `shouldShutDown` returns true once `Gitea.RepositoriesCreated`, `Crossplane.ControlPlaneApplied`, and `isPlatformAlreadyDeployed` (gitea + `argo-cd-argocd-server` + crossplane Deployments ready, ≥1 ApplicationSet present) all hold. `postProcessReconcile` then refreshes ArgoCD and cancels the context → `mgr.Start` returns → CLI unblocks. The last status write is retried on conflict so `Ready=True` survives the exit (no controller remains locally to re-set it).
+- **`ExitOnSync=true`** (local default, and the production bootstrap manager): `shouldShutDown` returns true only once **all** of these hold: `Gitea.RepositoriesCreated`, `Crossplane.ControlPlaneApplied`, and `isPlatformAlreadyDeployed`. The last verifies the platform is genuinely usable, not merely installed: gitea + `argo-cd-argocd-server` + crossplane Deployments ready, **≥1 ApplicationSet present, and the `gitea-argocd` Service present** (proof the ArgoCD→Gitea repo auth landed — without it the ApplicationSet exists but ArgoCD cannot pull the repos). `postProcessReconcile` then refreshes ArgoCD and cancels the context → `mgr.Start` returns → CLI unblocks. The last status write is retried on conflict so `Ready=True` survives the exit (no controller remains locally to re-set it). Because every one of these is verified before the process is allowed to exit, a clean `adhar up` **cannot** report success with a half-wired platform — and if the process is interrupted before they hold, re-running `adhar up` resumes from the exact gate that was pending (§9).
 - **`ExitOnSync=false`** (the in-cluster `adhar-controller-manager` Deployment): the loop never shuts down; it re-reconciles every 15s, self-healing the foundation and re-pushing the stack on `adhar upgrade` (via the exported `ApplyPlatformStack`).
 
 ## 5. Bootstrap phase — ordered foundation (`installCorePackagesSync`)
@@ -134,11 +134,11 @@ r.Patch(ctx, obj, client.Apply,
 
 ### 5.2 Gateway node-port pinning (Kind)
 
-Cilium generates the `cilium-gateway-adhar-gateway` Service asynchronously once the Gateway is Accepted. `ReconcileGateway` (Kind only) calls `pinGatewayNodePorts`, which retries (~90s, `RetryOnConflict` — Cilium owns and re-reconciles the Service) to pin `80→30080`, `443→30443`, and an alternate `8443→8443` (so on-node OIDC discovery against `https://keycloak.<host>:8443` reaches the Gateway). Pinning is **non-fatal**: if the Service isn't ready this pass, `Gateway.Available` is left unset and the core-install gate re-runs the reconciler next pass while the rest of the install still proceeds. Cloud providers use a LoadBalancer Service (`gateway-cloud.yaml`) and skip pinning.
+`ReconcileGateway` applies `gateway.yaml`, which embeds a `CiliumGatewayClassConfig` (the object that selects `service.type: NodePort` so Kind's host port-mapping works). Its CRD (`ciliumgatewayclassconfigs.cilium.io`) is installed by **Cilium** in the previous step, and `applyManifest` skips objects whose CRD is not yet installed (§5.1) — so the config lands on a pass where Cilium's CRD is already `Established`. Once it does, Cilium generates the `cilium-gateway-adhar-gateway` NodePort Service asynchronously. `ReconcileGateway` (Kind only) calls `pinGatewayNodePorts`, which retries (~90s, `RetryOnConflict` — Cilium owns and re-reconciles the Service) to pin `80→30080`, `443→30443`, and an alternate `8443→8443` (so on-node OIDC discovery against `https://keycloak.<host>:8443` reaches the Gateway). Pinning is **non-fatal**: if the Service isn't ready this pass, `Gateway.Available` is left unset and the core-install gate re-runs the reconciler next pass while the rest of the install still proceeds. Cloud providers use a LoadBalancer Service (`gateway-cloud.yaml`) and skip pinning.
 
 ## 6. GitOps phase — seed Gitea, hand off (`applyPlatformStack`)
 
-Runs once `!Gitea.RepositoriesCreated`. Requires `StackDir != ""` (errors otherwise — GitOps seeding is a CLI-bootstrap-only capability). Steps:
+Runs while `!Gitea.RepositoriesCreated`. Requires `StackDir != ""` (errors otherwise — GitOps seeding is a CLI-bootstrap-only capability). Steps:
 
 1. **`setupGitOpsRepositories`** — `waitForGiteaReady` (deployment ready → pods Running/Ready → `GET /api/v1/version` responds, all via `kubectl exec` into the `gitea` pod, 10-min budget), then:
    - `createGiteaOrg` — creates org `adhar` (`globals.GiteaPlatformOrg`) and the Keycloak-group-mapped teams `developers`/`viewers` (read, `includes_all_repositories`); 409/422 tolerated (idempotent).
@@ -148,9 +148,13 @@ Runs once `!Gitea.RepositoriesCreated`. Requires `StackDir != ""` (errors otherw
 2. **`applyArgoCDRepoAuth`** — SSA of `platform/stack/argocd-auth.yaml` (ArgoCD repo secrets + the dedicated `gitea-argocd` Service).
 3. **`applyManifest` of the provider-selected ApplicationSet** — `appSetFileForProvider(resource.Spec.Provider)`: `ProviderKind`/unset → `adhar-appset-local.yaml` (curated single-node core), else → `adhar-appset-production.yaml` (full enablement). The `adhar-appset-workload.yaml` (thin-agent profile, generates nothing until workload clusters register) is applied when present.
 
-After this, the controller stops writing workloads: ArgoCD reconciles everything from Gitea (INV-3). This is the imperative→declarative boundary.
+`setupGitOpsRepositories` sets `Status.Gitea.RepositoriesCreated = true` once the org + both repos exist and are populated (step 1); the phase then applies repo auth (step 2) and the ApplicationSet(s) (step 3). After this, the controller stops writing workloads: ArgoCD reconciles everything from Gitea (INV-3). This is the imperative→declarative boundary.
 
 The exported `ApplyPlatformStack` clears `RepositoriesCreated` on the in-memory object before calling `applyPlatformStack`, forcing a re-push (repo creation is 409-tolerant, population is a force push) — this is the `adhar upgrade` stack-push path.
+
+### 6.1 GitOps-phase gate (`RepositoriesCreated`)
+
+The GitOps phase is gated on a single status flag, `Gitea.RepositoriesCreated`, set inside `setupGitOpsRepositories` once the org + both repos exist and are populated. The reconcile loop (§4) keys the whole phase on it (`if !RepositoriesCreated → applyPlatformStack`), and `shouldShutDown` (§4.1) requires it before the process may exit. While it is false, `applyPlatformStack` runs its three steps in order — seed repos, apply the ArgoCD repo auth, apply the ApplicationSet(s) — each an idempotent Server-Side Apply, so a re-run re-applies them safely.
 
 ## 7. Data model (`api/v1alpha1/adharplatform_types.go`)
 
@@ -188,12 +192,21 @@ Same CRDs, same reconcile pipeline, same embedded manifests — only `Provider`,
 
 ## 9. Failure modes & idempotency
 
-- **Partial foundation** — any installer error → `recordFailure` + requeue 5s; the guard re-runs the whole ordered slice, and SSA re-adopts already-applied objects. No flag day, no manual cleanup.
-- **Gitea slow to serve** — `waitForGiteaReady` has a 10-min deployment budget + API probe; seeding never races an unready API.
-- **Gateway not programmed yet** — pinning is non-fatal; `Gateway.Available` stays false and the next pass retries while ArgoCD/Gitea/Crossplane still install.
-- **Control plane lags provider CRDs** — explicit `!ControlPlaneApplied` requeue (15s) guarantees convergence even in watch mode where the `ExitOnSync` loop is skipped.
-- **Status update conflict on the final local pass** — `postProcessReconcile` uses `RetryOnConflict`, so `Ready`/`ControlPlaneApplied` are never dropped as the controller exits.
-- **Management-cluster outage** (ADR ⚠️) — degrades the platform to "no changes"; running workloads are unaffected. HA/DR is the Production Guide's concern.
+Every known failure is either **retried in place** (watch mode / same process) or **resumed on re-run** (`adhar up` again). The bootstrap is designed so no failure requires manual cleanup or a flag day, and so a clean exit is impossible while any gate is unmet.
+
+| Failure | Detection | Recovery |
+|---|---|---|
+| Partial foundation (any installer errors) | installer returns error | `recordFailure` + requeue 5s; the guard re-runs the whole ordered slice; SSA re-adopts already-applied objects |
+| Gateway Service not yet NodePort (or `CiliumGatewayClassConfig` CRD not yet registered) | `pinGatewayNodePorts` timeout | non-fatal; `Gateway.Available` stays false → core-install gate re-runs the reconciler next pass, by which time Cilium's CRD is `Established` and the config applies |
+| Gitea slow to serve | `waitForGiteaReady` (10-min deploy budget + in-pod `GET /api/v1/version` probe) | seeding never races an unready API; times out with a clear error → requeue |
+| GitOps phase fails before repos are populated | `RepositoriesCreated` stays false (§6.1) | whole phase re-runs; org/repo creation is 409-tolerant, population is a force push, auth + ApplicationSet re-applied (SSA) |
+| Control plane lags provider CRDs | `!ControlPlaneApplied` | explicit 15s requeue guarantees convergence even in watch mode where the `ExitOnSync` loop is skipped |
+| Status write conflict on the final local pass | `postProcessReconcile` `RetryOnConflict` | `Ready`/`RepositoriesCreated`/`ControlPlaneApplied` are never dropped as the controller exits |
+| **Local process interrupted mid-bootstrap** (Ctrl-C, terminal closed, laptop sleep, timeout) | on next start, `.status` gates reflect exactly what completed | **re-run `adhar up`** — it reuses the healthy Kind cluster (`Cluster.Reconcile(recreate=false)` returns early), re-enters the reconcile pipeline, and every already-satisfied gate short-circuits while the pending one runs. This is the residual risk of local `ExitOnSync` mode (an ephemeral in-process controller has nothing to retry once the process dies) and re-run is its designed, verified mitigation. Production installs carry the in-cluster `adhar-controller-manager` Deployment and self-heal without a re-run. |
+| **ApplicationSet deleted/lost after bootstrap** (ArgoCD goes empty) | the platform ApplicationSet is gone; ArgoCD shows no apps | in local mode the controller is ephemeral and has already exited, so nothing re-creates it automatically — re-apply it by hand: `kubectl apply -n adhar-system -f platform/stack/adhar-appset-local.yaml -f platform/stack/adhar-appset-workload.yaml` (add `-f platform/stack/argocd-auth.yaml` if the repo secrets / `gitea-argocd` Service are also gone). Production runs the in-cluster `adhar-controller-manager`, which re-applies it on the next reconcile. |
+| Management-cluster outage (ADR ⚠️) | — | degrades the platform to "no changes"; running workloads are unaffected. HA/DR is the Production Guide's concern |
+
+**Rock-solid guarantees.** Taken together: (1) every foundation apply is idempotent SSA, so re-application is always safe; (2) each phase is gated on a status flag, so a satisfied phase short-circuits on re-entry; (3) the exit gate verifies the platform is *usable* (ApplicationSet + repo auth present), so `adhar up` never reports success on a half-wired platform; (4) any interruption is resumable by re-running the same command. See [Troubleshooting](../TROUBLESHOOTING.md) for the operator-facing failure-signature runbook and the [User Guide — Bootstrap & Day-2 Operations](../USER_GUIDE.md#6-bootstrap--day-2-operations) for verify-healthy / re-run / upgrade / teardown procedures.
 
 ## 10. Testing
 

@@ -1,0 +1,582 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-dashboard-kubernetes-events
+  namespace: adhar-system
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: adhar-observability
+  annotations:
+    grafana_folder: "Platform"
+data:
+  kubernetes-events.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "description": "A dashboard that monitors Kubernetes Events and focuses on giving a overview for events. A pre requisite is configuring Loki, Alloy and Prometheus - it is described in this blog post: https://hodovi.cc/blog/kubernetes-events-monitoring-with-loki-alloy-and-grafana/. The dashboards were generated using [kubernetes-events-mixin](https://github.com/adinhodovic/kubernetes-events-mixin). Open issues and create feature requests in the repository.",
+      "editable": false,
+      "links": [
+        {
+          "asDropdown": false,
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "kubernetes",
+            "kubernetes-events",
+            "kubernetes-events-mixin"
+          ],
+          "targetBlank": true,
+          "title": "Kubernetes Events",
+          "type": "dashboards"
+        }
+      ],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "title": "Summary All Events",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Rate of Kubernetes events emitted over time, broken down by resource kind, namespace, and type (Normal/Warning). Use this to identify unusual spikes in event activity that may indicate application or cluster issues.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMin": 0,
+                "fillOpacity": 100,
+                "lineWidth": 1,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 1
+          },
+          "id": 2,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull",
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "LastNotNull",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(namespace_kind_type:kubernetes_events:count1m{cluster=~\"$cluster\", type=~\"$type\"}) by (k8s_resource_kind, k8s_namespace_name, type)\n",
+              "legendFormat": "{{k8s_resource_kind}} {{k8s_namespace_name}} {{type}}"
+            }
+          ],
+          "title": "Events",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Top 10 resource/namespace combinations with the highest Normal event count over the past week. Normal events are informational and indicate routine operations such as pod scheduling, image pulls, and container starts. High counts may point to frequent restarts or scaling activity.",
+          "fieldConfig": {
+            "defaults": {
+              "links": [
+                {
+                  "targetBlank": true,
+                  "title": "Go To Timeline",
+                  "type": "dashboard",
+                  "url": "/d/kubernetes-events-mixin-timeline-jkwq/kubernetes-events-timeline?var-cluster=${__data.fields.Cluster}&var-type=${__data.fields.Type}&var-kind=${__data.fields.Kind}&var-namespace=${__data.fields.Namespace}"
+                }
+              ],
+              "thresholds": {
+                "steps": []
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 7
+          },
+          "id": 3,
+          "options": {
+            "footer": {
+              "enablePagination": true
+            },
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Value"
+              }
+            ]
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "topk(20, sum(count_over_time(namespace_kind_type:kubernetes_events:count1m{cluster=~\"$cluster\", type=\"Normal\"}[1w])) by (cluster, type, k8s_resource_kind, k8s_namespace_name))\n",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "title": "Top 10 Normal Event Emissions by Kind and Namespace[1w]",
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "cluster": 0,
+                  "k8s_namespace_name": 3,
+                  "k8s_resource_kind": 2,
+                  "type": 1
+                },
+                "renameByName": {
+                  "cluster": "Cluster",
+                  "k8s_namespace_name": "Namespace",
+                  "k8s_resource_kind": "Kind",
+                  "type": "Type"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Top 10 resource/namespace combinations with the highest Warning event count over the past week. Warning events signal potential problems such as failed liveness probes, OOMKilled containers, image pull failures, or insufficient resources. Click a row to drill down into the Events Timeline.",
+          "fieldConfig": {
+            "defaults": {
+              "links": [
+                {
+                  "targetBlank": true,
+                  "title": "Go To Timeline",
+                  "type": "dashboard",
+                  "url": "/d/kubernetes-events-mixin-timeline-jkwq/kubernetes-events-timeline?var-cluster=${__data.fields.Cluster}&var-type=${__data.fields.Type}&var-kind=${__data.fields.Kind}&var-namespace=${__data.fields.Namespace}"
+                }
+              ],
+              "thresholds": {
+                "steps": []
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 7
+          },
+          "id": 4,
+          "options": {
+            "footer": {
+              "enablePagination": true
+            },
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Value"
+              }
+            ]
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "topk(20, sum(count_over_time(namespace_kind_type:kubernetes_events:count1m{cluster=~\"$cluster\", type=\"Warning\"}[1w])) by (cluster, type, k8s_resource_kind, k8s_namespace_name))\n",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "title": "Top 10 Warning Event Emissions by Kind and Namespace[1w]",
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "cluster": 0,
+                  "k8s_namespace_name": 3,
+                  "k8s_resource_kind": 2,
+                  "type": 1
+                },
+                "renameByName": {
+                  "cluster": "Cluster",
+                  "k8s_namespace_name": "Namespace",
+                  "k8s_resource_kind": "Kind",
+                  "type": "Type"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 15
+          },
+          "id": 5,
+          "title": "Kind Summary ($kind $namespace)",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Distribution of Kubernetes events by type (Normal vs Warning) over the past week. A high proportion of Warning events relative to Normal events may indicate cluster instability or recurring workload issues.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Normal"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "green",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Warning"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "yellow",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 0,
+            "y": 16
+          },
+          "id": 6,
+          "options": {
+            "displayLabels": [
+              "value",
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "value",
+                "percent"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(count_over_time(namespace_kind_type:kubernetes_events:count1m{cluster=~\"$cluster\",\nk8s_resource_kind=\"$kind\",\nk8s_namespace_name=~\"$namespace\",\ntype=~\"$type\"\n}[1w])) by (type)\n",
+              "instant": true,
+              "legendFormat": "{{ type }}"
+            }
+          ],
+          "title": "Events by Type[1w]",
+          "type": "piechart"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Real-time rate of Kubernetes events broken down by type (Normal/Warning). Use this alongside the pie chart to detect sudden increases in Warning events that may require immediate investigation.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMin": 0,
+                "fillOpacity": 100,
+                "lineWidth": 1,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 18,
+            "x": 6,
+            "y": 16
+          },
+          "id": 7,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull",
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "LastNotNull",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(namespace_kind_type:kubernetes_events:count1m{cluster=~\"$cluster\",\nk8s_resource_kind=\"$kind\",\nk8s_namespace_name=~\"$namespace\",\ntype=~\"$type\"\n}) by (type)\n",
+              "legendFormat": "{{type}}"
+            }
+          ],
+          "title": "Events by Type",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Top 20 individual resources ranked by total event count over the past week, across all event types. Use this to pinpoint the noisiest or most troubled resources in your cluster. Click a row to navigate to the Events Timeline for that specific resource.",
+          "fieldConfig": {
+            "defaults": {
+              "links": [
+                {
+                  "targetBlank": true,
+                  "title": "Go To Timeline",
+                  "type": "dashboard",
+                  "url": "/d/kubernetes-events-mixin-timeline-jkwq/kubernetes-events-timeline?var-cluster=${__data.fields.Cluster}&var-type=${__data.fields.Type}&var-kind=${__data.fields.Kind}&var-namespace=${__data.fields.Namespace}"
+                }
+              ],
+              "thresholds": {
+                "steps": []
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 22
+          },
+          "id": 8,
+          "options": {
+            "footer": {
+              "enablePagination": true
+            },
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Value"
+              }
+            ]
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "topk(20, sum(count_over_time(namespace_kind_type:kubernetes_events:count1m{cluster=~\"$cluster\",\nk8s_resource_kind=\"$kind\",\nk8s_namespace_name=~\"$namespace\",\ntype=~\"$type\"\n}[1w])) by (cluster, type, k8s_resource_kind, k8s_namespace_name))\n",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "title": "Top 20 Event Emissions by Resource[1w]",
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "cluster": 0,
+                  "k8s_namespace_name": 3,
+                  "k8s_resource_kind": 2,
+                  "type": 1
+                },
+                "renameByName": {
+                  "cluster": "Cluster",
+                  "k8s_namespace_name": "Namespace",
+                  "k8s_resource_kind": "Kind",
+                  "type": "Type"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": [
+        "kubernetes",
+        "kubernetes-events",
+        "kubernetes-events-mixin"
+      ],
+      "templating": {
+        "list": [
+          {
+            "current": {
+              "selected": true,
+              "text": "default",
+              "value": "default"
+            },
+            "label": "Data source",
+            "name": "datasource",
+            "query": "prometheus",
+            "type": "datasource"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "hide": 2,
+            "label": "Cluster",
+            "name": "cluster",
+            "query": "label_values(namespace_kind_type:kubernetes_events:count1m{}, cluster)",
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "allValue": ".*",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "includeAll": true,
+            "label": "Event Type",
+            "multi": true,
+            "name": "type",
+            "query": "label_values(namespace_kind_type:kubernetes_events:count1m{cluster=~\"$cluster\"}, type)",
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "label": "Kind",
+            "name": "kind",
+            "query": "label_values(namespace_kind_type:kubernetes_events:count1m{cluster=~\"$cluster\", type=~\"$type\"}, k8s_resource_kind)",
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "includeAll": true,
+            "label": "Namespace",
+            "multi": true,
+            "name": "namespace",
+            "query": "label_values(namespace_kind_type:kubernetes_events:count1m{cluster=~\"$cluster\", type=~\"$type\", k8s_resource_kind=\"$kind\"}, k8s_namespace_name)",
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-3h",
+        "to": "now"
+      },
+      "timezone": "utc",
+      "title": "Kubernetes / Events / Overview",
+      "uid": "kubernetes-events-mixin-over-jkwq",
+      "gnetId": 23100,
+      "id": null
+    }

@@ -17,7 +17,7 @@ overwrite each other's content on every sync.
 | `ConfigMap/config-observability` | knative, **tekton** | Same. |
 | `ConfigMap/config-defaults` | open-function, **tekton** | open-function vendors Knative's copy. |
 | `ConfigMap/config-tracing` | open-function, **tekton** | Same. |
-| `Secret/webhook-certs` | cosign, **tekton** | Whichever syncs last owns the cert; the other's admission webhook then fails TLS. |
+| `Secret/webhook-certs` | cosign, **tekton** | RESOLVED — cosign now installs into its own `cosign-system` namespace (see below), so it no longer collides with tekton in `adhar-system`. |
 | `ServiceAccount/minio-sa` | mimir, **minio** | mimir bundles its own MinIO. |
 
 Bold packages are enabled in the local core set, so the conflict is triggered by
@@ -28,9 +28,10 @@ ConfigMaps by fixed name — that is precisely why upstream installs them in
 separate namespaces (`knative-serving`, `tekton-pipelines`). Renaming breaks the
 package instead of fixing the platform.
 
-Treat the pairs above as mutually exclusive: do not enable `knative` or
-`open-function` alongside `tekton`, `cosign` alongside `tekton`, or `mimir`
-alongside `minio`, without first giving one of them its own namespace.
+Treat the remaining pairs above as mutually exclusive: do not enable `knative` or
+`open-function` alongside `tekton`, or `mimir` alongside `minio`, without first
+giving one of them its own namespace. (`cosign` vs `tekton` has been resolved this
+way — cosign now owns `cosign-system`.)
 
 ## 2. Service-link environment variable collisions
 
@@ -39,11 +40,13 @@ Service in the same namespace. With all packages sharing one namespace, a
 generically-named Service can hijack an unrelated component's configuration,
 because many controllers read their flags from env vars of exactly that shape.
 
-Observed: cosign's policy-controller ships `Service/webhook`, which sets
-`WEBHOOK_PORT=tcp://<clusterIP>:443` on every pod in the namespace. Crossplane
+Observed: cosign's policy-controller ships `Service/webhook`, which set
+`WEBHOOK_PORT=tcp://<clusterIP>:443` on every pod in `adhar-system`. Crossplane
 reads `WEBHOOK_PORT` as its `--webhook-port` flag and crashlooped with
-`expected a valid 64 bit int`. Fixed by setting `enableServiceLinks: false` on
-the crossplane Deployments.
+`expected a valid 64 bit int`. Fixed two ways, defence in depth: `enableServiceLinks:
+false` on the crossplane Deployments, and — as of the own-namespace re-render —
+cosign no longer runs in `adhar-system` at all, so its `Service/webhook` can no
+longer inject `WEBHOOK_PORT` into platform pods.
 
 Known risk (unrenamable): the jenkins-x package's Lighthouse chart hardcodes
 `Service/hook` (its webhook receiver), which injects `HOOK_PORT` into every
@@ -51,9 +54,9 @@ service-linked pod in the namespace. No collision has been observed yet;
 components that parse `*_PORT`-shaped env vars must set
 `enableServiceLinks: false` (the standing ADR-0011 rule).
 
-Generically-named Services currently in the stack — `webhook` (cosign,
-buildpack), `controller` (buildpack, open-function), `operator` / `storage`
-(kubescape), `proxy` (jupyterhub), `dashboard` (devtron).
+Generically-named Services currently in the stack — `webhook` (buildpack; cosign's
+is now isolated in `cosign-system`), `controller` (buildpack, open-function),
+`operator` / `storage` (kubescape), `proxy` (jupyterhub), `dashboard` (devtron).
 
 **Set `enableServiceLinks: false` on any platform component that reads
 configuration from env vars.** Service links are almost never used and disabling

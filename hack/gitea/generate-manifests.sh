@@ -6,7 +6,7 @@ HACK_DIR="$(cd "$(dirname "$0")" && pwd)" # Ensure HACK_DIR is an absolute path
 # of the directory the script is invoked from.
 INSTALL_YAML="$HACK_DIR/../../platform/controllers/adharplatform/resources/gitea/install.yaml"
 INSTALL_HA_YAML="$HACK_DIR/../../platform/controllers/adharplatform/resources/gitea/install-ha.yaml"
-GITEA_VERSION=${1:-"12.6.0"} # Default to version 12.5.0 if not provided
+GITEA_VERSION=${1:-"12.7.0"} # gitea chart 12.7.0 packages Gitea app v1.27.0
 
 echo "Using Gitea as the Git provider."
 helm repo add gitea-charts https://dl.gitea.com/charts/

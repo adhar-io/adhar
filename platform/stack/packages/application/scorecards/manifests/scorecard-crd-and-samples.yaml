@@ -1,0 +1,67 @@
+---
+# Tunable scoring model. Weights and grade thresholds live here (not baked into
+# the script) so operators can re-balance the model per environment without
+# rebuilding anything -- edit, commit, and the next scorer run picks it up
+# (it mounts this ConfigMap as files). Weights are relative; they do NOT need
+# to sum to 100 (the scorer normalises by their total).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-scorecard-config
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/name: adhar-scorecard
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+data:
+  # ---- Category weights (relative) ----------------------------------------
+  # reliability   -> ArgoCD Healthy, probes, resource requests/limits
+  # security      -> image not :latest, Kyverno policy-report pass rate
+  # observability -> ArgoCD Synced (GitOps-tracked), HTTPRoute exposure
+  # operations    -> backup coverage for stateful services (Velero / CNPG)
+  weight_reliability: "35"
+  weight_security: "25"
+  weight_observability: "15"
+  weight_operations: "25"
+
+  # ---- Letter-grade thresholds (score >= threshold) -----------------------
+  grade_a: "90"
+  grade_b: "80"
+  grade_c: "70"
+  grade_d: "60"
+
+  # ---- Human-readable model reference (not consumed by the script) --------
+  model.yaml: |
+    # adhar production-readiness scorecard model
+    # score = round( sum(categoryFraction * weight) / sum(weights) * 100 )
+    categories:
+      reliability:
+        weight: 35
+        signals:
+          - argocd_healthy      # ArgoCD Application health == Healthy
+          - probes              # every container has readiness + liveness probe
+          - resources           # every container sets requests AND limits
+      security:
+        weight: 25
+        signals:
+          - image_not_latest    # no container on :latest or an untagged image
+          - kyverno_pass_rate   # PolicyReport pass / (pass+fail) for the namespace
+      observability:
+        weight: 15
+        signals:
+          - argocd_synced       # ArgoCD Application sync == Synced
+          - httproute_exposed   # an HTTPRoute targets the service namespace
+      operations:
+        weight: 25
+        signals:
+          - backup              # stateful only: Velero Schedule covers the ns
+                                # OR a CNPG Cluster with .spec.backup exists
+    grades: { A: 90, B: 80, C: 70, D: 60, F: 0 }
+    notes:
+      - A signal that cannot be evaluated (CRD/resource absent, no workload
+        found) is marked applicable=false and dropped from its category's
+        denominator, so missing data is neutral rather than a penalty.
+      - The `backup` signal is only applicable to stateful services (those with
+        a StatefulSet or a CNPG Cluster in their namespace). Stateless services
+        score neutral on operations.

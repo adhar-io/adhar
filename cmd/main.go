@@ -38,6 +38,7 @@ import (
 	"adhar-io/adhar/cmd/help"
 	"adhar-io/adhar/cmd/logs"
 	"adhar-io/adhar/cmd/metrics"
+	"adhar-io/adhar/cmd/migrate"
 	"adhar-io/adhar/cmd/network"
 	"adhar-io/adhar/cmd/pipeline"
 	"adhar-io/adhar/cmd/policy"
@@ -116,6 +117,7 @@ func init() {
 	env.EnvCmd.GroupID = GroupCluster
 	config.ConfigCmd.GroupID = GroupCluster
 	scale.ScaleCmd.GroupID = GroupCluster
+	migrate.MigrateCmd.GroupID = GroupCluster
 
 	apps.AppsCmd.GroupID = GroupApps
 	gitops.GitOpsCmd.GroupID = GroupApps
@@ -167,6 +169,7 @@ func init() {
 		secrets.SecretsCmd,   // Secrets command for secrets management
 		service.ServiceCmd,   // Service command for service management
 		scale.ScaleCmd,       // Scale command for resource scaling
+		migrate.MigrateCmd,   // Migrate command for staged platform migrations (split-planes)
 		backup.BackupCmd,     // Backup command for backup management
 		restore.RestoreCmd,   // Restore command for restoration
 		policy.PolicyCmd,     // Policy command for policy management

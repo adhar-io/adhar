@@ -1,0 +1,41 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{values.name | dump}}
+  description: ${{values.description | dump}}
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    backstage.io/kubernetes-label-selector: 'entity-id=${{values.name}}'
+    backstage.io/kubernetes-namespace: ${{values.name | dump}}
+    argocd/app-name: ${{values.name | dump}}
+    adhar.io/source-connector: ${{values.sourceConnector | dump}}
+    adhar.io/target-table: ${{values.targetTable | dump}}
+  links:
+    - url: https://gitea.adhar.localtest.me:8443
+      title: Repo URL
+      icon: github
+    - url: https://${{values.name}}.adhar.localtest.me:8443
+      title: Dagster UI
+      icon: dashboard
+spec:
+  owner: ${{values.owner | dump}}
+  lifecycle: experimental
+  type: data-pipeline
+  system: ${{values.name | dump}}
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: ${{values.name | dump}}
+  description: Golden-path data pipeline system
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+  links:
+    - url: https://github.com/adhar-io/adhar
+      title: Adhar Repo
+      icon: github
+spec:
+  owner: ${{values.owner | dump}}
+  lifecycle: experimental
+  type: data-pipeline

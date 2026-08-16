@@ -8,16 +8,11 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.43.0
+    helm.sh/chart: headlamp-0.44.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.43.0"
+    app.kubernetes.io/version: "0.44.0"
     app.kubernetes.io/managed-by: Helm
----
-# NOTE: the chart's empty `oidc` Secret is intentionally removed — the
-# ExternalSecret in oidc.yaml populates a Secret of the same name from the
-# keycloak `headlamp` client (keycloak-clients), enabling the OIDC sign-in
-# option on the login page.
 ---
 # Source: headlamp/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -25,10 +20,10 @@ kind: ClusterRoleBinding
 metadata:
   name: headlamp-admin
   labels:
-    helm.sh/chart: headlamp-0.43.0
+    helm.sh/chart: headlamp-0.44.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.43.0"
+    app.kubernetes.io/version: "0.44.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -46,10 +41,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.43.0
+    helm.sh/chart: headlamp-0.44.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.43.0"
+    app.kubernetes.io/version: "0.44.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -73,10 +68,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.43.0
+    helm.sh/chart: headlamp-0.44.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.43.0"
+    app.kubernetes.io/version: "0.44.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -91,12 +86,6 @@ spec:
         app.kubernetes.io/instance: headlamp
     spec:
       serviceAccountName: headlamp
-      volumes:
-        - name: platform-ca
-          secret:
-            secretName: adhar-cert
-            optional: true
-            items: [{key: tls.crt, path: tls.crt}]
       automountServiceAccountToken: true
       hostUsers: true
       securityContext:
@@ -108,60 +97,51 @@ spec:
             runAsGroup: 101
             runAsNonRoot: true
             runAsUser: 100
-          image: "ghcr.io/headlamp-k8s/headlamp:v0.43.0"
+          image: "ghcr.io/headlamp-k8s/headlamp:v0.44.0"
           imagePullPolicy: IfNotPresent
           
           env:
-            # OIDC sign-in (keycloak `headlamp` client). The kube-apiserver
-            # trusts the realm (kind.yaml.tmpl configures the oidc-* flags;
-            # keycloak's k8s-rbac.yaml maps groups onto cluster roles), so the
-            # user's Keycloak token is forwarded to the API server and per-user
-            # RBAC applies: platform-admin -> cluster-admin, platform-developer
-            # -> edit, platform-viewer -> view. Requires the issuer to be
-            # reachable from the node's host namespace: Cilium socketLB plus
-            # the apiserver-oidc-hosts DaemonSet (keycloak package).
-            # optional: the `oidc` Secret is produced by ESO from the keycloak
-            # `headlamp` client, which only exists once the whole SSO chain has
-            # run (keycloak-db -> keycloak -> config job -> keycloak-clients).
-            # Without `optional: true` headlamp cannot start until then —
-            # CreateContainerConfigError on every fresh bootstrap, and forever
-            # on installs with keycloak disabled. Empty values simply mean
-            # "OIDC not configured" (headlamp starts and offers token auth);
-            # it picks up SSO on its next restart after the Secret appears.
             - name: OIDC_CLIENT_ID
               valueFrom:
-                secretKeyRef: {name: oidc, key: clientID, optional: true}
+                secretKeyRef:
+                  key: clientID
+                  name: oidc
+                  optional: true
             - name: OIDC_CLIENT_SECRET
               valueFrom:
-                secretKeyRef: {name: oidc, key: clientSecret, optional: true}
+                secretKeyRef:
+                  key: clientSecret
+                  name: oidc
+                  optional: true
             - name: OIDC_ISSUER_URL
               valueFrom:
-                secretKeyRef: {name: oidc, key: issuerURL, optional: true}
+                secretKeyRef:
+                  key: issuerURL
+                  name: oidc
+                  optional: true
             - name: OIDC_SCOPES
               valueFrom:
-                secretKeyRef: {name: oidc, key: scopes, optional: true}
+                secretKeyRef:
+                  key: scopes
+                  name: oidc
+                  optional: true
           args:
             - "-in-cluster"
             - "-in-cluster-context-name=main"
-            - "-oidc-client-id=$(OIDC_CLIENT_ID)"
-            - "-oidc-client-secret=$(OIDC_CLIENT_SECRET)"
-            - "-oidc-idp-issuer-url=$(OIDC_ISSUER_URL)"
-            - "-oidc-scopes=$(OIDC_SCOPES)"
-            # Discovery runs against the external issuer URL, which serves the
-            # platform's self-signed certificate: hand headlamp the platform CA
-            # explicitly (purpose-built flag; do not rely on the image's trust
-            # store). Without it: "x509: certificate signed by unknown authority".
-            - "-oidc-ca-file=/platform-ca/tls.crt"
-            # Headlamp's OIDC callback path; must match a redirect URI on the
-            # keycloak `headlamp` client.
-            - "-oidc-callback-url=https://headlamp.adhar.localtest.me:8443/oidc-callback"
+            - "-enable-helm"
             - "-plugins-dir=/headlamp/plugins"
             - "-session-ttl=86400"
             # Check if externalSecret is disabled
-          volumeMounts:
-            - name: platform-ca
-              mountPath: /platform-ca
-              readOnly: true
+            # Check if clientID is non empty either from env or oidc.config
+            - "-oidc-client-id=$(OIDC_CLIENT_ID)"
+            # Check if clientSecret is non empty either from env or oidc.config
+            - "-oidc-client-secret=$(OIDC_CLIENT_SECRET)"
+            # Check if issuerURL is non empty either from env or oidc.config
+            - "-oidc-idp-issuer-url=$(OIDC_ISSUER_URL)"
+            # Check if scopes are non empty either from env or oidc.config
+            - "-oidc-scopes=$(OIDC_SCOPES)"
+            - -oidc-ca-file=/platform-ca/tls.crt
+            - -oidc-callback-url=https://headlamp.adhar.localtest.me:8443/oidc-callback
           ports:
             - name: http
               containerPort: 4466
@@ -188,3 +168,15 @@ spec:
             failureThreshold: 3
           resources:
             {}
+          volumeMounts:
+            - mountPath: /platform-ca
+              name: platform-ca
+              readOnly: true
+      volumes:
+        - name: platform-ca
+          secret:
+            items:
+            - key: tls.crt
+              path: tls.crt
+            optional: true
+            secretName: adhar-cert

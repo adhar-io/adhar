@@ -34,18 +34,25 @@ spec:
                     operator: Exists
           - list:
               elements:
+                # Each element carries `plane` (control | workload | both) as the
+                # single source of truth for placement (ADR-0023 §3). The thin
+                # profile is exactly the `both` agents plus the ESO secrets agent:
+                # they run on every data plane AND on the control plane itself.
                 - packageName: "metrics-server"
                   enabled: "true"
+                  plane: "both"
                   namespace: "adhar-system"
                   category: "observability"
                   manifestPath: "observability/metrics-server/manifests"
                 - packageName: "kyverno"
                   enabled: "true"
+                  plane: "both"
                   namespace: "adhar-system"
                   category: "security"
                   manifestPath: "security/kyverno/manifests"
                 - packageName: "kyverno-policies"
                   enabled: "true"
+                  plane: "both"
                   namespace: "adhar-system"
                   category: "security"
                   manifestPath: "security/kyverno-policies/manifests"
@@ -54,9 +61,22 @@ spec:
                 # from the alloy package's observability-hub ConfigMap).
                 - packageName: "alloy"
                   enabled: "true"
+                  plane: "both"
                   namespace: "adhar-system"
                   category: "observability"
                   manifestPath: "observability/alloy/manifests"
+                # Secrets agent: an External Secrets Operator instance on the
+                # data plane, so workloads resolve secrets from the control-plane
+                # Vault via a ClusterSecretStore (ADR-0023 §8, ADR-0009). Completes
+                # the ProfileStandard bundle. The SPIRE agent (workload identity)
+                # ships bundled with Cilium and arrives with the Cluster Mesh work
+                # (roadmap P2.4), so it is intentionally not a separate element here.
+                - packageName: "external-secrets"
+                  enabled: "true"
+                  plane: "workload"
+                  namespace: "adhar-system"
+                  category: "security"
+                  manifestPath: "security/external-secrets/manifests"
             # Sibling of `list`, not nested inside it — the enabled gate.
             selector:
               matchLabels:

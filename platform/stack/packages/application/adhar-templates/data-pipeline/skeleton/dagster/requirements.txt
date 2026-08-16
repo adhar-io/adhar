@@ -1,0 +1,8 @@
+# Golden-path data pipeline runtime. Pins are minimal and known-compatible;
+# the platform image (manifests/deployment.yaml) installs the same set.
+dagster==1.9.5
+dagster-webserver==1.9.5
+pyiceberg[s3fs,pyarrow]==0.8.1
+pyarrow>=17.0.0
+dbt-core==1.9.1
+dbt-trino==1.9.0

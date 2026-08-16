@@ -1,0 +1,16 @@
+# dbt-trino profile: transforms run in Trino, which reads/writes the platform
+# Iceberg catalog. Values default to the in-cluster Trino service; override per
+# environment via env vars.
+${{values.name}}:
+  target: platform
+  outputs:
+    platform:
+      type: trino
+      host: "{{ env_var('TRINO_HOST', 'trino.adhar-system.svc') }}"
+      port: "{{ env_var('TRINO_PORT', '8080') | int }}"
+      user: "{{ env_var('TRINO_USER', 'dbt') }}"
+      # Iceberg REST catalog exposed to Trino as the `iceberg` catalog.
+      catalog: iceberg
+      schema: staging
+      threads: 4
+      http_scheme: http

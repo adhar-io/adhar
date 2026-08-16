@@ -6,6 +6,7 @@ import (
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/platform/controllers/adharplatform"
 	"adhar-io/adhar/platform/controllers/custompackage"
+	"adhar-io/adhar/platform/controllers/dataplane"
 	"adhar-io/adhar/platform/utils"
 
 	"adhar-io/adhar/platform/controllers/gitrepository"
@@ -65,6 +66,13 @@ func RunControllers(
 	}).SetupWithManager(mgr)
 	if err != nil {
 		logger.Error(err, "unable to create custom package controller")
+	}
+
+	if err := (&dataplane.DataPlaneReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		logger.Error(err, "unable to create dataplane controller")
 	}
 	// Start our manager in another goroutine
 	logger.V(1).Info("starting manager")

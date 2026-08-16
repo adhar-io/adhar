@@ -1,0 +1,959 @@
+# Adhar-branded Keycloak login theme, mounted into the Keycloak pod at
+# /opt/keycloak/themes/adhar via the volume in install.yaml. The realm's
+# loginTheme is set to `adhar` (keycloak-config.yaml). Source of truth for
+# these files is ../theme/adhar/login/ (see theme/README.md).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-theme-adhar
+  namespace: adhar-system
+  labels:
+    app: keycloak
+    adhar.io/package-name: keycloak
+data:
+  theme.properties: |
+    # Adhar login theme — Keycloak 26.x
+    #
+    # Inherit the full keycloak.v2 (PatternFly v5) login theme via the `keycloak`
+    # parent so all form logic, templates and base styling are preserved. We only
+    # LAYER an additional stylesheet on top — no FTL templates are overridden, so
+    # login functionality (username/password, social providers, errors, "remember
+    # me", registration, reset-credentials) is never at risk.
+    parent=keycloak
+    import=common/keycloak
+
+    # IMPORTANT: `styles` OVERRIDES (does not merge with) the parent value, so we
+    # must re-declare the parent's bundle first, then append ours. `css/styles.css`
+    # is the webpack bundle shipped by the keycloak.v2 login theme in Keycloak 26.x;
+    # it is resolved from the parent chain. `css/adhar.css` is our override and is
+    # listed LAST so it wins the cascade.
+    styles=css/styles.css css/adhar.css
+
+    # Responsive viewport (inherited, re-declared for safety on older bundles).
+    meta=viewport==width=device-width,initial-scale=1
+
+  adhar.css: |
+    /* =============================================================================
+       Adhar — Keycloak 26.x login theme
+       -----------------------------------------------------------------------------
+       Layers on top of the keycloak.v2 (PatternFly v5) login bundle. We do NOT
+       override any FTL template — the logo, tagline and footer are injected purely
+       in CSS so form rendering and login logic are never at risk.
+
+       Selectors are deliberately doubled up: we target the stable Keycloak element
+       IDs (#kc-form, #kc-login, #username …) and native input types AND both the
+       legacy PatternFly v4 (.pf-c-*) and current PatternFly v5 (.pf-v5-c-*) class
+       names, so the theme is robust across Keycloak 24–26 point releases.
+
+       All assets are self-contained (local SVGs, no web fonts, no CDN) so the theme
+       works fully offline / air-gapped.
+       ============================================================================= */
+
+    /* ----------------------------------------------------------------------------
+       Design tokens
+       ---------------------------------------------------------------------------- */
+    :root {
+      /* Brand gradient — the signature Adhar element */
+      --adhar-blue:   #3B82F6;
+      --adhar-indigo: #6366F1;
+      --adhar-violet: #8B5CF6;
+      --adhar-gradient: linear-gradient(135deg, #3B82F6 0%, #6366F1 50%, #8B5CF6 100%);
+      --adhar-gradient-h: linear-gradient(90deg, #3B82F6 0%, #6366F1 50%, #8B5CF6 100%);
+
+      /* Neutrals (Tailwind slate ramp) */
+      --adhar-ink:    #0F172A;  /* slate-900 */
+      --adhar-slate:  #1E293B;  /* slate-800 */
+      --slate-700:    #334155;
+      --slate-600:    #475569;
+      --slate-500:    #64748B;  /* text-muted   */
+      --slate-400:    #94A3B8;  /* text-secondary */
+      --slate-300:    #CBD5E1;
+      --slate-200:    #E2E8F0;  /* text-primary-on-dark */
+      --slate-100:    #F1F5F9;
+      --slate-50:     #F8FAFC;
+      --white:        #FFFFFF;
+
+      /* Semantic surfaces (light mode defaults) */
+      --surface:        var(--white);
+      --surface-sunken: var(--slate-50);
+      --text-strong:    var(--adhar-ink);
+      --text-body:      var(--slate-700);
+      --text-muted:     var(--slate-500);
+      --border:         var(--slate-200);
+      --border-strong:  var(--slate-300);
+
+      --radius-card:  16px;
+      --radius-input: 12px;
+      --radius-btn:   12px;
+
+      --ring: 0 0 0 4px rgba(59, 130, 246, 0.28);
+      --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06),
+                     0 12px 32px -8px rgba(15, 23, 42, 0.20),
+                     0 2px 8px rgba(99, 102, 241, 0.06);
+
+      --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Page background — branded, subtle, centered
+       ---------------------------------------------------------------------------- */
+    html {
+      height: 100%;
+    }
+
+    body.login-pf,
+    body {
+      font-family: var(--font) !important;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      margin: 0;
+      min-height: 100%;
+      color: var(--text-body);
+    }
+
+    /* Keycloak paints a fixed background layer via .login-pf body / #kc-container.
+       Replace it with the Adhar ink + soft brand glow. */
+    body.login-pf {
+      background: var(--adhar-ink) !important;
+    }
+
+    .login-pf-page,
+    #kc-container,
+    #kc-container-wrapper {
+      background: transparent !important;
+    }
+
+    .login-pf-page {
+      position: relative;
+      display: flex !important;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      min-height: 100vh;
+      width: 100%;
+      max-width: none !important;
+      padding: 40px 16px 88px !important;   /* bottom room for footer */
+      margin: 0 !important;
+      background:
+        radial-gradient(1100px 520px at 15% -8%,  rgba(59, 130, 246, 0.26), transparent 60%),
+        radial-gradient(980px 520px at 108% 12%,  rgba(139, 92, 246, 0.24), transparent 58%),
+        radial-gradient(760px 620px at 50% 116%,  rgba(99, 102, 241, 0.20), transparent 60%),
+        linear-gradient(180deg, #0B1120 0%, #0F172A 55%, #131c31 100%);
+    }
+
+    /* A hairline of the brand gradient across the very top of the page */
+    .login-pf-page::before {
+      content: "";
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: var(--adhar-gradient-h);
+      z-index: 10;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Header — inject the Adhar logo + tagline (CSS-driven, no FTL override)
+       The keycloak.v2 template renders the realm display-name text inside
+       #kc-header-wrapper. We hide that text and paint the logo in its place.
+       ---------------------------------------------------------------------------- */
+    #kc-header {
+      position: relative;
+      width: 100%;
+      max-width: 420px;
+      margin: 0 auto 22px;
+      padding: 0;
+      text-align: center;
+      color: transparent;
+    }
+
+    #kc-header-wrapper {
+      display: block;
+      width: 300px;
+      height: 78px;
+      max-width: 82vw;
+      margin: 0 auto;
+      padding: 0 !important;
+      /* hide the realm-name text that Keycloak injects here */
+      font-size: 0 !important;
+      line-height: 0 !important;
+      color: transparent !important;
+      text-indent: -9999px;
+      overflow: hidden;
+      white-space: nowrap;
+      border: 0 !important;
+      background: url("../img/adhar-logo.svg") center center / contain no-repeat;
+      filter: drop-shadow(0 6px 18px rgba(99, 102, 241, 0.35));
+    }
+
+    /* Tagline under the logo */
+    #kc-header::after {
+      content: "Open Cloud-Native Foundation";
+      display: block;
+      margin-top: 14px;
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--slate-400);
+    }
+
+    /* ----------------------------------------------------------------------------
+       Card
+       ---------------------------------------------------------------------------- */
+    .login-pf-page .card-pf,
+    #kc-content .card-pf,
+    .card-pf {
+      width: 100%;
+      max-width: 420px;
+      margin: 0 auto !important;
+      padding: 36px 34px 30px !important;
+      background: var(--surface) !important;
+      border: 1px solid rgba(226, 232, 240, 0.9) !important;
+      border-radius: var(--radius-card) !important;
+      box-shadow: var(--shadow-card) !important;
+      box-sizing: border-box;
+    }
+
+    #kc-content,
+    #kc-content-wrapper {
+      width: 100%;
+    }
+
+    /* Card header / page title ("Sign in to your account", etc.) */
+    #kc-page-title,
+    .login-pf-header h1,
+    #kc-content-wrapper h1 {
+      margin: 0 0 20px !important;
+      font-family: var(--font) !important;
+      font-size: 22px !important;
+      font-weight: 600 !important;
+      line-height: 1.3 !important;
+      letter-spacing: -0.01em;
+      color: var(--text-strong) !important;
+      text-align: center;
+    }
+
+    .login-pf-header {
+      margin-bottom: 4px;
+    }
+
+    /* Realm/user banner shown on some flows (e.g. "Log in to <realm>") */
+    #kc-username,
+    .kc-login-tooltip {
+      color: var(--text-muted);
+    }
+
+    /* ----------------------------------------------------------------------------
+       Forms — labels, inputs
+       ---------------------------------------------------------------------------- */
+    #kc-form,
+    #kc-form-wrapper,
+    #kc-form-login {
+      width: 100%;
+    }
+
+    .pf-v5-c-form__group,
+    .pf-c-form__group,
+    .form-group {
+      margin-bottom: 18px !important;
+    }
+
+    label,
+    .pf-v5-c-form__label,
+    .pf-c-form__label,
+    .pf-v5-c-form__label-text,
+    #kc-form-login label,
+    .control-label {
+      display: block;
+      margin-bottom: 7px !important;
+      font-family: var(--font) !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      color: var(--text-body) !important;
+      text-align: left;
+    }
+
+    /* Inputs — target native types AND every PatternFly form-control variant */
+    input[type="text"],
+    input[type="password"],
+    input[type="email"],
+    input[type="number"],
+    input[type="tel"],
+    input[type="url"],
+    select,
+    textarea,
+    .pf-v5-c-form-control,
+    .pf-c-form-control,
+    .pf-v5-c-form-control > input,
+    .pf-c-form-control > input,
+    input.pf-v5-c-form-control,
+    input.pf-c-form-control,
+    #kc-form-login input {
+      box-sizing: border-box;
+      width: 100% !important;
+      height: auto !important;
+      min-height: 46px;
+      padding: 12px 14px !important;
+      font-family: var(--font) !important;
+      font-size: 15px !important;
+      line-height: 1.4 !important;
+      color: var(--text-strong) !important;
+      background: var(--surface) !important;
+      background-image: none !important;   /* kill PF's underline SVG */
+      border: 1.5px solid var(--border-strong) !important;
+      border-radius: var(--radius-input) !important;
+      box-shadow: none !important;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: var(--slate-400);
+      opacity: 1;
+    }
+
+    /* Hover */
+    input[type="text"]:hover,
+    input[type="password"]:hover,
+    input[type="email"]:hover,
+    .pf-v5-c-form-control:hover,
+    .pf-c-form-control:hover,
+    #kc-form-login input:hover {
+      border-color: var(--slate-400) !important;
+    }
+
+    /* Focus — brand blue ring */
+    input[type="text"]:focus,
+    input[type="password"]:focus,
+    input[type="email"]:focus,
+    input[type="number"]:focus,
+    input[type="tel"]:focus,
+    input[type="url"]:focus,
+    select:focus,
+    textarea:focus,
+    .pf-v5-c-form-control:focus,
+    .pf-c-form-control:focus,
+    .pf-v5-c-form-control:focus-within,
+    .pf-c-form-control:focus-within,
+    input.pf-v5-c-form-control:focus,
+    input.pf-c-form-control:focus,
+    #kc-form-login input:focus {
+      border-color: var(--adhar-blue) !important;
+      box-shadow: var(--ring) !important;
+      background: var(--surface) !important;
+    }
+
+    /* Autofill — keep it on-brand instead of the browser yellow */
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus {
+      -webkit-text-fill-color: var(--text-strong);
+      -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+      caret-color: var(--text-strong);
+    }
+
+    /* Password field with the show/hide toggle (PF input-group) */
+    .pf-v5-c-input-group,
+    .pf-c-input-group,
+    .pf-v5-c-form-control.pf-m-icon,
+    .pf-c-input-group__text {
+      background: transparent !important;
+      border: 0 !important;
+      box-shadow: none !important;
+    }
+
+    .pf-v5-c-input-group input,
+    .pf-c-input-group input {
+      border-radius: var(--radius-input) !important;
+    }
+
+    /* Show/hide password toggle button */
+    #kc-form-login button[aria-label],
+    .pf-v5-c-button.pf-m-control,
+    .pf-c-button.pf-m-control {
+      background: transparent !important;
+      border: 0 !important;
+      color: var(--text-muted) !important;
+      box-shadow: none !important;
+    }
+
+    #kc-form-login button[aria-label]:hover,
+    .pf-v5-c-button.pf-m-control:hover,
+    .pf-c-button.pf-m-control:hover {
+      color: var(--adhar-blue) !important;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Form options row — "remember me" + "forgot password"
+       ---------------------------------------------------------------------------- */
+    #kc-form-options,
+    .pf-v5-c-form__group.kc-form-options,
+    .kc-form-options {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 2px 0 20px;
+      flex-wrap: wrap;
+    }
+
+    #kc-form-options .checkbox,
+    #kc-form-options label {
+      margin: 0 !important;
+      font-size: 13px !important;
+      font-weight: 500 !important;
+      color: var(--text-muted) !important;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Checkbox */
+    input[type="checkbox"],
+    .pf-v5-c-check__input,
+    .pf-c-check__input {
+      width: 17px !important;
+      height: 17px !important;
+      min-height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      accent-color: var(--adhar-indigo);
+      border: 1.5px solid var(--border-strong) !important;
+      border-radius: 5px !important;
+      cursor: pointer;
+    }
+
+    input[type="checkbox"]:focus,
+    .pf-v5-c-check__input:focus {
+      box-shadow: var(--ring) !important;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Buttons
+       ---------------------------------------------------------------------------- */
+    /* Primary — the Adhar gradient */
+    input[type="submit"],
+    button[type="submit"],
+    #kc-login,
+    .pf-v5-c-button.pf-m-primary,
+    .pf-c-button.pf-m-primary,
+    .btn-primary {
+      display: inline-block;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 48px;
+      padding: 13px 20px !important;
+      margin-top: 4px;
+      font-family: var(--font) !important;
+      font-size: 15px !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.01em;
+      color: var(--white) !important;
+      text-align: center;
+      background: var(--adhar-gradient) !important;
+      background-size: 140% 140% !important;
+      background-position: 0% 50% !important;
+      border: 0 !important;
+      border-radius: var(--radius-btn) !important;
+      box-shadow: 0 8px 20px -6px rgba(99, 102, 241, 0.55),
+                  0 2px 4px rgba(15, 23, 42, 0.10) !important;
+      cursor: pointer;
+      transition: transform .12s ease, box-shadow .18s ease, background-position .35s ease, filter .18s ease;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    input[type="submit"]:hover,
+    button[type="submit"]:hover,
+    #kc-login:hover,
+    .pf-v5-c-button.pf-m-primary:hover,
+    .pf-c-button.pf-m-primary:hover,
+    .btn-primary:hover {
+      background-position: 100% 50% !important;
+      box-shadow: 0 12px 26px -6px rgba(99, 102, 241, 0.62),
+                  0 3px 6px rgba(15, 23, 42, 0.12) !important;
+      filter: brightness(1.03);
+      color: var(--white) !important;
+    }
+
+    input[type="submit"]:active,
+    button[type="submit"]:active,
+    #kc-login:active,
+    .pf-v5-c-button.pf-m-primary:active,
+    .pf-c-button.pf-m-primary:active {
+      transform: translateY(1px);
+      box-shadow: 0 6px 14px -6px rgba(99, 102, 241, 0.5) !important;
+    }
+
+    input[type="submit"]:focus-visible,
+    button[type="submit"]:focus-visible,
+    #kc-login:focus-visible,
+    .pf-v5-c-button.pf-m-primary:focus-visible,
+    .pf-c-button.pf-m-primary:focus-visible {
+      outline: none;
+      box-shadow: var(--ring), 0 8px 20px -6px rgba(99, 102, 241, 0.55) !important;
+    }
+
+    /* Secondary / default buttons */
+    .pf-v5-c-button.pf-m-secondary,
+    .pf-c-button.pf-m-secondary,
+    .pf-v5-c-button.pf-m-default,
+    .pf-c-button.pf-m-default,
+    .btn-default {
+      box-sizing: border-box;
+      min-height: 44px;
+      padding: 11px 18px !important;
+      font-family: var(--font) !important;
+      font-weight: 600 !important;
+      font-size: 14px !important;
+      color: var(--text-body) !important;
+      background: var(--surface) !important;
+      border: 1.5px solid var(--border-strong) !important;
+      border-radius: var(--radius-btn) !important;
+      box-shadow: none !important;
+      cursor: pointer;
+      transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+    }
+
+    .pf-v5-c-button.pf-m-secondary:hover,
+    .pf-c-button.pf-m-secondary:hover,
+    .pf-v5-c-button.pf-m-default:hover,
+    .pf-c-button.pf-m-default:hover,
+    .btn-default:hover {
+      border-color: var(--adhar-blue) !important;
+      color: var(--adhar-blue) !important;
+      background: var(--slate-50) !important;
+    }
+
+    /* Full-width block modifier */
+    .pf-m-block {
+      width: 100% !important;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Links
+       ---------------------------------------------------------------------------- */
+    a,
+    #kc-content a,
+    #kc-info a,
+    #kc-registration a,
+    #kc-form-options a {
+      color: var(--adhar-blue);
+      font-weight: 600;
+      text-decoration: none;
+      transition: color .15s ease;
+    }
+
+    a:hover,
+    #kc-content a:hover,
+    #kc-info a:hover,
+    #kc-registration a:hover,
+    #kc-form-options a:hover {
+      color: var(--adhar-indigo);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Social / identity providers
+       ---------------------------------------------------------------------------- */
+    #kc-social-providers {
+      margin-top: 22px;
+    }
+
+    #kc-social-providers hr {
+      border: 0;
+      border-top: 1px solid var(--border);
+      margin: 20px 0 16px;
+    }
+
+    #kc-social-providers h2,
+    #kc-social-providers .kc-social-section-title {
+      font-size: 12px !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted) !important;
+      text-align: center;
+      margin-bottom: 14px !important;
+    }
+
+    #kc-social-providers ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    #kc-social-providers a,
+    .pf-v5-c-button.kc-social-item,
+    a.zocial,
+    #kc-social-providers li a {
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 16px !important;
+      font-family: var(--font) !important;
+      font-size: 14px !important;
+      font-weight: 600 !important;
+      color: var(--text-body) !important;
+      background: var(--surface) !important;
+      border: 1.5px solid var(--border-strong) !important;
+      border-radius: var(--radius-btn) !important;
+      text-decoration: none !important;
+      transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+    }
+
+    #kc-social-providers a:hover,
+    #kc-social-providers li a:hover,
+    a.zocial:hover {
+      border-color: var(--adhar-indigo) !important;
+      color: var(--adhar-indigo) !important;
+      background: var(--slate-50) !important;
+      text-decoration: none !important;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Info / registration area ("New user? Register")
+       ---------------------------------------------------------------------------- */
+    #kc-info,
+    #kc-info-wrapper {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+      font-size: 14px !important;
+      color: var(--text-muted) !important;
+      text-align: center;
+    }
+
+    #kc-registration,
+    #kc-registration-container {
+      font-size: 14px !important;
+      color: var(--text-muted) !important;
+      text-align: center;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Alerts & feedback (errors, warnings, success, info)
+       ---------------------------------------------------------------------------- */
+    .pf-v5-c-alert,
+    .pf-c-alert,
+    .alert {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      box-sizing: border-box;
+      margin: 0 0 18px !important;
+      padding: 12px 14px !important;
+      font-family: var(--font) !important;
+      font-size: 14px !important;
+      font-weight: 500 !important;
+      border: 1px solid transparent !important;
+      border-radius: 10px !important;
+      box-shadow: none !important;
+    }
+
+    .pf-v5-c-alert.pf-m-danger,
+    .pf-c-alert.pf-m-danger,
+    .alert-error,
+    .alert-danger,
+    #kc-error-message .instruction {
+      color: #991B1B !important;
+      background: #FEF2F2 !important;
+      border-color: #FECACA !important;
+    }
+
+    .pf-v5-c-alert.pf-m-warning,
+    .pf-c-alert.pf-m-warning,
+    .alert-warning {
+      color: #92400E !important;
+      background: #FFFBEB !important;
+      border-color: #FDE68A !important;
+    }
+
+    .pf-v5-c-alert.pf-m-success,
+    .pf-c-alert.pf-m-success,
+    .alert-success {
+      color: #065F46 !important;
+      background: #ECFDF5 !important;
+      border-color: #A7F3D0 !important;
+    }
+
+    .pf-v5-c-alert.pf-m-info,
+    .pf-c-alert.pf-m-info,
+    .alert-info {
+      color: #1E40AF !important;
+      background: #EFF6FF !important;
+      border-color: #BFDBFE !important;
+    }
+
+    .pf-v5-c-alert__icon,
+    .pf-c-alert__icon {
+      margin-top: 1px;
+    }
+
+    /* Per-field validation message */
+    .pf-v5-c-form__helper-text.pf-m-error,
+    .pf-c-form__helper-text.pf-m-error,
+    #input-error,
+    .kc-feedback-text,
+    .input-error {
+      display: block;
+      margin-top: 6px !important;
+      font-size: 12.5px !important;
+      font-weight: 500 !important;
+      color: #DC2626 !important;
+      text-align: left;
+    }
+
+    /* Invalid input state */
+    input[aria-invalid="true"],
+    .pf-v5-c-form-control.pf-m-error,
+    .pf-c-form-control.pf-m-error,
+    input.pf-m-error {
+      border-color: #F87171 !important;
+    }
+
+    input[aria-invalid="true"]:focus,
+    .pf-v5-c-form-control.pf-m-error:focus {
+      box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.25) !important;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Password-strength / meter helpers, misc PF text
+       ---------------------------------------------------------------------------- */
+    .pf-v5-c-helper-text,
+    .pf-c-helper-text,
+    .pf-v5-c-form__helper-text {
+      font-size: 12.5px !important;
+      color: var(--text-muted) !important;
+    }
+
+    /* Select (locale switch etc.) */
+    #kc-locale ul,
+    .pf-v5-c-menu {
+      border-radius: 10px !important;
+    }
+
+    /* Language selector top-right */
+    #kc-locale {
+      margin-bottom: 6px;
+    }
+
+    #kc-locale a,
+    #kc-locale-dropdown a {
+      color: var(--slate-400) !important;
+      font-weight: 500;
+    }
+
+    #kc-locale a:hover {
+      color: var(--slate-200) !important;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Footer — slogan (CSS-injected, sits at the bottom of the page)
+       ---------------------------------------------------------------------------- */
+    .login-pf-page::after {
+      content: "Adhar \2022  Built with \2764\FE0F  for developers!";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 28px;
+      text-align: center;
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--slate-400);
+      pointer-events: none;
+      padding: 0 16px;
+    }
+
+    /* ----------------------------------------------------------------------------
+       Responsive
+       ---------------------------------------------------------------------------- */
+    @media (max-width: 480px) {
+      .login-pf-page {
+        padding: 28px 14px 84px !important;
+      }
+      .login-pf-page .card-pf,
+      .card-pf {
+        padding: 28px 22px 26px !important;
+        border-radius: 14px !important;
+      }
+      #kc-header-wrapper {
+        width: 250px;
+        height: 66px;
+      }
+      #kc-page-title,
+      .login-pf-header h1 {
+        font-size: 20px !important;
+      }
+    }
+
+    /* ----------------------------------------------------------------------------
+       Reduced motion
+       ---------------------------------------------------------------------------- */
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        transition: none !important;
+        animation: none !important;
+      }
+    }
+
+    /* ----------------------------------------------------------------------------
+       Dark mode — the card adopts an Adhar slate surface
+       ---------------------------------------------------------------------------- */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --surface:        #172033;   /* slate-850-ish */
+        --surface-sunken: #0F172A;
+        --text-strong:    #F1F5F9;
+        --text-body:      #E2E8F0;
+        --text-muted:     #94A3B8;
+        --border:         #26324a;
+        --border-strong:  #334155;
+        --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4),
+                       0 18px 44px -12px rgba(0, 0, 0, 0.6),
+                       0 2px 10px rgba(99, 102, 241, 0.12);
+      }
+
+      .login-pf-page .card-pf,
+      .card-pf {
+        border-color: rgba(51, 65, 85, 0.9) !important;
+      }
+
+      input[type="text"],
+      input[type="password"],
+      input[type="email"],
+      input[type="number"],
+      input[type="tel"],
+      input[type="url"],
+      select,
+      textarea,
+      .pf-v5-c-form-control,
+      .pf-c-form-control,
+      #kc-form-login input {
+        background: #0F172A !important;
+        border-color: var(--border-strong) !important;
+        color: var(--text-strong) !important;
+      }
+
+      input:-webkit-autofill,
+      input:-webkit-autofill:hover,
+      input:-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--text-strong);
+        -webkit-box-shadow: 0 0 0 1000px #0F172A inset;
+      }
+
+      .pf-v5-c-button.pf-m-secondary,
+      .pf-c-button.pf-m-secondary,
+      .pf-v5-c-button.pf-m-default,
+      .pf-c-button.pf-m-default,
+      #kc-social-providers a,
+      #kc-social-providers li a,
+      .btn-default {
+        background: #0F172A !important;
+        color: var(--text-body) !important;
+      }
+
+      .pf-v5-c-button.pf-m-secondary:hover,
+      #kc-social-providers a:hover,
+      #kc-social-providers li a:hover {
+        background: #1c2740 !important;
+      }
+
+      /* Alerts keep readable tinted backgrounds on dark */
+      .pf-v5-c-alert.pf-m-danger,
+      .pf-c-alert.pf-m-danger,
+      .alert-error,
+      .alert-danger {
+        color: #FCA5A5 !important;
+        background: rgba(153, 27, 27, 0.18) !important;
+        border-color: rgba(248, 113, 113, 0.45) !important;
+      }
+      .pf-v5-c-alert.pf-m-warning,
+      .pf-c-alert.pf-m-warning,
+      .alert-warning {
+        color: #FCD34D !important;
+        background: rgba(146, 64, 14, 0.18) !important;
+        border-color: rgba(253, 230, 138, 0.4) !important;
+      }
+      .pf-v5-c-alert.pf-m-success,
+      .pf-c-alert.pf-m-success,
+      .alert-success {
+        color: #6EE7B7 !important;
+        background: rgba(6, 95, 70, 0.18) !important;
+        border-color: rgba(110, 231, 183, 0.4) !important;
+      }
+      .pf-v5-c-alert.pf-m-info,
+      .pf-c-alert.pf-m-info,
+      .alert-info {
+        color: #93C5FD !important;
+        background: rgba(30, 64, 175, 0.18) !important;
+        border-color: rgba(147, 197, 253, 0.4) !important;
+      }
+
+      a:hover,
+      #kc-content a:hover,
+      #kc-registration a:hover {
+        color: #A5B4FC;
+      }
+    }
+
+  adhar-symbol.svg: |
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="110 40 260 260" width="260" height="260" role="img" aria-label="Adhar symbol">
+      <defs>
+        <linearGradient id="symbolBrand" x1="120" y1="40" x2="360" y2="290" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#3B82F6"/>
+          <stop offset="0.5" stop-color="#6366F1"/>
+          <stop offset="1" stop-color="#8B5CF6"/>
+        </linearGradient>
+      </defs>
+      <g fill="url(#symbolBrand)" stroke="url(#symbolBrand)" stroke-width="6" stroke-linejoin="round">
+        <polygon points="240,50 297.16,83 297.16,149 240,182 182.84,149 182.84,83"/>
+        <polygon points="177.65,158 234.81,191 234.81,257 177.65,290 120.49,257 120.49,191"/>
+        <polygon points="302.35,158 359.51,191 359.51,257 302.35,290 245.19,257 245.19,191"/>
+      </g>
+      <path d="M 240,102 L 281,219 L 240,192 L 199,219 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"/>
+    </svg>
+
+  adhar-logo.svg: |
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 150" width="560" height="150" role="img" aria-label="Adhar">
+      <defs>
+        <linearGradient id="adharSymbolBrand" x1="120" y1="40" x2="360" y2="290" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#3B82F6"/>
+          <stop offset="0.5" stop-color="#6366F1"/>
+          <stop offset="1" stop-color="#8B5CF6"/>
+        </linearGradient>
+        <linearGradient id="adharWordmarkBrand" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#3B82F6"/>
+          <stop offset="0.5" stop-color="#6366F1"/>
+          <stop offset="1" stop-color="#8B5CF6"/>
+        </linearGradient>
+      </defs>
+      <!-- Gradient hexagon symbol, scaled 0.5x into a 130px box at (10,10) -->
+      <g transform="translate(10,10) scale(0.5) translate(-110,-40)">
+        <g fill="url(#adharSymbolBrand)" stroke="url(#adharSymbolBrand)" stroke-width="6" stroke-linejoin="round">
+          <polygon points="240,50 297.16,83 297.16,149 240,182 182.84,149 182.84,83"/>
+          <polygon points="177.65,158 234.81,191 234.81,257 177.65,290 120.49,257 120.49,191"/>
+          <polygon points="302.35,158 359.51,191 359.51,257 302.35,290 245.19,257 245.19,191"/>
+        </g>
+        <path d="M 240,102 L 281,219 L 240,192 L 199,219 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"/>
+      </g>
+      <!-- ADHAR wordmark (Inter 800; falls back to system-ui if Inter absent) -->
+      <text x="172" y="104" font-family="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="86" font-weight="800" letter-spacing="-2" fill="url(#adharWordmarkBrand)">ADHAR</text>
+    </svg>
+

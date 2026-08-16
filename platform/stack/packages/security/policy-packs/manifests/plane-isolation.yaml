@@ -1,0 +1,76 @@
+# Control-plane / data-plane isolation (ADR-0023 §6, roadmap Phase 2).
+#
+# INV-1: application workloads run only on data planes; the control plane runs
+# only fleet/platform services. This ClusterPolicy enforces that on the
+# MANAGEMENT (control) cluster: any application workload (Deployment/StatefulSet/
+# DaemonSet/Rollout/Job/CronJob) that lands in a namespace NOT labeled
+# `adhar.io/plane: control` is rejected.
+#
+# Staged rollout (same discipline as ADR-0019 and the CIS/SOC2 packs): ships in
+# Audit so violations only surface in PolicyReports. Flip to Enforce
+# (`adhar migrate split-planes` does this at its final step) once every app has
+# been re-homed to a data plane. `failurePolicy: Ignore` so a Kyverno outage can
+# never wedge the platform's own control loop (ADR-0012).
+#
+# Prerequisite for correctness: control-plane namespaces (adhar-system and the
+# hub/registry namespaces) must carry the label `adhar.io/plane: control`. Data
+# plane / app namespaces (the vcluster syncer namespace, per-team app namespaces)
+# are left unlabeled or labeled `adhar.io/plane: data`, so they are denied here —
+# their workloads belong on a registered DataPlane, placed via the workload
+# ApplicationSet + Sveltos (ADR-0023 §4–5).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: control-plane-no-apps
+  labels:
+    adhar.io/policy-pack: plane-isolation
+    adhar.io/plane: control
+    app.kubernetes.io/part-of: policy-packs
+  annotations:
+    policies.kyverno.io/title: "Plane isolation: no application workloads on the control plane"
+    policies.kyverno.io/category: "Plane isolation (ADR-0023)"
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Workload
+    policies.kyverno.io/description: >-
+      The control plane hosts only fleet/platform services. Application
+      workloads must target a registered data plane. Namespaces that host
+      control-plane services are labeled adhar.io/plane=control and excluded;
+      everything else is denied. Audit mode: violations are reported, not
+      blocked, until the split-planes migration flips this to Enforce.
+spec:
+  validationFailureAction: Audit
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: only-control-plane-workloads
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+                - Rollout
+      exclude:
+        any:
+          # Namespaces that legitimately host control-plane services.
+          - resources:
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/plane: control
+          # Never gate Kubernetes/GitOps system controllers.
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - local-path-storage
+      validate:
+        message: >-
+          This is the control plane; application workloads must target a data
+          plane (ADR-0023). Namespace {{ request.namespace }} is not labeled
+          adhar.io/plane=control. Declare placement in the environments repo and
+          let the workload ApplicationSet schedule it onto a DataPlane.
+        deny: {}

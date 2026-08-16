@@ -1,15 +1,102 @@
-# Loki (logs) and Tempo (traces) datasources for Grafana, loaded by the
-# datasource sidecar (label grafana_datasource: "1") — one pane for
-# metrics, logs and traces (ADR-0010).
+# LGTM datasources — the metrics/logs/traces/profiles backends, wired into one
+# correlated Grafana experience. The Grafana sidecar loads any ConfigMap labelled
+# grafana_datasource=1. UIDs are FIXED (prometheus/mimir/loki/tempo/pyroscope) to
+# exactly match the UIDs the in-repo dashboards pin to (generate-dashboards.py) —
+# without fixed UIDs those dashboards' Loki/Tempo/Mimir/Pyroscope panels resolve
+# to "datasource not found".
+#
+# Prometheus (uid: prometheus, isDefault) is provisioned by the kube-prometheus
+# chart itself (values.yaml) with exemplarTraceIdDestinations → Tempo; the four
+# below complete the LGTM stack and add the cross-links:
+#   • Loki   → derivedFields extract the trace_id from logs and deep-link to Tempo
+#   • Tempo  → tracesToLogsV2 (→ Loki), tracesToMetrics (→ Prometheus), serviceMap
+#              + nodeGraph so a trace's service graph and its logs are one click away
+#   • Mimir  → long-term Prometheus-compatible metrics (exemplars → Tempo too)
+#   • Pyroscope → continuous profiling
 apiVersion: v1
-data:
-  logs-traces-datasources.yaml: "apiVersion: 1\ndatasources:\n- access: proxy\n  name:\
-    \ Loki\n  type: loki\n  url: http://loki.adhar-system.svc.cluster.local:3100\n\
-    - access: proxy\n  name: Tempo\n  type: tempo\n  url: http://tempo.adhar-system.svc.cluster.local:3200\n"
 kind: ConfigMap
 metadata:
-  labels:
-    adhar.io/component: observability
-    grafana_datasource: '1'
   name: datasources-logs-traces
   namespace: adhar-system
+  labels:
+    adhar.io/component: observability
+    grafana_datasource: "1"
+data:
+  lgtm-datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      # ---- Logs -------------------------------------------------------------
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki.adhar-system.svc.cluster.local:3100
+        jsonData:
+          # Pull the trace id out of a log line (logfmt/JSON `trace_id=...`) and
+          # render a "View trace" button that jumps to Tempo.
+          derivedFields:
+            - name: TraceID
+              matcherType: regex
+              matcherRegex: '(?:trace_id|traceID|traceId)"?[:=]"?(\w+)'
+              url: '$${__value.raw}'
+              datasourceUid: tempo
+              urlDisplayLabel: 'View trace'
+          maxLines: 2000
+      # ---- Traces -----------------------------------------------------------
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://tempo.adhar-system.svc.cluster.local:3200
+        jsonData:
+          # Trace span → correlated logs in Loki (matched by pod/namespace + trace id).
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: '-5m'
+            spanEndTimeShift: '5m'
+            tags:
+              - key: 'service.name'
+                value: 'service_name'
+              - key: 'k8s.namespace.name'
+                value: 'namespace'
+              - key: 'k8s.pod.name'
+                value: 'pod'
+            filterByTraceID: true
+            filterBySpanID: false
+          # Trace span → RED metrics in Prometheus.
+          tracesToMetrics:
+            datasourceUid: prometheus
+            spanStartTimeShift: '-5m'
+            spanEndTimeShift: '5m'
+            tags:
+              - key: 'service.name'
+                value: 'service'
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+          lokiSearch:
+            datasourceUid: loki
+          streamingEnabled:
+            search: true
+      # ---- Long-term metrics (Mimir) ---------------------------------------
+      - name: Mimir
+        uid: mimir
+        type: prometheus
+        access: proxy
+        # mimir-distributed serves the Prometheus-compatible query API behind the
+        # gateway under /prometheus.
+        url: http://mimir-gateway.adhar-system.svc.cluster.local/prometheus
+        jsonData:
+          httpMethod: POST
+          prometheusType: Mimir
+          exemplarTraceIdDestinations:
+            - name: trace_id
+              datasourceUid: tempo
+          timeInterval: 30s
+      # ---- Continuous profiling (Pyroscope) --------------------------------
+      - name: Pyroscope
+        uid: pyroscope
+        type: grafana-pyroscope-datasource
+        access: proxy
+        url: http://pyroscope.adhar-system.svc.cluster.local:4040

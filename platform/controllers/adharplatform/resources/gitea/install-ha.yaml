@@ -1,3 +1,4 @@
+---
 # Source: gitea/charts/valkey-cluster/templates/networkpolicy.yaml
 kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
@@ -54,12 +55,12 @@ metadata:
   name: gitea
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   selector:
@@ -89,12 +90,12 @@ metadata:
   name: gitea-inline-config
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -110,6 +111,11 @@ stringData:
     USER=gitea
   indexer: ISSUE_INDEXER_TYPE=db
   metrics: ENABLED=true
+  oauth2_client: |-
+    ACCOUNT_LINKING=auto
+    ENABLE_AUTO_REGISTRATION=true
+    UPDATE_AVATAR=false
+    USERNAME=preferred_username
   queue: |-
     CONN_STR=redis+cluster://:@gitea-valkey-cluster-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
     TYPE=redis
@@ -137,12 +143,12 @@ metadata:
   name: gitea
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -309,12 +315,12 @@ metadata:
   name: gitea-init
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -2799,7 +2805,7 @@ metadata:
     {}
 spec:
   accessModes:
-      - ReadWriteOnce
+    - ReadWriteOnce
   volumeMode: Filesystem
   
   resources:
@@ -2858,22 +2864,22 @@ spec:
     app.kubernetes.io/instance: gitea
     app.kubernetes.io/name: valkey-cluster
 ---
-# Source: gitea/templates/gitea/http-svc.yaml
+# Source: gitea/templates/gitea/httpService.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: gitea-http
-  namespace: adhar-system
+  annotations:
+    {}
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
-  annotations:
-    {}
+  name: gitea-http
+  namespace: adhar-system
 spec:
   type: ClusterIP
   clusterIP: None
@@ -2885,22 +2891,22 @@ spec:
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
 ---
-# Source: gitea/templates/gitea/ssh-svc.yaml
+# Source: gitea/templates/gitea/sshService.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: gitea-ssh
-  namespace: adhar-system
+  annotations:
+    {}
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
-  annotations:
-    {}
+  name: gitea-ssh
+  namespace: adhar-system
 spec:
   type: ClusterIP
   clusterIP: None
@@ -2921,17 +2927,20 @@ metadata:
   namespace: adhar-system
   annotations:
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 100%
   selector:
     matchLabels:
       app.kubernetes.io/name: gitea
@@ -2939,14 +2948,14 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: f25158989f3fee2523c2646ae94f20de1d4444d865b8456b775b81ba9b08f80a
+        checksum/config: 05647565fdbb8aa0fd1c65383f80dc1c5224bffdff85a26f7de706f62324433a
       labels:
-        helm.sh/chart: gitea-12.6.0
+        helm.sh/chart: gitea-12.7.0
         app: gitea
         app.kubernetes.io/name: gitea
         app.kubernetes.io/instance: gitea
-        app.kubernetes.io/version: "1.26.1"
-        version: "1.26.1"
+        app.kubernetes.io/version: "1.27.0"
+        version: "1.27.0"
         app.kubernetes.io/managed-by: Helm
     spec:
       
@@ -2954,7 +2963,7 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: init-directories
-          image: "docker.gitea.com/gitea:1.26.1-rootless"
+          image: "docker.gitea.com/gitea:1.27.0-rootless"
           imagePullPolicy: IfNotPresent
           command:
             - "/usr/sbinx/init_directory_structure.sh"
@@ -2981,7 +2990,7 @@ spec:
               cpu: 100m
               memory: 128Mi
         - name: init-app-ini
-          image: "docker.gitea.com/gitea:1.26.1-rootless"
+          image: "docker.gitea.com/gitea:1.27.0-rootless"
           imagePullPolicy: IfNotPresent
           command:
           - "/usr/sbinx/config_environment.sh"
@@ -3014,7 +3023,7 @@ spec:
               cpu: 100m
               memory: 128Mi
         - name: configure-gitea
-          image: "docker.gitea.com/gitea:1.26.1-rootless"
+          image: "docker.gitea.com/gitea:1.27.0-rootless"
           command:
           - "/usr/sbinx/configure_gitea.sh"
           imagePullPolicy: IfNotPresent
@@ -3053,7 +3062,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: gitea
-          image: "docker.gitea.com/gitea:1.26.1-rootless"
+          image: "docker.gitea.com/gitea:1.27.0-rootless"
           imagePullPolicy: IfNotPresent
           env:
             # SSH Port values have to be set here as well for openssh configuration
@@ -3111,7 +3120,10 @@ spec:
               mountPath: /tmp
             - name: data
               mountPath: /data
-            
+            - mountPath: /etc/ssl/certs/adhar-platform-ca.pem
+              name: platform-ca
+              readOnly: true
+              subPath: tls.crt
       volumes:
         - name: init
           secret:
@@ -3121,6 +3133,13 @@ spec:
           secret:
             secretName: gitea
             defaultMode: 110
+        - name: platform-ca
+          secret:
+            items:
+            - key: tls.crt
+              path: tls.crt
+            optional: true
+            secretName: adhar-cert
         - name: inline-config-sources
           secret:
             secretName: gitea-inline-config
@@ -3327,12 +3346,12 @@ metadata:
   name: gitea
   namespace: adhar-system
   labels:
-    helm.sh/chart: gitea-12.6.0
+    helm.sh/chart: gitea-12.7.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.26.1"
-    version: "1.26.1"
+    app.kubernetes.io/version: "1.27.0"
+    version: "1.27.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   selector:

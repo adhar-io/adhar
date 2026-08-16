@@ -1,0 +1,5 @@
+site_name: 'Golden Path - Data Pipeline'
+nav:
+  - Home: index.md
+plugins:
+  - techdocs-core

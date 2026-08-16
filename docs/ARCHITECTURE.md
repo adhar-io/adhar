@@ -88,7 +88,7 @@ sequenceDiagram
 
     CLI->>K8s: 1. Create/attach cluster (CNI + kube-proxy disabled)
     CLI->>K8s: 2. Install Adhar CRDs
-    CLI->>Ctl: 3. Start controller-runtime manager (3 controllers)
+    CLI->>Ctl: 3. Start controller-runtime manager (4 controllers)
     CLI->>K8s: 4. CoreDNS rewrites + self-signed TLS
     CLI->>K8s: 5. Create AdharPlatform CR
     Ctl->>K8s: 6. Gateway API CRDs → Cilium → Cilium Gateway (pin NodePorts)
@@ -99,7 +99,7 @@ sequenceDiagram
     Ctl->>CLI: 11. Platform Ready → graceful shutdown (local mode)
 ```
 
-The bootstrap manifests (Cilium, Gateway, ArgoCD, Gitea, Crossplane) are **embedded in the binary** via `go:embed` and applied with Server-Side Apply (`ForceOwnership`) — bootstrap has no network dependency on chart repositories and no external `kubectl`.
+The bootstrap manifests (Cilium, Gateway, ArgoCD, Gitea, Crossplane) are **embedded in the binary** via `go:embed` and applied with Server-Side Apply (`ForceOwnership`) — bootstrap has no network dependency on chart repositories and no external `kubectl`. Versions are pinned in the embedded manifests — currently Cilium 1.20, ArgoCD v3.5.1 (argo-cd chart 10.3.3), and Gitea v1.27.0 (chart 12.7.0) — and advance only when the manifests are regenerated from `hack/`.
 
 ### Phase 2 — GitOps (declarative, continuous)
 
@@ -110,17 +110,28 @@ After bootstrap, the in-cluster Gitea instance holds two repositories that are t
 | `adhar/packages` | 87 package directories: pre-rendered manifests (`manifests/install.yaml`), `values.yaml`, `generate-manifests.sh` | ArgoCD ApplicationSet |
 | `adhar/environments` | Per-environment configuration (`local`, `development`, `testing`, `staging`, `production`) | ApplicationSet generators, controllers |
 
-A single ArgoCD **ApplicationSet** wires all packages using a list generator: every package is declared with `name`, `namespace`, `category`, `manifestPath`, and an `enabled` flag; a selector deploys only `enabled: "true"` entries ([ADR-0004](adr/0004-applicationset-package-model.md)). Locally a curated core (~16 packages) is enabled; production environments enable more. Enabling a package is a one-line Git change.
+The ApplicationSet is **selected by provider**: Kind (or unset) gets `adhar-appset-local.yaml`, a curated single-node core (~16 packages); cloud/on-prem gets `adhar-appset-production.yaml`, the full catalog (69+ enabled); a thin `adhar-appset-workload.yaml` targets registered data-plane clusters (§8). Each ApplicationSet wires packages with a list generator — every package is declared with `name`, `namespace`, `category`, `manifestPath`, and an `enabled` flag, and a selector deploys only `enabled: "true"` entries ([ADR-0004](adr/0004-applicationset-package-model.md)). Enabling a package is a one-line Git change.
+
+### Bootstrap resilience (status-gated, resumable)
+
+The two-phase bootstrap is designed so no failure requires manual cleanup and a clean exit is impossible while any gate is unmet. Each phase is gated on an end-of-phase flag on the `AdharPlatform` `.status`, making the bootstrap **all-or-retry** and resumable:
+
+- **Idempotent foundation** — every installer is Server-Side Apply with force ownership, so re-running (or re-entering after a partial failure) is always safe.
+- **GitOps phase gated on `RepositoriesCreated`** — the phase populates the Gitea repos, applies the ArgoCD repo auth, and applies the ApplicationSet; repo creation is 409-tolerant and population is a force push, so re-entry re-applies the stack idempotently.
+- **Verify-before-exit** — the shutdown/verify gate confirms the ApplicationSet *and* the `gitea-argocd` repo-auth Service both exist before bootstrap reports success, so `adhar up` never reports success on a half-wired platform; an interrupted local run resumes from the exact pending gate on re-run.
+
+Full mechanics — the reconcile pipeline, the GitOps-phase gate, and the failure/recovery matrix — are in the low-level design [design/0001 §4.1, §6.1, §9](design/0001-management-cluster-first.md).
 
 ### Reconciliation model
 
-Three controllers (controller-runtime, KubeBuilder v4) own the platform's CRDs in API group `platform.adhar.io/v1alpha1`:
+Four controllers (controller-runtime, KubeBuilder v4) own the platform's CRDs in API group `platform.adhar.io/v1alpha1`:
 
 | Controller | CRD | Responsibility |
 |------------|-----|----------------|
 | **AdharPlatform** | `AdharPlatform` | Lifecycle of foundation components (Cilium, Gateway, ArgoCD, Gitea, Crossplane); GitOps repo setup; component health in `.status` |
 | **GitRepository** | `GitRepository` | Git repos across providers (Gitea, GitHub, GitLab, Bitbucket) from local, remote, or embedded sources |
 | **CustomPackage** | `CustomPackage` | User workloads delivered as ArgoCD Applications/ApplicationSets through Gitea |
+| **DataPlane** | `DataPlane` | Registers and governs workload/data-plane clusters (ArgoCD registration, thin-agent profile, Cilium mesh, observability hub); rolls `FleetStatus` up onto `AdharPlatform`. Implemented for the T3 topology (§8), awaiting a live multi-cluster run |
 
 In local mode the manager runs in the CLI process and exits when the platform is `Deployed`; in production mode the same manager runs **in-cluster** so reconciliation is continuous (§8).
 
@@ -240,6 +251,8 @@ flowchart LR
 - Environment promotion (dev → staging → prod) is Git promotion, optionally orchestrated by Kargo
 - Blast-radius isolation: a workload cluster outage never takes down the control plane, and vice versa the platform degrades to "no changes" — running apps keep running
 
+**Control-plane / data-plane separation** ([ADR-0023](adr/0023-control-dataplane-separation.md)) makes the two roles first-class and enforced: the control plane runs only fleet/platform services, and all application workloads run on data planes. A cluster-scoped `DataPlane` API and its controller (`platform/controllers/dataplane/`) register workload clusters, push the thin-agent profile, wire Cilium Cluster Mesh, and roll fleet health up onto `AdharPlatform`. Placement is driven by the `adhar.io/plane` label, and a control-plane Kyverno policy (`control-plane-no-apps`) keeps application workloads off `adhar-system`. Operators drive it with `adhar get dataplanes` and the staged, reversible `adhar migrate split-planes` (which stands up a local vcluster data plane so apps run off the control plane even on a laptop). This is code-complete and exercised under test but **awaiting a live multi-cluster run** — see [Roadmap](ROADMAP.md) Phase 2.
+
 Full HA sizing, backup/DR procedures, and hardening steps live in the [Production Guide](PRODUCTION.md).
 
 ## 9. Extensibility & Customization Model
@@ -300,12 +313,28 @@ In topology T3, workload clusters run only collectors; the management cluster ho
 | [ADR-0008](adr/0008-keycloak-platform-identity.md) | Keycloak as the platform identity provider (OIDC everywhere) |
 | [ADR-0009](adr/0009-secrets-eso-vault.md) | Secrets: ESO as sync plane, Vault as source of truth, never Git |
 | [ADR-0010](adr/0010-observability-lgtm-otel.md) | Observability: OTel collection, Grafana LGTM storage, hub-and-spoke |
-| … | [ADR-0011 through ADR-0022](adr/README.md) — the full index |
+| [ADR-0011](adr/0011-shared-platform-namespace.md) | Single shared namespace (`adhar-system`) for platform packages |
+| [ADR-0012](adr/0012-single-node-resilience-tuning.md) | Resilience tuning for single-node local clusters |
+| [ADR-0013](adr/0013-sso-bootstrap-config-job.md) | SSO bootstrap via idempotent in-cluster config job |
+| [ADR-0014](adr/0014-package-lifecycle-operations.md) | Package lifecycle operations: toggling, verification, clean removal |
+| [ADR-0015](adr/0015-idp-critical-pillars.md) | Critical pillars of the IDP — the tests every addition must pass |
+| [ADR-0016](adr/0016-vcluster-local-first-development.md) | vCluster as the virtual-cluster primitive for local-first development and tenancy |
+| [ADR-0017](adr/0017-preview-environments.md) | Ephemeral preview environments per pull request |
+| [ADR-0018](adr/0018-jenkins-x-ci-model.md) | CI on the platform: Jenkins X pipeline model on Tekton, promotion via GitOps |
+| [ADR-0019](adr/0019-secure-supply-chain-chainguard.md) | Secure software supply chain: Chainguard images, Sigstore signing, policy admission |
+| [ADR-0020](adr/0020-iceberg-data-lakehouse.md) | Data lakehouse on Apache Iceberg over platform object storage |
+| [ADR-0021](adr/0021-day2-operations-first-class.md) | Day-2 operations as a first-class product surface |
+| [ADR-0022](adr/0022-custom-clusters-no-managed-k8s.md) | Custom clusters on raw cloud infrastructure — no managed Kubernetes |
 | [ADR-0023](adr/0023-control-dataplane-separation.md) | Control-plane / data-plane separation with a first-class DataPlane API (Proposed) |
 | [ADR-0024](adr/0024-agentic-ai-platform.md) | Agentic AI platform — MCP-native tools and a GitOps-safe agent runtime (Proposed) |
 
+See the [ADR index](adr/README.md) for the full register and status of each record.
+
 ## 13. Related Documents
 
+- [Bootstrap Low-Level Design](design/0001-management-cluster-first.md) — the authoritative as-built design of the two-phase bootstrap (reconcile pipeline, status gates, failure/recovery matrix)
+- [User Guide — Bootstrap & Day-2 Operations](USER_GUIDE.md#6-bootstrap--day-2-operations) — verify-healthy, re-run, upgrade, and teardown procedures for the bootstrap
+- [Troubleshooting](TROUBLESHOOTING.md) — operator-facing failure-signature runbook
 - [Control Plane In Depth](CONTROL_PLANE.md) — the Crossplane v2 control plane: how it's built, integrated, and operated
 - [Roadmap](ROADMAP.md) — phased path from today's implementation to the full T3 production topology
 - [Production Guide](PRODUCTION.md) — HA, hardening, backup/DR, upgrades

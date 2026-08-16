@@ -1,0 +1,41 @@
+# Adhar marketplace contract for the trivy package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: trivy
+category: security
+version: 0.33.1         # tracks the aqua/trivy-operator Helm chart version (generate-manifests.sh)
+description: Trivy Operator continuously scans cluster workloads for vulnerabilities, misconfigurations and secrets, writing results to CRDs.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://aquasecurity.github.io/trivy-operator
+adharCompatibility:
+  minVersion: 0.0.1
+  notes: operator.namespace pinned to adhar-system (env-var value, not a namespace field) to survive namespace consolidation.
+dependencies: []          # standalone operator; no other package required
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: aqua/trivy-operator
+  signed: true
+  cosignKeyless: true          # GoReleaser Cosign keyless (Sigstore Fulcio + Rekor), ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: sbom/trivy.spdx.json
+planeAffinity: any             # operator is control-plane; scan jobs run wherever workloads land
+stability: stable
+resources:
+  cpu: 250m
+  memory: 384Mi
+  storage: "0"
+  footprint: small
+  localSafe: true
+keywords:
+  - security
+  - scanning
+  - vulnerabilities
+  - sbom
+  - supply-chain

@@ -1,0 +1,5 @@
+# Dagster workspace: loads the pipeline definitions. Bake this (and pipeline.py
+# + dbt/) into your image at /opt/dagster/workspace.yaml so the webserver
+# Deployment and the materialize CronJob resolve the same code location.
+load_from:
+  - python_module: dagster.pipeline

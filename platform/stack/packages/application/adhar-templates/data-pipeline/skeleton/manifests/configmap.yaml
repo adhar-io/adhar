@@ -1,0 +1,21 @@
+# Iceberg REST catalog wiring (ADR-0020): every engine — Dagster/PyIceberg here,
+# Trino for dbt — talks to the one platform-operated Iceberg REST catalog, so
+# tables written by this pipeline are immediately readable by the rest. Points
+# at the placeholder platform `iceberg-rest` service; override warehouse/URI per
+# environment. The warehouse is a bucket provisioned via a Crossplane XR.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{values.name}}-iceberg-catalog
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+data:
+  ICEBERG_REST_URI: "http://iceberg-rest.adhar-system.svc:8181"
+  ICEBERG_WAREHOUSE: "s3://lakehouse/${{values.name}}"
+  TARGET_TABLE: ${{values.targetTable | dump}}
+  SOURCE_CONNECTOR: ${{values.sourceConnector | dump}}
+  TRINO_HOST: "trino.adhar-system.svc"
+  TRINO_PORT: "8080"

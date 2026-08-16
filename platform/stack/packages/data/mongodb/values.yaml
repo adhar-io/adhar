@@ -1,22 +1,38 @@
-# MongoDB document database (Bitnami chart). Headless/ClusterIP service only --
-# MongoDB has no web UI, so there is no Gateway API HTTPRoute for this package
-# (clients connect over the mongodb wire protocol in-cluster).
-architecture: standalone
+# MongoDB Community Kubernetes Operator (mongodb/community-operator).
+#
+# This package installs the OPERATOR + CRDs ONLY. It does NOT create a MongoDB
+# instance. Once enabled, workloads request a database on demand by applying a
+# `MongoDBCommunity` custom resource (a MongoDB replica set) into their own
+# namespace; the operator reconciles it. MongoDB speaks its own wire protocol
+# and has no web UI, so there is no Gateway API HTTPRoute for this package.
+#
+# Provided disabled-by-default in the ApplicationSet -- enable it only when a
+# workload actually needs MongoDB.
 
-auth:
-  rootPassword: adhar-mongodb
+operator:
+  # Watch all namespaces so MongoDBCommunity resources can be created wherever a
+  # workload lives, not only in adhar-system.
+  watchNamespace: "*"
+
+  replicas: 1
+
+  # Resource requests/limits for the operator pod (Adhar defaults).
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+registry:
+  # Only pull the operator image when the tag actually changes.
+  pullPolicy: IfNotPresent
+
+# Ship the CRDs alongside the operator (MongoDBCommunity). Handled by the
+# community-operator-crds subchart.
+community-operator-crds:
   enabled: true
 
-persistence:
-  enabled: true
-  size: 4Gi
-
-service:
-  type: ClusterIP
-
-resources:
-  requests:
-    cpu: 250m
-    memory: 512Mi
-  limits:
-    memory: 1Gi
+# Do NOT deploy a MongoDBCommunity instance from this chart -- operator only.
+createResource: false

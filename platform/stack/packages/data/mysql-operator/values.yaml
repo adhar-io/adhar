@@ -1,0 +1,46 @@
+# Oracle MySQL Operator for Kubernetes (Helm chart) values.
+#
+# This is the CLUSTER-WIDE MySQL Operator. It installs the operator controller
+# plus its CRDs (InnoDBCluster, MySQLBackup, ...) and then manages InnoDB
+# MySQL clusters on demand — you create an `InnoDBCluster` custom resource in
+# any namespace and the operator provisions/heals the MySQL InnoDB Cluster for
+# you. It does NOT create a MySQL database instance by itself; this package is
+# intentionally operator-only.
+#
+# Shipped DISABLED by default in the Adhar ApplicationSet (enabled: false for
+# local). Enable it only when a workload actually needs MySQL, then declare an
+# InnoDBCluster CR for that workload.
+#
+# disableLookups: true — the chart performs live-cluster lookups to derive its
+# Deployment/RBAC identity. Adhar renders manifests render-only via
+# `helm template`, so lookups are disabled to keep templating deterministic and
+# cluster-independent (ArgoCD applies the rendered YAML).
+disableLookups: true
+
+image:
+  registry: container-registry.oracle.com
+  repository: mysql
+  name: community-operator
+  # Always let the operator pull the pinned appVersion image; keep predictable.
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+envs:
+  imagesPullPolicy: IfNotPresent
+
+# Single operator replica is sufficient for local/dev; the operator is a
+# leader-elected singleton controller.
+replicas: 1
+
+deployment:
+  # Empty namespaces => cluster-wide watching (manages InnoDBClusters in any
+  # namespace). Keep the operator itself installed into adhar-system.
+  # Modest operator footprint suitable for a local Kind cluster.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

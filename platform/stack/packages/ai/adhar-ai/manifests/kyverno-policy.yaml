@@ -1,0 +1,101 @@
+# Adhar AI — agent-action guardrails (ADR-0024 §7, §11; Decision point 6).
+#
+# Defense-in-depth on the control plane. The PRIMARY safety property is
+# architectural: the agent has no cluster-mutating RBAC and its only write path
+# is a Gitea PR (namespace-and-rbac.yaml). This Kyverno ClusterPolicy is the
+# admission-side backstop:
+#
+#   Rule 1 (require-origin-label): anything the agent's own ServiceAccount
+#           creates/updates MUST carry `adhar.io/origin: adhar-ai`, so every
+#           AI-touched object is attributable in audit and to the other rules.
+#   Rule 2 (block-direct-mutation): the adhar-ai ServiceAccount must NOT be the
+#           actor creating/updating platform workloads directly — changes have
+#           to arrive through the PR -> ArgoCD path, whose applier is the ArgoCD
+#           controller, not adhar-ai. A direct apply by adhar-ai is flagged.
+#
+# Mode: Audit (report, do not block) — staged rollout per ADR-0019 convention.
+# Flip validationFailureAction to Enforce once trust is calibrated.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: adhar-ai-guardrails
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    policies.kyverno.io/title: Adhar AI Guardrails
+    policies.kyverno.io/category: Agentic AI (ADR-0024)
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Audits agent-originated activity. AI-created resources must carry the
+      adhar.io/origin=adhar-ai label, and the adhar-ai ServiceAccount must not
+      directly mutate platform workloads (its only sanctioned write path is a
+      Gitea PR that ArgoCD later reconciles). Audit mode: violations are
+      reported, not blocked.
+spec:
+  validationFailureAction: Audit
+  background: true
+  emitWarning: true
+  rules:
+    # 1. Anything created/updated by adhar-ai must be labelled as AI-originated.
+    - name: require-origin-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - ConfigMap
+                - Secret
+              operations: ["CREATE", "UPDATE"]
+              subjects:
+                - kind: ServiceAccount
+                  name: adhar-ai
+                  namespace: adhar-system
+      validate:
+        message: >-
+          Resources created by the adhar-ai ServiceAccount must carry the label
+          adhar.io/origin=adhar-ai for attribution and audit.
+        pattern:
+          metadata:
+            labels:
+              adhar.io/origin: adhar-ai
+    # 2. The agent must NOT directly mutate platform workloads. Sanctioned
+    #    changes flow PR -> ArgoCD (applied by the argocd controller), never by
+    #    the adhar-ai identity applying to the cluster itself.
+    - name: block-direct-workload-mutation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - CronJob
+                - argoproj.io/v1alpha1/Application
+              operations: ["CREATE", "UPDATE", "DELETE"]
+              subjects:
+                - kind: ServiceAccount
+                  name: adhar-ai
+                  namespace: adhar-system
+      exclude:
+        # The agent's OWN runtime artefacts (its self-managed ConfigMaps live
+        # under adhar-ai-self RBAC) are not platform workloads; workload kinds
+        # above never overlap them, but keep an explicit escape for its own
+        # namespace-scoped bookkeeping objects labelled as AI-origin.
+        any:
+          - resources:
+              selector:
+                matchLabels:
+                  adhar.io/origin: adhar-ai
+                  adhar.io/self-managed: "true"
+      validate:
+        message: >-
+          The adhar-ai agent may not directly create/update/delete platform
+          workloads. Changes must be proposed as a Gitea PR and applied by
+          ArgoCD after human review (ADR-0024 PR-only write path).
+        deny: {}

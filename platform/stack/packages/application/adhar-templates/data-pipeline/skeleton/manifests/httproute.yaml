@@ -1,0 +1,27 @@
+# Dagster UI routed through the platform's Cilium Gateway (adhar-gateway in
+# adhar-system, listeners allow routes from all namespaces). TLS terminates at
+# the Gateway; the UI is reachable at
+# https://${{values.name}}.adhar.localtest.me:8443 on the local profile.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ${{values.name | dump}}
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - ${{values.name}}.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: ${{values.name}}
+          port: 80

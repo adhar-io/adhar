@@ -1,0 +1,288 @@
+---
+# The scoring logic, kept as a mounted script so the CronJob spec stays small
+# and the algorithm is reviewable in one place. Pure kubectl + jq; no build
+# step, no custom image. Runnable by hand:
+#   kubectl -n adhar-system run scorecard --rm -it --restart=Never \
+#     --overrides='{"spec":{"serviceAccountName":"adhar-scorecard"}}' \
+#     --image=alpine/k8s:1.31.1 -- bash /scripts/score.sh
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-scorecard-script
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/name: adhar-scorecard
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+data:
+  score.sh: |
+    #!/usr/bin/env bash
+    # adhar production-readiness scorer. Gathers real in-cluster signals and
+    # writes a 0-100 score + letter grade per service to a ConfigMap.
+    set -euo pipefail
+
+    OUT_NS="${OUTPUT_NAMESPACE:-adhar-system}"
+    OUT_CM="${OUTPUT_CONFIGMAP:-adhar-scorecards}"
+    CONFIG_DIR="${CONFIG_DIR:-/config}"
+    WORKDIR="$(mktemp -d)"
+    trap 'rm -rf "$WORKDIR"' EXIT
+
+    # Read a tunable from the mounted config ConfigMap, with a fallback default.
+    readcfg() {
+      local f="$CONFIG_DIR/$1"
+      if [ -f "$f" ]; then tr -d ' \n\r' < "$f"; else printf '%s' "$2"; fi
+    }
+
+    W_REL=$(readcfg weight_reliability 35)
+    W_SEC=$(readcfg weight_security 25)
+    W_OBS=$(readcfg weight_observability 15)
+    W_OPS=$(readcfg weight_operations 25)
+    G_A=$(readcfg grade_a 90)
+    G_B=$(readcfg grade_b 80)
+    G_C=$(readcfg grade_c 70)
+    G_D=$(readcfg grade_d 60)
+
+    # Collect a resource cluster-wide as JSON; degrade gracefully if the CRD or
+    # resource type is not installed (empty item list instead of an error).
+    get_json() { kubectl get "$1" -A -o json 2>/dev/null || echo '{"items":[]}'; }
+
+    echo "adhar-scorecard: collecting signals..."
+    APPS=$(get_json applications.argoproj.io)
+    WORKLOADS=$(kubectl get deployments,statefulsets -A -o json 2>/dev/null || echo '{"items":[]}')
+    REPORTS=$(get_json policyreports.wgpolicyk8s.io)
+    ROUTES=$(get_json httproutes.gateway.networking.k8s.io)
+    SCHEDULES=$(get_json schedules.velero.io)
+    CNPG=$(get_json clusters.postgresql.cnpg.io)
+
+    echo "adhar-scorecard: computing scores..."
+    jq -n \
+      --argjson apps "$APPS" \
+      --argjson workloads "$WORKLOADS" \
+      --argjson reports "$REPORTS" \
+      --argjson routes "$ROUTES" \
+      --argjson schedules "$SCHEDULES" \
+      --argjson cnpg "$CNPG" \
+      --argjson wrel "$W_REL" --argjson wsec "$W_SEC" \
+      --argjson wobs "$W_OBS" --argjson wops "$W_OPS" \
+      --argjson ga "$G_A" --argjson gb "$G_B" --argjson gc "$G_C" --argjson gd "$G_D" \
+      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+      # ---- helpers ----------------------------------------------------------
+      def imgbad($img):
+        ($img | type == "string")
+        and (($img | test(":latest$")) or (($img | test(":")) | not));
+      def grade($s):
+        if   $s >= $ga then "A"
+        elif $s >= $gb then "B"
+        elif $s >= $gc then "C"
+        elif $s >= $gd then "D"
+        else "F" end;
+
+      # Kyverno pass/fail aggregated by namespace.
+      ( reduce ($reports.items // [])[] as $r ({};
+          ($r.metadata.namespace // "_cluster") as $ns
+          | .[$ns] = {
+              pass: ((.[$ns].pass // 0) + ($r.summary.pass // 0)),
+              fail: ((.[$ns].fail // 0) + ($r.summary.fail // 0))
+            }
+        )
+      ) as $polByNs |
+
+      [ ($apps.items // [])[] |
+        . as $app |
+        ($app.metadata.name) as $name |
+        ($app.spec.destination.namespace // $app.metadata.namespace // "default") as $ns |
+        ($app.status.health.status // "Unknown") as $health |
+        ($app.status.sync.status // "Unknown") as $sync |
+
+        # Prefer workloads carrying ArgoCD instance label; else namespace match.
+        ([ ($workloads.items // [])[]
+           | select(.metadata.labels["app.kubernetes.io/instance"] == $name) ]) as $wlInst |
+        (if ($wlInst | length) > 0 then $wlInst
+         else [ ($workloads.items // [])[] | select(.metadata.namespace == $ns) ] end) as $wl |
+        ([ $wl[] | (.spec.template.spec.containers // [])[] ]) as $cs |
+        (($cs | length) > 0) as $hasC |
+
+        # reliability
+        ($health == "Healthy") as $healthy |
+        ($hasC and (all($cs[]; (.readinessProbe != null) and (.livenessProbe != null)))) as $probesOk |
+        ($hasC and (all($cs[]; (.resources.requests != null) and (.resources.limits != null)))) as $resOk |
+
+        # security
+        ($hasC and (all($cs[]; (imgbad(.image)) | not))) as $imgOk |
+        ($polByNs[$ns] // {pass:0, fail:0}) as $pol |
+        (($pol.pass + $pol.fail) > 0) as $hasPol |
+        (if $hasPol then ($pol.pass / ($pol.pass + $pol.fail)) else 0 end) as $passRate |
+
+        # observability
+        ($sync == "Synced") as $synced |
+        ([ ($routes.items // [])[] | select(.metadata.namespace == $ns) ] | length > 0) as $exposed |
+
+        # operations
+        (any($wl[]?; .kind == "StatefulSet")) as $hasSts |
+        ([ ($cnpg.items // [])[] | select(.metadata.namespace == $ns) ]) as $cnpgHere |
+        ($hasSts or (($cnpgHere | length) > 0)) as $stateful |
+        ( ([ ($schedules.items // [])[]
+             | select(((.spec.template.includedNamespaces // [])
+                       | (index($ns) != null or index("*") != null))) ] | length > 0)
+          or (any($cnpgHere[]?; .spec.backup != null)) ) as $backupOk |
+
+        # signal ledger
+        [
+          {name:"argocd_healthy",    category:"reliability",    applicable:true,      score:(if $healthy  then 1 else 0 end)},
+          {name:"probes",            category:"reliability",    applicable:$hasC,     score:(if $probesOk then 1 else 0 end)},
+          {name:"resources",         category:"reliability",    applicable:$hasC,     score:(if $resOk    then 1 else 0 end)},
+          {name:"image_not_latest",  category:"security",       applicable:$hasC,     score:(if $imgOk    then 1 else 0 end)},
+          {name:"kyverno_pass_rate", category:"security",       applicable:$hasPol,   score:$passRate},
+          {name:"argocd_synced",     category:"observability",  applicable:true,      score:(if $synced  then 1 else 0 end)},
+          {name:"httproute_exposed", category:"observability",  applicable:true,      score:(if $exposed then 1 else 0 end)},
+          {name:"backup",            category:"operations",     applicable:$stateful, score:(if $backupOk then 1 else 0 end)}
+        ] as $signals |
+
+        # Category fraction = mean of applicable signals; neutral 1.0 if none apply.
+        ( ["reliability","security","observability","operations"]
+          | map( . as $cat
+            | [ $signals[] | select(.category == $cat and .applicable) ] as $s
+            | { key: $cat,
+                value: (if ($s | length) > 0 then (([ $s[].score ] | add) / ($s | length)) else 1 end) }
+          ) | from_entries ) as $cf |
+
+        (($wrel + $wsec + $wobs + $wops)) as $wtot |
+        ( ( $cf.reliability   * $wrel
+          + $cf.security      * $wsec
+          + $cf.observability * $wobs
+          + $cf.operations    * $wops ) / $wtot * 100 | floor ) as $score |
+
+        {
+          name: $name,
+          namespace: $ns,
+          stateful: $stateful,
+          score: $score,
+          grade: grade($score),
+          health: $health,
+          sync: $sync,
+          categories: ($cf | map_values((. * 100) | floor)),
+          signals: $signals
+        }
+      ] as $services |
+
+      {
+        generatedAt: $ts,
+        weights: {reliability:$wrel, security:$wsec, observability:$wobs, operations:$wops},
+        gradeThresholds: {A:$ga, B:$gb, C:$gc, D:$gd},
+        serviceCount: ($services | length),
+        averageScore: (if ($services | length) > 0
+                       then ([ $services[].score ] | add) / ($services | length) | floor
+                       else 0 end),
+        services: ($services | sort_by(.score) | reverse)
+      }
+    ' > "$WORKDIR/summary.json"
+
+    # Compact lookup: service name -> {score, grade} (what the Console reads).
+    jq '{ generatedAt: .generatedAt,
+          services: ([ .services[] | {key: .name, value: {score, grade}} ] | from_entries) }' \
+      "$WORKDIR/summary.json" > "$WORKDIR/index.json"
+
+    echo "adhar-scorecard: writing ConfigMap ${OUT_NS}/${OUT_CM} ..."
+    kubectl create configmap "$OUT_CM" -n "$OUT_NS" \
+      --from-file=summary.json="$WORKDIR/summary.json" \
+      --from-file=index.json="$WORKDIR/index.json" \
+      --dry-run=client -o yaml | kubectl apply -f -
+
+    kubectl -n "$OUT_NS" label configmap "$OUT_CM" \
+      adhar.io/component=scorecards \
+      app.kubernetes.io/managed-by=adhar-scorecard-scorer \
+      app.kubernetes.io/part-of=adhar --overwrite >/dev/null
+    kubectl -n "$OUT_NS" annotate configmap "$OUT_CM" \
+      adhar.io/scorecard-generated-at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite >/dev/null
+
+    echo "adhar-scorecard: scored $(jq '.serviceCount' "$WORKDIR/summary.json") services (avg $(jq '.averageScore' "$WORKDIR/summary.json"))."
+    jq -r '.services[] | "  \(.grade)  \((.score|tostring) + "    " | .[0:4])  \(.name)"' "$WORKDIR/summary.json" || true
+---
+# Runs the scorer every 30 minutes. Read-only SA; the only write is the results
+# ConfigMap. Non-root, read-only root FS, everything scratch goes to emptyDir.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: adhar-scorecard-scorer
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    app.kubernetes.io/name: adhar-scorecard
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            adhar.io/component: scorecards
+            app.kubernetes.io/name: adhar-scorecard
+            app.kubernetes.io/part-of: adhar
+        spec:
+          serviceAccountName: adhar-scorecard
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: scorer
+              image: alpine/k8s:1.31.1
+              imagePullPolicy: IfNotPresent
+              command: ["bash", "/scripts/score.sh"]
+              env:
+                - name: OUTPUT_NAMESPACE
+                  value: adhar-system
+                - name: OUTPUT_CONFIGMAP
+                  value: adhar-scorecards
+                - name: CONFIG_DIR
+                  value: /config
+                # kubectl needs a writable HOME/cache with a read-only root FS.
+                - name: HOME
+                  value: /tmp
+                - name: KUBECACHEDIR
+                  value: /tmp/.kube/cache
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: adhar-scorecard-script
+                defaultMode: 0555
+            - name: config
+              configMap:
+                name: adhar-scorecard-config
+            - name: tmp
+              emptyDir: {}

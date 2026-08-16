@@ -1,0 +1,115 @@
+---
+# Console (Backstage) integration surface for scorecards.
+#
+# The scorer publishes results to the `adhar-scorecards` ConfigMap (keys
+# summary.json + index.json). That ConfigMap is runtime-generated and is
+# deliberately NOT shipped in Git -- ArgoCD selfHeal would otherwise revert the
+# scorer's writes. This file ships only the *static* integration glue:
+#   1. how a Backstage Component references its score (the annotation contract),
+#   2. an app-config snippet wiring a proxy + TechInsights fact so the Console
+#      can render the badge from the ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-scorecard-console
+  namespace: adhar-system
+  labels:
+    adhar.io/component: scorecards
+    adhar.io/console-integration: scorecards
+    app.kubernetes.io/name: adhar-scorecard
+    app.kubernetes.io/part-of: adhar
+    app.kubernetes.io/managed-by: argocd
+  annotations:
+    # Lets the Backstage Kubernetes plugin locate this ConfigMap by entity id.
+    backstage.io/kubernetes-id: adhar-scorecard
+data:
+  # ----- Entity annotation contract ---------------------------------------
+  # A catalog Component opts into a scorecard by carrying:
+  #
+  #   metadata:
+  #     annotations:
+  #       adhar.io/scorecard: <service-key>   # key into adhar-scorecards/index.json
+  #
+  # When the annotation value is omitted, the Console falls back to the entity's
+  # metadata.name. The <service-key> is the ArgoCD Application name for the
+  # service (which is what the scorer keys results by).
+  annotation.md: |
+    # adhar.io/scorecard entity annotation
+
+    Add to any Backstage `Component` to surface its production-readiness grade:
+
+    ```yaml
+    apiVersion: backstage.io/v1alpha1
+    kind: Component
+    metadata:
+      name: my-service
+      annotations:
+        adhar.io/scorecard: my-service   # -> adhar-scorecards/index.json["my-service"]
+    spec:
+      type: service
+      lifecycle: production
+      owner: platform-team
+    ```
+
+    Resolution:
+      1. Console reads ConfigMap `adhar-system/adhar-scorecards`.
+      2. `index.json` -> `{ "<service-key>": { "score": 87, "grade": "B" } }`.
+      3. `summary.json` -> full per-signal breakdown for the drill-down panel.
+
+  # ----- Backstage app-config wiring (mount/merge into the Console) --------
+  # Exposes the scorecard ConfigMap over the Backstage proxy and registers a
+  # TechInsights fact retriever + check so entities render a grade badge.
+  app-config.scorecards.yaml: |
+    proxy:
+      endpoints:
+        '/adhar-scorecards':
+          # In-cluster read of the results ConfigMap via the k8s API proxy.
+          target: 'https://kubernetes.default.svc'
+          pathRewrite:
+            '^/api/proxy/adhar-scorecards':
+              '/api/v1/namespaces/adhar-system/configmaps/adhar-scorecards'
+          headers:
+            Accept: application/json
+
+    techInsights:
+      factRetrievers:
+        - id: adharScorecardRetriever
+          # Reads index.json/summary.json and emits per-entity facts.
+          entityFilter:
+            - kind: component
+          schedule:
+            frequency: { minutes: 30 }
+            timeout: { minutes: 2 }
+          facts:
+            score: { type: integer, description: 'Production-readiness score 0-100' }
+            grade: { type: string,  description: 'Letter grade A-F' }
+      checks:
+        - id: production-readiness
+          type: json-rules-engine
+          name: Production Readiness
+          description: 'Service scores at least a C (>=70) on the adhar scorecard.'
+          factIds: [adharScorecardRetriever]
+          rule:
+            conditions:
+              all:
+                - fact: score
+                  operator: greaterThanInclusive
+                  value: 70
+
+  # ----- Badge rendering hints (colours per grade) ------------------------
+  badge.json: |
+    {
+      "source": {
+        "namespace": "adhar-system",
+        "configMap": "adhar-scorecards",
+        "indexKey": "index.json",
+        "detailKey": "summary.json"
+      },
+      "gradeColors": {
+        "A": "#1a7f37",
+        "B": "#2da44e",
+        "C": "#bf8700",
+        "D": "#d1651b",
+        "F": "#cf222e"
+      }
+    }

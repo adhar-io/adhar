@@ -1,0 +1,184 @@
+# =============================================================================
+# Fluent Bit — ALTERNATIVE / additional log collector for Adhar
+# =============================================================================
+# The platform's DEFAULT log collector is Grafana Alloy
+# (platform/stack/packages/observability/alloy), which already tails container
+# logs and ships them to the in-cluster Loki. Fluent Bit is provided here as a
+# lightweight ALTERNATIVE for teams that prefer the Fluent ecosystem, or as an
+# ADDITIONAL collector for specific workloads.
+#
+# It is DISABLED BY DEFAULT in the ApplicationSet (enabled: false for local) to
+# avoid duplicating Alloy's log pipeline. Enable it deliberately, and if you run
+# both, scope each collector so container logs are not double-ingested.
+#
+# Chart:  fluent/fluent-bit  (https://fluent.github.io/helm-charts)
+# Runs as a DaemonSet tailing /var/log/containers/*.log on every node.
+# =============================================================================
+
+# DaemonSet: one Fluent Bit pod per node, tailing that node's container logs.
+kind: DaemonSet
+
+# Drop the helm-test connection Pod — it is a helm test hook that has no place
+# in a statically-applied GitOps manifest.
+testFramework:
+  enabled: false
+
+image:
+  # Track the chart's pinned appVersion; override tag only when required.
+  pullPolicy: IfNotPresent
+
+# -----------------------------------------------------------------------------
+# Metrics — Fluent Bit exposes a Prometheus endpoint on metricsPort (2020).
+# ServiceMonitor lets kube-prometheus scrape it automatically.
+# -----------------------------------------------------------------------------
+serviceMonitor:
+  enabled: true
+
+prometheusRule:
+  enabled: false
+
+# -----------------------------------------------------------------------------
+# Resources — modest footprint suitable for local Kind and small clusters.
+# -----------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# -----------------------------------------------------------------------------
+# Security context.
+# Fluent Bit must read root-owned host log files under /var/log (and
+# /var/lib/docker/containers, /etc/machine-id), so it runs as root rather than
+# an unprivileged UID. We still harden the container: drop ALL capabilities,
+# apply the RuntimeDefault seccomp profile and disallow privilege escalation.
+# NOTE: runAsNonRoot is intentionally NOT enforced here — the container needs
+# root to read the node's log files. Do not set runAsNonRoot: true unless you
+# also relax the host log paths / file permissions accordingly.
+# -----------------------------------------------------------------------------
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  privileged: false
+  capabilities:
+    drop:
+      - ALL
+
+# -----------------------------------------------------------------------------
+# Pipeline configuration (classic INI mode).
+# INPUT  — tail container logs (CRI/docker multiline) + kubelet journal.
+# FILTER — enrich with Kubernetes metadata.
+# OUTPUT — see notes below. The default keeps a self-contained stdout sink so
+#          the DaemonSet is safe to enable without an external dependency; a
+#          ready-to-use Loki forwarder is provided commented-out just beneath.
+# -----------------------------------------------------------------------------
+config:
+  service: |
+    [SERVICE]
+        Daemon Off
+        Flush {{ .Values.flush }}
+        Log_Level {{ .Values.logLevel }}
+        Parsers_File /fluent-bit/etc/parsers.conf
+        Parsers_File /fluent-bit/etc/conf/custom_parsers.conf
+        HTTP_Server On
+        HTTP_Listen 0.0.0.0
+        HTTP_Port {{ .Values.metricsPort }}
+        Health_Check On
+
+  inputs: |
+    [INPUT]
+        Name tail
+        Path /var/log/containers/*.log
+        multiline.parser docker, cri
+        Tag kube.*
+        Mem_Buf_Limit 5MB
+        Skip_Long_Lines On
+
+    [INPUT]
+        Name systemd
+        Tag host.*
+        Systemd_Filter _SYSTEMD_UNIT=kubelet.service
+        Read_From_Tail On
+
+  filters: |
+    [FILTER]
+        Name kubernetes
+        Match kube.*
+        Merge_Log On
+        Keep_Log Off
+        K8S-Logging.Parser On
+        K8S-Logging.Exclude On
+
+  outputs: |
+    # Default self-contained sink: emit to the pod's stdout so enabling the
+    # DaemonSet never hard-depends on an external service. Replace this with the
+    # Loki forwarder below to ship logs into the platform's observability stack.
+    [OUTPUT]
+        Name stdout
+        Match *
+
+    # ------------------------------------------------------------------------
+    # READY-TO-WIRE: forward to the in-cluster Loki (loki-stack package).
+    # Uncomment and remove the stdout output above to ship logs to Loki. The
+    # loki output plugin pushes to <host>/loki/api/v1/push. Use the Loki
+    # gateway (single binary) or the distributed write path.
+    # ------------------------------------------------------------------------
+    # [OUTPUT]
+    #     Name loki
+    #     Match kube.*
+    #     Host loki-gateway.adhar-system.svc.cluster.local
+    #     Port 80
+    #     # Loki gateway/write path. For a distributed deployment target the
+    #     # write component instead, e.g. loki-write.adhar-system.svc.cluster.local:3100
+    #     Uri /loki/api/v1/push
+    #     # Tenant header — Adhar's Alloy pipeline uses tenant_id 1.
+    #     Tenant_ID 1
+    #     Labels job=fluent-bit, cluster=adhar
+    #     Label_Keys $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name']
+    #     Auto_Kubernetes_Labels On
+    #     Line_Format json
+
+  customParsers: |
+    [PARSER]
+        Name docker_no_time
+        Format json
+        Time_Keep Off
+        Time_Key time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+
+# Host log paths mounted read-only where possible (chart defaults are sensible).
+daemonSetVolumes:
+  - name: varlog
+    hostPath:
+      path: /var/log
+  - name: varlibdockercontainers
+    hostPath:
+      path: /var/lib/docker/containers
+  - name: etcmachineid
+    hostPath:
+      path: /etc/machine-id
+      type: File
+
+daemonSetVolumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+  - name: varlibdockercontainers
+    mountPath: /var/lib/docker/containers
+    readOnly: true
+  - name: etcmachineid
+    mountPath: /etc/machine-id
+    readOnly: true
+
+# Tolerate control-plane taints so logs are collected from every node,
+# including single-node Kind clusters where workloads may run on the CP node.
+tolerations:
+  - operator: Exists
+
+logLevel: info

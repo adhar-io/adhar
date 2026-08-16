@@ -242,6 +242,11 @@ spec:
         ARGO_WORKFLOWS_URL: https://argo-workflows.adhar.localtest.me:8443
         # Adhar Console SSO — dedicated 'adhar-console' Keycloak client
         # (access token aud=kubernetes + groups for per-user k8s impersonation).
+        # This client also has a service account with realm-management roles
+        # (see keycloak-config.yaml), so the console reflects workspace teams /
+        # org-roles into realm groups for cluster RBAC using AUTH_CLIENT_SECRET —
+        # no separate admin credential needed (keycloak-admin.ts falls back to
+        # the console's own clientId + secret).
         AUTH_CLIENT_SECRET: '{{.ADHAR_CONSOLE_CLIENT_SECRET}}'
         # Signs the console's HttpOnly session cookie (>=32 chars). Rotate for
         # a hardened deployment; stable value keeps sessions valid across pod

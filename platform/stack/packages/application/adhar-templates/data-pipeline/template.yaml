@@ -1,0 +1,93 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  description: >-
+    Golden path: a data pipeline on the platform lakehouse (ADR-0020) —
+    Airbyte-style ingest → Iceberg tables → dbt/Trino transforms → Dagster
+    orchestration. Ships a minimal, runnable Dagster asset + schedule, a dbt
+    staging model, hardened Kubernetes manifests (Dagster UI Deployment,
+    Gateway API route, a materialization CronJob, and the Iceberg REST catalog
+    endpoint as config), and the paved-road CI stub (ADR-0018).
+  name: data-pipeline
+  title: Golden Path - Data Pipeline
+spec:
+  owner: guests
+  type: data-pipeline
+  parameters:
+    - title: Configuration Options
+      required:
+        - name
+        - targetTable
+      properties:
+        name:
+          type: string
+          description: name of this data pipeline
+        owner:
+          type: string
+          description: owning team recorded in the adhar.io/owner label
+          default: guests
+        description:
+          type: string
+          description: what this pipeline does
+          default: Airbyte -> Iceberg -> dbt/Trino -> Dagster paved-road pipeline
+        sourceConnector:
+          type: string
+          description: source connector type the pipeline ingests from
+          default: postgres
+          enum:
+            - postgres
+            - mysql
+            - s3
+            - rest-api
+            - kafka
+        targetTable:
+          type: string
+          description: >-
+            fully-qualified Iceberg table the pipeline materializes
+            (namespace.table)
+          default: raw.example_events
+
+  steps:
+    - id: template
+      name: Generating component
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{parameters.name}}
+          owner: ${{parameters.owner}}
+          description: ${{parameters.description}}
+          sourceConnector: ${{parameters.sourceConnector}}
+          targetTable: ${{parameters.targetTable}}
+
+    - id: publish
+      name: Publishing to a gitea git repository
+      action: publish:gitea
+      input:
+        description: Golden-path data pipeline
+        # Hard coded value for this demo purposes only.
+        repoUrl: gitea.adhar.localtest.me:8443?repo=${{parameters.name}}
+        defaultBranch: main
+    - id: create-argocd-app
+      name: Create ArgoCD App
+      action: adhar:create-argocd-app
+      input:
+        appName: ${{parameters.name}}
+        appNamespace: ${{parameters.name}}
+        argoInstance: in-cluster
+        projectName: default
+        # necessary until we generate our own cert
+        repoUrl: https://gitea.adhar.localtest.me:8443/giteaAdmin/${{parameters.name}}
+        path: "manifests"
+    - id: register
+      name: Register
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: 'catalog-info.yaml'
+
+  output:
+    links:
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}

@@ -67,6 +67,7 @@ func init() {
 	GetCmd.AddCommand(statusCmd)
 	GetCmd.AddCommand(applicationsCmd)
 	GetCmd.AddCommand(environmentsCmd)
+	GetCmd.AddCommand(dataplanesCmd)
 	GetCmd.AddCommand(allCmd)
 	// Note: databases, managedtools, and routes commands can be added as needed
 	// These would typically query specific CRDs or services specific to those domains

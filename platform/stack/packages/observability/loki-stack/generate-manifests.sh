@@ -5,7 +5,7 @@ INSTALL_YAML="manifests/install.yaml"
 # grafana/loki chart (Loki 3.x). The old loki-stack chart (Loki 2.6.1) is
 # deprecated and lacks limits_config.volume_enabled, which Grafana's logs
 # volume panel requires.
-CHART_VERSION="7.2.0"
+CHART_VERSION="7.3.0"
 
 echo "# LOKI INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/loki-stack/generate-manifests.sh'" >>${INSTALL_YAML}

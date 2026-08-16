@@ -1,0 +1,1443 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-dashboard-argo-workflows
+  namespace: adhar-system
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: adhar-observability
+  annotations:
+    grafana_folder: "Platform"
+data:
+  argo-workflows.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "description": "A comprehensive overview dashboard for monitoring Argo Workflows deployments. Provides high-level metrics across all workflows and pods including current phase counts, completion rates, success/failure rates, operation durations, and pod lifecycle metrics. Use this dashboard to identify trends, spot anomalies, and drill down into specific namespaces. The dashboards were generated using [argo-workflows-mixin](https://github.com/adinhodovic/argo-workflows-mixin). Open issues and create feature requests in the repository.",
+      "editable": false,
+      "links": [
+        {
+          "asDropdown": true,
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "argo-workflows",
+            "argo-workflows-mixin"
+          ],
+          "targetBlank": true,
+          "title": "Argo Workflows",
+          "type": "dashboards"
+        }
+      ],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "title": "Summary",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Number of workflows currently in Pending or Running. This is the main at-a-glance workload indicator for the cluster.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 0,
+            "y": 1
+          },
+          "id": 2,
+          "options": {
+            "graphMode": "area",
+            "percentChangeColorMode": "standard",
+            "showPercentChange": false
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  argo_workflows_gauge{\n    cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n,\n    phase=~\"Pending|Running\"\n  }\n)\n",
+              "instant": false
+            }
+          ],
+          "title": "Active Workflows",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Number of workflows currently in Failed or Error. Any sustained non-zero value deserves investigation.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 4,
+            "y": 1
+          },
+          "id": 3,
+          "options": {
+            "graphMode": "area",
+            "percentChangeColorMode": "standard",
+            "showPercentChange": false
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  argo_workflows_gauge{\n    cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n,\n    phase=~\"Error|Failed\"\n  }\n)\n",
+              "instant": false
+            }
+          ],
+          "title": "Unhealthy Workflows",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Number of workflows that reached a terminal phase in the past 6 hours. Use this to gauge recent throughput.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 8,
+            "y": 1
+          },
+          "id": 4,
+          "options": {
+            "graphMode": "area",
+            "percentChangeColorMode": "standard",
+            "showPercentChange": false
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n      phase=~\"Succeeded|Failed|Error\"\n    }[6h]\n  )\n)\n",
+              "instant": true
+            }
+          ],
+          "title": "Workflow Completions [6h]",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Percentage of completed workflows succeeding over the past 6 hours. No data means no completed workflows in that window.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 12,
+            "y": 1
+          },
+          "id": 5,
+          "options": {
+            "graphMode": "area",
+            "percentChangeColorMode": "standard",
+            "showPercentChange": false
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n      phase=\"Succeeded\"\n    }[6h]\n  )\n)\n/\nsum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n      phase=~'Succeeded|Failed|Error'\n    }[6h]\n  )\n)\n* 100\n",
+              "instant": true
+            }
+          ],
+          "title": "Success Rate [6h]",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Number of workflow-created pods currently running. Compare with running workflows to assess parallelism.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 16,
+            "y": 1
+          },
+          "id": 6,
+          "options": {
+            "graphMode": "area",
+            "percentChangeColorMode": "standard",
+            "showPercentChange": false
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  argo_workflows_pods_gauge{\n    cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n,\n    phase=\"Running\"\n  }\n)\n",
+              "instant": false
+            }
+          ],
+          "title": "Running Pods",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Number of workflows currently in the Pending phase. A high count may indicate resource constraints, scheduling issues, or parallelism limits.",
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 20,
+            "y": 1
+          },
+          "id": 7,
+          "options": {
+            "graphMode": "area",
+            "percentChangeColorMode": "standard",
+            "showPercentChange": false
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  argo_workflows_gauge{\n    cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n,\n    phase=\"Pending\"\n  }\n)\n",
+              "instant": false
+            }
+          ],
+          "title": "Pending Workflows",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Distribution of currently active workflows across phases (Pending, Running, Succeeded, Failed, Error). A healthy system shows mostly Running and Succeeded workflows.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 0,
+            "y": 5
+          },
+          "id": 8,
+          "options": {
+            "displayLabels": [
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "percent"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  argo_workflows_gauge{\n    cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n  }\n) by (phase)\n",
+              "instant": true,
+              "legendFormat": "{{ phase }}"
+            }
+          ],
+          "title": "Current Workflows by Phase",
+          "type": "piechart"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Distribution of workflow completions by phase over the past 6 hours. High proportions of Failed or Error phases indicate systemic issues.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 6,
+            "y": 5
+          },
+          "id": 9,
+          "options": {
+            "displayLabels": [
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "percent"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n      phase=~'Succeeded|Failed|Error'\n    }[6h]\n  )\n) by (phase)\n",
+              "instant": true,
+              "legendFormat": "{{ phase }}"
+            }
+          ],
+          "title": "Workflow Completions by Phase [6h]",
+          "type": "piechart"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Namespaces with the most Failed or Error workflow completions over the past 6 hours. This highlights problem areas without drilling into the table first.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 12,
+            "y": 5
+          },
+          "id": 10,
+          "options": {
+            "displayLabels": [
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "percent"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "topk(10,\n  sum(\n    increase(\n      argo_workflows_total_count{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n        phase=~\"Error|Failed\"\n      }[6h]\n    )\n  ) by (exported_namespace)\n)\n",
+              "instant": true,
+              "legendFormat": "{{ exported_namespace }}"
+            }
+          ],
+          "title": "Failed/Error Workflows by Namespace [6h]",
+          "type": "piechart"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Distribution of workflow-created pods across phases. High Pending counts may indicate scheduling issues or resource constraints.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 18,
+            "y": 5
+          },
+          "id": 11,
+          "options": {
+            "displayLabels": [
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "values": [
+                "percent"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  argo_workflows_pods_gauge{\n    cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n  }\n) by (phase)\n",
+              "instant": true,
+              "legendFormat": "{{ phase }}"
+            }
+          ],
+          "title": "Current Pods by Phase",
+          "type": "piechart"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 11
+          },
+          "id": 12,
+          "title": "Workflows in $workflow_namespace Namespace",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Workflow completions by workflow namespace over the past 6 hours, including succeeded, failed, error, and derived success rate.",
+          "fieldConfig": {
+            "defaults": {
+              "links": [],
+              "thresholds": {
+                "steps": []
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Total Workflows"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  },
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Succeeded"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  },
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Failed"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  },
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Errors"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  },
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success Rate"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 12
+          },
+          "id": 13,
+          "options": {
+            "footer": {
+              "enablePagination": true
+            },
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Total Workflows"
+              }
+            ]
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "topk(40,\n  sum(\n    increase(\n      argo_workflows_total_count{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n        phase=~'Succeeded|Failed|Error'\n      }[6h]\n    )\n  ) by (exported_namespace)\n)\n",
+              "format": "table",
+              "instant": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n      phase=\"Succeeded\"\n    }[6h]\n  )\n) by (exported_namespace)\nand on (exported_namespace) (\n  topk(40,\n  sum(\n    increase(\n      argo_workflows_total_count{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n        phase=~'Succeeded|Failed|Error'\n      }[6h]\n    )\n  ) by (exported_namespace)\n)\n\n)\n\n",
+              "format": "table",
+              "instant": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n      phase=\"Failed\"\n    }[6h]\n  )\n) by (exported_namespace)\nand on (exported_namespace) (\n  topk(40,\n  sum(\n    increase(\n      argo_workflows_total_count{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n        phase=~'Succeeded|Failed|Error'\n      }[6h]\n    )\n  ) by (exported_namespace)\n)\n\n)\n\n",
+              "format": "table",
+              "instant": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n      phase=\"Error\"\n    }[6h]\n  )\n  ) by (exported_namespace)\n  and on (exported_namespace) (\n  topk(40,\n  sum(\n    increase(\n      argo_workflows_total_count{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n        phase=~'Succeeded|Failed|Error'\n      }[6h]\n    )\n  ) by (exported_namespace)\n)\n\n)\n\n",
+              "format": "table",
+              "instant": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "(\n  sum(\n    increase(\n      argo_workflows_total_count{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n        phase='Succeeded'\n      }[6h]\n    )\n  ) by (exported_namespace)\n  /\n  sum(\n    increase(\n      argo_workflows_total_count{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n        phase=~'Succeeded|Failed|Error'\n      }[6h]\n    )\n  ) by (exported_namespace)\n) * 100\nand on (exported_namespace) (\n  topk(40,\n  sum(\n    increase(\n      argo_workflows_total_count{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n        phase=~'Succeeded|Failed|Error'\n      }[6h]\n    )\n  ) by (exported_namespace)\n)\n\n)\n\n",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "title": "Workflow Overview by Namespace [6h]",
+          "transformations": [
+            {
+              "id": "merge"
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "Value #A": 1,
+                  "Value #B": 2,
+                  "Value #C": 3,
+                  "Value #D": 4,
+                  "Value #E": 5,
+                  "exported_namespace": 0
+                },
+                "renameByName": {
+                  "Value #A": "Total Workflows",
+                  "Value #B": "Succeeded",
+                  "Value #C": "Failed",
+                  "Value #D": "Errors",
+                  "Value #E": "Success Rate",
+                  "exported_namespace": "Namespace"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Number of workflows in each phase over time. Rising Pending counts indicate bottlenecks. Spikes in Running may indicate batch submissions.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMin": 0,
+                "fillOpacity": 100,
+                "lineWidth": 1,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 20
+          },
+          "id": 14,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(\n  argo_workflows_gauge{\n    cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n  }\n) by (phase)\n",
+              "legendFormat": "{{ phase }}"
+            }
+          ],
+          "title": "Current Workflows by Phase",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Workflows reaching each terminal phase within each interval. This shows throughput and where recent workflow outcomes are landing.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "fillOpacity": 10
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 20
+          },
+          "id": 15,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n\n    }[$__rate_interval]\n  )\n) by (phase)\n",
+              "legendFormat": "{{ phase }}"
+            }
+          ],
+          "title": "Workflow Completions by Phase",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Percentage of workflows completing successfully over each dashboard rate interval. Drops below expected levels indicate workflow logic errors, infrastructure issues, or resource constraints.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMax": 100,
+                "axisSoftMin": 0,
+                "fillOpacity": 10
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 28
+          },
+          "id": 16,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n      phase='Succeeded'\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  increase(\n    argo_workflows_total_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\nexported_namespace=~\"$workflow_namespace\",\njob=~\"$job\"\n,\n      phase=~'Succeeded|Failed|Error'\n    }[$__rate_interval]\n  )\n)\n* 100\n",
+              "legendFormat": "Success Rate"
+            }
+          ],
+          "title": "Workflow Success Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Duration of workflow reconciliation operations. Rising latency indicates controller overload, API server slowness, or complex workflow processing. P99 spikes precede visible degradation.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "fillOpacity": 10
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 28
+          },
+          "id": 17,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "histogram_quantile(\n  0.5,\n  sum(\n    rate(\n      argo_workflows_operation_duration_seconds_bucket{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+              "legendFormat": "P50"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "histogram_quantile(\n  0.95,\n  sum(\n    rate(\n      argo_workflows_operation_duration_seconds_bucket{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+              "legendFormat": "P95"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "histogram_quantile(\n  0.99,\n  sum(\n    rate(\n      argo_workflows_operation_duration_seconds_bucket{\n        cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+              "legendFormat": "P99"
+            }
+          ],
+          "title": "Workflow Operation Duration",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 44
+          },
+          "id": 18,
+          "title": "Pods",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Number of workflow-created pods in each phase over time. Rising Pending pods indicate scheduling issues or resource constraints.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMin": 0,
+                "fillOpacity": 100,
+                "lineWidth": 1,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 45
+          },
+          "id": 19,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(\n  argo_workflows_pods_gauge{\n    cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n  }\n) by (phase)\n",
+              "legendFormat": "{{ phase }}"
+            }
+          ],
+          "title": "Current Pods by Phase",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Pods entering pending state within each interval, grouped by reason. Helps identify scheduling or resource issues behind pod backlog.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMin": 0,
+                "fillOpacity": 100,
+                "lineWidth": 1,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 45
+          },
+          "id": 20,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(\n  increase(\n    argo_workflows_pod_pending_count{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n    }[$__rate_interval]\n  )\n) by (reason)\n",
+              "legendFormat": "{{ reason }}"
+            }
+          ],
+          "title": "Pending Pods by Reason",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Pod restarts within each interval, grouped by reason. Persistent restarts indicate infrastructure instability.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMin": 0,
+                "fillOpacity": 100,
+                "lineWidth": 1,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 53
+          },
+          "id": 21,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(\n  increase(\n    argo_workflows_pod_restarts_total{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n    }[$__rate_interval]\n  )\n) by (reason)\n",
+              "legendFormat": "{{ reason }}"
+            }
+          ],
+          "title": "Pod Restarts by Reason",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Pods reported missing within each interval. Spikes may indicate aggressive eviction, node failure, or resource pressure.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMin": 0,
+                "fillOpacity": 100,
+                "lineWidth": 1,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 53
+          },
+          "id": 22,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(\n  increase(\n    argo_workflows_pod_missing{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n    }[$__rate_interval]\n  )\n) by (node_phase, recently_started)\n",
+              "legendFormat": "{{ node_phase }}/{{ recently_started }}"
+            }
+          ],
+          "title": "Missing Pods",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 61
+          },
+          "id": 23,
+          "title": "CronWorkflows",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "CronWorkflow triggers within each interval. Use this to verify scheduled workflows are firing as expected.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMin": 0,
+                "fillOpacity": 100,
+                "lineWidth": 1,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 62
+          },
+          "id": 24,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(\n  increase(\n    argo_workflows_cronworkflows_triggered_total{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n    }[$__rate_interval]\n  )\n) by (name, namespace)\n",
+              "legendFormat": "{{ namespace }}/{{ name }}"
+            }
+          ],
+          "title": "CronWorkflow Triggers",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "CronWorkflow concurrency policy actions within each interval. Use this to spot schedules being affected by `Forbid` or `Replace` policy behavior.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "axisSoftMin": 0,
+                "fillOpacity": 100,
+                "lineWidth": 1,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 62
+          },
+          "id": 25,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "v11.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "exemplar": false,
+              "expr": "sum(\n  increase(\n    argo_workflows_cronworkflows_concurrencypolicy_triggered{\n      cluster=\"$cluster\",\nnamespace=~\"$namespace\",\njob=~\"$job\"\n\n\n    }[$__rate_interval]\n  )\n) by (name, namespace)\n",
+              "legendFormat": "{{ namespace }}/{{ name }}"
+            }
+          ],
+          "title": "CronWorkflow Concurrency Policy Triggered",
+          "type": "timeseries"
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": [
+        "argo-workflows",
+        "argo-workflows-mixin"
+      ],
+      "templating": {
+        "list": [
+          {
+            "current": {
+              "selected": true,
+              "text": "default",
+              "value": "default"
+            },
+            "label": "Data source",
+            "name": "datasource",
+            "query": "prometheus",
+            "type": "datasource"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "hide": 2,
+            "label": "Cluster",
+            "name": "cluster",
+            "query": "label_values(argo_workflows_gauge{}, cluster)",
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "includeAll": true,
+            "label": "Namespace",
+            "multi": true,
+            "name": "namespace",
+            "query": "label_values(argo_workflows_total_count{cluster=\"$cluster\"}, namespace)",
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "includeAll": true,
+            "label": "Job",
+            "multi": true,
+            "name": "job",
+            "query": "label_values(argo_workflows_total_count{cluster=\"$cluster\", namespace=~\"$namespace\"}, job)",
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "includeAll": true,
+            "label": "Workflow Namespace",
+            "multi": true,
+            "name": "workflow_namespace",
+            "query": "label_values(argo_workflows_total_count{cluster=\"$cluster\"}, exported_namespace)",
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "timezone": "utc",
+      "title": "Argo Workflows / Overview",
+      "uid": "argo-workflows-overview-skj2",
+      "gnetId": 25113,
+      "id": null
+    }

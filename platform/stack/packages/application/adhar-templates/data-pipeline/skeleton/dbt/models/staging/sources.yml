@@ -1,0 +1,21 @@
+version: 2
+
+# The raw Iceberg table written by the Dagster `raw_events` asset. dbt reads it
+# through Trino's `iceberg` catalog. Adjust the name/schema if you changed the
+# pipeline's target table (${{values.targetTable}}).
+sources:
+  - name: raw
+    catalog: iceberg
+    schema: raw
+    tables:
+      - name: example_events
+        description: Raw records landed by the ingest asset.
+        columns:
+          - name: id
+            description: Source record id.
+          - name: event
+            description: Event type.
+          - name: source
+            description: Originating connector.
+          - name: ingested_at
+            description: Ingest timestamp (UTC).

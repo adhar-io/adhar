@@ -7,11 +7,11 @@ kind: PodDisruptionBudget
 metadata:
   name: mimir-compactor
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: compactor
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 spec:
@@ -28,11 +28,11 @@ kind: PodDisruptionBudget
 metadata:
   name: mimir-distributor
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: distributor
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 spec:
@@ -49,11 +49,11 @@ kind: PodDisruptionBudget
 metadata:
   name: mimir-gateway
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 spec:
@@ -70,11 +70,11 @@ kind: PodDisruptionBudget
 metadata:
   name: mimir-ingester
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: ingester
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 spec:
@@ -91,11 +91,11 @@ kind: PodDisruptionBudget
 metadata:
   name: mimir-querier
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: querier
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 spec:
@@ -112,11 +112,11 @@ kind: PodDisruptionBudget
 metadata:
   name: mimir-query-frontend
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: query-frontend
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 spec:
@@ -133,11 +133,11 @@ kind: PodDisruptionBudget
 metadata:
   name: mimir-query-scheduler
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: query-scheduler
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 spec:
@@ -154,11 +154,11 @@ kind: PodDisruptionBudget
 metadata:
   name: mimir-store-gateway
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: store-gateway
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 spec:
@@ -181,10 +181,10 @@ kind: ServiceAccount
 metadata:
   name: mimir
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -613,11 +613,11 @@ kind: ConfigMap
 metadata:
   name: mimir-gateway-nginx
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: gateway-nginx
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 data:
@@ -759,10 +759,10 @@ kind: ConfigMap
 metadata:
   name: mimir-config
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 data:
@@ -890,10 +890,10 @@ kind: ConfigMap
 metadata:
   name: mimir-runtime
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
 data:
@@ -967,12 +967,12 @@ kind: Service
 metadata:
   name: mimir-compactor
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: compactor
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1000,12 +1000,12 @@ kind: Service
 metadata:
   name: mimir-distributor-headless
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: distributor
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
     prometheus.io/service-monitor: "false"
   annotations:
@@ -1034,12 +1034,12 @@ kind: Service
 metadata:
   name: mimir-distributor
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: distributor
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1067,11 +1067,11 @@ kind: Service
 metadata:
   name: mimir-gateway
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1099,11 +1099,11 @@ kind: Service
 metadata:
   name: mimir-gossip-ring
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: gossip-ring
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   namespace: "adhar-system"
   annotations:
@@ -1129,12 +1129,12 @@ kind: Service
 metadata:
   name: mimir-ingester-headless
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: ingester
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
     prometheus.io/service-monitor: "false"
   annotations:
@@ -1163,12 +1163,12 @@ kind: Service
 metadata:
   name: mimir-ingester
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: ingester
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1196,12 +1196,12 @@ kind: Service
 metadata:
   name: mimir-querier
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: querier
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1229,11 +1229,11 @@ kind: Service
 metadata:
   name: mimir-query-frontend
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: query-frontend
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1262,11 +1262,11 @@ metadata:
   name: mimir-query-scheduler-headless
   namespace: "adhar-system"
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: query-scheduler
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
     prometheus.io/service-monitor: "false"
   annotations:
@@ -1296,11 +1296,11 @@ metadata:
   name: mimir-query-scheduler
   namespace: "adhar-system"
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: query-scheduler
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1327,12 +1327,12 @@ kind: Service
 metadata:
   name: mimir-store-gateway-headless
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: store-gateway
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
     prometheus.io/service-monitor: "false"
   annotations:
@@ -1361,12 +1361,12 @@ kind: Service
 metadata:
   name: mimir-store-gateway
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: store-gateway
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1479,12 +1479,12 @@ kind: Deployment
 metadata:
   name: mimir-distributor
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: distributor
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1505,15 +1505,15 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: mimir-distributed-6.0.6
+        helm.sh/chart: mimir-distributed-6.1.0
         app.kubernetes.io/name: mimir
         app.kubernetes.io/instance: mimir
-        app.kubernetes.io/version: "3.0.4"
+        app.kubernetes.io/version: "3.1.2"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: distributor
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: b66dbe411ff61bf0a14a7207a86468f4aa3abe64770990fb61974818c2463da4
+        checksum/config: d3f421699baac7f120f724f9e116968493ce42f6469086881b429c1d38db9eac
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -1526,7 +1526,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: distributor
-          image: grafana/mimir:3.0.4
+          image: docker.io/grafana/mimir:3.1.2
           imagePullPolicy: IfNotPresent
           args:
             - "-target=distributor"
@@ -1610,11 +1610,11 @@ metadata:
   annotations:
     {}
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   name: mimir-gateway
   namespace: "adhar-system"
@@ -1633,14 +1633,14 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: mimir-distributed-6.0.6
+        helm.sh/chart: mimir-distributed-6.1.0
         app.kubernetes.io/name: mimir
         app.kubernetes.io/instance: mimir
-        app.kubernetes.io/version: "3.0.4"
+        app.kubernetes.io/version: "3.1.2"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: gateway
       annotations:
-        checksum/config: 574bfd8246343d99a24ed0abe0271a27c4007f4138de1ec0eccbf9429ae19a56
+        checksum/config: 27e6c154c158560c78627a8ab807d3f8b4abc1385ae91b2a83f95a6e08ac2011
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -1717,12 +1717,12 @@ kind: Deployment
 metadata:
   name: mimir-querier
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: querier
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1743,15 +1743,15 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: mimir-distributed-6.0.6
+        helm.sh/chart: mimir-distributed-6.1.0
         app.kubernetes.io/name: mimir
         app.kubernetes.io/instance: mimir
-        app.kubernetes.io/version: "3.0.4"
+        app.kubernetes.io/version: "3.1.2"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: querier
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: b66dbe411ff61bf0a14a7207a86468f4aa3abe64770990fb61974818c2463da4
+        checksum/config: d3f421699baac7f120f724f9e116968493ce42f6469086881b429c1d38db9eac
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -1763,7 +1763,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: querier
-          image: grafana/mimir:3.0.4
+          image: docker.io/grafana/mimir:3.1.2
           imagePullPolicy: IfNotPresent
           args:
             - "-target=querier"
@@ -1840,11 +1840,11 @@ kind: Deployment
 metadata:
   name: mimir-query-frontend
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: query-frontend
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1865,14 +1865,14 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: mimir-distributed-6.0.6
+        helm.sh/chart: mimir-distributed-6.1.0
         app.kubernetes.io/name: mimir
         app.kubernetes.io/instance: mimir
-        app.kubernetes.io/version: "3.0.4"
+        app.kubernetes.io/version: "3.1.2"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: query-frontend
       annotations:
-        checksum/config: b66dbe411ff61bf0a14a7207a86468f4aa3abe64770990fb61974818c2463da4
+        checksum/config: d3f421699baac7f120f724f9e116968493ce42f6469086881b429c1d38db9eac
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -1885,7 +1885,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: query-frontend
-          image: grafana/mimir:3.0.4
+          image: docker.io/grafana/mimir:3.1.2
           imagePullPolicy: IfNotPresent
           args:
             - "-target=query-frontend"
@@ -1961,11 +1961,11 @@ metadata:
   name: mimir-query-scheduler
   namespace: "adhar-system"
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: query-scheduler
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -1984,14 +1984,14 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: mimir-distributed-6.0.6
+        helm.sh/chart: mimir-distributed-6.1.0
         app.kubernetes.io/name: mimir
         app.kubernetes.io/instance: mimir
-        app.kubernetes.io/version: "3.0.4"
+        app.kubernetes.io/version: "3.1.2"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: query-scheduler
       annotations:
-        checksum/config: b66dbe411ff61bf0a14a7207a86468f4aa3abe64770990fb61974818c2463da4
+        checksum/config: d3f421699baac7f120f724f9e116968493ce42f6469086881b429c1d38db9eac
     spec:
       serviceAccountName: mimir
       securityContext:
@@ -2003,7 +2003,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: query-scheduler
-          image: grafana/mimir:3.0.4
+          image: docker.io/grafana/mimir:3.1.2
           imagePullPolicy: IfNotPresent
           args:
             - "-target=query-scheduler"
@@ -2075,12 +2075,12 @@ kind: StatefulSet
 metadata:
   name: mimir-compactor
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: compactor
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -2110,15 +2110,15 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: mimir-distributed-6.0.6
+        helm.sh/chart: mimir-distributed-6.1.0
         app.kubernetes.io/name: mimir
         app.kubernetes.io/instance: mimir
-        app.kubernetes.io/version: "3.0.4"
+        app.kubernetes.io/version: "3.1.2"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: compactor
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: b66dbe411ff61bf0a14a7207a86468f4aa3abe64770990fb61974818c2463da4
+        checksum/config: d3f421699baac7f120f724f9e116968493ce42f6469086881b429c1d38db9eac
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -2153,7 +2153,7 @@ spec:
           emptyDir: {}
       containers:
         - name: compactor
-          image: grafana/mimir:3.0.4
+          image: docker.io/grafana/mimir:3.1.2
           imagePullPolicy: IfNotPresent
           args:
             - "-target=compactor"
@@ -2204,12 +2204,12 @@ kind: StatefulSet
 metadata:
   name: mimir-ingester
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: ingester
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -2239,15 +2239,15 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: mimir-distributed-6.0.6
+        helm.sh/chart: mimir-distributed-6.1.0
         app.kubernetes.io/name: mimir
         app.kubernetes.io/instance: mimir
-        app.kubernetes.io/version: "3.0.4"
+        app.kubernetes.io/version: "3.1.2"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: ingester
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: b66dbe411ff61bf0a14a7207a86468f4aa3abe64770990fb61974818c2463da4
+        checksum/config: d3f421699baac7f120f724f9e116968493ce42f6469086881b429c1d38db9eac
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -2282,7 +2282,7 @@ spec:
           emptyDir: {}
       containers:
         - name: ingester
-          image: grafana/mimir:3.0.4
+          image: docker.io/grafana/mimir:3.1.2
           imagePullPolicy: IfNotPresent
           args:
             - "-target=ingester"
@@ -2339,12 +2339,12 @@ kind: StatefulSet
 metadata:
   name: mimir-store-gateway
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: store-gateway
     app.kubernetes.io/part-of: memberlist
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -2374,15 +2374,15 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: mimir-distributed-6.0.6
+        helm.sh/chart: mimir-distributed-6.1.0
         app.kubernetes.io/name: mimir
         app.kubernetes.io/instance: mimir
-        app.kubernetes.io/version: "3.0.4"
+        app.kubernetes.io/version: "3.1.2"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: store-gateway
         app.kubernetes.io/part-of: memberlist
       annotations:
-        checksum/config: b66dbe411ff61bf0a14a7207a86468f4aa3abe64770990fb61974818c2463da4
+        checksum/config: d3f421699baac7f120f724f9e116968493ce42f6469086881b429c1d38db9eac
       namespace: "adhar-system"
     spec:
       serviceAccountName: mimir
@@ -2417,7 +2417,7 @@ spec:
           emptyDir: {}
       containers:
         - name: store-gateway
-          image: grafana/mimir:3.0.4
+          image: docker.io/grafana/mimir:3.1.2
           imagePullPolicy: IfNotPresent
           args:
             - "-target=store-gateway"
@@ -2478,7 +2478,7 @@ metadata:
   namespace: "adhar-system"
   labels:
     app: mimir-distributed-make-bucket-job
-    chart: mimir-distributed-6.0.6
+    chart: mimir-distributed-6.1.0
     release: mimir
     heritage: Helm
 spec:
@@ -2594,11 +2594,11 @@ kind: Job
 metadata:
   name: mimir-smoke-test
   labels:
-    helm.sh/chart: mimir-distributed-6.0.6
+    helm.sh/chart: mimir-distributed-6.1.0
     app.kubernetes.io/name: mimir
     app.kubernetes.io/instance: mimir
     app.kubernetes.io/component: smoke-test
-    app.kubernetes.io/version: "3.0.4"
+    app.kubernetes.io/version: "3.1.2"
     app.kubernetes.io/managed-by: Helm
   annotations:
     "helm.sh/hook": test
@@ -2607,14 +2607,13 @@ spec:
   backoffLimit: 5
   completions: 1
   parallelism: 1
-  selector:
   template:
     metadata:
       labels:
-        helm.sh/chart: mimir-distributed-6.0.6
+        helm.sh/chart: mimir-distributed-6.1.0
         app.kubernetes.io/name: mimir
         app.kubernetes.io/instance: mimir
-        app.kubernetes.io/version: "3.0.4"
+        app.kubernetes.io/version: "3.1.2"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: smoke-test
     spec:
@@ -2630,7 +2629,7 @@ spec:
         []
       containers:
         - name: smoke-test
-          image: grafana/mimir:3.0.4
+          image: docker.io/grafana/mimir:3.1.2
           imagePullPolicy: IfNotPresent
           args:
             - "-target=continuous-test"

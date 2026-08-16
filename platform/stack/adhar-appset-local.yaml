@@ -42,11 +42,28 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/vault/manifests"
+          # cosign installs into its own cosign-system namespace (CONFLICTS.md
+          # resolved). Disabled in the local core to keep the footprint small.
           - name: "cosign"
             enabled: "false"
-            namespace: "adhar-system"
+            namespace: "cosign-system"
             category: "security"
             manifestPath: "security/cosign/manifests"
+          # Agentic AI control plane (ADR-0024) — opt-in; needs adhar-ai images +
+          # an LLM key. Off in the local core.
+          - name: "adhar-ai"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/adhar-ai/manifests"
+          # Per-service production-readiness score cards (roadmap Phase 3). Off in
+          # the local core; enable to see per-package readiness in the Console.
+          - name: "scorecards"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/scorecards/manifests"
           # Rotates gitea_admin/argocd admin bootstrap credentials into
           # break-glass values (Vault-backed when available). Disabled locally
           # so documented dev credentials keep working; enable once SSO login
@@ -116,6 +133,16 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/mongodb/manifests"
+          - name: "mysql-operator"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/mysql-operator/manifests"
+          - name: "fluent-bit"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "observability"
+            manifestPath: "observability/fluent-bit/manifests"
           - name: "kafka"
             enabled: "false"
             namespace: "adhar-system"

@@ -143,7 +143,191 @@ All platform changes are Git changes in Gitea (enable/disable packages, tune val
 - **Network**: Hubble UI for live flows — invaluable for debugging connectivity and authoring network policies
 - **Cost**: OpenCost dashboard for namespace/team attribution
 
-## 6. Security Day-to-Day
+## 6. Bootstrap & Day-2 Operations
+
+The operator manual for bringing a platform into existence with `adhar up`,
+verifying it, resuming an interrupted bootstrap, upgrading, and tearing down. For
+a first-time walkthrough see [Getting Started](GETTING_STARTED.md); for the
+authoritative as-built design see
+[design/0001 — Management-cluster-first](design/0001-management-cluster-first.md)
+(decision: [ADR-0001](adr/0001-management-cluster-first.md)); for failure-signature
+recovery see [Troubleshooting](TROUBLESHOOTING.md).
+
+Everything the bootstrap installs is **embedded** in the binary (`//go:embed`) — no
+manifest is fetched at runtime, so `adhar up` is offline-capable.
+
+### Ports & URLs (local)
+
+The Kind node maps host ports to the Gateway's pinned NodePorts; the Cilium Gateway
+(served by Cilium's Envoy) terminates and routes to the platform services. All
+`*.adhar.localtest.me` names resolve to `127.0.0.1`.
+
+| Purpose | Host port | Gateway NodePort | Backend |
+|---|---|---|---|
+| HTTPS | `8443` | `30443` | Cilium Envoy → HTTPS listener (443) |
+| HTTP | `8080` (also `8081`) | `30080` | Cilium Envoy → HTTP listener (80) |
+| HTTPS (alt, on-node OIDC) | `8443` | `8443` | pinned so `https://keycloak.<host>:8443` resolves on-node for kube-apiserver OIDC discovery |
+| Gitea SSH | `32222` | `32222` | Gitea SSH |
+
+The HTTPS port is customizable with `--port`; the HTTP port auto-derives as
+`port − 363` (e.g. `--port 9443` → HTTP `9080`).
+
+### `adhar up` and its flags
+
+`adhar up` with no config file creates a **local Kind** platform and runs the
+controllers in-process, exiting when the platform is fully converged. With
+`-f config.yaml` it provisions a **production** cluster via the provider factory
+and installs the in-cluster controller manager for continuous reconciliation.
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Local mode: create/reuse the `adhar` Kind node, bootstrap the full platform, exit on convergence. |
+| `--recreate` | **Destructive.** Delete the existing Kind cluster before creating a new one. Use only when discarding local state. |
+| `--port <n>` | HTTPS host port (default `8443`); HTTP auto-derives as `n − 363`. |
+| `--dry-run` / `-d` | Preview what would be created without applying. |
+| `--in-cluster` | After the in-process bootstrap converges, also install the `adhar-controller-manager` Deployment for continuous reconciliation (always done in production mode). |
+| `-f, --file <cfg>` | Production mode: provision a cloud/on-prem cluster from a resolved config file. |
+| `--ha` | Render foundation components in HA mode (replicas, PDBs, HA redis, CNPG for Gitea's DB); default for production configs with `enableHAMode`. |
+| `--host <name>` | Host name for cluster resources (default `adhar.localtest.me`). |
+| `-w, --watch` | Keep running to continuously sync directories (default on). |
+
+### What a healthy bootstrap looks like
+
+A clean `adhar up` cannot report success until the platform is genuinely *usable*:
+
+- **Foundation installed in order** — `Gateway API CRDs → Cilium → Gateway →
+  [CNPG, if HA] → ArgoCD → Gitea → Crossplane`.
+- **Gateway `Programmed=True`** — the `cilium-gateway-adhar-gateway` Service is a
+  **NodePort** pinned to `30080` / `30443` / `8443`.
+- **GitOps seeded** — the `adhar` org exists in Gitea with the `packages` and
+  `environments` repos populated; the `gitea-argocd` Service (ArgoCD→Gitea repo
+  auth) is present.
+- **2 ApplicationSets** — the platform ApplicationSet (`adhar-appset-local.yaml`,
+  the curated single-node core) plus the workload ApplicationSet
+  (`adhar-appset-workload.yaml`, which generates nothing until workload clusters
+  register).
+- **Roughly two dozen applications** — the curated local core, selected by the
+  ApplicationSet's `enabled: "true"` filter, converging to `Healthy`. A few
+  (CNPG-backed apps, Keycloak) stay `Progressing`/`Degraded` for the first 2–3
+  minutes; that is normal.
+- **`AdharPlatform` conditions all True** — `ArgoCDReady`, `GatewayReady`,
+  `GiteaReady`, `CrossplaneReady`, `GitOpsReady`, and aggregate `Ready`.
+- **Access URLs live** — `https://argocd.adhar.localtest.me:8443` and
+  `https://gitea.adhar.localtest.me:8443` return HTTP 200/3xx.
+
+### Verify-healthy checklist
+
+Copy-pasteable; all should pass on a healthy platform. Any failing check maps to a
+section in [Troubleshooting](TROUBLESHOOTING.md).
+
+```bash
+# 0. One-shot platform status (conditions + per-app health)
+adhar get status
+
+# 1. Gateway Programmed
+kubectl get gateway -n adhar-system adhar-gateway \
+  -o custom-columns=NAME:.metadata.name,PROGRAMMED:'.status.conditions[?(@.type=="Programmed")].status'
+# want: PROGRAMMED=True
+
+# 2. Edge Service is a pinned NodePort
+kubectl get svc -n adhar-system cilium-gateway-adhar-gateway \
+  -o custom-columns=NAME:.metadata.name,TYPE:.spec.type,PORTS:.spec.ports[*].nodePort
+# want: TYPE=NodePort, node ports 30080 / 30443 / 8443
+
+# 3. ApplicationSets present (expect 2) + ArgoCD->Gitea auth Service
+kubectl get applicationset -n adhar-system
+kubectl get svc -n adhar-system gitea-argocd
+
+# 4. Applications converging
+kubectl get applications -n adhar-system \
+  -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status
+
+# 5. Gitea org + repos seeded
+GITEA_POD=$(kubectl get pod -n adhar-system -l app=gitea -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n adhar-system "$GITEA_POD" -c gitea -- \
+  curl -s -o /dev/null -w 'org=%{http_code}\n' \
+  -u 'gitea_admin:r8sA8CPHD9!bt6d' http://localhost:3000/api/v1/orgs/adhar
+# want: org=200
+
+# 6. End-to-end through the Gateway
+curl -sk -o /dev/null -w 'argocd HTTP %{http_code}\n' https://argocd.adhar.localtest.me:8443
+curl -sk -o /dev/null -w 'gitea  HTTP %{http_code}\n' https://gitea.adhar.localtest.me:8443
+```
+
+### Safe re-run / resume
+
+Re-running `adhar up` **without `--recreate`** is the designed way to resume an
+interrupted or partial bootstrap. It is safe because:
+
+- **Cluster reuse** — the reconcile returns early on the existing healthy Kind
+  node; your data, repos, and running apps are preserved.
+- **Idempotent SSA** — every foundation manifest re-applies with
+  `FieldManager="adhar"` + `ForceOwnership`, re-adopting existing objects rather
+  than duplicating them.
+- **One-time seeding, always-applied wiring** — repo **seeding** is the one-time
+  part, guarded by the `RepositoriesCreated` status flag, so it short-circuits once
+  the `packages`/`environments` repos exist. The ArgoCD **ApplicationSet is
+  re-applied on every reconcile** (it is *not* gated on the repos already existing),
+  so re-running `adhar up` always re-applies the current platform ApplicationSet.
+
+This matters most in **local mode**, where the controller is ephemeral (in-process,
+exits on convergence): if the process is interrupted mid-bootstrap (Ctrl-C, closed
+terminal, laptop sleep, timeout), there is nothing left to retry — **re-running
+`adhar up` resumes from the exact gate that was pending**.
+
+| Situation | Command |
+|---|---|
+| Bootstrap interrupted or a phase stalled | `adhar up` (no `--recreate`) — resume |
+| Platform healthy, want to re-push stack changes | `adhar upgrade` (see below) |
+| Wedged Kind node / resource-starved partial install you don't care about | `adhar up --recreate` — **destructive** rebuild |
+
+### Upgrade
+
+`adhar upgrade` converges the foundation to the current binary's embedded manifests
+and **re-pushes the platform stack** to Gitea. It resets `RepositoriesCreated` on
+the in-memory `AdharPlatform` before re-seeding, forcing a full re-push even though
+the repos already exist (repo creation is 409-tolerant; population is a force push).
+Without this reset an upgrade would silently push nothing on an already-bootstrapped
+platform.
+
+```bash
+adhar upgrade         # converge foundation, review stack diff, re-push stack, sync
+```
+
+After it completes, ArgoCD reconciles the updated stack from Gitea. Verify with the
+checklist above.
+
+### Teardown
+
+```bash
+adhar down            # tear down the local Kind cluster and clean up Adhar resources
+```
+
+This removes the local `adhar` Kind node and its state. To rebuild afterward, run
+`adhar up` again. For a rebuild-in-place, `adhar up --recreate` deletes and recreates
+the node in one step.
+
+### Local vs. production
+
+The same CRDs, reconcile pipeline, and embedded manifests drive both topologies —
+they differ only in **size** and **controller placement**:
+
+| | Local (Kind) | Production (cloud / on-prem) |
+|---|---|---|
+| Entry | `adhar up` | `adhar up -f config.yaml` |
+| Cluster | one `adhar` Kind node (CNI/kube-proxy off) | provider factory (`aws`/`azure`/`gcp`/`digitalocean`/`civo`/`custom`) |
+| Controller placement | **in-process, exits on convergence** — ephemeral | in-process bootstrap → then **`adhar-controller-manager` Deployment**, continuous |
+| Foundation size | single replica (`install.yaml`) | HA (`install-ha.yaml`): replicas, PDBs, HA redis, CNPG for Gitea |
+| Gateway edge | NodePort pinned 30080/30443/8443 | LoadBalancer Service + cert-manager listener cert |
+| ApplicationSet | `adhar-appset-local.yaml` (curated core) | `adhar-appset-production.yaml` (full enablement) |
+| Recovery from interruption | **re-run `adhar up`** (nothing retries once the process exits) | in-cluster controller self-heals without a re-run |
+
+The key operational consequence: in **local** mode an interrupted bootstrap is
+resumed by re-running `adhar up`; in **production** the persistent
+`adhar-controller-manager` self-heals the foundation and re-reconciles every 15s.
+Production HA/DR posture is covered in [Production Guide](PRODUCTION.md).
+
+## 7. Security Day-to-Day
 
 - **Sign in with SSO** (Keycloak) everywhere; local bootstrap credentials are for day-0 only
 - **Secrets** come from External Secrets — never commit them; reference an `ExternalSecret` in your app manifests

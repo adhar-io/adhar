@@ -15,6 +15,12 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "manifests")
+# Hand-authored Adhar dashboards for components with no reliable published
+# grafana.com dashboard (Alloy, external-dns, cosign, tetragon, kubescape,
+# pyroscope, spark-operator). These reference datasources by their fixed UIDs
+# (prometheus/loki/tempo/mimir/pyroscope) directly, so pin_datasources is a
+# no-op on them. A source string "local:<file>" reads dashboards-custom/<file>.
+CUSTOM_DIR = os.path.join(HERE, "dashboards-custom")
 
 # name | source | folder
 #   source is either an int grafana.com dashboard id, or a str direct-download
@@ -68,6 +74,93 @@ DASHBOARDS = [
     ("jvm-micrometer", 4701, "Application"),
     ("kafka-streams", 13966, "Application"),
     ("nodejs", 11159, "Application"),
+    ("spark-performance", 7890, "Application"),
+
+    # ---------------------------------------------------------------------
+    # Kubernetes control plane + detail (kubernetes-mixin family, 12114-12135)
+    # Complements the dotdc Views set above with control-plane and
+    # per-namespace/pod/workload compute + networking drill-downs.
+    # ---------------------------------------------------------------------
+    ("k8s-apiserver", 12116, "Platform"),
+    ("k8s-kubelet", 12123, "Platform"),
+    ("k8s-scheduler", 12130, "Platform"),
+    ("k8s-controller-manager", 12122, "Platform"),
+    ("k8s-proxy", 12129, "Platform"),
+    ("k8s-etcd", 20330, "Platform"),
+    ("k8s-persistent-volumes-detail", 12127, "Platform"),
+    ("k8s-compute-cluster", 12114, "Platform"),
+    ("k8s-compute-namespace-pods", 12117, "Platform"),
+    ("k8s-compute-namespace-workloads", 12118, "Platform"),
+    ("k8s-compute-node-pods", 12119, "Platform"),
+    ("k8s-compute-pod", 12120, "Platform"),
+    ("k8s-compute-workload", 12121, "Platform"),
+    ("k8s-networking-cluster", 12124, "Platform"),
+    ("k8s-networking-namespace-pods", 12125, "Platform"),
+    ("k8s-networking-namespace-workload", 12126, "Platform"),
+    ("k8s-pods-detail", 12128, "Platform"),
+    ("k8s-statefulsets", 12131, "Platform"),
+    ("k8s-use-cluster", 12135, "Platform"),
+    ("k8s-cluster-autoscaler", 3831, "Platform"),
+    ("k8s-capacity", 5228, "Platform"),
+    ("k8s-workloads-metrics", 8588, "Platform"),
+    ("kubernetes-events", 23100, "Platform"),
+
+    # ---------------------------------------------------------------------
+    # LGTM stack internals (Tempo / Loki / Mimir operational mixins)
+    # ---------------------------------------------------------------------
+    ("tempo-operational", "https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-operational.json", "Platform"),
+    ("tempo-reads", "https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-reads.json", "Platform"),
+    ("tempo-writes", "https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-writes.json", "Platform"),
+    ("tempo-resources", "https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-resources.json", "Platform"),
+    ("loki-writes", "https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-writes.json", "Platform"),
+    ("loki-reads", "https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-reads.json", "Platform"),
+    ("loki-operational", "https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-operational.json", "Platform"),
+    ("mimir-overview", 17607, "Platform"),
+    ("mimir-overview-resources", 17606, "Platform"),
+    ("mimir-overview-networking", 17605, "Platform"),
+
+    # ---------------------------------------------------------------------
+    # Security / policy / secrets
+    # ---------------------------------------------------------------------
+    ("trivy-operator", 17813, "Platform"),
+    ("falco", 11914, "Platform"),
+    ("external-secrets", "https://raw.githubusercontent.com/external-secrets/external-secrets/main/docs/snippets/dashboard.json", "Platform"),
+
+    # ---------------------------------------------------------------------
+    # Platform application services (infra/control-plane runtimes)
+    # ---------------------------------------------------------------------
+    ("crossplane", 24549, "Platform"),
+    ("keda-operator", 22111, "Platform"),
+    ("keda-scaled-object", 23951, "Platform"),
+    ("velero", 11055, "Platform"),
+    ("opencost", 22208, "Platform"),
+    ("opencost-namespace", 22252, "Platform"),
+    ("argo-workflows", 25113, "Platform"),
+    ("argo-workflows-controller", 25112, "Platform"),
+    ("tekton", 16559, "Platform"),
+    ("dapr-system-services", "https://raw.githubusercontent.com/dapr/dapr/master/grafana/grafana-system-services-dashboard.json", "Platform"),
+    ("dapr-sidecar", "https://raw.githubusercontent.com/dapr/dapr/master/grafana/grafana-sidecar-dashboard.json", "Platform"),
+    ("jupyterhub", 5849, "Platform"),
+    ("trino-cluster", 20208, "Platform"),
+    ("trino-pod", 20207, "Platform"),
+    ("opensearch", 15178, "Platform"),
+    ("victoria-metrics", 10229, "Platform"),
+    ("victoria-metrics-cluster", 11176, "Platform"),
+    ("mongodb", 2583, "Platform"),
+    ("mysql", 7362, "Platform"),
+
+    # ---------------------------------------------------------------------
+    # Hand-authored Adhar dashboards (no reliable published grafana.com source).
+    # Source files live in dashboards-custom/; they reference datasource UIDs
+    # (prometheus/loki/tempo/pyroscope) directly.
+    # ---------------------------------------------------------------------
+    ("alloy", "local:alloy.json", "Platform"),
+    ("external-dns", "local:external-dns.json", "Platform"),
+    ("cosign", "local:cosign.json", "Platform"),
+    ("tetragon", "local:tetragon.json", "Platform"),
+    ("kubescape", "local:kubescape.json", "Platform"),
+    ("pyroscope", "local:pyroscope.json", "Platform"),
+    ("spark-operator", "local:spark-operator.json", "Platform"),
 ]
 
 # grafana.com input pluginId -> our provisioned datasource UID.
@@ -90,7 +183,11 @@ NAME_UID = {
 
 
 def fetch(source):
-    """source: int grafana.com dashboard id, or str direct-download URL."""
+    """source: int grafana.com dashboard id, str "local:<file>" for an in-repo
+    hand-authored dashboard, or str direct-download URL."""
+    if isinstance(source, str) and source.startswith("local:"):
+        with open(os.path.join(CUSTOM_DIR, source[len("local:"):]), encoding="utf-8") as f:
+            return json.load(f)
     if isinstance(source, int):
         url = f"https://grafana.com/api/dashboards/{source}/revisions/latest/download"
     else:

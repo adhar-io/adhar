@@ -1,0 +1,125 @@
+# Adhar AI — provider-agnostic LLM gateway (ADR-0024 §3, §4).
+#
+# One secret (adhar-ai-llm) drives it: set provider + apiKey and agency turns
+# on with no rebuild. Claude is the default; OpenAI / Azure OpenAI / any
+# OpenAI-compatible endpoint / Ollama (air-gapped) are selected purely by the
+# `provider` key. Token/rate budgets are enforced centrally here (per user &
+# per op) so cost/latency/nondeterminism stay bounded.
+#
+# The gateway never exposes the raw key to callers or to the model context; it
+# holds the credential server-side and normalizes tool-calling across providers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-ai-llm-gateway
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-llm-gateway
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-llm-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-llm-gateway
+        app.kubernetes.io/part-of: adhar-ai
+        adhar.io/component: ai
+        adhar.io/plane: control
+        # Every AI-originated object carries this label; kyverno-policy.yaml
+        # audits for it and admission keys the PR-only guardrail off it.
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: adhar-ai
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: ghcr.io/adhar-io/adhar-ai-gateway:latest
+          imagePullPolicy: Always
+          args: ["gateway", "--listen=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          # Provider + apiKey + model + endpoint + budgets all arrive as env
+          # from the single adhar-ai-llm secret (llm-secret-external.yaml).
+          envFrom:
+            - secretRef:
+                name: adhar-ai-llm
+          env:
+            # Static token/rate budget knobs (overridable by the secret's own
+            # BUDGET_* keys, which envFrom layers on top of these defaults).
+            - name: ADHAR_AI_DEFAULT_PROVIDER
+              value: "claude"
+            - name: BUDGET_PER_USER_DAILY_TOKENS
+              value: "2000000"
+            - name: BUDGET_PER_OP_MAX_TOOL_CALLS
+              value: "40"
+            - name: BUDGET_PER_OP_MAX_TOKENS
+              value: "400000"
+            - name: BUDGET_MAX_CONCURRENT_SESSIONS
+              value: "8"
+            - name: RATE_LIMIT_REQUESTS_PER_MINUTE
+              value: "60"
+            - name: ADHAR_AI_RESPONSE_CACHE
+              value: "enabled"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-ai-llm-gateway
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-llm-gateway
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adhar-ai-llm-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

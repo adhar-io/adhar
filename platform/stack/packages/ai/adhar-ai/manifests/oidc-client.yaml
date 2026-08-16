@@ -1,0 +1,173 @@
+# Adhar AI — Keycloak OIDC client registration (ADR-0024 §7, ADR-0008/0013).
+#
+# So that every agent action carries an identity: users authenticate through
+# Keycloak's `adhar-ai` client; the runtime/MCP servers validate that token
+# (OIDC_ISSUER_URL/OIDC_CLIENT_ID in the Deployments) and, for reads, exchange
+# it for a short-lived RBAC-scoped Kubernetes token (agent <= user's grants).
+#
+# Pattern mirrors the keycloak-config package: a ConfigMap carries the client
+# JSON payload, and a Sync-hook Job registers/reconciles it against the realm
+# admin API using the pre-existing `keycloak-config` ServiceAccount + Secret.
+# The generated client secret is written to the shared `keycloak-clients`
+# Secret (key ADHAR_AI_CLIENT_SECRET); an ExternalSecret in the keycloak
+# package projects it where the runtime consumes it (central wiring).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-ai-oidc-client
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+    adhar.io/origin: adhar-ai
+data:
+  adhar-ai-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "adhar-ai",
+      "name": "Adhar AI",
+      "description": "Adhar AI OIDC client: gates the agent runtime /chat + outward /mcp/sse surface; tokens carry groups for RBAC-scoped reads and identity on PR authorship",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": true,
+        "oidc.ciba.grant.enabled": false,
+        "post.logout.redirect.uris": "https://ai.adhar.localtest.me:8443/*##https://mcp.adhar.localtest.me:8443/*"
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "https://ai.adhar.localtest.me:8443",
+      "baseUrl": "/",
+      "redirectUris": [
+        "https://ai.adhar.localtest.me:8443/*",
+        "https://mcp.adhar.localtest.me:8443/*",
+        "http://localhost:8080/*"
+      ],
+      "webOrigins": [
+        "https://ai.adhar.localtest.me:8443",
+        "https://mcp.adhar.localtest.me:8443"
+      ],
+      "protocolMappers": [
+        {
+          "name": "kubernetes-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "kubernetes",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+---
+# Self-contained registration Job. Registers the client if missing, reconciles
+# it if present, then upserts the client secret into `keycloak-clients`. Uses
+# the keycloak-config SA + Secret already created by the keycloak package.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adhar-ai-oidc-register
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    # Wave 25: after the keycloak config Job (wave 20) has created the realm.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "25"
+spec:
+  template:
+    metadata:
+      generateName: adhar-ai-oidc-register
+      labels:
+        adhar.io/origin: adhar-ai
+    spec:
+      serviceAccountName: keycloak-config
+      restartPolicy: Never
+      enableServiceLinks: false
+      volumes:
+        - name: keycloak-config
+          secret:
+            secretName: keycloak-config
+        - name: payload
+          configMap:
+            name: adhar-ai-oidc-client
+      containers:
+        - name: register
+          image: docker.io/alpine/k8s:1.31.0
+          volumeMounts:
+            - name: keycloak-config
+              readOnly: true
+              mountPath: /var/secrets/
+            - name: payload
+              readOnly: true
+              mountPath: /var/config/
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              #!/bin/bash
+              set -e -o pipefail
+              ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
+              KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080
+              PAYLOAD=/var/config/adhar-ai-client-payload.json
+              CID=$(jq -r '.clientId' "${PAYLOAD}")
+
+              TOKEN=$(curl -sS --fail-with-body -X POST \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                --data-urlencode "username=adhar-admin" \
+                --data-urlencode "password=${ADMIN_PASSWORD}" \
+                --data-urlencode "grant_type=password" \
+                --data-urlencode "client_id=admin-cli" \
+                ${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token | jq -e -r '.access_token')
+
+              # Create if missing, else reconcile.
+              ID=$(curl -sS -H "Authorization: bearer ${TOKEN}" \
+                "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${CID}" | jq -r '.[0].id // empty')
+              if [ -z "${ID}" ]; then
+                echo "creating client ${CID}"
+                curl -sS --fail-with-body -H "Content-Type: application/json" \
+                  -H "Authorization: bearer ${TOKEN}" \
+                  -X POST --data @"${PAYLOAD}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients"
+                ID=$(curl -sS -H "Authorization: bearer ${TOKEN}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${CID}" | jq -r '.[0].id // empty')
+              else
+                echo "reconciling client ${CID}"
+                curl -sS -H "Content-Type: application/json" \
+                  -H "Authorization: bearer ${TOKEN}" \
+                  -X PUT --data @"${PAYLOAD}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients/${ID}" || true
+              fi
+
+              # Fetch the client secret and upsert it into keycloak-clients so a
+              # downstream ExternalSecret can project it to the runtime.
+              SECRET=$(curl -sS -H "Authorization: bearer ${TOKEN}" \
+                "${KEYCLOAK_URL}/admin/realms/adhar/clients/${ID}/client-secret" | jq -r '.value // empty')
+              if [ -n "${SECRET}" ]; then
+                kubectl create secret generic keycloak-clients -n adhar-system \
+                  --from-literal=ADHAR_AI_CLIENT_SECRET="${SECRET}" \
+                  --dry-run=client -o yaml | kubectl apply -f - || \
+                kubectl patch secret keycloak-clients -n adhar-system --type merge \
+                  -p "{\"stringData\":{\"ADHAR_AI_CLIENT_SECRET\":\"${SECRET}\"}}"
+              fi
+              echo "adhar-ai OIDC client registered."
