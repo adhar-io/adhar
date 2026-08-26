@@ -316,10 +316,10 @@ data:
   controller.kubectl.parallelism.limit: "4"
   controller.log.format: text
   controller.log.level: info
-  controller.operation.processors: "4"
+  controller.operation.processors: "10"
   controller.repo.server.timeout.seconds: "60"
   controller.self.heal.timeout.seconds: "5"
-  controller.status.processors: "8"
+  controller.status.processors: "20"
   controller.sync.timeout.seconds: "0"
   dexserver.log.format: text
   dexserver.log.level: info
@@ -331,6 +331,13 @@ data:
   repo.server: argo-cd-argocd-repo-server:8081
   reposerver.log.format: text
   reposerver.log.level: info
+  # Raised from the 10M default: the observability stack (kube-prometheus) ships
+  # ~100 Grafana dashboards inlined as ConfigMaps, so its rendered manifest path
+  # is ~13M. Below this limit the repo-server refuses to render kube-prometheus,
+  # which cascades — the Prometheus Operator (ServiceMonitor CRD) never installs,
+  # so cnpg and keycloak (both carry a ServiceMonitor) fail resource discovery
+  # and never come up. 64M leaves headroom for further dashboard growth.
+  reposerver.max.combined.directory.manifests.size: 64M
   reposerver.parallelism.limit: "0"
   server.basehref: /
   server.dex.server: https://argo-cd-argocd-dex-server:5556

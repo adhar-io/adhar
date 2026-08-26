@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="0.44.0"
+CHART_VERSION="0.45.0"
 
 # NOTE: the full Keycloak OIDC + platform-CA + cold-boot wiring is FOLDED into
 # values.yaml using the chart's native knobs (env / config.extraArgs /

@@ -17,8 +17,30 @@ import (
 	"adhar-io/adhar/api/v1alpha1"
 )
 
-// applyManifest applies a YAML manifest to the cluster
+// applyManifest applies a YAML manifest to the cluster, setting a controller
+// owner reference to the AdharPlatform CR on same-namespace namespaced objects
+// so they are garbage-collected with the platform. Use this for platform-managed
+// infrastructure (Cilium, Gateway, ArgoCD, Gitea, Crossplane, CNPG).
 func (r *AdharPlatformReconciler) applyManifest(ctx context.Context, manifestBytes []byte, resource *v1alpha1.AdharPlatform, manifestName string) error {
+	return r.applyManifestOwned(ctx, manifestBytes, resource, manifestName, true)
+}
+
+// applyManifestNoOwner applies a YAML manifest WITHOUT any owner reference to the
+// AdharPlatform CR. Use this for GitOps handoff resources — the ArgoCD
+// ApplicationSet and its repo auth — whose lifecycle must be independent of the
+// platform CR. In local mode the AdharPlatform CR is ephemeral (recreated on
+// every `adhar up`); owning the ApplicationSet by it caused Kubernetes to
+// garbage-collect the ApplicationSet (and cascade-delete every generated
+// Application) whenever the CR churned, leaving ArgoCD empty. ArgoCD itself owns
+// the Applications the ApplicationSet generates.
+func (r *AdharPlatformReconciler) applyManifestNoOwner(ctx context.Context, manifestBytes []byte, resource *v1alpha1.AdharPlatform, manifestName string) error {
+	return r.applyManifestOwned(ctx, manifestBytes, resource, manifestName, false)
+}
+
+// applyManifestOwned applies a YAML manifest to the cluster. When setOwnerRef is
+// true it sets a controller owner reference to the AdharPlatform CR on
+// same-namespace namespaced objects.
+func (r *AdharPlatformReconciler) applyManifestOwned(ctx context.Context, manifestBytes []byte, resource *v1alpha1.AdharPlatform, manifestName string, setOwnerRef bool) error {
 	logger := log.FromContext(ctx)
 
 	decoder := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifestBytes), 100)
@@ -62,7 +84,7 @@ func (r *AdharPlatformReconciler) applyManifest(ctx context.Context, manifestByt
 		}
 
 		canSetOwnerRef := false
-		if !isClusterScoped {
+		if setOwnerRef && !isClusterScoped {
 			resourceNamespace := obj.GetNamespace()
 			if resourceNamespace == "" {
 				resourceNamespace = resource.Namespace

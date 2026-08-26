@@ -282,8 +282,46 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 			return mgrErr
 		}
 	}
+
+	// The manager has stopped. mgr.Start() returns on the controller's own
+	// success shutdown AND on interruption (Ctrl-C / SIGTERM) or an unrecoverable
+	// manager error — all of which surface here identically. Verify the GitOps
+	// handoff actually happened before declaring success, so an incomplete run
+	// fails honestly and resumably instead of printing "Platform ready" over an
+	// empty ArgoCD. Uses a fresh context: ctx is already cancelled.
+	if err := verifyPlatformProvisioned(context.Background(), kubeClient, lp.options.Name); err != nil {
+		finish(true)
+		return err
+	}
+
 	finish(false)
 	return nil
+}
+
+// verifyPlatformProvisioned confirms the bootstrap reached the GitOps handoff.
+// The controller sets Status.Gitea.RepositoriesCreated only after it has seeded
+// the Gitea repos and (immediately after) applied the platform ApplicationSet —
+// so its presence is a reliable "ArgoCD has been seeded" signal, and its absence
+// means the run was interrupted or the manager died before that point.
+func verifyPlatformProvisioned(ctx context.Context, c client.Client, name string) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var last error
+	for {
+		var lb v1alpha1.AdharPlatform
+		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &lb); err != nil {
+			last = err
+		} else if lb.Status.Gitea.RepositoriesCreated {
+			return nil
+		} else {
+			last = fmt.Errorf("GitOps repositories were not seeded before the controller stopped")
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("bootstrap did not complete (%v) — re-run `adhar up` to resume", last)
+		case <-time.After(2 * time.Second):
+		}
+	}
 }
 
 // pollPlatformStages advances the controller-owned stages of the tracker as each

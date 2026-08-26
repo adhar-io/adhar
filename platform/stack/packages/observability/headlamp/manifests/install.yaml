@@ -8,10 +8,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.44.0
+    helm.sh/chart: headlamp-0.45.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.44.0"
+    app.kubernetes.io/version: "0.45.0"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: headlamp/templates/clusterrolebinding.yaml
@@ -20,10 +20,10 @@ kind: ClusterRoleBinding
 metadata:
   name: headlamp-admin
   labels:
-    helm.sh/chart: headlamp-0.44.0
+    helm.sh/chart: headlamp-0.45.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.44.0"
+    app.kubernetes.io/version: "0.45.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -41,10 +41,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.44.0
+    helm.sh/chart: headlamp-0.45.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.44.0"
+    app.kubernetes.io/version: "0.45.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -68,10 +68,10 @@ metadata:
   name: headlamp
   namespace: adhar-system
   labels:
-    helm.sh/chart: headlamp-0.44.0
+    helm.sh/chart: headlamp-0.45.0
     app.kubernetes.io/name: headlamp
     app.kubernetes.io/instance: headlamp
-    app.kubernetes.io/version: "0.44.0"
+    app.kubernetes.io/version: "0.45.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -97,32 +97,14 @@ spec:
             runAsGroup: 101
             runAsNonRoot: true
             runAsUser: 100
-          image: "ghcr.io/headlamp-k8s/headlamp:v0.44.0"
+          image: "ghcr.io/headlamp-k8s/headlamp:v0.45.0"
           imagePullPolicy: IfNotPresent
           
           env:
-            - name: OIDC_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  key: clientID
-                  name: oidc
-                  optional: true
-            - name: OIDC_CLIENT_SECRET
+            - name: HEADLAMP_OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   key: clientSecret
-                  name: oidc
-                  optional: true
-            - name: OIDC_ISSUER_URL
-              valueFrom:
-                secretKeyRef:
-                  key: issuerURL
-                  name: oidc
-                  optional: true
-            - name: OIDC_SCOPES
-              valueFrom:
-                secretKeyRef:
-                  key: scopes
                   name: oidc
                   optional: true
           args:
@@ -132,14 +114,10 @@ spec:
             - "-plugins-dir=/headlamp/plugins"
             - "-session-ttl=86400"
             # Check if externalSecret is disabled
-            # Check if clientID is non empty either from env or oidc.config
-            - "-oidc-client-id=$(OIDC_CLIENT_ID)"
-            # Check if clientSecret is non empty either from env or oidc.config
-            - "-oidc-client-secret=$(OIDC_CLIENT_SECRET)"
-            # Check if issuerURL is non empty either from env or oidc.config
-            - "-oidc-idp-issuer-url=$(OIDC_ISSUER_URL)"
-            # Check if scopes are non empty either from env or oidc.config
-            - "-oidc-scopes=$(OIDC_SCOPES)"
+            - -oidc-client-id=headlamp
+            - -oidc-idp-issuer-url=https://keycloak.adhar.localtest.me:8443/realms/adhar
+            - -oidc-scopes=openid,profile,email,groups
+            - -oidc-client-secret=$(HEADLAMP_OIDC_CLIENT_SECRET)
             - -oidc-ca-file=/platform-ca/tls.crt
             - -oidc-callback-url=https://headlamp.adhar.localtest.me:8443/oidc-callback
           ports:

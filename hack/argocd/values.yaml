@@ -468,11 +468,11 @@ configs:
     # saturate kube-apiserver during initial convergence of the ~69-app
     # ApplicationSet, starving every other controller's leader-election lease.
     # -- Number of application status processors
-    controller.status.processors: 8
+    controller.status.processors: 20
     # -- Number of application operation processors
-    controller.operation.processors: 4
+    controller.operation.processors: 10
     # -- Number of allowed concurrent kubectl fork/execs
-    controller.kubectl.parallelism.limit: 4
+    controller.kubectl.parallelism.limit: 8
     # -- Specifies timeout between application self heal attempts
     controller.self.heal.timeout.seconds: 5
     # -- Repo server RPC call timeout seconds.

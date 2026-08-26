@@ -48,6 +48,22 @@ config:
   staticPlugins:
     enabled: true
   extraArgs:
+    # OIDC client-id, issuer and scopes are STATIC, known-ahead values, so they
+    # are hardcoded here rather than sourced from the (optional) `oidc` Secret.
+    # This is the durable fix for the "$(OIDC_ISSUER_URL)/.well-known/... :
+    # unsupported protocol scheme" login error: Kubernetes only substitutes
+    # $(VAR) when the env var is DEFINED, so when the Secret was absent at pod
+    # start the issuer arg kept the LITERAL "$(OIDC_ISSUER_URL)" and discovery
+    # died. With the issuer literal in args, discovery always works regardless of
+    # Secret timing; only the client SECRET (below) is genuinely dynamic.
+    - "-oidc-client-id=headlamp"
+    - "-oidc-idp-issuer-url=https://keycloak.adhar.localtest.me:8443/realms/adhar"
+    - "-oidc-scopes=openid,profile,email,groups"
+    # Client secret is the one truly dynamic value — reference the env var below.
+    # If the Secret is absent at start this arg is literal, but that only affects
+    # the token exchange (not discovery/startup); oidc-reload.yaml restarts
+    # headlamp once the Secret lands so the real secret is picked up.
+    - "-oidc-client-secret=$(HEADLAMP_OIDC_CLIENT_SECRET)"
     # Discovery runs against the external issuer URL, which serves the
     # platform's self-signed certificate: hand headlamp the platform CA
     # explicitly (purpose-built flag; do not rely on the image's trust store).
@@ -59,28 +75,16 @@ config:
     # `headlamp` client.
     - "-oidc-callback-url=https://headlamp.adhar.localtest.me:8443/oidc-callback"
 
-# OIDC sign-in env (keycloak `headlamp` client). The chart detects these
-# OIDC_* env vars and emits the corresponding `-oidc-*` args.
-# optional: the `oidc` Secret is produced by ESO from the keycloak `headlamp`
-# client, which only exists once the whole SSO chain has run (keycloak-db ->
-# keycloak -> config job -> keycloak-clients). Without `optional: true` headlamp
-# cannot start until then — CreateContainerConfigError on every fresh bootstrap,
-# and forever on installs with keycloak disabled. Empty values simply mean
-# "OIDC not configured" (headlamp starts and offers token auth); it picks up SSO
-# on its next restart after the Secret appears (see manifests/oidc-reload.yaml).
+# Only the client SECRET is sourced from the ESO-populated `oidc` Secret. The
+# env var is intentionally NOT named OIDC_* so the chart does not also auto-emit
+# a duplicate `-oidc-client-secret` arg (we supply all -oidc-* args explicitly
+# via config.extraArgs above). optional:true keeps headlamp booting on a cold
+# cluster before Keycloak's realm job has produced keycloak-clients; the
+# oidc-reload PostSync hook restarts it once the real secret lands.
 env:
-  - name: OIDC_CLIENT_ID
-    valueFrom:
-      secretKeyRef: {name: oidc, key: clientID, optional: true}
-  - name: OIDC_CLIENT_SECRET
+  - name: HEADLAMP_OIDC_CLIENT_SECRET
     valueFrom:
       secretKeyRef: {name: oidc, key: clientSecret, optional: true}
-  - name: OIDC_ISSUER_URL
-    valueFrom:
-      secretKeyRef: {name: oidc, key: issuerURL, optional: true}
-  - name: OIDC_SCOPES
-    valueFrom:
-      secretKeyRef: {name: oidc, key: scopes, optional: true}
 
 # Mount the self-signed platform CA (adhar-cert) at /platform-ca/tls.crt so OIDC
 # discovery against the self-signed issuer works (-oidc-ca-file above).

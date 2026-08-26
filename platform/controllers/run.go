@@ -11,9 +11,22 @@ import (
 
 	"adhar-io/adhar/platform/controllers/gitrepository"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
+
+// compositeClusterCRDPresent reports whether the CompositeCluster CRD (a
+// Crossplane XRD the DataPlane controller watches) is registered on the cluster.
+// The DataPlane controller must not be wired onto the manager before it exists,
+// or the manager fails its cache-sync startup (see RunControllers).
+func compositeClusterCRDPresent(mgr manager.Manager) bool {
+	_, err := mgr.GetRESTMapper().RESTMapping(
+		schema.GroupKind{Group: "platform.adhar.io", Kind: "CompositeCluster"},
+		"v1alpha1",
+	)
+	return err == nil
+}
 
 func RunControllers(
 	ctx context.Context,
@@ -68,11 +81,25 @@ func RunControllers(
 		logger.Error(err, "unable to create custom package controller")
 	}
 
-	if err := (&dataplane.DataPlaneReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		logger.Error(err, "unable to create dataplane controller")
+	// The DataPlane controller Owns() CompositeCluster — a Crossplane XRD whose
+	// CRD does not exist until the control plane is installed (late in, or after,
+	// bootstrap). controller-runtime blocks manager startup on every watched
+	// informer's cache sync and, if one never syncs, fails mgr.Start() at its
+	// WaitForCacheSyncTimeout (2m by default). During `adhar up` that killed the
+	// whole manager two minutes in — before Gitea was ready and the platform
+	// ApplicationSet was applied — leaving ArgoCD empty while the CLI still
+	// reported success. So register the DataPlane controller only once its CRD is
+	// present. A fresh bootstrap has no DataPlanes to reconcile; the persistent
+	// in-cluster manager (started after Crossplane is installed) picks it up.
+	if compositeClusterCRDPresent(mgr) {
+		if err := (&dataplane.DataPlaneReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			logger.Error(err, "unable to create dataplane controller")
+		}
+	} else {
+		logger.Info("CompositeCluster CRD not present; skipping DataPlane controller until Crossplane is installed")
 	}
 	// Start our manager in another goroutine
 	logger.V(1).Info("starting manager")

@@ -155,18 +155,21 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	// Install core packages (idempotent - checks status before applying).
-	// Crossplane reports Available once its deployment is up, but applying the
-	// control-plane configuration (XRDs/Compositions/ProviderConfigs/Operations)
-	// can fail on the first pass if Crossplane's own CRDs aren't registered yet;
-	// keep re-running until ControlPlaneApplied so that retry actually happens.
+	// Install FOUNDATION packages only (Gateway API CRDs -> Cilium -> Gateway ->
+	// [CNPG] -> ArgoCD -> Gitea) — everything the GitOps phase depends on.
+	// Crossplane is deliberately NOT installed here: it is reconciled AFTER the
+	// ApplicationSet (below). Crossplane's control-plane convergence is slow and
+	// retry-prone (XRDs/Compositions apply only once its own CRDs register), so
+	// gating the appset apply behind it was the fragility that left ArgoCD empty:
+	// a Crossplane error returned early from this block, and an interrupted or
+	// slow run never reached applyPlatformStack. The appset needs only ArgoCD +
+	// Gitea, so we apply it first and let Crossplane converge in the background.
 	if !localBuild.Status.ArgoCD.Available || !localBuild.Status.Gateway.Available ||
-		!localBuild.Status.Gitea.Available || !localBuild.Status.Crossplane.Available ||
-		!localBuild.Status.Crossplane.ControlPlaneApplied {
-		logger.Info("Installing core packages")
+		!localBuild.Status.Gitea.Available {
+		logger.Info("Installing foundation packages")
 		err = r.installCorePackagesSync(ctx, req, &localBuild)
 		if err != nil {
-			logger.Error(err, "failed installing core packages")
+			logger.Error(err, "failed installing foundation packages")
 			r.recordFailure("CorePackageInstallFailed", err)
 			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 		}
@@ -189,6 +192,18 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if err != nil {
 			logger.Error(err, "failed applying platform stack")
 			r.recordFailure("PlatformStackApplyFailed", err)
+			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+		}
+	}
+
+	// Now reconcile Crossplane (core install + control-plane configuration). This
+	// runs AFTER the ApplicationSet so app deployment never waits on it and a
+	// Crossplane failure can never prevent the appset from being applied.
+	if !localBuild.Status.Crossplane.Available || !localBuild.Status.Crossplane.ControlPlaneApplied {
+		logger.Info("Reconciling Crossplane control plane")
+		if _, cpErr := r.ReconcileCrossplane(ctx, req, &localBuild); cpErr != nil {
+			logger.Error(cpErr, "failed reconciling Crossplane")
+			r.recordFailure("CrossplaneReconcileFailed", cpErr)
 			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 		}
 	}
@@ -264,8 +279,9 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) error {
 	logger := log.FromContext(ctx)
 
-	// Install in deterministic order:
-	//   Gateway API CRDs -> Cilium (CNI + Gateway data path) -> Gateway -> ArgoCD -> Gitea -> Crossplane
+	// Install the foundation in deterministic order:
+	//   Gateway API CRDs -> Cilium (CNI + Gateway data path) -> Gateway -> ArgoCD -> Gitea
+	// (Crossplane is reconciled separately, after the ApplicationSet.)
 	// The Gateway API CRDs must exist before Cilium starts with Gateway API
 	// enabled; the platform Gateway is created after Cilium is up so Cilium can
 	// program it and generate the NodePort Service that Kind maps host ports to.
@@ -287,9 +303,12 @@ func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, r
 	installers = append(installers,
 		namedInstaller{v1alpha1.ArgoCDPackageName, r.ReconcileArgo},
 		namedInstaller{v1alpha1.GiteaPackageName, r.ReconcileGitea},
-		namedInstaller{v1alpha1.CrossplanePackageName, r.ReconcileCrossplane},
 	)
-	logger.Info("installing core packages: Gateway API CRDs -> Cilium -> Gateway -> [CNPG (HA)] -> ArgoCD -> Gitea -> Crossplane")
+	// NOTE: Crossplane is intentionally NOT in this foundation list. It is
+	// reconciled separately by Reconcile AFTER the ApplicationSet is applied, so
+	// its slow/retry-prone control-plane convergence can never block (or, on an
+	// interrupted run, prevent) GitOps app deployment.
+	logger.Info("installing foundation packages: Gateway API CRDs -> Cilium -> Gateway -> [CNPG (HA)] -> ArgoCD -> Gitea")
 
 	for _, inst := range installers {
 		logger.Info("installing core package", "name", inst.name)
@@ -368,7 +387,7 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 		return fmt.Errorf("reading platform stack ApplicationSet %s: %w", appSetPath, err)
 	}
 
-	if err := r.applyManifest(ctx, appSetBytes, resource, "Platform stack ApplicationSet"); err != nil {
+	if err := r.applyManifestNoOwner(ctx, appSetBytes, resource, "Platform stack ApplicationSet"); err != nil {
 		logger.Error(err, "Failed to apply platform stack ApplicationSet")
 		return err
 	}
@@ -380,7 +399,7 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 	// so applying it unconditionally is harmless on single-cluster platforms.
 	workloadAppSetPath := filepath.Join(r.StackDir, "adhar-appset-workload.yaml")
 	if workloadBytes, err := os.ReadFile(workloadAppSetPath); err == nil {
-		if err := r.applyManifest(ctx, workloadBytes, resource, "Workload cluster ApplicationSet"); err != nil {
+		if err := r.applyManifestNoOwner(ctx, workloadBytes, resource, "Workload cluster ApplicationSet"); err != nil {
 			logger.Error(err, "Failed to apply workload cluster ApplicationSet")
 			return err
 		}
@@ -460,7 +479,7 @@ func (r *AdharPlatformReconciler) applyArgoCDRepoAuth(ctx context.Context, resou
 		return fmt.Errorf("reading ArgoCD repo auth manifest %s: %w", authPath, err)
 	}
 
-	if err := r.applyManifest(ctx, authBytes, resource, "ArgoCD repo auth"); err != nil {
+	if err := r.applyManifestNoOwner(ctx, authBytes, resource, "ArgoCD repo auth"); err != nil {
 		return err
 	}
 	return nil

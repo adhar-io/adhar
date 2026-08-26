@@ -14,12 +14,18 @@ data:
   theme.properties: |
     # Adhar login theme — Keycloak 26.x
     #
-    # Inherit the full keycloak.v2 (PatternFly v5) login theme via the `keycloak`
-    # parent so all form logic, templates and base styling are preserved. We only
-    # LAYER an additional stylesheet on top — no FTL templates are overridden, so
-    # login functionality (username/password, social providers, errors, "remember
-    # me", registration, reset-credentials) is never at risk.
-    parent=keycloak
+    # Inherit the full keycloak.v2 (PatternFly v5) login theme so all form logic,
+    # templates and base styling are preserved. We only LAYER an additional
+    # stylesheet on top — no FTL templates are overridden, so login functionality
+    # (username/password, social providers, errors, "remember me", registration,
+    # reset-credentials) is never at risk.
+    #
+    # parent MUST be keycloak.v2 (NOT keycloak): the `css/styles.css` webpack
+    # bundle referenced below ships ONLY in keycloak.v2. The classic `keycloak`
+    # theme uses css/login.css instead, so with parent=keycloak the styles line
+    # resolved css/styles.css to a 404 — the login page lost its base styling and
+    # rendered broken (looked like an error after the console SSO redirect).
+    parent=keycloak.v2
     import=common/keycloak
 
     # IMPORTANT: `styles` OVERRIDES (does not merge with) the parent value, so we
