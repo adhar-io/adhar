@@ -164,6 +164,24 @@ spec:
         # comes from the console-env-vars Secret.
         - { name: AI_BASE_URL, value: '' }
         - { name: AI_MODEL, value: 'default' }
+        # ── Backing platform tools ───────────────────────────────────────────
+        # Each <TOOL>_URL is the tool's IN-CLUSTER Service URL, used by the BFF's
+        # server-side proxy (/api/svc/<tool>) — the public *.localtest.me hosts
+        # resolve to loopback inside the cluster (split-horizon), so a Service URL
+        # is required. The console reports these as "configured" and the app
+        # launcher derives the public browser URL from the cluster base domain,
+        # so tiles both open in the browser AND back real server-side data.
+        # Only tools actually deployed in this cluster are set; the rest stay
+        # unconfigured (honest "not set up" tiles).
+        - { name: GITEA_URL, value: 'http://gitea-http.adhar-system.svc.cluster.local:3000' }
+        - { name: ARGOCD_URL, value: 'http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80' }
+        - { name: GRAFANA_URL, value: 'http://prometheus-grafana.adhar-system.svc.cluster.local:80' }
+        - { name: PROMETHEUS_URL, value: 'http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090' }
+        - { name: LOKI_URL, value: 'http://loki.adhar-system.svc.cluster.local:3100' }
+        - { name: MIMIR_URL, value: 'http://mimir-gateway.adhar-system.svc.cluster.local:80' }
+        - { name: TEMPO_URL, value: 'http://tempo.adhar-system.svc.cluster.local:3200' }
+        - { name: VAULT_URL, value: 'http://vault.adhar-system.svc.cluster.local:8200' }
+        - { name: TEKTON_URL, value: 'http://tekton-dashboard.adhar-system.svc.cluster.local:9097' }
         # AUTH_CLIENT_SECRET + AUTH_COOKIE_SECRET come from here (templated by
         # the console-oidc ExternalSecret from the keycloak-clients secret).
         envFrom:
