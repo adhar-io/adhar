@@ -12,6 +12,24 @@ IMG ?= adhar:latest
 # v0.1.0 on tagless checkouts (fresh forks, shallow clones).
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.1.0)
 
+# RELEASE_VERSION is the version `make release` will tag — a NEW version, NOT the
+# auto-detected latest tag above (which is what `release` used to re-tag, causing
+# "Tag vX.Y.Z already exists"). It is taken from, in order:
+#   1. a positional goal:      make release v0.2.2
+#   2. an explicit override:   make release VERSION=v0.2.2
+RELEASE_VERSION := $(strip $(filter v%,$(MAKECMDGOALS)))
+ifeq ($(RELEASE_VERSION),)
+ifeq ($(origin VERSION),command line)
+RELEASE_VERSION := $(VERSION)
+endif
+endif
+
+# Swallow a positional `vX.Y.Z` goal so `make release v0.2.2` doesn't fail with
+# "No rule to make target 'v0.2.2'". Explicit targets (vet, etc.) still win, so
+# this only ever matches a version argument.
+v%:
+	@:
+
 # The name of the binary. Defaults to adhar
 OUT_FILE ?= adhar
 
@@ -182,20 +200,25 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 ##@ Release Management
 
 .PHONY: release
-release: ## Create and push a release tag; CI (GoReleaser) builds and publishes everything
-	@if [ -z "$(VERSION)" ]; then \
-		echo "Error: VERSION must be specified (e.g., make release VERSION=v0.1.0)"; \
+release: ## Create and push a release tag (e.g. make release v0.2.2); CI (GoReleaser) builds and publishes everything
+	@REL="$(RELEASE_VERSION)"; \
+	if [ -z "$$REL" ]; then \
+		echo "Error: specify the version to release, e.g. 'make release v0.2.2'"; \
+		echo "       (latest tag is $$(git describe --tags --abbrev=0 2>/dev/null || echo none))"; \
 		exit 1; \
-	fi
-	@if git rev-parse "$(VERSION)" >/dev/null 2>&1; then \
-		echo "Error: Tag $(VERSION) already exists"; \
-		exit 1; \
-	fi
-	@git fetch --force --tags
-	@git tag -a $(VERSION) -m "Release $(VERSION)"
-	@git push origin $(VERSION)
-	@echo "Tag $(VERSION) pushed. The release workflow now builds and publishes the release:"
-	@echo "  https://github.com/adhar-io/adhar/actions/workflows/release.yaml"
+	fi; \
+	case "$$REL" in \
+		v[0-9]*.[0-9]*.[0-9]*) ;; \
+		*) echo "Error: version must look like vX.Y.Z (got '$$REL')"; exit 1;; \
+	esac; \
+	git fetch --force --tags >/dev/null 2>&1 || true; \
+	if git rev-parse "$$REL" >/dev/null 2>&1; then \
+		echo "Error: Tag $$REL already exists"; exit 1; \
+	fi; \
+	git tag -a "$$REL" -m "Release $$REL"; \
+	git push origin "$$REL"; \
+	echo "Tag $$REL pushed. The release workflow now builds and publishes the release:"; \
+	echo "  https://github.com/adhar-io/adhar/actions/workflows/release.yaml"
 
 .PHONY: release-snapshot
 release-snapshot: goreleaser ## Build a local snapshot release with GoReleaser (nothing is tagged or published)
