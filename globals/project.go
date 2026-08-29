@@ -9,7 +9,7 @@ const (
 	DefaultClusterName string = "adhar"
 
 	// DefaultKubernetesVersion is the version Adhar provisions
-	DefaultKubernetesVersion string = "v1.36.1"
+	DefaultKubernetesVersion string = "v1.37.0"
 
 	// Cloud Providers
 	CloudProviderGKE   string = "gke"

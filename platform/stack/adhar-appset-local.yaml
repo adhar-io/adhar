@@ -451,11 +451,6 @@ spec:
         adhar.io/package-name: "{{ .name }}"
         adhar.io/category: "{{ .category }}"
         environment: "local"
-      annotations:
-        # Server-side diff so the ignoreDifferences managedFieldsManagers rules
-        # below are honoured — ArgoCD attributes each live field to its owning
-        # controller and stops flagging operator-written fields as drift.
-        argocd.argoproj.io/compare-options: ServerSideDiff=true
       name: "{{ .name }}"
     spec:
       destination:
@@ -466,22 +461,14 @@ spec:
         namespace: "{{ .namespace }}"
         server: https://kubernetes.default.svc
       project: default
-      # Suppress perpetual OutOfSync drift from resources that platform operators
-      # mutate AFTER ArgoCD applies them. managedFieldsManagers ignores exactly
-      # the fields each controller owns, so real spec drift is still detected:
-      #   - HTTPRoute: Cilium's gateway controller writes status/parent resolution
-      #   - ExternalSecret: the external-secrets operator writes status
-      #   - CRD: kube-apiserver writes .status (acceptedNames/conditions/storedVersions)
-      ignoreDifferences:
-        - group: gateway.networking.k8s.io
-          kind: HTTPRoute
-          managedFieldsManagers: ["cilium-operator-generic"]
-        - group: external-secrets.io
-          kind: ExternalSecret
-          managedFieldsManagers: ["external-secrets"]
-        - group: apiextensions.k8s.io
-          kind: CustomResourceDefinition
-          managedFieldsManagers: ["kube-apiserver"]
+      # NOTE: ServerSideDiff + managedFieldsManagers ignoreDifferences were tried
+      # here to silence cosmetic OutOfSync drift, but ServerSideDiff computes the
+      # diff via a dry-run server-side apply that triggers admission webhooks —
+      # and the CNPG Cluster webhook (console-db/keycloak-db) is briefly
+      # unreachable during bootstrap, so the dry-run failed and the app got stuck
+      # in ComparisonError / "Unknown". Client-side diff (the default) has no such
+      # dependency. The residual OutOfSync is cosmetic (apps stay Healthy); a
+      # reliable bootstrap matters more.
       sources:
         - path: "{{ .manifestPath }}"
           repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/packages
@@ -501,12 +488,20 @@ spec:
           backoff:
             duration: 5s
             factor: 2
-            # Cap at 20s (was 1m): an app that fails early because a dependency
-            # (CRD/operator/OIDC secret) isn't ready yet re-syncs within 20s of
-            # the dependency appearing, instead of waiting up to a minute per
-            # attempt — this is what let headlamp sit broken for ~17m.
-            maxDuration: 20s
-          limit: 20
+            # Fast early retries (5s,10s,20s…) so an app whose dependency
+            # (CRD/operator/OIDC secret) has just appeared re-syncs promptly,
+            # capped at 30s so it never idles a full minute per attempt.
+            maxDuration: 30s
+          # A GENEROUS limit is critical for a cold bootstrap: apps that create a
+          # CNPG Cluster (console-db, keycloak-db) or other webhook-backed
+          # resources fail until the owning operator's admission webhook is ready,
+          # which can take several minutes. Once ArgoCD exhausts `limit` the
+          # operation FAILS and auto-sync "will not retry for [revision]" — the app
+          # gets permanently wedged OutOfSync (Deployment never created, console
+          # 503s). 60 retries × ~30s ≈ a 30-min window comfortably outlasts
+          # operator/webhook startup; a healthy resource still applies on the
+          # first attempt, so this only costs time on genuinely transient failures.
+          limit: 60
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true

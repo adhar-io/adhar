@@ -44,10 +44,11 @@ nodes:
 # windows lets the control plane ride out those latency spikes instead of
 # flapping.
 #
-# NOTE: kind matches kubeadmConfigPatches against the v1beta3 kubeadm API, where
-# extraArgs is a map[string]string (NOT the v1beta4 name/value list). A patch
-# tagged apiVersion v1beta4 — or using the list form — is silently ignored. Keep
-# the map form below; verified to land on kube-controller-manager and scheduler.
+# NOTE: Kubernetes 1.37's kubeadm ONLY accepts the v1beta4 config API, where
+# `extraArgs` is a name/value LIST (NOT the v1beta3 map[string]string). A map-form
+# patch — or one tagged v1beta3 — is silently ignored on 1.37, which would drop
+# the apiserver OIDC flags (breaking Keycloak API auth) and the leader-election
+# tuning. The patch below is v1beta4 list form; kindest/node:v1.37.0+ uses it.
 #
 # maxPods: the kubelet default of 110 is a hard scheduling ceiling on a
 # single-node cluster. The core stack alone runs ~100 pods, so enabling even a
@@ -65,6 +66,7 @@ kubeadmConfigPatches:
     serializeImagePulls: false
     maxParallelImagePulls: 8
   - |
+    apiVersion: kubeadm.k8s.io/v1beta4
     kind: ClusterConfiguration
     # Skip etcd fsync (same trick kind CI uses): on Docker Desktop the etcd
     # data dir sits on a virtualized filesystem whose fsync latency under the
@@ -74,29 +76,37 @@ kubeadmConfigPatches:
     etcd:
       local:
         extraArgs:
-          unsafe-no-fsync: "true"
+          - name: unsafe-no-fsync
+            value: "true"
     apiServer:
+      # Trust the platform Keycloak realm so human identities authenticate
+      # against the Kubernetes API (ADR-0008): headlamp's OIDC sign-in and
+      # `adhar auth login` tokens map onto the group-based RBAC bindings the
+      # keycloak package ships (k8s-rbac.yaml). The oidc: prefixes keep
+      # federated identities from ever colliding with system: users/groups.
+      # Discovery runs against the issuer URL verbatim; on the node that
+      # hostname resolves to loopback, where the oidc-loopback-proxy DaemonSet
+      # (keycloak package) forwards 127.0.0.1:8443 to the Gateway. Requires
+      # Cilium socketLB (hack/cilium/values.yaml) so host-namespace connects
+      # reach cluster Services; the widened node-port range keeps the Gateway's
+      # 8443 listener pinnable (gateway.go).
       extraArgs:
-        # Trust the platform Keycloak realm so human identities authenticate
-        # against the Kubernetes API (ADR-0008): headlamp's OIDC sign-in and
-        # `adhar auth login` tokens map onto the group-based RBAC bindings the
-        # keycloak package ships (k8s-rbac.yaml). The oidc: prefixes keep
-        # federated identities from ever colliding with system: users/groups.
-        #
-        # Discovery runs against the issuer URL verbatim; on the node that
-        # hostname resolves to loopback, where the oidc-loopback-proxy
-        # DaemonSet (keycloak package) forwards 127.0.0.1:8443 to the Gateway.
-        # Requires Cilium socketLB (hack/cilium/values.yaml) so host-namespace
-        # connects reach cluster Services; the widened node-port range below
-        # keeps the Gateway's 8443 listener pinnable (gateway.go).
-        oidc-issuer-url: "{{ .OIDCIssuerURL }}"
-        oidc-client-id: "kubernetes"
-        oidc-ca-file: "{{ .OIDCCAPath }}"
-        oidc-username-claim: "preferred_username"
-        oidc-username-prefix: "oidc:"
-        oidc-groups-claim: "groups"
-        oidc-groups-prefix: "oidc:"
-        service-node-port-range: "8443-32767"
+        - name: oidc-issuer-url
+          value: "{{ .OIDCIssuerURL }}"
+        - name: oidc-client-id
+          value: "kubernetes"
+        - name: oidc-ca-file
+          value: "{{ .OIDCCAPath }}"
+        - name: oidc-username-claim
+          value: "preferred_username"
+        - name: oidc-username-prefix
+          value: "oidc:"
+        - name: oidc-groups-claim
+          value: "groups"
+        - name: oidc-groups-prefix
+          value: "oidc:"
+        - name: service-node-port-range
+          value: "8443-32767"
       # kubeadm mounts only a fixed set of paths into the kube-apiserver static
       # pod, so the node-level extraMount above is NOT visible to the process:
       # without this volume the API server dies at boot with
@@ -110,14 +120,20 @@ kubeadmConfigPatches:
         pathType: DirectoryOrCreate
     controllerManager:
       extraArgs:
-        leader-elect-lease-duration: "60s"
-        leader-elect-renew-deadline: "45s"
-        leader-elect-retry-period: "5s"
+        - name: leader-elect-lease-duration
+          value: "60s"
+        - name: leader-elect-renew-deadline
+          value: "45s"
+        - name: leader-elect-retry-period
+          value: "5s"
     scheduler:
       extraArgs:
-        leader-elect-lease-duration: "60s"
-        leader-elect-renew-deadline: "45s"
-        leader-elect-retry-period: "5s"
+        - name: leader-elect-lease-duration
+          value: "60s"
+        - name: leader-elect-renew-deadline
+          value: "45s"
+        - name: leader-elect-retry-period
+          value: "5s"
 networking:
   disableDefaultCNI: true   # do not install kindnet
   kubeProxyMode: none       # do not run kube-proxy - Cilium will replace it

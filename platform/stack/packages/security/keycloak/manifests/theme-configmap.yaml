@@ -214,12 +214,20 @@ data:
       width: 100%;
       max-width: 420px;
       margin: 0 auto !important;
-      padding: 36px 34px 30px !important;
-      background: var(--surface) !important;
-      border: 1px solid rgba(226, 232, 240, 0.9) !important;
+      padding: 38px 34px 32px !important;
+      /* Glassmorphism — a frosted panel floating over the brand gradient. The
+         translucent light fill keeps the dark form text fully legible while the
+         backdrop blur adds depth. */
+      background: rgba(255, 255, 255, 0.80) !important;
+      -webkit-backdrop-filter: blur(22px) saturate(150%);
+      backdrop-filter: blur(22px) saturate(150%);
+      border: 1px solid rgba(255, 255, 255, 0.55) !important;
       border-radius: var(--radius-card) !important;
-      box-shadow: var(--shadow-card) !important;
+      box-shadow: var(--shadow-card),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.65),
+                  inset 0 0 0 1px rgba(148, 163, 184, 0.10) !important;
       box-sizing: border-box;
+      animation: adhar-card-in .55s cubic-bezier(.16,.84,.44,1) both;
     }
 
     #kc-content,
@@ -917,6 +925,77 @@ data:
       #kc-registration a:hover {
         color: #A5B4FC;
       }
+    }
+
+    /* ----------------------------------------------------------------------------
+       Modern polish — living brand-glow, card entrance, button shine
+       ---------------------------------------------------------------------------- */
+    @keyframes adhar-card-in {
+      from { opacity: 0; transform: translateY(14px) scale(.985); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    /* A large, slowly-drifting brand orb behind the card gives the page a living,
+       premium feel without distracting from the form. */
+    body.login-pf::after {
+      content: "";
+      position: fixed;
+      inset: -25vmax;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(38vmax 38vmax at 22% 28%, rgba(59, 130, 246, 0.22), transparent 62%),
+        radial-gradient(34vmax 34vmax at 82% 74%, rgba(139, 92, 246, 0.20), transparent 60%);
+      filter: blur(6px);
+      animation: adhar-orb-drift 26s ease-in-out infinite alternate;
+    }
+    @keyframes adhar-orb-drift {
+      from { transform: translate3d(-3%, -2%, 0) scale(1); }
+      to   { transform: translate3d(4%, 3%, 0) scale(1.08); }
+    }
+
+    /* Keep the header + card above the drifting orb. */
+    #kc-header,
+    .login-pf-page .card-pf,
+    #kc-content,
+    .card-pf { position: relative; z-index: 1; }
+
+    /* Primary button: a soft light sweep across on hover. */
+    #kc-login,
+    input[type="submit"],
+    button[type="submit"],
+    .pf-v5-c-button.pf-m-primary,
+    .pf-c-button.pf-m-primary {
+      position: relative;
+      overflow: hidden;
+    }
+    #kc-login::after,
+    input[type="submit"]::after,
+    button[type="submit"]::after,
+    .pf-v5-c-button.pf-m-primary::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(100deg, transparent 22%, rgba(255, 255, 255, 0.30) 50%, transparent 78%);
+      transform: translateX(-120%);
+      transition: transform .6s ease;
+    }
+    #kc-login:hover::after,
+    input[type="submit"]:hover::after,
+    button[type="submit"]:hover::after,
+    .pf-v5-c-button.pf-m-primary:hover::after {
+      transform: translateX(120%);
+    }
+
+    /* Respect users who prefer no motion. */
+    @media (prefers-reduced-motion: reduce) {
+      .login-pf-page .card-pf,
+      .card-pf { animation: none !important; }
+      body.login-pf::after { animation: none !important; }
+      #kc-login::after,
+      input[type="submit"]::after,
+      button[type="submit"]::after { display: none !important; }
     }
 
   adhar-symbol.svg: |

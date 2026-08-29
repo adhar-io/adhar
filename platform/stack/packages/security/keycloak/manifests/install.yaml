@@ -198,6 +198,22 @@ spec:
   instances: 1
   storage:
     size: 1Gi
+  # Guaranteed CPU/memory so the database is not starved during the initial
+  # convergence write-storm. Without a request, the Postgres process was
+  # CPU-throttled under load — a trivial `SELECT ID FROM REALM` took 35s, the
+  # Agroal pool tripped "connection in incorrect state VALIDATION", the DB health
+  # check went DOWN, and Keycloak logins timed out / failed intermittently.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  # Postgres tuning for a small, latency-sensitive auth DB on a single node.
+  postgresql:
+    parameters:
+      shared_buffers: 128MB
+      max_connections: "100"
   bootstrap:
     initdb:
       database: keycloak
