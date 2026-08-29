@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="0.28.2"
+CHART_VERSION="0.29.0"  # CloudNativePG operator 1.30.0
 
 echo "# CLOUDNATIVE-PG INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/cnpg/generate-manifests.sh'" >>${INSTALL_YAML}

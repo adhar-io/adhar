@@ -1,0 +1,118 @@
+# Supply-chain foundation — the build identity and its credentials.
+#
+# One ServiceAccount (adhar-pipeline) carries both the Harbor push credential
+# and the cosign signing key, so every kpack Build that references it pushes to
+# Harbor AND signs the result in one step (kpack signs automatically when a
+# cosign key secret is attached to the build SA).
+#
+# Local footprint note: this reuses Harbor's default admin credential (the same
+# value already baked into application/harbor/manifests/install.yaml). For a
+# hardened install, swap `harbor-push` for a Harbor *robot* account projected via
+# ESO — the SA reference below does not change.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-pipeline
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+secrets:
+  - name: harbor-push
+  - name: cosign-key
+imagePullSecrets:
+  - name: harbor-push
+---
+# Harbor registry push credential (kpack reads the `kpack.io/docker` annotation to
+# match this secret to the registry host it is pushing to).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harbor-push
+  namespace: adhar-system
+  annotations:
+    kpack.io/docker: harbor-core.adhar-system.svc.cluster.local
+    argocd.argoproj.io/sync-wave: "0"
+type: kubernetes.io/basic-auth
+stringData:
+  username: admin
+  password: Harbor12345
+---
+# RBAC for the one-time cosign key generator.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cosign-keygen
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cosign-keygen
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cosign-keygen
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: cosign-keygen}
+subjects: [{kind: ServiceAccount, name: cosign-keygen, namespace: adhar-system}]
+---
+# Generate the cosign keypair into the `cosign-key` secret ONCE and leave it in
+# place. The cosign image is distroless (no shell, no cp), so the init container
+# just runs `cosign generate-key-pair`, which writes cosign.key/cosign.pub into
+# its workdir (the shared volume); the kubectl container then creates the secret
+# only when missing — so re-syncs are no-ops, not "already exists" failures.
+# Runs as a PreSync hook so the key exists before any Build references it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cosign-keygen
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: cosign-keygen
+      restartPolicy: Never
+      initContainers:
+        - name: generate
+          image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+          workingDir: /shared
+          env:
+            - {name: COSIGN_PASSWORD, value: adhar}
+          args: [generate-key-pair]
+          volumeMounts: [{name: shared, mountPath: /shared}]
+      containers:
+        - name: create-secret
+          image: docker.io/bitnami/kubectl:1.31
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              if kubectl get secret cosign-key -n adhar-system >/dev/null 2>&1; then
+                echo "cosign-key already present — nothing to do"; exit 0
+              fi
+              echo "creating cosign-key secret from the generated keypair"
+              kubectl create secret generic cosign-key -n adhar-system \
+                --from-file=cosign.key=/shared/cosign.key \
+                --from-file=cosign.pub=/shared/cosign.pub \
+                --from-literal=cosign.password=adhar
+          volumeMounts: [{name: shared, mountPath: /shared}]
+      volumes:
+        - {name: shared, emptyDir: {}}

@@ -1,0 +1,80 @@
+# Build + release adhar-kit (com.adhar.kit:*) to the Gitea Maven registry.
+# Tekton pipeline; the PipelineRun runs it once per sync (PostSync, after mirror).
+# Adjust the builder image if adhar-kit targets a newer JDK.
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-maven-project
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  params:
+    - {name: repo, type: string}
+  workspaces:
+    - {name: source}
+  steps:
+    - name: mvn-deploy
+      image: docker.io/library/maven:3.9-eclipse-temurin-21
+      env:
+        - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
+        - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
+        MAVEN_URL="$GITEA/api/packages/adhar/maven"
+        git clone --depth 1 "$GITEA/adhar/$(params.repo).git" src
+        cd src
+        cat > settings.xml <<EOF
+        <settings>
+          <servers>
+            <server>
+              <id>gitea</id>
+              <username>${GITEA_USER}</username>
+              <password>${GITEA_PASS}</password>
+            </server>
+          </servers>
+        </settings>
+        EOF
+        mvn -B -s settings.xml -DskipTests \
+          -DaltDeploymentRepository="gitea::default::$MAVEN_URL" \
+          deploy
+        echo "adhar-kit published to $MAVEN_URL"
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: release-adhar-kit
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  workspaces: [{name: shared}]
+  tasks:
+    - name: deploy
+      taskRef: {name: deploy-maven-project}
+      params: [{name: repo, value: "adhar-kit"}]
+      workspaces: [{name: source, workspace: shared}]
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: release-adhar-kit
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  pipelineRef: {name: release-adhar-kit}
+  taskRunTemplate:
+    serviceAccountName: adhar-libraries
+  workspaces:
+    - name: shared
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 2Gi

@@ -92,7 +92,7 @@ data:
       --radius-input: 12px;
       --radius-btn:   12px;
 
-      --ring: 0 0 0 4px rgba(59, 130, 246, 0.28);
+      --ring: 0 0 0 3px rgba(59, 130, 246, 0.16);
       --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06),
                      0 12px 32px -8px rgba(15, 23, 42, 0.20),
                      0 2px 8px rgba(99, 102, 241, 0.06);
@@ -289,78 +289,144 @@ data:
       text-align: left;
     }
 
-    /* Inputs — target native types AND every PatternFly form-control variant */
-    input[type="text"],
-    input[type="password"],
-    input[type="email"],
-    input[type="number"],
-    input[type="tel"],
-    input[type="url"],
-    select,
-    textarea,
+    /* PatternFly v5 (keycloak.v2) wraps every <input> in a .pf-v5-c-form-control
+       SPAN — the visible field is that span, and the <input> inside must be made
+       transparent/borderless or you get a nested, double-bordered box (the bug
+       that made these look bad). The PASSWORD field additionally sits in a
+       .pf-v5-c-input-group next to the show/hide toggle, so we style the whole
+       group as ONE field and drop the toggle inside its border. */
+
+    /* NEUTRALISE PatternFly's own chrome first. PF v5 does NOT put the border on
+       the element — it draws it (and the focus outline) with ::before / ::after
+       pseudo-elements, and input-groups add per-item divider borders. Left in
+       place, those stack UNDER our own border → nested double boxes and a stray
+       divider line beside the show-password eye. Kill them all so our single
+       border is the only visible chrome. */
+    .pf-v5-c-form-control::before, .pf-v5-c-form-control::after,
+    .pf-c-form-control::before,   .pf-c-form-control::after,
+    .pf-v5-c-input-group::before, .pf-v5-c-input-group::after,
+    .pf-v5-c-input-group__item::before, .pf-v5-c-input-group__item::after,
+    .pf-v5-c-input-group__text::before, .pf-v5-c-input-group__text::after,
+    .pf-v5-c-form-control.pf-m-icon::before,
+    .pf-v5-c-form-control.pf-m-icon::after {
+      display: none !important;
+      content: none !important;
+      border: 0 !important;
+      box-shadow: none !important;
+      outline: 0 !important;
+      background: none !important;
+    }
+    .pf-v5-c-input-group__item, .pf-c-input-group__item,
+    .pf-v5-c-input-group__text, .pf-c-input-group__text {
+      border: 0 !important;
+      box-shadow: none !important;
+      background: transparent !important;
+    }
+
+    /* The field surface: the form-control span (plain fields e.g. username) and
+       the input-group (password — keeps the toggle inside the same border). */
     .pf-v5-c-form-control,
     .pf-c-form-control,
-    .pf-v5-c-form-control > input,
-    .pf-c-form-control > input,
-    input.pf-v5-c-form-control,
-    input.pf-c-form-control,
-    #kc-form-login input {
+    .pf-v5-c-input-group,
+    .pf-c-input-group {
       box-sizing: border-box;
+      display: flex !important;
+      align-items: stretch;
       width: 100% !important;
-      height: auto !important;
       min-height: 46px;
-      padding: 12px 14px !important;
-      font-family: var(--font) !important;
-      font-size: 15px !important;
-      line-height: 1.4 !important;
-      color: var(--text-strong) !important;
+      padding: 0 14px !important;
       background: var(--surface) !important;
       background-image: none !important;   /* kill PF's underline SVG */
       border: 1.5px solid var(--border-strong) !important;
       border-radius: var(--radius-input) !important;
       box-shadow: none !important;
-      outline: none;
-      transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+      transition: border-color .15s ease, box-shadow .15s ease;
+      overflow: hidden;
+    }
+    /* Password group leaves room on the right for the toggle button. */
+    .pf-v5-c-input-group,
+    .pf-c-input-group { padding: 0 4px 0 14px !important; }
+
+    /* Inside a group the inner form-control span must NOT draw its own border /
+       padding (the group owns them), so it reads as a single control. */
+    .pf-v5-c-input-group .pf-v5-c-form-control,
+    .pf-c-input-group .pf-c-form-control,
+    .pf-v5-c-input-group .pf-v5-c-form-control.pf-m-icon {
+      border: 0 !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      background: transparent !important;
+      min-height: auto !important;
+      padding: 0 !important;
+      overflow: visible;
+    }
+    .pf-v5-c-input-group__item.pf-m-fill,
+    .pf-c-input-group__item.pf-m-fill { flex: 1 1 auto; min-width: 0; display: flex; }
+    .pf-v5-c-input-group__item,
+    .pf-c-input-group__item { display: flex; align-items: center; }
+
+    /* The real <input>: fill the field, no box of its own. */
+    .pf-v5-c-form-control > input,
+    .pf-c-form-control > input,
+    .pf-v5-c-form-control input,
+    .pf-c-form-control input,
+    #kc-form-login input[type="text"],
+    #kc-form-login input[type="password"],
+    #kc-form-login input[type="email"] {
+      flex: 1 1 auto;
+      width: 100% !important;
+      min-width: 0;
+      align-self: stretch;
+      min-height: 42px !important;
+      height: auto !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      font-family: var(--font) !important;
+      font-size: 15px !important;
+      line-height: 1.4 !important;
+      color: var(--text-strong) !important;
+      background: transparent !important;
+      background-image: none !important;
+      border: 0 !important;
+      box-shadow: none !important;
+      outline: none !important;
       -webkit-appearance: none;
       appearance: none;
     }
 
     input::placeholder,
-    textarea::placeholder {
-      color: var(--slate-400);
-      opacity: 1;
+    textarea::placeholder { color: var(--slate-400); opacity: 1; }
+
+    /* Standalone select/textarea (rare on the login form) still get a full box. */
+    #kc-form-login select,
+    #kc-form-login textarea {
+      box-sizing: border-box;
+      display: block !important;
+      width: 100% !important;
+      min-height: 46px;
+      padding: 12px 14px !important;
+      font: 15px/1.4 var(--font) !important;
+      color: var(--text-strong) !important;
+      background: var(--surface) !important;
+      border: 1.5px solid var(--border-strong) !important;
+      border-radius: var(--radius-input) !important;
     }
 
-    /* Hover */
-    input[type="text"]:hover,
-    input[type="password"]:hover,
-    input[type="email"]:hover,
+    /* Hover / focus on the FIELD surface (not the inner input). */
     .pf-v5-c-form-control:hover,
     .pf-c-form-control:hover,
-    #kc-form-login input:hover {
-      border-color: var(--slate-400) !important;
-    }
+    .pf-v5-c-input-group:hover { border-color: var(--slate-400) !important; }
 
-    /* Focus — brand blue ring */
-    input[type="text"]:focus,
-    input[type="password"]:focus,
-    input[type="email"]:focus,
-    input[type="number"]:focus,
-    input[type="tel"]:focus,
-    input[type="url"]:focus,
-    select:focus,
-    textarea:focus,
-    .pf-v5-c-form-control:focus,
-    .pf-c-form-control:focus,
     .pf-v5-c-form-control:focus-within,
     .pf-c-form-control:focus-within,
-    input.pf-v5-c-form-control:focus,
-    input.pf-c-form-control:focus,
-    #kc-form-login input:focus {
+    .pf-v5-c-input-group:focus-within,
+    .pf-c-input-group:focus-within {
       border-color: var(--adhar-blue) !important;
       box-shadow: var(--ring) !important;
-      background: var(--surface) !important;
     }
+    /* the inner span inside a group must not re-draw a focus ring */
+    .pf-v5-c-input-group .pf-v5-c-form-control:focus-within,
+    .pf-c-input-group .pf-c-form-control:focus-within { box-shadow: none !important; }
 
     /* Autofill — keep it on-brand instead of the browser yellow */
     input:-webkit-autofill,
@@ -371,36 +437,65 @@ data:
       caret-color: var(--text-strong);
     }
 
-    /* Password field with the show/hide toggle (PF input-group) */
-    .pf-v5-c-input-group,
-    .pf-c-input-group,
-    .pf-v5-c-form-control.pf-m-icon,
-    .pf-c-input-group__text {
-      background: transparent !important;
-      border: 0 !important;
-      box-shadow: none !important;
-    }
-
-    .pf-v5-c-input-group input,
-    .pf-c-input-group input {
-      border-radius: var(--radius-input) !important;
-    }
-
-    /* Show/hide password toggle button */
+    /* Show/hide password toggle — a clean, borderless icon button that sits
+       flush inside the field's right edge (not a detached box). */
+    .pf-v5-c-input-group__item > button,
+    .pf-c-input-group__item > button,
     #kc-form-login button[aria-label],
     .pf-v5-c-button.pf-m-control,
     .pf-c-button.pf-m-control {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      height: 34px !important;
+      width: 38px !important;
+      min-height: 0 !important;
+      padding: 0 !important;
+      margin: 0 !important;
       background: transparent !important;
       border: 0 !important;
-      color: var(--text-muted) !important;
+      border-radius: 8px !important;
+      color: var(--slate-400) !important;
       box-shadow: none !important;
+      outline: 0 !important;
+      text-decoration: none !important;
+      cursor: pointer;
+      transition: color .15s ease, background-color .15s ease;
     }
-
+    /* PatternFly draws the button's control border/underline with an ::after
+       pseudo-element (and ::before in some variants) — the leftover underline
+       under the eye icon. Kill both so the toggle is a clean borderless icon. */
+    .pf-v5-c-input-group__item > button::before,
+    .pf-v5-c-input-group__item > button::after,
+    .pf-c-input-group__item > button::before,
+    .pf-c-input-group__item > button::after,
+    #kc-form-login button[aria-label]::before,
+    #kc-form-login button[aria-label]::after,
+    .pf-v5-c-button.pf-m-control::before,
+    .pf-v5-c-button.pf-m-control::after,
+    .pf-c-button.pf-m-control::before,
+    .pf-c-button.pf-m-control::after,
+    .pf-v5-c-button.pf-m-plain::before,
+    .pf-v5-c-button.pf-m-plain::after {
+      display: none !important;
+      content: none !important;
+      border: 0 !important;
+      box-shadow: none !important;
+      text-decoration: none !important;
+    }
+    .pf-v5-c-input-group__item > button:hover,
+    .pf-c-input-group__item > button:hover,
     #kc-form-login button[aria-label]:hover,
     .pf-v5-c-button.pf-m-control:hover,
     .pf-c-button.pf-m-control:hover {
       color: var(--adhar-blue) !important;
+      background: rgba(59, 130, 246, 0.10) !important;
     }
+    /* Normalise the eye icon size. */
+    .pf-v5-c-input-group__item > button svg,
+    .pf-v5-c-button.pf-m-control svg,
+    #kc-form-login button[aria-label] svg { width: 18px !important; height: 18px !important; }
 
     /* ----------------------------------------------------------------------------
        Form options row — "remember me" + "forgot password"

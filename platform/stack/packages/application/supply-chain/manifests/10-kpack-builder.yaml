@@ -1,0 +1,65 @@
+# kpack build platform — the "source → buildpack" engine.
+#
+# ClusterStack = the OS build/run images. ClusterStore = the Paketo buildpacks
+# (Node, Go, Java, Python, Procfile). ClusterBuilder combines them into a builder
+# image (pushed to Harbor) that every Image/Build below consumes. Language is
+# auto-detected from the source — no Dockerfile required.
+#
+# The builder image and all app images are pushed to Harbor's default `library`
+# project using the adhar-pipeline SA credential from 00-foundation.yaml.
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterStack
+metadata:
+  name: adhar-jammy
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  id: io.buildpacks.stacks.jammy
+  buildImage:
+    image: paketobuildpacks/build-jammy-base
+  runImage:
+    image: paketobuildpacks/run-jammy-base
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterStore
+metadata:
+  name: adhar-store
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  sources:
+    - image: paketobuildpacks/nodejs
+    - image: paketobuildpacks/go
+    - image: paketobuildpacks/java
+    - image: paketobuildpacks/python
+    - image: paketobuildpacks/procfile
+---
+apiVersion: kpack.io/v1alpha2
+kind: ClusterBuilder
+metadata:
+  name: adhar-builder
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  tag: harbor-core.adhar-system.svc.cluster.local/library/adhar-builder
+  stack:
+    name: adhar-jammy
+    kind: ClusterStack
+  store:
+    name: adhar-store
+    kind: ClusterStore
+  serviceAccountRef:
+    name: adhar-pipeline
+    namespace: adhar-system
+  order:
+    - group:
+        - id: paketo-buildpacks/nodejs
+    - group:
+        - id: paketo-buildpacks/go
+    - group:
+        - id: paketo-buildpacks/java
+    - group:
+        - id: paketo-buildpacks/python
+    - group:
+        - id: paketo-buildpacks/procfile

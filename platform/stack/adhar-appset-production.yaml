@@ -184,7 +184,7 @@ spec:
             manifestPath: "application/argo-rollout/manifests"
           - name: "buildpack"
             enabled: "true"
-            namespace: "adhar-system"
+            namespace: "kpack-system"
             category: "application"
             manifestPath: "application/buildpack/manifests"
           - name: "chaos-mesh"
@@ -334,6 +334,19 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/harbor/manifests"
+          # End-to-end software supply chain (kpack build+sign → trivy/cosign gate
+          # → kyverno verify → service-from-template). Depends on
+          # buildpack/harbor/cosign/kyverno/tekton.
+          - name: "supply-chain"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/supply-chain/manifests"
+          - name: "adhar-libraries"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/adhar-libraries/manifests"
           - name: "kargo"
             enabled: "true"
             namespace: "adhar-system"

@@ -1,0 +1,241 @@
+# Reusable Tekton build pipeline templates for application builds.
+#
+# Two ready-to-run pipelines, both ending in a signed + scanned image in Harbor:
+#   * build-buildpacks  — no Dockerfile; Cloud Native Buildpacks auto-detect the
+#                         language (Node/Go/Java/Python). Tekton-native alt to kpack.
+#   * build-dockerfile  — Kaniko builds from a Dockerfile (the case kpack can't do).
+#
+# Both reuse the supply-chain identity (adhar-pipeline SA + cosign-key from
+# 00-foundation.yaml) and the trivy-scan/cosign-verify tasks from 30. Harbor is
+# in-cluster HTTP, so registry access is --insecure/--allow-http throughout.
+#
+# Run one (a shared workspace PVC is created per run):
+#   kubectl create -n adhar-system -f - <<'EOF'
+#   apiVersion: tekton.dev/v1
+#   kind: PipelineRun
+#   metadata: {generateName: build-}
+#   spec:
+#     pipelineRef: {name: build-buildpacks}     # or build-dockerfile
+#     taskRunTemplate: {serviceAccountName: adhar-pipeline}
+#     params:
+#       - {name: git-url, value: https://github.com/paketo-buildpacks/samples}
+#       - {name: revision, value: main}
+#       - {name: subdirectory, value: go/mod}   # build-dockerfile: path to Dockerfile dir
+#       - {name: image, value: harbor-core.adhar-system.svc.cluster.local/library/myapp}
+#     workspaces:
+#       - name: shared
+#         volumeClaimTemplate:
+#           spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 1Gi}}}
+#   EOF
+---
+# Docker config for Tekton build tasks that push to Harbor (auth = admin:Harbor12345).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harbor-dockercfg
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+type: kubernetes.io/dockerconfigjson
+stringData:
+  .dockerconfigjson: |
+    {"auths":{"harbor-core.adhar-system.svc.cluster.local":{"username":"admin","password":"Harbor12345","auth":"YWRtaW46SGFyYm9yMTIzNDU="}}}
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-clone
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: url, type: string}
+    - {name: revision, type: string, default: main}
+    - {name: subdirectory, type: string, default: ""}
+  workspaces:
+    - {name: output}
+  results:
+    - {name: commit, description: "the cloned commit SHA"}
+  steps:
+    - name: clone
+      image: alpine/git:2.45.2
+      script: |
+        #!/bin/sh
+        set -e
+        DIR="$(workspaces.output.path)"
+        rm -rf "${DIR:?}/"* 2>/dev/null || true
+        git clone --depth 1 -b "$(params.revision)" "$(params.url)" "$DIR"
+        git -C "$DIR" rev-parse HEAD | tr -d '\n' > "$(results.commit.path)"
+        echo "cloned $(params.url)@$(params.revision)"
+---
+# Cloud Native Buildpacks build (creator lifecycle) → push to Harbor. No Dockerfile.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: buildpacks-build
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: image, type: string}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: builder, type: string, default: "paketobuildpacks/builder-jammy-base:latest"}
+  workspaces:
+    - {name: source}
+  steps:
+    - name: build
+      image: $(params.builder)
+      env:
+        - {name: CNB_PLATFORM_API, value: "0.12"}
+        - {name: DOCKER_CONFIG, value: /tekton/creds-secrets/harbor-dockercfg}
+      command: ["/cnb/lifecycle/creator"]
+      args:
+        - "-app=$(workspaces.source.path)/$(params.subdirectory)"
+        - "-insecure-registry=harbor-core.adhar-system.svc.cluster.local"
+        - "$(params.image):latest"
+      volumeMounts:
+        - {name: harbor-dockercfg, mountPath: /tekton/creds-secrets/harbor-dockercfg}
+  volumes:
+    - name: harbor-dockercfg
+      secret:
+        secretName: harbor-dockercfg
+        items: [{key: .dockerconfigjson, path: config.json}]
+---
+# Kaniko build from a Dockerfile → push to Harbor (the case buildpacks/kpack skip).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: kaniko-build
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: image, type: string}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: dockerfile, type: string, default: Dockerfile}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: digest, description: "the built image digest"}
+  steps:
+    - name: build
+      image: gcr.io/kaniko-project/executor:v1.23.2
+      args:
+        - "--context=$(workspaces.source.path)/$(params.subdirectory)"
+        - "--dockerfile=$(params.dockerfile)"
+        - "--destination=$(params.image):latest"
+        - "--insecure"
+        - "--skip-tls-verify"
+        - "--digest-file=$(results.digest.path)"
+      env:
+        - {name: DOCKER_CONFIG, value: /tekton/creds-secrets/harbor-dockercfg}
+      volumeMounts:
+        - {name: harbor-dockercfg, mountPath: /tekton/creds-secrets/harbor-dockercfg}
+  volumes:
+    - name: harbor-dockercfg
+      secret:
+        secretName: harbor-dockercfg
+        items: [{key: .dockerconfigjson, path: config.json}]
+---
+# Sign the built image with the platform cosign key.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: cosign-sign
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: image, type: string}
+  steps:
+    - name: sign
+      image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+      env:
+        - {name: COSIGN_PASSWORD, value: adhar}
+        - {name: COSIGN_YES, value: "true"}
+      args:
+        - sign
+        - --key=k8s://adhar-system/cosign-key
+        - --tlog-upload=false
+        - --allow-http-registry=true
+        - "$(params.image):latest"
+---
+# Pipeline: source → buildpacks build+push → cosign sign → trivy scan.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-buildpacks
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string, default: main}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: image, type: string}
+  workspaces:
+    - {name: shared}
+  tasks:
+    - name: clone
+      taskRef: {name: git-clone}
+      params:
+        - {name: url, value: "$(params.git-url)"}
+        - {name: revision, value: "$(params.revision)"}
+      workspaces: [{name: output, workspace: shared}]
+    - name: build
+      runAfter: [clone]
+      taskRef: {name: buildpacks-build}
+      params:
+        - {name: image, value: "$(params.image)"}
+        - {name: subdirectory, value: "$(params.subdirectory)"}
+      workspaces: [{name: source, workspace: shared}]
+    # Scan BEFORE signing — only a clean image gets a signature (and only a
+    # signed image is admitted by kyverno). Build → Harbor → scan → sign.
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "$(params.image):latest"}]
+    - name: sign
+      runAfter: [scan]
+      taskRef: {name: cosign-sign}
+      params: [{name: image, value: "$(params.image)"}]
+---
+# Pipeline: source → Dockerfile (kaniko) build+push → cosign sign → trivy scan.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-dockerfile
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string, default: main}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: dockerfile, type: string, default: Dockerfile}
+    - {name: image, type: string}
+  workspaces:
+    - {name: shared}
+  tasks:
+    - name: clone
+      taskRef: {name: git-clone}
+      params:
+        - {name: url, value: "$(params.git-url)"}
+        - {name: revision, value: "$(params.revision)"}
+      workspaces: [{name: output, workspace: shared}]
+    - name: build
+      runAfter: [clone]
+      taskRef: {name: kaniko-build}
+      params:
+        - {name: image, value: "$(params.image)"}
+        - {name: subdirectory, value: "$(params.subdirectory)"}
+        - {name: dockerfile, value: "$(params.dockerfile)"}
+      workspaces: [{name: source, workspace: shared}]
+    # Scan before signing (only clean images get signed → admitted by kyverno).
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "$(params.image):latest"}]
+    - name: sign
+      runAfter: [scan]
+      taskRef: {name: cosign-sign}
+      params: [{name: image, value: "$(params.image)"}]

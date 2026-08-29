@@ -1,0 +1,132 @@
+# Service-from-template — one command scaffolds a whole new service through the
+# supply chain. Given a name + git URL, `new-service` creates:
+#   * a kpack Image  → builds the source with buildpacks, pushes to Harbor, signs
+#   * a Deployment   → runs the image (admission-gated by 40-verify-images, so it
+#                      only starts once kpack has produced a *signed* image)
+#   * a Service      → cluster-internal endpoint
+#
+# Run it:
+#   kubectl create -n adhar-system -f - <<'EOF'
+#   apiVersion: tekton.dev/v1
+#   kind: PipelineRun
+#   metadata: {generateName: new-svc-}
+#   spec:
+#     pipelineRef: {name: new-service}
+#     params:
+#       - {name: name,    value: my-api}
+#       - {name: git-url, value: https://github.com/paketo-buildpacks/samples}
+#       - {name: subpath, value: go/mod}
+#   EOF
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-factory
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: service-factory
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+rules:
+  - {apiGroups: ["kpack.io"], resources: [images], verbs: [get, create, update, patch]}
+  - {apiGroups: ["apps"], resources: [deployments], verbs: [get, create, update, patch]}
+  - {apiGroups: [""], resources: [services], verbs: [get, create, update, patch]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: service-factory
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: service-factory}
+subjects: [{kind: ServiceAccount, name: service-factory, namespace: adhar-system}]
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: scaffold-service
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: name, type: string}
+    - {name: git-url, type: string}
+    - {name: subpath, type: string, default: ""}
+  steps:
+    - name: apply
+      image: docker.io/bitnami/kubectl:1.31
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        NAME="$(params.name)"
+        IMG="harbor-core.adhar-system.svc.cluster.local/library/${NAME}"
+        echo "Scaffolding service ${NAME} from $(params.git-url) [$(params.subpath)]"
+        kubectl apply -f - <<YAML
+        apiVersion: kpack.io/v1alpha2
+        kind: Image
+        metadata:
+          name: ${NAME}
+          namespace: adhar-system
+          labels: {adhar.io/supply-chain: "true"}
+        spec:
+          tag: ${IMG}
+          serviceAccountName: adhar-pipeline
+          builder: {name: adhar-builder, kind: ClusterBuilder}
+          cache: {volume: {size: "1Gi"}}
+          source:
+            git: {url: "$(params.git-url)", revision: main}
+            subPath: "$(params.subpath)"
+        ---
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${NAME}
+          namespace: adhar-system
+          labels: {app: ${NAME}, adhar.io/supply-chain: "true"}
+        spec:
+          replicas: 1
+          selector: {matchLabels: {app: ${NAME}}}
+          template:
+            metadata: {labels: {app: ${NAME}}}
+            spec:
+              imagePullSecrets: [{name: harbor-push}]
+              containers:
+                - name: app
+                  image: ${IMG}:latest
+                  ports: [{containerPort: 8080}]
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${NAME}
+          namespace: adhar-system
+          labels: {app: ${NAME}}
+        spec:
+          selector: {app: ${NAME}}
+          ports: [{port: 80, targetPort: 8080}]
+        YAML
+        echo "Service ${NAME} scaffolded. kpack is building + signing the image;"
+        echo "the Deployment starts once a signed image is available (kyverno-gated)."
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: new-service
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: name, type: string}
+    - {name: git-url, type: string}
+    - {name: subpath, type: string, default: ""}
+  tasks:
+    - name: scaffold
+      taskRef: {name: scaffold-service}
+      params:
+        - {name: name, value: "$(params.name)"}
+        - {name: git-url, value: "$(params.git-url)"}
+        - {name: subpath, value: "$(params.subpath)"}

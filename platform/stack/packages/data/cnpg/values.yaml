@@ -15,3 +15,15 @@ monitoring:
   podMonitorEnabled: true
   grafanaDashboard:
     create: false
+
+# Resource requests/limits so the scheduler PACES the operator instead of
+# treating it as free — a request-less operator gets packed onto an already-busy
+# node, then its webhook/readyz probe starves and it CrashLoopBackOffs (which
+# takes every CNPG-backed DB — keycloak-db, console-db — down with it). Modest
+# request, headroom limit.
+resources:
+  requests:
+    cpu: 100m
+    memory: 200Mi
+  limits:
+    memory: 400Mi

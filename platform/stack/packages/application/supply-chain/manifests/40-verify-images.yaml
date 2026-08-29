@@ -1,0 +1,113 @@
+# Admission gate — only cosign-signed images from our Harbor may run.
+#
+# SCOPED on purpose: imageReferences matches ONLY
+# harbor-core.adhar-system.svc.cluster.local/library/* — i.e. images this
+# supply chain builds. Every other image (upstream platform components, which are
+# not signed by us) is simply not matched by this rule, so nothing else is
+# blocked. mutateDigest rewrites the admitted tag to the verified digest, so what
+# runs is exactly what was verified.
+#
+# The publicKey below is the cosign.pub generated into the `cosign-key` secret by
+# 00-foundation.yaml. Keep it in sync if the key is rotated:
+#   kubectl get secret cosign-key -n adhar-system -o jsonpath='{.data.cosign\.pub}' | base64 -d
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-supply-chain-images
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    policies.kyverno.io/title: Verify Supply-Chain Image Signatures
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  background: false
+  webhookTimeoutSeconds: 30
+  failurePolicy: Ignore
+  rules:
+    - name: verify-harbor-library-signature
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      verifyImages:
+        - imageReferences:
+            - "harbor-core.adhar-system.svc.cluster.local/library/*"
+          mutateDigest: true
+          verifyDigest: true
+          required: true
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    # Placeholder key (a valid but throwaway PEM so kyverno loads
+                    # the policy). The cosign-policy-sync Job below overwrites this
+                    # with the REAL cosign.pub from the cosign-key secret once it is
+                    # generated — so the policy self-configures on any cluster.
+                    publicKeys: |-
+                      -----BEGIN PUBLIC KEY-----
+                      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE86Yk4Ii0tq/MIWMKvzSAl5C/Lp2F
+                      WJABbeCGY7R9zdc4cL1Jk9rl2GTFN8bV4cj3KUJMklbKagrJJSoonBcXGA==
+                      -----END PUBLIC KEY-----
+                    rekor:
+                      ignoreTlog: true
+---
+# Inject the real cosign public key into the policy above, once the cosign-key
+# secret exists. Runs on every sync (idempotent — it just re-applies the current
+# pubkey). Sync-wave 6 = after the ClusterPolicy (wave 5) and the key (PreSync).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cosign-policy-sync
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "6"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cosign-policy-sync
+  annotations: {argocd.argoproj.io/sync-wave: "6"}
+rules:
+  - {apiGroups: ["kyverno.io"], resources: [clusterpolicies], verbs: [get, list, patch, update]}
+  - {apiGroups: [""], resources: [secrets], verbs: [get], resourceNames: [cosign-key]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cosign-policy-sync
+  annotations: {argocd.argoproj.io/sync-wave: "6"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cosign-policy-sync}
+subjects: [{kind: ServiceAccount, name: cosign-policy-sync, namespace: adhar-system}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cosign-policy-sync
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      serviceAccountName: cosign-policy-sync
+      restartPolicy: Never
+      containers:
+        - name: patch
+          image: docker.io/bitnami/kubectl:1.31
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              for i in $(seq 1 30); do
+                if kubectl get secret cosign-key -n adhar-system >/dev/null 2>&1; then break; fi
+                echo "waiting for cosign-key secret…"; sleep 5
+              done
+              # PEM with newlines flattened to literal \n so it is a valid JSON string.
+              PUB=$(kubectl get secret cosign-key -n adhar-system -o jsonpath='{.data.cosign\.pub}' | base64 -d | awk '{printf "%s\\n", $0}')
+              echo "patching verify-supply-chain-images with real cosign.pub"
+              kubectl patch clusterpolicy verify-supply-chain-images --type json \
+                -p '[{"op":"replace","path":"/spec/rules/0/verifyImages/0/attestors/0/entries/0/keys/publicKeys","value":"'"$PUB"'"}]'
+              echo "done"

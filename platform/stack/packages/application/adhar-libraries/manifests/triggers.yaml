@@ -1,0 +1,181 @@
+# Run-on-push CI for the mirrored libraries. A Gitea org webhook posts push
+# events to the EventListener; a CEL interceptor routes by repo name to the
+# matching release pipeline. So a push to adhar/adhar-ui or adhar/adhar-kit
+# (whether from a teammate or the bootstrap mirror) rebuilds + republishes to the
+# Gitea package registry automatically — no ArgoCD sync required.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-ci
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+---
+# Standard Tekton Triggers RBAC for the EventListener.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-ci-eventlistener
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-triggers-eventlistener-roles
+subjects:
+  - kind: ServiceAccount
+    name: adhar-ci
+    namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-ci-eventlistener-clusterroles
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-triggers-eventlistener-clusterroles
+subjects:
+  - kind: ServiceAccount
+    name: adhar-ci
+    namespace: adhar-system
+---
+# Extract repo name + commit from the Gitea push payload.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: gitea-push
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  params:
+    - name: repo-name
+      value: $(body.repository.name)
+    - name: revision
+      value: $(body.after)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: run-release-adhar-ui
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  params:
+    - {name: repo-name}
+    - {name: revision}
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: release-adhar-ui-
+      spec:
+        pipelineRef: {name: release-adhar-ui}
+        taskRunTemplate:
+          serviceAccountName: adhar-libraries
+        workspaces:
+          - name: shared
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources: {requests: {storage: 2Gi}}
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: run-release-adhar-kit
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  params:
+    - {name: repo-name}
+    - {name: revision}
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: release-adhar-kit-
+      spec:
+        pipelineRef: {name: release-adhar-kit}
+        taskRunTemplate:
+          serviceAccountName: adhar-libraries
+        workspaces:
+          - name: shared
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources: {requests: {storage: 2Gi}}
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: adhar-ci
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  serviceAccountName: adhar-ci
+  triggers:
+    - name: adhar-ui-push
+      interceptors:
+        - ref: {name: cel}
+          params:
+            - name: filter
+              value: "body.repository.name == 'adhar-ui'"
+      bindings:
+        - ref: gitea-push
+      template:
+        ref: run-release-adhar-ui
+    - name: adhar-kit-push
+      interceptors:
+        - ref: {name: cel}
+          params:
+            - name: filter
+              value: "body.repository.name == 'adhar-kit'"
+      bindings:
+        - ref: gitea-push
+      template:
+        ref: run-release-adhar-kit
+---
+# Register the Gitea org webhook → EventListener (idempotent). One org hook
+# covers every repo; the CEL filters above pick which pushes trigger a build.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: register-ci-webhook
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      serviceAccountName: adhar-libraries
+      restartPolicy: Never
+      containers:
+        - name: register
+          image: curlimages/curl:8.10.1
+          env:
+            - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
+            - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
+              EL=http://el-adhar-ci.adhar-system.svc.cluster.local:8080
+              # wait for the EventListener service to exist
+              for i in $(seq 1 30); do
+                curl -sf -o /dev/null "$EL" && break || true
+                echo "waiting for EventListener…"; sleep 5
+              done
+              # skip if a hook already points at the EventListener
+              if curl -s -u "$GITEA_USER:$GITEA_PASS" "$GITEA/api/v1/orgs/adhar/hooks" | grep -q "el-adhar-ci"; then
+                echo "org webhook already registered"; exit 0
+              fi
+              echo "registering Gitea org webhook → EventListener"
+              curl -sf -u "$GITEA_USER:$GITEA_PASS" -X POST "$GITEA/api/v1/orgs/adhar/hooks" \
+                -H 'Content-Type: application/json' \
+                -d "{\"type\":\"gitea\",\"active\":true,\"events\":[\"push\"],\"config\":{\"url\":\"$EL\",\"content_type\":\"json\"}}"
+              echo "registered"

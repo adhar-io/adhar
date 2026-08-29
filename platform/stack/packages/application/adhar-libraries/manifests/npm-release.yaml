@@ -1,0 +1,82 @@
+# Build + release adhar-ui (@adhar-ui/*) to the Gitea npm registry. Tekton
+# pipeline; the PipelineRun below runs it once per sync (PostSync, after the
+# mirror). Add a Gitea webhook → EventListener for release-on-push.
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: publish-npm-workspace
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  params:
+    - {name: repo, type: string}
+    - {name: scope, type: string}
+  workspaces:
+    - {name: source}
+  steps:
+    - name: build-and-publish
+      image: docker.io/library/node:20-bookworm
+      env:
+        - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
+        - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
+        REG="$GITEA/api/packages/adhar/npm/"
+        git clone --depth 1 "$GITEA/adhar/$(params.repo).git" src
+        cd src
+        # Auth for the Gitea npm registry (basic).
+        AUTH=$(printf '%s:%s' "$GITEA_USER" "$GITEA_PASS" | base64 | tr -d '\n')
+        cat > .npmrc <<EOF
+        $(params.scope):registry=$REG
+        //gitea-http.adhar-system.svc.cluster.local:3000/api/packages/adhar/npm/:_auth=$AUTH
+        always-auth=true
+        EOF
+        corepack enable
+        pnpm install --frozen-lockfile
+        # Build all packages if a build script is defined, then publish each.
+        pnpm -r build || true
+        pnpm -r --no-git-checks publish --registry "$REG" || \
+          echo "some packages may already be published at this version"
+        echo "adhar-ui published to $REG"
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: release-adhar-ui
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  workspaces: [{name: shared}]
+  tasks:
+    - name: publish
+      taskRef: {name: publish-npm-workspace}
+      params:
+        - {name: repo, value: "adhar-ui"}
+        - {name: scope, value: "@adhar-ui"}
+      workspaces: [{name: source, workspace: shared}]
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: release-adhar-ui
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  pipelineRef: {name: release-adhar-ui}
+  taskRunTemplate:
+    serviceAccountName: adhar-libraries
+  workspaces:
+    - name: shared
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 2Gi

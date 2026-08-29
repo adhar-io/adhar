@@ -1,0 +1,250 @@
+# Per-type build pipelines. Each app template references the pipeline for its
+# stack (see the template's deploy/secure-build.yaml). They all end in the same
+# secure chain — buildpacks build → Harbor → trivy scan → cosign sign — but add
+# a language-appropriate TEST stage first (buildpacks run tests for Java/Maven,
+# but not for Node/Go/Python, so those get an explicit test task).
+#
+#   build-node        nodejs-web-service, tanstack-start-fullstack-app
+#   build-go          go-web-service
+#   build-python      python-web-service
+#   build-java        springboot-web-service, springboot-hexagon-service, quarkus-web-service
+#   build-web-static  react-spa-app, angular-spa-app
+#
+# Reuses tasks: git-clone, buildpacks-build, trivy-scan, cosign-sign.
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-node
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  workspaces: [{name: source}]
+  params:
+    - {name: subdirectory, type: string, default: ""}
+  steps:
+    - name: test
+      image: docker.io/library/node:20-bookworm
+      workingDir: $(workspaces.source.path)/$(params.subdirectory)
+      script: |
+        #!/usr/bin/env bash
+        set -e
+        npm ci
+        npm test --if-present   # runs the test script if defined, else no-op
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-go
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  workspaces: [{name: source}]
+  params:
+    - {name: subdirectory, type: string, default: ""}
+  steps:
+    - name: test
+      image: docker.io/library/golang:1.23-bookworm
+      workingDir: $(workspaces.source.path)/$(params.subdirectory)
+      script: |
+        #!/usr/bin/env bash
+        set -e
+        go test ./...     # passes when there are no tests; fails on a failing test
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-python
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  workspaces: [{name: source}]
+  params:
+    - {name: subdirectory, type: string, default: ""}
+  steps:
+    - name: test
+      image: docker.io/library/python:3.12-bookworm
+      workingDir: $(workspaces.source.path)/$(params.subdirectory)
+      script: |
+        #!/usr/bin/env bash
+        set -e
+        pip install -r requirements.txt pytest
+        python -m pytest || [ $? -eq 5 ]   # exit 5 = no tests collected → OK
+---
+# build-node: test → buildpacks build → scan → sign
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-node
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string, default: main}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: image, type: string}
+  workspaces: [{name: shared}]
+  tasks:
+    - name: clone
+      taskRef: {name: git-clone}
+      params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
+      workspaces: [{name: output, workspace: shared}]
+    - name: test
+      runAfter: [clone]
+      taskRef: {name: test-node}
+      params: [{name: subdirectory, value: "$(params.subdirectory)"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: build
+      runAfter: [test]
+      taskRef: {name: buildpacks-build}
+      params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "$(params.image):latest"}]
+    - name: sign
+      runAfter: [scan]
+      taskRef: {name: cosign-sign}
+      params: [{name: image, value: "$(params.image)"}]
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-go
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string, default: main}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: image, type: string}
+  workspaces: [{name: shared}]
+  tasks:
+    - name: clone
+      taskRef: {name: git-clone}
+      params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
+      workspaces: [{name: output, workspace: shared}]
+    - name: test
+      runAfter: [clone]
+      taskRef: {name: test-go}
+      params: [{name: subdirectory, value: "$(params.subdirectory)"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: build
+      runAfter: [test]
+      taskRef: {name: buildpacks-build}
+      params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "$(params.image):latest"}]
+    - name: sign
+      runAfter: [scan]
+      taskRef: {name: cosign-sign}
+      params: [{name: image, value: "$(params.image)"}]
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-python
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string, default: main}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: image, type: string}
+  workspaces: [{name: shared}]
+  tasks:
+    - name: clone
+      taskRef: {name: git-clone}
+      params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
+      workspaces: [{name: output, workspace: shared}]
+    - name: test
+      runAfter: [clone]
+      taskRef: {name: test-python}
+      params: [{name: subdirectory, value: "$(params.subdirectory)"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: build
+      runAfter: [test]
+      taskRef: {name: buildpacks-build}
+      params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "$(params.image):latest"}]
+    - name: sign
+      runAfter: [scan]
+      taskRef: {name: cosign-sign}
+      params: [{name: image, value: "$(params.image)"}]
+---
+# build-java: buildpacks runs the Maven/Gradle tests during the build phase.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-java
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string, default: main}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: image, type: string}
+  workspaces: [{name: shared}]
+  tasks:
+    - name: clone
+      taskRef: {name: git-clone}
+      params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
+      workspaces: [{name: output, workspace: shared}]
+    - name: build
+      runAfter: [clone]
+      taskRef: {name: buildpacks-build}
+      params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "$(params.image):latest"}]
+    - name: sign
+      runAfter: [scan]
+      taskRef: {name: cosign-sign}
+      params: [{name: image, value: "$(params.image)"}]
+---
+# build-web-static: SPA — buildpacks build the assets, then serve via nginx.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-web-static
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string, default: main}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: image, type: string}
+  workspaces: [{name: shared}]
+  tasks:
+    - name: clone
+      taskRef: {name: git-clone}
+      params: [{name: url, value: "$(params.git-url)"}, {name: revision, value: "$(params.revision)"}]
+      workspaces: [{name: output, workspace: shared}]
+    - name: build
+      runAfter: [clone]
+      taskRef: {name: buildpacks-build}
+      params: [{name: image, value: "$(params.image)"}, {name: subdirectory, value: "$(params.subdirectory)"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "$(params.image):latest"}]
+    - name: sign
+      runAfter: [scan]
+      taskRef: {name: cosign-sign}
+      params: [{name: image, value: "$(params.image)"}]

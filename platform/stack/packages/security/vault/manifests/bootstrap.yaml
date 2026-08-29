@@ -254,8 +254,32 @@ data:
         allowed_redirect_uris="https://vault.adhar.localtest.me:8443/ui/vault/auth/oidc/oidc/callback,https://vault.adhar.localtest.me:8443/oidc/callback" \
         user_claim="sub" \
         oidc_scopes="openid,profile,email,groups" \
+        groups_claim="groups" \
         token_policies="default" \
         ttl="1h" || log "oidc role write failed (will retry next sync)"
+
+      # Map Keycloak groups -> Vault policies so an OIDC login is actually USEFUL.
+      # Without this a signed-in user only gets the `default` policy (grants
+      # nothing). Vault matches the ID token's `groups` claim (groups_claim above)
+      # against EXTERNAL identity groups by alias name; each carries a policy.
+      # Mirrors the k8s RBAC the keycloak package ships. Policies are piped via
+      # printf (NOT a heredoc) so the HCL stays inside this YAML block scalar.
+      log "mapping Keycloak groups to Vault policies"
+      printf 'path "*" { capabilities = ["create","read","update","delete","list","patch","sudo"] }\n' \
+        | vault policy write platform-admin - >/dev/null 2>&1 || true
+      printf 'path "secret/*" { capabilities = ["create","read","update","delete","list","patch"] }\npath "sys/mounts" { capabilities = ["read","list"] }\npath "auth/token/lookup-self" { capabilities = ["read"] }\n' \
+        | vault policy write platform-developer - >/dev/null 2>&1 || true
+      printf 'path "secret/*" { capabilities = ["read","list"] }\npath "sys/mounts" { capabilities = ["read","list"] }\n' \
+        | vault policy write platform-viewer - >/dev/null 2>&1 || true
+      OIDC_ACCESSOR="$(vault auth list 2>/dev/null | awk '/^oidc\//{print $3; exit}')"
+      for g in platform-admin platform-developer platform-viewer; do
+        vault write identity/group name="$g" type="external" policies="$g" >/dev/null 2>&1 || true
+        GID="$(vault read -field=id identity/group/name/$g 2>/dev/null)"
+        if [ -n "$GID" ] && [ -n "$OIDC_ACCESSOR" ]; then
+          vault write identity/group-alias name="$g" mount_accessor="$OIDC_ACCESSOR" canonical_id="$GID" >/dev/null 2>&1 \
+            || log "group-alias $g already present (ok)"
+        fi
+      done
     else
       log "OIDC prerequisites not ready (vault-oidc / vault-ca); skipping for now"
     fi

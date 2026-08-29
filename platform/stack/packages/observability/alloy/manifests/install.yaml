@@ -150,10 +150,12 @@ data:
     		endpoint = "0.0.0.0:4318"
     	}
     	output {
-    		traces = [otelcol.exporter.otlphttp.hub.input]
+    		traces  = [otelcol.exporter.otlphttp.hub.input]
+    		metrics = [otelcol.exporter.prometheus.workloads.input]
+    		logs    = [otelcol.exporter.loki.workloads.input]
     	}
     }
-    
+
     otelcol.exporter.otlphttp "hub" {
     	client {
     		endpoint = sys.env("HUB_TEMPO_URL")
@@ -161,6 +163,16 @@ data:
     			insecure_skip_verify = true
     		}
     	}
+    }
+
+    // OTLP metrics → Mimir (reuses the prometheus.remote_write.hub sink).
+    otelcol.exporter.prometheus "workloads" {
+    	forward_to = [prometheus.remote_write.hub.receiver]
+    }
+
+    // OTLP logs → Loki (reuses the loki.write.hub sink).
+    otelcol.exporter.loki "workloads" {
+    	forward_to = [loki.write.hub.receiver]
     }
 ---
 # Source: alloy/templates/rbac.yaml
@@ -337,6 +349,16 @@ spec:
     - name: http-metrics
       port: 12345
       targetPort: 12345
+      protocol: "TCP"
+    # OTLP receivers (otelcol.receiver.otlp "workloads") — the single endpoint
+    # applications push traces/metrics/logs to; Alloy fans out to Tempo/Mimir/Loki.
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: "TCP"
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
       protocol: "TCP"
 ---
 # Source: alloy/templates/controllers/daemonset.yaml

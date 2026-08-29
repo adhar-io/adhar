@@ -1,0 +1,75 @@
+# Tekton quality gate — runs against the signed image kpack just pushed.
+#
+#   trivy-scan  → fail the run on HIGH/CRITICAL CVEs
+#   cosign-verify → confirm the image carries a valid signature from our key
+#   promote     → mark the digest ready; Kargo (application/kargo) then promotes
+#                 it dev → staging → prod over the environments repo, and ArgoCD
+#                 syncs. Deployment admission is gated by 40-verify-images.
+#
+# Harbor is in-cluster HTTP, so trivy/cosign are told the registry is non-TLS and
+# given the same admin credential the build SA uses.
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: trivy-scan
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: image, type: string, description: "fully qualified image ref (with digest)"}
+    - {name: severity, type: string, default: "HIGH,CRITICAL"}
+  steps:
+    - name: scan
+      image: aquasec/trivy:0.58.0
+      env:
+        - {name: TRIVY_NON_SSL, value: "true"}
+        - {name: TRIVY_USERNAME, value: "admin"}
+        - {name: TRIVY_PASSWORD, value: "Harbor12345"}
+      script: |
+        #!/bin/sh
+        set -e
+        echo "Scanning $(params.image) for $(params.severity) vulnerabilities…"
+        trivy image --scanners vuln --severity "$(params.severity)" \
+          --exit-code 1 --no-progress --timeout 10m "$(params.image)"
+        echo "No $(params.severity) vulnerabilities — gate passed."
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: cosign-verify
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: image, type: string}
+  steps:
+    - name: verify
+      image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+      env:
+        - {name: COSIGN_PASSWORD, value: adhar}
+        - {name: COSIGN_REPOSITORY, value: "harbor-core.adhar-system.svc.cluster.local/library/sample-app"}
+      args:
+        - verify
+        - --key=k8s://adhar-system/cosign-key
+        - --insecure-ignore-tlog=true
+        - --allow-http-registry=true
+        - "$(params.image)"
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: supply-chain-gate
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: image, type: string, description: "signed image ref to scan + verify"}
+  tasks:
+    - name: scan
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "$(params.image)"}]
+    - name: verify
+      runAfter: [scan]
+      taskRef: {name: cosign-verify}
+      params: [{name: image, value: "$(params.image)"}]

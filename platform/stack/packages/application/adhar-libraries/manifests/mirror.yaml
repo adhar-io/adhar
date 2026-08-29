@@ -1,0 +1,138 @@
+# Mirror the shared libraries from GitHub → Gitea at bootstrap, so teams build,
+# customise and maintain them in-cluster. Each Job (idempotent) creates the Gitea
+# repo and force-pushes the GitHub main branch. Runs as a PostSync hook so it
+# re-mirrors on every sync; the release pipelines (npm-release.yaml /
+# maven-release.yaml) then publish to Gitea's package registry.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-libraries
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mirror-adhar-ui
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      serviceAccountName: adhar-libraries
+      restartPolicy: Never
+      containers:
+        - name: mirror
+          image: alpine/git:2.45.2
+          env:
+            - {name: GITHUB_URL, value: "https://github.com/adhar-io/adhar-ui.git"}
+            - {name: REPO, value: "adhar-ui"}
+            - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
+            - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              apk add --no-cache curl >/dev/null 2>&1 || true
+              GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
+              AUTH=$(printf '%s:%s' "$GITEA_USER" "$GITEA_PASS" | base64 | tr -d '\n')
+              echo "creating Gitea repo adhar/$REPO (idempotent)"
+              curl -s -o /dev/null -X POST "$GITEA/api/v1/orgs/adhar/repos" \
+                -H "Authorization: Basic $AUTH" -H 'Content-Type: application/json' \
+                -d "{\"name\":\"$REPO\",\"private\":false,\"default_branch\":\"main\"}" || true
+              # Full clone (NOT --depth 1): Gitea rejects pushes from a shallow
+              # clone with "shallow update not allowed".
+              rm -rf /tmp/src && git clone "$GITHUB_URL" /tmp/src
+              cd /tmp/src
+              echo "mirroring $REPO → Gitea"
+              git -c http.extraHeader="Authorization: Basic $AUTH" \
+                push -f "$GITEA/adhar/$REPO.git" HEAD:main
+              echo "mirrored adhar/$REPO"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mirror-adhar-templates
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      serviceAccountName: adhar-libraries
+      restartPolicy: Never
+      containers:
+        - name: mirror
+          image: alpine/git:2.45.2
+          env:
+            - {name: GITHUB_URL, value: "https://github.com/adhar-io/adhar-templates.git"}
+            - {name: REPO, value: "adhar-templates"}
+            - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
+            - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              apk add --no-cache curl >/dev/null 2>&1 || true
+              GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
+              AUTH=$(printf '%s:%s' "$GITEA_USER" "$GITEA_PASS" | base64 | tr -d '\n')
+              echo "creating Gitea repo adhar/$REPO (idempotent)"
+              curl -s -o /dev/null -X POST "$GITEA/api/v1/orgs/adhar/repos" \
+                -H "Authorization: Basic $AUTH" -H 'Content-Type: application/json' \
+                -d "{\"name\":\"$REPO\",\"private\":false,\"default_branch\":\"main\"}" || true
+              # Full clone (NOT --depth 1): Gitea rejects pushes from a shallow
+              # clone with "shallow update not allowed".
+              rm -rf /tmp/src && git clone "$GITHUB_URL" /tmp/src
+              cd /tmp/src
+              echo "mirroring $REPO → Gitea"
+              git -c http.extraHeader="Authorization: Basic $AUTH" \
+                push -f "$GITEA/adhar/$REPO.git" HEAD:main
+              echo "mirrored adhar/$REPO"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mirror-adhar-kit
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      serviceAccountName: adhar-libraries
+      restartPolicy: Never
+      containers:
+        - name: mirror
+          image: alpine/git:2.45.2
+          env:
+            - {name: GITHUB_URL, value: "https://github.com/adhar-io/adhar-kit.git"}
+            - {name: REPO, value: "adhar-kit"}
+            - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
+            - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              apk add --no-cache curl >/dev/null 2>&1 || true
+              GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
+              AUTH=$(printf '%s:%s' "$GITEA_USER" "$GITEA_PASS" | base64 | tr -d '\n')
+              echo "creating Gitea repo adhar/$REPO (idempotent)"
+              curl -s -o /dev/null -X POST "$GITEA/api/v1/orgs/adhar/repos" \
+                -H "Authorization: Basic $AUTH" -H 'Content-Type: application/json' \
+                -d "{\"name\":\"$REPO\",\"private\":false,\"default_branch\":\"main\"}" || true
+              # Full clone (NOT --depth 1): Gitea rejects pushes from a shallow
+              # clone with "shallow update not allowed".
+              rm -rf /tmp/src && git clone "$GITHUB_URL" /tmp/src
+              cd /tmp/src
+              echo "mirroring $REPO → Gitea"
+              git -c http.extraHeader="Authorization: Basic $AUTH" \
+                push -f "$GITEA/adhar/$REPO.git" HEAD:main
+              echo "mirrored adhar/$REPO"
