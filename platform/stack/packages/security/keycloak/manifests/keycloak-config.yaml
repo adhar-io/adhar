@@ -58,6 +58,10 @@ data:
     {"name":"platform-developer"}
   group-platform-viewer-payload.json: |
     {"name":"platform-viewer"}
+  group-platform-engineer-payload.json: |
+    {"name":"platform-engineer"}
+  group-application-admin-payload.json: |
+    {"name":"application-admin"}
   group-mapper-payload.json: |
     {
         "protocol": "openid-connect",
@@ -815,6 +819,16 @@ spec:
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 -X POST --data @/var/config/group-platform-viewer-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/groups
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/group-platform-engineer-payload.json \
+                ${KEYCLOAK_URL}/admin/realms/adhar/groups
+
+              curl -sS -H "Content-Type: application/json" \
+                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                -X POST --data @/var/config/group-application-admin-payload.json \
                 ${KEYCLOAK_URL}/admin/realms/adhar/groups
 
               # Create scope mapper
