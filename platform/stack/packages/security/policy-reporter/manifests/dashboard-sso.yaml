@@ -1,0 +1,113 @@
+# Keycloak SSO in front of the Policy Reporter UI (no native auth). oauth2-proxy
+# gates it with the `policy-reporter` Keycloak client (secret via ESO from
+# keycloak-clients). Same pattern as the Tekton / Argo Rollouts dashboards.
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: policy-reporter-oauth2-cookie
+  namespace: adhar-system
+spec:
+  length: 32
+  digits: 8
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: policy-reporter-oauth2-proxy
+  namespace: adhar-system
+spec:
+  refreshPolicy: CreatedOnce
+  refreshInterval: 5m
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: policy-reporter-oauth2-proxy
+    template:
+      engineVersion: v2
+      data:
+        OAUTH2_PROXY_CLIENT_SECRET: "{{ .POLICY_REPORTER_CLIENT_SECRET }}"
+        OAUTH2_PROXY_COOKIE_SECRET: "{{ .COOKIE_SECRET }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: policy-reporter-oauth2-cookie
+      rewrite:
+        - transform:
+            template: "COOKIE_SECRET"
+  data:
+    - secretKey: POLICY_REPORTER_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: POLICY_REPORTER_CLIENT_SECRET
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-reporter-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: policy-reporter-oauth2-proxy
+    app.kubernetes.io/part-of: policy-reporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: policy-reporter-oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: policy-reporter-oauth2-proxy
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=oidc
+            - --oidc-issuer-url=https://keycloak.adhar.localtest.me:8443/realms/adhar
+            - --ssl-insecure-skip-verify=true
+            - --client-id=policy-reporter
+            - --redirect-url=https://policy-reporter.adhar.localtest.me:8443/oauth2/callback
+            - --upstream=http://policy-reporter-ui.adhar-system.svc.cluster.local:8080
+            - --email-domain=*
+            - --scope=openid profile email groups
+            - --cookie-secure=true
+            - --skip-provider-button=true
+            - --reverse-proxy=true
+          envFrom:
+            - secretRef:
+                name: policy-reporter-oauth2-proxy
+          ports:
+            - name: http
+              containerPort: 4180
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 4180
+            initialDelaySeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: policy-reporter-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: policy-reporter-oauth2-proxy
+    app.kubernetes.io/part-of: policy-reporter
+spec:
+  selector:
+    app: policy-reporter-oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180

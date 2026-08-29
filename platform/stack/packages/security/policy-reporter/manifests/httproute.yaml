@@ -1,0 +1,24 @@
+# Policy Reporter UI routed through the Cilium Gateway (adhar-gateway), gated by
+# Keycloak via oauth2-proxy. Root path → oauth2-proxy so /oauth2/* + the UI both
+# resolve. https://policy-reporter.adhar.localtest.me:8443
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: policy-reporter
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: policy-reporter
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - policy-reporter.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: policy-reporter-oauth2-proxy
+          port: 4180

@@ -539,6 +539,38 @@ data:
       "redirectUris": ["https://tekton.adhar.localtest.me:8443/oauth2/callback"],
       "webOrigins": ["https://tekton.adhar.localtest.me:8443"]
     }
+  argo-rollout-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "argo-rollout",
+      "name": "Argo Rollouts Dashboard Client",
+      "description": "Used for Argo Rollouts Dashboard SSO via oauth2-proxy",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "redirectUris": ["https://argo-rollout.adhar.localtest.me:8443/oauth2/callback"],
+      "webOrigins": ["https://argo-rollout.adhar.localtest.me:8443"]
+    }
+  policy-reporter-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "policy-reporter",
+      "name": "Policy Reporter Client",
+      "description": "Used for Policy Reporter (Kyverno + Trivy reports) SSO via oauth2-proxy",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "redirectUris": ["https://policy-reporter.adhar.localtest.me:8443/oauth2/callback"],
+      "webOrigins": ["https://policy-reporter.adhar.localtest.me:8443"]
+    }
 
 ---
 apiVersion: batch/v1
@@ -652,7 +684,7 @@ spec:
               # setup on an already-provisioned realm, so config changes (e.g. the
               # move to per-app subdomains) never reach the clients and SSO breaks
               # with redirect_uri mismatch. Non-fatal (runs under set +e).
-              for c in argo adhar-console headlamp grafana argocd gitea prometheus vault harbor rustfs minio adhar-cli tekton; do
+              for c in argo adhar-console headlamp grafana argocd gitea prometheus vault harbor rustfs minio adhar-cli tekton argo-rollout policy-reporter; do
                 pf="/var/config/${c}-client-payload.json"
                 [ -f "${pf}" ] || continue
                 cid=$(jq -r '.clientId' "${pf}")
@@ -720,7 +752,7 @@ spec:
               # every OIDC ExternalSecret downstream. Non-fatal (set +e).
               if kubectl -n adhar-system get secret keycloak-clients >/dev/null 2>&1; then
                 # clientId:KEYPREFIX pairs (KEYPREFIX matches the keycloak-clients keys).
-                for pair in argo-workflows:ARGO_WORKFLOWS adhar-console:ADHAR_CONSOLE headlamp:HEADLAMP grafana:GRAFANA argocd:ARGOCD gitea:GITEA prometheus:PROMETHEUS vault:VAULT harbor:HARBOR rustfs:RUSTFS tekton:TEKTON minio:MINIO jupyterhub:JUPYTERHUB; do
+                for pair in argo-workflows:ARGO_WORKFLOWS adhar-console:ADHAR_CONSOLE headlamp:HEADLAMP grafana:GRAFANA argocd:ARGOCD gitea:GITEA prometheus:PROMETHEUS vault:VAULT harbor:HARBOR rustfs:RUSTFS tekton:TEKTON minio:MINIO jupyterhub:JUPYTERHUB argo-rollout:ARGO_ROLLOUT policy-reporter:POLICY_REPORTER; do
                   cid="${pair%%:*}"; kp="${pair##*:}"
                   rid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                     "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')

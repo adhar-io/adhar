@@ -33,7 +33,7 @@ spec:
             category: "security"
             manifestPath: "security/falco/manifests"
           - name: "trivy"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/trivy/manifests"
@@ -278,6 +278,11 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/kyverno-policies/manifests"
+          - name: "policy-reporter"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "security"
+            manifestPath: "security/policy-reporter/manifests"
           # Opt-in compliance profiles (CIS / SOC2-oriented) layered on the
           # kyverno-policies baseline; all Audit mode (roadmap Phase 3).
           - name: "policy-packs"

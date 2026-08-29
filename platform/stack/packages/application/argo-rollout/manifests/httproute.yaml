@@ -1,7 +1,8 @@
-# Argo Rollouts dashboard routed through the Cilium Gateway (adhar-gateway).
-# TLS terminates at the Gateway (adhar-cert), replacing any nginx Ingress. The
-# /argo-rollouts prefix is stripped before forwarding to the dashboard service
-# (argo-rollouts-dashboard:3100).
+# Argo Rollouts dashboard routed through the Cilium Gateway (adhar-gateway),
+# gated by Keycloak via oauth2-proxy (dashboard-sso.yaml). The route targets the
+# oauth2-proxy at the host root so /oauth2/* (login/callback) and the dashboard
+# both resolve; the proxy forwards authenticated traffic to
+# argo-rollouts-dashboard:3100.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -21,7 +22,7 @@ spec:
     - matches:
         - path:
             type: PathPrefix
-            value: /argo-rollouts
+            value: /
       backendRefs:
-        - name: argo-rollouts-dashboard
-          port: 3100
+        - name: argo-rollout-oauth2-proxy
+          port: 4180

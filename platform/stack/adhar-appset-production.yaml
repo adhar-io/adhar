@@ -286,6 +286,11 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/kyverno-policies/manifests"
+          - name: "policy-reporter"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "security"
+            manifestPath: "security/policy-reporter/manifests"
           # Opt-in compliance profiles (CIS / SOC2-oriented), Audit mode.
           - name: "policy-packs"
             enabled: "false"

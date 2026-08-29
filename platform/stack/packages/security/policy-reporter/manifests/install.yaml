@@ -1,0 +1,138 @@
+# Policy Reporter — the unified UI for Kyverno (PolicyReports) AND Trivy
+# (VulnerabilityReports). Neither Kyverno nor the Trivy operator ships a web UI;
+# Policy Reporter aggregates their report CRs into one dashboard.
+#
+# Core (:8080) reads the report CRs and serves a REST API; the UI reads that API.
+# The UI is gated by Keycloak via oauth2-proxy (dashboard-sso.yaml).
+#
+# NOTE: Policy Reporter's config is version-sensitive — verify the core/UI image
+# tags and the UI→core wiring on first deploy.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: policy-reporter
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: policy-reporter
+rules:
+  # Kyverno policy reports
+  - apiGroups: ["wgpolicyk8s.io"]
+    resources: ["policyreports", "clusterpolicyreports"]
+    verbs: ["get", "list", "watch"]
+  # Trivy operator reports
+  - apiGroups: ["aquasecurity.github.io"]
+    resources: ["vulnerabilityreports", "clustervulnerabilityreports", "configauditreports", "clusterconfigauditreports", "rbacassessmentreports", "exposedsecretreports"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: policy-reporter
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: policy-reporter}
+subjects:
+  - {kind: ServiceAccount, name: policy-reporter, namespace: adhar-system}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: policy-reporter-config
+  namespace: adhar-system
+data:
+  config.yaml: |
+    # Auto-discovers PolicyReports/VulnerabilityReports; REST API on :8080.
+    api:
+      logging: false
+    metrics:
+      enabled: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-reporter
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: policy-reporter}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: policy-reporter}}
+  template:
+    metadata: {labels: {app: policy-reporter}}
+    spec:
+      serviceAccountName: policy-reporter
+      containers:
+        - name: policy-reporter
+          image: ghcr.io/kyverno/policy-reporter:2.20.1
+          args: ["run", "--config=/app/config.yaml", "--port=8080", "--dbfile=/data/sqlite-database.db", "--rest-enabled", "--metrics-enabled"]
+          ports: [{name: http, containerPort: 8080}]
+          volumeMounts:
+            - {name: config, mountPath: /app/config.yaml, subPath: config.yaml}
+            - {name: data, mountPath: /data}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {memory: 128Mi}
+      volumes:
+        - {name: config, configMap: {name: policy-reporter-config}}
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: policy-reporter
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: policy-reporter}
+spec:
+  selector: {app: policy-reporter}
+  ports: [{name: http, port: 8080, targetPort: 8080}]
+---
+# UI — reads the core REST API and renders the dashboard.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: policy-reporter-ui-config
+  namespace: adhar-system
+data:
+  config.yaml: |
+    clusters:
+      - name: adhar
+        host: http://policy-reporter.adhar-system.svc.cluster.local:8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-reporter-ui
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: policy-reporter-ui}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: policy-reporter-ui}}
+  template:
+    metadata: {labels: {app: policy-reporter-ui}}
+    spec:
+      containers:
+        - name: ui
+          image: ghcr.io/kyverno/policy-reporter-ui:2.4.0
+          args: ["run", "--config=/app/config.yaml"]
+          ports: [{name: http, containerPort: 8080}]
+          volumeMounts:
+            - {name: config, mountPath: /app/config.yaml, subPath: config.yaml}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {memory: 128Mi}
+      volumes:
+        - {name: config, configMap: {name: policy-reporter-ui-config}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: policy-reporter-ui
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: policy-reporter-ui}
+spec:
+  selector: {app: policy-reporter-ui}
+  ports: [{name: http, port: 8080, targetPort: 8080}]

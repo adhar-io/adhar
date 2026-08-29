@@ -1,0 +1,114 @@
+# Keycloak SSO in front of the Argo Rollouts Dashboard (which ships with no
+# authentication). An oauth2-proxy gates it with the `argo-rollout` Keycloak
+# client (provisioned by the keycloak config job; secret via ESO from
+# keycloak-clients). Same pattern as the Tekton Dashboard gate.
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: argo-rollout-oauth2-cookie
+  namespace: adhar-system
+spec:
+  length: 32
+  digits: 8
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argo-rollout-oauth2-proxy
+  namespace: adhar-system
+spec:
+  refreshPolicy: CreatedOnce
+  refreshInterval: 5m
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: argo-rollout-oauth2-proxy
+    template:
+      engineVersion: v2
+      data:
+        OAUTH2_PROXY_CLIENT_SECRET: "{{ .ARGO_ROLLOUT_CLIENT_SECRET }}"
+        OAUTH2_PROXY_COOKIE_SECRET: "{{ .COOKIE_SECRET }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: argo-rollout-oauth2-cookie
+      rewrite:
+        - transform:
+            template: "COOKIE_SECRET"
+  data:
+    - secretKey: ARGO_ROLLOUT_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: ARGO_ROLLOUT_CLIENT_SECRET
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argo-rollout-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-rollout-oauth2-proxy
+    app.kubernetes.io/part-of: argo-rollouts
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argo-rollout-oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: argo-rollout-oauth2-proxy
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=oidc
+            - --oidc-issuer-url=https://keycloak.adhar.localtest.me:8443/realms/adhar
+            - --ssl-insecure-skip-verify=true
+            - --client-id=argo-rollout
+            - --redirect-url=https://argo-rollout.adhar.localtest.me:8443/oauth2/callback
+            - --upstream=http://argo-rollouts-dashboard.adhar-system.svc.cluster.local:3100
+            - --email-domain=*
+            - --scope=openid profile email groups
+            - --cookie-secure=true
+            - --skip-provider-button=true
+            - --reverse-proxy=true
+          envFrom:
+            - secretRef:
+                name: argo-rollout-oauth2-proxy
+          ports:
+            - name: http
+              containerPort: 4180
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 4180
+            initialDelaySeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: argo-rollout-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-rollout-oauth2-proxy
+    app.kubernetes.io/part-of: argo-rollouts
+spec:
+  selector:
+    app: argo-rollout-oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
