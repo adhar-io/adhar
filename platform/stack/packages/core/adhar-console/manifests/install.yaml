@@ -182,6 +182,17 @@ spec:
         - { name: TEMPO_URL, value: 'http://tempo.adhar-system.svc.cluster.local:3200' }
         - { name: VAULT_URL, value: 'http://vault.adhar-system.svc.cluster.local:8200' }
         - { name: TEKTON_URL, value: 'http://tekton-dashboard.adhar-system.svc.cluster.local:9097' }
+        - { name: HARBOR_URL, value: 'http://harbor.adhar-system.svc.cluster.local:80' }
+        - { name: MINIO_URL, value: 'http://minio.adhar-system.svc.cluster.local:9000' }
+        - { name: ARGO_ROLLOUTS_URL, value: 'http://argo-rollouts-dashboard.adhar-system.svc.cluster.local:3100' }
+        # Kyverno + Crossplane have no standalone web UI — their data reaches the
+        # console as CRDs through the kube-apiserver. These URLs point at their
+        # in-cluster services purely so the app launcher reports them as enabled
+        # (they ARE running); the console never proxies them.
+        - { name: KYVERNO_URL, value: 'https://kyverno-svc.adhar-system.svc.cluster.local:443' }
+        - { name: CROSSPLANE_URL, value: 'https://crossplane-webhooks.adhar-system.svc.cluster.local:9443' }
+        # Trivy is Harbor's built-in scanner — the registry already falls back to
+        # HARBOR_URL, so setting HARBOR_URL above enables the Trivy tile too.
         # AUTH_CLIENT_SECRET + AUTH_COOKIE_SECRET come from here (templated by
         # the console-oidc ExternalSecret from the keycloak-clients secret).
         envFrom:
