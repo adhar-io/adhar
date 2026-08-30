@@ -3,62 +3,76 @@ package restore
 import (
 	"fmt"
 
+	"adhar-io/adhar/cmd/helpers"
+
 	"github.com/spf13/cobra"
 )
 
 var (
 	databaseCmd = &cobra.Command{
-		Use:   "database [backup-path]",
+		Use:   "database [backup-name]",
 		Short: "Database restoration only",
-		Long: `Restore only databases from a backup.
-This includes PostgreSQL, Redis, and other database systems.`,
+		Long: `Restore only database workloads from a Velero backup. Creates a
+velero.io/v1 Restore scoped to the database's namespace and (optionally) a
+label selector, with persistent volumes restored.
+
+For a CloudNativePG cluster (the local default engine), a namespace-scoped
+Velero restore brings back the CNPG Cluster CR and its PVCs. For a
+point-in-time recovery instead, use CNPG's bootstrap.recovery on a new
+CompositeDatabase referencing the backup object store.
+
+Examples:
+  adhar restore database my-backup --namespace=team-a
+  adhar restore database --from-backup=nightly --namespace=team-a --selector=cnpg.io/cluster=orders`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: runDatabaseRestore,
 	}
 
 	// Database restore specific flags
-	dbType     string
-	dbName     string
-	dbHost     string
-	dbPort     int
-	dbUser     string
-	dbPassword string
+	dbFromBackup  string
+	dbNamespace   string
+	dbSelector    string
+	dbRestoreName string
 )
 
 func init() {
-	databaseCmd.Flags().StringVarP(&dbType, "type", "t", "", "Database type (postgresql, redis, mysql, mongodb)")
-	databaseCmd.Flags().StringVarP(&dbName, "name", "n", "", "Database name")
-	databaseCmd.Flags().StringVarP(&dbHost, "host", "", "localhost", "Database host")
-	databaseCmd.Flags().IntVarP(&dbPort, "port", "p", 0, "Database port")
-	databaseCmd.Flags().StringVarP(&dbUser, "user", "u", "", "Database user")
-	databaseCmd.Flags().StringVarP(&dbPassword, "password", "", "", "Database password")
+	databaseCmd.Flags().StringVar(&dbFromBackup, "from-backup", "", "Name of the Velero backup to restore from")
+	databaseCmd.Flags().StringVarP(&dbNamespace, "namespace", "n", "", "Namespace the database lives in (required)")
+	databaseCmd.Flags().StringVar(&dbSelector, "selector", "", "Label selector to narrow the restore (key=value[,key=value])")
+	databaseCmd.Flags().StringVar(&dbRestoreName, "name", "", "Name for the Restore object (default: <backup>-restore-<timestamp>)")
 }
 
 func runDatabaseRestore(cmd *cobra.Command, args []string) error {
-	if len(args) > 0 {
-		backupPath = args[0]
+	src := resolveBackupName(args, dbFromBackup)
+	if src == "" {
+		return fmt.Errorf("a source backup is required (argument, --from-backup, or --backup)")
+	}
+	if dbNamespace == "" {
+		return fmt.Errorf("--namespace is required to scope the database restore")
 	}
 
-	if backupPath == "" {
-		return fmt.Errorf("backup path is required. Use --backup flag or provide as argument")
+	name := dbRestoreName
+	if name == "" {
+		name = defaultRestoreName(src)
 	}
 
-	fmt.Printf("🗄️  Starting database restoration from: %s\n", backupPath)
+	fmt.Printf("🗄️  Database restore %q from backup %q (namespace %q)\n", name, src, dbNamespace)
 
-	if dbType != "" {
-		fmt.Printf("🔧 Database type: %s\n", dbType)
+	spec := map[string]interface{}{
+		"backupName":         src,
+		"includedNamespaces": []interface{}{dbNamespace},
+		"restorePVs":         true,
 	}
-	if dbName != "" {
-		fmt.Printf("📝 Database name: %s\n", dbName)
-	}
-	if dbHost != "" {
-		fmt.Printf("🌐 Database host: %s\n", dbHost)
-	}
-	if dbPort != 0 {
-		fmt.Printf("🔌 Database port: %d\n", dbPort)
+	if sel, err := parseSelector(dbSelector); err != nil {
+		return err
+	} else if len(sel) > 0 {
+		spec["labelSelector"] = map[string]interface{}{"matchLabels": sel}
 	}
 
-	// TODO: Implement database restoration logic
-	fmt.Println("✅ Database restoration completed successfully!")
-	return nil
+	if dryRun {
+		fmt.Println(helpers.CreateMuted(fmt.Sprintf("   DRY RUN - would restore namespace %q with selector %q", dbNamespace, dbSelector)))
+		return nil
+	}
+
+	return createVeleroRestore(name, spec)
 }

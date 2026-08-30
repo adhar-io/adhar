@@ -1,0 +1,85 @@
+---
+# Local Pipeline composition — turns a CompositePipeline into a runnable CI/CD
+# pipeline on the local cluster. It emits a Tekton TaskRun (tekton.dev/v1, the
+# supply-chain CI engine installed in the local profile) with an inline taskSpec,
+# wrapped in a provider-kubernetes Object (the same pattern the local Project
+# composition uses to manage namespaced resources reliably through the stable
+# provider SA). On a cloud platform the identical CompositePipeline XR resolves to
+# the cloud pipeline composition instead — the request is portable.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositepipeline-local
+  labels:
+    feature: pipeline
+    provider: local
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositePipeline
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $spec := default (dict) $xr.spec -}}
+            {{- $name := dig "name" $xr.metadata.name $spec -}}
+            {{- $type := dig "type" "build" $spec -}}
+            {{- $ns := dig "namespace" "default" $spec -}}
+            {{- $stages := dig "stages" (list) $spec -}}
+            ---
+            # Tekton TaskRun (namespaced) managed via provider-kubernetes Object.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: taskrun
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: tekton.dev/v1
+                  kind: TaskRun
+                  metadata:
+                    name: {{ $name | quote }}
+                    namespace: {{ $ns | quote }}
+                    labels:
+                      platform.adhar.io/self-service: "true"
+                      pipeline.adhar.io/type: {{ $type | quote }}
+                      adhar.io/pipeline: {{ $name | quote }}
+                  spec:
+                    taskSpec:
+                      steps:
+                        {{- if $stages }}
+                        {{- range $stage := $stages }}
+                        {{- $step := default (dict) (first (dig "steps" (list) $stage)) }}
+                        - name: {{ dig "name" "stage" $stage | quote }}
+                          image: {{ dig "image" "alpine:latest" $step | quote }}
+                          script: |
+                            #!/bin/sh
+                            echo "stage {{ dig "name" "stage" $stage }} for pipeline {{ $name }}"
+                            {{ dig "run" "true" $step }}
+                        {{- end }}
+                        {{- else }}
+                        - name: run
+                          image: alpine:latest
+                          script: |
+                            #!/bin/sh
+                            echo "pipeline {{ $name }} ({{ $type }}) running"
+                        {{- end }}
+            ---
+            # Publish the pipeline identity on the XR status.
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositePipeline
+            status:
+              pipelineId: {{ $name | quote }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

@@ -1,0 +1,194 @@
+---
+# Local Project composition — fans a CompositeProject out into the real
+# infrastructure a project owns, all GitOps-managed:
+#   • a guard-railed namespace (ResourceQuota + LimitRange)
+#   • an ArgoCD AppProject scoped to that namespace (deployment guardrails)
+#   • a Gitea repository (the project's GitOps/source repo), auto-created
+# Monitoring needs no per-project wiring: kube-prometheus + the variable-driven
+# dashboards (incl. the Adhar Platform overview) auto-cover the new namespace.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositeproject-local
+  labels:
+    feature: project
+    provider: local
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeProject
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $name := dig "name" $xr.metadata.name $p -}}
+            {{- $org := dig "organisation" "adhar" $p -}}
+            {{- $team := dig "team" "platform" $p -}}
+            {{- $tier := dig "tier" "dev" $p -}}
+            {{- $cpu := dig "cpuQuota" "4" $p -}}
+            {{- $mem := dig "memoryQuota" "8Gi" $p -}}
+            {{- $pods := dig "podQuota" 30 $p -}}
+            {{- $repo := dig "createRepository" true $p -}}
+            {{- $giteaHost := "gitea-http.adhar-system.svc.cluster.local:3000" -}}
+            ---
+            # Project namespace (cluster-scoped → provider-kubernetes Object)
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: namespace
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Namespace
+                  metadata:
+                    name: {{ $name }}
+                    labels:
+                      platform.adhar.io/self-service: "true"
+                      platform.adhar.io/organisation: {{ $org | quote }}
+                      platform.adhar.io/team: {{ $team | quote }}
+                      platform.adhar.io/project: {{ $name | quote }}
+                      adhar.io/environment: {{ $name }}
+                      adhar.io/tier: {{ $tier | quote }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: quota
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ResourceQuota
+                  metadata: { name: {{ $name }}-quota, namespace: {{ $name }} }
+                  spec:
+                    hard:
+                      requests.cpu: "{{ $cpu }}"
+                      requests.memory: "{{ $mem }}"
+                      limits.cpu: "{{ $cpu }}"
+                      limits.memory: "{{ $mem }}"
+                      pods: "{{ $pods }}"
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: limits
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: LimitRange
+                  metadata: { name: {{ $name }}-limits, namespace: {{ $name }} }
+                  spec:
+                    limits:
+                      - type: Container
+                        default: { cpu: "500m", memory: "512Mi" }
+                        defaultRequest: { cpu: "100m", memory: "128Mi" }
+            ---
+            # ArgoCD AppProject — deployment guardrails scoped to this project.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: appproject
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: argoproj.io/v1alpha1
+                  kind: AppProject
+                  metadata:
+                    name: {{ $name }}
+                    namespace: adhar-system
+                    labels:
+                      platform.adhar.io/organisation: {{ $org | quote }}
+                      platform.adhar.io/team: {{ $team | quote }}
+                  spec:
+                    description: {{ printf "%s / %s / %s" $org $team $name | quote }}
+                    sourceRepos: ["*"]
+                    destinations:
+                      - server: https://kubernetes.default.svc
+                        namespace: {{ $name }}
+                    clusterResourceWhitelist:
+                      - group: "*"
+                        kind: "*"
+                    namespaceResourceWhitelist:
+                      - group: "*"
+                        kind: "*"
+            {{- if $repo }}
+            ---
+            # Auto-create the project's Gitea repository (idempotent — 409 = ok).
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: {{ $name }}-repo
+              namespace: adhar-system
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: repo-job
+            spec:
+              backoffLimit: 4
+              ttlSecondsAfterFinished: 600
+              template:
+                spec:
+                  restartPolicy: OnFailure
+                  containers:
+                    - name: create-repo
+                      image: curlimages/curl:8.10.1
+                      env:
+                        - name: GITEA_USER
+                          valueFrom: { secretKeyRef: { name: gitea-credential, key: username } }
+                        - name: GITEA_PASSWORD
+                          valueFrom: { secretKeyRef: { name: gitea-credential, key: password } }
+                      command: ["/bin/sh", "-c"]
+                      args:
+                        - |
+                          set -e
+                          AUTH="-u $GITEA_USER:$GITEA_PASSWORD -H Content-Type:application/json"
+                          API="http://{{ $giteaHost }}/api/v1"
+                          # 1) Ensure the organisation exists (idempotent).
+                          ocode=$(curl -s -o /tmp/org -w "%{http_code}" $AUTH \
+                            -X POST "$API/orgs" \
+                            -d '{"username":"{{ $org }}","full_name":"{{ $org }}","visibility":"public"}')
+                          echo "org create -> $ocode"; cat /tmp/org 2>/dev/null || true; echo
+                          case "$ocode" in 201|422|409) : ;; *) echo "org create failed"; exit 1 ;; esac
+                          # 2) Create the project repository (idempotent).
+                          rcode=$(curl -s -o /tmp/repo -w "%{http_code}" $AUTH \
+                            -X POST "$API/orgs/{{ $org }}/repos" \
+                            -d '{"name":"{{ $name }}","auto_init":true,"default_branch":"main","private":false,"description":"Adhar project {{ $name }} ({{ $org }}/{{ $team }})"}')
+                          echo "repo create -> $rcode"; cat /tmp/repo 2>/dev/null || true; echo
+                          case "$rcode" in 201|409) echo "repository {{ $org }}/{{ $name }} ready"; exit 0 ;; esac
+                          echo "unexpected repo status $rcode"; exit 1
+                      resources:
+                        requests: { cpu: 10m, memory: 32Mi }
+                        limits: { memory: 64Mi }
+            {{- end }}
+            ---
+            # Publish resolved coordinates on the XR status.
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeProject
+            status:
+              namespace: {{ $name }}
+              appProject: {{ $name }}
+              phase: Provisioned
+              {{- if $repo }}
+              repository: "http://{{ $giteaHost }}/{{ $org }}/{{ $name }}.git"
+              {{- end }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

@@ -21,6 +21,18 @@ var compositeEnvironmentGVR = schema.GroupVersionResource{
 	Group: "platform.adhar.io", Version: "v1alpha1", Resource: "compositeenvironments",
 }
 
+// veleroBackupGVR / veleroRestoreGVR identify Velero resources used to back up
+// and restore an environment's namespace. Velero (velero package) performs the
+// actual snapshot/restore of the namespace's resources and volumes.
+var (
+	veleroBackupGVR = schema.GroupVersionResource{
+		Group: "velero.io", Version: "v1", Resource: "backups",
+	}
+	veleroRestoreGVR = schema.GroupVersionResource{
+		Group: "velero.io", Version: "v1", Resource: "restores",
+	}
+)
+
 func getClientset() (*kubernetes.Clientset, error) {
 	return k8s.GetClientset()
 }

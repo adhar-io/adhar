@@ -1,0 +1,95 @@
+---
+# CompositeProject — the keystone of the Adhar ownership hierarchy:
+#
+#   Organisation ─owns─► Team ─owns─► Project ─holds─► Application(s)
+#                                        │
+#                                        ├─ Environment  (namespace + guardrails)
+#                                        ├─ Repository    (Gitea repo, GitOps source)
+#                                        ├─ GitOps project (ArgoCD AppProject)
+#                                        └─ Monitoring     (auto — platform-common)
+#
+# Organisation and Team are catalog metadata (Backstage Groups). A Project is the
+# first level that provisions real infrastructure, so it is a Crossplane XR: one
+# CompositeProject fans out into a guard-railed namespace, an ArgoCD AppProject
+# scoped to it, and (optionally) its own Gitea repository — all GitOps-managed.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: compositeprojects.platform.adhar.io
+spec:
+  group: platform.adhar.io
+  scope: Namespaced
+  names:
+    kind: CompositeProject
+    plural: compositeprojects
+  defaultCompositionRef:
+    name: compositeproject-local
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              parameters:
+                type: object
+                properties:
+                  organisation:
+                    type: string
+                    description: Owning organisation (Backstage Group)
+                  team:
+                    type: string
+                    description: Owning team (Backstage Group)
+                  name:
+                    type: string
+                    description: Project name — also the project namespace
+                  description:
+                    type: string
+                    default: ""
+                  tier:
+                    type: string
+                    enum: [dev, test, staging, prod]
+                    default: dev
+                  cpuQuota:
+                    type: string
+                    default: "4"
+                  memoryQuota:
+                    type: string
+                    default: 8Gi
+                  podQuota:
+                    type: integer
+                    default: 30
+                  createRepository:
+                    type: boolean
+                    description: Auto-create a Gitea repo for the project
+                    default: true
+                required: [organisation, team, name]
+            required: [parameters]
+          status:
+            type: object
+            properties:
+              namespace:
+                type: string
+              repository:
+                type: string
+              appProject:
+                type: string
+              phase:
+                type: string
+    additionalPrinterColumns:
+    - name: Org
+      type: string
+      jsonPath: ".spec.parameters.organisation"
+    - name: Team
+      type: string
+      jsonPath: ".spec.parameters.team"
+    - name: Namespace
+      type: string
+      jsonPath: ".status.namespace"
+    - name: Repository
+      type: string
+      jsonPath: ".status.repository"

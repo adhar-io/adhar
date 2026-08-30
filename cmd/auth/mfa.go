@@ -1,10 +1,20 @@
 package auth
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
+
+// kcCredential is a subset of the Keycloak credential representation.
+type kcCredential struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
 
 var (
 	mfaCmd = &cobra.Command{
@@ -70,26 +80,54 @@ func init() {
 
 func runSetupMFA(cmd *cobra.Command, args []string) error {
 	username := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("🔐 Setting up MFA for user: %s\n", username)
-	fmt.Printf("🔧 Method: %s\n", mfaMethod)
-
-	if mfaPhone != "" {
-		fmt.Printf("📱 Phone: %s\n", mfaPhone)
-	}
-	if mfaEmail != "" {
-		fmt.Printf("📧 Email: %s\n", mfaEmail)
-	}
-
-	// TODO: Implement actual MFA setup logic
-	fmt.Printf("✅ Successfully setup MFA for user: %s\n", username)
-
-	if mfaMethod == "totp" {
-		fmt.Println("📱 Scan the QR code with your authenticator app")
-		fmt.Println("🔑 Or enter this secret key manually: ABCDEFGHIJKLMNOP")
+	// TOTP is what Keycloak lets an admin provision headlessly: we flag the user
+	// with the CONFIGURE_TOTP required action, so at next login Keycloak walks
+	// them through enrolling their authenticator (the QR/secret are generated
+	// per-user by Keycloak, not by the CLI). Other methods are realm-policy
+	// driven and not settable per-user via the admin API.
+	if mfaMethod != "totp" {
+		return fmt.Errorf("only --method totp can be provisioned via the admin API; %q is configured by realm authentication policy in the Keycloak console", mfaMethod)
 	}
 
+	id, err := kc.userIDByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
+	var current map[string]interface{}
+	if err := kc.adminGetOne(ctx, "/users/"+id, &current); err != nil {
+		return err
+	}
+	if !hasRequiredAction(current, "CONFIGURE_TOTP") {
+		current["requiredActions"] = append(requiredActions(current), "CONFIGURE_TOTP")
+	}
+	if _, err := kc.adminWrite(ctx, http.MethodPut, "/users/"+id, current); err != nil {
+		return fmt.Errorf("setup MFA: %w", err)
+	}
+
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Flagged %s to configure TOTP at next login", username)))
+	fmt.Println(helpers.CreateMuted("   Keycloak will present the QR code / secret when the user next signs in."))
 	return nil
+}
+
+// requiredActions returns the user's requiredActions as a []interface{}.
+func requiredActions(user map[string]interface{}) []interface{} {
+	if ra, ok := user["requiredActions"].([]interface{}); ok {
+		return ra
+	}
+	return nil
+}
+
+// hasRequiredAction reports whether the user already carries the given action.
+func hasRequiredAction(user map[string]interface{}, action string) bool {
+	for _, a := range requiredActions(user) {
+		if s, ok := a.(string); ok && s == action {
+			return true
+		}
+	}
+	return false
 }
 
 var (
@@ -103,15 +141,9 @@ var (
 )
 
 func runVerifyMFA(cmd *cobra.Command, args []string) error {
-	username := args[0]
-	code := args[1]
-
-	fmt.Printf("🔐 Verifying MFA code for user: %s\n", username)
-	fmt.Printf("🔢 Code: %s\n", code)
-
-	// TODO: Implement actual MFA verification logic
-	fmt.Printf("✅ Successfully verified MFA for user: %s\n", username)
-	return nil
+	// Verifying a TOTP code is part of the interactive login flow and is not a
+	// Keycloak admin-API operation. Point the user at the real path.
+	return fmt.Errorf("MFA codes are verified during interactive login, not via the admin API; sign in at %s and enter the code there", settings().Issuer)
 }
 
 var (
@@ -133,11 +165,49 @@ func init() {
 
 func runDisableMFA(cmd *cobra.Command, args []string) error {
 	username := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("🚫 Disabling MFA for user: %s\n", username)
+	id, err := kc.userIDByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
 
-	// TODO: Implement actual MFA disable logic
-	fmt.Printf("✅ Successfully disabled MFA for user: %s\n", username)
+	// Remove any enrolled OTP credentials.
+	var creds []kcCredential
+	if err := kc.adminGet(ctx, "/users/"+id+"/credentials", &creds); err != nil {
+		return err
+	}
+	removed := 0
+	for _, c := range creds {
+		if c.Type == "otp" {
+			if _, err := kc.adminWrite(ctx, http.MethodDelete, "/users/"+id+"/credentials/"+c.ID, nil); err != nil {
+				return fmt.Errorf("removing OTP credential: %w", err)
+			}
+			removed++
+		}
+	}
+
+	// Also clear a pending CONFIGURE_TOTP required action if present.
+	var current map[string]interface{}
+	if err := kc.adminGetOne(ctx, "/users/"+id, &current); err != nil {
+		return err
+	}
+	if hasRequiredAction(current, "CONFIGURE_TOTP") {
+		filtered := make([]interface{}, 0)
+		for _, a := range requiredActions(current) {
+			if s, ok := a.(string); ok && s == "CONFIGURE_TOTP" {
+				continue
+			}
+			filtered = append(filtered, a)
+		}
+		current["requiredActions"] = filtered
+		if _, err := kc.adminWrite(ctx, http.MethodPut, "/users/"+id, current); err != nil {
+			return fmt.Errorf("clearing TOTP required action: %w", err)
+		}
+	}
+
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Disabled MFA for %s (removed %d OTP credential(s))", username, removed)))
 	return nil
 }
 
@@ -159,18 +229,10 @@ func init() {
 }
 
 func runGenerateBackupCodes(cmd *cobra.Command, args []string) error {
+	// Keycloak's recovery/backup codes are generated interactively for the
+	// signed-in user (the CONFIGURE_RECOVERY_AUTHN_CODES required action); the
+	// admin API cannot mint them out-of-band. Rather than fabricate codes, guide
+	// the user to the supported path.
 	username := args[0]
-
-	fmt.Printf("🔑 Generating backup codes for user: %s\n", username)
-	fmt.Printf("📊 Count: %d\n", codeCount)
-
-	// TODO: Implement actual backup code generation logic
-	fmt.Printf("✅ Successfully generated %d backup codes for user: %s\n", codeCount, username)
-	fmt.Println("📝 Backup codes:")
-	fmt.Println("  ABC123DEF456")
-	fmt.Println("  GHI789JKL012")
-	fmt.Println("  MNO345PQR678")
-	fmt.Println("⚠️  Store these codes securely - they won't be shown again!")
-
-	return nil
+	return fmt.Errorf("backup codes are generated by the user at login, not via the admin API; run `adhar auth mfa setup %s` to flag TOTP, and enable Recovery Authentication Codes in the realm's authentication policy (Keycloak console)", username)
 }

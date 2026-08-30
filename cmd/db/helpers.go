@@ -34,6 +34,48 @@ var compositeDatabaseGVR = schema.GroupVersionResource{
 	Resource: "compositedatabases",
 }
 
+// cnpgClusterGVR / cnpgBackupGVR identify the CloudNativePG resources the local
+// PostgreSQL composition (compositedatabase-local-cnpg) creates for each
+// CompositeDatabase. Day-2 operations (backup/restore/health) act on these
+// composed resources directly, the same objects the control plane manages.
+var (
+	cnpgClusterGVR = schema.GroupVersionResource{
+		Group:    "postgresql.cnpg.io",
+		Version:  "v1",
+		Resource: "clusters",
+	}
+	cnpgBackupGVR = schema.GroupVersionResource{
+		Group:    "postgresql.cnpg.io",
+		Version:  "v1",
+		Resource: "backups",
+	}
+)
+
+// nestedInt64 returns a nested integer value from an unstructured object map,
+// tolerating the int64/float64 representations unstructured data can carry.
+func nestedInt64(obj map[string]interface{}, keys ...string) (int64, bool) {
+	cur := obj
+	for i, k := range keys {
+		if i == len(keys)-1 {
+			switch v := cur[k].(type) {
+			case int64:
+				return v, true
+			case float64:
+				return int64(v), true
+			case int:
+				return int64(v), true
+			}
+			return 0, false
+		}
+		next, ok := cur[k].(map[string]interface{})
+		if !ok {
+			return 0, false
+		}
+		cur = next
+	}
+	return 0, false
+}
+
 // dbNamespace returns the namespace for database resources, defaulting to
 // "default" when no namespace is provided.
 func dbNamespace() string {

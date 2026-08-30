@@ -1,8 +1,12 @@
 package policy
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
@@ -10,23 +14,34 @@ import (
 var (
 	applyCmd = &cobra.Command{
 		Use:   "apply [policy-file]",
-		Short: "Apply policies to the platform",
-		Long: `Apply policies to the Adhar platform.
-Policies can include security rules, resource quotas, access controls, and more.`,
+		Short: "Apply a policy through the control plane (or a raw Kyverno file)",
+		Long: `Apply a compliance policy.
+
+Default (control-plane) mode creates a CompositeCompliancePolicy XR. The
+Crossplane control plane reconciles it into Kyverno ClusterPolicies — the same
+declarative path the Adhar Console uses, so a policy request is identical
+regardless of entry point.
+
+Power-user mode (--file) applies a raw Kyverno policy manifest (ClusterPolicy /
+Policy, or any Kubernetes manifest) directly via server-side apply.
+
+Examples:
+  adhar policy apply --name=baseline --mode=enforce
+  adhar policy apply --name=baseline --namespace=team-a
+  adhar policy apply --file=my-clusterpolicy.yaml
+  adhar policy apply --file=my-clusterpolicy.yaml --dry-run`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: runApplyPolicy,
 	}
 
-	// Apply specific flags
-	policyType string
-	overwrite  bool
-	validate   bool
+	// Apply-specific flags.
+	applyName string
+	applyMode string
 )
 
 func init() {
-	applyCmd.Flags().StringVarP(&policyType, "type", "t", "", "Policy type (security, quota, access, network, backup)")
-	applyCmd.Flags().BoolVarP(&overwrite, "overwrite", "o", false, "Overwrite existing policies")
-	applyCmd.Flags().BoolVarP(&validate, "validate", "", true, "Validate policy before applying")
+	applyCmd.Flags().StringVar(&applyName, "name", "", "Name for the compliance policy XR (control-plane mode)")
+	applyCmd.Flags().StringVar(&applyMode, "mode", "audit", "Enforcement mode: audit or enforce (control-plane mode)")
 }
 
 func runApplyPolicy(cmd *cobra.Command, args []string) error {
@@ -34,71 +49,96 @@ func runApplyPolicy(cmd *cobra.Command, args []string) error {
 		policyFile = args[0]
 	}
 
-	if policyFile == "" {
-		return fmt.Errorf("policy file is required. Use --file flag or provide as argument")
+	ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+	defer cancel()
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	// Check if policy file exists
-	if _, err := os.Stat(policyFile); os.IsNotExist(err) {
-		return fmt.Errorf("policy file not found: %s", policyFile)
+	// Power-user path: apply a raw manifest directly.
+	if policyFile != "" {
+		return applyPolicyFile(ctx, policyFile)
 	}
 
-	fmt.Printf("📋 Applying policy from: %s\n", policyFile)
-	if namespace != "" {
-		fmt.Printf("📦 Target namespace: %s\n", namespace)
-	}
-	if policyType != "" {
-		fmt.Printf("🔧 Policy type: %s\n", policyType)
-	}
-	fmt.Printf("🔄 Overwrite existing: %t\n", overwrite)
-	fmt.Printf("🔍 Dry run: %t\n", dryRun)
+	// Control-plane path: create a CompositeCompliancePolicy XR.
+	return applyPolicyXR(ctx)
+}
 
-	// Validate policy if enabled
-	if validate {
-		fmt.Println("\n🔍 Validating policy...")
-		if err := validatePolicyFile(policyFile); err != nil {
-			return fmt.Errorf("policy validation failed: %w", err)
+// applyPolicyFile server-side-applies each document in a Kyverno policy file.
+func applyPolicyFile(ctx context.Context, file string) error {
+	fmt.Println(helpers.TitleStyle.Render("📋 Applying policy manifest: " + file))
+
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("read policy file: %w", err)
+	}
+	objs, err := decodeManifests(data)
+	if err != nil {
+		return err
+	}
+	if len(objs) == 0 {
+		return fmt.Errorf("no manifests found in %s", file)
+	}
+
+	dyn, mapper, err := kubeClients()
+	if err != nil {
+		return unreachable(err)
+	}
+
+	for _, obj := range objs {
+		if err := applyManifest(ctx, dyn, mapper, obj, namespace, dryRun); err != nil {
+			return fmt.Errorf("apply %s/%s: %w", obj.GetKind(), obj.GetName(), err)
 		}
-		fmt.Println("✅ Policy validation passed")
+		verb := "applied"
+		if dryRun {
+			verb = "validated (dry-run)"
+		}
+		fmt.Printf("   ✅ %s %s/%s\n", verb, obj.GetKind(), obj.GetName())
 	}
+	fmt.Println(helpers.CreateSuccess("Policy manifest applied successfully."))
+	return nil
+}
+
+// applyPolicyXR creates a CompositeCompliancePolicy composite resource.
+func applyPolicyXR(ctx context.Context) error {
+	if applyName == "" {
+		return fmt.Errorf("--name is required (control-plane mode), or use --file to apply a raw policy manifest")
+	}
+	if applyMode != "audit" && applyMode != "enforce" {
+		return fmt.Errorf("--mode must be 'audit' or 'enforce' (got %q)", applyMode)
+	}
+
+	ns := namespace
+	if ns == "" {
+		ns = "default"
+	}
+
+	fmt.Println(helpers.TitleStyle.Render(fmt.Sprintf("📋 Creating compliance policy %q (mode: %s, provider: %s)",
+		applyName, applyMode, helpers.ActiveProvider())))
+
+	spec := map[string]interface{}{
+		// Satisfy the XRD's required top-level compositionSelector as well as the
+		// v2 spec.crossplane selector that NewXR adds.
+		"compositionSelector": helpers.CompositionSelector("compliance", nil),
+		"parameters": map[string]interface{}{
+			"displayName":     applyName,
+			"policyEngine":    "kyverno",
+			"enforcementMode": applyMode,
+		},
+	}
+
+	xr := helpers.NewXR("CompositeCompliancePolicy", applyName, ns, "compliance", nil, spec)
 
 	if dryRun {
-		fmt.Println("\n🔍 DRY RUN - Showing what would be applied:")
-		return showPolicyPlan(policyFile)
+		fmt.Println(helpers.CreateMuted("   Dry run — would create CompositeCompliancePolicy:"))
+		return helpers.PrintYAML(xr.Object)
 	}
 
-	fmt.Println("\n🚀 Applying policy to platform...")
-
-	// TODO: Implement actual policy application logic
-	// This would typically involve:
-	// 1. Parsing policy file
-	// 2. Validating policy contents
-	// 3. Applying to Kubernetes resources
-	// 4. Updating platform configuration
-	// 5. Verifying application
-
-	fmt.Println("✅ Policy applied successfully!")
-	return nil
-}
-
-func validatePolicyFile(policyFile string) error {
-	// TODO: Implement actual policy validation
-	// This would typically involve:
-	// 1. Checking file format (YAML/JSON)
-	// 2. Validating policy schema
-	// 3. Checking policy syntax
-	// 4. Validating policy rules
-	return nil
-}
-
-func showPolicyPlan(policyFile string) error {
-	fmt.Println("📋 Policy Application Plan:")
-	fmt.Println("  • Policy file: " + policyFile)
-	if namespace != "" {
-		fmt.Println("  • Target namespace: " + namespace)
+	if err := helpers.ApplyXR(ctx, "compositecompliancepolicies", xr); err != nil {
+		return fmt.Errorf("create compliance policy: %w", err)
 	}
-	fmt.Println("  • Policy type: " + policyType)
-	fmt.Println("  • Overwrite existing: " + fmt.Sprintf("%t", overwrite))
-	fmt.Println("  • Estimated time: 1-2 minutes")
+
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("CompositeCompliancePolicy %s created in namespace %s", applyName, ns)))
+	fmt.Println(helpers.CreateMuted("   The control plane will reconcile it into Kyverno ClusterPolicies."))
 	return nil
 }

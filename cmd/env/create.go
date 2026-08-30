@@ -11,7 +11,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var createTier string
@@ -88,21 +87,13 @@ func tryCreateCompositeEnvironment(ctx context.Context, name, tier string) error
 	if err != nil {
 		return err
 	}
-	xr := &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "platform.adhar.io/v1alpha1",
-		"kind":       "CompositeEnvironment",
-		"metadata": map[string]interface{}{
-			"name":      name,
-			"namespace": name,
-			"labels":    map[string]interface{}{"adhar.io/managed-by": "adhar-cli"},
-		},
-		"spec": map[string]interface{}{
+	xr := helpers.NewXR("CompositeEnvironment", name, name, "environment", nil,
+		map[string]interface{}{
 			"parameters": map[string]interface{}{
 				"name": name,
 				"tier": tier,
 			},
-		},
-	}}
+		})
 	_, err = dyn.Resource(compositeEnvironmentGVR).Namespace(name).Create(ctx, xr, metav1.CreateOptions{})
 	if k8serrors.IsAlreadyExists(err) {
 		return nil

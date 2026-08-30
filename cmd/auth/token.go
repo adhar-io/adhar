@@ -3,12 +3,22 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
+
+// maskToken shows only the first and last few characters of a secret so it is
+// recognizable in logs without being disclosed.
+func maskToken(tok string) string {
+	if len(tok) <= 12 {
+		return "****"
+	}
+	return tok[:6] + "…" + tok[len(tok)-4:]
+}
 
 var (
 	tokenCmd = &cobra.Command{
@@ -49,6 +59,67 @@ func init() {
 	tokenCmd.AddCommand(getTokenCmd)
 	tokenCmd.AddCommand(revokeTokenCmd)
 	tokenCmd.AddCommand(renewTokenCmd)
+	tokenCmd.AddCommand(decodeTokenCmd)
+}
+
+var decodeTokenCmd = &cobra.Command{
+	Use:   "decode [token]",
+	Short: "Decode and display the current (or a given) token's claims",
+	Long: `Decode a JWT and show its claims. With no argument, decodes the access
+token of the logged-in session (refreshing it if needed). The token is never
+printed in full — only its claims are shown.
+
+Examples:
+  adhar auth token decode
+  adhar auth token decode "$(adhar auth token)"`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runDecodeToken,
+}
+
+func runDecodeToken(cmd *cobra.Command, args []string) error {
+	ctx := context.Background()
+
+	var raw string
+	if len(args) == 1 {
+		raw = args[0]
+	} else {
+		s, err := currentSession(ctx)
+		if err != nil {
+			return err
+		}
+		raw = s.AccessToken
+	}
+
+	claims, err := parseClaims(raw)
+	if err != nil {
+		return fmt.Errorf("decoding token: %w", err)
+	}
+	if output == "json" {
+		return helpers.PrintJSON(claims)
+	}
+
+	fmt.Printf("🔐 Token:    %s\n", maskToken(raw))
+	if claims.PreferredUsername != "" {
+		fmt.Printf("👤 User:     %s\n", claims.PreferredUsername)
+	}
+	if claims.Email != "" {
+		fmt.Printf("📧 Email:    %s\n", claims.Email)
+	}
+	if claims.Subject != "" {
+		fmt.Printf("🆔 Subject:  %s\n", claims.Subject)
+	}
+	if len(claims.Groups) > 0 {
+		fmt.Printf("👥 Groups:   %s\n", strings.Join(claims.Groups, ", "))
+	}
+	if len(claims.RealmAccess.Roles) > 0 {
+		fmt.Printf("🎭 Roles:    %s\n", strings.Join(claims.RealmAccess.Roles, ", "))
+	}
+	fmt.Printf("🏛️ Issuer:   %s\n", claims.Issuer)
+	if claims.Expiry > 0 {
+		exp := time.Unix(claims.Expiry, 0)
+		fmt.Printf("⏰ Expires:  %s (%s)\n", exp.Format(time.RFC3339), time.Until(exp).Round(time.Second))
+	}
+	return nil
 }
 
 func runToken(cmd *cobra.Command, args []string) error {
@@ -150,20 +221,40 @@ func init() {
 }
 
 func runListTokens(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 API Tokens")
-	fmt.Println("")
-
-	if showExpired {
-		fmt.Println("⏰ Including expired tokens")
+	// Keycloak does not expose "personal access tokens"; the CLI's token is the
+	// current OIDC session. Surface that (masked) as the live token, which is
+	// what `adhar auth token` would emit.
+	s, err := loadSession()
+	if err != nil {
+		return err
 	}
-	if showRevoked {
-		fmt.Println("🚫 Including revoked tokens")
+	if s == nil {
+		fmt.Println(helpers.CreateMuted("📭 Not logged in — run `adhar auth login <username>` to obtain a token."))
+		return nil
 	}
 
-	// TODO: Implement actual token listing logic
-	fmt.Println("📭 No tokens found")
-	fmt.Println("Use 'adhar auth token create' to create your first token")
+	if output == "json" {
+		return helpers.PrintJSON(map[string]any{
+			"username":      s.Username,
+			"issuer":        s.Issuer,
+			"clientId":      s.ClientID,
+			"accessToken":   maskToken(s.AccessToken),
+			"accessExpiry":  s.AccessExpiry,
+			"refreshExpiry": s.RefreshExpiry,
+			"expired":       time.Now().After(s.AccessExpiry),
+		})
+	}
 
+	fmt.Println("📋 Session token (Keycloak OIDC)")
+	fmt.Printf("👤 User:    %s\n", s.Username)
+	fmt.Printf("🔌 Client:  %s\n", s.ClientID)
+	fmt.Printf("🔐 Access:  %s\n", maskToken(s.AccessToken))
+	status := "valid for " + time.Until(s.AccessExpiry).Round(time.Second).String()
+	if time.Now().After(s.AccessExpiry) {
+		status = "expired (auto-refreshes on next `adhar auth token`)"
+	}
+	fmt.Printf("⏰ Access:  %s\n", status)
+	fmt.Println(helpers.CreateMuted("   Print a live token: adhar auth token  •  decode it: adhar auth token decode"))
 	return nil
 }
 

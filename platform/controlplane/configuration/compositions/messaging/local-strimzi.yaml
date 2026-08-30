@@ -1,0 +1,156 @@
+---
+# Local Kafka composition — provisions a single-node Strimzi Kafka (KRaft, no
+# ZooKeeper) in the requester's namespace. The Strimzi cluster operator watches
+# all namespaces (STRIMZI_NAMESPACE=*), so the Kafka reconciles wherever the XR
+# lives. Selected via the `provider: local, engine: kafka` labels / compositionRef.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositemessaging-local-strimzi
+  labels:
+    feature: messaging
+    provider: local
+    engine: kafka
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeMessaging
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $spec := $xr.spec -}}
+            {{- $version := dig "kafkaVersion" "3.8.0" $spec -}}
+            {{- $size := dig "storageSize" "2Gi" $spec -}}
+            ---
+            # JMX Prometheus exporter rules — feeds the Kafka Grafana dashboards.
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: {{ $name }}-metrics
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: kafka-metrics-cm
+            data:
+              kafka-metrics-config.yml: |
+                lowercaseOutputName: true
+                rules:
+                  - pattern: "kafka.server<type=(.+), name=(.+)PerSec\\w*><>Count"
+                    name: "kafka_server_$1_$2_total"
+                    type: COUNTER
+                  - pattern: "kafka.server<type=(.+), name=(.+)><>Value"
+                    name: "kafka_server_$1_$2"
+                    type: GAUGE
+                  - pattern: "kafka.controller<type=(.+), name=(.+)><>Value"
+                    name: "kafka_controller_$1_$2"
+                    type: GAUGE
+                  - pattern: "kafka.network<type=(.+), name=(.+)><>Value"
+                    name: "kafka_network_$1_$2"
+                    type: GAUGE
+                  - pattern: "kafka.log<type=(.+), name=(.+)><>Value"
+                    name: "kafka_log_$1_$2"
+                    type: GAUGE
+            ---
+            apiVersion: kafka.strimzi.io/v1
+            kind: KafkaNodePool
+            metadata:
+              name: {{ $name }}-pool
+              namespace: {{ $ns }}
+              labels:
+                strimzi.io/cluster: {{ $name }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: kafka-pool
+            spec:
+              replicas: 1
+              roles: [controller, broker]
+              storage:
+                type: persistent-claim
+                size: {{ $size }}
+                deleteClaim: true
+            ---
+            apiVersion: kafka.strimzi.io/v1
+            kind: Kafka
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                strimzi.io/kraft: enabled
+                strimzi.io/node-pools: enabled
+                gotemplating.fn.crossplane.io/composition-resource-name: kafka-cluster
+            spec:
+              kafka:
+                version: "{{ $version }}"
+                listeners:
+                  - name: plain
+                    port: 9092
+                    type: internal
+                    tls: false
+                config:
+                  offsets.topic.replication.factor: 1
+                  transaction.state.log.replication.factor: 1
+                  transaction.state.log.min.isr: 1
+                  default.replication.factor: 1
+                  min.insync.replicas: 1
+                metricsConfig:
+                  type: jmxPrometheusExporter
+                  valueFrom:
+                    configMapKeyRef:
+                      name: {{ $name }}-metrics
+                      key: kafka-metrics-config.yml
+              entityOperator:
+                topicOperator: {}
+                userOperator: {}
+              # kafka-exporter feeds the kafka-exporter dashboard (topic/consumer lag).
+              kafkaExporter:
+                topicRegex: ".*"
+                groupRegex: ".*"
+            ---
+            # PodMonitor so kube-prometheus scrapes the JMX + kafka-exporter ports
+            # of every composed Kafka; the Kafka dashboards are cluster-var driven.
+            apiVersion: monitoring.coreos.com/v1
+            kind: PodMonitor
+            metadata:
+              name: {{ $name }}-kafka
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: kafka-podmonitor
+              labels:
+                strimzi.io/cluster: {{ $name }}
+            spec:
+              selector:
+                matchLabels:
+                  strimzi.io/cluster: {{ $name }}
+              podMetricsEndpoints:
+                - path: /metrics
+                  port: tcp-prometheus
+                  relabelings:
+                    - action: labelmap
+                      regex: "__meta_kubernetes_pod_label_(.+)"
+            {{- range dig "topics" (list) $spec }}
+            ---
+            apiVersion: kafka.strimzi.io/v1
+            kind: KafkaTopic
+            metadata:
+              name: {{ .name }}
+              namespace: {{ $ns }}
+              labels:
+                strimzi.io/cluster: {{ $name }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: topic-{{ .name }}
+            spec:
+              partitions: {{ dig "partitions" 3 . }}
+              replicas: {{ dig "replicas" 1 . }}
+            {{- end }}
+    - step: ready
+      functionRef:
+        name: function-auto-ready

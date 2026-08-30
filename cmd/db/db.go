@@ -61,9 +61,12 @@ var (
 )
 
 func init() {
+	// Identity flags shared across subcommands (create/delete/status/…) that all
+	// operate on a named CompositeDatabase XR, so they are persistent.
+	DBCmd.PersistentFlags().StringVarP(&dbName, "name", "n", "", "Database name")
+	DBCmd.PersistentFlags().StringVarP(&dbType, "type", "t", "", "Database type (postgresql, mysql, mongodb, redis)")
+
 	// Database command flags
-	DBCmd.Flags().StringVarP(&dbName, "name", "n", "", "Database name")
-	DBCmd.Flags().StringVarP(&dbType, "type", "t", "", "Database type (postgresql, mysql, mongodb, redis)")
 	DBCmd.Flags().StringVarP(&dbHost, "host", "", "", "Database host")
 	DBCmd.Flags().StringVarP(&dbPort, "port", "", "", "Database port")
 	DBCmd.Flags().StringVarP(&dbUser, "user", "u", "", "Database user")

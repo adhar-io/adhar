@@ -9,8 +9,20 @@ import (
 	"adhar-io/adhar/platform/k8s"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+)
+
+// compositeSecretRotationGVR / compositeSecretGVR identify the Crossplane XRs the
+// secrets commands drive through the control plane (platform.adhar.io, namespaced).
+var (
+	compositeSecretRotationGVR = schema.GroupVersionResource{
+		Group: "platform.adhar.io", Version: "v1alpha1", Resource: "compositesecretrotations",
+	}
+	compositeSecretGVR = schema.GroupVersionResource{
+		Group: "platform.adhar.io", Version: "v1alpha1", Resource: "compositesecrets",
+	}
 )
 
 // getClientset returns a typed Kubernetes clientset via the shared platform helper.

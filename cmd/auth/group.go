@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
@@ -78,18 +79,41 @@ func init() {
 
 func runCreateGroup(cmd *cobra.Command, args []string) error {
 	groupName := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("👥 Creating group: %s\n", groupName)
+	fmt.Printf("👥 Creating group %q in realm %s\n", groupName, kc.Realm)
 
+	body := map[string]interface{}{"name": groupName}
 	if newGroupDesc != "" {
-		fmt.Printf("📝 Description: %s\n", newGroupDesc)
-	}
-	if newGroupRole != "" {
-		fmt.Printf("🔑 Default role: %s\n", newGroupRole)
+		// Keycloak groups carry free-form attributes; stash the description there.
+		body["attributes"] = map[string][]string{"description": {newGroupDesc}}
 	}
 
-	// TODO: Implement actual group creation logic
-	fmt.Printf("✅ Successfully created group: %s\n", groupName)
+	location, err := kc.adminWrite(ctx, http.MethodPost, "/groups", body)
+	if err != nil {
+		return fmt.Errorf("create group: %w", err)
+	}
+
+	// Optionally bind a default realm role to the group so members inherit it.
+	if newGroupRole != "" && newGroupRole != "member" {
+		groupID := idFromLocation(location)
+		if groupID == "" {
+			if groupID, err = kc.groupIDByName(ctx, groupName); err != nil {
+				return err
+			}
+		}
+		role, rerr := kc.realmRoleByName(ctx, newGroupRole)
+		if rerr != nil {
+			return fmt.Errorf("group created, but resolving role %q failed: %w", newGroupRole, rerr)
+		}
+		if _, rerr := kc.adminWrite(ctx, http.MethodPost, fmt.Sprintf("/groups/%s/role-mappings/realm", groupID), []kcRole{role}); rerr != nil {
+			return fmt.Errorf("group created, but binding role %q failed: %w", newGroupRole, rerr)
+		}
+		fmt.Printf("🔑 Bound default realm role: %s\n", newGroupRole)
+	}
+
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Created group %s", groupName)))
 	return nil
 }
 
@@ -167,13 +191,50 @@ var (
 
 func runGetGroup(cmd *cobra.Command, args []string) error {
 	groupName := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("👥 Group Details: %s\n", groupName)
-	fmt.Println("")
+	id, err := kc.groupIDByName(ctx, groupName)
+	if err != nil {
+		return err
+	}
+	var g kcGroup
+	if err := kc.adminGetOne(ctx, "/groups/"+id, &g); err != nil {
+		return err
+	}
 
-	// TODO: Implement actual group retrieval logic
-	fmt.Println("📭 Group not found")
+	// Enumerate members so `get` is genuinely useful.
+	var members []kcUser
+	if err := kc.adminGet(ctx, "/groups/"+id+"/members", &members); err != nil {
+		return err
+	}
 
+	if output == "json" {
+		return helpers.PrintJSON(map[string]interface{}{"group": g, "members": members})
+	}
+	if output == "yaml" {
+		return helpers.PrintYAML(map[string]interface{}{"group": g, "members": members})
+	}
+
+	fmt.Printf("👥 Name:    %s\n", g.Name)
+	fmt.Printf("🧭 Path:    %s\n", g.Path)
+	fmt.Printf("🆔 ID:      %s\n", g.ID)
+	if len(g.SubGroups) > 0 {
+		names := make([]string, 0, len(g.SubGroups))
+		for _, sg := range g.SubGroups {
+			names = append(names, sg.Name)
+		}
+		fmt.Printf("🌳 Subgroups: %s\n", strings.Join(names, ", "))
+	}
+	if len(members) == 0 {
+		fmt.Println(helpers.CreateMuted("👤 Members: (none)"))
+		return nil
+	}
+	names := make([]string, 0, len(members))
+	for _, m := range members {
+		names = append(names, m.Username)
+	}
+	fmt.Printf("👤 Members: %s\n", strings.Join(names, ", "))
 	return nil
 }
 
@@ -198,18 +259,38 @@ func init() {
 
 func runUpdateGroup(cmd *cobra.Command, args []string) error {
 	groupName := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("✏️  Updating group: %s\n", groupName)
+	id, err := kc.groupIDByName(ctx, groupName)
+	if err != nil {
+		return err
+	}
+	var current map[string]interface{}
+	if err := kc.adminGetOne(ctx, "/groups/"+id, &current); err != nil {
+		return err
+	}
+	fmt.Printf("✏️  Updating group %q\n", groupName)
 
 	if updateDesc != "" {
-		fmt.Printf("📝 New description: %s\n", updateDesc)
+		current["attributes"] = map[string][]string{"description": {updateDesc}}
 	}
-	if updateGroupRole != "" {
-		fmt.Printf("🔑 New default role: %s\n", updateGroupRole)
+	if _, err := kc.adminWrite(ctx, http.MethodPut, "/groups/"+id, current); err != nil {
+		return fmt.Errorf("update group: %w", err)
 	}
 
-	// TODO: Implement actual group update logic
-	fmt.Printf("✅ Successfully updated group: %s\n", groupName)
+	if updateGroupRole != "" {
+		role, rerr := kc.realmRoleByName(ctx, updateGroupRole)
+		if rerr != nil {
+			return fmt.Errorf("group updated, but resolving role %q failed: %w", updateGroupRole, rerr)
+		}
+		if _, rerr := kc.adminWrite(ctx, http.MethodPost, fmt.Sprintf("/groups/%s/role-mappings/realm", id), []kcRole{role}); rerr != nil {
+			return fmt.Errorf("group updated, but binding role %q failed: %w", updateGroupRole, rerr)
+		}
+		fmt.Printf("🔑 Bound realm role: %s\n", updateGroupRole)
+	}
+
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Updated group %s", groupName)))
 	return nil
 }
 
@@ -232,11 +313,17 @@ func init() {
 
 func runDeleteGroup(cmd *cobra.Command, args []string) error {
 	groupName := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("🗑️  Deleting group: %s\n", groupName)
-
-	// TODO: Implement actual group deletion logic
-	fmt.Printf("✅ Successfully deleted group: %s\n", groupName)
+	id, err := kc.groupIDByName(ctx, groupName)
+	if err != nil {
+		return err
+	}
+	if _, err := kc.adminWrite(ctx, http.MethodDelete, "/groups/"+id, nil); err != nil {
+		return fmt.Errorf("delete group: %w", err)
+	}
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Deleted group %s", groupName)))
 	return nil
 }
 
@@ -260,12 +347,21 @@ func init() {
 func runAddMember(cmd *cobra.Command, args []string) error {
 	groupName := args[0]
 	username := args[1]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("➕ Adding user %s to group %s\n", username, groupName)
-	fmt.Printf("🔑 Role: %s\n", memberRole)
-
-	// TODO: Implement actual member addition logic
-	fmt.Printf("✅ Successfully added %s to group %s\n", username, groupName)
+	groupID, err := kc.groupIDByName(ctx, groupName)
+	if err != nil {
+		return err
+	}
+	userID, err := kc.userIDByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
+	if _, err := kc.adminWrite(ctx, http.MethodPut, fmt.Sprintf("/users/%s/groups/%s", userID, groupID), nil); err != nil {
+		return fmt.Errorf("add member: %w", err)
+	}
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Added %s to group %s", username, groupName)))
 	return nil
 }
 
@@ -282,10 +378,20 @@ var (
 func runRemoveMember(cmd *cobra.Command, args []string) error {
 	groupName := args[0]
 	username := args[1]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("➖ Removing user %s from group %s\n", username, groupName)
-
-	// TODO: Implement actual member removal logic
-	fmt.Printf("✅ Successfully removed %s from group %s\n", username, groupName)
+	groupID, err := kc.groupIDByName(ctx, groupName)
+	if err != nil {
+		return err
+	}
+	userID, err := kc.userIDByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
+	if _, err := kc.adminWrite(ctx, http.MethodDelete, fmt.Sprintf("/users/%s/groups/%s", userID, groupID), nil); err != nil {
+		return fmt.Errorf("remove member: %w", err)
+	}
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Removed %s from group %s", username, groupName)))
 	return nil
 }

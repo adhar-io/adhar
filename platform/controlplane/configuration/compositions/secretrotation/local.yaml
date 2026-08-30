@@ -1,0 +1,123 @@
+---
+# Local secret-rotation composition — rotates the values of in-cluster
+# Kubernetes Secrets on demand, without an external secret-manager backend. It is
+# the local counterpart of the cloud `compositesecretrotation-*` compositions, so
+# a CompositeSecretRotation request written for local runs unchanged on a cloud
+# platform (which rotates via external-secrets/KMS) by switching ADHAR_PROVIDER.
+#
+# For each secretReference it emits a batch/v1 Job that generates a fresh random
+# value and patches the target Secret's `password` key. The Jobs run under the
+# `secret-rotation` ServiceAccount (get/patch on secrets in the target namespace).
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositesecretrotation-local
+  labels:
+    feature: secretrotation
+    provider: local
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeSecretRotation
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $refs := dig "secretReferences" (list) $p -}}
+            {{- $auto := dig "automaticRotation" true $p -}}
+            {{- $key := dig "rotationKey" "password" $p -}}
+            {{- $count := 0 -}}
+            ---
+            # Identity the rotation Jobs run as, bound to the cluster-wide
+            # adhar-secret-rotator role (secrets get/patch in this namespace).
+            apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: secret-rotation
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: rotation-sa
+            ---
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: RoleBinding
+            metadata:
+              name: secret-rotation
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: rotation-rb
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: adhar-secret-rotator
+            subjects:
+              - kind: ServiceAccount
+                name: secret-rotation
+                namespace: {{ $ns }}
+            {{- range $i, $ref := $refs }}
+            {{- $count = add $count 1 }}
+            {{- $sname := $ref.name }}
+            {{- $sns := dig "namespace" $ns $ref }}
+            ---
+            # Rotation Job for secret {{ $sns }}/{{ $sname }} — generates a new
+            # random value and patches the `{{ $key }}` key in place.
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: rotate-{{ $sname }}-{{ $i }}
+              namespace: {{ $sns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: rotate-{{ $i }}
+              labels:
+                app.kubernetes.io/managed-by: crossplane
+                platform.adhar.io/secret-rotation: {{ $sname }}
+            spec:
+              backoffLimit: 2
+              ttlSecondsAfterFinished: 600
+              template:
+                spec:
+                  serviceAccountName: secret-rotation
+                  restartPolicy: Never
+                  containers:
+                    - name: rotate
+                      image: alpine/k8s:1.31.1
+                      command: ["/bin/bash", "-c"]
+                      args:
+                        - |
+                          set -euo pipefail
+                          NEWVAL=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)
+                          ENC=$(printf '%s' "$NEWVAL" | base64 | tr -d '\n')
+                          echo "rotating {{ $sns }}/{{ $sname }} key={{ $key }}"
+                          kubectl patch secret {{ $sname }} -n {{ $sns }} \
+                            --type merge -p "{\"data\":{\"{{ $key }}\":\"$ENC\"}}"
+                          kubectl annotate secret {{ $sname }} -n {{ $sns }} \
+                            adhar.io/rotated-at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
+                      resources:
+                        requests: { cpu: 10m, memory: 32Mi }
+                        limits: { memory: 64Mi }
+            {{- end }}
+            ---
+            # Publish rotation status back on the XR.
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeSecretRotation
+            status:
+              {{- if $auto }}
+              phase: Active
+              {{- else }}
+              phase: Paused
+              {{- end }}
+              ready: true
+              rotationCount: {{ $count }}
+              message: "Rotation applied to {{ $count }} secret(s)"
+    - step: ready
+      functionRef:
+        name: function-auto-ready

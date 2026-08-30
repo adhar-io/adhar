@@ -58,7 +58,7 @@ spec:
     - {name: subpath, type: string, default: ""}
   steps:
     - name: apply
-      image: docker.io/bitnami/kubectl:1.31
+      image: alpine/k8s:1.31.1
       script: |
         #!/bin/bash
         set -euo pipefail

@@ -1,0 +1,61 @@
+---
+# Local Application composition — turns a CompositeApplication into an ArgoCD
+# Application (GitOps deploy). Same XRD as cloud; developers describe source +
+# destination and the control plane wires the GitOps deployment.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositeapplication-local-argocd
+  labels:
+    feature: application
+    provider: local
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeApplication
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $src := dig "source" dict $p -}}
+            {{- $dst := dig "destination" dict $p -}}
+            ---
+            # ArgoCD watches adhar-system for Application objects.
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            metadata:
+              name: {{ $name }}
+              namespace: adhar-system
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: argocd-app
+              labels:
+                platform.adhar.io/self-service: "true"
+            spec:
+              project: {{ dig "project" "default" $p | quote }}
+              source:
+                repoURL: {{ dig "repoURL" "" $src | quote }}
+                path: {{ dig "path" "." $src | quote }}
+                targetRevision: {{ dig "targetRevision" "HEAD" $src | quote }}
+              destination:
+                server: {{ dig "server" "https://kubernetes.default.svc" $dst | quote }}
+                namespace: {{ dig "namespace" $ns $dst | quote }}
+              syncPolicy:
+                automated:
+                  prune: true
+                  selfHeal: true
+                syncOptions:
+                  - CreateNamespace=true
+    - step: ready
+      functionRef:
+        name: function-auto-ready

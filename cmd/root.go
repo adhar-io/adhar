@@ -152,6 +152,10 @@ func Execute(ctx context.Context) error {
 }
 
 func init() {
+	// Use the polished, persona-grouped help layout for the whole command tree
+	// (`adhar --help`, `adhar <cmd> --help`, and `adhar help <cmd>`).
+	rootCmd.SetHelpFunc(styledHelp)
+
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// Add global flags that apply to all commands
@@ -173,119 +177,41 @@ func AddCommand(cmd ...*cobra.Command) {
 	rootCmd.AddCommand(cmd...)
 }
 
-// Command group IDs used to organize subcommands in `adhar --help`.
+// Command group IDs organize subcommands in `adhar --help` around the people who
+// use them: Developers ship apps and self-serve resources; Observers watch health
+// and telemetry; Operators run day-2 operations; Administrators own the platform
+// lifecycle and governance. The same binary serves all three — what each person
+// can actually do is gated by their Keycloak group → Kubernetes RBAC.
 const (
-	GroupPlatform      = "platform"
-	GroupCluster       = "cluster"
-	GroupApps          = "apps"
-	GroupObservability = "observability"
-	GroupSecurity      = "security"
-	GroupUtilities     = "utilities"
+	GroupDevelop    = "develop"
+	GroupObserve    = "observe"
+	GroupOperate    = "operate"
+	GroupAdminister = "administer"
+	GroupUtilities  = "utilities"
+
+	// Back-compat aliases (kept so any external references still compile).
+	GroupPlatform      = GroupAdminister
+	GroupCluster       = GroupOperate
+	GroupApps          = GroupDevelop
+	GroupObservability = GroupObserve
+	GroupSecurity      = GroupAdminister
 )
 
 // RegisterCommandGroups registers the help groups so related commands appear
-// together under friendly headings in `adhar --help`.
+// together under friendly, persona-oriented headings in `adhar --help`.
 func RegisterCommandGroups() {
 	rootCmd.AddGroup(
-		&cobra.Group{ID: GroupPlatform, Title: "Platform — manage the platform lifecycle:"},
-		&cobra.Group{ID: GroupCluster, Title: "Cluster — clusters, environments & config:"},
-		&cobra.Group{ID: GroupApps, Title: "Apps & GitOps — deploy and operate workloads:"},
-		&cobra.Group{ID: GroupObservability, Title: "Observability — logs, metrics, traces & network:"},
-		&cobra.Group{ID: GroupSecurity, Title: "Security — auth, secrets & policy:"},
-		&cobra.Group{ID: GroupUtilities, Title: "Utilities — backup, restore & tooling:"},
+		&cobra.Group{ID: GroupDevelop, Title: "Develop — build, ship & self-serve resources:"},
+		&cobra.Group{ID: GroupObserve, Title: "Observe — health, logs, metrics & traces:"},
+		&cobra.Group{ID: GroupOperate, Title: "Operate — day-2 operations:"},
+		&cobra.Group{ID: GroupAdminister, Title: "Administer — platform lifecycle & governance:"},
+		&cobra.Group{ID: GroupUtilities, Title: "Utilities — tooling:"},
 	)
 }
 
-// renderRootCommandContent renders the content for the root command
+// renderRootCommandContent renders the root help layout for the bare `adhar`
+// invocation. The banner/footer are printed by PersistentPreRun/PostRun, so the
+// shared renderer is invoked without its own banner.
 func renderRootCommandContent(cmd *cobra.Command) {
-	// Print welcome message
-	fmt.Println(helpers.InfoStyle.Render("🚀 Welcome to Adhar Platform!"))
-	fmt.Println()
-	fmt.Println(helpers.InfoStyle.Render("Adhar Platform is a comprehensive Internal Developer Platform (IDP) that provides"))
-	fmt.Println(helpers.InfoStyle.Render("unified Kubernetes-native approach for the entire software development lifecycle."))
-	fmt.Println()
-
-	// Platform Lifecycle
-	fmt.Println(helpers.TitleStyle.Render("📋 Platform Lifecycle"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("up") + "       - Create and start the Adhar platform (local or cloud)")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("down") + "     - Stop and destroy the Adhar platform")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("status") + "   - Check platform health and status")
-	fmt.Println()
-
-	// Resource Management
-	fmt.Println(helpers.TitleStyle.Render("🔍 Resource Management"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("get") + "      - Display platform resources (apps, secrets, clusters, etc.)")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("apps") + "     - Manage application lifecycle and deployments")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("cluster") + "  - Manage Kubernetes clusters and configurations")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("config") + "   - Manage platform configuration and settings")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("env") + "      - Manage platform environments (dev, staging, prod)")
-	fmt.Println()
-
-	// Operations & Monitoring
-	fmt.Println(helpers.TitleStyle.Render("⚡ Operations & Monitoring"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("health") + "   - Check platform health, services, and dependencies")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("logs") + "     - View centralized platform logs and events")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("metrics") + "  - Access platform metrics and performance data")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("traces") + "   - View distributed tracing information")
-	fmt.Println()
-
-	// Security & Compliance
-	fmt.Println(helpers.TitleStyle.Render("🔒 Security & Compliance"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("security") + " - Security scanning, vulnerability management, and policies")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("auth") + "     - Authentication, authorization, and user management")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("secrets") + "  - Manage secrets, certificates, and sensitive data")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("policy") + "   - Platform policy management and governance")
-	fmt.Println()
-
-	// GitOps & DevOps
-	fmt.Println(helpers.TitleStyle.Render("🔄 GitOps & DevOps"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("gitops") + "   - GitOps operations, ArgoCD management, and workflows")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("pipeline") + " - CI/CD pipeline creation, execution, and management")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("webhook") + "  - Webhook management and integration endpoints")
-	fmt.Println()
-
-	// Infrastructure & Data
-	fmt.Println(helpers.TitleStyle.Render("🏗️ Infrastructure & Data"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("network") + " - Network diagnostics, policies, and connectivity testing")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("db") + "      - Database management, operations, and monitoring")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("storage") + " - Storage management, volumes, and data persistence")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("service") + " - Service management, load balancing, and API endpoints")
-	fmt.Println()
-
-	// Resource Management & Optimization
-	fmt.Println(helpers.TitleStyle.Render("📊 Resource Management & Optimization"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("scale") + "   - Resource scaling, auto-scaling, and optimization")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("backup") + "  - Platform backup creation and management")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("restore") + " - Platform restoration from backups")
-	fmt.Println()
-
-	// Utilities
-	fmt.Println(helpers.TitleStyle.Render("🛠️ Utilities"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("help") + "     - Get help about commands (this command)")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("version") + "  - Show version information and build details")
-	fmt.Println()
-
-	// Quick Start Examples
-	fmt.Println(helpers.TitleStyle.Render("🚀 Quick Start Examples"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("adhar up") + "                    - Create local development platform")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("adhar up -f config.yaml") + "   - Deploy production platform")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("adhar get status") + "          - Check platform health")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("adhar get secrets") + "         - View platform credentials")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.CmdDescStyle.Render("adhar down") + "                - Clean up local platform")
-	fmt.Println()
-
-	// Help Information
-	fmt.Println(helpers.TitleStyle.Render("📚 Getting More Help"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.InfoStyle.Render("Command-specific help:") + " " + helpers.HighlightStyle.Render("adhar help <command>"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.InfoStyle.Render("Detailed documentation:") + " " + helpers.HighlightStyle.Render("https://docs.adhar.io"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " " + helpers.InfoStyle.Render("Community support:") + " " + helpers.HighlightStyle.Render("https://github.com/adhar-io/adhar"))
-	fmt.Println()
-
-	// Tips
-	fmt.Println(helpers.TitleStyle.Render("💡 Pro Tips"))
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " Use " + helpers.HighlightStyle.Render("--dry-run") + " flag to preview changes without applying them")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " Use " + helpers.HighlightStyle.Render("--verbose") + " flag for detailed output and debugging")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " Use " + helpers.HighlightStyle.Render("--no-color") + " flag to disable colored output")
-	fmt.Println("  " + helpers.BulletStyle.Render("•") + " Use " + helpers.HighlightStyle.Render("--kubeconfig") + " to specify custom kubeconfig path")
-	fmt.Println()
+	renderHelp(cmd, nil, false)
 }

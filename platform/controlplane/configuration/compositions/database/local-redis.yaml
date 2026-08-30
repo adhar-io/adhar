@@ -1,0 +1,120 @@
+---
+# Local Redis/Valkey composition — provisions a single-instance Redis in the
+# requester's namespace for self-service caching. Same CompositeDatabase XRD
+# (engine: redis). Selected explicitly via compositionRef by the template, or by
+# the `provider: local, engine: redis` labels.
+#
+# Emits a connection Secret `<name>-app` with a ready `uri` (redis://host:6379).
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositedatabase-local-redis
+  labels:
+    feature: database
+    provider: local
+    engine: redis
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeDatabase
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $host := printf "%s.%s.svc.cluster.local" $name $ns -}}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: redis-deploy
+              labels:
+                app: {{ $name }}
+                platform.adhar.io/database: {{ $name }}
+            spec:
+              replicas: 1
+              selector:
+                matchLabels: { app: {{ $name }} }
+              template:
+                metadata:
+                  labels: { app: {{ $name }} }
+                spec:
+                  containers:
+                    - name: redis
+                      image: valkey/valkey:8-alpine
+                      ports: [{ containerPort: 6379 }]
+                      resources:
+                        requests: { cpu: 25m, memory: 64Mi }
+                        limits: { memory: 128Mi }
+                    # redis_exporter sidecar — feeds the Redis Grafana dashboard.
+                    - name: metrics
+                      image: oliver006/redis_exporter:v1.62.0-alpine
+                      args: ["--redis.addr=redis://localhost:6379"]
+                      ports: [{ containerPort: 9121, name: metrics }]
+                      resources:
+                        requests: { cpu: 10m, memory: 16Mi }
+                        limits: { memory: 32Mi }
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: redis-svc
+              labels:
+                app: {{ $name }}
+                platform.adhar.io/database: {{ $name }}
+            spec:
+              selector: { app: {{ $name }} }
+              ports:
+                - { name: redis, port: 6379, targetPort: 6379 }
+                - { name: metrics, port: 9121, targetPort: 9121 }
+            ---
+            # ServiceMonitor so kube-prometheus (all-ServiceMonitor selector)
+            # scrapes every composed Redis; the Redis dashboard is instance-var
+            # driven, so new caches appear automatically.
+            apiVersion: monitoring.coreos.com/v1
+            kind: ServiceMonitor
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: redis-sm
+              labels:
+                app: {{ $name }}
+                platform.adhar.io/database: {{ $name }}
+            spec:
+              selector:
+                matchLabels:
+                  app: {{ $name }}
+              endpoints:
+                - port: metrics
+                  interval: 30s
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $name }}-app
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: redis-conn
+            stringData:
+              uri: "redis://{{ $host }}:6379"
+              host: "{{ $host }}"
+              port: "6379"
+    - step: ready
+      functionRef:
+        name: function-auto-ready

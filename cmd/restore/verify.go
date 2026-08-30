@@ -1,61 +1,71 @@
 package restore
 
 import (
+	"context"
 	"fmt"
+	"strings"
+	"time"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var (
-	verifyCmd = &cobra.Command{
-		Use:   "verify [backup-path]",
-		Short: "Verify backup before restoration",
-		Long: `Verify backup integrity and compatibility before restoration.
-This includes checking backup format, contents, and platform compatibility.`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: runVerifyBackup,
-	}
+var verifyCmd = &cobra.Command{
+	Use:   "verify [restore-name]",
+	Short: "Verify a Velero restore's status",
+	Long: `Verify a Velero Restore (velero.io/v1) by reading its phase, warnings and
+errors. A non-Completed phase results in a non-zero exit so this is CI-friendly.
 
-	// Verify specific flags
-	checkCompatibility bool
-	checkDependencies  bool
-	detailedCheck      bool
-)
-
-func init() {
-	verifyCmd.Flags().BoolVarP(&checkCompatibility, "compatibility", "c", true, "Check platform compatibility")
-	verifyCmd.Flags().BoolVarP(&checkDependencies, "dependencies", "d", true, "Check component dependencies")
-	verifyCmd.Flags().BoolVarP(&detailedCheck, "detailed", "", false, "Perform detailed verification")
+Examples:
+  adhar restore verify my-restore`,
+	Args: cobra.ExactArgs(1),
+	RunE: runVerifyRestore,
 }
 
-func runVerifyBackup(cmd *cobra.Command, args []string) error {
-	if len(args) > 0 {
-		backupPath = args[0]
+func runVerifyRestore(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	fmt.Printf("🔍 Verifying restore: %s\n", name)
+
+	dyn, err := getDynamicClient()
+	if err != nil {
+		return unreachable(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	obj, err := dyn.Resource(restoreGVR).Namespace(veleroNamespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if crdMissing(err) {
+			return fmt.Errorf("Velero Restore CRD not installed (velero not present in the cluster)")
+		}
+		return fmt.Errorf("failed to get restore %q: %w", name, err)
 	}
 
-	if backupPath == "" {
-		return fmt.Errorf("backup path is required. Use --backup flag or provide as argument")
+	phase := nestedString(obj.Object, "status", "phase")
+	warnCount := countNested(obj.Object, "status", "warnings")
+	errCount := countNested(obj.Object, "status", "errors")
+	started := nestedString(obj.Object, "status", "startTimestamp")
+	completed := nestedString(obj.Object, "status", "completionTimestamp")
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("🔄 Name:      %s\n", name))
+	b.WriteString(fmt.Sprintf("📦 Backup:    %s\n", nestedString(obj.Object, "spec", "backupName")))
+	b.WriteString(fmt.Sprintf("📊 Phase:     %s\n", phaseIcon(phase)))
+	b.WriteString(fmt.Sprintf("⚠️  Warnings:  %d\n", warnCount))
+	b.WriteString(fmt.Sprintf("❌ Errors:    %d\n", errCount))
+	if started != "" {
+		b.WriteString(fmt.Sprintf("🕐 Started:   %s\n", started))
 	}
+	if completed != "" {
+		b.WriteString(fmt.Sprintf("🏁 Completed: %s", completed))
+	}
+	fmt.Println(helpers.BorderStyle.Width(70).Render(strings.TrimRight(b.String(), "\n")))
 
-	fmt.Printf("🔍 Verifying backup: %s\n", backupPath)
-	fmt.Printf("🔧 Compatibility check: %t\n", checkCompatibility)
-	fmt.Printf("🔗 Dependencies check: %t\n", checkDependencies)
-	fmt.Printf("📋 Detailed check: %t\n", detailedCheck)
-
-	fmt.Println("\n🔍 Starting verification process...")
-
-	// TODO: Implement backup verification logic
-	// This would typically involve:
-	// 1. Checking backup format and integrity
-	// 2. Verifying backup contents
-	// 3. Checking platform compatibility
-	// 4. Validating component dependencies
-	// 5. Checking resource requirements
-
-	fmt.Println("✅ Backup verification completed successfully!")
-	fmt.Println("✅ Backup is compatible with current platform")
-	fmt.Println("✅ All dependencies are satisfied")
-	fmt.Println("✅ Ready for restoration")
-
+	if phase != "Completed" {
+		return fmt.Errorf("restore %q is not Completed (phase: %s)", name, phase)
+	}
+	fmt.Println(helpers.CreateSuccess("✅ Restore verified: phase Completed"))
 	return nil
 }

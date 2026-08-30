@@ -66,13 +66,13 @@ func init() {
 	deployCmd.Flags().StringVarP(&templateFlag, "template", "t", "", "Application template to use")
 	deployCmd.Flags().StringVarP(&repoFlag, "repo", "r", "", "Git repository URL")
 	deployCmd.Flags().StringVarP(&fileFlag, "file", "f", "", "Application configuration file")
-	deployCmd.Flags().StringVarP(&versionFlag, "version", "v", "", "Application version or Git revision")
+	deployCmd.Flags().StringVar(&versionFlag, "version", "", "Application version or Git revision")
 	deployCmd.Flags().BoolVarP(&waitForReady, "wait", "w", false, "Wait for the application to become healthy")
 	deployCmd.Flags().DurationVar(&deployTimeout, "timeout", 10*time.Minute, "Maximum time to wait when --wait is set")
 	deployCmd.Flags().StringVar(&sourcePathFlag, "path", "", "Path within the repository or template to deploy")
 	deployCmd.Flags().StringVar(&destinationNSFlag, "dest-namespace", "", "Destination namespace for application workloads")
 	deployCmd.Flags().StringVar(&destinationSrv, "dest-server", "https://kubernetes.default.svc", "Destination cluster API server")
-	deployCmd.Flags().StringVar(&projectFlag, "project", "platform", "ArgoCD project to associate with the application")
+	deployCmd.Flags().StringVar(&projectFlag, "project", "default", "ArgoCD project to associate with the application")
 }
 
 func runDeploy(cmd *cobra.Command, args []string) error {
@@ -142,34 +142,27 @@ func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, namespace,
 }
 
 func deployFromRepo(ctx context.Context, kubeconfigPath, appName, namespace string) (string, string, error) {
-	appObj := &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "platform.adhar.io/v1alpha1",
-		"kind":       "Application",
-		"metadata": map[string]interface{}{
-			"name":      appName,
-			"namespace": namespace,
-		},
-		"spec": map[string]interface{}{
-			"parameters": map[string]interface{}{
-				"project": projectFlag,
-				"source": map[string]interface{}{
-					"repoURL": repoFlag,
-				},
-				"destination": map[string]interface{}{
-					"namespace": destinationNSFlag,
-					"server":    destinationSrv,
-				},
-			},
-		},
-	}}
-
-	source := mapFrom(appObj.Object, "spec", "parameters", "source")
+	source := map[string]interface{}{"repoURL": repoFlag}
 	if sourcePathFlag != "" {
 		source["path"] = sourcePathFlag
 	}
 	if versionFlag != "" {
 		source["targetRevision"] = versionFlag
 	}
+
+	// Provider-aware CompositeApplication XR — the same control-plane path the
+	// Console uses. helpers.NewXR sets spec.crossplane.compositionSelector.
+	appObj := helpers.NewXR("CompositeApplication", appName, namespace, "application", nil,
+		map[string]interface{}{
+			"parameters": map[string]interface{}{
+				"project": projectFlag,
+				"source":  source,
+				"destination": map[string]interface{}{
+					"namespace": destinationNSFlag,
+					"server":    destinationSrv,
+				},
+			},
+		})
 
 	if err := applyApplication(ctx, kubeconfigPath, appObj); err != nil {
 		return "", "", err
@@ -231,6 +224,17 @@ func deployFromFile(ctx context.Context, kubeconfigPath, appName, namespace, fil
 	}
 	params["source"] = source
 
+	// Normalise to a CompositeApplication XR and ensure a provider-aware
+	// composition is selected, so file-based deploys take the same control-plane
+	// path as repo-based ones.
+	appObj.Object["apiVersion"] = helpers.XRGroup + "/" + helpers.XRVersion
+	appObj.Object["kind"] = "CompositeApplication"
+	crossplane := mapFrom(spec, "crossplane")
+	if _, ok := crossplane["compositionSelector"]; !ok {
+		crossplane["compositionSelector"] = helpers.CompositionSelector("application", nil)
+		spec["crossplane"] = crossplane
+	}
+
 	if err := applyApplication(ctx, kubeconfigPath, appObj); err != nil {
 		return "", "", err
 	}
@@ -260,7 +264,7 @@ func loadApplicationFromFile(path string) (*unstructured.Unstructured, error) {
 
 		kind := strings.ToLower(fmt.Sprint(doc["kind"]))
 		apiVersion := fmt.Sprint(doc["apiVersion"])
-		if kind == "application" && strings.HasPrefix(apiVersion, "platform.adhar.io/") {
+		if (kind == "application" || kind == "compositeapplication") && strings.HasPrefix(apiVersion, "platform.adhar.io/") {
 			return &unstructured.Unstructured{Object: doc}, nil
 		}
 	}

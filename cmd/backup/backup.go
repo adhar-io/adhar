@@ -11,7 +11,11 @@ var (
 	BackupCmd = &cobra.Command{
 		Use:   "backup",
 		Short: "Manage platform backups",
-		Long: `Manage comprehensive backups of the Adhar platform including:
+		Long: `Manage backups of the Adhar platform via Velero (velero.io/v1).
+
+Backups are first-class Velero objects reconciled by the control plane — the
+same backend the Adhar Console uses. This covers Kubernetes resources,
+persistent volumes and (where configured) volume snapshots:
 - Application data and configurations
 - Database backups (PostgreSQL, Redis, etc.)
 - Persistent volumes and storage
@@ -19,25 +23,9 @@ var (
 - Git repositories and ArgoCD applications`,
 		RunE: runBackup,
 	}
-
-	// Global flags
-	backupDir      string
-	includeData    bool
-	includeConfig  bool
-	includeSecrets bool
-	compression    bool
-	encryption     bool
 )
 
 func init() {
-	// Global flags
-	BackupCmd.PersistentFlags().StringVarP(&backupDir, "dir", "d", "./backups", "Backup directory path")
-	BackupCmd.PersistentFlags().BoolVarP(&includeData, "data", "", true, "Include application data")
-	BackupCmd.PersistentFlags().BoolVarP(&includeConfig, "config", "", true, "Include configurations")
-	BackupCmd.PersistentFlags().BoolVarP(&includeSecrets, "secrets", "", true, "Include secrets (encrypted)")
-	BackupCmd.PersistentFlags().BoolVarP(&compression, "compress", "c", true, "Enable compression")
-	BackupCmd.PersistentFlags().BoolVarP(&encryption, "encrypt", "e", false, "Enable encryption")
-
 	// Add subcommands
 	BackupCmd.AddCommand(createCmd)
 	BackupCmd.AddCommand(listCmd)

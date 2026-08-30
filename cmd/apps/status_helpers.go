@@ -55,13 +55,16 @@ type EnvironmentStatus struct {
 	Endpoints    []string `json:"endpoints,omitempty" yaml:"endpoints,omitempty"`
 }
 
+// Applications are modelled as the Crossplane CompositeApplication XR
+// (platform.adhar.io/v1alpha1). The control plane composes each into an ArgoCD
+// Application — the same path the Adhar Console uses.
 var applicationGVR = schema.GroupVersionResource{
 	Group:    "platform.adhar.io",
 	Version:  "v1alpha1",
-	Resource: "applications",
+	Resource: "compositeapplications",
 }
 
-// ErrApplicationNotFound indicates the requested Application claim could not be resolved.
+// ErrApplicationNotFound indicates the requested CompositeApplication could not be resolved.
 var ErrApplicationNotFound = errors.New("application not found")
 
 // GetApplicationStatus retrieves the status for a single Application claim.

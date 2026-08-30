@@ -46,25 +46,17 @@ Examples:
 }
 
 var (
-	// Security command flags
-	image     string
+	// Shared flags — persistent so every subcommand inherits them.
 	namespace string
-	policy    string
-	autoFix   bool
 	output    string
 	severity  string
-	timeout   string
 )
 
 func init() {
-	// Security command flags
-	SecurityCmd.Flags().StringVarP(&image, "image", "i", "", "Scan specific container image")
-	SecurityCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Scan specific namespace")
-	SecurityCmd.Flags().StringVarP(&policy, "policy", "p", "default", "Security policy (default, strict, custom)")
-	SecurityCmd.Flags().BoolVar(&autoFix, "auto-fix", false, "Automatically fix security issues")
-	SecurityCmd.Flags().StringVarP(&output, "output", "o", "", "Output format (table, json, yaml, html)")
-	SecurityCmd.Flags().StringVarP(&severity, "severity", "s", "", "Minimum severity level (low, medium, high, critical)")
-	SecurityCmd.Flags().StringVarP(&timeout, "timeout", "t", "5m", "Scan timeout")
+	// Persistent flags shared by all security subcommands.
+	SecurityCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Limit to a namespace (default: all namespaces)")
+	SecurityCmd.PersistentFlags().StringVarP(&output, "output", "o", "table", "Output format: table, json, yaml")
+	SecurityCmd.PersistentFlags().StringVarP(&severity, "severity", "s", "", "Minimum severity level (low, medium, high, critical)")
 
 	// Add subcommands
 	SecurityCmd.AddCommand(scanCmd)

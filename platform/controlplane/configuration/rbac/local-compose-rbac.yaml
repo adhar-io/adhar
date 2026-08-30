@@ -1,0 +1,58 @@
+---
+# RBAC for Crossplane to compose LOCAL native resources. Crossplane's RBAC
+# manager only grants access to XRD-defined + provider types by default; the
+# local compositions (database→CNPG, redis→Deployment/Service, bucket→Job,
+# kafka→Strimzi) emit native/operator resources, so Crossplane's service account
+# needs permission to manage them. This ClusterRole aggregates into the
+# `crossplane` ClusterRole via the aggregation label.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crossplane-compose-local
+  labels:
+    rbac.crossplane.io/aggregate-to-crossplane: "true"
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters", "clusters/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "secrets", "configmaps", "persistentvolumeclaims", "namespaces", "resourcequotas", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # RoleBindings for composed workload identities (e.g. the secret-rotation SA).
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "bind"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["kafka.strimzi.io"]
+    resources: ["kafkas", "kafkas/status", "kafkatopics", "kafkanodepools"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # ServiceMonitor/PodMonitor so compositions can wire their own observability
+  # (e.g. the Redis exporter ServiceMonitor) into kube-prometheus.
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors", "podmonitors"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# Cluster-wide role the composed `secret-rotation` ServiceAccount is bound to by
+# the compositesecretrotation-local composition, so rotation Jobs can update the
+# target Secret's value in their namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-secret-rotator
+  labels:
+    app.kubernetes.io/managed-by: adhar
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "patch", "update"]

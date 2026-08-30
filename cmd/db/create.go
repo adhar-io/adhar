@@ -8,8 +8,6 @@ import (
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/spf13/cobra"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var createCmd = &cobra.Command{
@@ -60,7 +58,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := dbNamespace()
-	logger.Info(fmt.Sprintf("🗄️ Creating database: %s (engine: %s)", dbName, engine))
+	logger.Info(fmt.Sprintf("🗄️ Creating database: %s (engine: %s, provider: %s)", dbName, engine, helpers.ActiveProvider()))
 
 	parameters := map[string]interface{}{
 		"engine":        engine,
@@ -73,34 +71,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		parameters["instanceClass"] = dbInstanceClass
 	}
 
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "platform.adhar.io/v1alpha1",
-		"kind":       "CompositeDatabase",
-		"metadata": map[string]interface{}{
-			"name":      dbName,
-			"namespace": ns,
-		},
-		"spec": map[string]interface{}{
-			"compositionSelector": map[string]interface{}{
-				"matchLabels": map[string]interface{}{
-					"feature": "database",
-				},
-			},
-			"parameters": parameters,
-		},
-	}}
-
-	client, err := getDynamicClient()
-	if err != nil {
-		return err
-	}
+	// Provider-aware, engine-discriminated selection — the same contract the
+	// Console uses, so `adhar db create` resolves to exactly one composition
+	// (e.g. local CNPG for postgresql, or AWS RDS on a cloud platform).
+	obj := helpers.NewXR("CompositeDatabase", dbName, ns, "database",
+		map[string]string{"engine": engine},
+		map[string]interface{}{"parameters": parameters})
 
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	if _, err := client.Resource(compositeDatabaseGVR).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
+	if err := helpers.ApplyXR(ctx, "compositedatabases", obj); err != nil {
 		return fmt.Errorf("create database: %w", err)
 	}
 

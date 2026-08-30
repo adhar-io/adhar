@@ -1,0 +1,98 @@
+---
+# Pin stable ServiceAccount names for the Kubernetes-native providers.
+# By default Crossplane derives the provider SA name from a hash of the package
+# reference (e.g. provider-kubernetes-f6665ef36536), which changes on upgrade and
+# cannot be referenced from a committed ClusterRoleBinding. A DeploymentRuntimeConfig
+# lets us fix the SA name so the RBAC below is stable across provider revisions.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-kubernetes
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-kubernetes
+---
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-helm
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-helm
+---
+# provider-kubernetes is the control plane's hands for GitOps provisioning: it
+# creates the native resources a Composition emits (Crossplane's own RBAC manager
+# only grants the provider its CRD types, not arbitrary native targets). This
+# scoped ClusterRole enumerates exactly the resource classes the local/GitOps
+# compositions provision — environments (namespaces, quotas, limits, netpol),
+# ArgoCD apps/projects, workloads, and connection config/secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crossplane-provider-kubernetes-compose
+  labels:
+    app.kubernetes.io/managed-by: adhar
+rules:
+  # Environments: namespaces + guardrails
+  - apiGroups: [""]
+    resources: ["namespaces", "resourcequotas", "limitranges", "serviceaccounts", "services", "configmaps", "secrets", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies", "ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # GitOps deployment objects + CI workflows
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "appprojects", "applicationsets", "rollouts", "analysistemplates", "workflows", "workflowtemplates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Policy governance (compliance compositions emit Kyverno ClusterPolicies)
+  - apiGroups: ["kyverno.io"]
+    resources: ["clusterpolicies", "policies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # CI pipelines (pipeline composition emits Tekton TaskRuns/PipelineRuns)
+  - apiGroups: ["tekton.dev"]
+    resources: ["taskruns", "pipelineruns"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Workloads a Composition may compose directly
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Per-namespace RBAC a project/environment may set up for its team
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: crossplane-provider-kubernetes-compose
+  labels:
+    app.kubernetes.io/managed-by: adhar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: crossplane-provider-kubernetes-compose
+subjects:
+  - kind: ServiceAccount
+    name: provider-kubernetes
+    namespace: adhar-system
+---
+# provider-helm installs Helm releases which touch namespaced workload resources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: crossplane-provider-helm-compose
+  labels:
+    app.kubernetes.io/managed-by: adhar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: crossplane-provider-kubernetes-compose
+subjects:
+  - kind: ServiceAccount
+    name: provider-helm
+    namespace: adhar-system

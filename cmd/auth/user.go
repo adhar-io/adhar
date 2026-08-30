@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"adhar-io/adhar/cmd/helpers"
@@ -85,28 +86,67 @@ func init() {
 
 func runCreateUser(cmd *cobra.Command, args []string) error {
 	username := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("👤 Creating user: %s\n", username)
+	fmt.Printf("👤 Creating user %q in realm %s\n", username, kc.Realm)
 
+	body := map[string]interface{}{
+		"username": username,
+		"enabled":  true,
+	}
 	if newUserEmail != "" {
-		fmt.Printf("📧 Email: %s\n", newUserEmail)
+		body["email"] = newUserEmail
+		body["emailVerified"] = false
 	}
-	if newUserRole != "" {
-		fmt.Printf("🔑 Role: %s\n", newUserRole)
+	if newUserPassword != "" {
+		body["credentials"] = []map[string]interface{}{{
+			"type":      "password",
+			"value":     newUserPassword,
+			"temporary": false,
+		}}
 	}
+
+	location, err := kc.adminWrite(ctx, http.MethodPost, "/users", body)
+	if err != nil {
+		return fmt.Errorf("create user: %w", err)
+	}
+	userID := idFromLocation(location)
+
+	// Optionally add the user to a group by name.
 	if newUserGroup != "" {
-		fmt.Printf("👥 Group: %s\n", newUserGroup)
+		if userID == "" {
+			if userID, err = kc.userIDByUsername(ctx, username); err != nil {
+				return err
+			}
+		}
+		groupID, gerr := kc.groupIDByName(ctx, newUserGroup)
+		if gerr != nil {
+			return fmt.Errorf("user created, but joining group failed: %w", gerr)
+		}
+		if _, gerr := kc.adminWrite(ctx, http.MethodPut, fmt.Sprintf("/users/%s/groups/%s", userID, groupID), nil); gerr != nil {
+			return fmt.Errorf("user created, but joining group %q failed: %w", newUserGroup, gerr)
+		}
+		fmt.Printf("👥 Added to group: %s\n", newUserGroup)
 	}
 
-	// TODO: Initialize authentication service and create user
-	// This would typically involve:
-	// 1. Creating a Keycloak client configuration
-	// 2. Initializing the authentication service
-	// 3. Creating the user in Keycloak
-	// 4. Syncing to Kubernetes RBAC
+	// Optionally assign a realm role by name.
+	if newUserRole != "" && newUserRole != "user" {
+		if userID == "" {
+			if userID, err = kc.userIDByUsername(ctx, username); err != nil {
+				return err
+			}
+		}
+		if rerr := kc.assignRealmRole(ctx, userID, newUserRole); rerr != nil {
+			return fmt.Errorf("user created, but assigning role %q failed: %w", newUserRole, rerr)
+		}
+		fmt.Printf("🔑 Assigned realm role: %s\n", newUserRole)
+	}
 
-	fmt.Printf("✅ Successfully created user: %s\n", username)
-	fmt.Println("💡 Note: User creation is currently a placeholder. Implement Keycloak integration to enable full functionality.")
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Created user %s", username)))
+	if newUserPassword == "" {
+		fmt.Println(helpers.CreateMuted("   No password set — use `adhar auth user reset-pwd " + username + "` to set one."))
+	}
 	return nil
 }
 
@@ -203,13 +243,35 @@ var (
 
 func runGetUser(cmd *cobra.Command, args []string) error {
 	username := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("👤 User Details: %s\n", username)
-	fmt.Println("")
+	id, err := kc.userIDByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
 
-	// TODO: Implement actual user retrieval logic
-	fmt.Println("📭 User not found")
+	var u kcUser
+	if err := kc.adminGetOne(ctx, "/users/"+id, &u); err != nil {
+		return err
+	}
 
+	if output == "json" {
+		return helpers.PrintJSON(u)
+	}
+	if output == "yaml" {
+		return helpers.PrintYAML(u)
+	}
+
+	fmt.Printf("👤 Username:  %s\n", u.Username)
+	if u.Email != "" {
+		fmt.Printf("📧 Email:     %s\n", u.Email)
+	}
+	if name := strings.TrimSpace(u.FirstName + " " + u.LastName); name != "" {
+		fmt.Printf("🪪 Name:      %s\n", name)
+	}
+	fmt.Printf("✅ Enabled:   %t\n", u.Enabled)
+	fmt.Printf("🆔 ID:        %s\n", u.ID)
 	return nil
 }
 
@@ -238,21 +300,57 @@ func init() {
 
 func runUpdateUser(cmd *cobra.Command, args []string) error {
 	username := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("✏️  Updating user: %s\n", username)
+	id, err := kc.userIDByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
 
+	// Fetch the current representation and patch the requested fields so we
+	// don't clobber attributes Keycloak expects to round-trip.
+	var current map[string]interface{}
+	if err := kc.adminGetOne(ctx, "/users/"+id, &current); err != nil {
+		return err
+	}
+	fmt.Printf("✏️  Updating user %q\n", username)
 	if updateEmail != "" {
-		fmt.Printf("📧 New email: %s\n", updateEmail)
+		current["email"] = updateEmail
 	}
-	if updateRole != "" {
-		fmt.Printf("🔑 New role: %s\n", updateRole)
-	}
-	if updateStatus != "" {
-		fmt.Printf("📊 New status: %s\n", updateStatus)
+	switch updateStatus {
+	case "active":
+		current["enabled"] = true
+	case "inactive", "suspended", "disabled":
+		current["enabled"] = false
+	case "":
+		// no change
+	default:
+		return fmt.Errorf("invalid --status %q (active, inactive, suspended)", updateStatus)
 	}
 
-	// TODO: Implement actual user update logic
-	fmt.Printf("✅ Successfully updated user: %s\n", username)
+	if _, err := kc.adminWrite(ctx, http.MethodPut, "/users/"+id, current); err != nil {
+		return fmt.Errorf("update user: %w", err)
+	}
+
+	if updateRole != "" {
+		if err := kc.assignRealmRole(ctx, id, updateRole); err != nil {
+			return fmt.Errorf("user updated, but assigning role %q failed: %w", updateRole, err)
+		}
+		fmt.Printf("🔑 Assigned realm role: %s\n", updateRole)
+	}
+	if updateGroup != "" {
+		groupID, gerr := kc.groupIDByName(ctx, updateGroup)
+		if gerr != nil {
+			return fmt.Errorf("user updated, but joining group failed: %w", gerr)
+		}
+		if _, gerr := kc.adminWrite(ctx, http.MethodPut, fmt.Sprintf("/users/%s/groups/%s", id, groupID), nil); gerr != nil {
+			return fmt.Errorf("user updated, but joining group %q failed: %w", updateGroup, gerr)
+		}
+		fmt.Printf("👥 Added to group: %s\n", updateGroup)
+	}
+
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Updated user %s", username)))
 	return nil
 }
 
@@ -275,11 +373,17 @@ func init() {
 
 func runDeleteUser(cmd *cobra.Command, args []string) error {
 	username := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("🗑️  Deleting user: %s\n", username)
-
-	// TODO: Implement actual user deletion logic
-	fmt.Printf("✅ Successfully deleted user: %s\n", username)
+	id, err := kc.userIDByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
+	if _, err := kc.adminWrite(ctx, http.MethodDelete, "/users/"+id, nil); err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Deleted user %s", username)))
 	return nil
 }
 
@@ -293,23 +397,61 @@ var (
 	}
 
 	// Reset password specific flags
-	sendEmail bool
+	sendEmail      bool
+	resetPassword  string
+	resetPrompt    bool
+	resetTemporary bool
 )
 
 func init() {
-	resetPasswordCmd.Flags().BoolVarP(&sendEmail, "send-email", "e", true, "Send password reset email")
+	resetPasswordCmd.Flags().BoolVarP(&sendEmail, "send-email", "e", false, "Email a password-reset link (requires realm SMTP)")
+	resetPasswordCmd.Flags().StringVar(&resetPassword, "set-password", "", "New password to set directly")
+	resetPasswordCmd.Flags().BoolVar(&resetPrompt, "prompt", false, "Prompt for the new password")
+	resetPasswordCmd.Flags().BoolVar(&resetTemporary, "temporary", false, "Force the user to change the password at next login")
 }
 
 func runResetPassword(cmd *cobra.Command, args []string) error {
 	username := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("🔐 Resetting password for user: %s\n", username)
-
-	if sendEmail {
-		fmt.Println("📧 Sending password reset email...")
+	id, err := kc.userIDByUsername(ctx, username)
+	if err != nil {
+		return err
 	}
 
-	// TODO: Implement actual password reset logic
-	fmt.Printf("✅ Successfully reset password for user: %s\n", username)
+	// Two supported modes:
+	//   --set-password (or prompt): set a new password directly.
+	//   otherwise: trigger Keycloak's UPDATE_PASSWORD required action, and if
+	//   --send-email is set, ask Keycloak to email the reset link.
+	if resetPassword != "" || resetPrompt {
+		pw := resetPassword
+		if pw == "" {
+			p, perr := promptPassword(fmt.Sprintf("New password for %s: ", username))
+			if perr != nil {
+				return perr
+			}
+			pw = p
+		}
+		body := map[string]interface{}{"type": "password", "value": pw, "temporary": resetTemporary}
+		if _, err := kc.adminWrite(ctx, http.MethodPut, "/users/"+id+"/reset-password", body); err != nil {
+			return fmt.Errorf("reset password: %w", err)
+		}
+		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Password reset for user %s", username)))
+		if resetTemporary {
+			fmt.Println(helpers.CreateMuted("   Marked temporary — the user must change it at next login."))
+		}
+		return nil
+	}
+
+	// No password supplied: fall back to the "execute actions email" flow.
+	if !sendEmail {
+		return fmt.Errorf("provide --set-password / --prompt to set a password, or --send-email to email a reset link")
+	}
+	fmt.Println("📧 Requesting Keycloak to email a password-reset link...")
+	if _, err := kc.adminWrite(ctx, http.MethodPut, "/users/"+id+"/execute-actions-email", []string{"UPDATE_PASSWORD"}); err != nil {
+		return fmt.Errorf("send reset email (is SMTP configured in the realm?): %w", err)
+	}
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Reset email sent for user %s", username)))
 	return nil
 }

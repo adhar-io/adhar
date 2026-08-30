@@ -37,7 +37,7 @@ spec:
             category: "security"
             manifestPath: "security/falco/manifests"
           - name: "trivy"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/trivy/manifests"

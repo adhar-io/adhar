@@ -9,7 +9,7 @@ spec:
     kind: CompositeCompliancePolicy
     plural: compositecompliancepolicies
   defaultCompositionRef:
-    name: policy-kyverno
+    name: compositecompliancepolicy-local
   versions:
     - name: v1alpha1
       served: true

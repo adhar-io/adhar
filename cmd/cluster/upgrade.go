@@ -23,7 +23,7 @@ first, then each worker. Managed clusters upgrade through the cloud API.`,
 var upgradeVersion string
 
 func init() {
-	upgradeCmd.Flags().StringVarP(&upgradeVersion, "version", "v", "", "Target Kubernetes version (e.g. 1.34.2)")
+	upgradeCmd.Flags().StringVar(&upgradeVersion, "version", "", "Target Kubernetes version (e.g. 1.34.2)")
 	upgradeCmd.Flags().StringP("provider", "p", "", "Provider hosting the cluster (searched across all configured providers when omitted)")
 	upgradeCmd.Flags().StringP("file", "f", "", "Path to configuration file")
 	_ = upgradeCmd.MarkFlagRequired("version")

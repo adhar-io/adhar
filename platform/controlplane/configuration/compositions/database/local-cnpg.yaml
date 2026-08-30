@@ -1,0 +1,74 @@
+---
+# Local PostgreSQL database composition — provisions a CloudNativePG Cluster in
+# the requester's namespace. Selected on the local/Kind platform via the
+# `provider: local` label (compositionSelector). Same CompositeDatabase XRD as
+# the cloud (AWS RDS / Azure SQL / GCP CloudSQL) compositions, so a developer's
+# self-service request is portable across environments.
+#
+# CNPG creates a `<name>-app` Secret with ready-to-use connection details
+# (uri, jdbc-uri, username, password, host, port, dbname).
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositedatabase-local-cnpg
+  labels:
+    feature: database
+    provider: local
+    engine: postgresql
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeDatabase
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $params := dig "spec" "parameters" dict $xr -}}
+            {{- $size := dig "storageSize" "1Gi" $params -}}
+            {{- $version := dig "engineVersion" "16" $params -}}
+            ---
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            metadata:
+              name: {{ $name }}
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: db-cluster
+                argocd.argoproj.io/sync-options: ServerSideApply=true
+              labels:
+                app.kubernetes.io/managed-by: crossplane
+                platform.adhar.io/database: {{ $name }}
+            spec:
+              instances: 1
+              imageName: ghcr.io/cloudnative-pg/postgresql:{{ $version }}
+              storage:
+                size: {{ $size }}
+              bootstrap:
+                initdb:
+                  database: app
+                  owner: app
+              # Emit a PodMonitor so kube-prometheus (which selects all PodMonitors
+              # cluster-wide) scrapes every composed cluster automatically. The
+              # CloudNativePG Grafana dashboard is cluster-variable driven, so new
+              # databases appear in it with no per-cluster wiring.
+              monitoring:
+                enablePodMonitor: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 256Mi
+    - step: ready
+      functionRef:
+        name: function-auto-ready

@@ -58,11 +58,11 @@ var (
 
 func init() {
 	// Secrets command flags
-	SecretsCmd.Flags().StringVarP(&secretName, "name", "n", "", "Secret name")
-	SecretsCmd.Flags().StringVarP(&secretType, "type", "t", "", "Secret type (opaque, tls, docker-registry)")
-	SecretsCmd.Flags().StringVarP(&namespace, "namespace", "s", "", "Namespace")
-	SecretsCmd.Flags().StringVarP(&key, "key", "k", "", "Secret key")
-	SecretsCmd.Flags().StringVarP(&value, "value", "l", "", "Secret value")
+	SecretsCmd.PersistentFlags().StringVarP(&secretName, "name", "n", "", "Secret name")
+	SecretsCmd.PersistentFlags().StringVarP(&secretType, "type", "t", "", "Secret type (opaque, tls, docker-registry)")
+	SecretsCmd.PersistentFlags().StringVarP(&namespace, "namespace", "s", "", "Namespace")
+	SecretsCmd.PersistentFlags().StringVarP(&key, "key", "k", "", "Secret key")
+	SecretsCmd.PersistentFlags().StringVarP(&value, "value", "l", "", "Secret value")
 	SecretsCmd.Flags().StringVarP(&timeout, "timeout", "i", "30s", "Operation timeout")
 	SecretsCmd.Flags().StringVarP(&output, "output", "f", "", "Output format (table, json, yaml)")
 	SecretsCmd.Flags().BoolVarP(&detailed, "detailed", "d", false, "Show detailed information")

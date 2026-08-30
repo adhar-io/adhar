@@ -10,31 +10,28 @@ var (
 	// RestoreCmd is the main restore command
 	RestoreCmd = &cobra.Command{
 		Use:   "restore",
-		Short: "Restore platform from backups",
-		Long: `Restore the Adhar platform from backups including:
+		Short: "Restore platform from Velero backups",
+		Long: `Restore the Adhar platform from Velero backups (velero.io/v1 Restore),
+reconciled by the control plane — the same backend the Adhar Console uses:
 - Full platform restoration
-- Selective component restoration
+- Selective component restoration (namespace / label selectors)
 - Database restoration
 - Configuration restoration
 - Application data restoration`,
 		RunE: runRestore,
 	}
 
-	// Global flags
-	backupPath   string
-	restoreDir   string
-	dryRun       bool
-	forceRestore bool
-	validateOnly bool
+	// Global flags. --backup names the source Velero Backup to restore from
+	// (shared by all subcommands); --dry-run prints the plan without creating a
+	// Velero Restore object.
+	backupPath string
+	dryRun     bool
 )
 
 func init() {
 	// Global flags
-	RestoreCmd.PersistentFlags().StringVarP(&backupPath, "backup", "b", "", "Path to backup file or directory")
-	RestoreCmd.PersistentFlags().StringVarP(&restoreDir, "dir", "d", "./restore", "Restore directory path")
-	RestoreCmd.PersistentFlags().BoolVarP(&dryRun, "dry-run", "", false, "Show what would be restored without actually restoring")
-	RestoreCmd.PersistentFlags().BoolVarP(&forceRestore, "force", "f", false, "Force restoration even if validation fails")
-	RestoreCmd.PersistentFlags().BoolVarP(&validateOnly, "validate", "", false, "Only validate backup without restoring")
+	RestoreCmd.PersistentFlags().StringVarP(&backupPath, "backup", "b", "", "Name of the Velero Backup to restore from")
+	RestoreCmd.PersistentFlags().BoolVarP(&dryRun, "dry-run", "", false, "Show what would be restored without creating a Restore")
 
 	// Add subcommands
 	RestoreCmd.AddCommand(fullCmd)

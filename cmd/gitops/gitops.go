@@ -37,11 +37,12 @@ This command provides:
 • Multi-environment deployment management
 
 Examples:
-  adhar gitops sync                    # Sync all applications
-  adhar gitops sync --app=my-app      # Sync specific application
-  adhar gitops rollback --app=my-app  # Rollback application
-  adhar gitops status                 # Show GitOps status
-  adhar gitops repo add --url=git://  # Add Git repository`,
+  adhar gitops sync                          # Sync all applications
+  adhar gitops sync --app=my-app             # Sync specific application
+  adhar gitops rollback --app=my-app --revision=v1  # Rollback application
+  adhar gitops status                        # List applications + sync/health
+  adhar gitops repo                          # List ArgoCD repositories
+  adhar gitops workflow                      # List Argo Workflows`,
 	RunE: runGitOps,
 }
 

@@ -1,53 +1,65 @@
 package restore
 
 import (
+	"context"
 	"fmt"
+	"strings"
+	"time"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var (
-	configCmd = &cobra.Command{
-		Use:   "config [backup-path]",
-		Short: "Configuration restoration only",
-		Long: `Restore only configurations from a backup.
-This includes Kubernetes resources, application configs, and settings.`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: runConfigRestore,
-	}
+var configCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Show restore/backup storage configuration",
+	Long: `Show the Velero backup/restore configuration by reading the
+BackupStorageLocations (velero.io/v1) the cluster restores from. This is where
+backups are read/written, so it tells you what a restore will pull from.
 
-	// Config restore specific flags
-	configTypes []string
-	namespaces  []string
-	overwrite   bool
-)
-
-func init() {
-	configCmd.Flags().StringArrayVarP(&configTypes, "types", "t", []string{}, "Configuration types to restore (k8s, apps, secrets, policies)")
-	configCmd.Flags().StringArrayVarP(&namespaces, "namespaces", "n", []string{}, "Namespaces to restore")
-	configCmd.Flags().BoolVarP(&overwrite, "overwrite", "o", false, "Overwrite existing configurations")
+Examples:
+  adhar restore config`,
+	RunE: runConfigRestore,
 }
 
 func runConfigRestore(cmd *cobra.Command, args []string) error {
-	if len(args) > 0 {
-		backupPath = args[0]
+	fmt.Println(helpers.TitleStyle.Render("⚙️  Velero Backup Storage Locations"))
+
+	dyn, err := getDynamicClient()
+	if err != nil {
+		return unreachable(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	list, err := dyn.Resource(backupStorageLocationGVR).Namespace(veleroNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		if crdMissing(err) {
+			return fmt.Errorf("Velero BackupStorageLocation CRD not installed (velero not present in the cluster)")
+		}
+		return fmt.Errorf("failed to list backup storage locations: %w", err)
 	}
 
-	if backupPath == "" {
-		return fmt.Errorf("backup path is required. Use --backup flag or provide as argument")
+	if len(list.Items) == 0 {
+		fmt.Println(helpers.CreateMuted("   No backup storage locations configured"))
+		return nil
 	}
 
-	fmt.Printf("⚙️  Starting configuration restoration from: %s\n", backupPath)
-
-	if len(configTypes) > 0 {
-		fmt.Printf("🔧 Configuration types: %v\n", configTypes)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%-24s %-10s %-12s %-28s %-10s\n", "NAME", "PROVIDER", "PHASE", "BUCKET", "DEFAULT"))
+	b.WriteString(strings.Repeat("─", 88) + "\n")
+	for _, item := range list.Items {
+		def, _, _ := unstructuredBool(item.Object, "spec", "default")
+		b.WriteString(fmt.Sprintf("%-24s %-10s %-12s %-28s %-10t\n",
+			truncate(item.GetName(), 22),
+			truncate(nestedString(item.Object, "spec", "provider"), 8),
+			phaseIcon(nestedString(item.Object, "status", "phase")),
+			truncate(nestedString(item.Object, "spec", "objectStorage", "bucket"), 26),
+			def,
+		))
 	}
-	if len(namespaces) > 0 {
-		fmt.Printf("📦 Namespaces: %v\n", namespaces)
-	}
-	fmt.Printf("🔄 Overwrite existing: %t\n", overwrite)
-
-	// TODO: Implement configuration restoration logic
-	fmt.Println("✅ Configuration restoration completed successfully!")
+	fmt.Print(b.String())
 	return nil
 }

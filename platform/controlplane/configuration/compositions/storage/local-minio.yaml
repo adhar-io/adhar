@@ -1,0 +1,80 @@
+---
+# Local object-storage (bucket) composition — creates a MinIO bucket in the
+# in-cluster MinIO for self-service object storage. CompositeStorage with
+# type: object; selected via the `provider: local, type: object` labels or an
+# explicit compositionRef.
+#
+# A Job creates the bucket via `mc`; a connection Secret `<name>-bucket` exposes
+# the S3 endpoint + bucket name (credentials are the platform MinIO root, in
+# secret root-creds).
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositestorage-local-minio
+  labels:
+    feature: storage
+    provider: local
+    type: object
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeStorage
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $meta := $xr.metadata -}}
+            {{- $ns := $meta.namespace -}}
+            {{- $bucket := dig "spec" "name" $meta.name $xr -}}
+            {{- $endpoint := "http://minio.adhar-system.svc.cluster.local:9000" -}}
+            ---
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: {{ $meta.name }}-bucket
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: bucket-job
+            spec:
+              backoffLimit: 6
+              template:
+                spec:
+                  restartPolicy: OnFailure
+                  containers:
+                    - name: mc
+                      image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+                      command: [sh, -c]
+                      args:
+                        - |
+                          set -e
+                          mc alias set local {{ $endpoint }} "$MINIO_USER" "$MINIO_PASS"
+                          mc mb --ignore-existing "local/{{ $bucket }}"
+                          echo "bucket {{ $bucket }} ready"
+                      env:
+                        - name: MINIO_USER
+                          valueFrom: { secretKeyRef: { name: root-creds, key: rootUser } }
+                        - name: MINIO_PASS
+                          valueFrom: { secretKeyRef: { name: root-creds, key: rootPassword } }
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {{ $meta.name }}-bucket
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: bucket-conn
+            stringData:
+              endpoint: "{{ $endpoint }}"
+              bucket: "{{ $bucket }}"
+              region: "us-east-1"
+    - step: ready
+      functionRef:
+        name: function-auto-ready

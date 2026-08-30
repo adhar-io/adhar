@@ -9,6 +9,8 @@ spec:
   names:
     kind: CompositePipeline
     plural: compositepipelines
+  defaultCompositionRef:
+    name: compositepipeline-local
   versions:
   - name: v1alpha1
     served: true

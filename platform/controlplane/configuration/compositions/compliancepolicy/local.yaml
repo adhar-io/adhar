@@ -1,0 +1,222 @@
+---
+# Local Compliance Policy composition — turns a CompositeCompliancePolicy into
+# Kyverno ClusterPolicies, all GitOps/control-plane managed.
+#
+# Kyverno ClusterPolicy is cluster-scoped, and a Crossplane v2 *namespaced* XR
+# cannot compose cluster-scoped resources directly — so each policy is emitted
+# through a provider-kubernetes Object (kubernetes.m.crossplane.io/v1alpha1),
+# exactly like the project/env compositions do for namespaces and AppProjects.
+#
+# The set of policies rendered is driven by spec.parameters.predefinedPolicies
+# (all default on); spec.parameters.enforcementMode maps audit→Audit (report
+# only) or enforce→Enforce (block on admission). This is the same XR the Adhar
+# Console produces, so `adhar policy apply` and the Console converge here.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositecompliancepolicy-local
+  labels:
+    feature: compliance
+    provider: local
+    policy.adhar.io/engine: kyverno
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCompliancePolicy
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $name := dig "displayName" $xr.metadata.name $p -}}
+            {{- $mode := dig "enforcementMode" "audit" $p -}}
+            {{- $action := "Audit" -}}
+            {{- if eq $mode "enforce" }}{{ $action = "Enforce" }}{{ end -}}
+            {{- $pre := dig "predefinedPolicies" dict $p -}}
+            {{- $limits := dig "requireResourceLimits" true $pre -}}
+            {{- $privileged := dig "disallowPrivilegedContainers" true $pre -}}
+            {{- $nonRoot := dig "requireNonRootUser" true $pre -}}
+            {{- $hostPath := dig "disallowHostPath" true $pre -}}
+            {{- if $limits }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: require-limits
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: kyverno.io/v1
+                  kind: ClusterPolicy
+                  metadata:
+                    name: {{ $name }}-require-limits
+                    labels:
+                      app.kubernetes.io/managed-by: crossplane
+                      policy.adhar.io/name: {{ $name | quote }}
+                    annotations:
+                      policies.kyverno.io/title: Require Resource Limits
+                      policies.kyverno.io/category: Best Practices
+                      policies.kyverno.io/severity: medium
+                  spec:
+                    validationFailureAction: {{ $action }}
+                    background: true
+                    rules:
+                      - name: require-cpu-memory-limits
+                        match:
+                          any:
+                            - resources:
+                                kinds: ["Pod"]
+                        validate:
+                          message: "CPU and memory limits are required for all containers"
+                          pattern:
+                            spec:
+                              containers:
+                                - resources:
+                                    limits:
+                                      cpu: "?*"
+                                      memory: "?*"
+            {{- end }}
+            {{- if $privileged }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: disallow-privileged
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: kyverno.io/v1
+                  kind: ClusterPolicy
+                  metadata:
+                    name: {{ $name }}-disallow-privileged
+                    labels:
+                      app.kubernetes.io/managed-by: crossplane
+                      policy.adhar.io/name: {{ $name | quote }}
+                    annotations:
+                      policies.kyverno.io/title: Disallow Privileged Containers
+                      policies.kyverno.io/category: Pod Security Standards (Baseline)
+                      policies.kyverno.io/severity: high
+                  spec:
+                    validationFailureAction: {{ $action }}
+                    background: true
+                    rules:
+                      - name: disallow-privileged-containers
+                        match:
+                          any:
+                            - resources:
+                                kinds: ["Pod"]
+                        validate:
+                          message: "Privileged mode is disallowed. Set privileged to false"
+                          pattern:
+                            spec:
+                              =(ephemeralContainers):
+                                - =(securityContext):
+                                    =(privileged): "false"
+                              =(initContainers):
+                                - =(securityContext):
+                                    =(privileged): "false"
+                              containers:
+                                - =(securityContext):
+                                    =(privileged): "false"
+            {{- end }}
+            {{- if $nonRoot }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: require-non-root
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: kyverno.io/v1
+                  kind: ClusterPolicy
+                  metadata:
+                    name: {{ $name }}-require-non-root
+                    labels:
+                      app.kubernetes.io/managed-by: crossplane
+                      policy.adhar.io/name: {{ $name | quote }}
+                    annotations:
+                      policies.kyverno.io/title: Require Non-Root User
+                      policies.kyverno.io/category: Pod Security Standards (Restricted)
+                      policies.kyverno.io/severity: medium
+                  spec:
+                    validationFailureAction: {{ $action }}
+                    background: true
+                    rules:
+                      - name: require-run-as-non-root
+                        match:
+                          any:
+                            - resources:
+                                kinds: ["Pod"]
+                        validate:
+                          message: "Containers must run as non-root user"
+                          pattern:
+                            spec:
+                              =(securityContext):
+                                =(runAsNonRoot): "true"
+                              containers:
+                                - =(securityContext):
+                                    =(runAsNonRoot): "true"
+            {{- end }}
+            {{- if $hostPath }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: disallow-host-path
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: kyverno.io/v1
+                  kind: ClusterPolicy
+                  metadata:
+                    name: {{ $name }}-disallow-host-path
+                    labels:
+                      app.kubernetes.io/managed-by: crossplane
+                      policy.adhar.io/name: {{ $name | quote }}
+                    annotations:
+                      policies.kyverno.io/title: Disallow hostPath Volumes
+                      policies.kyverno.io/category: Pod Security Standards (Baseline)
+                      policies.kyverno.io/severity: medium
+                  spec:
+                    validationFailureAction: {{ $action }}
+                    background: true
+                    rules:
+                      - name: disallow-host-path
+                        match:
+                          any:
+                            - resources:
+                                kinds: ["Pod"]
+                        validate:
+                          message: "HostPath volumes are disallowed"
+                          pattern:
+                            spec:
+                              =(volumes):
+                                - X(hostPath): "null"
+            {{- end }}
+            ---
+            # Publish resolved status back on the XR.
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeCompliancePolicy
+            status:
+              phase: Provisioned
+              policyEngine: kyverno
+    - step: ready
+      functionRef:
+        name: function-auto-ready

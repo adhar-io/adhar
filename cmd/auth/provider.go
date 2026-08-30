@@ -1,10 +1,23 @@
 package auth
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"strings"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
+
+// kcIdentityProvider is a subset of the Keycloak identity-provider representation.
+type kcIdentityProvider struct {
+	Alias       string `json:"alias"`
+	DisplayName string `json:"displayName"`
+	ProviderID  string `json:"providerId"`
+	Enabled     bool   `json:"enabled"`
+}
 
 var (
 	providerCmd = &cobra.Command{
@@ -62,13 +75,38 @@ var (
 )
 
 func runListProviders(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 Authentication Providers")
-	fmt.Println("")
+	fmt.Println("📋 Identity Providers (Keycloak)")
+	kc := settings()
 
-	// TODO: Implement actual provider listing logic
-	fmt.Println("📭 No providers configured")
-	fmt.Println("Use 'adhar auth provider configure' to configure your first provider")
+	var providers []kcIdentityProvider
+	if err := kc.adminGet(context.Background(), "/identity-provider/instances", &providers); err != nil {
+		return err
+	}
 
+	if output == "json" {
+		return helpers.PrintJSON(providers)
+	}
+	if output == "yaml" {
+		return helpers.PrintYAML(providers)
+	}
+
+	if len(providers) == 0 {
+		fmt.Println(helpers.CreateMuted("No identity providers configured in realm " + kc.Realm))
+		return nil
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%-24s %-16s %-9s %s\n", "🔌 ALIAS", "🧩 TYPE", "✅ ENABLED", "🏷️  DISPLAY NAME"))
+	b.WriteString(strings.Repeat("─", 90) + "\n")
+	for _, p := range providers {
+		enabled := "yes"
+		if !p.Enabled {
+			enabled = "no"
+		}
+		b.WriteString(fmt.Sprintf("%-24s %-16s %-9s %s\n", truncA(p.Alias, 24), truncA(p.ProviderID, 16), enabled, p.DisplayName))
+	}
+	fmt.Println(helpers.BorderStyle.Render(b.String()))
+	fmt.Println(helpers.CreateMuted(fmt.Sprintf("%d identity provider(s) in realm %s", len(providers), kc.Realm)))
 	return nil
 }
 
@@ -83,14 +121,28 @@ var (
 )
 
 func runGetProvider(cmd *cobra.Command, args []string) error {
-	providerID := args[0]
+	alias := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("🔌 Provider Details: %s\n", providerID)
-	fmt.Println("")
+	var p map[string]interface{}
+	if err := kc.adminGetOne(ctx, "/identity-provider/instances/"+alias, &p); err != nil {
+		return fmt.Errorf("identity provider %q: %w", alias, err)
+	}
 
-	// TODO: Implement actual provider retrieval logic
-	fmt.Println("📭 Provider not found")
+	if output == "json" {
+		return helpers.PrintJSON(p)
+	}
+	if output == "yaml" {
+		return helpers.PrintYAML(p)
+	}
 
+	fmt.Printf("🔌 Alias:        %v\n", p["alias"])
+	fmt.Printf("🧩 Type:         %v\n", p["providerId"])
+	fmt.Printf("✅ Enabled:      %v\n", p["enabled"])
+	if dn, ok := p["displayName"].(string); ok && dn != "" {
+		fmt.Printf("🏷️  Display name: %s\n", dn)
+	}
 	return nil
 }
 
@@ -175,12 +227,28 @@ var (
 )
 
 func runEnableProvider(cmd *cobra.Command, args []string) error {
-	providerID := args[0]
+	return setProviderEnabled(args[0], true)
+}
 
-	fmt.Printf("✅ Enabling provider: %s\n", providerID)
+// setProviderEnabled toggles the `enabled` flag on an identity provider by
+// alias, preserving the rest of its representation.
+func setProviderEnabled(alias string, enabled bool) error {
+	kc := settings()
+	ctx := context.Background()
 
-	// TODO: Implement actual provider enabling logic
-	fmt.Printf("✅ Successfully enabled provider: %s\n", providerID)
+	var current map[string]interface{}
+	if err := kc.adminGetOne(ctx, "/identity-provider/instances/"+alias, &current); err != nil {
+		return fmt.Errorf("identity provider %q: %w", alias, err)
+	}
+	current["enabled"] = enabled
+	if _, err := kc.adminWrite(ctx, http.MethodPut, "/identity-provider/instances/"+alias, current); err != nil {
+		return fmt.Errorf("update identity provider: %w", err)
+	}
+	verb := "Enabled"
+	if !enabled {
+		verb = "Disabled"
+	}
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ %s identity provider %s", verb, alias)))
 	return nil
 }
 
@@ -195,11 +263,5 @@ var (
 )
 
 func runDisableProvider(cmd *cobra.Command, args []string) error {
-	providerID := args[0]
-
-	fmt.Printf("⏸️  Disabling provider: %s\n", providerID)
-
-	// TODO: Implement actual provider disabling logic
-	fmt.Printf("✅ Successfully disabled provider: %s\n", providerID)
-	return nil
+	return setProviderEnabled(args[0], false)
 }

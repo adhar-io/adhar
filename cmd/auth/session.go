@@ -1,10 +1,44 @@
 package auth
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"adhar-io/adhar/cmd/helpers"
 
 	"github.com/spf13/cobra"
 )
+
+// kcSession is a subset of the Keycloak user-session representation.
+type kcSession struct {
+	ID         string            `json:"id"`
+	Username   string            `json:"username"`
+	UserID     string            `json:"userId"`
+	IPAddress  string            `json:"ipAddress"`
+	Start      int64             `json:"start"`
+	LastAccess int64             `json:"lastAccess"`
+	Clients    map[string]string `json:"clients"`
+}
+
+// kcClientSessionStat is a subset of the client-session-stats response.
+type kcClientSessionStat struct {
+	ID       string `json:"id"`
+	ClientID string `json:"clientId"`
+	Active   string `json:"active"`
+	Offline  string `json:"offline"`
+}
+
+// epochMillis renders a Keycloak millisecond timestamp as a local time string.
+func epochMillis(ms int64) string {
+	if ms <= 0 {
+		return "-"
+	}
+	return time.UnixMilli(ms).Format("2006-01-02 15:04:05")
+}
 
 var (
 	sessionCmd = &cobra.Command{
@@ -68,19 +102,69 @@ func init() {
 }
 
 func runListSessions(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 Active Sessions")
-	fmt.Println("")
+	kc := settings()
+	ctx := context.Background()
 
-	if showExpiredSessions {
-		fmt.Println("⏰ Including expired sessions")
+	// Per-user sessions when --user is given; otherwise a realm-wide summary of
+	// active sessions per client (Keycloak has no single "all sessions" list).
+	if sessionUser != "" {
+		id, err := kc.userIDByUsername(ctx, sessionUser)
+		if err != nil {
+			return err
+		}
+		var sessions []kcSession
+		if err := kc.adminGet(ctx, "/users/"+id+"/sessions", &sessions); err != nil {
+			return err
+		}
+		if output == "json" {
+			return helpers.PrintJSON(sessions)
+		}
+		if output == "yaml" {
+			return helpers.PrintYAML(sessions)
+		}
+		fmt.Printf("📋 Active sessions for %s\n", sessionUser)
+		if len(sessions) == 0 {
+			fmt.Println(helpers.CreateMuted("No active sessions"))
+			return nil
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%-36s %-15s %-19s %s\n", "🆔 SESSION", "🌐 IP", "🕒 STARTED", "⏱️  LAST ACCESS"))
+		b.WriteString(strings.Repeat("─", 100) + "\n")
+		for _, s := range sessions {
+			b.WriteString(fmt.Sprintf("%-36s %-15s %-19s %s\n", s.ID, s.IPAddress, epochMillis(s.Start), epochMillis(s.LastAccess)))
+		}
+		fmt.Println(helpers.BorderStyle.Render(b.String()))
+		fmt.Println(helpers.CreateMuted(fmt.Sprintf("%d active session(s)", len(sessions))))
+		return nil
 	}
-	if showSessionDetails {
-		fmt.Println("📊 Including detailed information")
+
+	stats, err := kc.clientSessionStats(ctx)
+	if err != nil {
+		return err
 	}
-
-	// TODO: Implement actual session listing logic
-	fmt.Println("📭 No active sessions found")
-
+	if output == "json" {
+		return helpers.PrintJSON(stats)
+	}
+	if output == "yaml" {
+		return helpers.PrintYAML(stats)
+	}
+	fmt.Println("📋 Active sessions by client (realm " + kc.Realm + ")")
+	if len(stats) == 0 {
+		fmt.Println(helpers.CreateMuted("No active sessions in the realm"))
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%-30s %-10s %s\n", "🔌 CLIENT", "✅ ACTIVE", "💤 OFFLINE"))
+	b.WriteString(strings.Repeat("─", 60) + "\n")
+	total := 0
+	for _, s := range stats {
+		b.WriteString(fmt.Sprintf("%-30s %-10s %s\n", truncA(s.ClientID, 30), s.Active, s.Offline))
+		if n, err := strconv.Atoi(s.Active); err == nil {
+			total += n
+		}
+	}
+	fmt.Println(helpers.BorderStyle.Render(b.String()))
+	fmt.Println(helpers.CreateMuted(fmt.Sprintf("%d active session(s) across %d client(s) — filter with --user <name>", total, len(stats))))
 	return nil
 }
 
@@ -96,14 +180,46 @@ var (
 
 func runGetSession(cmd *cobra.Command, args []string) error {
 	sessionID := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("🖥️  Session Details: %s\n", sessionID)
-	fmt.Println("")
-
-	// TODO: Implement actual session retrieval logic
-	fmt.Println("📭 Session not found")
-
-	return nil
+	// Keycloak exposes session details only under a user, so --user is required
+	// to look one up by id.
+	if sessionUser == "" {
+		return fmt.Errorf("session details require --user <username> (Keycloak scopes sessions to a user)")
+	}
+	id, err := kc.userIDByUsername(ctx, sessionUser)
+	if err != nil {
+		return err
+	}
+	var sessions []kcSession
+	if err := kc.adminGet(ctx, "/users/"+id+"/sessions", &sessions); err != nil {
+		return err
+	}
+	for _, s := range sessions {
+		if s.ID == sessionID {
+			if output == "json" {
+				return helpers.PrintJSON(s)
+			}
+			if output == "yaml" {
+				return helpers.PrintYAML(s)
+			}
+			fmt.Printf("🆔 Session:     %s\n", s.ID)
+			fmt.Printf("👤 User:        %s\n", s.Username)
+			fmt.Printf("🌐 IP:          %s\n", s.IPAddress)
+			fmt.Printf("🕒 Started:     %s\n", epochMillis(s.Start))
+			fmt.Printf("⏱️  Last access: %s\n", epochMillis(s.LastAccess))
+			if len(s.Clients) > 0 {
+				clients := make([]string, 0, len(s.Clients))
+				for _, c := range s.Clients {
+					clients = append(clients, c)
+				}
+				fmt.Printf("🔌 Clients:     %s\n", strings.Join(clients, ", "))
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("session %q not found for user %s", sessionID, sessionUser)
 }
 
 var (
@@ -125,15 +241,16 @@ func init() {
 
 func runTerminateSession(cmd *cobra.Command, args []string) error {
 	sessionID := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("🚫 Terminating session: %s\n", sessionID)
-
+	if _, err := kc.adminWrite(ctx, http.MethodDelete, "/sessions/"+sessionID, nil); err != nil {
+		return fmt.Errorf("terminate session: %w", err)
+	}
 	if terminateReason != "" {
 		fmt.Printf("📝 Reason: %s\n", terminateReason)
 	}
-
-	// TODO: Implement actual session termination logic
-	fmt.Printf("✅ Successfully terminated session: %s\n", sessionID)
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Terminated session %s", sessionID)))
 	return nil
 }
 
@@ -156,15 +273,20 @@ func init() {
 
 func runTerminateAllSessions(cmd *cobra.Command, args []string) error {
 	username := args[0]
+	kc := settings()
+	ctx := context.Background()
 
-	fmt.Printf("🚫 Terminating all sessions for user: %s\n", username)
-
+	id, err := kc.userIDByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
+	if _, err := kc.adminWrite(ctx, http.MethodPost, "/users/"+id+"/logout", nil); err != nil {
+		return fmt.Errorf("terminate sessions: %w", err)
+	}
 	if terminateAllReason != "" {
 		fmt.Printf("📝 Reason: %s\n", terminateAllReason)
 	}
-
-	// TODO: Implement actual session termination logic
-	fmt.Printf("✅ Successfully terminated all sessions for user: %s\n", username)
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Terminated all sessions for user %s", username)))
 	return nil
 }
 
@@ -178,15 +300,32 @@ var (
 )
 
 func runSessionStats(cmd *cobra.Command, args []string) error {
-	fmt.Println("📊 Session Statistics")
-	fmt.Println("")
+	kc := settings()
+	ctx := context.Background()
 
-	// TODO: Implement actual session statistics logic
-	fmt.Println("📈 Active sessions: 0")
-	fmt.Println("📉 Total sessions today: 0")
-	fmt.Println("🕒 Average session duration: N/A")
-	fmt.Println("🌍 Sessions by location: N/A")
-	fmt.Println("🔐 Sessions by provider: N/A")
+	stats, err := kc.clientSessionStats(ctx)
+	if err != nil {
+		return err
+	}
+	if output == "json" {
+		return helpers.PrintJSON(stats)
+	}
+	if output == "yaml" {
+		return helpers.PrintYAML(stats)
+	}
 
+	activeTotal, offlineTotal := 0, 0
+	for _, s := range stats {
+		if n, err := strconv.Atoi(s.Active); err == nil {
+			activeTotal += n
+		}
+		if n, err := strconv.Atoi(s.Offline); err == nil {
+			offlineTotal += n
+		}
+	}
+	fmt.Println("📊 Session Statistics (realm " + kc.Realm + ")")
+	fmt.Printf("📈 Active sessions:  %d\n", activeTotal)
+	fmt.Printf("💤 Offline sessions: %d\n", offlineTotal)
+	fmt.Printf("🔌 Clients with sessions: %d\n", len(stats))
 	return nil
 }

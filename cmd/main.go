@@ -42,6 +42,7 @@ import (
 	"adhar-io/adhar/cmd/network"
 	"adhar-io/adhar/cmd/pipeline"
 	"adhar-io/adhar/cmd/policy"
+	"adhar-io/adhar/cmd/project"
 	"adhar-io/adhar/cmd/restore"
 	"adhar-io/adhar/cmd/scale"
 	"adhar-io/adhar/cmd/secrets"
@@ -105,40 +106,45 @@ func init() {
 	// Register command groups so related commands are visually grouped in help.
 	RegisterCommandGroups()
 
-	// Assign each command to a group for a tidy, discoverable help layout.
-	up.UpCmd.GroupID = GroupPlatform
-	down.DownCmd.GroupID = GroupPlatform
-	health.HealthCmd.GroupID = GroupPlatform
-	get.GetCmd.GroupID = GroupPlatform
-	controllercmd.ControllerCmd.GroupID = GroupPlatform
-	upgrade.UpgradeCmd.GroupID = GroupPlatform
+	// Assign each command to a persona group for a tidy, discoverable help layout.
+	// Develop — build, ship & self-serve resources.
+	project.ProjectCmd.GroupID = GroupDevelop
+	apps.AppsCmd.GroupID = GroupDevelop
+	pipeline.PipelineCmd.GroupID = GroupDevelop
+	gitops.GitOpsCmd.GroupID = GroupDevelop
+	service.ServiceCmd.GroupID = GroupDevelop
+	db.DBCmd.GroupID = GroupDevelop
+	storage.StorageCmd.GroupID = GroupDevelop
+	secrets.SecretsCmd.GroupID = GroupDevelop
+	env.EnvCmd.GroupID = GroupDevelop
 
-	cluster.ClusterCmd.GroupID = GroupCluster
-	env.EnvCmd.GroupID = GroupCluster
-	config.ConfigCmd.GroupID = GroupCluster
-	scale.ScaleCmd.GroupID = GroupCluster
-	migrate.MigrateCmd.GroupID = GroupCluster
+	// Observe — health, logs, metrics & traces.
+	get.GetCmd.GroupID = GroupObserve
+	health.HealthCmd.GroupID = GroupObserve
+	logs.LogsCmd.GroupID = GroupObserve
+	metrics.MetricsCmd.GroupID = GroupObserve
+	traces.TracesCmd.GroupID = GroupObserve
+	network.NetworkCmd.GroupID = GroupObserve
 
-	apps.AppsCmd.GroupID = GroupApps
-	gitops.GitOpsCmd.GroupID = GroupApps
-	pipeline.PipelineCmd.GroupID = GroupApps
-	service.ServiceCmd.GroupID = GroupApps
-	db.DBCmd.GroupID = GroupApps
-	storage.StorageCmd.GroupID = GroupApps
+	// Operate — day-2 operations.
+	cluster.ClusterCmd.GroupID = GroupOperate
+	scale.ScaleCmd.GroupID = GroupOperate
+	backup.BackupCmd.GroupID = GroupOperate
+	restore.RestoreCmd.GroupID = GroupOperate
+	upgrade.UpgradeCmd.GroupID = GroupOperate
 
-	logs.LogsCmd.GroupID = GroupObservability
-	metrics.MetricsCmd.GroupID = GroupObservability
-	traces.TracesCmd.GroupID = GroupObservability
-	network.NetworkCmd.GroupID = GroupObservability
+	// Administer — platform lifecycle & governance.
+	up.UpCmd.GroupID = GroupAdminister
+	down.DownCmd.GroupID = GroupAdminister
+	controllercmd.ControllerCmd.GroupID = GroupAdminister
+	config.ConfigCmd.GroupID = GroupAdminister
+	auth.AuthCmd.GroupID = GroupAdminister
+	policy.PolicyCmd.GroupID = GroupAdminister
+	security.SecurityCmd.GroupID = GroupAdminister
+	webhook.WebhookCmd.GroupID = GroupAdminister
+	migrate.MigrateCmd.GroupID = GroupAdminister
 
-	security.SecurityCmd.GroupID = GroupSecurity
-	auth.AuthCmd.GroupID = GroupSecurity
-	secrets.SecretsCmd.GroupID = GroupSecurity
-	policy.PolicyCmd.GroupID = GroupSecurity
-
-	backup.BackupCmd.GroupID = GroupUtilities
-	restore.RestoreCmd.GroupID = GroupUtilities
-	webhook.WebhookCmd.GroupID = GroupUtilities
+	// Utilities.
 	version.VersionCmd.GroupID = GroupUtilities
 	help.HelpCmd.GroupID = GroupUtilities
 
@@ -165,6 +171,7 @@ func init() {
 		traces.TracesCmd,     // Traces command for distributed tracing
 		pipeline.PipelineCmd, // Pipeline command for CI/CD pipelines
 		storage.StorageCmd,   // Storage command for storage management
+		project.ProjectCmd,   // Project command for the ownership hierarchy (org/team/project)
 		webhook.WebhookCmd,   // Webhook command for webhook management
 		secrets.SecretsCmd,   // Secrets command for secrets management
 		service.ServiceCmd,   // Service command for service management

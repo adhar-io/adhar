@@ -1,0 +1,153 @@
+---
+# Local Environment composition — provisions a self-service namespace with a
+# ResourceQuota, a LimitRange (per-container defaults), and an optional
+# default-deny NetworkPolicy from a CompositeEnvironment. A team's
+# sandbox/dev/staging namespace, guard-railed.
+#
+# A CompositeEnvironment is a *namespaced* Crossplane v2 XR, so it cannot compose
+# a cluster-scoped Namespace directly. Instead it emits provider-kubernetes
+# `Object` managed resources (themselves namespaced) that create the targets via
+# the in-cluster kubernetes-provider ClusterProviderConfig.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: compositeenvironment-local
+  labels:
+    feature: environment
+    provider: local
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeEnvironment
+  mode: Pipeline
+  pipeline:
+    - step: render
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $p := dig "spec" "parameters" dict $xr -}}
+            {{- $name := dig "name" $xr.metadata.name $p -}}
+            {{- $tier := dig "tier" "dev" $p -}}
+            {{- $cpu := dig "cpuQuota" "4" $p -}}
+            {{- $mem := dig "memoryQuota" "8Gi" $p -}}
+            {{- $pods := dig "podQuota" 20 $p -}}
+            {{- $netpol := dig "enableNetworkPolicy" true $p -}}
+            ---
+            # Namespace (cluster-scoped) wrapped in a provider-kubernetes Object
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: namespace
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Namespace
+                  metadata:
+                    name: {{ $name }}
+                    labels:
+                      platform.adhar.io/self-service: "true"
+                      adhar.io/environment: {{ $name }}
+                      adhar.io/tier: {{ $tier | quote }}
+                      {{- range $k, $v := (dig "labels" dict $p) }}
+                      {{ $k }}: {{ $v | quote }}
+                      {{- end }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: quota
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: ResourceQuota
+                  metadata:
+                    name: {{ $name }}-quota
+                    namespace: {{ $name }}
+                  spec:
+                    hard:
+                      requests.cpu: "{{ $cpu }}"
+                      requests.memory: "{{ $mem }}"
+                      limits.cpu: "{{ $cpu }}"
+                      limits.memory: "{{ $mem }}"
+                      pods: "{{ $pods }}"
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: limits
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: LimitRange
+                  metadata:
+                    name: {{ $name }}-limits
+                    namespace: {{ $name }}
+                  spec:
+                    limits:
+                      - type: Container
+                        default:
+                          cpu: "500m"
+                          memory: "512Mi"
+                        defaultRequest:
+                          cpu: "100m"
+                          memory: "128Mi"
+            {{- if $netpol }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: netpol
+            spec:
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: networking.k8s.io/v1
+                  kind: NetworkPolicy
+                  metadata:
+                    name: {{ $name }}-default-deny
+                    namespace: {{ $name }}
+                  spec:
+                    podSelector: {}
+                    policyTypes: [Ingress]
+                    ingress:
+                      - from:
+                          - namespaceSelector:
+                              matchLabels:
+                                adhar.io/environment: {{ $name }}
+            {{- end }}
+            ---
+            # Publish the environment namespace back on the XR status.
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeEnvironment
+            status:
+              phase: Available
+              ready: true
+              namespace: {{ $name }}
+              message: "Environment '{{ $name }}' provisioned"
+    - step: ready
+      functionRef:
+        name: function-auto-ready
