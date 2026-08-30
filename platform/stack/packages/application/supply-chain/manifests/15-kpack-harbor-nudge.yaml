@@ -1,0 +1,99 @@
+# Bootstrap self-heal for the kpack ↔ Harbor race.
+#
+# On a fresh cluster kpack reconciles the `adhar-builder` ClusterBuilder before
+# Harbor has finished coming up, gets a 401 against the registry, and then sits
+# on that failure with a long exponential backoff — so the builder can stay
+# `Ready=False` for many minutes after Harbor is actually healthy, which blocks
+# every buildpacks build (the credential itself is correct: admin/Harbor12345).
+#
+# This PostSync hook waits until Harbor's registry endpoint answers, and — only
+# if the builder is still not Ready — nudges kpack to reconcile immediately by
+# restarting its controller. Idempotent: it no-ops once the builder is Ready.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kpack-harbor-nudge
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kpack-harbor-nudge
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+rules:
+  - {apiGroups: ["kpack.io"], resources: [clusterbuilders], verbs: [get]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kpack-harbor-nudge
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kpack-harbor-nudge}
+subjects: [{kind: ServiceAccount, name: kpack-harbor-nudge, namespace: adhar-system}]
+---
+# Restart rights are scoped to the kpack-controller Deployment's namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kpack-harbor-nudge
+  namespace: kpack-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+rules:
+  - {apiGroups: ["apps"], resources: [deployments], verbs: [get, patch]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kpack-harbor-nudge
+  namespace: kpack-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kpack-harbor-nudge}
+subjects: [{kind: ServiceAccount, name: kpack-harbor-nudge, namespace: adhar-system}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kpack-harbor-nudge
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    spec:
+      serviceAccountName: kpack-harbor-nudge
+      restartPolicy: Never
+      containers:
+        - name: nudge
+          image: alpine/k8s:1.31.1
+          command: [bash, -c]
+          args:
+            - |
+              set -uo pipefail
+              REG="harbor-core.adhar-system.svc.cluster.local"
+              # 1. Wait until Harbor's registry endpoint responds (any HTTP code
+              #    means it's up; connection refused means it isn't yet).
+              echo "waiting for Harbor registry ${REG} ..."
+              for i in $(seq 1 60); do
+                code=$(curl -s -o /dev/null -w '%{http_code}' "http://${REG}/v2/" || echo 000)
+                [ "$code" != "000" ] && { echo "Harbor registry up (HTTP ${code})"; break; }
+                sleep 5
+              done
+              # 2. If the builder is already Ready, nothing to do.
+              for i in $(seq 1 24); do
+                ready=$(kubectl get clusterbuilder adhar-builder \
+                  -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null || echo "")
+                if [ "$ready" = "True" ]; then
+                  echo "adhar-builder is Ready — no nudge needed"; exit 0
+                fi
+                echo "adhar-builder not Ready yet (Ready=${ready:-unknown}); nudging kpack-controller"
+                kubectl rollout restart deploy/kpack-controller -n kpack-system || true
+                sleep 30
+              done
+              echo "builder still not Ready after nudging — leaving it to kpack's own retry"
+              # Non-fatal: don't wedge the sync on a slow builder.
+              exit 0
