@@ -46,11 +46,6 @@ var (
 	hTag     = lipgloss.NewStyle().Foreground(helpers.SecondaryColor).Italic(true)
 )
 
-// rule returns a faint horizontal divider of n cells.
-func rule(n int) string {
-	return strings.Repeat("─", n)
-}
-
 // personaGroup describes one top-level help section on the root command.
 type personaGroup struct {
 	id       string
@@ -160,7 +155,7 @@ func renderHelp(cmd *cobra.Command, _ []string, withBanner bool) {
 	} else {
 		fmt.Fprintf(&b, "  %s %s\n", paint(off, hCommand, cmd.CommandPath()), paint(off, hDesc, "· "+firstLine(cmd.Short)))
 	}
-	fmt.Fprintf(&b, "  %s\n\n", paint(off, hFaint, rule(44)))
+	b.WriteString("\n")
 
 	// USAGE
 	fmt.Fprintf(&b, "  %s\n", paint(off, hLabel, "USAGE"))
@@ -203,10 +198,9 @@ func renderHelp(cmd *cobra.Command, _ []string, withBanner bool) {
 
 	// Footer: hint lines, then (when this renderer owns the chrome, i.e. the
 	// --help path where PersistentPostRun is skipped) the brand sign-off.
-	fmt.Fprintf(&b, "  %s\n", paint(off, hFaint, rule(44)))
 	b.WriteString(footerHint(off, cmd))
 	if withBanner {
-		fmt.Fprintf(&b, "\n  %s\n", paint(off, hTag, "Adhar • Built with ❤️  for developers!"))
+		fmt.Fprintf(&b, "\n  %s\n\n", paint(off, hTag, "Adhar • Built with ❤️  for developers!"))
 	}
 
 	fmt.Fprint(cmd.OutOrStdout(), b.String())
