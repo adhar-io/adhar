@@ -809,6 +809,9 @@ spec:
                     --from-literal=RUSTFS_CLIENT_ID=rustfs --from-literal=RUSTFS_CLIENT_SECRET="$(getsec rustfs)" \
                     --from-literal=TEKTON_CLIENT_ID=tekton --from-literal=TEKTON_CLIENT_SECRET="$(getsec tekton)" \
                     --from-literal=MINIO_CLIENT_ID=minio --from-literal=MINIO_CLIENT_SECRET="$(getsec minio)" \
+                    --from-literal=ARGO_ROLLOUT_CLIENT_ID=argo-rollout --from-literal=ARGO_ROLLOUT_CLIENT_SECRET="$(getsec argo-rollout)" \
+                    --from-literal=POLICY_REPORTER_CLIENT_ID=policy-reporter --from-literal=POLICY_REPORTER_CLIENT_SECRET="$(getsec policy-reporter)" \
+                    --from-literal=JUPYTERHUB_CLIENT_ID=jupyterhub --from-literal=JUPYTERHUB_CLIENT_SECRET="$(getsec jupyterhub)" \
                     --dry-run=client -o yaml | kubectl apply -f -
                 fi
                 exit 0
@@ -1224,6 +1227,46 @@ spec:
                 MINIO_CLIENT_SECRET: \"${MINIO_CLIENT_SECRET}\"
                 MINIO_CLIENT_ID: \"minio\"
               " > /tmp/secret.yaml
-              
+
               kubectl apply -f /tmp/secret.yaml
+
+              # --- Fresh-cluster convergence catch-all ------------------------
+              # The explicit per-client blocks above provision 13 clients and
+              # build keycloak-clients from them. Any confidential client NOT in
+              # that set (argo-rollout, policy-reporter, jupyterhub) would
+              # otherwise only be created on a SECOND job run (via the reconcile
+              # loop, which needs the realm to already exist), leaving its
+              # oauth2-proxy ExternalSecret unresolved and the app Degraded on a
+              # fresh `adhar up`. This data-driven pass ensures each such client
+              # exists (created from its mounted payload, with the groups scope)
+              # and writes its secret into keycloak-clients on the FIRST run.
+              # Extend it by adding a clientId:KEYPREFIX pair here plus the
+              # matching <clientId>-client-payload.json above. Non-fatal.
+              set +e
+              GROUPS_SCOPE_ID=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                "${KEYCLOAK_URL}/admin/realms/adhar/client-scopes" | jq -r '.[] | select(.name=="groups") | .id')
+              for pair in argo-rollout:ARGO_ROLLOUT policy-reporter:POLICY_REPORTER jupyterhub:JUPYTERHUB; do
+                cid="${pair%%:*}"; kp="${pair##*:}"
+                pf="/var/config/${cid}-client-payload.json"
+                rid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
+                if [ -z "${rid}" ] && [ -f "${pf}" ]; then
+                  echo "provisioning missing client ${cid}"
+                  curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    -X POST --data @"${pf}" "${KEYCLOAK_URL}/admin/realms/adhar/clients" >/dev/null 2>&1
+                  rid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
+                  if [ -n "${rid}" ] && [ -n "${GROUPS_SCOPE_ID}" ]; then
+                    curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                      -X PUT "${KEYCLOAK_URL}/admin/realms/adhar/clients/${rid}/default-client-scopes/${GROUPS_SCOPE_ID}" >/dev/null 2>&1
+                  fi
+                fi
+                [ -n "${rid}" ] || continue
+                rsec=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                  "${KEYCLOAK_URL}/admin/realms/adhar/clients/${rid}" | jq -r '.secret // empty')
+                [ -n "${rsec}" ] || continue
+                kubectl -n adhar-system patch secret keycloak-clients --type merge \
+                  -p "{\"stringData\":{\"${kp}_CLIENT_ID\":\"${cid}\",\"${kp}_CLIENT_SECRET\":\"${rsec}\"}}" >/dev/null 2>&1
+                echo "keycloak-clients: ${kp}_CLIENT_SECRET set"
+              done
               

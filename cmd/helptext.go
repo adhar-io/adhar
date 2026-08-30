@@ -41,8 +41,15 @@ var (
 	hDesc    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#57606a", Dark: "#8b949e"})
 	hLabel   = lipgloss.NewStyle().Foreground(helpers.HighlightColor).Bold(true)
 	hAccent  = lipgloss.NewStyle().Foreground(helpers.SecondaryColor)
-	hFaint   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#6e7781", Dark: "#6e7681"})
+	hFaint   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8c959f", Dark: "#484f58"})
+	hTagline = lipgloss.NewStyle().Foreground(helpers.InfoColor).Italic(true)
+	hTag     = lipgloss.NewStyle().Foreground(helpers.SecondaryColor).Italic(true)
 )
+
+// rule returns a faint horizontal divider of n cells.
+func rule(n int) string {
+	return strings.Repeat("─", n)
+}
 
 // personaGroup describes one top-level help section on the root command.
 type personaGroup struct {
@@ -144,15 +151,16 @@ func renderHelp(cmd *cobra.Command, _ []string, withBanner bool) {
 	isRoot := !cmd.HasParent()
 	if withBanner {
 		b.WriteString(bannerBlock(isRoot))
+		b.WriteString("\n") // one blank line between the banner and the content
 	}
 
 	// Tagline / command summary.
 	if isRoot {
-		fmt.Fprintf(&b, "  %s\n", paint(off, hDesc, cmd.Short))
+		fmt.Fprintf(&b, "  %s\n", paint(off, hTagline, cmd.Short))
 	} else {
 		fmt.Fprintf(&b, "  %s %s\n", paint(off, hCommand, cmd.CommandPath()), paint(off, hDesc, "· "+firstLine(cmd.Short)))
 	}
-	b.WriteString("\n")
+	fmt.Fprintf(&b, "  %s\n\n", paint(off, hFaint, rule(44)))
 
 	// USAGE
 	fmt.Fprintf(&b, "  %s\n", paint(off, hLabel, "USAGE"))
@@ -193,8 +201,13 @@ func renderHelp(cmd *cobra.Command, _ []string, withBanner bool) {
 		fmt.Fprintf(&b, "  %s\n%s\n\n", paint(off, hLabel, "EXAMPLES"), exampleBlock(off, cmd.Example))
 	}
 
-	// Footer hint.
+	// Footer: hint lines, then (when this renderer owns the chrome, i.e. the
+	// --help path where PersistentPostRun is skipped) the brand sign-off.
+	fmt.Fprintf(&b, "  %s\n", paint(off, hFaint, rule(44)))
 	b.WriteString(footerHint(off, cmd))
+	if withBanner {
+		fmt.Fprintf(&b, "\n  %s\n", paint(off, hTag, "Adhar • Built with ❤️  for developers!"))
+	}
 
 	fmt.Fprint(cmd.OutOrStdout(), b.String())
 }
@@ -276,19 +289,27 @@ func exampleBlock(off bool, s string) string {
 	return strings.TrimRight(out.String(), "\n")
 }
 
-// footerHint renders the closing "run … for more" line(s).
+// footerHint renders a "Next Steps" block in the style of `adhar down` —
+// arrowed, highlighted runnable commands.
 func footerHint(off bool, cmd *cobra.Command) string {
 	var b strings.Builder
-	if cmd.HasAvailableSubCommands() {
-		fmt.Fprintf(&b, "  %s %s %s\n",
-			paint(off, hDesc, "Run"),
-			paint(off, hCommand, cmd.CommandPath()+" <command> --help"),
-			paint(off, hDesc, "for details on a command."))
+	fmt.Fprintf(&b, "  %s\n", paint(off, hLabel, "NEXT STEPS"))
+	step := func(command, desc string) {
+		fmt.Fprintf(&b, "    %s Run %s %s\n",
+			paint(off, hAccent, "→"),
+			paint(off, hCommand, command),
+			paint(off, hDesc, desc))
 	}
-	if !cmd.HasParent() {
-		fmt.Fprintf(&b, "  %s %s\n",
-			paint(off, hDesc, "Docs"),
-			paint(off, helpers.UrlStyle, "https://adhar.io"))
+	switch {
+	case !cmd.HasParent():
+		step("adhar up", "to launch a local platform")
+		step("adhar <command> --help", "for details on any command")
+		step("adhar version", "for build information")
+	case cmd.HasAvailableSubCommands():
+		step(cmd.CommandPath()+" <command> --help", "for details on a subcommand")
+		step("adhar --help", "to see all commands")
+	default:
+		step("adhar --help", "to see all commands")
 	}
 	return b.String()
 }
