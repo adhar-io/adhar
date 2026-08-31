@@ -136,5 +136,36 @@ func renderRegistryCertsDir(cfg v1alpha1.BuildCustomizationSpec) (string, error)
 		return "", fmt.Errorf("writing insecure registry config %w", err)
 	}
 
+	// Harbor: the kind node pulls kpack-built images tagged with the in-cluster
+	// Service DNS harbor-core.adhar-system.svc.cluster.local, which the node's
+	// resolver cannot resolve. We dial Harbor's PINNED core ClusterIP over HTTPS
+	// instead (the core cert carries that IP as a SAN — see the harbor package's
+	// generate-manifests.sh and 10-internal-tls-certs.yaml), verified against the
+	// platform CA already mounted at /etc/adhar/pki/tls.crt. No skip_verify.
+	harborCertsDir := filepath.Join(dir, HarborCoreRegistryHost)
+	if err = os.Mkdir(harborCertsDir, 0700); err != nil {
+		return "", fmt.Errorf("creating temp dir for harbor host %w", err)
+	}
+	harborHosts := fmt.Sprintf(`server = "https://%s"
+
+[host."https://%s"]
+  capabilities = ["pull", "resolve"]
+  ca = "/etc/adhar/pki/tls.crt"
+`, HarborCorePinnedClusterIP, HarborCorePinnedClusterIP)
+	if err = os.WriteFile(filepath.Join(harborCertsDir, "hosts.toml"), []byte(harborHosts), 0700); err != nil {
+		return "", fmt.Errorf("writing harbor registry config %w", err)
+	}
+
 	return dir, nil
 }
+
+const (
+	// HarborCoreRegistryHost is the in-cluster Service DNS that kpack tags images
+	// with; it names the node's certs.d directory for Harbor.
+	HarborCoreRegistryHost = "harbor-core.adhar-system.svc.cluster.local"
+	// HarborCorePinnedClusterIP is the fixed ClusterIP pinned onto the harbor-core
+	// Service (application/harbor: generate-manifests.sh injects it, and the core
+	// internal-TLS cert carries it as an IP SAN). It must stay in sync with that
+	// value so the node can dial Harbor over TLS without cluster DNS.
+	HarborCorePinnedClusterIP = "10.96.222.222"
+)

@@ -30,6 +30,18 @@ spec:
         any:
           - resources:
               kinds: [Pod]
+      exclude:
+        # adhar-system is where kpack build pods run (and is now admitted by
+        # Kyverno so the build-pod CA mutate can fire — see security/kyverno).
+        # Harbor's registry is HTTPS now, so signature verification here would
+        # require the Kyverno admission controller itself to trust the adhar CA
+        # and reach Harbor at admission time; to avoid coupling platform-namespace
+        # admission to Harbor availability, verification is scoped to workload
+        # namespaces and skipped for adhar-system (its images are still signed by
+        # kpack at build time).
+        any:
+          - resources:
+              namespaces: [adhar-system]
       verifyImages:
         - imageReferences:
             - "harbor-core.adhar-system.svc.cluster.local/library/*"

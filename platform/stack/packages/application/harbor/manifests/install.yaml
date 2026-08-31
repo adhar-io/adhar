@@ -21,8 +21,8 @@ type: Opaque
 data:
   secretKey: "bm90LWEtc2VjdXJlLWtleQ=="
   secret: "bU42T25nbnJEZzR3ZDBBYw=="
-  tls.key: "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBcEpUVityZ0pQbE5nczd2dHMvVXZmZ0NJbitIOTk3QzloV0VzU2VyWGxJUzVKcjRzCnFXTTArNDZzR2JGV2lGSVdKWk9kcU53ZXRIcHVUWDNJN3FTY3ZVczNyc2NLUjMvU3VhMnY4a3V0UEpNclhtcmcKazlKQWtweEx5S0FYWDQvUUtPUGphTWlvNkVzSTNleE1wd0lnaUhhY2hmSEZiOTVCaEpWWGlJMk8zeEw5RC9LNgpoU2JRYzJ2V2NpMWNtY1RhTHlRTXlPeS9HQUR4MWQ1OGNIRGR6VHpNNmJvQXJPekVOQ2tLNUtGR1VMTytYam9KCndMOVVMcnFDLzYzVXFDWVJabXBYM2poWENvenZ2QWwvMFZGL0hYb2drdUtHRDV1ajZEVS9mbytuZXdVQWJQN3UKcys5ZUpkMHZCOWtVOWZpY0lwa0JlVjgrOXVTcDhtb1VGOVpaRXdJREFRQUJBb0lCQURtZ1Q0Z1pGa3QzWUQydQppSjFoTlQ3V0t3Qm9YY2R6WC9pcXZKb3BHMURLWkJYM3NxV2dzZlYrMEMyeTFVeW9DVThnNzZ3blhxenN6V0JlCnNaTTFtaGdCbFQ2aVBLd3FTbnR2SUZNalFrWWFkYTM2bUNYS0VZZ0VKOWpZalRhTm9XSWY0UWxZY1NQYzJmN3kKZFNobzYwRTgzck5ib3pqM1JsT0pBdnd5TEp0WWQrSTdkYWNadXluMjJOV2NnRXVGeDFPV1NUbFhCQWlIZXMvdgpJSkUzMml2aGtKUXcvNmF5Wm1YWXkxU1IxVlVTb1R4OXBxbGZpYTVnZ3hRek5PL2ZTR3c1RVNqWU1vRDVrV3lMCitEK090aG0xVkhLcnRqaXAxVW1FSGNKK0FRempycTVMWXRMOXJsdTNwR3k5bHhYTk8vUzg4TkZPOUNqUisrNkoKY2lWYUE2RUNnWUVBMVBBaEJZZlpWVElzNTlxNnEvd1V4c3ZrV2pVUURzbGQxSzlWYng5eG80dnpyT1ZlNWRudgoxRXRMMmk3NjJPZlhoL3k2UFRrUlU4VnA2RiszamZ1T0gwWmpZM0UzY0tLQTRHSERCS2VtNi9PNFhoWnVYNUtVCkY3NWtNTjB3OXQ2UzRwaUtxTnByUjJFd3BBQmVsV0FXQ0wvaURsa0M5MUdpU2dOQkh0ZHpZME1DZ1lFQXhkMUUKMmM5RXBKSElLbnZhNldETzB1RDR3ZjBIUWFIVmZiODRFR0ZuS2p6ZTZkaHpOQ3lnaDU2SFRCSlBxc3F3VjlDQgpDL2FyZ0lTd205SmZtWVRSeHFUYm5yeUlHOHc5VitaV0YwRHRaSThwVWdnLzRwRE1MTkd0dVBwVTQ0U05ZdzNVCldTVkZqZ3VYOVZxb2xocjVha0RTek9jV1hza3hEVkV5S2xXdWpmRUNnWUFycHVwdUV0Slg1OGhTNDRFZkhyYzMKcGJhelUydHVUSk9DdFVyalUrUGM3aVRQRGRwdGJrYi9FMHlDZHQwUHVEOXo3amhUc3E0OXFSdXorbU5McFFVVwpuanhqdDJMeElTOGdVSXBGR3dWYUc0VnhMRklHSDZ0aVRyS0ZYZUxheVBmOW9kM1REYXV1WDFzMFU2c1FIam1HCkk2ZjQzd0IvcU9tSEdMR3gyK01ZdHdLQmdRQ1hvU1MxUWZoWm9YcGl6RDJMb1d0K0FYZkF1WlpJL3FzcnpWRTYKaEZwWjdRSHE5THY4WE1LOGk0a2xpOWJQakxxczRSVXp4Tm5UQ0Z5TFhTRno5V3dKTGFjOE0wQ2ZCTnB4dFF0KwprSHdjRnZYVWJvditwWFpDVm9FcUEzVHdVbEZEZW9LanVrTmVRcFkyS1Q2T29hZEhmTnZPdUx6VThKdU5tQTY0CmtLYlBFUUtCZ1FETHFIcGcrODNMMWY4Qk9mYkxreHlGUE1MN2E2VFlBYkFSNDFBOG9FSHdPamZxRnNWNXJTcHYKNFFuU1RNc2xGbHBuOW9LRUVKbEZUbmJvd0lFbnNUaFlmWDJDRVVaaU95SUdlQ0dXWmVSTmNyRDkrSUZocmhRcApYc1JJS0JidFcraEVudFRZa3p5cnFjbHFBLzhkekdGamg0aTJVQjJxYlhNQUsxUTZCd1Vsa0E9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo="
-  tls.crt: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIekNDQWdlZ0F3SUJBZ0lRRi9iekFManRYZEJiWmxUakxYZWFGakFOQmdrcWhraUc5dzBCQVFzRkFEQWEKTVJnd0ZnWURWUVFERXc5b1lYSmliM0l0ZEc5clpXNHRZMkV3SGhjTk1qWXdPREE1TVRVeE56SXhXaGNOTWpjdwpPREE1TVRVeE56SXhXakFhTVJnd0ZnWURWUVFERXc5b1lYSmliM0l0ZEc5clpXNHRZMkV3Z2dFaU1BMEdDU3FHClNJYjNEUUVCQVFVQUE0SUJEd0F3Z2dFS0FvSUJBUUNrbE5YNnVBaytVMkN6dSsyejlTOStBSWlmNGYzM3NMMkYKWVN4SjZ0ZVVoTGttdml5cFl6VDdqcXdac1ZhSVVoWWxrNTJvM0I2MGVtNU5mY2p1cEp5OVN6ZXV4d3BIZjlLNQpyYS95UzYwOGt5dGVhdUNUMGtDU25FdklvQmRmajlBbzQrTm95S2pvU3dqZDdFeW5BaUNJZHB5RjhjVnYza0dFCmxWZUlqWTdmRXYwUDhycUZKdEJ6YTlaeUxWeVp4Tm92SkF6STdMOFlBUEhWM254d2NOM05QTXpwdWdDczdNUTAKS1Fya29VWlFzNzVlT2duQXYxUXV1b0wvcmRTb0poRm1hbGZlT0ZjS2pPKzhDWC9SVVg4ZGVpQ1M0b1lQbTZQbwpOVDkrajZkN0JRQnMvdTZ6NzE0bDNTOEgyUlQxK0p3aW1RRjVYejcyNUtueWFoUVgxbGtUQWdNQkFBR2pZVEJmCk1BNEdBMVVkRHdFQi93UUVBd0lDcERBZEJnTlZIU1VFRmpBVUJnZ3JCZ0VGQlFjREFRWUlLd1lCQlFVSEF3SXcKRHdZRFZSMFRBUUgvQkFVd0F3RUIvekFkQmdOVkhRNEVGZ1FVeHRGY1EvaFJQcElSbzk5T0dnNEFUKy9BV2c0dwpEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBRmVKZEM0QVV6ODFVVDNiTGwvVjZMVEk2Q2tlbWxPSTZKN0ptZ29OCjVJZm1YMytjanExVHRBM1NEMDBvS2dMeExLWVB4MUI1YzFzYksxWk04SzNWUnVURjNCa0t2c2tQQS9YTlZ2d0YKSGtIQ3IweEJkQTEvcCtiUFVTdXJmWjFaYzVKSmx3NlhHOEl6dzdmQ3R0S1poZyt5TlFlZGRWTzF2ajEyTVFxUwprR2N6cXdjQ3ZOWEFPRTBWY3NVTUdHQ0sxRkFXV2hhM3psRFJrQzNoQ3RJRjBhTXljMFpyR01aeEtoZWlxVmpyCmRleXRQdTU4QitLaTBBcVhaMnN1Qk4rUms0MUZoRXhVWmVxNzMzcWZqRm9vOWhpSDhIYlcyUXFDQ2c1bUUxeUwKUGpMbkpjMUh1OXBKRS8zRVZoRXdyeFlERVlEUlIzWlpWa2ZzTHlleFF4MmVjTG89Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K"
+  tls.key: "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBdFhpN3YrSGRoSjhxMUs1RktIZVozanJyOElIVkxYWTRzM3NQbjZOalZUbEFGMitCCjY3T2FxYmxnY09HcWpFNzViTFRRbHpPaXBNUnh2K0dqQzk3UzgzUjJqS1BTTkZad3kxeStuazZzTkVRdVpZZVAKeEFUUXVHa25LRjRyWks2Y2NydE9zSmNUY2ZmWVJwK2c1b1NLUjRSR2xMNkVrN2lMUytsQWNLVGdPenJUTExyRQo2UnhnMmhuc1FzWTFDRlJvUDd1dnY4cndQTk5vUnk2MHZNTEVqY1JIYTZiMythVDFNY2VjMEJMZFFqbEovKy9aCmpzb0RJTTlGZTZtR0QrTjRiY21MemlJb0RWTmhiRDNWR29tdDZCMUtlelNtMkgraWRKakhSSFlNSERYSHc0dUkKNDIxb1lpeDd2dVd3YUpkVk5DTTBGYXYzaFJGZkpZeis3M1JNYndJREFRQUJBb0lCQUdmTklwKzBZNUJMdHlVbQpkZHFhNXdHTjlJMkN4bHlWeGdNci9oalRUYXRlN3dFNHdEa0JhQk56UE8zMHR5aEF1RDF0QSsrcEVueHEvYUhEClFBODNLclVsUmZaV2NwT0xha040em5RaERqRnJXcHFxdXhwbG9yb0pNK1BNVWNmcWRRVFBqVWhIY2xEN2N0T2EKMVY5bUt1NlRoQWZySGt5Yy85aXhHRElXclVoUys2TXIxdVJrREFVOVBFT0taRVMwY0dBaTNsNWt6THVOdmlHUgpaeGJOd2lYS1VJOTNqWDZuUWJaRUo5aGVQYTNRczVZSE9iT3JYYlY1M1VLNHNUSVdWR3F3TUs2K05NRGlFcTErCjZlVnduMWZQV2NxWUpSTXRmTExKSEpqVHRwRVhhSGNaN2RwRDZ3dGpMdHhHNXJtb2Jnejk1NmdGSldzSytQRDYKQ0h2L2tkRUNnWUVBeTVTN0FiRVNhazBnKzhhdnl4RHZSei9WeUphYm9BVFpYV3A4Mkp1VmtlcTNpRUtJMGRjSQpyOHlFOHY1L1dZeXlYN01zRVpYK08vYURsUmRVRzVER01pTmppU1RZOXJvcmgvUXc0L3F2c1N0ZDdzRmN2MnU5CitwVysvRktwTlgzWEZWMjJjTzhUNGVpVi9MY0xtdS9oMWIvelpVc3dWR2VWY3ZEbDJtNjV3VWtDZ1lFQTVES2oKcUxHQUl2KzRDK1hpb3pNcUxGMnpNMlgvQi80TXM1Vzh5ZWJJVTVPUXNlWnVkV3M3YVpKN3NSMkZkY09KbjZXTwpvZkxSOUtlTXhZS1g2dTZEUnNMK3ZUemVjZFRPV2VZUnIzWDV5cUwwMFphd0hRMFFiN01vN290eHlMNU5laUZBCnByTlJnWUlXcGU2NndKTnpUbGZvZEI5VUJwbG9hMGZiTjdnelYvY0NnWUFCemdhK1pCaDZzc1paRlJEWDV3V0kKQnl2WkJHVEt6V0F6OE02OGlOeVJsNWdhOENRUVlDeW1pbFNmWnR3d0tnd214d3JiK1ExdzhLV0grOVgyREptRgpOa1Vhb1NYL1FmVkMxa3BjcXd0RnNkRzZYU0o2Vy9VcU5JdWw1d0d6QkxPVWIray9KUTl6RUVITUpMOUlsMW5VCk1FaHpISENJUHdiWEp3V1NveXFvYVFLQmdRQ0tiQlZPWE8ySFRXc00vSk92djNlVGxmci84SnowOGl3dU8yUmIKYkx5VHhlMTluSFBna2YxbUdzOGhMdkVuOEVicEtub016c2lCQ2FtZ25Za2RuelRPbGJZRWdJbkdydm5GR29RYgoxUXFDMnJwNjhGZEFLQTZTVXpFL0VpTWhUQjZmT05DSXpqbGd2OUtSTVBEanBBM0x0aE54YlJlQk1VbGYyaVNsCjlmeGZIUUtCZ0VTM1hKTytZRDZuYjBDdmlVQmR4V2ZzalFVczZRZVgwcm1xM0pLTlBVbVEzblBCRXMrZUxSVHQKdFlESUt6M08wZVdJWC9UYUgrblEzYTNhQnhETC80Y3lwbjF5ZXF2eXJRMFp3T0RORDdSWFZlMHV0RlVEYmRERgpIcWViTGZFMTJyL3FlRmJTZGhTZDc3K05ETm1tb21CM2V3L3RNTTRkTVVzeGZFV0VIU3haCi0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg=="
+  tls.crt: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURJRENDQWdpZ0F3SUJBZ0lSQUtTcGpvejIrTWtYRUJna3RDeU1abjh3RFFZSktvWklodmNOQVFFTEJRQXcKR2pFWU1CWUdBMVVFQXhNUGFHRnlZbTl5TFhSdmEyVnVMV05oTUI0WERUSTJNRGd6TURFMU16QXhOMW9YRFRJMwpNRGd6TURFMU16QXhOMW93R2pFWU1CWUdBMVVFQXhNUGFHRnlZbTl5TFhSdmEyVnVMV05oTUlJQklqQU5CZ2txCmhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBdFhpN3YrSGRoSjhxMUs1RktIZVozanJyOElIVkxYWTQKczNzUG42TmpWVGxBRjIrQjY3T2FxYmxnY09HcWpFNzViTFRRbHpPaXBNUnh2K0dqQzk3UzgzUjJqS1BTTkZadwp5MXkrbms2c05FUXVaWWVQeEFUUXVHa25LRjRyWks2Y2NydE9zSmNUY2ZmWVJwK2c1b1NLUjRSR2xMNkVrN2lMClMrbEFjS1RnT3pyVExMckU2UnhnMmhuc1FzWTFDRlJvUDd1dnY4cndQTk5vUnk2MHZNTEVqY1JIYTZiMythVDEKTWNlYzBCTGRRamxKLysvWmpzb0RJTTlGZTZtR0QrTjRiY21MemlJb0RWTmhiRDNWR29tdDZCMUtlelNtMkgraQpkSmpIUkhZTUhEWEh3NHVJNDIxb1lpeDd2dVd3YUpkVk5DTTBGYXYzaFJGZkpZeis3M1JNYndJREFRQUJvMkV3Clh6QU9CZ05WSFE4QkFmOEVCQU1DQXFRd0hRWURWUjBsQkJZd0ZBWUlLd1lCQlFVSEF3RUdDQ3NHQVFVRkJ3TUMKTUE4R0ExVWRFd0VCL3dRRk1BTUJBZjh3SFFZRFZSME9CQllFRkJQSXgzRWV4UTIxZXdOZnhDczYwdHM1ZzN6TApNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SUJBUUJPK1B6YUN2dWxTYXNLdDRtOXU5aXpQbGJ6M2tzMmRKckJBOEZkCmZUZ09HbWFSWnBmNlVGK2p0OXdFVnR6Lzl4bGxNTlJTcGdleFZycWFPTDNVbllha0c2YVR5R3ZtNVhhSWpRTEIKQnFWRHpqWkZLWlJMWVRaUVNwQ3QvUkZRVld2NGhhZXViRUl1a3kzYTY5b2pCc1VGdW5KVWc0MHhpODhwdjZLRwpucjNhaVgzUndpSHdxaWNRYi90MjFjK3lQTUtTSXVETnN4UEx0Z0hYc3dJcFEyYmttWEFOOUJhVU5TVnpRU1kvCmNzZVpWK0hCZlVyNXJZcWIyR0hZbm5qK3FVSTYrRTZTVENwSjhNL2tHSTBGY1BCYjBDeHBNR3ZSMjV1di9ObEgKUENTNmhXTkNLeVBHSzBCUVhDdTdCbUZ6UWRyYzR0WHpvNkVBc1BwZi9NWFVtQk9yCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K"
   HARBOR_ADMIN_PASSWORD: "SGFyYm9yMTIzNDU="
   POSTGRESQL_PASSWORD: "Y2hhbmdlaXQ="
   REGISTRY_CREDENTIAL_PASSWORD: "aGFyYm9yX3JlZ2lzdHJ5X3Bhc3N3b3Jk"
@@ -173,8 +173,8 @@ data:
     enablegzip = true
 
     [prod]
-    httpport = 8080
-  PORT: "8080"
+    httpport = 8443
+  PORT: "8443"
   DATABASE_TYPE: "postgresql"
   POSTGRESQL_HOST: "harbor-database"
   POSTGRESQL_PORT: "5432"
@@ -184,21 +184,21 @@ data:
   POSTGRESQL_MAX_IDLE_CONNS: "100"
   POSTGRESQL_MAX_OPEN_CONNS: "900"
   EXT_ENDPOINT: "https://harbor.adhar.localtest.me:8443"
-  CORE_URL: "http://harbor-core:80"
-  JOBSERVICE_URL: "http://harbor-jobservice"
-  REGISTRY_URL: "http://harbor-registry:5000"
-  TOKEN_SERVICE_URL: "http://harbor-core:80/service/token"
-  CORE_LOCAL_URL: "http://127.0.0.1:8080"
+  CORE_URL: "https://harbor-core:443"
+  JOBSERVICE_URL: "https://harbor-jobservice"
+  REGISTRY_URL: "https://harbor-registry:5443"
+  TOKEN_SERVICE_URL: "https://harbor-core:443/service/token"
+  CORE_LOCAL_URL: "https://127.0.0.1:8443"
   WITH_TRIVY: "false"
-  TRIVY_ADAPTER_URL: "http://harbor-trivy:8080"
+  TRIVY_ADAPTER_URL: "https://harbor-trivy:8443"
   REGISTRY_STORAGE_PROVIDER_NAME: "filesystem"
   LOG_LEVEL: "info"
   CONFIG_PATH: "/etc/core/app.conf"
   CHART_CACHE_DRIVER: "redis"
   _REDIS_URL_CORE: "redis://harbor-redis:6379/0?idle_timeout_seconds=30"
   _REDIS_URL_REG: "redis://harbor-redis:6379/2?idle_timeout_seconds=30"  
-  PORTAL_URL: "http://harbor-portal"
-  REGISTRY_CONTROLLER_URL: "http://harbor-registry:8080"
+  PORTAL_URL: "https://harbor-portal"
+  REGISTRY_CONTROLLER_URL: "https://harbor-registry:8443"
   REGISTRY_CREDENTIAL_USERNAME: "harbor_registry_user"
   HTTP_PROXY: ""
   HTTPS_PROXY: ""
@@ -243,9 +243,9 @@ data:
   HARBOR_REDIS_URL: "redis://harbor-redis:6379/1"
   HARBOR_REDIS_NAMESPACE: harbor_job_service_namespace
   HARBOR_REDIS_TIMEOUT: "3600"
-  HARBOR_SERVICE_SCHEME: "http"
+  HARBOR_SERVICE_SCHEME: "https"
   HARBOR_SERVICE_HOST: "harbor-core"
-  HARBOR_SERVICE_PORT: "80"
+  HARBOR_SERVICE_PORT: "443"
   HARBOR_DATABASE_HOST: "harbor-database"
   HARBOR_DATABASE_PORT: "5432"
   HARBOR_DATABASE_USERNAME: "postgres"
@@ -271,10 +271,10 @@ metadata:
     app.kubernetes.io/part-of: harbor
     app.kubernetes.io/version: "2.15.1"
 data:
-  CORE_URL: "http://harbor-core:80"
-  TOKEN_SERVICE_URL: "http://harbor-core:80/service/token"
-  REGISTRY_URL: "http://harbor-registry:5000"
-  REGISTRY_CONTROLLER_URL: "http://harbor-registry:8080"
+  CORE_URL: "https://harbor-core:443"
+  TOKEN_SERVICE_URL: "https://harbor-core:443/service/token"
+  REGISTRY_URL: "https://harbor-registry:5443"
+  REGISTRY_CONTROLLER_URL: "https://harbor-registry:8443"
   REGISTRY_CREDENTIAL_USERNAME: "harbor_registry_user"
   REGISTRY_HTTP_CLIENT_TIMEOUT: "30"
 
@@ -307,8 +307,11 @@ metadata:
 data:
   config.yml: |+
     #Server listening port
-    protocol: "http"
-    port: 8080
+    protocol: "https"
+    port: 8443
+    https_config:
+      cert: "/etc/harbor/ssl/jobservice/tls.crt"
+      key: "/etc/harbor/ssl/jobservice/tls.key"
     worker_pool:
       workers: 10
       backend: "redis"
@@ -378,11 +381,11 @@ data:
       proxy_http_version 1.1;
 
       upstream core {
-        server "harbor-core:80";
+        server "harbor-core:443";
       }
 
       upstream portal {
-        server harbor-portal:80;
+        server harbor-portal:443;
       }
 
       log_format timed_combined '[$time_local]:$remote_addr - '
@@ -409,7 +412,7 @@ data:
         add_header Content-Security-Policy "frame-ancestors 'none'";
 
         location / {
-          proxy_pass http://portal/;
+          proxy_pass https://portal/;
           proxy_set_header Host $host;
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -420,7 +423,9 @@ data:
         }
 
         location /api/ {
-          proxy_pass http://core/api/;
+          proxy_pass https://core/api/;
+          proxy_ssl_verify        off;
+          proxy_ssl_session_reuse on;
           proxy_set_header Host $host;
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -431,7 +436,7 @@ data:
         }
 
         location /c/ {
-          proxy_pass http://core/c/;
+          proxy_pass https://core/c/;
           proxy_set_header Host $host;
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -446,7 +451,7 @@ data:
         }
 
         location /v2/ {
-          proxy_pass http://core/v2/;
+          proxy_pass https://core/v2/;
           proxy_set_header Host $http_host;
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -458,7 +463,7 @@ data:
         }
 
         location /service/ {
-          proxy_pass http://core/service/;
+          proxy_pass https://core/service/;
           proxy_set_header Host $host;
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -504,8 +509,17 @@ data:
         uwsgi_temp_path /tmp/uwsgi_temp;
         scgi_temp_path /tmp/scgi_temp;
         server {
-            listen 8080;
-            listen [::]:8080;
+            listen 8443 ssl;
+            listen [::]:8443 ssl;
+            # SSL
+            ssl_certificate /etc/harbor/ssl/portal/tls.crt;
+            ssl_certificate_key /etc/harbor/ssl/portal/tls.key;
+
+            # Recommendations from https://raymii.org/s/tutorials/Strong_SSL_Security_On_nginx.html
+            ssl_protocols TLSv1.2 TLSv1.3;
+            ssl_ciphers '!aNULL:kECDH+AESGCM:ECDH+AESGCM:RSA+AESGCM:kECDH+AES:ECDH+AES:RSA+AES:';
+            ssl_prefer_server_ciphers on;
+            ssl_session_cache shared:SSL:10m;
             server_name  localhost;
             root   /usr/share/nginx/html;
             index  index.html index.htm;
@@ -578,8 +592,12 @@ data:
         maxactive: 500
         idletimeout: 60s
     http:
-      addr: :5000
+      addr: :5443
       relativeurls: false
+      tls:
+        certificate: /etc/harbor/ssl/registry/tls.crt
+        key: /etc/harbor/ssl/registry/tls.key
+        minimumtls: tls1.2
       # set via environment variable
       # secret: placeholder
       debug:
@@ -598,8 +616,11 @@ data:
         enabled: true
   ctl-config.yml: |+
     ---
-    protocol: "http"
-    port: 8080
+    protocol: "https"
+    port: 8443
+    https_config:
+      cert: "/etc/harbor/ssl/registry/tls.crt"
+      key: "/etc/harbor/ssl/registry/tls.key"
     log_level: info
     registry_config: "/etc/registry/config.yml"
 ---
@@ -692,11 +713,12 @@ metadata:
     app.kubernetes.io/part-of: harbor
     app.kubernetes.io/version: "2.15.1"
 spec:
+  clusterIP: 10.96.222.222
   ports:
-    - name: http-web
-      port: 80
-      targetPort: 8080
-    - name: http-metrics
+    - name: https-web
+      port: 443
+      targetPort: 8443
+    - name: https-metrics
       port: 8001
   selector:
     release: harbor
@@ -745,7 +767,7 @@ metadata:
     app.kubernetes.io/version: "2.15.1"
 spec:
   ports:
-    - name: http-metrics
+    - name: https-metrics
       port: 8001
   selector:
     release: harbor
@@ -770,10 +792,10 @@ metadata:
     app.kubernetes.io/version: "2.15.1"
 spec:
   ports:
-    - name: http-jobservice
-      port: 80
-      targetPort: 8080
-    - name: http-metrics
+    - name: https-jobservice
+      port: 443
+      targetPort: 8443
+    - name: https-metrics
       port: 8001
   selector:
     release: harbor
@@ -825,8 +847,8 @@ metadata:
     app.kubernetes.io/version: "2.15.1"
 spec:
   ports:
-    - port: 80
-      targetPort: 8080
+    - port: 443
+      targetPort: 8443
   selector:
     release: harbor
     app: "harbor"
@@ -874,12 +896,12 @@ metadata:
     app.kubernetes.io/version: "2.15.1"
 spec:
   ports:
-    - name: http-registry
-      port: 5000
+    - name: https-registry
+      port: 5443
 
-    - name: http-controller
-      port: 8080
-    - name: http-metrics
+    - name: https-controller
+      port: 8443
+    - name: https-metrics
       port: 8001
   selector:
     release: harbor
@@ -927,9 +949,9 @@ spec:
         component: core
         app.kubernetes.io/component: core
       annotations:
-        checksum/configmap: 4f393389b008c4dda785a8d6605c04db5dd671436eb9194f3cacbd31dc92cea0
-        checksum/secret: 4c2c572d82be6255f061c27a3f79087b34d6d234b00a1a828e776c48d1158aff
-        checksum/secret-jobservice: 06e76e0a211ae8ced6c76129ea24d52bc702c0169bde51bfb15ed100d0a5f080
+        checksum/configmap: 2b1413927dcf2bc845a30490f5ca5fec952b0a147ba67749ad3fb8726d52e1dc
+        checksum/secret: 5a509991f2f962eb8a53761bb87171d97f2c7da7d124cc1ba9d674bfc2757700
+        checksum/secret-jobservice: acae40102a39a19316a881812cd2e815df87cc14b2fb6c5de21c124e2bc05041
     spec:
       securityContext:
         runAsUser: 10000
@@ -943,8 +965,8 @@ spec:
         startupProbe:
           httpGet:
             path: /api/v2.0/ping
-            scheme: HTTP
-            port: 8080
+            scheme: HTTPS
+            port: 8443
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 1
@@ -953,8 +975,8 @@ spec:
         livenessProbe:
           httpGet:
             path: /api/v2.0/ping
-            scheme: HTTP
-            port: 8080
+            scheme: HTTPS
+            port: 8443
           initialDelaySeconds: 0
           periodSeconds: 10
           timeoutSeconds: 1
@@ -963,8 +985,8 @@ spec:
         readinessProbe:
           httpGet:
             path: /api/v2.0/ping
-            scheme: HTTP
-            port: 8080
+            scheme: HTTPS
+            port: 8443
           initialDelaySeconds: 0
           periodSeconds: 10
           timeoutSeconds: 1
@@ -986,6 +1008,14 @@ spec:
               secretKeyRef:
                 name: harbor-jobservice
                 key: JOBSERVICE_SECRET
+          - name: INTERNAL_TLS_ENABLED
+            value: "true"
+          - name: INTERNAL_TLS_KEY_PATH
+            value: /etc/harbor/ssl/core/tls.key
+          - name: INTERNAL_TLS_CERT_PATH
+            value: /etc/harbor/ssl/core/tls.crt
+          - name: INTERNAL_TLS_TRUST_CA_PATH
+            value: /etc/harbor/ssl/core/ca.crt
         securityContext: 
           allowPrivilegeEscalation: false
           capabilities:
@@ -996,7 +1026,7 @@ spec:
           seccompProfile:
             type: RuntimeDefault
         ports:
-        - containerPort: 8080
+        - containerPort: 8443
         volumeMounts:
         - name: config
           mountPath: /etc/core/app.conf
@@ -1007,6 +1037,8 @@ spec:
         - name: token-service-private-key
           mountPath: /etc/core/private_key.pem
           subPath: tls.key
+        - name: core-internal-certs
+          mountPath: /etc/harbor/ssl/core
         - name: psc
           mountPath: /etc/core/token
       volumes:
@@ -1025,6 +1057,9 @@ spec:
       - name: token-service-private-key
         secret:
           secretName: harbor-core
+      - name: core-internal-certs
+        secret:
+          secretName: harbor-core-internal-tls
       - name: psc
         emptyDir: {}
 ---
@@ -1069,7 +1104,7 @@ spec:
         component: exporter
         app.kubernetes.io/component: exporter
       annotations:
-        checksum/configmap: 0a1d99dd7fe914d300cc1dd194b000981a575edad44aab5e993f9c34d77126ab
+        checksum/configmap: 9ff664cb48dbfb471454a1f0b0617f7a55cd64a05beaff794a6216d615ad23e7
         checksum/secret: 02a0d1a456bf51199066024c46aaaacab4633e965cce5f3730f461681a9efd02
     spec:
       securityContext:
@@ -1117,10 +1152,17 @@ spec:
         ports:
         - containerPort: 8001
         volumeMounts:
+        - name: core-internal-certs
+          mountPath: /etc/harbor/ssl/core
+          # There are some metric data are collectd from harbor core.
+          # When internal TLS is enabled, the Exporter need the CA file to collect these data.
       volumes:
       - name: config
         secret:
           secretName: "harbor-exporter"
+      - name: core-internal-certs
+        secret:
+          secretName: harbor-core-internal-tls
 ---
 # Source: harbor/templates/jobservice/jobservice-dpl.yaml
 apiVersion: apps/v1
@@ -1165,10 +1207,10 @@ spec:
         component: jobservice
         app.kubernetes.io/component: jobservice
       annotations:
-        checksum/configmap: c0d6035f15ab2506c73607e0e5cc60918daf5290f3de32a95c736dfb416921bd
-        checksum/configmap-env: 47cd52ec7b97052e4f1cea2ef624b9f653e31e88008e8ac8049f9eb924de9f24
-        checksum/secret: 69a676337f775369b1af783353a62001149f842e0a7ba1e777fe240ee3f26f49
-        checksum/secret-core: 849910ed059f3aaf3bb86767f99f8b0b66d571ab3b3452cbe16963d8296b42f6
+        checksum/configmap: 6eb5e567818ecd9c8897c893e913eed6a87f12330411e5ca2cf0a24e620db9ef
+        checksum/configmap-env: 428957f0561b91d27843f929820eaa8237fa34299e4e85a06c4c8bbd43f27ed8
+        checksum/secret: acae40102a39a19316a881812cd2e815df87cc14b2fb6c5de21c124e2bc05041
+        checksum/secret-core: 10ffece5c3bd6d2200d5c935c9283d670d9e8c4daf8535e505dec9d28b6a2382
     spec:
       securityContext:
         runAsUser: 10000
@@ -1182,8 +1224,8 @@ spec:
         livenessProbe:
           httpGet:
             path: /api/v1/stats
-            scheme: HTTP
-            port: 8080
+            scheme: HTTPS
+            port: 8443
           initialDelaySeconds: 300
           periodSeconds: 10
           timeoutSeconds: 1
@@ -1192,8 +1234,8 @@ spec:
         readinessProbe:
           httpGet:
             path: /api/v1/stats
-            scheme: HTTP
-            port: 8080
+            scheme: HTTPS
+            port: 8443
           initialDelaySeconds: 20
           periodSeconds: 10
           timeoutSeconds: 1
@@ -1205,6 +1247,14 @@ spec:
               secretKeyRef:
                 name: harbor-core
                 key: secret
+          - name: INTERNAL_TLS_ENABLED
+            value: "true"
+          - name: INTERNAL_TLS_KEY_PATH
+            value: /etc/harbor/ssl/jobservice/tls.key
+          - name: INTERNAL_TLS_CERT_PATH
+            value: /etc/harbor/ssl/jobservice/tls.crt
+          - name: INTERNAL_TLS_TRUST_CA_PATH
+            value: /etc/harbor/ssl/jobservice/ca.crt
         securityContext: 
           allowPrivilegeEscalation: false
           capabilities:
@@ -1220,7 +1270,7 @@ spec:
         - secretRef:
             name: "harbor-jobservice"
         ports:
-        - containerPort: 8080
+        - containerPort: 8443
         volumeMounts:
         - name: jobservice-config
           mountPath: /etc/jobservice/config.yml
@@ -1228,6 +1278,8 @@ spec:
         - name: job-logs
           mountPath: /var/log/jobs
           subPath: 
+        - name: jobservice-internal-certs
+          mountPath: /etc/harbor/ssl/jobservice
       volumes:
       - name: jobservice-config
         configMap:
@@ -1235,6 +1287,9 @@ spec:
       - name: job-logs
         persistentVolumeClaim:
           claimName: harbor-jobservice
+      - name: jobservice-internal-certs
+        secret:
+          secretName: harbor-jobservice-internal-tls
 ---
 # Source: harbor/templates/nginx/deployment.yaml
 apiVersion: apps/v1
@@ -1277,7 +1332,7 @@ spec:
         component: nginx
         app.kubernetes.io/component: nginx
       annotations:
-        checksum/configmap: 3aefb3a86ebd0f81e5be91a353a31df588bad8a886702830a849cce5434db2ba
+        checksum/configmap: 110cb5ad5ae349916ba442add6960e7cb5751102a2eb1de766eb178b257adbbb
     spec:
       securityContext:
         runAsUser: 10000
@@ -1368,7 +1423,7 @@ spec:
         component: portal
         app.kubernetes.io/component: portal
       annotations:
-        checksum/configmap: 961dc4d44d125f5c1ef07b5a39eedb6f6a64048f4ab87b07cc7a2d2c4f223fa3
+        checksum/configmap: 769378cfea405492299583c7f8aa85438d6da5acc673fb4c69fd2738ec5450e3
     spec:
       securityContext:
         runAsUser: 10000
@@ -1390,8 +1445,8 @@ spec:
         livenessProbe:
           httpGet:
             path: /
-            scheme: HTTP
-            port: 8080
+            scheme: HTTPS
+            port: 8443
           initialDelaySeconds: 300
           periodSeconds: 10
           timeoutSeconds: 1
@@ -1400,23 +1455,28 @@ spec:
         readinessProbe:
           httpGet:
             path: /
-            scheme: HTTP
-            port: 8080
+            scheme: HTTPS
+            port: 8443
           initialDelaySeconds: 1
           periodSeconds: 10
           timeoutSeconds: 1
           failureThreshold: 3
           successThreshold: 1
         ports:
-        - containerPort: 8080
+        - containerPort: 8443
         volumeMounts:
         - name: portal-config
           mountPath: /etc/nginx/nginx.conf
           subPath: nginx.conf
+        - name: portal-internal-certs
+          mountPath: /etc/harbor/ssl/portal
       volumes:
       - name: portal-config
         configMap:
           name: "harbor-portal"
+      - name: portal-internal-certs
+        secret:
+          secretName: harbor-portal-internal-tls
 ---
 # Source: harbor/templates/registry/registry-dpl.yaml
 apiVersion: apps/v1
@@ -1461,10 +1521,10 @@ spec:
         component: registry
         app.kubernetes.io/component: registry
       annotations:
-        checksum/configmap: 99029532fe42e0b92fad545321a4362cf19326615a93b04bf3a35305cc00f39f
-        checksum/secret: 681b9455f2d2451b69bc0165ccbdbdd07bea83abf1906f9c33ba6e688865ad2e
-        checksum/secret-jobservice: ef9f9349418564a77fac698135a7c7d81f395dee0ff015eb24a9900f35867ae1
-        checksum/secret-core: 8cd61524408bc297ef004c9d2f0adf2a5832b2e3aaa89548fecb3b430192f6fe
+        checksum/configmap: 6b9803ef21890ff76c9eceb0e62abc2e5b4122470f92270dbf4866ded6a6533f
+        checksum/secret: 045319d6a2a72b96eb09bb1cdd37487f6fd9de6b1d34db8fcbe278ae7139a8a6
+        checksum/secret-jobservice: acae40102a39a19316a881812cd2e815df87cc14b2fb6c5de21c124e2bc05041
+        checksum/secret-core: b1b78e97787b604da825b2c82126053cd9eceb4c6cdcf6c5928f4e1436f5bd2d
     spec:
       securityContext:
         runAsUser: 10000
@@ -1479,8 +1539,8 @@ spec:
         livenessProbe:
           httpGet:
             path: /
-            scheme: HTTP
-            port: 5000
+            scheme: HTTPS
+            port: 5443
           initialDelaySeconds: 300
           periodSeconds: 10
           timeoutSeconds: 1
@@ -1489,8 +1549,8 @@ spec:
         readinessProbe:
           httpGet:
             path: /
-            scheme: HTTP
-            port: 5000
+            scheme: HTTPS
+            port: 5443
           initialDelaySeconds: 1
           periodSeconds: 10
           timeoutSeconds: 1
@@ -1509,8 +1569,16 @@ spec:
         - secretRef:
             name: "harbor-registry"
         env:
+        - name: INTERNAL_TLS_ENABLED
+          value: "true"
+        - name: INTERNAL_TLS_KEY_PATH
+          value: /etc/harbor/ssl/registry/tls.key
+        - name: INTERNAL_TLS_CERT_PATH
+          value: /etc/harbor/ssl/registry/tls.crt
+        - name: INTERNAL_TLS_TRUST_CA_PATH
+          value: /etc/harbor/ssl/registry/ca.crt
         ports:
-        - containerPort: 5000
+        - containerPort: 5443
         - containerPort: 8001
         volumeMounts:
         - name: registry-data
@@ -1522,14 +1590,16 @@ spec:
         - name: registry-config
           mountPath: /etc/registry/config.yml
           subPath: config.yml
+        - name: registry-internal-certs
+          mountPath: /etc/harbor/ssl/registry
       - name: registryctl
         image: docker.io/goharbor/harbor-registryctl:v2.15.1
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
             path: /api/health
-            scheme: HTTP
-            port: 8080
+            scheme: HTTPS
+            port: 8443
           initialDelaySeconds: 300
           periodSeconds: 10
           timeoutSeconds: 1
@@ -1538,8 +1608,8 @@ spec:
         readinessProbe:
           httpGet:
             path: /api/health
-            scheme: HTTP
-            port: 8080
+            scheme: HTTPS
+            port: 8443
           initialDelaySeconds: 1
           periodSeconds: 10
           timeoutSeconds: 1
@@ -1572,8 +1642,16 @@ spec:
             secretKeyRef:
               name: harbor-jobservice
               key: JOBSERVICE_SECRET
+        - name: INTERNAL_TLS_ENABLED
+          value: "true"
+        - name: INTERNAL_TLS_KEY_PATH
+          value: /etc/harbor/ssl/registry/tls.key
+        - name: INTERNAL_TLS_CERT_PATH
+          value: /etc/harbor/ssl/registry/tls.crt
+        - name: INTERNAL_TLS_TRUST_CA_PATH
+          value: /etc/harbor/ssl/registry/ca.crt
         ports:
-        - containerPort: 8080
+        - containerPort: 8443
         volumeMounts:
         - name: registry-data
           mountPath: /storage
@@ -1584,6 +1662,8 @@ spec:
         - name: registry-config
           mountPath: /etc/registryctl/config.yml
           subPath: ctl-config.yml
+        - name: registry-internal-certs
+          mountPath: /etc/harbor/ssl/registry
       volumes:
       - name: registry-htpasswd
         secret:
@@ -1598,6 +1678,9 @@ spec:
       - name: registry-data
         persistentVolumeClaim:
           claimName: harbor-registry
+      - name: registry-internal-certs
+        secret:
+          secretName: harbor-registry-internal-tls
 ---
 # Source: harbor/templates/database/database-ss.yaml
 apiVersion: apps/v1

@@ -1,0 +1,130 @@
+# CA trust for the HTTPS-everywhere build path.
+#
+# Harbor now serves its in-cluster registry over TLS signed by the platform
+# `adhar` CA (application/harbor). Every actor that pushes/pulls those images must
+# trust that CA:
+#   * the kpack controller (resolves + pushes the ClusterBuilder image) — trusts
+#     the `adhar-ca` ConfigMap projected into kpack-system (see buildpack package).
+#   * the kpack build pods (lifecycle prepare/analyze/export talk to Harbor) —
+#     kpack exposes no way to add a volume/env to build pods, so a Kyverno mutate
+#     policy injects the CA + SSL_CERT_DIR into them (below).
+#
+# This file (a) distributes the adhar CA into the two ConfigMaps and (b) defines
+# the build-pod mutate policy. The CA itself is the per-cluster `adhar-cert`
+# secret, so it is copied at sync time rather than baked into git.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-ca-distributor
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-ca-distributor
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-ca-distributor
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: adhar-ca-distributor}
+subjects: [{kind: ServiceAccount, name: adhar-ca-distributor, namespace: adhar-system}]
+---
+# Copy the adhar CA into the ConfigMaps kpack-controller and the build pods read.
+# Runs as a Sync hook (wave -1) so the ConfigMaps exist before those pods start.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adhar-ca-distributor
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  activeDeadlineSeconds: 300
+  template:
+    spec:
+      serviceAccountName: adhar-ca-distributor
+      restartPolicy: Never
+      containers:
+        - name: distribute
+          image: alpine/k8s:1.31.1
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              kubectl get secret adhar-cert -n adhar-system -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/ca.crt
+              # kpack controller (kpack-system) and build pods (adhar-system)
+              kubectl create configmap adhar-ca -n kpack-system --from-file=ca.crt=/tmp/ca.crt \
+                --dry-run=client -o yaml | kubectl apply -f -
+              kubectl create configmap adhar-ca-bundle -n adhar-system --from-file=ca.crt=/tmp/ca.crt \
+                --dry-run=client -o yaml | kubectl apply -f -
+              echo "adhar CA distributed to kpack-system/adhar-ca and adhar-system/adhar-ca-bundle"
+---
+# Inject the adhar CA into every kpack build pod. kpack builds run in adhar-system
+# (excluded from most policies) — this mutate is scoped tightly to pods carrying
+# the kpack build label, and points SSL_CERT_DIR at the CA alongside the system
+# trust store so the Go-based lifecycle trusts Harbor without skip_verify.
+# NOTE: requires the platform Kyverno to admit adhar-system (see security/kyverno):
+# the webhook namespaceSelector must not exclude adhar-system, and the Enforce
+# verify-supply-chain-images policy must exclude adhar-system.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: kpack-build-ca-trust
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    policies.kyverno.io/description: >-
+      Inject the adhar CA + SSL_CERT_DIR into kpack build pods so the buildpacks
+      lifecycle trusts Harbor's internal TLS when it pushes/pulls images.
+spec:
+  background: false
+  rules:
+    - name: inject-adhar-ca
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [adhar-system]
+              selector:
+                matchExpressions:
+                  - key: image.kpack.io/image
+                    operator: Exists
+      mutate:
+        patchStrategicMerge:
+          spec:
+            volumes:
+              - name: adhar-ca-bundle
+                configMap:
+                  name: adhar-ca-bundle
+            initContainers:
+              - (name): "?*"
+                volumeMounts:
+                  - name: adhar-ca-bundle
+                    mountPath: /etc/adhar-ca
+                    readOnly: true
+                env:
+                  - name: SSL_CERT_DIR
+                    value: /etc/ssl/certs:/etc/adhar-ca
+            containers:
+              - (name): "?*"
+                volumeMounts:
+                  - name: adhar-ca-bundle
+                    mountPath: /etc/adhar-ca
+                    readOnly: true
+                env:
+                  - name: SSL_CERT_DIR
+                    value: /etc/ssl/certs:/etc/adhar-ca

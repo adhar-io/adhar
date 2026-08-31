@@ -85,8 +85,14 @@ data:
   defaultRegistry: "docker.io"
   generateSuccessEvents: "false"
   excludeGroups: "system:nodes"
+  # NOTE: the blanket `[*/*,adhar-system,*]` exclusion is intentionally NOT set.
+  # The supply-chain package needs Kyverno to admit adhar-system so its build-pod
+  # CA-injection mutate (kpack-build-ca-trust) fires on kpack build pods. The
+  # Enforce verify-supply-chain-images policy excludes adhar-system explicitly
+  # instead (see application/supply-chain/manifests/40-verify-images.yaml), and
+  # the validating/mutating webhooks are failurePolicy=Ignore, so this does not
+  # add a hard admission dependency on Kyverno for the platform namespace.
   resourceFilters: >-
-    [*/*,adhar-system,*]
     [Event,*,*]
     [*/*,kube-system,*]
     [*/*,kube-public,*]
@@ -191,7 +197,9 @@ data:
     [Secret,adhar-system,kyverno-svc.adhar-system.svc.*]
     [Secret,adhar-system,kyverno-cleanup-controller.adhar-system.svc.*]
   updateRequestThreshold: "1000"
-  webhooks: "{\"namespaceSelector\":{\"matchExpressions\":[{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"kube-system\"]},{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"adhar-system\"]}],\"matchLabels\":null}}"
+  # adhar-system is admitted (see resourceFilters note above) so the supply-chain
+  # build-pod CA-injection mutate can run; only kube-system stays excluded.
+  webhooks: "{\"namespaceSelector\":{\"matchExpressions\":[{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"kube-system\"]}],\"matchLabels\":null}}"
   webhookAnnotations: "{\"admissions.enforcer/disabled\":\"true\"}"
 ---
 # Source: kyverno/templates/config/metricsconfigmap.yaml

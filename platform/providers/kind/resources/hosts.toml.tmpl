@@ -1,13 +1,19 @@
 {{ if .UsePathRouting -}}
+# certs.d host config for the platform gateway registry (path-routing mode).
+# containerd 2.x honours ONLY config_path/certs.d (inline registry.mirrors are
+# rejected alongside config_path), and TLS is verified against the platform CA
+# mounted into the node — no skip_verify.
 server = "https://{{ .Host }}:{{ .Port }}"
 
 [host."https://{{ .Host }}"]
   capabilities = ["pull", "resolve"]
-  skip_verify = true
+  ca = "/etc/adhar/pki/tls.crt"
 {{ else -}}
+# certs.d host config for the in-cluster Gitea registry, verified against the
+# platform CA mounted into the node (no skip_verify).
 server = "https://gitea.{{ .Host }}:{{ .Port }}"
 
 [host."https://gitea.{{ .Host }}"]
   capabilities = ["pull", "resolve"]
-  skip_verify = true
+  ca = "/etc/adhar/pki/tls.crt"
 {{ end -}}

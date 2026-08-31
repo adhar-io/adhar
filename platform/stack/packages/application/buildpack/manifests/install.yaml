@@ -498,12 +498,29 @@ spec:
             configMapKeyRef:
               name: completion-image
               key: image
+        # HTTPS-everywhere: the controller resolves and pushes the ClusterBuilder
+        # image to Harbor (harbor-core.adhar-system.svc, now TLS). Trust the
+        # platform `adhar` CA that signs Harbor's internal certs by searching it
+        # alongside the system trust store (Go honours SSL_CERT_DIR). The CA is
+        # projected into kpack-system as the `adhar-ca` ConfigMap by the
+        # supply-chain package's CA-distribution hook.
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/adhar-ca
+        volumeMounts:
+        - name: adhar-ca
+          mountPath: /etc/adhar-ca
+          readOnly: true
         resources:
           requests:
             cpu: 20m
             memory: 1Gi
           limits:
             memory: 1Gi
+      volumes:
+      - name: adhar-ca
+        configMap:
+          name: adhar-ca
+          optional: true
 ---
 apiVersion: v1
 kind: ServiceAccount

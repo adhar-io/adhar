@@ -30,6 +30,14 @@ nodes:
   - hostPath: {{ .PKIHostPath }}
     containerPath: /etc/adhar/pki
     readOnly: true
+  # certs.d tree (rendered by the kind provider) giving containerd CA-verified
+  # host config for the Gitea and Harbor in-cluster registries — see config.go
+  # (renderRegistryCertsDir) and hosts.toml.tmpl.
+{{- if .RegistryCertsDir }}
+  - hostPath: {{ .RegistryCertsDir }}
+    containerPath: /etc/containerd/certs.d
+    readOnly: true
+{{- end }}
 {{- if .RegistryConfig }}
   - containerPath: /var/lib/kubelet/config.json
     hostPath: {{ .RegistryConfig }}
@@ -137,16 +145,12 @@ kubeadmConfigPatches:
 networking:
   disableDefaultCNI: true   # do not install kindnet
   kubeProxyMode: none       # do not run kube-proxy - Cilium will replace it
+# containerd 2.x accepts ONLY the certs.d/config_path mechanism for per-registry
+# host config (inline registry.mirrors/registry.configs are rejected once
+# config_path is set). Point it at the certs.d tree mounted below, which carries
+# CA-verified host config for BOTH the platform Gitea registry and Harbor's
+# in-cluster core Service (no skip_verify anywhere).
 containerdConfigPatches:
 - |-
-  {{ if .UsePathRouting -}}
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."{{ .Host }}:{{ .Port }}"]
-    endpoint = ["https://{{ .Host }}"]
-  [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ .Host }}".tls]
-    insecure_skip_verify = true
-  {{- else -}}
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gitea.{{ .Host }}:{{ .Port }}"]
-    endpoint = ["https://gitea.{{ .Host }}"]
-  [plugins."io.containerd.grpc.v1.cri".registry.configs."gitea.{{ .Host }}".tls]
-    insecure_skip_verify = true
-  {{- end -}}
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"

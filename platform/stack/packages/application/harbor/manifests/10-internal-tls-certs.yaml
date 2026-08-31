@@ -1,0 +1,106 @@
+# Internal-TLS certificate bootstrap for Harbor's `internalTLS` (see values.yaml).
+#
+# Harbor runs with internalTLS certSource=secret, so every component
+# (core/jobservice/registry/portal) mounts a pre-created Secret holding its TLS
+# cert + the trust CA. This Sync-phase hook mints those four Secrets from the
+# platform CA `adhar-cert` (the same self-signed `adhar` root the kind node
+# already trusts at /etc/adhar/pki/tls.crt and the console mounts) — so the whole
+# pull/push path is HTTPS with ONE known trust root, no skip_verify anywhere.
+#
+# Why the platform CA and not Harbor's own `auto` generator: Harbor's auto certs
+# only carry SANs `harbor-core`/localhost, but the node dials the core Service by
+# its FQDN and pinned ClusterIP. Here we set exactly the SANs each path needs —
+# crucially the core cert carries harbor-core.adhar-system.svc.cluster.local AND
+# the pinned ClusterIP (10.96.222.222, matching the harbor-core Service).
+#
+# Idempotent: it creates each Secret only when absent, so re-syncs are no-ops and
+# never churn the running Harbor. Runs early in the Sync phase (wave -1) so the Secrets exist
+# before Harbor's Deployments start.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: harbor-internal-tls
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: harbor-internal-tls
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: harbor-internal-tls
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: harbor-internal-tls}
+subjects: [{kind: ServiceAccount, name: harbor-internal-tls, namespace: adhar-system}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-internal-tls
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      serviceAccountName: harbor-internal-tls
+      restartPolicy: Never
+      containers:
+        - name: mint
+          image: alpine/k8s:1.31.1
+          env:
+            - {name: NS, value: adhar-system}
+            - {name: CA_SECRET, value: adhar-cert}
+            # Must match the clusterIP pinned onto the harbor-core Service by
+            # generate-manifests.sh, so the core cert is valid for the address
+            # the kind node dials.
+            - {name: CORE_CLUSTERIP, value: "10.96.222.222"}
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              # alpine/k8s ships kubectl + bash but not openssl; install it
+              # (alpine-based, apk available) so cert minting works.
+              command -v openssl >/dev/null 2>&1 || apk add --no-cache openssl >/dev/null 2>&1
+              work=$(mktemp -d); cd "$work"
+              # Pull the platform CA (cert + key) to sign the component certs.
+              kubectl get secret "$CA_SECRET" -n "$NS" -o jsonpath='{.data.tls\.crt}' | base64 -d > ca.crt
+              kubectl get secret "$CA_SECRET" -n "$NS" -o jsonpath='{.data.tls\.key}' | base64 -d > ca.key
+
+              mint() {  # $1=component  $2=SAN string
+                local comp="$1" sans="$2" sec="harbor-${1}-internal-tls"
+                if kubectl get secret "$sec" -n "$NS" >/dev/null 2>&1; then
+                  echo "$sec already present — skipping"; return 0
+                fi
+                printf 'subjectAltName=%s\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth,clientAuth\n' "$sans" > "$comp.ext"
+                openssl req -new -newkey rsa:2048 -nodes -keyout "$comp.key" -subj "/CN=harbor-$comp" -out "$comp.csr"
+                openssl x509 -req -in "$comp.csr" -CA ca.crt -CAkey ca.key -CAcreateserial -days 3650 -sha256 -extfile "$comp.ext" -out "$comp.crt"
+                kubectl create secret generic "$sec" -n "$NS" \
+                  --from-file=ca.crt=ca.crt --from-file=tls.crt="$comp.crt" --from-file=tls.key="$comp.key"
+                echo "created $sec"
+              }
+
+              base='DNS:harbor-%s,DNS:harbor-%s.adhar-system,DNS:harbor-%s.adhar-system.svc,DNS:harbor-%s.adhar-system.svc.cluster.local,DNS:localhost,IP:127.0.0.1'
+              mint core "$(printf "$base" core core core core),IP:${CORE_CLUSTERIP}"
+              mint jobservice "$(printf "$base" jobservice jobservice jobservice jobservice)"
+              mint registry "$(printf "$base" registry registry registry registry)"
+              mint portal "$(printf "$base" portal portal portal portal)"
+              echo "harbor internal-tls secrets ready"
