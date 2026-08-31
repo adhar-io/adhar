@@ -193,6 +193,8 @@ spec:
         - { name: CROSSPLANE_URL, value: 'https://crossplane-webhooks.adhar-system.svc.cluster.local:9443' }
         # Hubble UI (Cilium network flows) — has its own browser UI.
         - { name: HUBBLE_URL, value: 'http://hubble-ui.adhar-system.svc.cluster.local:80' }
+        # JupyterHub — the Zero-to-JupyterHub proxy-public service fronts the hub UI.
+        - { name: JUPYTERHUB_URL, value: 'http://proxy-public.adhar-system.svc.cluster.local:80' }
         # Trivy is Harbor's built-in scanner — the registry already falls back to
         # HARBOR_URL, so setting HARBOR_URL above enables the Trivy tile too.
         # AUTH_CLIENT_SECRET + AUTH_COOKIE_SECRET come from here (templated by
