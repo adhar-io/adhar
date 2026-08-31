@@ -183,6 +183,7 @@ spec:
         - { name: VAULT_URL, value: 'http://vault.adhar-system.svc.cluster.local:8200' }
         - { name: TEKTON_URL, value: 'http://tekton-dashboard.adhar-system.svc.cluster.local:9097' }
         - { name: HARBOR_URL, value: 'http://harbor.adhar-system.svc.cluster.local:80' }
+        - { name: NEXUS_URL, value: 'http://nexus.adhar-system.svc.cluster.local:8081' }
         - { name: MINIO_URL, value: 'http://minio.adhar-system.svc.cluster.local:9000' }
         - { name: ARGO_ROLLOUTS_URL, value: 'http://argo-rollouts-dashboard.adhar-system.svc.cluster.local:3100' }
         # Kyverno + Crossplane have no standalone web UI — their data reaches the
@@ -288,7 +289,12 @@ spec:
         # Console's own relational state (preferences, notification state). Uses
         # the CNPG 'console' database; the console auto-creates its tables.
         DATABASE_URL: 'postgres://console:{{.POSTGRES_PASSWORD}}@console-db-rw.adhar-system.svc.cluster.local:5432/console'
-        ARGOCD_AUTH_TOKEN: argocd.token={{.ARGOCD_SESSION_TOKEN}}
+        # The console's BFF proxy reads `ARGOCD_TOKEN` (registry convention) and
+        # sends it as `Authorization: Bearer <token>`, so this must be the RAW
+        # ArgoCD JWT — not the `argocd.token=<jwt>` cookie form (a Bearer with the
+        # cookie prefix fails auth, and the mismatched `ARGOCD_AUTH_TOKEN` name
+        # left the tile 503 "tool_service_token_missing").
+        ARGOCD_TOKEN: '{{ .ARGOCD_SESSION_TOKEN }}'
         ARGO_CD_URL: http://argo-cd-argocd-server.adhar-system.svc.cluster.local/api/v1/
   data:
   - secretKey: ARGOCD_SESSION_TOKEN
