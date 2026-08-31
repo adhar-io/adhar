@@ -1,0 +1,95 @@
+# Bootstrap Nexus: create the hosted repositories (maven/npm/pypi), enable the
+# npm bearer-token realm, and publish a `nexus-credentials` secret the supply
+# chain uses to publish artefacts. Idempotent PostSync hook — safe every sync.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nexus-config
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nexus-config
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+rules:
+  - {apiGroups: [""], resources: [secrets], verbs: [get, create, update, patch]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-config
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: nexus-config}
+subjects: [{kind: ServiceAccount, name: nexus-config, namespace: adhar-system}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nexus-config
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      serviceAccountName: nexus-config
+      restartPolicy: Never
+      containers:
+        - name: config
+          image: alpine/k8s:1.31.1
+          env:
+            - {name: NEXUS, value: "http://nexus.adhar-system.svc.cluster.local:8081"}
+            - {name: NEXUS_USER, value: "admin"}
+            - {name: NEXUS_PASS, value: "admin123"}
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              AUTH="-u ${NEXUS_USER}:${NEXUS_PASS}"
+              API="${NEXUS}/service/rest/v1"
+              # 1) Wait for Nexus to be up.
+              echo "waiting for Nexus…"
+              for i in $(seq 1 60); do
+                code=$(curl -s -o /dev/null -w "%{http_code}" "${API}/status" || echo 000)
+                [ "$code" = "200" ] && { echo "Nexus up"; break; }
+                sleep 10
+              done
+              # helper: create a hosted repo (idempotent — 400/already-exists ok)
+              mkrepo() {  # $1=path $2=json
+                code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
+                  -X POST "${API}/repositories/$1" -d "$2")
+                case "$code" in
+                  201) echo "created $1" ;;
+                  400) echo "$1 exists / ok ($(head -c 80 /tmp/r))" ;;
+                  *) echo "warn: $1 -> $code $(head -c 120 /tmp/r)" ;;
+                esac
+              }
+              # 2) Hosted repositories for each ecosystem.
+              mkrepo maven/hosted '{"name":"maven-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false,"writePolicy":"ALLOW"},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
+              mkrepo npm/hosted   '{"name":"npm-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}'
+              mkrepo pypi/hosted  '{"name":"pypi-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}'
+              # Proxy caches (so app builds resolve upstream deps through Nexus).
+              mkrepo npm/proxy    '{"name":"npm-registry","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://registry.npmjs.org","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true}}'
+              mkrepo pypi/proxy   '{"name":"pypi-proxy","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://pypi.org/","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true}}'
+              # 3) Enable the npm bearer-token realm (needed for `npm publish`).
+              curl -s $AUTH -H 'Content-Type: application/json' -X PUT "${API}/security/realms/active" \
+                -d '["NexusAuthenticatingRealm","NexusAuthorizingRealm","NpmToken"]' >/dev/null 2>&1 || true
+              echo "npm token realm enabled"
+              # 4) Publish the credentials + endpoints the supply chain consumes.
+              kubectl create secret generic nexus-credentials -n adhar-system \
+                --from-literal=username="${NEXUS_USER}" \
+                --from-literal=password="${NEXUS_PASS}" \
+                --from-literal=url="${NEXUS}" \
+                --from-literal=maven-hosted="${NEXUS}/repository/maven-hosted/" \
+                --from-literal=npm-hosted="${NEXUS}/repository/npm-hosted/" \
+                --from-literal=pypi-hosted="${NEXUS}/repository/pypi-hosted/" \
+                --dry-run=client -o yaml | kubectl apply -f -
+              echo "nexus bootstrap complete"
