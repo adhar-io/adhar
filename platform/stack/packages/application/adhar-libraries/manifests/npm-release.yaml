@@ -20,28 +20,35 @@ spec:
       env:
         - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
         - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
+        - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}
+        - {name: NEXUS_PASS, valueFrom: {secretKeyRef: {name: nexus-credentials, key: password}}}
+        - {name: NEXUS_NPM, valueFrom: {secretKeyRef: {name: nexus-credentials, key: npm-hosted}}}
       workingDir: $(workspaces.source.path)
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
         GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
-        REG="$GITEA/api/packages/adhar/npm/"
+        # Publish to the Nexus npm-hosted repository (the platform's artefact
+        # repository for language packages). Harbor is OCI-images-only.
+        REG="$NEXUS_NPM"
+        HOST=$(printf '%s' "$REG" | sed -E 's#^https?://##')
         git clone --depth 1 "$GITEA/adhar/$(params.repo).git" src
         cd src
-        # Auth for the Gitea npm registry (basic).
-        AUTH=$(printf '%s:%s' "$GITEA_USER" "$GITEA_PASS" | base64 | tr -d '\n')
+        AUTH=$(printf '%s:%s' "$NEXUS_USER" "$NEXUS_PASS" | base64 | tr -d '\n')
         cat > .npmrc <<EOF
         $(params.scope):registry=$REG
-        //gitea-http.adhar-system.svc.cluster.local:3000/api/packages/adhar/npm/:_auth=$AUTH
+        //${HOST}:_auth=$AUTH
         always-auth=true
         EOF
         corepack enable
-        pnpm install --frozen-lockfile
+        # --no-frozen-lockfile: the mirrored source lockfile can lag package.json
+        # (e.g. storybook app deps); a release build should still install + publish.
+        pnpm install --no-frozen-lockfile
         # Build all packages if a build script is defined, then publish each.
         pnpm -r build || true
         pnpm -r --no-git-checks publish --registry "$REG" || \
           echo "some packages may already be published at this version"
-        echo "adhar-ui published to $REG"
+        echo "adhar-ui published to Nexus $REG"
 ---
 apiVersion: tekton.dev/v1
 kind: Pipeline

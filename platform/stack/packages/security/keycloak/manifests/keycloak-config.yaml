@@ -539,6 +539,22 @@ data:
       "redirectUris": ["https://tekton.adhar.localtest.me:8443/oauth2/callback"],
       "webOrigins": ["https://tekton.adhar.localtest.me:8443"]
     }
+  nexus-client-payload.json: |
+      {
+        "protocol": "openid-connect",
+        "clientId": "nexus",
+        "name": "Nexus Repository Client",
+        "description": "Used for Nexus Repository OSS SSO via oauth2-proxy",
+        "publicClient": false,
+        "authorizationServicesEnabled": false,
+        "serviceAccountsEnabled": false,
+        "implicitFlowEnabled": false,
+        "directAccessGrantsEnabled": true,
+        "standardFlowEnabled": true,
+        "frontchannelLogout": true,
+        "redirectUris": ["https://nexus.adhar.localtest.me:8443/oauth2/callback"],
+        "webOrigins": ["https://nexus.adhar.localtest.me:8443"]
+      }
   argo-rollout-client-payload.json: |
     {
       "protocol": "openid-connect",
@@ -684,7 +700,7 @@ spec:
               # setup on an already-provisioned realm, so config changes (e.g. the
               # move to per-app subdomains) never reach the clients and SSO breaks
               # with redirect_uri mismatch. Non-fatal (runs under set +e).
-              for c in argo adhar-console headlamp grafana argocd gitea prometheus vault harbor rustfs minio adhar-cli tekton argo-rollout policy-reporter; do
+              for c in argo adhar-console headlamp grafana argocd gitea prometheus vault harbor rustfs minio adhar-cli tekton nexus argo-rollout policy-reporter; do
                 pf="/var/config/${c}-client-payload.json"
                 [ -f "${pf}" ] || continue
                 cid=$(jq -r '.clientId' "${pf}")
@@ -752,7 +768,7 @@ spec:
               # every OIDC ExternalSecret downstream. Non-fatal (set +e).
               if kubectl -n adhar-system get secret keycloak-clients >/dev/null 2>&1; then
                 # clientId:KEYPREFIX pairs (KEYPREFIX matches the keycloak-clients keys).
-                for pair in argo-workflows:ARGO_WORKFLOWS adhar-console:ADHAR_CONSOLE headlamp:HEADLAMP grafana:GRAFANA argocd:ARGOCD gitea:GITEA prometheus:PROMETHEUS vault:VAULT harbor:HARBOR rustfs:RUSTFS tekton:TEKTON minio:MINIO jupyterhub:JUPYTERHUB argo-rollout:ARGO_ROLLOUT policy-reporter:POLICY_REPORTER; do
+                for pair in argo-workflows:ARGO_WORKFLOWS adhar-console:ADHAR_CONSOLE headlamp:HEADLAMP grafana:GRAFANA argocd:ARGOCD gitea:GITEA prometheus:PROMETHEUS vault:VAULT harbor:HARBOR rustfs:RUSTFS tekton:TEKTON minio:MINIO jupyterhub:JUPYTERHUB nexus:NEXUS argo-rollout:ARGO_ROLLOUT policy-reporter:POLICY_REPORTER; do
                   cid="${pair%%:*}"; kp="${pair##*:}"
                   rid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                     "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
@@ -812,6 +828,7 @@ spec:
                     --from-literal=ARGO_ROLLOUT_CLIENT_ID=argo-rollout --from-literal=ARGO_ROLLOUT_CLIENT_SECRET="$(getsec argo-rollout)" \
                     --from-literal=POLICY_REPORTER_CLIENT_ID=policy-reporter --from-literal=POLICY_REPORTER_CLIENT_SECRET="$(getsec policy-reporter)" \
                     --from-literal=JUPYTERHUB_CLIENT_ID=jupyterhub --from-literal=JUPYTERHUB_CLIENT_SECRET="$(getsec jupyterhub)" \
+                    --from-literal=NEXUS_CLIENT_ID=nexus --from-literal=NEXUS_CLIENT_SECRET="$(getsec nexus)" \
                     --dry-run=client -o yaml | kubectl apply -f -
                 fi
                 exit 0
@@ -1245,7 +1262,7 @@ spec:
               set +e
               GROUPS_SCOPE_ID=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
                 "${KEYCLOAK_URL}/admin/realms/adhar/client-scopes" | jq -r '.[] | select(.name=="groups") | .id')
-              for pair in argo-rollout:ARGO_ROLLOUT policy-reporter:POLICY_REPORTER jupyterhub:JUPYTERHUB; do
+              for pair in nexus:NEXUS argo-rollout:ARGO_ROLLOUT policy-reporter:POLICY_REPORTER jupyterhub:JUPYTERHUB; do
                 cid="${pair%%:*}"; kp="${pair##*:}"
                 pf="/var/config/${cid}-client-payload.json"
                 rid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \

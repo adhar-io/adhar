@@ -1,0 +1,115 @@
+# Keycloak SSO in front of Nexus (same pattern as Tekton/Harbor). Nexus's own
+# login stays for API/tooling auth, but the UI is gated by an oauth2-proxy using
+# the `nexus` Keycloak client (provisioned by the keycloak config job; secret via
+# ESO from keycloak-clients). The oidc-issuer-url auto-discovers Keycloak's
+# endpoints via /.well-known/openid-configuration.
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: nexus-oauth2-cookie
+  namespace: adhar-system
+spec:
+  length: 32
+  digits: 8
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: nexus-oauth2-proxy
+  namespace: adhar-system
+spec:
+  refreshPolicy: CreatedOnce
+  refreshInterval: 5m
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: nexus-oauth2-proxy
+    template:
+      engineVersion: v2
+      data:
+        OAUTH2_PROXY_CLIENT_SECRET: "{{ .NEXUS_CLIENT_SECRET }}"
+        OAUTH2_PROXY_COOKIE_SECRET: "{{ .COOKIE_SECRET }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: nexus-oauth2-cookie
+      rewrite:
+        - transform:
+            template: "COOKIE_SECRET"
+  data:
+    - secretKey: NEXUS_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: NEXUS_CLIENT_SECRET
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: nexus-oauth2-proxy
+    app.kubernetes.io/part-of: nexus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nexus-oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: nexus-oauth2-proxy
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=oidc
+            - --oidc-issuer-url=https://keycloak.adhar.localtest.me:8443/realms/adhar
+            - --ssl-insecure-skip-verify=true
+            - --client-id=nexus
+            - --redirect-url=https://nexus.adhar.localtest.me:8443/oauth2/callback
+            - --upstream=http://nexus.adhar-system.svc.cluster.local:8081
+            - --email-domain=*
+            - --scope=openid profile email groups
+            - --cookie-secure=true
+            - --skip-provider-button=true
+            - --reverse-proxy=true
+          envFrom:
+            - secretRef:
+                name: nexus-oauth2-proxy
+          ports:
+            - name: http
+              containerPort: 4180
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 4180
+            initialDelaySeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: nexus-oauth2-proxy
+    app.kubernetes.io/part-of: nexus
+spec:
+  selector:
+    app: nexus-oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180

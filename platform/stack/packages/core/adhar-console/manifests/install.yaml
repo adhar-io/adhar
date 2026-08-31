@@ -183,6 +183,7 @@ spec:
         - { name: VAULT_URL, value: 'http://vault.adhar-system.svc.cluster.local:8200' }
         - { name: TEKTON_URL, value: 'http://tekton-dashboard.adhar-system.svc.cluster.local:9097' }
         - { name: HARBOR_URL, value: 'http://harbor.adhar-system.svc.cluster.local:80' }
+        - { name: NEXUS_URL, value: 'http://nexus.adhar-system.svc.cluster.local:8081' }
         - { name: MINIO_URL, value: 'http://minio.adhar-system.svc.cluster.local:9000' }
         - { name: ARGO_ROLLOUTS_URL, value: 'http://argo-rollouts-dashboard.adhar-system.svc.cluster.local:3100' }
         # Kyverno + Crossplane have no standalone web UI — their data reaches the

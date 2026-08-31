@@ -332,6 +332,13 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/harbor/manifests"
+          # Nexus Repository OSS — artefact repository for language packages
+          # (Maven/npm/PyPI). Harbor stays OCI-images-only; Nexus owns the rest.
+          - name: "nexus"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/nexus/manifests"
           # End-to-end software supply chain (kpack build+sign → trivy/cosign gate
           # → kyverno verify → service-from-template). Opt-in: enable AFTER the core
           # is healthy so the kpack builder's image pulls don't compete with the

@@ -86,14 +86,14 @@ spec:
       image: $(params.builder)
       env:
         - {name: CNB_PLATFORM_API, value: "0.12"}
-        - {name: DOCKER_CONFIG, value: /tekton/creds-secrets/harbor-dockercfg}
+        - {name: DOCKER_CONFIG, value: /docker-config}
       command: ["/cnb/lifecycle/creator"]
       args:
         - "-app=$(workspaces.source.path)/$(params.subdirectory)"
         - "-insecure-registry=harbor-core.adhar-system.svc.cluster.local"
         - "$(params.image):latest"
       volumeMounts:
-        - {name: harbor-dockercfg, mountPath: /tekton/creds-secrets/harbor-dockercfg}
+        - {name: harbor-dockercfg, mountPath: /docker-config}
   volumes:
     - name: harbor-dockercfg
       secret:
@@ -127,9 +127,9 @@ spec:
         - "--skip-tls-verify"
         - "--digest-file=$(results.digest.path)"
       env:
-        - {name: DOCKER_CONFIG, value: /tekton/creds-secrets/harbor-dockercfg}
+        - {name: DOCKER_CONFIG, value: /docker-config}
       volumeMounts:
-        - {name: harbor-dockercfg, mountPath: /tekton/creds-secrets/harbor-dockercfg}
+        - {name: harbor-dockercfg, mountPath: /docker-config}
   volumes:
     - name: harbor-dockercfg
       secret:

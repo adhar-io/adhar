@@ -1,0 +1,28 @@
+# Nexus UI + repository APIs on a dedicated host, nexus.adhar.localtest.me,
+# through the Cilium Gateway. TLS terminates at the Gateway (adhar-cert wildcard).
+# Nexus serves the UI and all repository endpoints (/repository, /service) at
+# root, so it owns "/" on its own host.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: nexus
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: nexus
+    app.kubernetes.io/part-of: adhar-supply-chain
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - nexus.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        # Routed through the Keycloak oauth2-proxy (dashboard-sso.yaml) so the UI
+        # requires SSO; the proxy forwards to the nexus Service upstream.
+        - name: nexus-oauth2-proxy
+          port: 4180
