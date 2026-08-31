@@ -203,6 +203,11 @@ spec:
         envFrom:
         - secretRef:
             name: console-env-vars
+        # Gitea admin username/password + API token (GITEA_TOKEN) for the
+        # server-side Gitea proxy. Kept in a separate ExternalSecret because it
+        # syncs from the `gitea` ClusterSecretStore, not `keycloak`.
+        - secretRef:
+            name: gitea-credentials
         resources:
           requests:
             cpu: 100m
@@ -338,3 +343,11 @@ spec:
     remoteRef:
       key: gitea-credential
       property: password
+  # API token for the console's server-side Gitea proxy. The BFF reads
+  # `GITEA_TOKEN` and sends it as a Bearer (Gitea accepts a PAT as Bearer); a
+  # missing token left the tile 503 "tool_service_token_missing". This secret is
+  # added to the console Deployment's envFrom below so the token reaches the pod.
+  - secretKey: GITEA_TOKEN
+    remoteRef:
+      key: gitea-credential
+      property: token
