@@ -53,16 +53,28 @@ spec:
           resources:
             requests: {cpu: 250m, memory: 1536Mi}
             limits: {memory: 3Gi}
+          # Nexus 3 cold-starts slowly (Jetty + OrientDB init, minutes on an
+          # empty PVC). A startupProbe gates liveness/readiness so the app gets
+          # up to ~10min to come up instead of the liveness probe SIGKILLing it
+          # mid-boot (the previous crash loop: exitCode 137 "failed liveness
+          # probe"). timeoutSeconds bumped off the 1s default so a busy JVM
+          # doesn't trip the probe.
+          startupProbe:
+            httpGet: {path: /service/rest/v1/status, port: 8081}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 5
           readinessProbe:
             httpGet: {path: /service/rest/v1/status, port: 8081}
-            initialDelaySeconds: 60
             periodSeconds: 15
-            failureThreshold: 40
+            failureThreshold: 5
+            timeoutSeconds: 5
           livenessProbe:
             httpGet: {path: /, port: 8081}
-            initialDelaySeconds: 120
             periodSeconds: 30
             failureThreshold: 10
+            timeoutSeconds: 5
           volumeMounts:
             - {name: nexus-data, mountPath: /nexus-data}
       volumes:
