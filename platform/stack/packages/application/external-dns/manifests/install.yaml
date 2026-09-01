@@ -156,11 +156,14 @@ spec:
             # other's records.
             - --txt-owner-id=adhar
             # Per-environment: replace with your DNS provider (aws, google,
-            # azure, digitalocean, civo, ...) plus its credentials; `fake`
-            # keeps the package inert until configured. Keep the
+            # azure, digitalocean, civo, ...) plus its credentials. `inmemory`
+            # keeps the package inert until configured — it computes desired
+            # records from the sources but writes to an in-memory zone, so the
+            # controller runs healthy with no cloud creds. (external-dns renamed
+            # the old `fake` provider to `inmemory` in v0.14+.) Keep the
             # gateway-httproute source — it is what wires DNS to the platform
             # Gateway (roadmap P1.3).
-            - --provider=fake
+            - --provider=inmemory
           ports:
             - name: http
               protocol: TCP

@@ -4,6 +4,9 @@ kind: HTTPRoute
 metadata:
   name: prefect
   namespace: adhar-system
+  # Apply after the Service (wave 2 > 1) — see kafka-ui httproute for the
+  # sync-wave deadlock this avoids.
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
   labels:
     app.kubernetes.io/name: prefect
     app.kubernetes.io/part-of: adhar-data

@@ -3,14 +3,15 @@
 # Gateway API only -- ExternalDNS has no Ingress and no web UI; nothing to
 # disable and no HTTPRoute required.
 #
-# The "fake" provider lets the controller start without cloud credentials on a
-# local cluster. Override `provider` (e.g. aws, google, cloudflare, civo) and
-# supply credentials per environment for real DNS management. We include the
+# The "inmemory" provider lets the controller start without cloud credentials on
+# a local cluster (external-dns renamed the old "fake" provider to "inmemory" in
+# v0.14+). Override `provider` (e.g. aws, google, cloudflare, civo) and supply
+# credentials per environment for real DNS management. We include the
 # gateway-httproute source so ExternalDNS can publish records from Cilium
 # Gateway API HTTPRoutes.
 
 provider:
-  name: fake
+  name: inmemory
 
 sources:
   - service

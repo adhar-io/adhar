@@ -196,7 +196,7 @@ spec:
             category: "application"
             manifestPath: "application/chaos-mesh/manifests"
           - name: "external-dns"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/external-dns/manifests"

@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# ExternalDNS controller. No web UI, so no HTTPRoute. The DNS provider is left at
-# the chart default ("fake") in values.yaml so the controller installs cleanly on
-# a local cluster; set a real provider + credentials per environment.
+# ExternalDNS controller. No web UI, so no HTTPRoute. The DNS provider is set to
+# "inmemory" in values.yaml so the controller installs cleanly on a local cluster
+# with no cloud creds; set a real provider + credentials per environment.
 
 INSTALL_YAML="manifests/install.yaml"
 CHART_VERSION="1.21.1"
