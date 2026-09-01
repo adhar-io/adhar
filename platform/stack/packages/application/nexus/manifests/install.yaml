@@ -8,7 +8,12 @@ kind: PersistentVolumeClaim
 metadata:
   name: nexus-data
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "0"}
+  # Same wave as the Deployment on purpose: the `standard` StorageClass is
+  # WaitForFirstConsumer, so the PVC only binds once its consumer pod is
+  # scheduled. In an earlier wave ArgoCD blocks "waiting for healthy state of
+  # PVC/nexus-data" and never applies the Deployment → deadlock (PVC Pending
+  # forever). Applying both together lets the pod bind the volume.
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
   accessModes: [ReadWriteOnce]
   resources:
