@@ -1,6 +1,8 @@
-# Build + release adhar-ui (@adhar-ui/*) to the Gitea npm registry. Tekton
-# pipeline; the PipelineRun below runs it once per sync (PostSync, after the
-# mirror). Add a Gitea webhook → EventListener for release-on-push.
+# Build + release adhar-ui (@adhar-ui/*) to the Sonatype Nexus npm registry
+# (repository `npm-hosted`). Tekton pipeline; the PipelineRun below runs it once
+# per sync (PostSync, after the mirror). Dependency resolution is pulled through
+# the Nexus `npm-registry` proxy (which caches npmjs.org).
+# A Gitea webhook → EventListener (triggers.yaml) reruns it on push.
 ---
 apiVersion: tekton.dev/v1
 kind: Task
@@ -18,6 +20,12 @@ spec:
     - name: build-and-publish
       image: docker.io/library/node:20-bookworm
       env:
+        # Nexus credentials + endpoints published by the nexus-config bootstrap Job.
+        - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}
+        - {name: NEXUS_PASS, valueFrom: {secretKeyRef: {name: nexus-credentials, key: password}}}
+        - {name: NEXUS_NPM, valueFrom: {secretKeyRef: {name: nexus-credentials, key: npm-hosted}}}
+        - {name: NEXUS_URL, valueFrom: {secretKeyRef: {name: nexus-credentials, key: url}}}
+        # Clone source from Gitea (git mirror is still Gitea-hosted).
         - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
         - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
       workingDir: $(workspaces.source.path)
@@ -25,23 +33,30 @@ spec:
         #!/usr/bin/env bash
         set -euo pipefail
         GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
-        REG="$GITEA/api/packages/adhar/npm/"
+        # Publish target (hosted) + resolution proxy (caches npmjs.org).
+        NPM_HOSTED="${NEXUS_NPM%/}/"
+        NPM_PROXY="${NEXUS_URL%/}/repository/npm-registry/"
+        # Host:port for the per-registry auth lines (derived, not hardcoded).
+        HOST="${NEXUS_URL#*://}"
         git clone --depth 1 "$GITEA/adhar/$(params.repo).git" src
         cd src
-        # Auth for the Gitea npm registry (basic).
-        AUTH=$(printf '%s:%s' "$GITEA_USER" "$GITEA_PASS" | base64 | tr -d '\n')
+        # Nexus npm accepts base64(user:pass) as _auth on the registry path.
+        AUTH=$(printf '%s:%s' "$NEXUS_USER" "$NEXUS_PASS" | base64 | tr -d '\n')
         cat > .npmrc <<EOF
-        $(params.scope):registry=$REG
-        //gitea-http.adhar-system.svc.cluster.local:3000/api/packages/adhar/npm/:_auth=$AUTH
+        registry=$NPM_PROXY
+        $(params.scope):registry=$NPM_HOSTED
+        //${HOST}/repository/npm-hosted/:_auth=$AUTH
+        //${HOST}/repository/npm-registry/:_auth=$AUTH
         always-auth=true
         EOF
         corepack enable
         pnpm install --frozen-lockfile
-        # Build all packages if a build script is defined, then publish each.
+        # Build all packages if a build script is defined, then publish each. A
+        # version already present in Nexus must not hard-fail the run (idempotent).
         pnpm -r build || true
-        pnpm -r --no-git-checks publish --registry "$REG" || \
+        pnpm -r --no-git-checks publish --registry "$NPM_HOSTED" || \
           echo "some packages may already be published at this version"
-        echo "adhar-ui published to $REG"
+        echo "adhar-ui published to $NPM_HOSTED (resolved via $NPM_PROXY)"
 ---
 apiVersion: tekton.dev/v1
 kind: Pipeline

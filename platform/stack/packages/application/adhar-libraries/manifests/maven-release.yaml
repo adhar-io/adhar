@@ -1,5 +1,7 @@
-# Build + release adhar-kit (com.adhar.kit:*) to the Gitea Maven registry.
-# Tekton pipeline; the PipelineRun runs it once per sync (PostSync, after mirror).
+# Build + release adhar-kit (com.adhar.kit:*) to the Sonatype Nexus Maven
+# registry (repository `maven-hosted`). Tekton pipeline; the PipelineRun runs it
+# once per sync (PostSync, after mirror). Dependency resolution is pulled through
+# Nexus via a `<mirror>` onto the default `maven-public` group.
 # Adjust the builder image if adhar-kit targets a newer JDK.
 ---
 apiVersion: tekton.dev/v1
@@ -17,6 +19,12 @@ spec:
     - name: mvn-deploy
       image: docker.io/library/maven:3.9-eclipse-temurin-21
       env:
+        # Nexus credentials + endpoints published by the nexus-config bootstrap Job.
+        - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}
+        - {name: NEXUS_PASS, valueFrom: {secretKeyRef: {name: nexus-credentials, key: password}}}
+        - {name: NEXUS_MAVEN, valueFrom: {secretKeyRef: {name: nexus-credentials, key: maven-hosted}}}
+        - {name: NEXUS_URL, valueFrom: {secretKeyRef: {name: nexus-credentials, key: url}}}
+        # Clone source from Gitea (git mirror is still Gitea-hosted).
         - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
         - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
       workingDir: $(workspaces.source.path)
@@ -24,24 +32,39 @@ spec:
         #!/usr/bin/env bash
         set -euo pipefail
         GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
-        MAVEN_URL="$GITEA/api/packages/adhar/maven"
+        # Publish target (hosted) + resolution group (default Nexus maven-public).
+        MAVEN_URL="${NEXUS_MAVEN%/}"
+        MAVEN_PUBLIC="${NEXUS_URL%/}/repository/maven-public/"
         git clone --depth 1 "$GITEA/adhar/$(params.repo).git" src
         cd src
         cat > settings.xml <<EOF
         <settings>
           <servers>
             <server>
-              <id>gitea</id>
-              <username>${GITEA_USER}</username>
-              <password>${GITEA_PASS}</password>
+              <id>nexus</id>
+              <username>${NEXUS_USER}</username>
+              <password>${NEXUS_PASS}</password>
+            </server>
+            <server>
+              <id>nexus-public</id>
+              <username>${NEXUS_USER}</username>
+              <password>${NEXUS_PASS}</password>
             </server>
           </servers>
+          <mirrors>
+            <mirror>
+              <id>nexus-public</id>
+              <name>Nexus Public Mirror</name>
+              <url>${MAVEN_PUBLIC}</url>
+              <mirrorOf>*</mirrorOf>
+            </mirror>
+          </mirrors>
         </settings>
         EOF
         mvn -B -s settings.xml -DskipTests \
-          -DaltDeploymentRepository="gitea::default::$MAVEN_URL" \
+          -DaltDeploymentRepository="nexus::default::$MAVEN_URL" \
           deploy
-        echo "adhar-kit published to $MAVEN_URL"
+        echo "adhar-kit published to $MAVEN_URL (resolved via $MAVEN_PUBLIC)"
 ---
 apiVersion: tekton.dev/v1
 kind: Pipeline

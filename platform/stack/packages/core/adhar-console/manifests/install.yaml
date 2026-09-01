@@ -175,6 +175,17 @@ spec:
         # unconfigured (honest "not set up" tiles).
         - { name: GITEA_URL, value: 'http://gitea-http.adhar-system.svc.cluster.local:3000' }
         - { name: ARGOCD_URL, value: 'http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80' }
+        # ArgoCD admin credentials for the BFF's 'login' auth mode: the console
+        # mints and refreshes its own short-lived ArgoCD session token from these
+        # durable creds, so it never depends on a pre-injected token that expires
+        # (the old 24h ARGOCD_SESSION_TOKEN would 401 after a day). Password comes
+        # from the ArgoCD-managed initial-admin secret in this namespace.
+        - { name: ARGOCD_USERNAME, value: 'admin' }
+        - name: ARGOCD_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: argocd-credentials
+              key: ARGOCD_ADMIN_PASSWORD
         - { name: GRAFANA_URL, value: 'http://prometheus-grafana.adhar-system.svc.cluster.local:80' }
         - { name: PROMETHEUS_URL, value: 'http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090' }
         - { name: LOKI_URL, value: 'http://loki.adhar-system.svc.cluster.local:3100' }
@@ -184,6 +195,9 @@ spec:
         - { name: TEKTON_URL, value: 'http://tekton-dashboard.adhar-system.svc.cluster.local:9097' }
         - { name: HARBOR_URL, value: 'http://harbor.adhar-system.svc.cluster.local:80' }
         - { name: NEXUS_URL, value: 'http://nexus.adhar-system.svc.cluster.local:8081' }
+        - { name: KAFKA_UI_URL, value: 'http://kafka-ui.adhar-system.svc.cluster.local:80' }
+        - { name: TOOLJET_URL, value: 'http://tooljet.adhar-system.svc.cluster.local:80' }
+        - { name: PENPOT_URL, value: 'http://penpot.adhar-system.svc.cluster.local:8080' }
         - { name: MINIO_URL, value: 'http://minio.adhar-system.svc.cluster.local:9000' }
         - { name: ARGO_ROLLOUTS_URL, value: 'http://argo-rollouts-dashboard.adhar-system.svc.cluster.local:3100' }
         # Kyverno + Crossplane have no standalone web UI — their data reaches the

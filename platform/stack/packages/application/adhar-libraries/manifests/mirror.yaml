@@ -2,7 +2,9 @@
 # customise and maintain them in-cluster. Each Job (idempotent) creates the Gitea
 # repo and force-pushes the GitHub main branch. Runs as a PostSync hook so it
 # re-mirrors on every sync; the release pipelines (npm-release.yaml /
-# maven-release.yaml) then publish to Gitea's package registry.
+# maven-release.yaml) then publish to the Nexus package registry
+# (npm-hosted / maven-hosted). This Job only mirrors git repos GitHub -> Gitea;
+# it is not a package/dependency mirror, so no Nexus config lives here.
 ---
 apiVersion: v1
 kind: ServiceAccount

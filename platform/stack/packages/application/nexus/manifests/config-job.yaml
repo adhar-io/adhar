@@ -79,6 +79,11 @@ spec:
               # Proxy caches (so app builds resolve upstream deps through Nexus).
               mkrepo npm/proxy    '{"name":"npm-registry","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://registry.npmjs.org","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true}}'
               mkrepo pypi/proxy   '{"name":"pypi-proxy","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://pypi.org/","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true}}'
+              # Maven Central proxy + a public GROUP (maven-hosted + maven-central) so
+              # builds resolve deps through Nexus. The release pipeline mirrors
+              # * -> maven-public, which 404s (fails all resolution) without this group.
+              mkrepo maven/proxy '{"name":"maven-central","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://repo1.maven.org/maven2/","contentMaxAge":-1,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true},"maven":{"versionPolicy":"RELEASE","layoutPolicy":"PERMISSIVE"}}'
+              mkrepo maven/group '{"name":"maven-public","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"group":{"memberNames":["maven-hosted","maven-central"]}}'
               # 3) Enable the npm bearer-token realm (needed for `npm publish`).
               curl -s $AUTH -H 'Content-Type: application/json' -X PUT "${API}/security/realms/active" \
                 -d '["NexusAuthenticatingRealm","NexusAuthorizingRealm","NpmToken"]' >/dev/null 2>&1 || true
@@ -89,6 +94,7 @@ spec:
                 --from-literal=password="${NEXUS_PASS}" \
                 --from-literal=url="${NEXUS}" \
                 --from-literal=maven-hosted="${NEXUS}/repository/maven-hosted/" \
+                --from-literal=maven-public="${NEXUS}/repository/maven-public/" \
                 --from-literal=npm-hosted="${NEXUS}/repository/npm-hosted/" \
                 --from-literal=pypi-hosted="${NEXUS}/repository/pypi-hosted/" \
                 --dry-run=client -o yaml | kubectl apply -f -
