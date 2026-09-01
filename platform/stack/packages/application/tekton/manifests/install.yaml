@@ -2739,8 +2739,8 @@ spec:
             cpu: 100m
             memory: 100Mi
           limits:
-            cpu: 1000m
-            memory: 4Gi
+            cpu: 500m
+            memory: 512Mi
         ports:
         - name: metrics
           containerPort: 9090

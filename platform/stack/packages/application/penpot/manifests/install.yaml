@@ -8,10 +8,10 @@ metadata:
   name: penpot
   namespace: adhar-system
   labels:
-    helm.sh/chart: penpot-1.2.0
+    helm.sh/chart: penpot-1.9.0
     app.kubernetes.io/name: penpot
     app.kubernetes.io/instance: penpot
-    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/version: "2.17.2"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: penpot/templates/assets-persistentvolumeclaim.yml
@@ -21,10 +21,10 @@ metadata:
   name: penpot-data-assets
   namespace: adhar-system
   labels:
-    helm.sh/chart: penpot-1.2.0
+    helm.sh/chart: penpot-1.9.0
     app.kubernetes.io/name: penpot
     app.kubernetes.io/instance: penpot
-    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/version: "2.17.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   accessModes:
@@ -40,10 +40,10 @@ metadata:
   name: penpot-backend
   namespace: adhar-system
   labels:
-    helm.sh/chart: penpot-1.2.0
+    helm.sh/chart: penpot-1.9.0
     app.kubernetes.io/name: penpot
     app.kubernetes.io/instance: penpot
-    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/version: "2.17.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -63,10 +63,10 @@ metadata:
   name: penpot-exporter
   namespace: adhar-system
   labels:
-    helm.sh/chart: penpot-1.2.0
+    helm.sh/chart: penpot-1.9.0
     app.kubernetes.io/name: penpot
     app.kubernetes.io/instance: penpot
-    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/version: "2.17.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -86,10 +86,10 @@ metadata:
   name: penpot
   namespace: adhar-system
   labels:
-    helm.sh/chart: penpot-1.2.0
+    helm.sh/chart: penpot-1.9.0
     app.kubernetes.io/name: penpot
     app.kubernetes.io/instance: penpot
-    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/version: "2.17.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -109,10 +109,10 @@ metadata:
   name: penpot-backend
   namespace: adhar-system
   labels:
-    helm.sh/chart: penpot-1.2.0
+    helm.sh/chart: penpot-1.9.0
     app.kubernetes.io/name: penpot
     app.kubernetes.io/instance: penpot
-    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/version: "2.17.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   selector:
@@ -134,7 +134,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: penpot-backend
-          image: "penpotapp/backend:2.15.4"
+          image: "penpotapp/backend:2.17.2"
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -210,10 +210,10 @@ metadata:
   name: penpot-exporter
   namespace: adhar-system
   labels:
-    helm.sh/chart: penpot-1.2.0
+    helm.sh/chart: penpot-1.9.0
     app.kubernetes.io/name: penpot
     app.kubernetes.io/instance: penpot
-    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/version: "2.17.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -235,7 +235,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: penpot-exporter
-          image: "penpotapp/exporter:2.15.4"
+          image: "penpotapp/exporter:2.17.2"
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -247,6 +247,8 @@ spec:
             runAsUser: 1001
           env:
             - name: PENPOT_PUBLIC_URI
+              value: "https://adhar.localtest.me:8443/penpot"
+            - name: PENPOT_INTERNAL_URI
               value: http://penpot:8080
             - name: PENPOT_SECRET_KEY
               value: "kmZ96pAxhTgk3HZvvBkPeVTspGBneKVLEpO_3ecORs_gwACENZ77z05zCe7skvPsQ3jI3QgkULQOWCuLjmjQsg"
@@ -272,10 +274,10 @@ metadata:
   name: penpot-frontend
   namespace: adhar-system
   labels:
-    helm.sh/chart: penpot-1.2.0
+    helm.sh/chart: penpot-1.9.0
     app.kubernetes.io/name: penpot
     app.kubernetes.io/instance: penpot
-    app.kubernetes.io/version: "2.15.4"
+    app.kubernetes.io/version: "2.17.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   selector:
@@ -297,7 +299,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: penpot-frontend
-          image: "penpotapp/frontend:2.15.4"
+          image: "penpotapp/frontend:2.17.2"
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

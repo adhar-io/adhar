@@ -1,0 +1,134 @@
+# ToolJet — open-source low-code platform for building internal tools/apps.
+# Self-contained: its own PostgreSQL (app metadata) + Redis (background jobs) +
+# the ToolJet CE all-in-one server. Disabled in the local core (heavy); enable
+# per environment. The pinned SECRET_KEY_BASE / LOCKBOX_MASTER_KEY keep encrypted
+# credentials stable across re-renders — rotate them for a real deployment.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tooljet-secrets
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+type: Opaque
+stringData:
+  SECRET_KEY_BASE: "a938b414981accfd1ea7135174a89bfa750a509e27f5eea98bdc0d06de474b3123f386beb4be43d0a509d044f0b936b80391460caa34e590913c22c1152ed0bd"
+  LOCKBOX_MASTER_KEY: "486e6539fd83a894b075c95e195cac3cd7205e893afd2227cd2191939123e380"
+  PG_PASS: "05ebf617321a0051123baeed71059e26"
+---
+# --- PostgreSQL (ToolJet metadata store) ---------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tooljet-postgres
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 2Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tooljet-postgres
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: tooljet-postgres, app.kubernetes.io/part-of: tooljet}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/name: tooljet-postgres}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: tooljet-postgres}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - {name: POSTGRES_USER, value: tooljet}
+            - {name: POSTGRES_DB, value: tooljet}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: tooljet-secrets, key: PG_PASS}}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{containerPort: 5432}]
+          resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {memory: 512Mi}}
+          readinessProbe: {exec: {command: [pg_isready, -U, tooljet]}, initialDelaySeconds: 10, periodSeconds: 10}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: tooljet-postgres}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tooljet-postgres, namespace: adhar-system, annotations: {argocd.argoproj.io/sync-wave: "1"}}
+spec:
+  selector: {app.kubernetes.io/name: tooljet-postgres}
+  ports: [{port: 5432, targetPort: 5432}]
+---
+# --- Redis (background jobs) ----------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: tooljet-redis, namespace: adhar-system, labels: {app.kubernetes.io/name: tooljet-redis, app.kubernetes.io/part-of: tooljet}, annotations: {argocd.argoproj.io/sync-wave: "1"}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: tooljet-redis}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: tooljet-redis}}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{containerPort: 6379}]
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {memory: 128Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tooljet-redis, namespace: adhar-system, annotations: {argocd.argoproj.io/sync-wave: "1"}}
+spec:
+  selector: {app.kubernetes.io/name: tooljet-redis}
+  ports: [{port: 6379, targetPort: 6379}]
+---
+# --- ToolJet server -------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tooljet
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: tooljet, app.kubernetes.io/part-of: tooljet}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/name: tooljet}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: tooljet}}
+    spec:
+      containers:
+        - name: tooljet
+          image: tooljet/tooljet-ce:ce-latest
+          # Run DB create+migrate, then start the production server.
+          command: ["/bin/sh", "-c", "npm run db:create && npm run db:migrate && exec npm run start:prod"]
+          env:
+            - {name: TOOLJET_HOST, value: "https://tooljet.adhar.localtest.me:8443"}
+            - {name: NODE_ENV, value: production}
+            - {name: DEPLOYMENT_PLATFORM, value: k8s}
+            - {name: SERVE_CLIENT, value: "true"}
+            - {name: PORT, value: "3000"}
+            - {name: SECRET_KEY_BASE, valueFrom: {secretKeyRef: {name: tooljet-secrets, key: SECRET_KEY_BASE}}}
+            - {name: LOCKBOX_MASTER_KEY, valueFrom: {secretKeyRef: {name: tooljet-secrets, key: LOCKBOX_MASTER_KEY}}}
+            - {name: PG_HOST, value: tooljet-postgres.adhar-system.svc.cluster.local}
+            - {name: PG_PORT, value: "5432"}
+            - {name: PG_USER, value: tooljet}
+            - {name: PG_DB, value: tooljet}
+            - {name: PG_PASS, valueFrom: {secretKeyRef: {name: tooljet-secrets, key: PG_PASS}}}
+            - {name: REDIS_HOST, value: tooljet-redis.adhar-system.svc.cluster.local}
+            - {name: REDIS_PORT, value: "6379"}
+          ports: [{name: http, containerPort: 3000}]
+          resources: {requests: {cpu: 200m, memory: 768Mi}, limits: {memory: 2Gi}}
+          readinessProbe: {httpGet: {path: /api/health, port: 3000}, initialDelaySeconds: 60, periodSeconds: 15, failureThreshold: 30}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tooljet, namespace: adhar-system, labels: {app.kubernetes.io/name: tooljet}, annotations: {argocd.argoproj.io/sync-wave: "2"}}
+spec:
+  selector: {app.kubernetes.io/name: tooljet}
+  ports: [{name: http, port: 80, targetPort: 3000}]

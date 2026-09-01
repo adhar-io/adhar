@@ -12,10 +12,15 @@ set -e
 # handled by manifests/dev/ingress.yaml (an HTTPRoute that strips /argo-workflows).
 
 INSTALL_YAML="manifests/base/install.yaml"
-APP_VERSION="v4.0.6"
+APP_VERSION="v4.1.2"
 
 echo "# ARGO WORKFLOWS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/argo-workflows/generate-manifests.sh'" >>${INSTALL_YAML}
 echo "# Argo Workflows ${APP_VERSION} (upstream install.yaml)" >>${INSTALL_YAML}
 
 curl -sSL "https://github.com/argoproj/argo-workflows/releases/download/${APP_VERSION}/install.yaml" >>${INSTALL_YAML}
+
+# Upstream installs into the `argo` namespace; the platform runs everything in
+# adhar-system (and the dev overlay patches target adhar-system). Rewrite it.
+sed -i.bak 's/^\( *namespace: \)argo *$/\1adhar-system/g' ${INSTALL_YAML}
+rm -f ${INSTALL_YAML}.bak

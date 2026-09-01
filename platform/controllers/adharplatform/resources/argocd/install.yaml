@@ -313,13 +313,13 @@ data:
   commitserver.log.format: text
   commitserver.log.level: info
   controller.ignore.normalizer.jq.timeout: 1s
-  controller.kubectl.parallelism.limit: "4"
+  controller.kubectl.parallelism.limit: "2"
   controller.log.format: text
   controller.log.level: info
-  controller.operation.processors: "10"
+  controller.operation.processors: "4"
   controller.repo.server.timeout.seconds: "60"
   controller.self.heal.timeout.seconds: "5"
-  controller.status.processors: "20"
+  controller.status.processors: "8"
   controller.sync.timeout.seconds: "0"
   dexserver.log.format: text
   dexserver.log.level: info

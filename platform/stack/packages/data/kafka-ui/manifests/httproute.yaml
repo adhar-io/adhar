@@ -1,0 +1,23 @@
+# Kafka UI on its own host through the Cilium Gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kafka-ui
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: kafka-ui
+    app.kubernetes.io/part-of: adhar-data
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - kafka-ui.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: kafka-ui
+          port: 80

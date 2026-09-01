@@ -24570,12 +24570,12 @@ spec:
           value: "cluster.local"
         - name: FEATURE_GATES
           value: "GenerateConfigInInitContainer=false"
-        resources: 
+        resources:
           limits:
-            cpu: 500m
-            memory: 500Mi
+            cpu: 250m
+            memory: 256Mi
           requests:
-            cpu: 500m
-            memory: 500Mi
+            cpu: 100m
+            memory: 128Mi
       serviceAccountName: "redis-operator"
       serviceAccount: "redis-operator"

@@ -1,0 +1,23 @@
+# ToolJet UI + API on its own host through the Cilium Gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: tooljet
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: tooljet
+    app.kubernetes.io/part-of: adhar-application
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - tooljet.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: tooljet
+          port: 80

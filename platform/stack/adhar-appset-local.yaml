@@ -148,6 +148,12 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/kafka/manifests"
+          # Kafka UI — web console for topics/consumers. Enabled locally.
+          - name: "kafka-ui"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/kafka-ui/manifests"
           - name: "airbyte"
             enabled: "false"
             namespace: "adhar-system"
@@ -158,6 +164,12 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/dagster/manifests"
+          # Prefect — Python workflow orchestration (data platform). Opt-in.
+          - name: "prefect"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/prefect/manifests"
           - name: "open-metadata"
             enabled: "false"
             namespace: "adhar-system"
@@ -216,6 +228,11 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/penpot/manifests"
+          - name: "tooljet"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/tooljet/manifests"
           - name: "posthog"
             enabled: "false"
             namespace: "adhar-system"
@@ -259,7 +276,7 @@ spec:
           # Required by kargo (webhook/api Certificates + Issuer come from
           # cert-manager CRDs).
           - name: "cert-manager"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/cert-manager/manifests"
@@ -318,7 +335,7 @@ spec:
             category: "application"
             manifestPath: "application/jenkins-x/manifests"
           - name: "argo-workflows"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/argo-workflows/manifests/dev"
@@ -354,7 +371,7 @@ spec:
             category: "application"
             manifestPath: "application/adhar-libraries/manifests"
           - name: "kargo"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/kargo/manifests"
@@ -487,14 +504,31 @@ spec:
         namespace: "{{ .namespace }}"
         server: https://kubernetes.default.svc
       project: default
-      # NOTE: ServerSideDiff + managedFieldsManagers ignoreDifferences were tried
-      # here to silence cosmetic OutOfSync drift, but ServerSideDiff computes the
-      # diff via a dry-run server-side apply that triggers admission webhooks —
-      # and the CNPG Cluster webhook (console-db/keycloak-db) is briefly
-      # unreachable during bootstrap, so the dry-run failed and the app got stuck
-      # in ComparisonError / "Unknown". Client-side diff (the default) has no such
-      # dependency. The residual OutOfSync is cosmetic (apps stay Healthy); a
-      # reliable bootstrap matters more.
+      # Silence the cosmetic OutOfSync drift so apps show Synced + Healthy.
+      # Two controllers mutate resources after ArgoCD applies them: the Gateway
+      # controller defaults group/kind/weight on HTTPRoute parent/backend refs
+      # (which the manifests omit) and writes .status; external-secrets writes
+      # ExternalSecret .status. These ignoreDifferences use CLIENT-side diff
+      # (jsonPointers/jqPathExpressions) — NOT ServerSideDiff, which was tried
+      # before and broke bootstrap by dry-run-applying against the CNPG webhook
+      # while it was briefly unreachable (apps got stuck ComparisonError/Unknown).
+      # RespectIgnoreDifferences=true (below) makes selfHeal skip these fields too,
+      # so it never fights the controllers.
+      ignoreDifferences:
+        - group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          jsonPointers:
+            - /status
+          jqPathExpressions:
+            - '.spec.parentRefs[]?.group'
+            - '.spec.parentRefs[]?.kind'
+            - '.spec.rules[]?.backendRefs[]?.group'
+            - '.spec.rules[]?.backendRefs[]?.kind'
+            - '.spec.rules[]?.backendRefs[]?.weight'
+        - group: external-secrets.io
+          kind: ExternalSecret
+          jsonPointers:
+            - /status
       sources:
         - path: "{{ .manifestPath }}"
           repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/packages
@@ -531,3 +565,7 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+          # Apply the ignoreDifferences fields during sync too, so selfHeal does
+          # not try to strip the controller-defaulted HTTPRoute/ExternalSecret
+          # fields (which would just be re-added → perpetual OutOfSync).
+          - RespectIgnoreDifferences=true

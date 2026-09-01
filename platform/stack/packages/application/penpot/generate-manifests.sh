@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.2.0"
+CHART_VERSION="1.9.0"
 
 echo "# PENPOT INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/penpot/generate-manifests.sh'" >>${INSTALL_YAML}

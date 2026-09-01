@@ -1,0 +1,74 @@
+# Prefect — Python-native workflow orchestration for the data platform. Prefect
+# Server (OSS) exposes the orchestration API + UI. Disabled in the local core
+# (data orchestration is opt-in); enable per environment. Uses the bundled SQLite
+# backend on a PVC for a self-contained install; point PREFECT_API_DATABASE_CONNECTION_URL
+# at Postgres for production.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prefect-data
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: prefect, app.kubernetes.io/part-of: adhar-data}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prefect-server
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: prefect, app.kubernetes.io/part-of: adhar-data}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: prefect}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: prefect}
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: server
+          image: prefecthq/prefect:3-latest
+          command: ["prefect", "server", "start", "--host", "0.0.0.0", "--port", "4200"]
+          env:
+            - {name: PREFECT_HOME, value: /data}
+            - {name: PREFECT_SERVER_API_HOST, value: "0.0.0.0"}
+            - {name: PREFECT_API_URL, value: "https://prefect.adhar.localtest.me:8443/api"}
+            - {name: PREFECT_UI_URL, value: "https://prefect.adhar.localtest.me:8443"}
+          ports:
+            - {name: http, containerPort: 4200}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {memory: 1Gi}
+          readinessProbe:
+            httpGet: {path: /api/health, port: 4200}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 20
+          volumeMounts:
+            - {name: prefect-data, mountPath: /data}
+      volumes:
+        - name: prefect-data
+          persistentVolumeClaim:
+            claimName: prefect-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prefect-server
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: prefect}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  selector: {app.kubernetes.io/name: prefect}
+  ports:
+    - {name: http, port: 4200, targetPort: 4200}
