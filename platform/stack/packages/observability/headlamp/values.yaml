@@ -42,11 +42,12 @@ config:
       enabled: false
   # Helm releases UI (adds `-enable-helm`). Safe, offline-friendly.
   enableHelm: true
-  # Bundled static plugins (e.g. the Prometheus "Show metrics" plugin). Default,
-  # kept explicit. NOT pluginsManager, which npm-installs plugins at boot and
-  # breaks air-gapped/offline installs.
+  # Bundled static plugins (e.g. the Prometheus "Show metrics" plugin). Kept on
+  # alongside the pluginsManager set below.
   staticPlugins:
     enabled: true
+  # Pick up plugins the pluginsManager sidecar installs at runtime (watch mode).
+  watchPlugins: true
   extraArgs:
     # OIDC client-id, issuer and scopes are STATIC, known-ahead values, so they
     # are hardcoded here rather than sourced from the (optional) `oidc` Secret.
@@ -99,3 +100,52 @@ volumes:
       secretName: adhar-cert
       optional: true
       items: [{key: tls.crt, path: tls.crt}]
+
+# ── Popular Headlamp plugins ──────────────────────────────────────────────────
+# The pluginsManager runs a SIDECAR (not an initContainer) that installs plugins
+# from ArtifactHub into the shared plugins volume with `pluginctl install --watch`
+# — so if a plugin (or npm) fails, only the sidecar is affected and the main
+# Headlamp container keeps running. The curated set mirrors the platform's own
+# components so their UIs light up inside Headlamp, plus the plugin-catalog so
+# operators can browse/install more from the UI.
+#
+# NOTE: this npm-installs at boot, so it needs egress to ArtifactHub/npm — for an
+# air-gapped install set `pluginsManager.enabled: false` (the bundled static
+# Prometheus plugin above still works offline).
+pluginsManager:
+  enabled: true
+  baseImage: node:lts-alpine
+  version: latest
+  # The pod runs as non-root (user 100); npx/npm need a writable HOME + cache or
+  # the sidecar crash-loops with EACCES (headlamp issue #3999). Point them at the
+  # writable shared plugins volume.
+  env:
+    - {name: HOME, value: /headlamp/plugins}
+    - {name: NPM_CONFIG_CACHE, value: /headlamp/plugins/.npm}
+  configContent: |
+    plugins:
+      - name: headlamp_argocd
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_argocd
+      - name: headlamp_kyverno
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_kyverno
+      - name: headlamp_opencost
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_opencost
+      - name: headlamp_keda
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_keda
+      - name: headlamp_strimzi
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_strimzi
+      - name: headlamp_prometheus
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_prometheus
+      - name: headlamp_plugin_catalog
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_plugin_catalog
+      - name: headlamp_app_catalog
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_app_catalog
+      - name: headlamp_cert-manager
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_cert-manager
+      - name: headlamp_knative
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_knative
+      - name: headlamp_kubeflow
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_kubeflow
+    installOptions:
+      parallel: true
+      maxConcurrent: 2

@@ -14,6 +14,47 @@ metadata:
     app.kubernetes.io/version: "0.45.0"
     app.kubernetes.io/managed-by: Helm
 ---
+# Source: headlamp/templates/plugin-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: headlamp-plugin-config
+  namespace: adhar-system
+  labels:
+    helm.sh/chart: headlamp-0.45.0
+    app.kubernetes.io/name: headlamp
+    app.kubernetes.io/instance: headlamp
+    app.kubernetes.io/version: "0.45.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  plugin.yml: |
+    plugins:
+      - name: headlamp_argocd
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_argocd
+      - name: headlamp_kyverno
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_kyverno
+      - name: headlamp_opencost
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_opencost
+      - name: headlamp_keda
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_keda
+      - name: headlamp_strimzi
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_strimzi
+      - name: headlamp_prometheus
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_prometheus
+      - name: headlamp_plugin_catalog
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_plugin_catalog
+      - name: headlamp_app_catalog
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_app_catalog
+      - name: headlamp_cert-manager
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_cert-manager
+      - name: headlamp_knative
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_knative
+      - name: headlamp_kubeflow
+        source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_kubeflow
+    installOptions:
+      parallel: true
+      maxConcurrent: 2
+---
 # Source: headlamp/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -111,6 +152,7 @@ spec:
             - "-in-cluster"
             - "-in-cluster-context-name=main"
             - "-enable-helm"
+            - "-watch-plugins-changes"
             - "-plugins-dir=/headlamp/plugins"
             - "-session-ttl=86400"
             # Check if externalSecret is disabled
@@ -147,10 +189,49 @@ spec:
           resources:
             {}
           volumeMounts:
+            - name: plugins-dir
+              mountPath: /headlamp/plugins
             - mountPath: /platform-ca
               name: platform-ca
               readOnly: true
+        - name: headlamp-plugin
+          image: node:lts-alpine
+          command: ["/bin/sh", "-c"]
+          env:
+            - name: HOME
+              value: /headlamp/plugins
+            - name: NPM_CONFIG_CACHE
+              value: /headlamp/plugins/.npm
+          args:
+            - |
+              if [ -f "/config/plugin.yml" ]; then
+                echo "Installing plugins from config..."
+                cat /config/plugin.yml
+                # Use a writable cache directory
+                export NPM_CONFIG_CACHE=/tmp/npm-cache
+                # Use a writable config directory
+                export NPM_CONFIG_USERCONFIG=/tmp/npm-userconfig
+                mkdir -p /tmp/npm-cache /tmp/npm-userconfig
+                npx --yes @headlamp-k8s/pluginctl@latest install --config /config/plugin.yml --folderName /headlamp/plugins --watch
+              fi
+          volumeMounts:
+            - name: plugins-dir
+              mountPath: /headlamp/plugins
+            - name: plugin-config
+              mountPath: /config
+          resources:
+            null
+          securityContext:
+            privileged: false
+            runAsGroup: 101
+            runAsNonRoot: true
+            runAsUser: 100
       volumes:
+        - name: plugins-dir
+          emptyDir: {}
+        - name: plugin-config
+          configMap:
+            name: headlamp-plugin-config
         - name: platform-ca
           secret:
             items:
