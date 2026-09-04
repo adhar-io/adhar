@@ -43,7 +43,8 @@ XR.
 | Resource | XR kind | Local composition | Composes | Observability | Template |
 |---|---|---|---|---|---|
 | PostgreSQL | `CompositeDatabase` (engine: postgresql) | `compositedatabase-local-cnpg` | CloudNativePG `Cluster` | PodMonitor → CNPG dashboard | `postgres-database` |
-| Redis/Valkey | `CompositeDatabase` (engine: redis) | `compositedatabase-local-redis` | Deployment + Service + Secret | redis_exporter + ServiceMonitor → Redis dashboard | `redis-cache` |
+| Valkey (operator) | `CompositeDatabase` (engine: valkey) | `compositedatabase-local-valkey` | Hyperspike `Valkey` CR + Secret | operator exporter + ServiceMonitor → Valkey/Redis dashboard | `valkey-cache` |
+| Redis/Valkey (raw) | `CompositeDatabase` (engine: redis) | `compositedatabase-local-redis` | Deployment + Service + Secret | redis_exporter + ServiceMonitor → Redis dashboard | `redis-cache` |
 | Object bucket | `CompositeStorage` (type: object) | `compositestorage-local-minio` | MinIO bucket (Job) + Secret | platform MinIO dashboard | `object-bucket` |
 | Kafka | `CompositeMessaging` | `compositemessaging-local-strimzi` | Strimzi Kafka (KRaft) + topics | JMX + kafka-exporter + PodMonitor → Kafka dashboards | `kafka-cluster` |
 | Secret | `CompositeSecret` | `compositesecret-local` | Kubernetes Secret | — | `secret` |

@@ -75406,6 +75406,7 @@ metadata:
     app.kubernetes.io/version: "13.1.3"
 data:
   
+  plugins: grafana-piechart-panel,grafana-clock-panel,grafana-polystat-panel,marcusolsson-dynamictext-panel,marcusolsson-treemap-panel,grafana-lokiexplore-app,grafana-exploretraces-app,grafana-metricsdrilldown-app
   grafana.ini: |
     [analytics]
     check_for_updates = true
@@ -76310,7 +76311,7 @@ spec:
         app.kubernetes.io/instance: prometheus
         app.kubernetes.io/version: "13.1.3"
       annotations:
-        checksum/config: d1c753c815b5aee68ea0efd10785d0f0090a8b571b248a609f42269351ff2b3d
+        checksum/config: b9cb3a1308a7b035cd7236abf6bfa44bd1846afe874ccbe60590b76f3a24c47d
         checksum/sc-dashboard-provider-config: 81f722b8194d01e4a84ce12a0cbbe9b705b2d9145719c803ac264b4786c64a09
         checksum/secret: 032056e9c62bbe9d1daa41ee49cd3d9524c076f51ca4c65adadf4ef08ef28712
         kubectl.kubernetes.io/default-container: grafana
@@ -76460,6 +76461,11 @@ spec:
                 secretKeyRef:
                   name: prometheus-grafana
                   key: admin-password
+            - name: GF_PLUGINS_PREINSTALL_SYNC
+              valueFrom:
+                configMapKeyRef:
+                  name: prometheus-grafana
+                  key: plugins
             - name: GF_PATHS_DATA
               value: /var/lib/grafana/
             - name: GF_PATHS_LOGS

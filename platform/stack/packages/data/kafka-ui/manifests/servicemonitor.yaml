@@ -1,0 +1,25 @@
+# Scrapes Kafka UI's Spring Boot Actuator Prometheus endpoint
+# (/actuator/prometheus on the http port, 8080 behind the Service port 80).
+# Kafka UI is a Spring Boot app, so it emits Micrometer JVM/HTTP metrics
+# (jvm_*, http_server_requests_*, process_*). kube-prometheus has an empty
+# serviceMonitorSelector, so this is picked up cluster-wide with no extra
+# release label. The resulting `job` label is the Service name "kafka-ui".
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafka-ui
+  namespace: adhar-system
+  labels:
+    adhar.io/component: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-ui
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      scheme: http
+      interval: 30s

@@ -1,0 +1,25 @@
+# Scrapes external-dns Prometheus metrics (external_dns_* metrics) exposed on
+# the http port (7979, path /metrics). The external-dns Service already exposes
+# this port. kube-prometheus has an empty serviceMonitorSelector, so this is
+# picked up cluster-wide with no extra release label. The resulting `job` label
+# is the Service name "external-dns".
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: external-dns
+  namespace: adhar-system
+  labels:
+    adhar.io/component: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+      app.kubernetes.io/instance: external-dns
+  endpoints:
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: 30s

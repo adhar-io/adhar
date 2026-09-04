@@ -1,0 +1,32 @@
+# Scrapes Kargo Prometheus metrics. Kargo's components are controller-runtime
+# based and emit controller_runtime_* / workqueue_* / go_* metrics on the
+# standard controller metrics port (8080, path /metrics). We target the
+# kargo-api Service (the only component exposing a stable ClusterIP; its
+# targetPort is the container's 8080). kube-prometheus has an empty
+# serviceMonitorSelector, so this is picked up cluster-wide with no extra
+# release label; the resulting `job` label is the Service name "kargo-api".
+#
+# Best-effort: this chart version (kargo-1.10.5) does not declare a dedicated
+# named metrics port/Service. If the controllers run with metrics disabled
+# (metrics-bind-address=0), enable metrics in the Kargo chart values for this
+# endpoint to return data — the companion dashboard.yaml renders it once it does.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kargo
+  namespace: adhar-system
+  labels:
+    adhar.io/component: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kargo
+      app.kubernetes.io/component: api
+  endpoints:
+    - targetPort: 8080
+      path: /metrics
+      scheme: http
+      interval: 30s

@@ -2,8 +2,8 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="3.6.0"
-DASHBOARDS_VERSION="3.6.0"
+CHART_VERSION="3.8.0"
+DASHBOARDS_VERSION="3.8.0"
 
 echo "# OPENSEARCH INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/opensearch/generate-manifests.sh'" >>${INSTALL_YAML}

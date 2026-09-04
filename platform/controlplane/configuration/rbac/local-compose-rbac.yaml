@@ -37,6 +37,11 @@ rules:
   - apiGroups: ["kafka.strimzi.io"]
     resources: ["kafkas", "kafkas/status", "kafkatopics", "kafkanodepools"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Valkey (Hyperspike valkey-operator) — the local `engine: valkey` composition
+  # composes a Valkey CR, so Crossplane needs to manage them.
+  - apiGroups: ["hyperspike.io"]
+    resources: ["valkeys", "valkeys/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # ServiceMonitor/PodMonitor so compositions can wire their own observability
   # (e.g. the Redis exporter ServiceMonitor) into kube-prometheus.
   - apiGroups: ["monitoring.coreos.com"]

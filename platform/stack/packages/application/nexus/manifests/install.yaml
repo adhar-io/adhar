@@ -62,11 +62,16 @@ spec:
           # mid-boot (the previous crash loop: exitCode 137 "failed liveness
           # probe"). timeoutSeconds bumped off the 1s default so a busy JVM
           # doesn't trip the probe.
+          # ~20 min budget (initialDelay + period*threshold). Nexus 3 cold-starts
+          # slowly (Jetty + OrientDB/mybatis init), and on a CPU-contended node it
+          # can exceed the old ~10 min budget — the startupProbe then exhausts and
+          # the kubelet restarts the pod mid-boot, so it never becomes Ready and
+          # its gateway route returns 502. A wider budget lets it finish.
           startupProbe:
             httpGet: {path: /service/rest/v1/status, port: 8081}
             initialDelaySeconds: 30
             periodSeconds: 10
-            failureThreshold: 60
+            failureThreshold: 120
             timeoutSeconds: 5
           readinessProbe:
             httpGet: {path: /service/rest/v1/status, port: 8081}

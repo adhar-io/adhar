@@ -1,0 +1,37 @@
+# Scrapes OpenSearch Prometheus metrics (opensearch_* metrics) via the
+# OpenSearch prometheus-exporter plugin, which exposes /_prometheus/metrics on
+# the REST/http port (9200). Added as a SEPARATE new file so it does not collide
+# with the SSO/security edits happening in values.yaml / install.yaml.
+#
+# Prerequisites (best-effort):
+#   * The `prometheus-exporter` plugin must be installed in the OpenSearch image
+#     (community plugin aiven/prometheus-exporter-plugin-for-opensearch).
+#   * If the OpenSearch security plugin is enabled, switch `scheme` to https,
+#     add `tlsConfig: {insecureSkipVerify: true}`, and add a `basicAuth` block
+#     pointing at a monitoring user's Secret. With the demo security config
+#     disabled (as shipped), plain http works.
+#
+# kube-prometheus has an empty serviceMonitorSelector, so this is picked up
+# cluster-wide with no extra release label; the resulting `job` label is the
+# Service name "opensearch-cluster-master".
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: opensearch
+  namespace: adhar-system
+  labels:
+    adhar.io/component: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opensearch
+      app.kubernetes.io/instance: opensearch
+      app.kubernetes.io/component: opensearch-cluster-master
+  endpoints:
+    - port: http
+      path: /_prometheus/metrics
+      scheme: http
+      interval: 30s

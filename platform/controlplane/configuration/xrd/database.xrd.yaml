@@ -57,6 +57,7 @@ spec:
                         - mariadb
                         - mongodb
                         - redis
+                        - valkey
                     engineVersion:
                       type: string
                     instanceClass:

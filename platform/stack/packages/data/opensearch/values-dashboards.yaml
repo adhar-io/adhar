@@ -20,5 +20,5 @@ config:
     opensearch.hosts: ["https://opensearch-cluster-master:9200"]
     opensearch.ssl.verificationMode: none
     opensearch.username: admin
-    opensearch.password: admin
+    opensearch.password: "Adh@rOpenSearch2026"
     opensearch_security.multitenancy.enabled: false

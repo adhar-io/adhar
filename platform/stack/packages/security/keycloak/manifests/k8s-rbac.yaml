@@ -4,9 +4,19 @@
 # The realm's platform groups map onto Kubernetes' standard aggregated roles:
 #
 #   platform-admin     -> cluster-admin
+#   platform-engineer  -> cluster-admin  (platform/infra admin tier; full access,
+#                                         incl. Secrets)
+#   application-admin  -> admin  (cluster-wide app admin: manage workloads +
+#                                 read/write Secrets, but not cluster RBAC/nodes;
+#                                 tighten to per-namespace RoleBindings for tenants)
 #   platform-developer -> edit  (cluster-wide here; tighten to per-namespace
 #                                RoleBindings for tenant isolation)
 #   platform-viewer    -> view
+#
+# NOTE: the built-in `edit` and `view` ClusterRoles intentionally EXCLUDE Secrets
+# (a privilege-escalation guard since k8s 1.24), so only the admin-tier groups
+# above can read Secrets. This is why a developer/viewer sees "secrets.read
+# requires elevated access" — it is expected; use an admin-tier group instead.
 #
 # Group subjects use the "oidc:" prefix — configure the API server (or your
 # managed cluster's OIDC settings) accordingly:
@@ -35,6 +45,37 @@ subjects:
   - apiGroup: rbac.authorization.k8s.io
     kind: Group
     name: oidc:platform-admin
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-oidc-platform-engineer
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:platform-engineer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-oidc-application-admin
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  # Built-in `admin` includes read/write on Secrets (unlike edit/view).
+  name: admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: oidc:application-admin
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

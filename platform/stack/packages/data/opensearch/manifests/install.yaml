@@ -7,10 +7,10 @@ kind: PodDisruptionBudget
 metadata:
   name: "opensearch-cluster-master-pdb"
   labels:
-    helm.sh/chart: opensearch-3.6.0
+    helm.sh/chart: opensearch-3.8.0
     app.kubernetes.io/name: opensearch
     app.kubernetes.io/instance: opensearch
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: opensearch-cluster-master
 spec:
@@ -26,10 +26,10 @@ kind: ConfigMap
 metadata:
   name: opensearch-cluster-master-config
   labels:
-    helm.sh/chart: opensearch-3.6.0
+    helm.sh/chart: opensearch-3.8.0
     app.kubernetes.io/name: opensearch
     app.kubernetes.io/instance: opensearch
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: opensearch-cluster-master
 data:
@@ -91,10 +91,10 @@ apiVersion: v1
 metadata:
   name: opensearch-cluster-master
   labels:
-    helm.sh/chart: opensearch-3.6.0
+    helm.sh/chart: opensearch-3.8.0
     app.kubernetes.io/name: opensearch
     app.kubernetes.io/instance: opensearch
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: opensearch-cluster-master
   annotations:
@@ -121,10 +121,10 @@ apiVersion: v1
 metadata:
   name: opensearch-cluster-master-headless
   labels:
-    helm.sh/chart: opensearch-3.6.0
+    helm.sh/chart: opensearch-3.8.0
     app.kubernetes.io/name: opensearch
     app.kubernetes.io/instance: opensearch
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: opensearch-cluster-master
   annotations:
@@ -150,10 +150,10 @@ kind: StatefulSet
 metadata:
   name: opensearch-cluster-master
   labels:
-    helm.sh/chart: opensearch-3.6.0
+    helm.sh/chart: opensearch-3.8.0
     app.kubernetes.io/name: opensearch
     app.kubernetes.io/instance: opensearch
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: opensearch-cluster-master
   annotations:
@@ -181,14 +181,14 @@ spec:
     metadata:
       name: "opensearch-cluster-master"
       labels:
-        helm.sh/chart: opensearch-3.6.0
+        helm.sh/chart: opensearch-3.8.0
         app.kubernetes.io/name: opensearch
         app.kubernetes.io/instance: opensearch
-        app.kubernetes.io/version: "3.6.0"
+        app.kubernetes.io/version: "3.8.0"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: opensearch-cluster-master
       annotations:
-        configchecksum: cc0cfdd139a6a40909037ac4291ba4a6b4769fce71161485d2333182f7425e7
+        configchecksum: 8993634655948a85f777d692e1bb191f9caeba88edf1fe99aceddf8018976b6
     spec:
       securityContext:
         fsGroup: 1000
@@ -233,7 +233,7 @@ spec:
           - name: "opensearch-cluster-master"
             mountPath: /usr/share/opensearch/data
       - name: configfile
-        image: "opensearchproject/opensearch:3.6.0"
+        image: "opensearchproject/opensearch:3.8.0"
         imagePullPolicy: "IfNotPresent"
         command:
         - sh
@@ -264,7 +264,7 @@ spec:
           runAsNonRoot: true
           runAsUser: 1000
 
-        image: "opensearchproject/opensearch:3.6.0"
+        image: "opensearchproject/opensearch:3.8.0"
         imagePullPolicy: "IfNotPresent"
         readinessProbe:
           failureThreshold: 3
@@ -311,6 +311,8 @@ spec:
           value: "single-node"
         - name: DISABLE_INSTALL_DEMO_CONFIG
           value: "false"
+        - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+          value: Adh@rOpenSearch2026
         volumeMounts:
         - name: "opensearch-cluster-master"
           mountPath: /usr/share/opensearch/data
@@ -325,10 +327,10 @@ kind: ServiceAccount
 metadata:
   name: opensearch-dashboards-dashboards
   labels:
-    helm.sh/chart: opensearch-dashboards-3.6.0
+    helm.sh/chart: opensearch-dashboards-3.8.0
     app.kubernetes.io/name: opensearch-dashboards
     app.kubernetes.io/instance: opensearch-dashboards
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: opensearch-dashboards/templates/configmap.yaml
@@ -337,10 +339,10 @@ kind: ConfigMap
 metadata:
   name: opensearch-dashboards-config
   labels: 
-    helm.sh/chart: opensearch-dashboards-3.6.0
+    helm.sh/chart: opensearch-dashboards-3.8.0
     app.kubernetes.io/name: opensearch-dashboards
     app.kubernetes.io/instance: opensearch-dashboards
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
 data:
   opensearch_dashboards.yml: |
@@ -351,7 +353,7 @@ data:
     opensearch.hosts: ["https://opensearch-cluster-master:9200"]
     opensearch.ssl.verificationMode: none
     opensearch.username: admin
-    opensearch.password: admin
+    opensearch.password: "Adh@rOpenSearch2026"
     opensearch_security.multitenancy.enabled: false
 ---
 # Source: opensearch-dashboards/templates/rolebinding.yaml
@@ -359,10 +361,10 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    helm.sh/chart: opensearch-dashboards-3.6.0
+    helm.sh/chart: opensearch-dashboards-3.8.0
     app.kubernetes.io/name: opensearch-dashboards
     app.kubernetes.io/instance: opensearch-dashboards
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
   name: opensearch-dashboards-dashboards-rolebinding
 roleRef:
@@ -380,10 +382,10 @@ kind: Service
 metadata:
   name: opensearch-dashboards
   labels:
-    helm.sh/chart: opensearch-dashboards-3.6.0
+    helm.sh/chart: opensearch-dashboards-3.8.0
     app.kubernetes.io/name: opensearch-dashboards
     app.kubernetes.io/instance: opensearch-dashboards
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -405,10 +407,10 @@ kind: Deployment
 metadata:
   name: opensearch-dashboards
   labels:
-    helm.sh/chart: opensearch-dashboards-3.6.0
+    helm.sh/chart: opensearch-dashboards-3.8.0
     app.kubernetes.io/name: opensearch-dashboards
     app.kubernetes.io/instance: opensearch-dashboards
-    app.kubernetes.io/version: "3.6.0"
+    app.kubernetes.io/version: "3.8.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -424,7 +426,7 @@ spec:
         app.kubernetes.io/name: opensearch-dashboards
         app.kubernetes.io/instance: opensearch-dashboards
       annotations:
-        configchecksum: 047903ffd8003f8f592498f7ba9fb2589dd657c5008f8c5fe47a30ec44e2e01
+        configchecksum: 5a533fd2c80bbc4fde6c60a00c66b8b5f9d61695f57019e53fc1705dc06ecd4
     spec:
       securityContext:
         {}
@@ -441,7 +443,7 @@ spec:
             - ALL
           runAsNonRoot: true
           runAsUser: 1000
-        image: "opensearchproject/opensearch-dashboards:3.6.0"
+        image: "opensearchproject/opensearch-dashboards:3.8.0"
         imagePullPolicy: "IfNotPresent"
         readinessProbe:
           failureThreshold: 10

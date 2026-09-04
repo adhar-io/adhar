@@ -1,0 +1,27 @@
+# Kubeflow Pipelines UI through the Cilium Gateway. The route lives in the
+# `kubeflow` namespace (same as the backend Service); the adhar-gateway allows
+# routes from all namespaces. sync-wave 2 keeps it after the Service so its
+# health check doesn't deadlock the earlier waves.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kubeflow
+  namespace: kubeflow
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+  labels:
+    app.kubernetes.io/name: kubeflow
+    app.kubernetes.io/part-of: adhar-data
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - kubeflow.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: ml-pipeline-ui
+          port: 80

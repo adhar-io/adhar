@@ -24,6 +24,12 @@ spec:
   replicas: 0
   tls: false
   anonymousAuth: true
+  # Emit metrics: the operator injects the valkey-sidecar exporter (redis_*
+  # metrics) and creates a ServiceMonitor so kube-prometheus scrapes it
+  # automatically (empty serviceMonitorSelector). The companion dashboard.yaml
+  # renders these under "Adhar - Valkey Cache".
+  prometheus: true
+  serviceMonitor: true
   resources:
     requests:
       cpu: 25m

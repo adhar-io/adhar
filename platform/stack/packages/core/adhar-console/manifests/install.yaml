@@ -198,6 +198,7 @@ spec:
         - { name: KAFKA_UI_URL, value: 'http://kafka-ui.adhar-system.svc.cluster.local:80' }
         - { name: TOOLJET_URL, value: 'http://tooljet.adhar-system.svc.cluster.local:80' }
         - { name: PENPOT_URL, value: 'http://penpot.adhar-system.svc.cluster.local:8080' }
+        - { name: OPENSEARCH_URL, value: 'http://opensearch-dashboards.adhar-system.svc.cluster.local:5601' }
         - { name: MINIO_URL, value: 'http://minio.adhar-system.svc.cluster.local:9000' }
         - { name: ARGO_ROLLOUTS_URL, value: 'http://argo-rollouts-dashboard.adhar-system.svc.cluster.local:3100' }
         # Kyverno + Crossplane have no standalone web UI — their data reaches the

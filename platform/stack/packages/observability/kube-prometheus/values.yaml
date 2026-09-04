@@ -1222,6 +1222,25 @@ grafana:
   enabled: true
   namespaceOverride: ""
 
+  ## Popular, well-maintained Grafana plugins — installed at startup via
+  ## GF_INSTALL_PLUGINS. Two groups:
+  ##  - Panel plugins for richer, better-looking dashboards. grafana-piechart-panel
+  ##    is REQUIRED: the bundled Keycloak dashboard uses "grafana-piechart-panel"
+  ##    panels that render broken without it.
+  ##  - Official Grafana "Explore" app plugins that light up the platform's own
+  ##    telemetry backends: Logs->Loki, Traces->Tempo, Metrics->Prometheus.
+  ## These download from grafana.com on pod start (needs egress); trim per
+  ## environment if the Grafana pod has no internet access.
+  plugins:
+    - grafana-piechart-panel
+    - grafana-clock-panel
+    - grafana-polystat-panel
+    - marcusolsson-dynamictext-panel
+    - marcusolsson-treemap-panel
+    - grafana-lokiexplore-app
+    - grafana-exploretraces-app
+    - grafana-metricsdrilldown-app
+
   ## ForceDeployDatasources Create datasource configmap even if grafana deployment has been disabled
   ##
   forceDeployDatasources: false

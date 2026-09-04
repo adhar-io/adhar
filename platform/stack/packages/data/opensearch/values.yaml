@@ -22,3 +22,10 @@ resources:
 extraEnvs:
   - name: DISABLE_INSTALL_DEMO_CONFIG
     value: "false"
+  # OpenSearch 2.12+ (and 3.x) refuses to bootstrap the security plugin's demo
+  # config without an initial admin password that meets the strength policy
+  # (>=8 chars, upper+lower+digit+special) — without it the node crash-loops with
+  # "No custom admin password found". Local dev default; override + move to a
+  # Secret per environment. Admin user: admin.
+  - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+    value: "Adh@rOpenSearch2026"

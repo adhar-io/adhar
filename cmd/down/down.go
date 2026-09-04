@@ -71,10 +71,13 @@ Examples:
 
 		s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#8b5cf6"))
 
-		// Initialize model
+		// Initialize model. --verbose starts with the detail pane already expanded
+		// (users can still toggle it live with 'i').
 		m := downModel{
-			spinner:   s,
-			startTime: time.Now(),
+			spinner:       s,
+			startTime:     time.Now(),
+			sub:           make(chan tea.Msg),
+			showExtraInfo: verboseDown,
 		}
 
 		// Initialize Bubble Tea program
@@ -112,18 +115,21 @@ type downModel struct {
 	quitting      bool
 	startTime     time.Time
 	elapsedTime   string
-	extraOutput   string
+	outputLines   []string // accumulated detail lines (shown when toggled with 'i')
 	showExtraInfo bool
+	sub           chan tea.Msg // teardown goroutine -> UI message stream
 }
+
+// maxDetailLines caps how many detail lines are retained/shown so the pane
+// doesn't grow unbounded during teardown.
+const maxDetailLines = 200
 
 // Init implements tea.Model
 func (m downModel) Init() tea.Cmd {
-	// Record the start time for tracking elapsed time
-	m.startTime = time.Now()
-
 	return tea.Batch(
 		m.spinner.Tick,
-		startClusterTeardown(),
+		startClusterTeardown(m.sub), // runs the teardown, streaming progress into m.sub
+		listenForActivity(m.sub),    // pumps streamed messages into the Update loop
 		updateElapsedTime(),
 	)
 }
@@ -150,15 +156,22 @@ func (m downModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case logger.StepMsg:
 		m.step = string(msg)
-		return m, nil
+		return m, listenForActivity(m.sub)
 
 	case logger.StatusMsg:
 		m.status = string(msg)
-		return m, nil
+		return m, listenForActivity(m.sub)
 
 	case logger.ExtraOutputMsg:
-		m.extraOutput = string(msg)
-		return m, nil
+		// Append each streamed detail line (splitting on newlines) and cap the
+		// retained history so the toggled pane stays bounded.
+		for _, line := range strings.Split(string(msg), "\n") {
+			m.outputLines = append(m.outputLines, line)
+		}
+		if len(m.outputLines) > maxDetailLines {
+			m.outputLines = m.outputLines[len(m.outputLines)-maxDetailLines:]
+		}
+		return m, listenForActivity(m.sub)
 
 	case logger.ErrorMsg:
 		m.err = msg.Err
@@ -253,15 +266,23 @@ func (m downModel) View() string {
 		helpers.InfoStyle.Render("Elapsed time:"),
 		m.elapsedTime)
 
-	// Add extra info toggle hint
-	toggleHint := helpers.SubtitleStyle.Render("\nPress 'i' to toggle details")
+	// Add extra info toggle hint (reflects current state)
+	hintLabel := "Press 'i' to show details"
+	if m.showExtraInfo {
+		hintLabel = "Press 'i' to hide details"
+	}
+	toggleHint := helpers.SubtitleStyle.Render("\n" + hintLabel)
 
-	// Show extra output if toggled
+	// Show streamed command output if toggled on
 	var extraInfo string
-	if m.showExtraInfo && m.extraOutput != "" {
+	if m.showExtraInfo {
+		detail := strings.Join(m.outputLines, "\n")
+		if strings.TrimSpace(detail) == "" {
+			detail = "(waiting for output…)"
+		}
 		extraInfo = fmt.Sprintf("\n\n%s\n%s",
 			helpers.TitleStyle.Render("Command Output:"),
-			helpers.BorderStyle.Render(m.extraOutput))
+			helpers.BorderStyle.Render(detail))
 	}
 
 	// Add a progress indicator
@@ -272,84 +293,151 @@ func (m downModel) View() string {
 	return fmt.Sprintf("\n%s\n", mainContent)
 }
 
-// startClusterTeardown starts the asynchronous operation to tear down the cluster
-func startClusterTeardown() tea.Cmd {
+// listenForActivity returns a command that blocks until the teardown goroutine
+// emits its next message, then delivers it to the Update loop. The loop re-issues
+// this command after each streamed message so progress flows continuously.
+func listenForActivity(sub chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
-		// Step 1: Check if the Kind cluster exists
-		exists, err := kindClusterExists()
-		if err != nil {
-			return logger.ErrorMsg{Err: fmt.Errorf("failed to check if cluster exists: %w", err)}
-		}
-		if !exists {
-			return logger.ErrorMsg{Err: fmt.Errorf("no cluster named '%s' exists. Nothing to tear down", globals.DefaultClusterName)}
-		}
-
-		// Step 2: Delete the Kind cluster (with timeout)
-		clusterNames := []string{globals.DefaultClusterName, "adhar-local"}
-		deleted := false
-
-		for _, clusterName := range clusterNames {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			deleteCmd := exec.CommandContext(ctx, "kind", "delete", "cluster", "--name", clusterName)
-			output, err := deleteCmd.CombinedOutput()
-			cancel()
-
-			if err == nil {
-				_ = output
-				deleted = true
-				break
-			}
-			// Fallback: force-remove docker containers for this cluster
-			_ = exec.Command("docker", "rm", "-f", clusterName+"-control-plane").Run()
-			_ = exec.Command("docker", "rm", "-f", clusterName+"-worker").Run()
-			_ = exec.Command("docker", "rm", "-f", clusterName+"-worker2").Run()
-		}
-
-		// Step 3: Clean up docker network
-		_ = exec.Command("docker", "network", "rm", "kind").Run()
-
-		if !deleted {
-			// Check if containers were at least removed
-			out, _ := exec.Command("docker", "ps", "-a", "--filter", "name=adhar", "--format", "{{.Names}}").CombinedOutput()
-			if strings.TrimSpace(string(out)) == "" {
-				deleted = true // Containers gone via fallback cleanup
-			}
-		}
-
-		if !deleted {
-			return logger.ErrorMsg{Err: fmt.Errorf("failed to delete cluster. Tried: %v", clusterNames)}
-		}
-
-		// Step 4: Clean up leftover files
-		cleanupFiles()
-
-		return logger.DoneMsg{}
+		return <-sub
 	}
 }
 
-// cleanupFiles removes any leftover kubeconfig files generated during 'up'
-func cleanupFiles() {
-	patterns := []string{"*-kubeconfig.yaml"}
+// startClusterTeardown launches the teardown in a background goroutine that
+// streams step/status/detail messages onto sub. It returns immediately so the
+// UI stays responsive (spinner, elapsed time, and the 'i' details toggle).
+func startClusterTeardown(sub chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		go teardown(sub)
+		return nil
+	}
+}
 
-	// Search home directory
-	if home, err := os.UserHomeDir(); err == nil {
+// teardown performs the cluster deletion, emitting progress and detailed command
+// output onto sub. The detail lines are what the 'i' toggle reveals.
+func teardown(sub chan tea.Msg) {
+	emit := func(m tea.Msg) { sub <- m }
+	detail := func(format string, a ...interface{}) {
+		sub <- logger.ExtraOutputMsg(fmt.Sprintf(format, a...))
+	}
+	// emitCmdOutput streams a command's combined output line-by-line into detail.
+	emitCmdOutput := func(out []byte) {
+		for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+			if strings.TrimSpace(line) != "" {
+				detail("  %s", line)
+			}
+		}
+	}
+
+	// Step 1: Check if the Kind cluster exists
+	emit(logger.StepMsg("Checking cluster"))
+	emit(logger.StatusMsg("Verifying Docker and Kind..."))
+	detail("→ Checking Docker daemon and Kind availability")
+	exists, err := kindClusterExists()
+	if err != nil {
+		detail("✗ %v", err)
+		emit(logger.ErrorMsg{Err: fmt.Errorf("failed to check if cluster exists: %w", err)})
+		return
+	}
+	if !exists {
+		detail("✗ No cluster named '%s' found", globals.DefaultClusterName)
+		emit(logger.ErrorMsg{Err: fmt.Errorf("no cluster named '%s' exists. Nothing to tear down", globals.DefaultClusterName)})
+		return
+	}
+	detail("✓ Found a cluster to tear down")
+
+	// Step 2: Delete the Kind cluster (with timeout)
+	emit(logger.StepMsg("Deleting cluster"))
+	clusterNames := []string{globals.DefaultClusterName, "adhar-local"}
+	deleted := false
+
+	for _, clusterName := range clusterNames {
+		emit(logger.StatusMsg(fmt.Sprintf("Deleting Kind cluster '%s'...", clusterName)))
+		detail("→ kind delete cluster --name %s", clusterName)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		deleteCmd := exec.CommandContext(ctx, "kind", "delete", "cluster", "--name", clusterName)
+		output, err := deleteCmd.CombinedOutput()
+		cancel()
+		emitCmdOutput(output)
+
+		if err == nil {
+			deleted = true
+			detail("✓ Deleted cluster '%s'", clusterName)
+			break
+		}
+		// Fallback: force-remove docker containers for this cluster
+		detail("! kind delete failed for '%s' (%v) — removing containers directly", clusterName, err)
+		for _, suffix := range []string{"-control-plane", "-worker", "-worker2"} {
+			_ = exec.Command("docker", "rm", "-f", clusterName+suffix).Run()
+		}
+		detail("  removed any leftover '%s' docker containers", clusterName)
+	}
+
+	// Step 3: Clean up docker network
+	emit(logger.StepMsg("Cleaning up"))
+	emit(logger.StatusMsg("Removing the 'kind' docker network..."))
+	detail("→ docker network rm kind")
+	_ = exec.Command("docker", "network", "rm", "kind").Run()
+
+	if !deleted {
+		// Check if containers were at least removed via the fallback
+		out, _ := exec.Command("docker", "ps", "-a", "--filter", "name=adhar", "--format", "{{.Names}}").CombinedOutput()
+		if strings.TrimSpace(string(out)) == "" {
+			deleted = true // Containers gone via fallback cleanup
+			detail("✓ No adhar containers remain")
+		}
+	}
+
+	if !deleted {
+		emit(logger.ErrorMsg{Err: fmt.Errorf("failed to delete cluster. Tried: %v", clusterNames)})
+		return
+	}
+
+	// Step 4: Clean up leftover files
+	emit(logger.StatusMsg("Removing leftover kubeconfig files..."))
+	removed := cleanupFiles()
+	if len(removed) == 0 {
+		detail("→ No leftover kubeconfig files to remove")
+	} else {
+		for _, f := range removed {
+			detail("  removed %s", f)
+		}
+	}
+
+	emit(logger.StatusMsg("Teardown complete"))
+	detail("✓ Teardown complete")
+	emit(logger.DoneMsg{})
+}
+
+// cleanupFiles removes any leftover kubeconfig files generated during 'up' and
+// returns the paths it removed (for the detailed teardown output).
+func cleanupFiles() []string {
+	patterns := []string{"*-kubeconfig.yaml"}
+	var removed []string
+
+	remove := func(dir string) {
 		for _, pattern := range patterns {
-			if files, err := filepath.Glob(filepath.Join(home, pattern)); err == nil {
+			glob := pattern
+			if dir != "" {
+				glob = filepath.Join(dir, pattern)
+			}
+			if files, err := filepath.Glob(glob); err == nil {
 				for _, file := range files {
-					os.Remove(file)
+					if os.Remove(file) == nil {
+						removed = append(removed, file)
+					}
 				}
 			}
 		}
 	}
 
-	// Search current directory
-	for _, pattern := range patterns {
-		if files, err := filepath.Glob(pattern); err == nil {
-			for _, file := range files {
-				os.Remove(file)
-			}
-		}
+	// Search home directory, then the current directory.
+	if home, err := os.UserHomeDir(); err == nil {
+		remove(home)
 	}
+	remove("")
+
+	return removed
 }
 
 // kindClusterExists checks if the Kind cluster exists and verifies Docker is running
