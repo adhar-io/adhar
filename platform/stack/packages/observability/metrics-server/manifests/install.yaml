@@ -180,6 +180,14 @@ spec:
     spec:
       serviceAccountName: metrics-server
       priorityClassName: "system-cluster-critical"
+      # Run on the node's network namespace so the kubelet scrape
+      # (node-IP:10250) is a local connection. On this Cilium cluster the
+      # pod-network path to the kubelet timed out / was refused, so metrics-server
+      # never became Ready (APIService MissingEndpoints, `kubectl top` failed).
+      # hostNetwork sidesteps CNI for the scrape; --secure-port moves off 10250
+      # (the kubelet owns that on the host).
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: metrics-server
           securityContext:
@@ -195,7 +203,7 @@ spec:
           image: registry.k8s.io/metrics-server/metrics-server:v0.8.0
           imagePullPolicy: IfNotPresent
           args:
-            - --secure-port=10250
+            - --secure-port=4443
             - --cert-dir=/tmp
             - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
             - --kubelet-use-node-status-port
@@ -204,7 +212,7 @@ spec:
           ports:
           - name: https
             protocol: TCP
-            containerPort: 10250
+            containerPort: 4443
           livenessProbe:
             failureThreshold: 3
             httpGet:
