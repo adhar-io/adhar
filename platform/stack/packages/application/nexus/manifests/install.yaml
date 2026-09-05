@@ -50,12 +50,17 @@ spec:
             # Heap + direct memory sized to fit the 2Gi limit (~1Gi heap + 512m
             # direct + JVM overhead). Actual local usage is ~800Mi, so this is
             # comfortable; raise for a busy shared registry.
-            - {name: INSTALL4J_ADD_VM_PARAMS, value: "-Xms512m -Xmx1024m -XX:MaxDirectMemorySize=512m -Djava.util.prefs.userRoot=/nexus-data/javaprefs"}
+            # Sonatype's recommended baseline is ~2.7Gi total (heap + direct).
+            # The earlier trim (1Gi heap / 2Gi limit) starved boot — Nexus 3
+            # thrashed GC through the OrientDB/H2 + OSGi startup and never went
+            # Ready. Give it a healthy heap + direct memory that fits the 3Gi
+            # limit for a reliable, faster cold start.
+            - {name: INSTALL4J_ADD_VM_PARAMS, value: "-Xms1200m -Xmx2048m -XX:MaxDirectMemorySize=2g -Djava.util.prefs.userRoot=/nexus-data/javaprefs"}
           ports:
             - {name: http, containerPort: 8081}
           resources:
-            requests: {cpu: 250m, memory: 1Gi}
-            limits: {memory: 2Gi}
+            requests: {cpu: 500m, memory: 2Gi}
+            limits: {memory: 3Gi}
           # Nexus 3 cold-starts slowly (Jetty + OrientDB init, minutes on an
           # empty PVC). A startupProbe gates liveness/readiness so the app gets
           # up to ~10min to come up instead of the liveness probe SIGKILLing it

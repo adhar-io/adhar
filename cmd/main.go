@@ -24,7 +24,6 @@ import (
 	"syscall"
 
 	"adhar-io/adhar/cmd/apps"
-	"adhar-io/adhar/cmd/push"
 	"adhar-io/adhar/cmd/auth"
 	"adhar-io/adhar/cmd/backup"
 	"adhar-io/adhar/cmd/cluster"
@@ -44,6 +43,7 @@ import (
 	"adhar-io/adhar/cmd/pipeline"
 	"adhar-io/adhar/cmd/policy"
 	"adhar-io/adhar/cmd/project"
+	"adhar-io/adhar/cmd/push"
 	"adhar-io/adhar/cmd/restore"
 	"adhar-io/adhar/cmd/scale"
 	"adhar-io/adhar/cmd/secrets"

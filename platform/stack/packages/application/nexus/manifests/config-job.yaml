@@ -84,10 +84,35 @@ spec:
               # * -> maven-public, which 404s (fails all resolution) without this group.
               mkrepo maven/proxy '{"name":"maven-central","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://repo1.maven.org/maven2/","contentMaxAge":-1,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true},"maven":{"versionPolicy":"RELEASE","layoutPolicy":"PERMISSIVE"}}'
               mkrepo maven/group '{"name":"maven-public","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"group":{"memberNames":["maven-hosted","maven-central"]}}'
-              # 3) Enable the npm bearer-token realm (needed for `npm publish`).
+              # 3) Enable the auth realms:
+              #    - NpmToken       : `npm publish` bearer tokens
+              #    - rutauth-realm  : Rut Auth (HTTP header) — lets the Keycloak
+              #      SSO in front of Nexus (oauth2-proxy) log the user in via the
+              #      X-Forwarded-User header. Nexus OSS has no native OIDC, so this
+              #      header-trust realm is how the proxied identity becomes a Nexus
+              #      session. Order matters: rutauth-realm must precede the
+              #      authenticating realm so the header is honoured first.
               curl -s $AUTH -H 'Content-Type: application/json' -X PUT "${API}/security/realms/active" \
-                -d '["NexusAuthenticatingRealm","NexusAuthorizingRealm","NpmToken"]' >/dev/null 2>&1 || true
-              echo "npm token realm enabled"
+                -d '["rutauth-realm","NexusAuthenticatingRealm","NexusAuthorizingRealm","NpmToken"]' >/dev/null 2>&1 || true
+              echo "npm token + rut-auth realms enabled"
+              # 3b) Rut Auth capability — tells Nexus which HTTP header carries the
+              # authenticated username. oauth2-proxy sends X-Forwarded-User (the
+              # Keycloak preferred_username). There is no stable public v1 endpoint
+              # for capabilities, so this uses the internal UI API and is strictly
+              # best-effort (|| true): a version mismatch must not fail the sync.
+              # If it already exists Nexus returns 400 (dup) — also fine.
+              have_rut=$(curl -s $AUTH "${API%/v1}/v1/status" >/dev/null 2>&1; \
+                curl -s $AUTH -H 'Content-Type: application/json' \
+                  "${NEXUS}/service/rest/internal/ui/capabilities" 2>/dev/null | grep -c '"typeId":"rutauth"' || echo 0)
+              if [ "${have_rut:-0}" = "0" ]; then
+                code=$(curl -s -o /tmp/rut -w "%{http_code}" $AUTH \
+                  -H 'Content-Type: application/json' -H 'X-Nexus-UI: true' \
+                  -X POST "${NEXUS}/service/rest/internal/ui/capabilities" \
+                  -d '{"typeId":"rutauth","enabled":true,"notes":"Keycloak SSO via oauth2-proxy (X-Forwarded-User)","properties":{"httpHeader":"X-Forwarded-User"}}' || echo 000)
+                echo "rut-auth capability -> ${code} $(head -c 120 /tmp/rut 2>/dev/null || true)"
+              else
+                echo "rut-auth capability already present"
+              fi
               # 4) Publish the credentials + endpoints the supply chain consumes.
               kubectl create secret generic nexus-credentials -n adhar-system \
                 --from-literal=username="${NEXUS_USER}" \

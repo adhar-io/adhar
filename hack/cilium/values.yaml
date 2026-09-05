@@ -1764,10 +1764,11 @@ hubble:
       extraIpAddresses: []
   relay:
     # -- Enable Hubble Relay (requires hubble.enabled=true)
-    # Adhar: relay is deployed by the GitOps `hubble` package (observability/hubble)
-    # rather than the bootstrap Cilium install, so its image is off the critical
-    # path of `adhar up` (the agent's Hubble server stays on via hubble.enabled).
-    enabled: false
+    # Kept in the bootstrap Cilium install so relay + the agent's Hubble server
+    # share ONE render → ONE Cilium CA → mTLS between them verifies. (Splitting
+    # relay into a separate render generated a second CA and broke the handshake;
+    # the images are preloaded so keeping relay here costs no cold-start time.)
+    enabled: true
     # -- Roll out Hubble Relay pods automatically when configmap is updated.
     rollOutPods: false
     # -- Hubble-relay container image.
@@ -2010,8 +2011,7 @@ hubble:
       level: ~
   ui:
     # -- Whether to enable the Hubble UI.
-    # Adhar: deployed by the GitOps `hubble` package, not the bootstrap install.
-    enabled: false
+    enabled: true
     standalone:
       # -- When true, it will allow installing the Hubble UI only, without checking dependencies.
       # It is useful if a cluster already has cilium and Hubble relay installed and you just

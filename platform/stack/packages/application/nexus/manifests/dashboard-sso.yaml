@@ -84,6 +84,13 @@ spec:
             - --cookie-secure=true
             - --skip-provider-button=true
             - --reverse-proxy=true
+            # Forward the authenticated identity to Nexus so its Rut Auth realm
+            # can log the user in (Nexus OSS has no native OIDC). X-Forwarded-User
+            # carries the username; prefer the preferred_username claim over email
+            # so it matches Nexus usernames rather than "<user>@<domain>".
+            - --pass-user-headers=true
+            - --set-xauthrequest=true
+            - --prefer-email-to-user=false
           envFrom:
             - secretRef:
                 name: nexus-oauth2-proxy
