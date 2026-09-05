@@ -41,6 +41,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/stdr"
 	"github.com/spf13/cobra"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -346,15 +347,22 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 			st := pl.Status
 			// Stage 3 Cilium & Gateway → 4 ArgoCD → 5 Gitea → 6 Crossplane →
 			// 7 GitOps sync (completed after the controller shuts down).
+			//
+			// The controller sets Status.*.Available on APPLY (not readiness), so
+			// gating the ArgoCD/Gitea stages purely on those flags would make them
+			// finish instantly and let one stage absorb the others' real cost. To
+			// show REAL per-stage time we additionally require the component's
+			// Deployment to be Ready before advancing (the flag guards ordering;
+			// the Deployment readiness times the stage).
 			if st.Gateway.Available {
 				tracker.Done(3)
 				tracker.Activate(4)
 			}
-			if st.ArgoCD.Available {
+			if st.ArgoCD.Available && deployReady(ctx, c, "argo-cd-argocd-server") {
 				tracker.Done(4)
 				tracker.Activate(5)
 			}
-			if st.Gitea.Available {
+			if st.Gitea.Available && deployReady(ctx, c, "gitea") {
 				tracker.Done(5)
 				tracker.Activate(6)
 			}
@@ -364,6 +372,17 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 			}
 		}
 	}
+}
+
+// deployReady reports whether the named Deployment in adhar-system has a ready,
+// available replica — used to time the ArgoCD/Gitea stages by real readiness
+// rather than by the controller's apply-time Available flag.
+func deployReady(ctx context.Context, c client.Client, name string) bool {
+	var d appsv1.Deployment
+	if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &d); err != nil {
+		return false
+	}
+	return d.Status.ReadyReplicas > 0 && d.Status.AvailableReplicas > 0
 }
 
 // isShutdownError returns true for errors that are expected during graceful shutdown

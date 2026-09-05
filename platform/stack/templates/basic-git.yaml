@@ -1,0 +1,27 @@
+# Template: basic-git
+# Deploys a plain application from a Git repository through the Adhar control
+# plane. `adhar apps deploy <name> --template basic-git` and the Console both
+# instantiate this same CompositeApplication (the shared control-plane layer);
+# ${APP_NAME}/${APP_NAMESPACE} are substituted at creation time.
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeApplication
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAMESPACE}
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: application
+        provider: local
+  parameters:
+    displayName: ${APP_NAME}
+    project: default
+    description: "Application ${APP_NAME} created from the basic-git template"
+    source:
+      repoURL: https://github.com/argoproj/argocd-example-apps.git
+      path: guestbook
+      targetRevision: HEAD
+    destination:
+      namespace: ${APP_NAMESPACE}
+      server: https://kubernetes.default.svc

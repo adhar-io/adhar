@@ -239,21 +239,46 @@ func init() {
 
 func runUpdateRole(cmd *cobra.Command, args []string) error {
 	roleName := args[0]
+	kc := settings()
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
-	fmt.Printf("✏️  Updating role: %s\n", roleName)
+	fmt.Printf("✏️  Updating realm role %q in realm %s\n", roleName, kc.Realm)
+
+	// Fetch the current role so we PUT a complete representation (Keycloak
+	// replaces the role on PUT).
+	role, err := kc.realmRoleByName(ctx, roleName)
+	if err != nil {
+		return fmt.Errorf("role %q not found: %w", roleName, err)
+	}
 
 	if updateRoleDesc != "" {
-		fmt.Printf("📝 New description: %s\n", updateRoleDesc)
-	}
-	if len(updateRolePerms) > 0 {
-		fmt.Printf("🔐 New permissions: %v\n", updateRolePerms)
+		role.Description = updateRoleDesc
 	}
 	if updateRoleInherits != "" {
-		fmt.Printf("⬆️  New parent role: %s\n", updateRoleInherits)
+		role.Composite = true
+	}
+	if _, err := kc.adminWrite(ctx, http.MethodPut, "/roles/"+url.PathEscape(roleName), role); err != nil {
+		return fmt.Errorf("update role: %w", err)
 	}
 
-	// TODO: Implement actual role update logic
-	fmt.Printf("✅ Successfully updated role: %s\n", roleName)
+	// A new parent role makes this a composite that inherits the parent's grants.
+	if updateRoleInherits != "" {
+		parent, perr := kc.realmRoleByName(ctx, updateRoleInherits)
+		if perr != nil {
+			return fmt.Errorf("parent role %q not found: %w", updateRoleInherits, perr)
+		}
+		if _, perr := kc.adminWrite(ctx, http.MethodPost, "/roles/"+url.PathEscape(roleName)+"/composites", []kcRole{parent}); perr != nil {
+			return fmt.Errorf("add parent role: %w", perr)
+		}
+	}
+	if len(updateRolePerms) > 0 {
+		fmt.Println(helpers.CreateMuted("   Note: --permissions are not modeled as Keycloak realm-role attributes; ignored."))
+	}
+
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("Updated role %s", roleName)))
 	return nil
 }
 

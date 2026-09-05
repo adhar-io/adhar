@@ -494,6 +494,13 @@ spec:
   goTemplate: true
   goTemplateOptions:
     - missingkey=error
+  # NOTE: no RollingSync strategy — all apps sync in PARALLEL. A progressive
+  # (ordered) strategy was tried to force console-first, but RollingSync serializes
+  # EVERYTHING behind each step, so a single slow foundation app (e.g. CNPG taking
+  # a while to go Healthy) stalls the entire platform. The console is instead made
+  # fast by preloading its image + its deps (CNPG/ESO/Keycloak) into the node
+  # cache (see platform/providers/kind/preload.go), so it comes up quickly without
+  # blocking anything else.
   template:
     metadata:
       finalizers:

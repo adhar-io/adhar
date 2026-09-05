@@ -24,6 +24,7 @@ import (
 	"syscall"
 
 	"adhar-io/adhar/cmd/apps"
+	"adhar-io/adhar/cmd/push"
 	"adhar-io/adhar/cmd/auth"
 	"adhar-io/adhar/cmd/backup"
 	"adhar-io/adhar/cmd/cluster"
@@ -156,6 +157,7 @@ func init() {
 		upgrade.UpgradeCmd,          // Upgrade command: converge foundation + stack diff/sync
 		get.GetCmd,                  // Get command for resource information
 		apps.AppsCmd,                // Apps command for application management
+		push.PushCmd,                // Push command: cf push-style build+deploy from source
 		cluster.ClusterCmd,          // Cluster command for cluster management
 		config.ConfigCmd,            // Config command for configuration management
 		env.EnvCmd,                  // Environment command for environment management

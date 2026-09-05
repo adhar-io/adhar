@@ -305,6 +305,10 @@ metadata:
 data:
   application.namespaces: ""
   applicationsetcontroller.enable.leader.election: "false"
+  # Left OFF: apps sync in parallel. A RollingSync (progressive) strategy was
+  # tried to force console-first ordering but it serializes the whole platform
+  # behind each step — one slow foundation app stalls everything — so we rely on
+  # image preloading for console speed instead (see kind/preload.go).
   applicationsetcontroller.enable.progressive.syncs: "false"
   applicationsetcontroller.log.format: text
   applicationsetcontroller.log.level: info
@@ -313,13 +317,13 @@ data:
   commitserver.log.format: text
   commitserver.log.level: info
   controller.ignore.normalizer.jq.timeout: 1s
-  controller.kubectl.parallelism.limit: "2"
+  controller.kubectl.parallelism.limit: "4"
   controller.log.format: text
   controller.log.level: info
-  controller.operation.processors: "4"
+  controller.operation.processors: "8"
   controller.repo.server.timeout.seconds: "60"
   controller.self.heal.timeout.seconds: "5"
-  controller.status.processors: "8"
+  controller.status.processors: "16"
   controller.sync.timeout.seconds: "0"
   dexserver.log.format: text
   dexserver.log.level: info

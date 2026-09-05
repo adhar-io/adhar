@@ -52,6 +52,11 @@ const (
 	// Platform GitOps repository names created under GiteaPlatformOrg.
 	GitOpsRepoPackages     = "packages"
 	GitOpsRepoEnvironments = "environments"
+	// GitOpsRepoTemplates holds the service/application templates the Console and
+	// the `adhar apps deploy --template` CLI both instantiate through the
+	// CompositeApplication control-plane layer — the single source of truth for
+	// templates, served from Gitea (not the local filesystem or a hardcoded set).
+	GitOpsRepoTemplates = "templates"
 )
 
 var (

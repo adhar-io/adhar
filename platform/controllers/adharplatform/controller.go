@@ -318,6 +318,16 @@ func (r *AdharPlatformReconciler) installCorePackagesSync(ctx context.Context, r
 			return fmt.Errorf("failed installing %s: %w", inst.name, err)
 		}
 		logger.Info("successfully installed", "name", inst.name)
+		// Persist status incrementally so `adhar up`'s stage tracker advances in
+		// real time as each foundation component reports Available. Without this,
+		// the sub-reconcilers set Status.*.Available only in memory and it is
+		// persisted once at the very end — so the poller sees Gateway.Available
+		// only AFTER the slow Gitea readiness wait, making "Cilium & Gateway"
+		// wrongly absorb the ArgoCD+Gitea time (and ArgoCD/Gitea show 0s).
+		// Non-fatal: the end-of-reconcile update still persists the final state.
+		if updErr := r.Status().Update(ctx, resource); updErr != nil {
+			logger.V(1).Info("could not persist incremental foundation status; will persist at end of reconcile", "after", inst.name, "error", updErr)
+		}
 	}
 
 	return nil
@@ -458,6 +468,12 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 		return fmt.Errorf("failed to create packages repository: %w", err)
 	}
 
+	// Create templates repository (service/app templates the CLI + Console
+	// instantiate via the CompositeApplication control plane).
+	if err := r.createGiteaRepository(ctx, globals.GitOpsRepoTemplates); err != nil {
+		return fmt.Errorf("failed to create templates repository: %w", err)
+	}
+
 	// Populate repositories with content
 	if err := r.populateRepositories(ctx); err != nil {
 		return fmt.Errorf("failed to populate repositories: %w", err)
@@ -492,7 +508,7 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 
 	// Step 1: Wait for Gitea deployment to be ready (up to 10 minutes)
 	logger.Info("1/3: Waiting for Gitea deployment to be ready")
-	maxAttempts := 60 // 10 minutes (60 * 10 seconds)
+	maxAttempts := 120 // ~6 min (120 * 3s); faster poll = less rounding latency
 	for i := 0; i < maxAttempts; i++ {
 		var deployment appsv1.Deployment
 		err := r.Client.Get(ctx, types.NamespacedName{
@@ -512,12 +528,12 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 		if i%6 == 0 { // Log every minute
 			logger.V(1).Info("Gitea deployment not ready yet, waiting...", "attempt", i+1, "maxAttempts", maxAttempts)
 		}
-		time.Sleep(10 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 
 	// Step 2: Wait for Gitea pods to be running
 	logger.Info("2/3: Waiting for Gitea pods to be running")
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 80; i++ {
 		var podList corev1.PodList
 		err := r.Client.List(ctx, &podList, &client.ListOptions{
 			Namespace: globals.AdharSystemNamespace,
@@ -552,7 +568,7 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 		}
 
 		logger.V(1).Info("Gitea pods not ready yet, waiting...", "attempt", i+1)
-		time.Sleep(10 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 
 	// Step 3: Wait for Gitea API to actually respond (instead of fixed sleep)
@@ -562,7 +578,7 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 		return fmt.Errorf("getting Gitea pod name for API check: %w", err)
 	}
 
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 80; i++ {
 		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--",
 			"curl", "-sf", "http://localhost:3000/api/v1/version")
 		if output, err := cmd.CombinedOutput(); err == nil {
@@ -577,7 +593,7 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 		if i%3 == 0 {
 			logger.V(1).Info("Gitea API not ready yet, waiting...", "attempt", i+1)
 		}
-		time.Sleep(10 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 
 	logger.Info("✅ Gitea is fully ready for repository operations")
@@ -707,6 +723,17 @@ func (r *AdharPlatformReconciler) populateRepositories(ctx context.Context) erro
 
 	if err := r.populateGiteaRepo(ctx, podName, globals.GitOpsRepoEnvironments, filepath.Join(r.StackDir, globals.GitOpsRepoEnvironments)); err != nil {
 		return fmt.Errorf("failed to populate environments repository: %w", err)
+	}
+
+	// Templates repo is optional-tolerant: an older StackDir may not ship a
+	// templates/ tree, so a missing dir must not fail bootstrap.
+	templatesDir := filepath.Join(r.StackDir, globals.GitOpsRepoTemplates)
+	if _, statErr := os.Stat(templatesDir); statErr == nil {
+		if err := r.populateGiteaRepo(ctx, podName, globals.GitOpsRepoTemplates, templatesDir); err != nil {
+			return fmt.Errorf("failed to populate templates repository: %w", err)
+		}
+	} else {
+		logger.Info("No templates directory in stack; skipping templates repo population", "dir", templatesDir)
 	}
 
 	logger.Info("Successfully populated all GitOps repositories")

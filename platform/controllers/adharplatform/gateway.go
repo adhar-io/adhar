@@ -151,7 +151,14 @@ func (r *AdharPlatformReconciler) ReconcileGateway(ctx context.Context, req ctrl
 // callers treat that as non-fatal and let the reconcile loop retry.
 func (r *AdharPlatformReconciler) waitForGatewayClassConfigCRD(ctx context.Context) error {
 	logger := log.FromContext(ctx)
-	for i := 0; i < 24; i++ { // up to ~60s
+	// Wait up to ~3min, polling every 2s. The Cilium operator registers this CRD
+	// asynchronously after it starts; establishing it BEFORE gateway.yaml is
+	// applied is what makes the generated Service come up as NodePort on the first
+	// pass. Waiting long enough here (breaking early the moment it establishes)
+	// avoids the far costlier alternative: applying gateway.yaml too early, getting
+	// a LoadBalancer Service, and then cycling through full installFoundation
+	// requeues (each re-running this wait + the node-port pin) for minutes.
+	for i := 0; i < 90; i++ { // up to ~180s
 		var crd unstructured.Unstructured
 		crd.SetGroupVersionKind(schema.GroupVersionKind{
 			Group:   "apiextensions.k8s.io",
@@ -163,7 +170,7 @@ func (r *AdharPlatformReconciler) waitForGatewayClassConfigCRD(ctx context.Conte
 			logger.Info("CiliumGatewayClassConfig CRD is Established")
 			return nil
 		}
-		time.Sleep(2500 * time.Millisecond)
+		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("CRD %s not Established within timeout", gatewayClassConfigCRDName)
 }
@@ -195,10 +202,17 @@ func (r *AdharPlatformReconciler) pinGatewayNodePorts(ctx context.Context) error
 
 	// Cilium owns this Service and re-reconciles it, so a plain Update can hit a
 	// resource-version conflict; retry.RetryOnConflict re-reads and re-applies.
-	for i := 0; i < 18; i++ { // up to ~90s
+	//
+	// Wait up to ~4min in THIS pass, polling every 3s. Converging here (as soon as
+	// Cilium has created the NodePort Service) is far cheaper than timing out and
+	// letting installFoundation requeue: each requeue re-runs the whole foundation
+	// (CRD wait + this pin), so a premature timeout turns a one-time ~1-2min wait
+	// into minutes of cycling — the actual cause of the slow "Cilium & Gateway"
+	// phase. The loop still breaks the instant the Service is pinned.
+	for i := 0; i < 80; i++ { // up to ~240s
 		var svc corev1.Service
 		if err := r.Get(ctx, types.NamespacedName{Name: gatewayServiceName, Namespace: globals.AdharSystemNamespace}, &svc); err != nil || svc.Spec.Type != corev1.ServiceTypeNodePort {
-			time.Sleep(5 * time.Second)
+			time.Sleep(3 * time.Second)
 			continue
 		}
 		if gatewayNodePortsPinned(&svc) {
@@ -218,7 +232,7 @@ func (r *AdharPlatformReconciler) pinGatewayNodePorts(ctx context.Context) error
 			return nil
 		}
 		logger.Info("Failed to pin gateway node ports (will retry)", "error", err)
-		time.Sleep(5 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 	return fmt.Errorf("gateway Service %s not ready as NodePort within timeout", gatewayServiceName)
 }

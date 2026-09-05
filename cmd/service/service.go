@@ -70,6 +70,7 @@ func init() {
 	// Add subcommands
 	ServiceCmd.AddCommand(listCmd)
 	ServiceCmd.AddCommand(createCmd)
+	ServiceCmd.AddCommand(newServiceCmd)
 	ServiceCmd.AddCommand(routeCmd)
 	ServiceCmd.AddCommand(testCmd)
 	ServiceCmd.AddCommand(monitorCmd)

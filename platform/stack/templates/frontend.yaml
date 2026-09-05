@@ -1,0 +1,25 @@
+# Template: frontend
+# A frontend app deployed from a Git repo through the Adhar control plane.
+# Point source.repoURL/path at your frontend's manifests (kustomize/plain).
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeApplication
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAMESPACE}
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: application
+        provider: local
+  parameters:
+    displayName: ${APP_NAME}
+    project: default
+    description: "Frontend ${APP_NAME} created from the frontend template"
+    source:
+      repoURL: https://github.com/argoproj/argocd-example-apps.git
+      path: kustomize-guestbook
+      targetRevision: HEAD
+    destination:
+      namespace: ${APP_NAMESPACE}
+      server: https://kubernetes.default.svc

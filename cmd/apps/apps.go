@@ -35,8 +35,13 @@ This command provides:
 • Monitoring and status tracking
 • Scaling and configuration updates
 
+Templates (basic-git, microservice, frontend) are served from the Gitea
+'templates' repo and instantiated through the CompositeApplication control plane
+— the same path the Adhar Console uses.
+
 Examples:
-  adhar apps deploy my-app --template=nodejs
+  adhar apps deploy my-app --template=basic-git
+  adhar apps deploy my-svc --template=microservice --namespace=platform-apps
   adhar apps list
   adhar apps status my-app
   adhar apps scale my-app --replicas=3`,
@@ -61,6 +66,8 @@ func init() {
 	AppsCmd.AddCommand(listCmd)
 	AppsCmd.AddCommand(statusCmd)
 	AppsCmd.AddCommand(scaleCmd)
+	AppsCmd.AddCommand(restartCmd)
+	AppsCmd.AddCommand(bindCmd)
 	AppsCmd.AddCommand(deleteCmd)
 }
 

@@ -22,13 +22,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"adhar-io/adhar/cmd/helpers"
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/logger"
+	"adhar-io/adhar/platform/utils"
 
+	"code.gitea.io/sdk/gitea"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -129,16 +131,79 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// deployFromTemplate instantiates a service/application template from the Gitea
+// `templates` repo (the single source of truth the Console uses too) through the
+// CompositeApplication control-plane layer. It fetches <template>.yaml from
+// Gitea, substitutes ${APP_NAME}/${APP_NAMESPACE}, then hands off to
+// deployFromFile — which normalizes to a CompositeApplication XR and applies it,
+// so a --template deploy takes the exact same control-plane path as --repo and
+// as the Console.
 func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, namespace, template string) (string, string, error) {
-	templatePath := filepath.Join("control-plane", "examples", "apps", fmt.Sprintf("%s.yaml", template))
-	if _, err := os.Stat(templatePath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", "", fmt.Errorf("template %q not found at %s", template, templatePath)
-		}
-		return "", "", fmt.Errorf("read template: %w", err)
+	gc, err := newGiteaClient(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("connecting to the platform Gitea (is the cluster up?): %w", err)
 	}
 
-	return deployFromFile(ctx, kubeconfigPath, appName, namespace, templatePath)
+	raw, _, err := gc.GetFile(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, "main", template+".yaml")
+	if err != nil {
+		avail := listGiteaTemplates(gc)
+		if avail != "" {
+			return "", "", fmt.Errorf("template %q not found in gitea %s/%s. Available: %s",
+				template, globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, avail)
+		}
+		return "", "", fmt.Errorf("fetching template %q from gitea %s/%s: %w",
+			template, globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, err)
+	}
+
+	// Substitute the placeholders the templates declare.
+	rendered := strings.NewReplacer(
+		"${APP_NAME}", appName,
+		"${APP_NAMESPACE}", namespace,
+	).Replace(string(raw))
+
+	tmp, err := os.CreateTemp("", "adhar-template-*.yaml")
+	if err != nil {
+		return "", "", fmt.Errorf("staging template: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(rendered); err != nil {
+		_ = tmp.Close()
+		return "", "", fmt.Errorf("writing template: %w", err)
+	}
+	_ = tmp.Close()
+
+	return deployFromFile(ctx, kubeconfigPath, appName, namespace, tmp.Name())
+}
+
+// newGiteaClient builds an authenticated Gitea SDK client against the platform's
+// in-cluster Gitea (resolved from the active idp config), reachable from the CLI
+// via the platform host.
+func newGiteaClient(ctx context.Context) (*gitea.Client, error) {
+	baseURL, err := utils.GiteaBaseUrl(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return gitea.NewClient(baseURL,
+		gitea.SetHTTPClient(utils.GetHttpClient()),
+		gitea.SetBasicAuth(globals.GiteaAdminUser, globals.GiteaAdminPassword),
+		gitea.SetContext(ctx),
+	)
+}
+
+// listGiteaTemplates returns a comma-separated list of available template names
+// (best-effort, for friendlier "not found" errors).
+func listGiteaTemplates(gc *gitea.Client) string {
+	entries, _, err := gc.ListContents(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, "main", "")
+	if err != nil {
+		return ""
+	}
+	var names []string
+	for _, e := range entries {
+		if e != nil && e.Type == "file" && strings.HasSuffix(e.Name, ".yaml") {
+			names = append(names, strings.TrimSuffix(e.Name, ".yaml"))
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 func deployFromRepo(ctx context.Context, kubeconfigPath, appName, namespace string) (string, string, error) {

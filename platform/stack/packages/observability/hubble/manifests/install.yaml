@@ -1,0 +1,356 @@
+# HUBBLE RELAY + UI — moved off the bootstrap Cilium critical path so their
+# images no longer block the 'Cilium & Gateway' phase of `adhar up`. The
+# agent's Hubble server stays in the bootstrap install; relay connects to
+# hubble-peer.adhar-system. Regenerate with generate-manifests.sh.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hubble-relay
+  namespace: adhar-system
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hubble-ui
+  namespace: adhar-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hubble-relay-client-certs
+  namespace: adhar-system
+  labels:
+    cilium.io/helm-template-non-idempotent: 'true'
+  annotations: null
+type: kubernetes.io/tls
+data:
+  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURFekNDQWZ1Z0F3SUJBZ0lRWjMzbktYREZsL1JwcXVNd1h4Q25MekFOQmdrcWhraUc5dzBCQVFzRkFEQVUKTVJJd0VBWURWUVFERXdsRGFXeHBkVzBnUTBFd0hoY05Nall3T1RBMU1ETXdOVE0yV2hjTk1qa3dPVEEwTURNdwpOVE0yV2pBVU1SSXdFQVlEVlFRREV3bERhV3hwZFcwZ1EwRXdnZ0VpTUEwR0NTcUdTSWIzRFFFQkFRVUFBNElCCkR3QXdnZ0VLQW9JQkFRRGZXQTE1a3VyeVh0T1VSaGZRNE01anplcVRTRXpZNTJQWUt5cEQ2YzFyWEJTS1RJMWYKcGdza3hKdzdLdzZoZmpJclFkQWFUQWdRVndOS215SVpVbElsdTlKRUQzRWk5d0I5Zzk5QVVyTC9RT1oxNmtBUQpPVkdhR1l0OEFOKy9BT1VsQnBxanFVaDV1MWJnL2xVam1UMnpFS3kvckhiS2ZneEtSL2IwclNBTm1LUy9zUUE4CmZJelhJZEJya0RYSDhBNmlGK1IrbnR5bDhlTzgxakdjMkpGeTF6UzFEUXZTaUJJcHpOYWJQb0dyRFlwWWhSK1QKTzhZdW1zUm1LRjVBNVVOQW0rT0RMdFlIVnJUQ2tpZWdNUjlmQXdIcVlKS1lEZ2pVZkdoY3FhNitIMlpGY2JDNQpUWDdWRjB1bGVYRGNwYWRGUFIwOHZvVkhPWTZpQmZ4dmc1UnZBZ01CQUFHallUQmZNQTRHQTFVZER3RUIvd1FFCkF3SUNwREFkQmdOVkhTVUVGakFVQmdnckJnRUZCUWNEQVFZSUt3WUJCUVVIQXdJd0R3WURWUjBUQVFIL0JBVXcKQXdFQi96QWRCZ05WSFE0RUZnUVVPSEpmNGdDdmlCTkI5eEdmOUtFQkhFMllRWnd3RFFZSktvWklodmNOQVFFTApCUUFEZ2dFQkFNcVoyaTZMUzgxMjVnOStCZzB6elVPY2duTFQ0Wk5VNjlWZy9zU25DZmtsaEVHVW9uNThjZEpnCmJqbG92QWlNaDNXVStPV1J4WXhZbmxsR3VZaDMwSG9rdXBrY3BpL1Y5MU1nYkszOVJVa3hNazdJOWJIWGlBMGEKQ2JMUkUrQUwvc05oWVcvYXM0YldQVWVHY3VxTzMrWXRSU0dvZXBMZ0FON2x3aG9BcUZLd1RsYUJDdExKOVo4cwpKclpTMHpNKy9INFoxQnNtamYrb1o0M3hVMDVvNERKa0VlSjdIN01ucGdSc3JyYUFsd3JJU09uallLWEhxMGVqCk1tZ05zNFZpS1lxbWJGWmtYcjR5aUxIYVVtQUI3MmFlTEhVaTlScFhIKzdsTExudk1weDErTlNaWEtiQ0NOT2QKaDg0YkY5Ti84cW5ZeVRPQTlMdEcyd291NE9BNE9SUT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURTVENDQWpHZ0F3SUJBZ0lSQU50NVBBRVBVbkUweXBodE4wYmlBRGd3RFFZSktvWklodmNOQVFFTEJRQXcKRkRFU01CQUdBMVVFQXhNSlEybHNhWFZ0SUVOQk1CNFhEVEkyTURrd05UQXpNRFV6TmxvWERUSTNNRGt3TlRBegpNRFV6Tmxvd0l6RWhNQjhHQTFVRUF3d1lLaTVvZFdKaWJHVXRjbVZzWVhrdVkybHNhWFZ0TG1sdk1JSUJJakFOCkJna3Foa2lHOXcwQkFRRUZBQU9DQVE4QU1JSUJDZ0tDQVFFQTI5Y2pmR3FTbWxKUHVQYjFqR0hsTWk3OUJvQjgKNlAyV0RuMCtmK0cwQnVUK0V1bjQvYTJIUVA1a0ZTdGJLamRGbzVOSjhESitnQmtNZWlIb1Jkc0htTk50M3JCZQo2Q1NSVS9TOU5nQ2RsSDRONDhsL0RCeDIxUENBZ20zL05wcThFQkRicnZEdXZ5UFRNTnFJL1pqMXdRc2xoWm9VCmJsbTJDeXVSV2JPRm5XMHNNUmhJQ0pxWktXcWNFR0h1WUVLT2lkc0NaRkdNcjk2dStIZWltVnJHaHppdWZXYW0KZytHNjVDTWtZZ1l4b1J3UHRYbUNHbmJYYnZLQzFEWnV2TFZFQ2lMZ21Mcmo2eE9ZNXFTYkcvQXBZVXlrVUp2dApubjJJK3NOVWFZZXJpUGlkQ1hUKytveEkvSk12bG1tYXNibURpNTlocEd6QmFycTg5R1diWC9QK25RSURBUUFCCm80R0dNSUdETUE0R0ExVWREd0VCL3dRRUF3SUZvREFkQmdOVkhTVUVGakFVQmdnckJnRUZCUWNEQVFZSUt3WUIKQlFVSEF3SXdEQVlEVlIwVEFRSC9CQUl3QURBZkJnTlZIU01FR0RBV2dCUTRjbC9pQUsrSUUwSDNFWi8wb1FFYwpUWmhCbkRBakJnTlZIUkVFSERBYWdoZ3FMbWgxWW1Kc1pTMXlaV3hoZVM1amFXeHBkVzB1YVc4d0RRWUpLb1pJCmh2Y05BUUVMQlFBRGdnRUJBRnBpbzhtQXQ2cHM1cmcrV2o4VC81cndYQ25pd3Q4ZGltZ1FDK2U0cmV2UzNrUEEKMklCcHJlb1RwWGMvUmVDQ0RoRGFVNXR2cTNOL3FhT0xDQm1Bb1k2ZDAzbGlBbVU5TG1XYXppUDgxb3ZPVGtIeQorT0QrM1dZNHF4OGJmaHBydHQxOVg2MmhPK1kza0xudmpSdXErRmxOZXk0VmdJbkJqMlVicE95cThIZ01KY05pCmQ1WmYvelFGbG1HaHJabFQ5S1RsSlJNSUdhSTRsaHJVZStyZ2hFRkRFZWtleG80dnN3VlVWRmRCVGttRm9sMzQKQ0FtTXkwMzVLeWZLd1RDNW84YlUvODdwWWhYazJtOURaZ0JFYmFzRWZ2S0NPOXBYZ1RiWFlNNG9ZeGY4dGRONApydEVXYlJrd0lhYnFmWU1rV01QY0x1NkFBRFd5Q2c1YWNqZFZvU3M9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBMjljamZHcVNtbEpQdVBiMWpHSGxNaTc5Qm9CODZQMldEbjArZitHMEJ1VCtFdW40Ci9hMkhRUDVrRlN0YktqZEZvNU5KOERKK2dCa01laUhvUmRzSG1OTnQzckJlNkNTUlUvUzlOZ0NkbEg0TjQ4bC8KREJ4MjFQQ0FnbTMvTnBxOEVCRGJydkR1dnlQVE1OcUkvWmoxd1FzbGhab1VibG0yQ3l1UldiT0ZuVzBzTVJoSQpDSnFaS1dxY0VHSHVZRUtPaWRzQ1pGR01yOTZ1K0hlaW1Wckdoeml1ZldhbWcrRzY1Q01rWWdZeG9Sd1B0WG1DCkduYlhidktDMURadXZMVkVDaUxnbUxyajZ4T1k1cVNiRy9BcFlVeWtVSnZ0bm4ySStzTlVhWWVyaVBpZENYVCsKK294SS9KTXZsbW1hc2JtRGk1OWhwR3pCYXJxODlHV2JYL1ArblFJREFRQUJBb0lCQUZNUUZJNWJ6Z3lVOFI1WAo0U3NyaWVmT0xUZ1pzQmh3U0JRdGFrSHpTNHdYVlpCYjZ3SWVZSzVEOEJpM2l2aUdiYitDVlR0Mk9LbTV6U2NRClRLeW9OMVNjL2pSWHUyUkcvTW9WL0srOHg4MWxXMllucWVNdmxnNmEyRk52c0RBM2dyc25RM256K3FFcHJoQVYKWWhFL2pBdG1aTVQ0RktRbExVMUhKdUlYbkhLQUxCbEVhTEhHL2UySXBrN3dEbEh1Z2piMnNVN2JTTUZXMDFIVwpta1JiUFZheExmZjhqUjJHcDNOZU9CaU0wM2I4bjRCQzM5bFNzdWJUYUMxK1VWazV0bk5QNStveUxQZlpzbVdECnM2L1Z6STNIWCtqYXI5OTA2L2RxWllVMmVyeWRRNmtQRVhGdHVBSHBhYWMvUFRXM1FnQWhLenBaREp0V0ZsNUQKTFhUM0xJRUNnWUVBNllEZEdqcVRVeEV2WmFvWmdpSUVKL0VVbXlNUEFtR2gzY0FicGNCVnR5RC9SQzR3YnNJVwpLaGFIdDcyOGV6NzRlaFkwOFZEdE5FWE1EbmZJWGVHOFhDbFRRajRZZWxzT2JjbDcyUGM0NEZzelh5ajRtL0hoCkRDWnhLV0VDNVprSjZFMldMUHk4ckpKOGEzcWJzcCtlbHdmM0FIbEQzYmpKdEFYYVFrTFVyM0VDZ1lFQThRVksKV3lyNVhJQy9MSHFhdnJramFuMU9pWEE3U1dVQjBjV0ZYR2Y4REZjQU1oTzRHU3pYY2RtRk9SWWdCeHVSYWpFTwpicld6OEptMk5kTXhUdjUycFI5cXMvQ0taUDRqWCs1RFcyZXNRcTR1ZDVWU2pEckc3Q1puZnpaMmJJbzVHVE1HCkJMVGtkWVpzRlV5OHVDY1JFRi9RQzExY09GemVyVW5XV0kzVFErMENnWUVBb2lHQTVGSmhzeDdPbXplbHFJNzMKOWNmV04vWDYyUHR6aWVaM0MvcmxTVmVYQnY5UFQ4aGgzVzF4Wk9wUWNmOENScnNlbmFSRVg3UkxBSXk1U2o2UQpMQ25oanJCUkRMd200Nkl2NVRHYmcyU3Y0ZFl2OFEvYzVEUFpCUk5BRUszWGpENDdGUmVUNWZ0OGVxQlNkWStSCmJXcnhYWm5WdnFFdEpGdWY5Ynd6czNFQ2dZQU1aYlJFYWpwM1dwdjZ3cmV3OWI3dm5GQnMyMXdCVTNPN2dZaHgKajF1MG1za0V5bVRlenFLcVZZRDN4YjZSL3dZRXkwOHR2S1RyekV4R0NuM3Z6VUQzRDEyaXNjMjhraUhwcmt6QwpwOXVCZG9vblZvUHZlSnFBelJ6bnV6cHVMTkh4RE9IVFhpYWVNUExnU1prdmM3cjU5Nk93NGZWN1pMT0RnRmZKCktFcGtwUUtCZ0dhT3NJYzlSTDJ4c0w4YXBwTk9PMlMvQ1Y3K1JSS3JLbjJkVzZnekRpMi9IUkNrTkpGT2twNVkKSDUyMXk4elFhWEp1UUdTMFVHaWp2Y3h5MkFUL1FyNy9WR1VDeUJCMnpDKzFodUFCMEdKOG1jLzgyeG5VUkJHeQpIZWNtNVdydncxODVPZ2NMOVJhVTQ4WmZsRzNHK2l3Z1JKNHdPUlZRQjBCZkZnc0VMWExJCi0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubble-relay-config
+  namespace: adhar-system
+data:
+  config.yaml: "cluster-name: adhar-mgmt\npeer-service: \"hubble-peer.adhar-system.svc.cluster.local.:443\"\
+    \nlisten-address: :4245\ngops: true\ngops-port: \"9893\"\nretry-timeout: \nsort-buffer-len-max:\
+    \ \nsort-buffer-drain-timeout: \ntls-hubble-client-cert-file: /var/lib/hubble-relay/tls/client.crt\n\
+    tls-hubble-client-key-file: /var/lib/hubble-relay/tls/client.key\ntls-hubble-server-ca-files:\
+    \ /var/lib/hubble-relay/tls/hubble-server-ca.crt\n\ndisable-server-tls: true\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubble-ui-nginx
+  namespace: adhar-system
+data:
+  nginx.conf: "server {\n    listen       8081;\n    listen       [::]:8081;\n   \
+    \ server_name  localhost;\n    root /app;\n    index index.html;\n    client_max_body_size\
+    \ 1G;\n\n    location / {\n        proxy_set_header Host $host;\n        proxy_set_header\
+    \ X-Real-IP $remote_addr;\n\n        location /api {\n            proxy_http_version\
+    \ 1.1;\n            proxy_pass_request_headers on;\n            proxy_pass http://127.0.0.1:8090;\n\
+    \        }\n        location / {\n            if ($http_user_agent ~* \"kube-probe\"\
+    ) { access_log off; }\n            # double `/index.html` is required here\n \
+    \           try_files $uri $uri/ /index.html /index.html;\n        }\n\n     \
+    \   # Liveness probe\n        location /healthz {\n            access_log off;\n\
+    \            add_header Content-Type text/plain;\n            return 200 'ok';\n\
+    \        }\n    }\n}"
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: hubble-ui
+  labels:
+    app.kubernetes.io/part-of: cilium
+    helm.sh/chart: cilium-1.20.0
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - componentstatuses
+  - namespaces
+  - nodes
+  - pods
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+  - watch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: hubble-ui
+  labels:
+    app.kubernetes.io/part-of: cilium
+    helm.sh/chart: cilium-1.20.0
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hubble-ui
+subjects:
+- kind: ServiceAccount
+  name: hubble-ui
+  namespace: adhar-system
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: hubble-relay
+  namespace: adhar-system
+  annotations: null
+  labels:
+    k8s-app: hubble-relay
+    app.kubernetes.io/name: hubble-relay
+    app.kubernetes.io/part-of: cilium
+    helm.sh/chart: cilium-1.20.0
+spec:
+  type: ClusterIP
+  selector:
+    k8s-app: hubble-relay
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: grpc
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: hubble-ui
+  namespace: adhar-system
+  labels:
+    k8s-app: hubble-ui
+    app.kubernetes.io/name: hubble-ui
+    app.kubernetes.io/part-of: cilium
+    helm.sh/chart: cilium-1.20.0
+spec:
+  type: ClusterIP
+  selector:
+    k8s-app: hubble-ui
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hubble-relay
+  namespace: adhar-system
+  labels:
+    k8s-app: hubble-relay
+    app.kubernetes.io/name: hubble-relay
+    app.kubernetes.io/part-of: cilium
+    helm.sh/chart: cilium-1.20.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: hubble-relay
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations: null
+      labels:
+        k8s-app: hubble-relay
+        app.kubernetes.io/name: hubble-relay
+        app.kubernetes.io/part-of: cilium
+        helm.sh/chart: cilium-1.20.0
+    spec:
+      securityContext:
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: hubble-relay
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+          seccompProfile:
+            type: RuntimeDefault
+        image: quay.io/cilium/hubble-relay:v1.20.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - hubble-relay
+        args:
+        - serve
+        ports:
+        - name: grpc
+          containerPort: 4245
+        readinessProbe:
+          grpc:
+            port: 4222
+          timeoutSeconds: 3
+        livenessProbe:
+          grpc:
+            port: 4222
+          timeoutSeconds: 10
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 12
+        startupProbe:
+          grpc:
+            port: 4222
+          initialDelaySeconds: 10
+          failureThreshold: 20
+          periodSeconds: 3
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: config
+          mountPath: /etc/hubble-relay
+          readOnly: true
+        - name: tls
+          mountPath: /var/lib/hubble-relay/tls
+          readOnly: true
+        terminationMessagePolicy: FallbackToLogsOnError
+      restartPolicy: Always
+      priorityClassName: null
+      serviceAccountName: hubble-relay
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 1
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                k8s-app: cilium
+            topologyKey: kubernetes.io/hostname
+      nodeSelector:
+        kubernetes.io/os: linux
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: hubble-relay-config
+          items:
+          - key: config.yaml
+            path: config.yaml
+      - name: tls
+        projected:
+          defaultMode: 256
+          sources:
+          - secret:
+              name: hubble-relay-client-certs
+              items:
+              - key: tls.crt
+                path: client.crt
+              - key: tls.key
+                path: client.key
+              - key: ca.crt
+                path: hubble-server-ca.crt
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: hubble-ui
+  namespace: adhar-system
+  labels:
+    k8s-app: hubble-ui
+    app.kubernetes.io/name: hubble-ui
+    app.kubernetes.io/part-of: cilium
+    helm.sh/chart: cilium-1.20.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: hubble-ui
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations: null
+      labels:
+        k8s-app: hubble-ui
+        app.kubernetes.io/name: hubble-ui
+        app.kubernetes.io/part-of: cilium
+        helm.sh/chart: cilium-1.20.0
+    spec:
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      priorityClassName: null
+      serviceAccountName: hubble-ui
+      automountServiceAccountToken: true
+      containers:
+      - name: frontend
+        image: quay.io/cilium/hubble-ui:v0.13.5
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8081
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+        volumeMounts:
+        - name: hubble-ui-nginx-conf
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: nginx.conf
+        - name: tmp-dir
+          mountPath: /tmp
+        terminationMessagePolicy: FallbackToLogsOnError
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      - name: backend
+        image: quay.io/cilium/hubble-ui-backend:v0.13.5
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: EVENTS_SERVER_PORT
+          value: '8090'
+        - name: FLOWS_API_ADDR
+          value: hubble-relay:80
+        ports:
+        - name: grpc
+          containerPort: 8090
+        volumeMounts: null
+        terminationMessagePolicy: FallbackToLogsOnError
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      nodeSelector:
+        kubernetes.io/os: linux
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: hubble-ui-nginx
+        name: hubble-ui-nginx-conf
+      - name: tmp-dir
+        emptyDir:
+          sizeLimit: 256Mi

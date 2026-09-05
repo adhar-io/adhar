@@ -1,0 +1,28 @@
+# Template: microservice
+# A Helm-chart microservice deployed through the Adhar control plane. Swap the
+# source.repoURL/chart for your service's chart. Instantiated identically by the
+# CLI (`adhar apps deploy <name> --template microservice`) and the Console.
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeApplication
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAMESPACE}
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        feature: application
+        provider: local
+  parameters:
+    displayName: ${APP_NAME}
+    project: default
+    description: "Microservice ${APP_NAME} created from the microservice template"
+    source:
+      repoURL: https://charts.bitnami.com/bitnami
+      chart: nginx
+      targetRevision: "18.*"
+      helm:
+        releaseName: ${APP_NAME}
+    destination:
+      namespace: ${APP_NAMESPACE}
+      server: https://kubernetes.default.svc

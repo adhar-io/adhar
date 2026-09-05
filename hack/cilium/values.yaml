@@ -1764,7 +1764,10 @@ hubble:
       extraIpAddresses: []
   relay:
     # -- Enable Hubble Relay (requires hubble.enabled=true)
-    enabled: true
+    # Adhar: relay is deployed by the GitOps `hubble` package (observability/hubble)
+    # rather than the bootstrap Cilium install, so its image is off the critical
+    # path of `adhar up` (the agent's Hubble server stays on via hubble.enabled).
+    enabled: false
     # -- Roll out Hubble Relay pods automatically when configmap is updated.
     rollOutPods: false
     # -- Hubble-relay container image.
@@ -2007,7 +2010,8 @@ hubble:
       level: ~
   ui:
     # -- Whether to enable the Hubble UI.
-    enabled: true
+    # Adhar: deployed by the GitOps `hubble` package, not the bootstrap install.
+    enabled: false
     standalone:
       # -- When true, it will allow installing the Hubble UI only, without checking dependencies.
       # It is useful if a cluster already has cilium and Hubble relay installed and you just
@@ -4357,7 +4361,14 @@ authentication:
   # -- Enable authentication processing and garbage collection.
   # Note that if disabled, policy enforcement will still block requests that require authentication.
   # But the resulting authentication requests for these requests will not be processed, therefore the requests not be allowed.
-  enabled: true
+  #
+  # Adhar: DISABLED. This drives Cilium's SPIRE mutual-auth (deprecated in v1.20),
+  # which floods the operator with "no identity issued" retries when SPIRE isn't
+  # fully registered — starving the operator's gateway-api controller so the
+  # Gateway takes ~4 min to reach Programmed (the dominant cost of the
+  # "Cilium & Gateway" phase). It also adds spire-server + spire-agent pods to
+  # bootstrap. No local policy requires mutual auth, so turn it off.
+  enabled: false
   # -- Buffer size of the channel Cilium uses to receive authentication events from the signal map.
   queueSize: 1024
   # -- Buffer size of the channel Cilium uses to receive certificate expiration events from auth handlers.
@@ -4378,7 +4389,10 @@ authentication:
     # Settings for SPIRE
     spire:
       # -- Enable SPIRE integration (beta)
-      enabled: true
+      # Adhar: DISABLED with authentication.enabled above — no SPIRE server/agent
+      # install, no operator identity flood. Re-enable both for prod zero-trust
+      # mTLS once SPIRE registration is verified.
+      enabled: false
       # -- Annotations to be added to all top-level spire objects (resources under templates/spire)
       annotations: {}
       # Settings to control the SPIRE installation and configuration

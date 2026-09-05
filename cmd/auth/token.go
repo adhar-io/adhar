@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -271,12 +273,13 @@ var (
 func runGetToken(cmd *cobra.Command, args []string) error {
 	tokenID := args[0]
 
-	fmt.Printf("🔑 Token Details: %s\n", tokenID)
-	fmt.Println("")
-
-	// TODO: Implement actual token retrieval logic
-	fmt.Println("📭 Token not found")
-
+	fmt.Printf("🔑 Token: %s\n\n", tokenID)
+	// Keycloak access tokens are stateless bearer tokens — they are not stored and
+	// cannot be fetched by id after issuance. Be honest rather than fake a lookup.
+	fmt.Println(helpers.CreateMuted("Keycloak access tokens are stateless bearer tokens; they are not retrievable by id after issuance."))
+	fmt.Println(helpers.CreateMuted("  • active sessions:  adhar auth session list <username>"))
+	fmt.Println(helpers.CreateMuted("  • current identity: adhar auth whoami"))
+	fmt.Println(helpers.CreateMuted("  • decode a token:   adhar auth token decode <token>"))
 	return nil
 }
 
@@ -299,15 +302,25 @@ func init() {
 
 func runRevokeToken(cmd *cobra.Command, args []string) error {
 	tokenID := args[0]
+	kc := settings()
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
-	fmt.Printf("🚫 Revoking token: %s\n", tokenID)
-
+	fmt.Printf("🚫 Revoking session %q in realm %s\n", tokenID, kc.Realm)
 	if revokeReason != "" {
 		fmt.Printf("📝 Reason: %s\n", revokeReason)
 	}
 
-	// TODO: Implement actual token revocation logic
-	fmt.Printf("✅ Successfully revoked token: %s\n", tokenID)
+	// The revocable unit in Keycloak is the SESSION (access tokens are short-lived
+	// bearer tokens). Terminate the session by id, which invalidates its tokens —
+	// the real, supported "revoke" operation.
+	if _, err := kc.adminWrite(ctx, http.MethodDelete, "/sessions/"+url.PathEscape(tokenID), nil); err != nil {
+		return fmt.Errorf("revoke session %q (pass a session id from `adhar auth session list`): %w", tokenID, err)
+	}
+
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("Revoked session %s", tokenID)))
 	return nil
 }
 
@@ -331,10 +344,10 @@ func init() {
 func runRenewToken(cmd *cobra.Command, args []string) error {
 	tokenID := args[0]
 
-	fmt.Printf("🔄 Renewing token: %s\n", tokenID)
-	fmt.Printf("⏰ New expiry: %s\n", newExpiry)
-
-	// TODO: Implement actual token renewal logic
-	fmt.Printf("✅ Successfully renewed token: %s\n", tokenID)
+	fmt.Printf("🔄 Renew token: %s\n\n", tokenID)
+	// Access tokens are renewed by re-authenticating (OIDC refresh flow), not by
+	// id. Be honest and point at the real path rather than fake a renewal.
+	fmt.Println(helpers.CreateMuted("Keycloak access tokens are renewed by re-authenticating, not by id."))
+	fmt.Println(helpers.CreateMuted("  • re-auth + persist a fresh token: adhar auth login"))
 	return nil
 }

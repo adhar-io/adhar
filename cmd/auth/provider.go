@@ -172,23 +172,48 @@ func init() {
 }
 
 func runConfigureProvider(cmd *cobra.Command, args []string) error {
-	providerType := args[0]
-	providerName := args[1]
-
-	fmt.Printf("🔧 Configuring %s provider: %s\n", providerType, providerName)
-
-	if clientID != "" {
-		fmt.Printf("🆔 Client ID: %s\n", clientID)
+	providerType := args[0] // keycloak providerId: oidc, saml, github, google, ...
+	providerName := args[1] // alias
+	kc := settings()
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if redirectURI != "" {
-		fmt.Printf("🔗 Redirect URI: %s\n", redirectURI)
+
+	fmt.Printf("🔧 Configuring %s identity provider %q in realm %s\n", providerType, providerName, kc.Realm)
+
+	config := map[string]string{}
+	if clientID != "" {
+		config["clientId"] = clientID
+	}
+	if clientSecret != "" {
+		config["clientSecret"] = clientSecret
 	}
 	if issuerURL != "" {
-		fmt.Printf("🏢 Issuer URL: %s\n", issuerURL)
+		config["issuer"] = issuerURL
+	}
+	if metadataURL != "" {
+		config["metadataDescriptorUrl"] = metadataURL
 	}
 
-	// TODO: Implement actual provider configuration logic
-	fmt.Printf("✅ Successfully configured %s provider: %s\n", providerType, providerName)
+	instance := map[string]interface{}{
+		"alias":      providerName,
+		"providerId": providerType,
+		"enabled":    true,
+		"config":     config,
+	}
+
+	// Upsert: create the instance, or PUT it if it already exists.
+	if _, err := kc.adminWrite(ctx, http.MethodPost, "/identity-provider/instances", instance); err != nil {
+		if _, perr := kc.adminWrite(ctx, http.MethodPut, "/identity-provider/instances/"+providerName, instance); perr != nil {
+			return fmt.Errorf("configure identity provider: %w", err)
+		}
+	}
+	if redirectURI != "" {
+		fmt.Println(helpers.CreateMuted("   Redirect URI is fixed by Keycloak per broker endpoint; --redirect-uri is informational."))
+	}
+
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("Configured identity provider %s (%s)", providerName, providerType)))
 	return nil
 }
 
@@ -203,16 +228,30 @@ var (
 )
 
 func runTestProvider(cmd *cobra.Command, args []string) error {
-	providerID := args[0]
+	providerID := args[0] // alias
+	kc := settings()
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
-	fmt.Printf("🧪 Testing provider: %s\n", providerID)
-	fmt.Println("")
+	fmt.Printf("🧪 Testing identity provider %q in realm %s\n", providerID, kc.Realm)
 
-	// TODO: Implement actual provider testing logic
-	fmt.Println("✅ Provider connection test passed")
-	fmt.Println("✅ Configuration validation passed")
-	fmt.Println("✅ Authentication flow test passed")
+	// Keycloak has no synchronous "test connection" API for identity providers,
+	// so we validate what we can: the instance exists, is enabled, and carries
+	// the config a broker needs. This reports real state instead of a fake pass.
+	var p kcIdentityProvider
+	if err := kc.adminGetOne(ctx, "/identity-provider/instances/"+providerID, &p); err != nil {
+		return fmt.Errorf("provider %q not found: %w", providerID, err)
+	}
 
+	fmt.Printf("   provider: %s\n", p.ProviderID)
+	if p.Enabled {
+		fmt.Println(helpers.CreateSuccess("Provider exists and is ENABLED"))
+	} else {
+		fmt.Println(helpers.WarningStyle.Render("⚠  Provider exists but is DISABLED — run `adhar auth provider enable " + providerID + "`"))
+	}
+	fmt.Println(helpers.CreateMuted("   Note: Keycloak exposes no live connection test; verify a real login through the broker."))
 	return nil
 }
 

@@ -246,6 +246,12 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 	}
 	setupLog.Info("Done creating cluster", "cluster", c.name)
 
+	// Best-effort: seed the Cilium/Hubble bootstrap images from the host Docker
+	// cache into the new node so the "Cilium & Gateway" phase starts them from
+	// the node cache instead of pulling ~1GB from the internet. No-op (and never
+	// fatal) when the host cache is empty; `make preload-images` warms it.
+	c.preloadBootstrapImages(ctx)
+
 	return nil
 }
 
