@@ -1,0 +1,86 @@
+# Cloud Shell tools pod — a long-lived container the console execs into for the
+# "Cluster shell" mode (kubectl + k9s + helm + kubectx/kubens). The console finds
+# it by the `app=cloud-shell` label in adhar-system and opens an interactive
+# shell. Runs under a read-only `view` service account (no secrets), so an
+# exec session can inspect the cluster but not mutate or read secrets; exec
+# itself is RBAC-gated per user by the console's k8s gateway.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloud-shell
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloud-shell-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: cloud-shell
+    namespace: adhar-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-shell
+  namespace: adhar-system
+  labels:
+    app: cloud-shell
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloud-shell
+  template:
+    metadata:
+      labels:
+        app: cloud-shell
+    spec:
+      serviceAccountName: cloud-shell
+      # Fetch the k9s binary (arch-aware) into a shared volume. Best-effort:
+      # if the download is blocked the shell still ships kubectl/helm/kubectx.
+      initContainers:
+        - name: install-k9s
+          image: curlimages/curl:8.10.1
+          command: [sh, -c]
+          args:
+            - |
+              set -u
+              arch=$(uname -m)
+              case "$arch" in x86_64) a=amd64;; aarch64|arm64) a=arm64;; *) a=amd64;; esac
+              ver=v0.32.5
+              url="https://github.com/derailed/k9s/releases/download/${ver}/k9s_Linux_${a}.tar.gz"
+              echo "fetching $url"
+              if curl -sSL --max-time 60 "$url" -o /tmp/k9s.tgz; then
+                tar -xzf /tmp/k9s.tgz -C /shared k9s && chmod +x /shared/k9s && echo "k9s installed"
+              else
+                echo "k9s download failed — shell will have kubectl/helm only"
+              fi
+          volumeMounts:
+            - { name: tools, mountPath: /shared }
+      containers:
+        - name: shell
+          # alpine/k8s ships kubectl, helm, kustomize, kubectx, kubens, jq, yq, bash.
+          image: alpine/k8s:1.31.1
+          command: [sh, -c, 'exec sleep infinity']
+          env:
+            # /shared first so k9s (installed by the init container) is on PATH.
+            - name: PATH
+              value: /shared:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            - { name: KUBECONFIG, value: /dev/null } # use in-cluster SA, not a file
+          volumeMounts:
+            - { name: tools, mountPath: /shared }
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+      volumes:
+        - name: tools
+          emptyDir: {}
