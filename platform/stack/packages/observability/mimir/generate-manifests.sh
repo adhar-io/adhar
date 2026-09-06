@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="6.1.0"
+CHART_VERSION="6.2.0"
 
 echo "# MIMIR INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/mimir/generate-manifests.sh'" >>${INSTALL_YAML}

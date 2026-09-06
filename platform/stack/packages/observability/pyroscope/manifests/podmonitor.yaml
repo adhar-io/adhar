@@ -1,0 +1,33 @@
+# Pyroscope Prometheus PodMonitor
+# Not emitted by the chart (serviceMonitor left default off). Pyroscope serves
+# pyroscope_* / go_* metrics on its HTTP port 4040 (named "http2") at /metrics.
+# The chart renders two Services ("pyroscope" and "pyroscope-headless") with an
+# identical label set selecting the same pods, so a ServiceMonitor would scrape
+# every pod twice; a PodMonitor on the StatefulSet pods avoids that.
+# Prometheus podMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Adhar / Pyroscope Grafana dashboard (job=~".*pyroscope.*").
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: pyroscope
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: pyroscope
+    app.kubernetes.io/instance: pyroscope
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pyroscope
+      app.kubernetes.io/instance: pyroscope
+      app.kubernetes.io/component: all
+  podMetricsEndpoints:
+    - port: http2
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

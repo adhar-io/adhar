@@ -47,7 +47,7 @@ data:
         },
         {
           "cacheTimeout": null,
-          "datasource": "Dapr",
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "custom": {},
@@ -121,7 +121,7 @@ data:
           "bars": false,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "Dapr",
+          "datasource": "Prometheus",
           "description": "This shows total amount of kernel and user CPU usage time.",
           "fieldConfig": {
             "defaults": {
@@ -218,7 +218,7 @@ data:
           "bars": false,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "Dapr",
+          "datasource": "Prometheus",
           "description": "The amount of allocated heap memory that belongs specifically to that process in bytes.",
           "fieldConfig": {
             "defaults": {
@@ -315,7 +315,7 @@ data:
           "bars": false,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "Dapr",
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "custom": {},
@@ -521,7 +521,7 @@ data:
           "bars": false,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "Dapr",
+          "datasource": "Prometheus",
           "description": "The total number of successful sidecar injection requests.",
           "fieldConfig": {
             "defaults": {
@@ -945,7 +945,7 @@ data:
           "cacheTimeout": null,
           "dashLength": 10,
           "dashes": false,
-          "datasource": "Dapr",
+          "datasource": "Prometheus",
           "description": "This will be counted when issuer cert and key are changed.",
           "fieldConfig": {
             "defaults": {

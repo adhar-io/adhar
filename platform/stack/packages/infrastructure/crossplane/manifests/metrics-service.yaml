@@ -1,0 +1,31 @@
+# Crossplane metrics Service
+# The chart renders no metrics Service or container port (metrics.enabled left
+# default false only controls the port declaration and prometheus.io/*
+# annotations), but the Crossplane core manager always binds its
+# controller-runtime metrics server on :8080. This Service targets that port
+# on the crossplane pod so a ServiceMonitor can scrape it.
+# Long-term the chart-native fix is metrics.enabled=true in values.yaml (which
+# still renders no Service, so this file stays useful either way).
+apiVersion: v1
+kind: Service
+metadata:
+  name: crossplane-metrics
+  namespace: adhar-system
+  labels:
+    app: crossplane
+    release: crossplane
+    app.kubernetes.io/name: crossplane
+    app.kubernetes.io/instance: crossplane
+    app.kubernetes.io/part-of: crossplane
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/managed-by: adhar
+spec:
+  type: ClusterIP
+  selector:
+    app: crossplane
+    release: crossplane
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

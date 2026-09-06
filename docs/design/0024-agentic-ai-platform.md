@@ -110,7 +110,7 @@ async def open_pr(ctx, repo, changes, title, why) -> PRRef:
     return PRRef(repo=repo, number=pr.number, url=pr.html_url, branch=branch)
 ```
 
-The PR then flows through normal review → CI (Jenkins X/Tekton) → ArgoCD sync — identical to a human contribution. The agent never holds an apply credential.
+The PR then flows through normal review → CI (Tekton app-ci) → ArgoCD sync — identical to a human contribution. The agent never holds an apply credential.
 
 ## 4. LLM gateway (`llm/gateway.py`)
 

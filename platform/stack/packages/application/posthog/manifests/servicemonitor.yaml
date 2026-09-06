@@ -1,0 +1,34 @@
+# PostHog (ClickHouse operator) Prometheus ServiceMonitor
+# PostHog's own web/worker/plugins pods emit StatsD only (no /metrics endpoint), and
+# the bundled Bitnami Kafka / ZooKeeper / Redis / PostgreSQL sub-charts are rendered
+# without exporters. What the chart does ship is the Altinity clickhouse-operator
+# with its metrics-exporter sidecar and the "clickhouse-operator-metrics" Service
+# (port "clickhouse-operator-metrics", 8888) serving chi_clickhouse_metric_* /
+# chi_clickhouse_event_* for every ClickHouseInstallation it manages — i.e. the
+# PostHog analytics database. Prometheus serviceMonitorSelector is empty ({}), so
+# this is scraped as-is and feeds the PostHog ClickHouse Grafana dashboard
+# (gnetId 12163, Altinity ClickHouse Operator Dashboard).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: posthog-clickhouse-operator
+  namespace: adhar-system
+  labels:
+    app: clickhouse-operator
+    app.kubernetes.io/name: clickhouse-operator
+    app.kubernetes.io/part-of: posthog
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app: clickhouse-operator
+  endpoints:
+    - port: clickhouse-operator-metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

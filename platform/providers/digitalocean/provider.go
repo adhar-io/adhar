@@ -59,6 +59,9 @@ type Config struct {
 	Region      string `json:"region"`      // Default region for resources
 	DropletSize string `json:"dropletSize"` // Default droplet size
 	Image       string `json:"image"`       // Default OS image
+	// PurgeOrphanedVolumes extends cluster deletion to unattached pvc-* volumes
+	// in the region that no other cluster tag claims (pre-tagging leftovers).
+	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
 
 	// VPC Configuration
 	VPCUUID          string `json:"vpcUUID,omitempty"`          // Existing VPC UUID to use
@@ -145,14 +148,14 @@ func NewProvider(config *Config) (*Provider, error) {
 
 	// Priority 3: Environment variable
 	case config.UseEnvironment:
-		token = os.Getenv("DIGITALOCEAN_TOKEN")
+		token = tokenFromEnv()
 		if token == "" {
-			return nil, fmt.Errorf("DIGITALOCEAN_TOKEN environment variable is not set")
+			return nil, fmt.Errorf("DIGITALOCEAN_TOKEN (or DIGITALOCEAN_ACCESS_TOKEN) environment variable is not set")
 		}
 
 	// Default: Try environment variable
 	default:
-		token = os.Getenv("DIGITALOCEAN_TOKEN")
+		token = tokenFromEnv()
 		if token == "" {
 			return nil, fmt.Errorf("DigitalOcean token is required (provide token, tokenFile, or set DIGITALOCEAN_TOKEN environment variable)")
 		}
@@ -231,6 +234,10 @@ func NewDigitalOceanProvider(configMap map[string]interface{}) (provider.Provide
 	// Canonical mode switch: raw compute (default) vs the managed service.
 	if managed, ok := configMap["useManagedK8s"].(bool); ok && managed {
 		doConfig.ClusterMode = "doks"
+	}
+	// `adhar cluster delete --purge-orphaned-volumes`: see deleteComputeVolumes.
+	if purge, ok := configMap["purgeOrphanedVolumes"].(bool); ok && purge {
+		doConfig.PurgeOrphanedVolumes = true
 	}
 
 	// Parse basic configuration
@@ -620,6 +627,17 @@ func (p *Provider) validateClusterSpec(spec *types.ClusterSpec) error {
 	}
 	return nil
 }
+
+// tokenFromEnv reads the API token from the environment, accepting both the
+// platform's DIGITALOCEAN_TOKEN and doctl's DIGITALOCEAN_ACCESS_TOKEN so a
+// shell already set up for doctl works with adhar unchanged.
+func tokenFromEnv() string {
+	if t := strings.TrimSpace(os.Getenv("DIGITALOCEAN_TOKEN")); t != "" {
+		return t
+	}
+	return strings.TrimSpace(os.Getenv("DIGITALOCEAN_ACCESS_TOKEN"))
+}
+
 func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 	log.Printf("Listing DigitalOcean clusters (compute + DOKS)")
 
@@ -856,7 +874,7 @@ func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGr
 // ScaleNodeGroup updates the node count of a managed DOKS node pool.
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGroupName string, replicas int) error {
 	if p.isComputeCluster(ctx, clusterID) {
-		return p.scaleComputeWorkers(ctx, clusterID, replicas)
+		return p.scaleComputeWorkers(ctx, clusterID, nodeGroupName, replicas)
 	}
 
 	log.Printf("Scaling node pool %s in DOKS cluster %s to %d nodes", nodeGroupName, clusterID, replicas)

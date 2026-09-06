@@ -143,12 +143,6 @@ spec:
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/fluent-bit/manifests"
-          - name: "kafka"
-            enabled: "false"
-            namespace: "adhar-system"
-            category: "data"
-            manifestPath: "data/kafka/manifests"
-          # Kafka UI — web console for topics/consumers. Enabled locally.
           - name: "kafka-ui"
             enabled: "true"
             namespace: "adhar-system"
@@ -221,11 +215,6 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/coder/manifests"
-          - name: "devtron"
-            enabled: "false"
-            namespace: "adhar-system"
-            category: "application"
-            manifestPath: "application/devtron/manifests"
           - name: "n8n"
             enabled: "false"
             namespace: "adhar-system"
@@ -246,11 +235,6 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/posthog/manifests"
-          - name: "supabase"
-            enabled: "false"
-            namespace: "adhar-system"
-            category: "application"
-            manifestPath: "application/supabase/manifests"
           - name: "plane"
             enabled: "false"
             namespace: "adhar-system"
@@ -342,13 +326,6 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/tekton/manifests"
-          # Jenkins X pipeline layer on Tekton (ADR-0018): Lighthouse webhooks,
-          # ChatOps and Tekton triggering against the in-cluster Gitea.
-          - name: "jenkins-x"
-            enabled: "false"
-            namespace: "adhar-system"
-            category: "application"
-            manifestPath: "application/jenkins-x/manifests"
           - name: "argo-workflows"
             enabled: "false"
             namespace: "adhar-system"
@@ -574,19 +551,28 @@ spec:
             # (CRD/operator/OIDC secret) has just appeared re-syncs promptly,
             # capped at 30s so it never idles a full minute per attempt.
             maxDuration: 30s
-          # A GENEROUS limit is critical for a cold bootstrap: apps that create a
-          # CNPG Cluster (console-db, keycloak-db) or other webhook-backed
-          # resources fail until the owning operator's admission webhook is ready,
-          # which can take several minutes. Once ArgoCD exhausts `limit` the
-          # operation FAILS and auto-sync "will not retry for [revision]" — the app
-          # gets permanently wedged OutOfSync (Deployment never created, console
-          # 503s). 60 retries × ~30s ≈ a 30-min window comfortably outlasts
-          # operator/webhook startup; a healthy resource still applies on the
-          # first attempt, so this only costs time on genuinely transient failures.
-          limit: 60
+          # Unlimited: on a fresh cluster packages carry CRs whose CRDs come
+          # from other packages (ServiceMonitor, ExternalSecret, cnpg Cluster…);
+          # their first syncs legitimately fail until the provider package has
+          # applied its CRDs. A finite limit (or none — ArgoCD reads a missing
+          # limit as "no retries") leaves them Failed forever, because ArgoCD
+          # never auto-syncs a revision whose last attempt failed.
+          # (The previous 60-attempt window — ~30 min at the 30s cap — was
+          # exhausted on a fresh cluster once every package carried
+          # ServiceMonitor/ExternalSecret CRs; a healthy resource still applies
+          # on the first attempt, so unlimited only costs time on failures.)
+          limit: -1
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+          # Packages ship CRs whose CRDs come from OTHER packages (ExternalSecret
+          # + Password generator in every sso.yaml, ServiceMonitor from
+          # kube-prometheus, Cluster from cnpg, …). Without this, ArgoCD rejects
+          # the whole sync ("synchronization tasks are not valid: failed to
+          # discover server resources …") until the CRD exists, which on a fresh
+          # cluster stalls every package behind first-boot ordering. With it,
+          # valid resources apply now and CRD-dependent ones retry.
+          - SkipDryRunOnMissingResource=true
           # Apply the ignoreDifferences fields during sync too, so selfHeal does
           # not try to strip the controller-defaulted HTTPRoute/ExternalSecret
           # fields (which would just be re-added → perpetual OutOfSync).

@@ -1,0 +1,40 @@
+# Tempo Prometheus ServiceMonitor
+# Not emitted by the chart (serviceMonitor.enabled left default off).
+# The single-binary StatefulSet serves tempo_* metrics on the "tempo" Service,
+# port 3200 named "tempo-prom-metrics" at /metrics; the many trace-ingest
+# ports on the same Service are skipped because only that port is listed.
+# The relabelings mirror the tempo-distributed chart's ServiceMonitor so the
+# Tempo mixin dashboards (job="<namespace>/<service>", cluster label) match.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Tempo Grafana dashboards (operational, reads, writes, resources).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tempo
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/instance: tempo
+    app.kubernetes.io/managed-by: adhar
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+      app.kubernetes.io/instance: tempo
+  endpoints:
+    - port: tempo-prom-metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [job]
+          action: replace
+          replacement: adhar-system/$1
+          targetLabel: job
+        - action: replace
+          replacement: tempo
+          targetLabel: cluster

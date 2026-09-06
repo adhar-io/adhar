@@ -40,7 +40,6 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -103,8 +102,14 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("platform stack directory not found at %s (run from the adhar repository root or pass --stack-dir): %w", stackDir, err)
 	}
 
-	kubeConfigPath := filepath.Join(homedir.HomeDir(), ".kube", "config")
-	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	// Standard kubeconfig resolution: --kubeconfig, then $KUBECONFIG, then
+	// ~/.kube/config — so the context `adhar up` merged (adhar-<cluster>) or
+	// an explicit ~/.adhar/clusters/<name>/kubeconfig both work.
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if kc, _ := cmd.Flags().GetString("kubeconfig"); kc != "" {
+		loadingRules.ExplicitPath = kc
+	}
+	restConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
 	if err != nil {
 		return fmt.Errorf("loading kubeconfig: %w", err)
 	}
@@ -235,7 +240,14 @@ func diffStack(ctx context.Context, kubeClient client.Client, cfg v1alpha1.Build
 			return "", false, err
 		}
 
-		names, err := gitDiffNames(ctx, cloneDir, filepath.Join(stackDir, repo))
+		// Compare against the stack as it would be seeded (templates rendered,
+		// host convention rewritten), not the raw checkout.
+		staged, cleanup, err := adharplatform.StageStack(filepath.Join(stackDir, repo), cfg)
+		if err != nil {
+			return "", false, fmt.Errorf("staging %s: %w", repo, err)
+		}
+		names, err := gitDiffNames(ctx, cloneDir, staged)
+		cleanup()
 		if err != nil {
 			return "", false, err
 		}
@@ -271,7 +283,7 @@ func cloneGiteaRepo(ctx context.Context, cfg v1alpha1.BuildCustomizationSpec, us
 	base := url.URL{
 		Scheme: cfg.Protocol,
 		Host:   fmt.Sprintf("gitea.%s:%s", host, cfg.Port),
-		Path:   fmt.Sprintf("/%s/%s.git", username, repo),
+		Path:   fmt.Sprintf("/%s/%s.git", globals.GiteaPlatformOrg, repo),
 		User:   url.UserPassword(username, password),
 	}
 

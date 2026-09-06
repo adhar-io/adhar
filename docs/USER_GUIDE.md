@@ -105,10 +105,11 @@ laptop before anything reaches a remote cluster:
 
 1. **Code** against the in-cluster Gitea (`adhar auth login`, push to your
    repo) — or mirror from your external forge
-2. **CI fires on push**: the jenkins-x package (Lighthouse, ADR-0018) receives
-   the webhook, triggers Tekton pipelines, and reports status and ChatOps
-   (`/test`, `/lgtm`) back to the PR. Locally it is `enabled: "false"` by
-   default — flip it in the ApplicationSet to run the full loop
+2. **CI fires on push**: the supply-chain package's Tekton `app-ci`
+   EventListener receives the Gitea webhook, runs the paved-road pipeline
+   declared by the service's `.adhar/app.yaml` (build → cosign sign → trivy
+   scan → push to Harbor → version-bump PR against the environments repo),
+   and reports status back to the commit/PR
 3. **Preview per PR** (ADR-0017): copy
    [`examples/preview-environments-appset.yaml`](../examples/preview-environments-appset.yaml)
    for your repo — every PR labeled `preview` gets its own namespace at its

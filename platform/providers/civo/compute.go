@@ -289,7 +289,12 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		return nil, err
 	}
 
+	joined := provider.KubeadmJoinedNodes(signer, computeSSHUser, master.PublicIP)
 	for _, instance := range workerInstances {
+		if joined.Has(instance.Hostname, instance.PublicIP, instance.PrivateIP) {
+			log.Printf("Worker %s is already part of the cluster; skipping prep/join", instance.Hostname)
+			continue
+		}
 		if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, instance.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", instance.Hostname, err)
 		}

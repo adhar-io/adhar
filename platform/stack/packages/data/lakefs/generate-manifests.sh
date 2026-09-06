@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.12.2"
+CHART_VERSION="1.12.27"
 
 echo "# LAKEFS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/lakefs/generate-manifests.sh'" >>${INSTALL_YAML}

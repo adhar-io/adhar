@@ -12,7 +12,7 @@ A production-quality starting point scaffolded by the Adhar platform:
   RuntimeDefault seccomp), a Service, and an HTTPRoute through the platform
   Gateway. The Deployment starts on the stock nginx-unprivileged image until
   your first release is promoted.
-- **CI** — `jenkins-x.yml` + `.lighthouse/triggers.yaml` (ADR-0018): PRs run
+- **CI** — `.adhar/app.yaml` + the platform Tekton `app-ci` pipeline (supply-chain package): PRs run
   the platform `adhar-pr-verify` pipeline, merges to `main` run
   `adhar-release`, which ends by opening a promotion PR against the
   environments repo. Add `ci/test.sh` to customize the test step.

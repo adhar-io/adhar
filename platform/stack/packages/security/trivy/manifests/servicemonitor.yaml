@@ -1,0 +1,31 @@
+# Trivy Operator Prometheus ServiceMonitor
+# Not emitted by the chart (serviceMonitor.enabled left default off).
+# The operator exposes trivy_* report metrics and controller-runtime metrics on
+# the "trivy-operator" Service, port 80 named "metrics" (-> container 8080) at
+# /metrics.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Trivy Operator Grafana dashboard (gnetId 17813).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trivy-operator
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: trivy-operator
+    app.kubernetes.io/instance: trivy-operator
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-operator
+      app.kubernetes.io/instance: trivy-operator
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

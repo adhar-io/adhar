@@ -1,0 +1,32 @@
+# OpenCost Prometheus ServiceMonitor
+# Not emitted by the chart (serviceMonitor.enabled left default off).
+# The opencost container exposes cost-allocation metrics (node_total_hourly_cost,
+# container_cpu_allocation, kubecost_cluster_*...) on the "opencost" Service,
+# port 9003 named "http" at /metrics. The UI (http-ui) and MCP (mcp-server)
+# ports on the same Service are skipped because only "http" is listed here.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the OpenCost Grafana dashboards (job="opencost").
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: opencost
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: opencost
+    app.kubernetes.io/instance: opencost
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opencost
+      app.kubernetes.io/instance: opencost
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

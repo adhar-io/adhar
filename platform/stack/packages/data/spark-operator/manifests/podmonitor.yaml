@@ -1,0 +1,35 @@
+# Spark Operator Prometheus PodMonitor
+# The chart (spark-operator-2.5.0) runs both the controller and the webhook with
+# --enable-metrics=true --metrics-bind-address=:8080 --metrics-endpoint=/metrics
+# and declares container port "metrics" (8080) on each, but only renders a Service
+# for the webhook (443) and no ServiceMonitor/PodMonitor
+# (prometheus.podMonitor.create left default off). This PodMonitor scrapes both
+# pods directly: spark_application_* / spark_executor_* from the controller and
+# controller_runtime_* / workqueue_* from both. Prometheus podMonitorSelector is
+# empty ({}), so this is scraped as-is and feeds the Spark Operator / Spark
+# Performance Grafana dashboards.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: spark-operator
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: spark-operator
+    app.kubernetes.io/instance: spark-operator
+    app.kubernetes.io/managed-by: adhar
+spec:
+  # job becomes controller / webhook
+  jobLabel: app.kubernetes.io/component
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spark-operator
+      app.kubernetes.io/instance: spark-operator
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

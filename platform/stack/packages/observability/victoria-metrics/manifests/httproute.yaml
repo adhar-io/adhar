@@ -3,13 +3,16 @@
 # forwarding to the single-node server on port 8428, which serves both the vmui
 # web interface and the VictoriaMetrics HTTP API. This replaces the chart's
 # disabled nginx Ingress.
+#
+# SSO: every backend below is the Keycloak oauth2-proxy from sso.yaml, which
+# forwards to the original upstream(s): victoria-metrics-victoria-metrics-single-server:8428.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: victoria-metrics
   namespace: adhar-system
   annotations:
-    argocd.argoproj.io/sync-wave: "100"
+    argocd.argoproj.io/sync-wave: "6"
 spec:
   parentRefs:
     - name: adhar-gateway
@@ -22,5 +25,5 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: victoria-metrics-victoria-metrics-single-server
-          port: 8428
+        - name: victoria-metrics-oauth2-proxy
+          port: 4180

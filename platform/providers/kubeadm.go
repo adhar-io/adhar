@@ -276,6 +276,53 @@ func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP string) (str
 }
 
 // KubeadmJoinWorker joins a worker node to the cluster (idempotent).
+// JoinedNodes lists the nodes already registered with the control plane, by
+// node name and by every address, so providers can adopt an existing cluster
+// without touching its workers over SSH: a worker that is already joined is
+// skipped entirely (no prep wait, no kubeadm join). This keeps re-running
+// `adhar up` against a live cluster independent of each node's sshd — the
+// only host that must be reachable is the control plane.
+type JoinedNodes struct {
+	Names     map[string]bool
+	Addresses map[string]bool
+}
+
+// Has reports whether a worker identified by name and/or addresses is joined.
+func (j JoinedNodes) Has(name string, addrs ...string) bool {
+	if j.Names[name] {
+		return true
+	}
+	for _, a := range addrs {
+		if a != "" && j.Addresses[a] {
+			return true
+		}
+	}
+	return false
+}
+
+// KubeadmJoinedNodes queries the control plane for the registered nodes. A
+// failure yields an empty set (every worker is then processed as before).
+func KubeadmJoinedNodes(signer ssh.Signer, user, masterIP string) JoinedNodes {
+	j := JoinedNodes{Names: map[string]bool{}, Addresses: map[string]bool{}}
+	out, err := SSHRun(signer, user, masterIP,
+		`kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o jsonpath='{range .items[*]}{.metadata.name}{range .status.addresses[*]} {.address}{end}{"\n"}{end}'`,
+		2*time.Minute)
+	if err != nil {
+		return j
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		j.Names[fields[0]] = true
+		for _, a := range fields[1:] {
+			j.Addresses[a] = true
+		}
+	}
+	return j
+}
+
 func KubeadmJoinWorker(signer ssh.Signer, user, ip, joinCmd string) error {
 	if out, err := SSHRun(signer, user, ip, "test -f /etc/kubernetes/kubelet.conf || "+joinCmd, 10*time.Minute); err != nil {
 		return fmt.Errorf("kubeadm join failed on %s: %w (output: %s)", ip, err, LastLines(out, 15))

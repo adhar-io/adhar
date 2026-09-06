@@ -713,7 +713,12 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	if err != nil {
 		return nil, err
 	}
+	joined := provider.KubeadmJoinedNodes(signer, gcpSSHUser, master.PublicIP)
 	for _, w := range infrastructure.WorkerNodes {
+		if joined.Has(w.InstanceName, w.PublicIP, w.PrivateIP) {
+			log.Printf("Worker %s is already part of the cluster; skipping prep/join", w.InstanceName)
+			continue
+		}
 		if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, w.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", w.InstanceName, err)
 		}

@@ -56,6 +56,47 @@ subjects:
   name: console
   namespace: adhar-system
 ---
+# Tenant provisioner — the ELEVATED grant that lets onboarding create a real,
+# isolated tenant (see adhar-console app/server/tenant-provisioner.ts): a
+# namespace, a RoleBinding of the `org-<slug>` Keycloak group to the namespaced
+# `admin` ClusterRole (the isolation boundary), and a scoped ArgoCD AppProject.
+# Kept as a separate role from console-read-all so it can be reviewed/revoked
+# independently. Without it the provisioner degrades honestly (each step reports
+# "not available") and the org is still created + activated.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: console-tenant-provisioner
+rules:
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["create", "get", "list", "watch", "update", "patch"]
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["rolebindings", "roles"]
+  verbs: ["create", "get", "list", "update", "patch"]
+- apiGroups: ["argoproj.io"]
+  resources: ["appprojects"]
+  verbs: ["create", "get", "list", "update", "patch"]
+# Required to grant the built-in `admin` ClusterRole via a RoleBinding
+# (Kubernetes privilege-escalation prevention).
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["clusterroles"]
+  verbs: ["bind"]
+  resourceNames: ["admin"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: console-tenant-provisioner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: console-tenant-provisioner
+subjects:
+- kind: ServiceAccount
+  name: console
+  namespace: adhar-system
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -175,6 +216,10 @@ spec:
         # unconfigured (honest "not set up" tiles).
         - { name: GITEA_URL, value: 'http://gitea-http.adhar-system.svc.cluster.local:3000' }
         - { name: ARGOCD_URL, value: 'http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80' }
+        # ArgoCD runs in adhar-system on this platform (not the default 'argocd'
+        # namespace), so the tenant provisioner creates per-tenant AppProjects
+        # here. See app/server/tenant-provisioner.ts.
+        - { name: ARGOCD_NAMESPACE, value: 'adhar-system' }
         # ArgoCD admin credentials for the BFF's 'login' auth mode: the console
         # mints and refreshes its own short-lived ArgoCD session token from these
         # durable creds, so it never depends on a pre-injected token that expires

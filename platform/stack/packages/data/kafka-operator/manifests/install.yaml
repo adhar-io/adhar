@@ -1279,6 +1279,70 @@ spec:
                                       csi: {}
                                       image: {}
                               description: Additional volumes that can be mounted to the pod.
+                            templatedVolumes:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  name:
+                                    type: string
+                                    description: Name to use for the volume. Required.
+                                  secret:
+                                    type: object
+                                    properties:
+                                      defaultMode:
+                                        type: integer
+                                      items:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            key:
+                                              type: string
+                                            mode:
+                                              type: integer
+                                            path:
+                                              type: string
+                                      optional:
+                                        type: boolean
+                                      secretName:
+                                        type: string
+                                    description: "`Secret` to use to populate the volume. The name of the Secret and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                                  configMap:
+                                    type: object
+                                    properties:
+                                      defaultMode:
+                                        type: integer
+                                      items:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            key:
+                                              type: string
+                                            mode:
+                                              type: integer
+                                            path:
+                                              type: string
+                                      name:
+                                        type: string
+                                      optional:
+                                        type: boolean
+                                    description: "`ConfigMap` to use to populate the volume. The name of the ConfigMap and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                                  persistentVolumeClaim:
+                                    type: object
+                                    properties:
+                                      claimName:
+                                        type: string
+                                      readOnly:
+                                        type: boolean
+                                    description: "`PersistentVolumeClaim` object to use to populate the volume. The name of the Persistent Volume Claim can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                                oneOf:
+                                  - properties:
+                                      secret: {}
+                                      configMap: {}
+                                      persistentVolumeClaim: {}
+                              description: Additional volumes that can be mounted to the pod. These volumes can use templates to mount different volumes into individual Pods.
                             hostUsers:
                               type: boolean
                               description: "Use the host user namespace. Optional. Defaults to `true`. When `true` or not set, the pod runs in the host user namespace. This is required when the pod needs features available only in the host namespace, such as loading kernel modules with `CAP_SYS_MODULE`.When set to `false`, the pod runs in a new user namespace. Setting `false` helps mitigate container breakout vulnerabilities and allows containers to run as `root` without granting `root` privileges on the host. This property is alpha-level in Kubernetes and is supported only by Kubernetes clusters that enable the `UserNamespacesSupport` feature."
@@ -5639,6 +5703,11 @@ spec:
                             description: "List of broker IDs involved in an auto-rebalancing operation related to the current mode. \nThe list contains one of the following: \n\n* Broker IDs for a current auto-rebalance. \n* Broker IDs for a queued auto-rebalance (if a previous auto-rebalance is still in progress). \n"
                       description: "List of modes where an auto-rebalancing operation is either running or queued. \nEach mode entry (`add-brokers` or `remove-brokers`) includes one of the following: \n\n* Broker IDs for a current auto-rebalance. \n* Broker IDs for a queued auto-rebalance (if a previous rebalance is still in progress)."
                   description: The status of an auto-rebalancing triggered by a cluster scaling request.
+                clusterSecurity:
+                  type: object
+                  properties: {}
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: The current security configuration of the Kafka cluster.
               description: The status of the Kafka cluster.
           required:
             - spec
@@ -6708,6 +6777,70 @@ spec:
                                   csi: {}
                                   image: {}
                           description: Additional volumes that can be mounted to the pod.
+                        templatedVolumes:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                description: Name to use for the volume. Required.
+                              secret:
+                                type: object
+                                properties:
+                                  defaultMode:
+                                    type: integer
+                                  items:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        key:
+                                          type: string
+                                        mode:
+                                          type: integer
+                                        path:
+                                          type: string
+                                  optional:
+                                    type: boolean
+                                  secretName:
+                                    type: string
+                                description: "`Secret` to use to populate the volume. The name of the Secret and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                              configMap:
+                                type: object
+                                properties:
+                                  defaultMode:
+                                    type: integer
+                                  items:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        key:
+                                          type: string
+                                        mode:
+                                          type: integer
+                                        path:
+                                          type: string
+                                  name:
+                                    type: string
+                                  optional:
+                                    type: boolean
+                                description: "`ConfigMap` to use to populate the volume. The name of the ConfigMap and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                              persistentVolumeClaim:
+                                type: object
+                                properties:
+                                  claimName:
+                                    type: string
+                                  readOnly:
+                                    type: boolean
+                                description: "`PersistentVolumeClaim` object to use to populate the volume. The name of the Persistent Volume Claim can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                            oneOf:
+                              - properties:
+                                  secret: {}
+                                  configMap: {}
+                                  persistentVolumeClaim: {}
+                          description: Additional volumes that can be mounted to the pod. These volumes can use templates to mount different volumes into individual Pods.
                         hostUsers:
                           type: boolean
                           description: "Use the host user namespace. Optional. Defaults to `true`. When `true` or not set, the pod runs in the host user namespace. This is required when the pod needs features available only in the host namespace, such as loading kernel modules with `CAP_SYS_MODULE`.When set to `false`, the pod runs in a new user namespace. Setting `false` helps mitigate container breakout vulnerabilities and allows containers to run as `root` without granting `root` privileges on the host. This property is alpha-level in Kubernetes and is supported only by Kubernetes clusters that enable the `UserNamespacesSupport` feature."
@@ -8038,6 +8171,17 @@ spec:
                                 insecure:
                                   type: boolean
                                   description: "By default, connections using TLS are verified to check they are secure. The server certificate used must be valid, trusted, and contain the server name. By setting this option to `true`, all TLS verification is disabled and the artifact will be downloaded, even when the server is considered insecure."
+                                mirrors:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      url:
+                                        type: string
+                                        description: "The URL of the Maven mirror. All repository requests during the build, including plugin repositories and Maven Central, are redirected to this mirror. Applicable to the `maven` artifact type only."
+                                    required:
+                                      - url
+                                  description: "List of Maven mirrors used to download the artifact and its dependencies. All repository requests during the build, including plugin repositories and Maven Central, are redirected to the configured mirror(s). Applicable to the `maven` artifact type only."
                                 repository:
                                   type: string
                                   description: Maven repository to download the artifact from. Applicable to the `maven` artifact type only.
@@ -9620,6 +9764,70 @@ spec:
                                   csi: {}
                                   image: {}
                           description: Additional volumes that can be mounted to the pod.
+                        templatedVolumes:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                description: Name to use for the volume. Required.
+                              secret:
+                                type: object
+                                properties:
+                                  defaultMode:
+                                    type: integer
+                                  items:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        key:
+                                          type: string
+                                        mode:
+                                          type: integer
+                                        path:
+                                          type: string
+                                  optional:
+                                    type: boolean
+                                  secretName:
+                                    type: string
+                                description: "`Secret` to use to populate the volume. The name of the Secret and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                              configMap:
+                                type: object
+                                properties:
+                                  defaultMode:
+                                    type: integer
+                                  items:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        key:
+                                          type: string
+                                        mode:
+                                          type: integer
+                                        path:
+                                          type: string
+                                  name:
+                                    type: string
+                                  optional:
+                                    type: boolean
+                                description: "`ConfigMap` to use to populate the volume. The name of the ConfigMap and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                              persistentVolumeClaim:
+                                type: object
+                                properties:
+                                  claimName:
+                                    type: string
+                                  readOnly:
+                                    type: boolean
+                                description: "`PersistentVolumeClaim` object to use to populate the volume. The name of the Persistent Volume Claim can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                            oneOf:
+                              - properties:
+                                  secret: {}
+                                  configMap: {}
+                                  persistentVolumeClaim: {}
+                          description: Additional volumes that can be mounted to the pod. These volumes can use templates to mount different volumes into individual Pods.
                         hostUsers:
                           type: boolean
                           description: "Use the host user namespace. Optional. Defaults to `true`. When `true` or not set, the pod runs in the host user namespace. This is required when the pod needs features available only in the host namespace, such as loading kernel modules with `CAP_SYS_MODULE`.When set to `false`, the pod runs in a new user namespace. Setting `false` helps mitigate container breakout vulnerabilities and allows containers to run as `root` without granting `root` privileges on the host. This property is alpha-level in Kubernetes and is supported only by Kubernetes clusters that enable the `UserNamespacesSupport` feature."
@@ -13091,6 +13299,70 @@ spec:
                                   csi: {}
                                   image: {}
                           description: Additional volumes that can be mounted to the pod.
+                        templatedVolumes:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                description: Name to use for the volume. Required.
+                              secret:
+                                type: object
+                                properties:
+                                  defaultMode:
+                                    type: integer
+                                  items:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        key:
+                                          type: string
+                                        mode:
+                                          type: integer
+                                        path:
+                                          type: string
+                                  optional:
+                                    type: boolean
+                                  secretName:
+                                    type: string
+                                description: "`Secret` to use to populate the volume. The name of the Secret and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                              configMap:
+                                type: object
+                                properties:
+                                  defaultMode:
+                                    type: integer
+                                  items:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        key:
+                                          type: string
+                                        mode:
+                                          type: integer
+                                        path:
+                                          type: string
+                                  name:
+                                    type: string
+                                  optional:
+                                    type: boolean
+                                description: "`ConfigMap` to use to populate the volume. The name of the ConfigMap and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                              persistentVolumeClaim:
+                                type: object
+                                properties:
+                                  claimName:
+                                    type: string
+                                  readOnly:
+                                    type: boolean
+                                description: "`PersistentVolumeClaim` object to use to populate the volume. The name of the Persistent Volume Claim can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`."
+                            oneOf:
+                              - properties:
+                                  secret: {}
+                                  configMap: {}
+                                  persistentVolumeClaim: {}
+                          description: Additional volumes that can be mounted to the pod. These volumes can use templates to mount different volumes into individual Pods.
                         hostUsers:
                           type: boolean
                           description: "Use the host user namespace. Optional. Defaults to `true`. When `true` or not set, the pod runs in the host user namespace. This is required when the pod needs features available only in the host namespace, such as loading kernel modules with `CAP_SYS_MODULE`.When set to `false`, the pod runs in a new user namespace. Setting `false` helps mitigate container breakout vulnerabilities and allows containers to run as `root` without granting `root` privileges on the host. This property is alpha-level in Kubernetes and is supported only by Kubernetes clusters that enable the `UserNamespacesSupport` feature."
@@ -14612,7 +14884,7 @@ metadata:
   namespace: adhar-system
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: service-account
     release: strimzi-cluster-operator
     heritage: Helm
@@ -14625,7 +14897,7 @@ metadata:
   namespace: adhar-system
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: logging-config-map
     release: strimzi-cluster-operator
     heritage: Helm
@@ -14658,7 +14930,7 @@ metadata:
   name: strimzi-cluster-operator-namespaced
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: role
     release: strimzi-cluster-operator
     heritage: Helm
@@ -14842,7 +15114,7 @@ metadata:
   name: strimzi-cluster-operator-global
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: role
     release: strimzi-cluster-operator
     heritage: Helm
@@ -14886,7 +15158,7 @@ metadata:
   name: strimzi-cluster-operator-leader-election
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: role
     release: strimzi-cluster-operator
     heritage: Helm
@@ -14923,7 +15195,7 @@ metadata:
   name: strimzi-cluster-operator-watched
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: role
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15030,7 +15302,7 @@ metadata:
   name: strimzi-kafka-broker
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: broker-role
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15051,7 +15323,7 @@ metadata:
   name: strimzi-entity-operator
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: entity-operator-role
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15121,7 +15393,7 @@ metadata:
   name: strimzi-kafka-client
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: client-role
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15143,7 +15415,7 @@ metadata:
   name: strimzi-cluster-operator-namespaced
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: role-binding
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15163,7 +15435,7 @@ metadata:
   name: strimzi-cluster-operator
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: role-binding
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15183,7 +15455,7 @@ metadata:
   name: strimzi-cluster-operator-watched
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: role-binding
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15203,7 +15475,7 @@ metadata:
   name: strimzi-cluster-operator-kafka-broker-delegation
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: broker-role-binding
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15225,7 +15497,7 @@ metadata:
   name: strimzi-cluster-operator-entity-operator-delegation
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: entity-operator-role-binding
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15247,7 +15519,7 @@ metadata:
   name: strimzi-cluster-operator-kafka-client-delegation
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: client-role-binding
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15271,7 +15543,7 @@ metadata:
   namespace: adhar-system
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: role-binding
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15292,7 +15564,7 @@ metadata:
   namespace: adhar-system
   labels:
     app: strimzi
-    chart: strimzi-kafka-operator-1.1.0
+    chart: strimzi-kafka-operator-1.2.0
     component: deployment
     release: strimzi-cluster-operator
     heritage: Helm
@@ -15309,7 +15581,25 @@ spec:
         strimzi.io/kind: cluster-operator
     spec:
       serviceAccountName: strimzi-cluster-operator
+      automountServiceAccountToken: false
       volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: metadata.namespace
         - name: strimzi-tmp
           emptyDir:
             medium: Memory
@@ -15319,13 +15609,16 @@ spec:
             name: strimzi-cluster-operator
       containers:
         - name: strimzi-cluster-operator
-          image: quay.io/strimzi/operator:1.1.0
+          image: quay.io/strimzi/operator:1.2.0
           ports:
             - containerPort: 8080
               name: http
           args:
             - /opt/strimzi/bin/cluster_operator_run.sh
           volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access
+              readOnly: true
             - name: strimzi-tmp
               mountPath: /tmp
             - name: co-config-volume
@@ -15338,38 +15631,41 @@ spec:
             - name: STRIMZI_OPERATION_TIMEOUT_MS
               value: "300000"
             - name: STRIMZI_DEFAULT_KAFKA_EXPORTER_IMAGE
-              value: quay.io/strimzi/kafka:1.1.0-kafka-4.3.0
+              value: quay.io/strimzi/kafka:1.2.0-kafka-4.3.1
             - name: STRIMZI_DEFAULT_CRUISE_CONTROL_IMAGE
-              value: quay.io/strimzi/kafka:1.1.0-kafka-4.3.0
+              value: quay.io/strimzi/kafka:1.2.0-kafka-4.3.1
             - name: STRIMZI_KAFKA_IMAGES
               value: |                 
-                4.2.0=quay.io/strimzi/kafka:1.1.0-kafka-4.2.0
-                4.2.1=quay.io/strimzi/kafka:1.1.0-kafka-4.2.1
-                4.3.0=quay.io/strimzi/kafka:1.1.0-kafka-4.3.0
+                4.2.0=quay.io/strimzi/kafka:1.2.0-kafka-4.2.0
+                4.2.1=quay.io/strimzi/kafka:1.2.0-kafka-4.2.1
+                4.3.0=quay.io/strimzi/kafka:1.2.0-kafka-4.3.0
+                4.3.1=quay.io/strimzi/kafka:1.2.0-kafka-4.3.1
             - name: STRIMZI_KAFKA_CONNECT_IMAGES
               value: |                 
-                4.2.0=quay.io/strimzi/kafka:1.1.0-kafka-4.2.0
-                4.2.1=quay.io/strimzi/kafka:1.1.0-kafka-4.2.1
-                4.3.0=quay.io/strimzi/kafka:1.1.0-kafka-4.3.0
+                4.2.0=quay.io/strimzi/kafka:1.2.0-kafka-4.2.0
+                4.2.1=quay.io/strimzi/kafka:1.2.0-kafka-4.2.1
+                4.3.0=quay.io/strimzi/kafka:1.2.0-kafka-4.3.0
+                4.3.1=quay.io/strimzi/kafka:1.2.0-kafka-4.3.1
             - name: STRIMZI_KAFKA_MIRROR_MAKER_2_IMAGES
               value: |                 
-                4.2.0=quay.io/strimzi/kafka:1.1.0-kafka-4.2.0
-                4.2.1=quay.io/strimzi/kafka:1.1.0-kafka-4.2.1
-                4.3.0=quay.io/strimzi/kafka:1.1.0-kafka-4.3.0
+                4.2.0=quay.io/strimzi/kafka:1.2.0-kafka-4.2.0
+                4.2.1=quay.io/strimzi/kafka:1.2.0-kafka-4.2.1
+                4.3.0=quay.io/strimzi/kafka:1.2.0-kafka-4.3.0
+                4.3.1=quay.io/strimzi/kafka:1.2.0-kafka-4.3.1
             - name: STRIMZI_DEFAULT_TOPIC_OPERATOR_IMAGE
-              value: quay.io/strimzi/operator:1.1.0
+              value: quay.io/strimzi/operator:1.2.0
             - name: STRIMZI_DEFAULT_USER_OPERATOR_IMAGE
-              value: quay.io/strimzi/operator:1.1.0
+              value: quay.io/strimzi/operator:1.2.0
             - name: STRIMZI_DEFAULT_KAFKA_INIT_IMAGE
-              value: quay.io/strimzi/operator:1.1.0
+              value: quay.io/strimzi/operator:1.2.0
             - name: STRIMZI_DEFAULT_KAFKA_BRIDGE_IMAGE
-              value: quay.io/strimzi/kafka-bridge:1.0.0
+              value: quay.io/strimzi/kafka-bridge:1.1.0
             - name: STRIMZI_DEFAULT_KANIKO_EXECUTOR_IMAGE
-              value: quay.io/strimzi/kaniko-executor:1.1.0
+              value: quay.io/strimzi/kaniko-executor:1.2.0
             - name: STRIMZI_DEFAULT_BUILDAH_IMAGE
-              value: quay.io/strimzi/buildah:1.1.0
+              value: quay.io/strimzi/buildah:1.2.0
             - name: STRIMZI_DEFAULT_MAVEN_BUILDER
-              value: quay.io/strimzi/maven-builder:1.1.0
+              value: quay.io/strimzi/maven-builder:1.2.0
             - name: STRIMZI_OPERATOR_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -15401,6 +15697,15 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 30
+          securityContext: 
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           resources:
             limits:
               cpu: 1000m

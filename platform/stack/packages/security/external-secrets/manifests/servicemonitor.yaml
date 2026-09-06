@@ -1,0 +1,32 @@
+# external-secrets Prometheus ServiceMonitor
+# Not emitted by the chart (serviceMonitor.enabled left default off). Scrapes
+# the three metrics Services defined in metrics-service.yaml (controller,
+# webhook, cert-controller), each exposing controller-runtime / externalsecret_*
+# metrics on port 8080 named "metrics" at /metrics.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the External Secrets Operator Grafana dashboard.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: external-secrets
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: external-secrets
+    app.kubernetes.io/instance: external-secrets
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: external-secrets
+      app.kubernetes.io/part-of: external-secrets
+      app.kubernetes.io/component: metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

@@ -1,0 +1,42 @@
+# Sveltos Prometheus PodMonitor
+# Not emitted by the chart (no serviceMonitor support), and only three of the
+# eight controllers get a Service (addon-controller, sc-manager, mcp-server),
+# so the managers are scraped directly on their pod port "metrics" (8443).
+# Every manager runs with --diagnostics-address=:8443, i.e. the controller-
+# runtime secure metrics server: HTTPS with a self-signed cert and Kubernetes
+# authn/authz delegation. We therefore skip cert verification and present the
+# Prometheus ServiceAccount token (its ClusterRole grants nonResourceURLs
+# /metrics) -- the same pattern the kube-prometheus chart uses for the kubelet.
+# Pods without a "metrics" port (mcp-server, techsupport) are skipped.
+# Exposes projectsveltos_* (reconcile duration/operations/outcome, drifts,
+# matching clusters, outdated Helm charts) plus controller-runtime metrics.
+# Prometheus podMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Adhar / Sveltos Grafana dashboard.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: sveltos
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: projectsveltos
+    app.kubernetes.io/instance: projectsveltos
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: control-plane
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: projectsveltos
+      app.kubernetes.io/instance: projectsveltos
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      scheme: https
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        insecureSkipVerify: true

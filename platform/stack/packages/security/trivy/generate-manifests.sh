@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="0.33.1"
+CHART_VERSION="0.36.0"
 
 echo "# TRIVY OPERATOR INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/security/trivy/generate-manifests.sh'" >>${INSTALL_YAML}

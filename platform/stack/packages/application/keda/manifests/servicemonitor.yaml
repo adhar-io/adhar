@@ -1,0 +1,38 @@
+# KEDA Prometheus ServiceMonitor
+# Not emitted by the chart (keda-2.20.0 rendered with prometheus.*.enabled off).
+# The metrics API server still declares a "metrics" port (8080) on the
+# "keda-operator-metrics-apiserver" Service serving keda_metrics_adapter_* /
+# controller_runtime_* / workqueue_* metrics at /metrics, so that is scraped here.
+#
+# NOTE: the keda-operator itself runs with --enable-prometheus-metrics=false and
+# exposes no port, so the keda_scaler_* / keda_scaled_object_* series used by the
+# KEDA Operator / ScaledObject dashboards need
+#   prometheus.operator.enabled: true   (and optionally prometheus.webhooks.enabled)
+# in the chart values; the chart then renders the Service (and its own
+# ServiceMonitor when prometheus.operator.serviceMonitor.enabled is set).
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: keda-metrics-apiserver
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: keda-operator-metrics-apiserver
+    app.kubernetes.io/instance: keda
+    app.kubernetes.io/part-of: keda-operator
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keda-operator-metrics-apiserver
+      app.kubernetes.io/instance: keda
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

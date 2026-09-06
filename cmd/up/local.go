@@ -507,6 +507,8 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 			EnableHAMode:   haMode,
 		},
 	}
+	// Derive PortSuffix (":8443" locally) for uniform host/port templating.
+	options.TemplateData.Normalize()
 
 	provisioner := NewLocalProvisioner(options)
 

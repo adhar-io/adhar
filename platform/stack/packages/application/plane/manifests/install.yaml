@@ -8,6 +8,12 @@ kind: ServiceAccount
 metadata:
   namespace: adhar-system
   name: plane-srv-account
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 ---
 # Source: plane-ce/templates/config-secrets/app-env.yaml
 apiVersion: v1
@@ -16,6 +22,12 @@ type: Opaque
 metadata:
   namespace: adhar-system
   name: plane-app-secrets
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 stringData:
   SECRET_KEY: "60gp0byfz2dvffa45cxl20p1scy9xbpf6d8c5y0geejgkyp1b5"
   LIVE_SERVER_SECRET_KEY: "htbqvBJAgpm9bzvf3r4urJer0ENReatceh"
@@ -30,6 +42,12 @@ type: Opaque
 metadata:
   namespace: adhar-system
   name: plane-doc-store-secrets
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 stringData:
   FILE_SIZE_LIMIT: "5242880"
   AWS_S3_BUCKET_NAME: "uploads"
@@ -47,6 +65,12 @@ type: Opaque
 metadata:
   namespace: adhar-system
   name: plane-live-secrets
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 stringData:
   LIVE_SERVER_SECRET_KEY: "htbqvBJAgpm9bzvf3r4urJer0ENReatceh"
   REDIS_URL: "redis://plane-redis.adhar-system.svc.cluster.local:6379/"
@@ -58,6 +82,12 @@ type: Opaque
 metadata:
   namespace: adhar-system
   name: plane-pgdb-secrets
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 stringData:
   POSTGRES_PASSWORD: "plane"
   POSTGRES_DB: "plane"
@@ -70,6 +100,12 @@ type: Opaque
 metadata:
   namespace: adhar-system
   name: plane-rabbitmq-secrets
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 stringData:
   RABBITMQ_DEFAULT_USER: "plane"
   RABBITMQ_DEFAULT_PASS: "plane"
@@ -80,6 +116,12 @@ kind: ConfigMap
 metadata:
   namespace: adhar-system
   name: plane-app-vars
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 data:
   SENTRY_DSN: ""
   SENTRY_ENVIRONMENT: ""
@@ -97,6 +139,12 @@ kind: ConfigMap
 metadata:
   namespace: adhar-system
   name: plane-live-vars
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 data:
   API_BASE_URL: "http://plane-api.adhar-system.svc.cluster.local:8000/"
   LIVE_BASE_PATH: "/live"
@@ -108,7 +156,12 @@ metadata:
   namespace: adhar-system
   name: plane-admin
   labels:
-    app.name: plane-plane-admin
+    app.name: adhar-system-plane-admin
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   clusterIP: None
   ports:
@@ -117,7 +170,7 @@ spec:
     protocol: TCP
     targetPort: 3000
   selector:
-    app.name: plane-plane-admin
+    app.name: adhar-system-plane-admin
 ---
 # Source: plane-ce/templates/workloads/api.deployment.yaml
 apiVersion: v1
@@ -126,7 +179,12 @@ metadata:
   namespace: adhar-system
   name: plane-api
   labels:
-    app.name: plane-plane-api
+    app.name: adhar-system-plane-api
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   clusterIP: None
   ports:
@@ -135,7 +193,7 @@ spec:
     protocol: TCP
     targetPort: 8000
   selector:
-    app.name: plane-plane-api
+    app.name: adhar-system-plane-api
 ---
 # Source: plane-ce/templates/workloads/live.deployment.yaml
 apiVersion: v1
@@ -144,7 +202,12 @@ metadata:
   namespace: adhar-system
   name: plane-live
   labels:
-    app.name: plane-plane-live
+    app.name: adhar-system-plane-live
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   clusterIP: None
   ports:
@@ -153,7 +216,7 @@ spec:
     protocol: TCP
     targetPort: 3000
   selector:
-    app.name: plane-plane-live
+    app.name: adhar-system-plane-live
 ---
 # Source: plane-ce/templates/workloads/minio.stateful.yaml
 apiVersion: v1
@@ -162,7 +225,12 @@ metadata:
   namespace: adhar-system
   name: plane-minio
   labels:
-    app.name: plane-plane-minio
+    app.name: adhar-system-plane-minio
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   clusterIP: None
   ports:
@@ -175,7 +243,7 @@ spec:
     protocol: TCP
     targetPort: 9090
   selector:
-    app.name: plane-plane-minio
+    app.name: adhar-system-plane-minio
 ---
 # Source: plane-ce/templates/workloads/postgres.stateful.yaml
 apiVersion: v1
@@ -184,7 +252,12 @@ metadata:
   namespace: adhar-system
   name: plane-pgdb
   labels:
-    app.name: plane-plane-pgdb
+    app.name: adhar-system-plane-pgdb
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   clusterIP: None
   ports:
@@ -193,7 +266,7 @@ spec:
     protocol: TCP
     targetPort: 5432
   selector:
-    app.name: plane-plane-pgdb
+    app.name: adhar-system-plane-pgdb
 ---
 # Source: plane-ce/templates/workloads/rabbitmq.stateful.yaml
 apiVersion: v1
@@ -202,7 +275,12 @@ metadata:
   namespace: adhar-system
   name: plane-rabbitmq
   labels:
-    app.name: plane-plane-rabbitmq
+    app.name: adhar-system-plane-rabbitmq
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   clusterIP: None
   ports:
@@ -215,7 +293,7 @@ spec:
     protocol: TCP
     targetPort: 15672
   selector:
-    app.name: plane-plane-rabbitmq
+    app.name: adhar-system-plane-rabbitmq
 ---
 # Source: plane-ce/templates/workloads/redis.stateful.yaml
 apiVersion: v1
@@ -224,7 +302,12 @@ metadata:
   namespace: adhar-system
   name: plane-redis
   labels:
-    app.name: plane-plane-redis
+    app.name: adhar-system-plane-redis
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   clusterIP: None
   ports:
@@ -233,7 +316,7 @@ spec:
     protocol: TCP
     targetPort: 6379
   selector:
-    app.name: plane-plane-redis
+    app.name: adhar-system-plane-redis
 ---
 # Source: plane-ce/templates/workloads/space.deployment.yaml
 apiVersion: v1
@@ -242,7 +325,12 @@ metadata:
   namespace: adhar-system
   name: plane-space
   labels:
-    app.name: plane-plane-space
+    app.name: adhar-system-plane-space
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   clusterIP: None
   ports:
@@ -251,7 +339,7 @@ spec:
     protocol: TCP
     targetPort: 3000
   selector:
-    app.name: plane-plane-space
+    app.name: adhar-system-plane-space
 ---
 # Source: plane-ce/templates/workloads/web.deployment.yaml
 apiVersion: v1
@@ -260,7 +348,12 @@ metadata:
   namespace: adhar-system
   name: plane-web
   labels:
-    app.name: plane-plane-web
+    app.name: adhar-system-plane-web
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   clusterIP: None
   ports:
@@ -269,7 +362,7 @@ spec:
     protocol: TCP
     targetPort: 3000
   selector:
-    app.name: plane-plane-web
+    app.name: adhar-system-plane-web
 ---
 # Source: plane-ce/templates/workloads/admin.deployment.yaml
 apiVersion: apps/v1
@@ -277,23 +370,34 @@ kind: Deployment
 metadata:
   namespace: adhar-system
   name: plane-admin-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.name: plane-plane-admin
+      app.name: adhar-system-plane-admin
   template:
     metadata:
       namespace: adhar-system
       labels:
-        app.name: plane-plane-admin
+        app.name: adhar-system-plane-admin
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
       annotations:
-        timestamp: "2026-06-07 09:43:36.306493 +0800 +08 m=+0.173122043"
+        timestamp: "2026-09-06 19:29:28.213774 +0800 +08 m=+0.566481126"
     spec:
       containers:
       - name: plane-admin
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-admin:v1.2.0
+        image: artifacts.plane.so/makeplane/plane-admin:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -312,23 +416,34 @@ kind: Deployment
 metadata:
   namespace: adhar-system
   name: plane-api-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.name: plane-plane-api
+      app.name: adhar-system-plane-api
   template:
     metadata:
       namespace: adhar-system
       labels:
-        app.name: plane-plane-api
+        app.name: adhar-system-plane-api
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
       annotations:
-        timestamp: "2026-06-07 09:43:36.306465 +0800 +08 m=+0.173093959"
+        timestamp: "2026-09-06 19:29:28.213699 +0800 +08 m=+0.566406126"
     spec:
       containers:
       - name: plane-api
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-backend:v1.2.0
+        image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -368,23 +483,34 @@ kind: Deployment
 metadata:
   namespace: adhar-system
   name: plane-beat-worker-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.name: plane-plane-beat-worker
+      app.name: adhar-system-plane-beat-worker
   template:
     metadata:
       namespace: adhar-system
       labels:
-        app.name: plane-plane-beat-worker
+        app.name: adhar-system-plane-beat-worker
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
       annotations:
-        timestamp: "2026-06-07 09:43:36.306438 +0800 +08 m=+0.173067168"
+        timestamp: "2026-09-06 19:29:28.213622 +0800 +08 m=+0.566329043"
     spec:
       containers:
       - name: plane-beat-worker
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-backend:v1.2.0
+        image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -415,23 +541,34 @@ kind: Deployment
 metadata:
   namespace: adhar-system
   name: plane-live-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.name: plane-plane-live
+      app.name: adhar-system-plane-live
   template:
     metadata:
       namespace: adhar-system
       labels:
-        app.name: plane-plane-live
+        app.name: adhar-system-plane-live
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
       annotations:
-        timestamp: "2026-06-07 09:43:36.306416 +0800 +08 m=+0.173044626"
+        timestamp: "2026-09-06 19:29:28.213566 +0800 +08 m=+0.566272626"
     spec:
       containers:
       - name: plane-live
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-live:v1.2.0
+        image: artifacts.plane.so/makeplane/plane-live:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -457,23 +594,34 @@ kind: Deployment
 metadata:
   namespace: adhar-system
   name: plane-space-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.name: plane-plane-space
+      app.name: adhar-system-plane-space
   template:
     metadata:
       namespace: adhar-system
       labels:
-        app.name: plane-plane-space
+        app.name: adhar-system-plane-space
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
       annotations:
-        timestamp: "2026-06-07 09:43:36.306286 +0800 +08 m=+0.172915293"
+        timestamp: "2026-09-06 19:29:28.213084 +0800 +08 m=+0.565791293"
     spec:
       containers:
       - name: plane-space
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-space:v1.2.0
+        image: artifacts.plane.so/makeplane/plane-space:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -492,23 +640,34 @@ kind: Deployment
 metadata:
   namespace: adhar-system
   name: plane-web-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.name: plane-plane-web
+      app.name: adhar-system-plane-web
   template:
     metadata:
       namespace: adhar-system
       labels:
-        app.name: plane-plane-web
+        app.name: adhar-system-plane-web
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
       annotations:
-        timestamp: "2026-06-07 09:43:36.306261 +0800 +08 m=+0.172889793"
+        timestamp: "2026-09-06 19:29:28.213013 +0800 +08 m=+0.565719459"
     spec:
       containers:
       - name: plane-web
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-frontend:v1.2.0
+        image: artifacts.plane.so/makeplane/plane-frontend:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -527,23 +686,34 @@ kind: Deployment
 metadata:
   namespace: adhar-system
   name: plane-worker-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.name: plane-plane-worker
+      app.name: adhar-system-plane-worker
   template:
     metadata:
       namespace: adhar-system
       labels:
-        app.name: plane-plane-worker
+        app.name: adhar-system-plane-worker
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
       annotations:
-        timestamp: "2026-06-07 09:43:36.305995 +0800 +08 m=+0.172623709"
+        timestamp: "2026-09-06 19:29:28.212894 +0800 +08 m=+0.565601334"
     spec:
       containers:
       - name: plane-worker
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-backend:v1.2.0
+        image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
         stdin: true
         tty: true
         resources:
@@ -574,15 +744,26 @@ kind: StatefulSet
 metadata:
   namespace: adhar-system
   name: plane-minio-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   selector:
     matchLabels:
-      app.name: plane-plane-minio
+      app.name: adhar-system-plane-minio
   serviceName:  plane-minio
   template:
     metadata:
       labels:
-        app.name: plane-plane-minio
+        app.name: adhar-system-plane-minio
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
     spec:
       containers:
       - image: minio/minio:latest
@@ -628,15 +809,26 @@ kind: StatefulSet
 metadata:
   namespace: adhar-system
   name: plane-pgdb-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   selector:
     matchLabels:
-      app.name: plane-plane-pgdb
+      app.name: adhar-system-plane-pgdb
   serviceName:  plane-pgdb
   template:
     metadata:
       labels:
-        app.name: plane-plane-pgdb
+        app.name: adhar-system-plane-pgdb
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
     spec:
       containers:
       - image: postgres:15.7-alpine
@@ -678,15 +870,26 @@ kind: StatefulSet
 metadata:
   namespace: adhar-system
   name: plane-rabbitmq-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   selector:
     matchLabels:
-      app.name: plane-plane-rabbitmq
+      app.name: adhar-system-plane-rabbitmq
   serviceName:  plane-rabbitmq
   template:
     metadata:
       labels:
-        app.name: plane-plane-rabbitmq
+        app.name: adhar-system-plane-rabbitmq
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
     spec:
       containers:
       - image: rabbitmq:3.13.6-management-alpine
@@ -728,15 +931,26 @@ kind: StatefulSet
 metadata:
   namespace: adhar-system
   name: plane-redis-wl
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   selector:
     matchLabels:
-      app.name: plane-plane-redis
+      app.name: adhar-system-plane-redis
   serviceName:  plane-redis
   template:
     metadata:
       labels:
-        app.name: plane-plane-redis
+        app.name: adhar-system-plane-redis
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
     spec:
       containers:
       - image: valkey/valkey:7.2.11-alpine
@@ -772,18 +986,29 @@ kind: Job
 metadata:
   namespace: adhar-system
   name: plane-api-migrate-1
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   backoffLimit: 3
   template:
     metadata:
       labels:
-        app.name: plane-plane-api-migrate
+        app.name: adhar-system-plane-api-migrate
+        helm.sh/chart: plane-ce-1.8.0
+        app.kubernetes.io/name: plane-ce
+        app.kubernetes.io/instance: plane
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "1.4.1"
       annotations:
-        timestamp: "2026-06-07 09:43:36.306396 +0800 +08 m=+0.173024501"
+        timestamp: "2026-09-06 19:29:28.21349 +0800 +08 m=+0.566197084"
     spec:
       containers:
       - name: plane-api-migrate
-        image: artifacts.plane.so/makeplane/plane-backend:v1.2.0
+        image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
         command: 
           - ./bin/docker-entrypoint-migrator.sh
         imagePullPolicy: Always
@@ -807,6 +1032,12 @@ kind: Job
 metadata:
   namespace: adhar-system
   name: plane-minio-bucket-1
+  labels:
+    helm.sh/chart: plane-ce-1.8.0
+    app.kubernetes.io/name: plane-ce
+    app.kubernetes.io/instance: plane
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "1.4.1"
 spec:
   backoffLimit: 6
   completionMode: NonIndexed
@@ -825,7 +1056,7 @@ spec:
           args:
             - '-c'
             - >-
-              /usr/bin/mc config host add plane-app-minio
+              /usr/bin/mc alias set plane-app-minio
               http://plane-minio.adhar-system.svc.cluster.local:9000 "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY"; 
               /usr/bin/mc mb plane-app-minio/$AWS_S3_BUCKET_NAME; 
               /usr/bin/mc anonymous set download plane-app-minio/$AWS_S3_BUCKET_NAME; exit 0;

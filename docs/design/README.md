@@ -23,7 +23,7 @@ Each doc verifies its cited paths/symbols against the tree and closes with a **d
 | 0015 | [IDP critical pillars & their tests](0015-idp-critical-pillars.md) | [ADR-0015](../adr/0015-idp-critical-pillars.md) |
 | 0016 | [vCluster local-first development](0016-vcluster-local-first-development.md) | [ADR-0016](../adr/0016-vcluster-local-first-development.md) |
 | 0017 | [Preview environments](0017-preview-environments.md) | [ADR-0017](../adr/0017-preview-environments.md) |
-| 0018 | [Jenkins X CI model on Tekton](0018-jenkins-x-ci-model.md) | [ADR-0018](../adr/0018-jenkins-x-ci-model.md) |
+| 0018 | [Jenkins X CI model on Tekton (superseded by Tekton app-ci)](0018-jenkins-x-ci-model.md) | [ADR-0018](../adr/0018-jenkins-x-ci-model.md) |
 | 0019 | [Secure supply chain (Chainguard/Sigstore)](0019-secure-supply-chain-chainguard.md) | [ADR-0019](../adr/0019-secure-supply-chain-chainguard.md) |
 | 0020 | [Iceberg data lakehouse](0020-iceberg-data-lakehouse.md) | [ADR-0020](../adr/0020-iceberg-data-lakehouse.md) |
 | 0021 | [Day-2 operations, first-class](0021-day2-operations-first-class.md) | [ADR-0021](../adr/0021-day2-operations-first-class.md) |

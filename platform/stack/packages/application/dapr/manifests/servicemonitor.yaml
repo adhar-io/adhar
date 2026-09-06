@@ -1,0 +1,58 @@
+# Dapr Prometheus monitors
+# Not emitted by the chart (dapr-1.17.9 renders no ServiceMonitor). Two monitors:
+#   1. control plane — every system Service (dapr-api/operator, dapr-placement-server,
+#      dapr-sentry, dapr-sidecar-injector, dapr-scheduler-server) declares a
+#      "metrics" port (9090) serving dapr_* metrics at /metrics. dapr-webhook has
+#      no such port and is skipped automatically.
+#   2. sidecars — the injector labels every injected pod dapr.io/sidecar-injected=true
+#      and the daprd container exposes port "dapr-metrics" (9090); pods live in any
+#      namespace, so the PodMonitor selects cluster-wide.
+# Prometheus selectors are empty ({}), so both are scraped as-is and feed the
+# Dapr System Services / Dapr Sidecar Grafana dashboards.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dapr-control-plane
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: dapr
+    app.kubernetes.io/part-of: dapr
+    app.kubernetes.io/managed-by: adhar
+spec:
+  # job becomes operator / placement / sentry / sidecar-injector / scheduler
+  jobLabel: app.kubernetes.io/component
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dapr
+      app.kubernetes.io/part-of: dapr
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: dapr-sidecars
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: dapr-sidecar
+    app.kubernetes.io/part-of: dapr
+    app.kubernetes.io/managed-by: adhar
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      dapr.io/sidecar-injected: "true"
+  podMetricsEndpoints:
+    - port: dapr-metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

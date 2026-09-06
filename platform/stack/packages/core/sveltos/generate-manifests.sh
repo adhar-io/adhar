@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.10.0"
+CHART_VERSION="1.14.0"
 
 echo "# PROJECTSVELTOS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/core/sveltos/generate-manifests.sh'" >>${INSTALL_YAML}

@@ -1,3 +1,7 @@
+# K6 INSTALL RESOURCES
+# This file is auto-generated with 'platform/stack/packages/application/k6/generate-manifests.sh'
+---
+# Source: k6-operator/templates/serviceAccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -5,26 +9,30 @@ metadata:
   namespace: adhar-system
   labels:
     app.kubernetes.io/component: controller
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
-  annotations: null
+    
+  annotations:
 ---
+# Source: k6-operator/templates/crds/plz.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   labels:
     app.kubernetes.io/component: controller
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
+    
   annotations:
+    
     controller-gen.kubebuilder.io/version: v0.19.0
   name: privateloadzones.k6.io
 spec:
@@ -36,211 +44,216 @@ spec:
     singular: privateloadzone
   scope: Namespaced
   versions:
-  - additionalPrinterColumns:
-    - jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
-    - description: The status of registration
-      jsonPath: .status.conditions[0].status
-      name: Registered
-      type: string
-    name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            type: string
-          kind:
-            type: string
-          metadata:
-            type: object
-          spec:
-            properties:
-              config:
-                properties:
-                  secrets:
-                    items:
-                      properties:
-                        configMapRef:
-                          properties:
-                            name:
-                              default: ''
-                              type: string
-                            optional:
-                              type: boolean
-                          type: object
-                          x-kubernetes-map-type: atomic
-                        secretRef:
-                          properties:
-                            name:
-                              default: ''
-                              type: string
-                            optional:
-                              type: boolean
-                          type: object
-                          x-kubernetes-map-type: atomic
-                      type: object
-                    type: array
-                type: object
-              image:
-                type: string
-              imagePullSecrets:
-                items:
+    - additionalPrinterColumns:
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+        - description: The status of registration
+          jsonPath: .status.conditions[0].status
+          name: Registered
+          type: string
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              properties:
+                config:
                   properties:
-                    name:
-                      default: ''
-                      type: string
+                    secrets:
+                      items:
+                        properties:
+                          configMapRef:
+                            properties:
+                              name:
+                                default: ""
+                                type: string
+                              optional:
+                                type: boolean
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          secretRef:
+                            properties:
+                              name:
+                                default: ""
+                                type: string
+                              optional:
+                                type: boolean
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        type: object
+                      type: array
                   type: object
-                  x-kubernetes-map-type: atomic
-                type: array
-              nodeSelector:
-                additionalProperties:
+                image:
                   type: string
-                type: object
-              podTemplate:
-                properties:
-                  metadata:
+                imagePullSecrets:
+                  items:
                     properties:
-                      annotations:
-                        additionalProperties:
-                          type: string
-                        type: object
-                      labels:
-                        additionalProperties:
-                          type: string
-                        type: object
+                      name:
+                        default: ""
+                        type: string
                     type: object
-                  spec:
-                    properties:
-                      containers:
-                        items:
-                          properties:
-                            name:
-                              type: string
-                            resources:
-                              type: object
-                            securityContext:
-                              type: object
-                              x-kubernetes-preserve-unknown-fields: true
-                          required:
-                          - name
+                    x-kubernetes-map-type: atomic
+                  type: array
+                nodeSelector:
+                  additionalProperties:
+                    type: string
+                  type: object
+                podTemplate:
+                  properties:
+                    metadata:
+                      properties:
+                        annotations:
+                          additionalProperties:
+                            type: string
                           type: object
-                        maxItems: 1
-                        type: array
-                      resources:
-                        type: object
-                      securityContext:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
-                      tolerations:
-                        items:
+                        labels:
+                          additionalProperties:
+                            type: string
+                          type: object
+                      type: object
+                    spec:
+                      properties:
+                        containers:
+                          items:
+                            properties:
+                              name:
+                                type: string
+                              resources:
+                                type: object
+                              securityContext:
+                                type: object
+                                x-kubernetes-preserve-unknown-fields: true
+                            required:
+                              - name
+                            type: object
+                          maxItems: 1
+                          type: array
+                        resources:
+                          type: object
+                        securityContext:
                           type: object
                           x-kubernetes-preserve-unknown-fields: true
-                        type: array
-                    type: object
-                type: object
-              resources:
-                properties:
-                  claims:
-                    items:
-                      properties:
-                        name:
-                          type: string
-                        request:
-                          type: string
-                      required:
-                      - name
+                        tolerations:
+                          items:
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                          type: array
                       type: object
-                    type: array
-                    x-kubernetes-list-map-keys:
-                    - name
-                    x-kubernetes-list-type: map
-                  limits:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    type: object
-                  requests:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    type: object
-                type: object
-                x-kubernetes-validations:
-                - message: resources.limits is mandatory to register with Grafana
-                    Cloud k6
-                  rule: has(self.limits.cpu) && has(self.limits.memory)
-              serviceAccountName:
-                type: string
-              token:
-                type: string
-            required:
-            - resources
-            - token
-            type: object
-          status:
-            properties:
-              conditions:
-                items:
-                  properties:
-                    lastTransitionTime:
-                      format: date-time
-                      type: string
-                    message:
-                      maxLength: 32768
-                      type: string
-                    observedGeneration:
-                      format: int64
-                      minimum: 0
-                      type: integer
-                    reason:
-                      maxLength: 1024
-                      minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
-                      type: string
-                    status:
-                      enum:
-                      - 'True'
-                      - 'False'
-                      - Unknown
-                      type: string
-                    type:
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
-                      type: string
-                  required:
-                  - lastTransitionTime
-                  - message
-                  - reason
-                  - status
-                  - type
                   type: object
-                type: array
-            type: object
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
+                resources:
+                  properties:
+                    claims:
+                      items:
+                        properties:
+                          name:
+                            type: string
+                          request:
+                            type: string
+                        required:
+                          - name
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                        - name
+                      x-kubernetes-list-type: map
+                    limits:
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      type: object
+                    requests:
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      type: object
+                  type: object
+                  x-kubernetes-validations:
+                    - message: resources.limits is mandatory to register with Grafana Cloud k6
+                      rule: has(self.limits.cpu) && has(self.limits.memory)
+                serviceAccountName:
+                  type: string
+                token:
+                  type: string
+              required:
+                - resources
+                - token
+              type: object
+            status:
+              properties:
+                conditions:
+                  items:
+                    properties:
+                      lastTransitionTime:
+                        format: date-time
+                        type: string
+                      message:
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+              type: object
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
 ---
+# Source: k6-operator/templates/crds/testrun.yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   labels:
     app.kubernetes.io/component: controller
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
+    
   annotations:
+    
     controller-gen.kubebuilder.io/version: v0.19.0
   name: testruns.k6.io
 spec:
@@ -275,6 +288,11 @@ spec:
             type: object
           spec:
             properties:
+              args:
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
               arguments:
                 type: string
               cleanup:
@@ -813,7 +831,7 @@ spec:
                                 key:
                                   type: string
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                                 optional:
                                   type: boolean
@@ -869,7 +887,7 @@ spec:
                                 key:
                                   type: string
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                                 optional:
                                   type: boolean
@@ -888,7 +906,7 @@ spec:
                         configMapRef:
                           properties:
                             name:
-                              default: ''
+                              default: ""
                               type: string
                             optional:
                               type: boolean
@@ -899,7 +917,7 @@ spec:
                         secretRef:
                           properties:
                             name:
-                              default: ''
+                              default: ""
                               type: string
                             optional:
                               type: boolean
@@ -915,7 +933,7 @@ spec:
                     items:
                       properties:
                         name:
-                          default: ''
+                          default: ""
                           type: string
                       type: object
                       x-kubernetes-map-type: atomic
@@ -945,7 +963,7 @@ spec:
                                       key:
                                         type: string
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -1001,7 +1019,7 @@ spec:
                                       key:
                                         type: string
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -1020,7 +1038,7 @@ spec:
                               configMapRef:
                                 properties:
                                   name:
-                                    default: ''
+                                    default: ""
                                     type: string
                                   optional:
                                     type: boolean
@@ -1031,7 +1049,7 @@ spec:
                               secretRef:
                                 properties:
                                   name:
-                                    default: ''
+                                    default: ""
                                     type: string
                                   optional:
                                     type: boolean
@@ -1123,7 +1141,7 @@ spec:
                             format: int32
                             type: integer
                           service:
-                            default: ''
+                            default: ""
                             type: string
                         required:
                         - port
@@ -1221,7 +1239,7 @@ spec:
                             format: int32
                             type: integer
                           service:
-                            default: ''
+                            default: ""
                             type: string
                         required:
                         - port
@@ -1316,6 +1334,8 @@ spec:
                           x-kubernetes-int-or-string: true
                         type: object
                     type: object
+                  schedulerName:
+                    type: string
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -1554,7 +1574,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -1572,7 +1592,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -1603,7 +1623,7 @@ spec:
                               type: array
                               x-kubernetes-list-type: atomic
                             name:
-                              default: ''
+                              default: ""
                               type: string
                             optional:
                               type: boolean
@@ -1618,7 +1638,7 @@ spec:
                             nodePublishSecretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -1820,7 +1840,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -1915,7 +1935,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -2035,7 +2055,7 @@ spec:
                                         type: array
                                         x-kubernetes-list-type: atomic
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -2098,6 +2118,10 @@ spec:
                                         type: integer
                                       signerName:
                                         type: string
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
                                     required:
                                     - keyType
                                     - signerName
@@ -2121,7 +2145,7 @@ spec:
                                         type: array
                                         x-kubernetes-list-type: atomic
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -2183,7 +2207,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -2208,7 +2232,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -2263,7 +2287,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -2294,7 +2318,7 @@ spec:
                 format: int32
                 type: integer
               paused:
-                default: 'true'
+                default: "true"
                 type: string
               ports:
                 items:
@@ -2317,7 +2341,7 @@ spec:
                   type: object
                 type: array
               quiet:
-                default: 'true'
+                default: "true"
                 type: string
               runner:
                 properties:
@@ -2851,7 +2875,7 @@ spec:
                                 key:
                                   type: string
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                                 optional:
                                   type: boolean
@@ -2907,7 +2931,7 @@ spec:
                                 key:
                                   type: string
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                                 optional:
                                   type: boolean
@@ -2926,7 +2950,7 @@ spec:
                         configMapRef:
                           properties:
                             name:
-                              default: ''
+                              default: ""
                               type: string
                             optional:
                               type: boolean
@@ -2937,7 +2961,7 @@ spec:
                         secretRef:
                           properties:
                             name:
-                              default: ''
+                              default: ""
                               type: string
                             optional:
                               type: boolean
@@ -2953,7 +2977,7 @@ spec:
                     items:
                       properties:
                         name:
-                          default: ''
+                          default: ""
                           type: string
                       type: object
                       x-kubernetes-map-type: atomic
@@ -2983,7 +3007,7 @@ spec:
                                       key:
                                         type: string
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -3039,7 +3063,7 @@ spec:
                                       key:
                                         type: string
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -3058,7 +3082,7 @@ spec:
                               configMapRef:
                                 properties:
                                   name:
-                                    default: ''
+                                    default: ""
                                     type: string
                                   optional:
                                     type: boolean
@@ -3069,7 +3093,7 @@ spec:
                               secretRef:
                                 properties:
                                   name:
-                                    default: ''
+                                    default: ""
                                     type: string
                                   optional:
                                     type: boolean
@@ -3161,7 +3185,7 @@ spec:
                             format: int32
                             type: integer
                           service:
-                            default: ''
+                            default: ""
                             type: string
                         required:
                         - port
@@ -3259,7 +3283,7 @@ spec:
                             format: int32
                             type: integer
                           service:
-                            default: ''
+                            default: ""
                             type: string
                         required:
                         - port
@@ -3354,6 +3378,8 @@ spec:
                           x-kubernetes-int-or-string: true
                         type: object
                     type: object
+                  schedulerName:
+                    type: string
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -3592,7 +3618,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -3610,7 +3636,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -3641,7 +3667,7 @@ spec:
                               type: array
                               x-kubernetes-list-type: atomic
                             name:
-                              default: ''
+                              default: ""
                               type: string
                             optional:
                               type: boolean
@@ -3656,7 +3682,7 @@ spec:
                             nodePublishSecretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -3858,7 +3884,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -3953,7 +3979,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -4073,7 +4099,7 @@ spec:
                                         type: array
                                         x-kubernetes-list-type: atomic
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -4136,6 +4162,10 @@ spec:
                                         type: integer
                                       signerName:
                                         type: string
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
                                     required:
                                     - keyType
                                     - signerName
@@ -4159,7 +4189,7 @@ spec:
                                         type: array
                                         x-kubernetes-list-type: atomic
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -4221,7 +4251,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -4246,7 +4276,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -4301,7 +4331,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -4910,7 +4940,7 @@ spec:
                                 key:
                                   type: string
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                                 optional:
                                   type: boolean
@@ -4966,7 +4996,7 @@ spec:
                                 key:
                                   type: string
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                                 optional:
                                   type: boolean
@@ -4985,7 +5015,7 @@ spec:
                         configMapRef:
                           properties:
                             name:
-                              default: ''
+                              default: ""
                               type: string
                             optional:
                               type: boolean
@@ -4996,7 +5026,7 @@ spec:
                         secretRef:
                           properties:
                             name:
-                              default: ''
+                              default: ""
                               type: string
                             optional:
                               type: boolean
@@ -5012,7 +5042,7 @@ spec:
                     items:
                       properties:
                         name:
-                          default: ''
+                          default: ""
                           type: string
                       type: object
                       x-kubernetes-map-type: atomic
@@ -5042,7 +5072,7 @@ spec:
                                       key:
                                         type: string
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -5098,7 +5128,7 @@ spec:
                                       key:
                                         type: string
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -5117,7 +5147,7 @@ spec:
                               configMapRef:
                                 properties:
                                   name:
-                                    default: ''
+                                    default: ""
                                     type: string
                                   optional:
                                     type: boolean
@@ -5128,7 +5158,7 @@ spec:
                               secretRef:
                                 properties:
                                   name:
-                                    default: ''
+                                    default: ""
                                     type: string
                                   optional:
                                     type: boolean
@@ -5220,7 +5250,7 @@ spec:
                             format: int32
                             type: integer
                           service:
-                            default: ''
+                            default: ""
                             type: string
                         required:
                         - port
@@ -5318,7 +5348,7 @@ spec:
                             format: int32
                             type: integer
                           service:
-                            default: ''
+                            default: ""
                             type: string
                         required:
                         - port
@@ -5413,6 +5443,8 @@ spec:
                           x-kubernetes-int-or-string: true
                         type: object
                     type: object
+                  schedulerName:
+                    type: string
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -5651,7 +5683,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -5669,7 +5701,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -5700,7 +5732,7 @@ spec:
                               type: array
                               x-kubernetes-list-type: atomic
                             name:
-                              default: ''
+                              default: ""
                               type: string
                             optional:
                               type: boolean
@@ -5715,7 +5747,7 @@ spec:
                             nodePublishSecretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -5917,7 +5949,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -6012,7 +6044,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -6132,7 +6164,7 @@ spec:
                                         type: array
                                         x-kubernetes-list-type: atomic
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -6195,6 +6227,10 @@ spec:
                                         type: integer
                                       signerName:
                                         type: string
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
                                     required:
                                     - keyType
                                     - signerName
@@ -6218,7 +6254,7 @@ spec:
                                         type: array
                                         x-kubernetes-list-type: atomic
                                       name:
-                                        default: ''
+                                        default: ""
                                         type: string
                                       optional:
                                         type: boolean
@@ -6280,7 +6316,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -6305,7 +6341,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -6360,7 +6396,7 @@ spec:
                             secretRef:
                               properties:
                                 name:
-                                  default: ''
+                                  default: ""
                                   type: string
                               type: object
                               x-kubernetes-map-type: atomic
@@ -6419,8 +6455,8 @@ spec:
                       type: string
                     status:
                       enum:
-                      - 'True'
-                      - 'False'
+                      - "True"
+                      - "False"
                       - Unknown
                       type: string
                     type:
@@ -6435,6 +6471,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               stage:
                 enum:
                 - initialization
@@ -6454,30 +6493,35 @@ spec:
     subresources:
       status: {}
 ---
+# Source: k6-operator/templates/role.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: k6-k6-operator-manager-role
   labels:
     app.kubernetes.io/component: controller
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
-  annotations: null
+    
+  annotations:
+    
 rules:
 - apiGroups:
-  - ''
+  - ""
   resources:
+  - pods
+  - pods/log
   - secrets
   verbs:
   - get
   - list
   - watch
 - apiGroups:
-  - ''
+  - ""
   resources:
   - services
   verbs:
@@ -6522,66 +6566,16 @@ rules:
   - list
   - update
 - apiGroups:
-  - ''
+  - events.k8s.io
   resources:
-  - pods
-  - pods/log
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - k6.io
-  resources:
-  - k6s
+  - events
   verbs:
   - create
-  - delete
-  - get
-  - list
   - patch
-  - update
-  - watch
-- apiGroups:
-  - k6.io
-  resources:
-  - k6s/finalizers
-  - k6s/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - k6.io
   resources:
   - privateloadzones
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - k6.io
-  resources:
-  - privateloadzones/finalizers
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - k6.io
-  resources:
-  - privateloadzones/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - k6.io
-  resources:
   - testruns
   verbs:
   - create
@@ -6594,6 +6588,8 @@ rules:
 - apiGroups:
   - k6.io
   resources:
+  - privateloadzones/finalizers
+  - privateloadzones/status
   - testruns/finalizers
   - testruns/status
   verbs:
@@ -6601,18 +6597,21 @@ rules:
   - patch
   - update
 ---
+# Source: k6-operator/templates/role.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: k6-k6-operator-metrics-auth-role
   labels:
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
-  annotations: null
+    
+  annotations:
+    
 rules:
 - apiGroups:
   - authentication.k8s.io
@@ -6627,24 +6626,29 @@ rules:
   verbs:
   - create
 ---
+# Source: k6-operator/templates/role.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: k6-k6-operator-metrics-reader
   labels:
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
-  annotations: null
+    
+  annotations:
+    
 rules:
 - nonResourceURLs:
   - /metrics
   verbs:
   - get
 ---
+# Source: k6-operator/templates/role.yaml
+# permissions for end users to edit privateloadzones.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -6669,6 +6673,8 @@ rules:
   verbs:
   - get
 ---
+# Source: k6-operator/templates/role.yaml
+# permissions for end users to view privateloadzones.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -6689,43 +6695,50 @@ rules:
   verbs:
   - get
 ---
+# Source: k6-operator/templates/roleBinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: k6-k6-operator-manager-rolebinding
   labels:
     app.kubernetes.io/component: controller
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
-  annotations: null
+    
+  annotations:
+    
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: k6-k6-operator-manager-role
 subjects:
-- kind: ServiceAccount
-  name: k6-operator-controller
-  namespace: adhar-system
+  - kind: ServiceAccount
+    name: k6-operator-controller
+    namespace: adhar-system
 ---
+# Source: k6-operator/templates/roleBinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: k6-k6-operator-metrics-auth-rolebinding
-  labels: null
-  annotations: null
+  labels:
+    
+  annotations:
+    
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: k6-k6-operator-metrics-auth-role
 subjects:
-- kind: ServiceAccount
-  name: k6-operator-controller
-  namespace: adhar-system
+  - kind: ServiceAccount
+    name: k6-operator-controller
+    namespace: adhar-system
 ---
+# Source: k6-operator/templates/leaderRole.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -6733,26 +6746,28 @@ metadata:
   namespace: adhar-system
   labels:
     app.kubernetes.io/component: controller
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
-  annotations: null
+    
+  annotations:
+    
 rules:
 - apiGroups:
-  - ''
+    - ""
   resources:
-  - configmaps
+    - configmaps
   verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+    - delete
 - apiGroups:
   - coordination.k8s.io
   resources:
@@ -6763,13 +6778,14 @@ rules:
   - list
   - update
 - apiGroups:
-  - ''
+    - ""
   resources:
-  - events
+    - events
   verbs:
-  - create
-  - patch
+    - create
+    - patch
 ---
+# Source: k6-operator/templates/leaderRoleBinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -6777,13 +6793,15 @@ metadata:
   namespace: adhar-system
   labels:
     app.kubernetes.io/component: controller
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
-  annotations: null
+    
+  annotations:
+    
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -6793,21 +6811,24 @@ subjects:
   name: k6-operator-controller
   namespace: adhar-system
 ---
+# Source: k6-operator/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: k6-k6-operator-controller-manager-metrics-service
   namespace: adhar-system
   labels:
-    control-plane: controller-manager
+    control-plane: "controller-manager"
     app.kubernetes.io/component: controller
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
-  annotations: null
+    
+  annotations:
+    
 spec:
   ports:
   - name: https
@@ -6815,23 +6836,26 @@ spec:
     protocol: TCP
     targetPort: https
   selector:
-    control-plane: controller-manager
+    control-plane: "controller-manager"
 ---
+# Source: k6-operator/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: k6-k6-operator-controller-manager
   namespace: adhar-system
   labels:
-    control-plane: controller-manager
+    control-plane: "controller-manager"
     app.kubernetes.io/component: controller
-    helm.sh/chart: k6-operator-4.4.1
+    helm.sh/chart: k6-operator-4.6.0
     app.kubernetes.io/name: k6-operator
     app.kubernetes.io/instance: k6
-    app.kubernetes.io/version: 1.4.0
+    app.kubernetes.io/version: "1.6.0"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: k6-operator
-  annotations: null
+    
+  annotations:
+    
 spec:
   replicas: 1
   selector:
@@ -6841,41 +6865,42 @@ spec:
   template:
     metadata:
       labels:
-        control-plane: controller-manager
+        control-plane: "controller-manager"
         app.kubernetes.io/name: k6-operator
         app.kubernetes.io/instance: k6
+        
     spec:
       containers:
-      - name: manager
-        image: ghcr.io/grafana/k6-operator:controller-v1.4.0
-        imagePullPolicy: IfNotPresent
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 8081
-          initialDelaySeconds: 15
-          periodSeconds: 20
-        readinessProbe:
-          httpGet:
-            path: /healthz
-            port: 8081
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        resources:
-          limits:
-            cpu: 100m
-            memory: 100Mi
-          requests:
-            cpu: 100m
-            memory: 50Mi
-        command:
-        - /manager
-        args:
-        - --health-probe-bind-address=:8081
-        - --metrics-bind-address=:8443
-        - --zap-devel=true
-        ports:
-        - containerPort: 8443
-          name: https
+        - name: manager
+          image: "ghcr.io/grafana/k6-operator:controller-v1.6.0"
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 100m
+              memory: 100Mi
+            requests:
+              cpu: 100m
+              memory: 50Mi
+          command:
+            - /manager
+          args:
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address=:8443
+            - --zap-devel=true
+          ports:
+            - containerPort: 8443
+              name: https
       serviceAccountName: k6-operator-controller
       terminationGracePeriodSeconds: 10

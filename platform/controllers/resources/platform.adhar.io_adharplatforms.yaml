@@ -43,6 +43,28 @@ spec:
                 description: BuildCustomizationSpec fields cannot change once a cluster
                   is created
                 properties:
+                  clusterName:
+                    description: |-
+                      ClusterName identifies this platform in shared external systems, e.g.
+                      as the external-dns TXT owner id so several clusters can publish into
+                      the same DNS zone without stealing each other's records.
+                    type: string
+                  dnsProvider:
+                    description: |-
+                      DNSProvider is the DNS backend of the platform edge — the zone that
+                      holds the platform host — used by external-dns to publish records and by
+                      cert-manager's DNS-01 solver to issue the *.<host> wildcard certificate.
+                      Values are Adhar provider names (digitalocean, aws, gcp, azure, civo) or
+                      "cloudflare"; empty means no edge DNS (local, or "none"): records are not
+                      published and the Gateway keeps the self-signed issuer. The credentials
+                      live in the adhar-dns-provider Secret in the platform namespace, created
+                      by the CLI from the provider credentials at bootstrap — never in Git.
+                    type: string
+                  email:
+                    description: |-
+                      Email is the ACME registration address for the platform's Let's Encrypt
+                      ClusterIssuers (globalSettings.email). Empty → platform@<host>.
+                    type: string
                   enableHAMode:
                     description: |-
                       EnableHAMode renders the foundation components (ArgoCD, Gitea) with
@@ -53,6 +75,14 @@ spec:
                   ingressHost:
                     type: string
                   port:
+                    type: string
+                  portSuffix:
+                    description: |-
+                      PortSuffix is the URL port segment (":8443" locally, empty for the
+                      standard 443/80 used behind a real cloud LoadBalancer). Foundation
+                      manifests template it as `{{ .Host }}{{ .PortSuffix }}` so URLs and OIDC
+                      issuers are correct on every topology (local/cloud/on-prem) without any
+                      hardcoded host or port. Derived from Port + Protocol.
                     type: string
                   protocol:
                     type: string

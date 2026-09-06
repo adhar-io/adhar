@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -150,6 +151,13 @@ func (p *Provider) ensureComputeFirewall(ctx context.Context, clusterName string
 			{Protocol: "tcp", PortRange: "6443", Sources: anywhere},
 			{Protocol: "tcp", PortRange: "30000-32767", Sources: anywhere},
 			{Protocol: "udp", PortRange: "30000-32767", Sources: anywhere},
+			// The DigitalOcean LoadBalancer the CCM provisions for the platform
+			// Gateway forwards 80/443 to the droplets and health-checks the
+			// kube-proxy-compatible healthz on 10256 (served by Cilium). Without
+			// these the LB marks every backend unhealthy and refuses all traffic.
+			{Protocol: "tcp", PortRange: "80", Sources: anywhere},
+			{Protocol: "tcp", PortRange: "443", Sources: anywhere},
+			{Protocol: "tcp", PortRange: "10256", Sources: anywhere},
 			// Unrestricted traffic between cluster members (etcd, kubelet,
 			// Cilium VXLAN/Geneve/health, etc.).
 			{Protocol: "tcp", PortRange: "1-65535", Sources: clusterSrc},
@@ -316,12 +324,18 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		return nil, err
 	}
 
+	// Adopted workers that are already registered need no SSH at all.
+	joined := provider.KubeadmJoinedNodes(signer, computeSSHUser, masterIP)
 	for _, d := range workerDroplets {
 		ip, _ := d.PublicIPv4()
+		privIP, _ := d.PrivateIPv4()
+		if joined.Has(d.Name, ip, privIP) {
+			log.Printf("Worker %s is already part of the cluster; skipping prep/join", d.Name)
+			continue
+		}
 		if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, ip, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", d.Name, err)
 		}
-		privIP, _ := d.PrivateIPv4()
 		if err := enableExternalCloudProvider(signer, ip, privIP); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", d.Name, err)
 		}
@@ -330,7 +344,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		}
 	}
 
-	if err := p.installDOCloudIntegration(signer, masterIP, vpcUUID); err != nil {
+	if err := p.installDOCloudIntegration(signer, masterIP, vpcUUID, tag); err != nil {
 		return nil, err
 	}
 
@@ -520,6 +534,14 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterName string)
 		break
 	}
 
+	// Cloud resources the cluster created for itself and that outlive its
+	// droplets: the Gateway's LoadBalancer (DO CCM) and the block-storage
+	// volumes behind PersistentVolumes (DO CSI, tagged with the cluster tag by
+	// installDOCloudIntegration). Left behind they keep billing and block the
+	// VPC deletion below.
+	p.deleteComputeLoadBalancers(ctx, name)
+	p.deleteComputeVolumes(ctx, tag)
+
 	// Firewall
 	if fws, _, err := p.client.Firewalls.List(ctx, &godo.ListOptions{PerPage: 200}); err == nil {
 		for _, fw := range fws {
@@ -578,6 +600,95 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterName string)
 	return nil
 }
 
+// deleteComputeLoadBalancers removes every LoadBalancer living in the
+// cluster's VPC (the DO cloud-controller-manager creates them for Service
+// type=LoadBalancer — the platform Gateway — and nothing deletes them once the
+// cluster's droplets are gone) and waits for them to disappear so the VPC can
+// be deleted afterwards.
+func (p *Provider) deleteComputeLoadBalancers(ctx context.Context, name string) {
+	vpcName := fmt.Sprintf("adhar-%s-vpc", name)
+	var vpcID string
+	if vpcs, _, err := p.client.VPCs.List(ctx, &godo.ListOptions{PerPage: 200}); err == nil {
+		for _, v := range vpcs {
+			if v.Name == vpcName {
+				vpcID = v.ID
+			}
+		}
+	}
+	if vpcID == "" {
+		return
+	}
+	lbs, _, err := p.client.LoadBalancers.List(ctx, &godo.ListOptions{PerPage: 200})
+	if err != nil {
+		log.Printf("Warning: listing load balancers: %v", err)
+		return
+	}
+	var deleted []string
+	for _, lb := range lbs {
+		if lb.VPCUUID != vpcID {
+			continue
+		}
+		if _, err := p.client.LoadBalancers.Delete(ctx, lb.ID); err != nil {
+			log.Printf("Warning: failed to delete load balancer %s (%s): %v", lb.Name, lb.IP, err)
+			continue
+		}
+		log.Printf("Deleted load balancer %s (%s) of cluster %q", lb.Name, lb.IP, name)
+		deleted = append(deleted, lb.ID)
+	}
+	for _, id := range deleted {
+		for attempt := 0; attempt < 12; attempt++ {
+			if _, resp, err := p.client.LoadBalancers.Get(ctx, id); err != nil && resp != nil && resp.StatusCode == 404 {
+				break
+			}
+			time.Sleep(5 * time.Second)
+		}
+	}
+}
+
+// deleteComputeVolumes removes the block-storage volumes tagged with the
+// cluster tag (every volume the cluster's CSI driver created, see the --do-tag
+// flag set by installDOCloudIntegration). Volumes are detached once their
+// droplets are gone, so plain deletion suffices; an attached volume (droplet
+// deletion still settling) is retried briefly.
+func (p *Provider) deleteComputeVolumes(ctx context.Context, tag string) {
+	vols, _, err := p.client.Storage.ListVolumes(ctx, &godo.ListVolumeParams{
+		Region:      p.config.Region,
+		ListOptions: &godo.ListOptions{PerPage: 200},
+	})
+	if err != nil {
+		log.Printf("Warning: listing volumes: %v", err)
+		return
+	}
+	for _, v := range vols {
+		tagged, otherCluster := false, false
+		for _, t := range v.Tags {
+			if t == tag {
+				tagged = true
+			} else if strings.HasPrefix(t, computeClusterTagPrefix) {
+				otherCluster = true
+			}
+		}
+		// Opt-in purge: unattached PersistentVolume-shaped volumes that no other
+		// cluster claims (created before per-cluster tagging existed).
+		orphan := p.config.PurgeOrphanedVolumes && !otherCluster && len(v.DropletIDs) == 0 && strings.HasPrefix(v.Name, "pvc-")
+		if !tagged && !orphan {
+			continue
+		}
+		var delErr error
+		for attempt := 0; attempt < 6; attempt++ {
+			if _, delErr = p.client.Storage.DeleteVolume(ctx, v.ID); delErr == nil {
+				break
+			}
+			time.Sleep(10 * time.Second)
+		}
+		if delErr != nil {
+			log.Printf("Warning: failed to delete volume %s (%s): %v", v.Name, v.ID, delErr)
+			continue
+		}
+		log.Printf("Deleted volume %s (%d GiB)", v.Name, v.SizeGigaBytes)
+	}
+}
+
 // isComputeCluster reports whether the given cluster ID/name refers to a
 // compute-mode cluster (by tag prefix or droplet discovery).
 func (p *Provider) isComputeCluster(ctx context.Context, clusterID string) bool {
@@ -634,10 +745,13 @@ func (p *Provider) upgradeComputeCluster(ctx context.Context, clusterID, version
 // scaleComputeWorkers scales the worker set of a compute cluster to the
 // desired count: new droplets are prepared and kubeadm-joined; excess workers
 // are drained and removed from the cluster before their droplets are deleted.
-func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID string, desired int) error {
+func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup string, desired int) error {
 	name := computeClusterName(clusterID)
 	if desired < 0 {
 		return fmt.Errorf("desired worker count must be >= 0")
+	}
+	if nodeGroup == "" {
+		nodeGroup = "workers"
 	}
 
 	droplets, err := p.computeClusterDroplets(ctx, name)
@@ -667,6 +781,16 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID string, de
 		return err
 	}
 
+	// Workers are named adhar-<cluster>-<nodeGroup>-<n> at create time; keep
+	// the same scheme (and the same droplet size as the existing workers) so a
+	// scaled cluster stays homogeneous and later scale operations can count
+	// and index the set deterministically.
+	sort.Slice(workers, func(i, j int) bool { return workers[i].Name < workers[j].Name })
+	size := p.config.DropletSize
+	if len(workers) > 0 && workers[0].SizeSlug != "" {
+		size = workers[0].SizeSlug
+	}
+
 	current := len(workers)
 	switch {
 	case desired > current:
@@ -686,8 +810,8 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID string, de
 		joinCmd = strings.TrimSpace(joinCmd)
 		tag := computeClusterTag(name)
 		for i := current + 1; i <= desired; i++ {
-			nodeName := fmt.Sprintf("adhar-%s-worker-%d", name, i)
-			d, err := p.createComputeDroplet(ctx, nodeName, vpcUUID, key.ID, p.config.DropletSize, userData, []string{tag, computeWorkerTag})
+			nodeName := fmt.Sprintf("adhar-%s-%s-%d", name, nodeGroup, i)
+			d, err := p.createComputeDroplet(ctx, nodeName, vpcUUID, key.ID, size, userData, []string{tag, computeWorkerTag})
 			if err != nil {
 				return err
 			}
@@ -759,7 +883,7 @@ func enableExternalCloudProvider(signer ssh.Signer, ip, privateIP string) error 
 // installDOCloudIntegration applies the token secret, CCM, CSI driver and
 // marks do-block-storage as the default StorageClass, all via the control
 // plane's admin kubeconfig.
-func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUID string) error {
+func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUID, clusterTag string) error {
 	steps := []struct {
 		desc string
 		cmd  string
@@ -769,6 +893,12 @@ func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUI
 		{"cloud-controller-manager", kubectlAdminBase + " apply -f " + doCCMManifestURL},
 		{"CSI CRDs", kubectlAdminBase + " apply -f " + doCSIReleaseBase + "/crds.yaml"},
 		{"CSI driver", kubectlAdminBase + " apply -f " + doCSIReleaseBase + "/driver.yaml"},
+		// Tag every volume the CSI driver creates with the cluster tag so
+		// deleteComputeCluster can find and remove them (DO volumes outlive
+		// their droplets and keep billing). Container index 4 is csi-do-plugin
+		// in the pinned CSI release; the grep keeps the patch idempotent.
+		{"CSI volume tag", kubectlAdminBase + " -n kube-system get statefulset csi-do-controller -o jsonpath='{.spec.template.spec.containers[4].args}' | grep -q -- '--do-tag' || " +
+			kubectlAdminBase + ` -n kube-system patch statefulset csi-do-controller --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/4/args/-","value":"--do-tag=` + clusterTag + `"}]'`},
 		{"CSI snapshot controller", kubectlAdminBase + " apply -f " + doCSIReleaseBase + "/snapshot-controller.yaml"},
 		// Without the cluster VPC pin the CCM creates load balancers in the
 		// region's default VPC and droplet targeting fails with 422.

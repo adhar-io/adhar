@@ -2987,10 +2987,10 @@ metadata:
   name: trivy-operator
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: trivy-operator/templates/secrets/operator.yaml
@@ -3000,10 +3000,10 @@ metadata:
   name: trivy-operator
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 data:
 ---
@@ -3014,10 +3014,10 @@ metadata:
   name: trivy-operator-trivy-config
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 data:
 ---
@@ -3028,10 +3028,10 @@ metadata:
   name: trivy-operator
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 data:
   nodeCollector.volumes: "[{\"hostPath\":{\"path\":\"/var/lib/etcd\"},\"name\":\"var-lib-etcd\"},{\"hostPath\":{\"path\":\"/var/lib/kubelet\"},\"name\":\"var-lib-kubelet\"},{\"hostPath\":{\"path\":\"/var/lib/kube-scheduler\"},\"name\":\"var-lib-kube-scheduler\"},{\"hostPath\":{\"path\":\"/var/lib/kube-controller-manager\"},\"name\":\"var-lib-kube-controller-manager\"},{\"hostPath\":{\"path\":\"/etc/systemd\"},\"name\":\"etc-systemd\"},{\"hostPath\":{\"path\":\"/lib/systemd\"},\"name\":\"lib-systemd\"},{\"hostPath\":{\"path\":\"/etc/kubernetes\"},\"name\":\"etc-kubernetes\"},{\"hostPath\":{\"path\":\"/etc/cni/net.d/\"},\"name\":\"etc-cni-netd\"}]"
@@ -3057,10 +3057,10 @@ metadata:
   name: trivy-operator-config
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 data:
   OPERATOR_LOG_DEV_MODE: "false"
@@ -3112,14 +3112,14 @@ metadata:
   name: trivy-operator-trivy-config
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 data:
   trivy.repository: "mirror.gcr.io/aquasec/trivy"
-  trivy.tag: "0.71.0"
+  trivy.tag: "0.74.0"
   trivy.imagePullPolicy: "IfNotPresent"
   trivy.additionalVulnerabilityReportFields: ""
   trivy.severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
@@ -3135,7 +3135,7 @@ data:
   trivy.dbRepositoryInsecure: "false"
   trivy.useBuiltinRegoPolicies: "false"
   trivy.useEmbeddedRegoPolicies: "true"
-  trivy.supportedConfigAuditKinds: "Workload,Service,Role,ClusterRole,NetworkPolicy,Ingress,LimitRange,ResourceQuota"
+  trivy.supportedConfigAuditKinds: "Workload,Service,Role,ClusterRole,NetworkPolicy,Ingress,LimitRange,ResourceQuota,PersistentVolume,PersistentVolumeClaim"
   trivy.timeout: "5m0s"
   trivy.mode: "Standalone"
   trivy.resources.requests.cpu: "100m"
@@ -3155,6 +3155,8 @@ rules:
   - configmaps
   - limitranges
   - nodes
+  - persistentvolumeclaims
+  - persistentvolumes
   - pods
   - replicationcontrollers
   - resourcequotas
@@ -3301,10 +3303,10 @@ kind: ClusterRole
 metadata:
   name: aggregate-config-audit-reports-view
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
     rbac.authorization.k8s.io/aggregate-to-view: "true"
     rbac.authorization.k8s.io/aggregate-to-edit: "true"
@@ -3327,10 +3329,10 @@ kind: ClusterRole
 metadata:
   name: aggregate-exposed-secret-reports-view
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
     rbac.authorization.k8s.io/aggregate-to-view: "true"
     rbac.authorization.k8s.io/aggregate-to-edit: "true"
@@ -3353,10 +3355,10 @@ kind: ClusterRole
 metadata:
   name: aggregate-vulnerability-reports-view
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
     rbac.authorization.k8s.io/aggregate-to-view: "true"
     rbac.authorization.k8s.io/aggregate-to-edit: "true"
@@ -3378,10 +3380,10 @@ kind: ClusterRoleBinding
 metadata:
   name: trivy-operator
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -3400,10 +3402,10 @@ metadata:
   name: trivy-operator-leader-election
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 rules:
   - apiGroups:
@@ -3428,10 +3430,10 @@ metadata:
   name: trivy-operator
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 rules:
   - apiGroups:
@@ -3460,10 +3462,10 @@ metadata:
   name: trivy-operator-leader-election
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -3481,10 +3483,10 @@ metadata:
   name: trivy-operator
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -3502,10 +3504,10 @@ metadata:
   name: trivy-operator
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   clusterIP: None
@@ -3527,10 +3529,10 @@ metadata:
   name: trivy-operator
   namespace: adhar-system
   labels:
-    helm.sh/chart: trivy-operator-0.33.1
+    helm.sh/chart: trivy-operator-0.36.0
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: "0.31.1"
+    app.kubernetes.io/version: "0.34.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -3543,7 +3545,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 5ab4f02c2994eb224edb55619b593d13f59f0f3f096ec961454b49d0590706fc
+        checksum/config: 53fd10f9a04aa1387137ad8e53ab5541094ea94e7c14074484de250460e9513b
       labels:
         app.kubernetes.io/name: trivy-operator
         app.kubernetes.io/instance: trivy-operator
@@ -3552,7 +3554,7 @@ spec:
       automountServiceAccountToken: true
       containers:
         - name: "trivy-operator"
-          image: "mirror.gcr.io/aquasec/trivy-operator:0.31.1"
+          image: "mirror.gcr.io/aquasec/trivy-operator:0.34.0"
           imagePullPolicy: IfNotPresent
           env:
             - name: OPERATOR_NAMESPACE
@@ -3612,7 +3614,7 @@ metadata:
   labels:
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: 0.31.1
+    app.kubernetes.io/version: 0.34.0
     app.kubernetes.io/managed-by: kubectl
 spec:
   cron: "0 */6 * * *"
@@ -4526,7 +4528,7 @@ metadata:
   labels:
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: 0.31.1
+    app.kubernetes.io/version: 0.34.0
     app.kubernetes.io/managed-by: kubectl
 spec:
   cron: "0 */6 * * *"
@@ -4717,7 +4719,7 @@ metadata:
   labels:
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: 0.31.1
+    app.kubernetes.io/version: 0.34.0
     app.kubernetes.io/managed-by: kubectl
 spec:
   cron: "0 */6 * * *"
@@ -4821,7 +4823,7 @@ metadata:
   labels:
     app.kubernetes.io/name: trivy-operator
     app.kubernetes.io/instance: trivy-operator
-    app.kubernetes.io/version: 0.31.1
+    app.kubernetes.io/version: 0.34.0
     app.kubernetes.io/managed-by: kubectl
 spec:
   cron: "0 */6 * * *"

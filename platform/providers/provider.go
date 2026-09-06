@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -283,6 +284,57 @@ func NewProviderManager(factory ProviderFactory) *ProviderManager {
 type ProvisionOptions struct {
 	DryRun bool
 	Force  bool
+	// Recreate deletes a cluster that already exists under the environment's
+	// name before provisioning, giving a clean cluster instead of adopting the
+	// existing machines (`adhar up --recreate`, same semantics as local Kind).
+	Recreate bool
+}
+
+// recreateCluster deletes an existing cluster named like the environment and
+// waits until the provider no longer lists it. Not finding one is not an error.
+func recreateCluster(ctx context.Context, prov Provider, name string) error {
+	clusters, err := prov.ListClusters(ctx)
+	if err != nil {
+		return fmt.Errorf("listing clusters: %w", err)
+	}
+	var existing *types.Cluster
+	for _, c := range clusters {
+		if c.Name == name || c.ID == name {
+			existing = c
+			break
+		}
+	}
+	if existing == nil {
+		logger.Infof("Recreate requested but no cluster named '%s' exists; creating fresh", name)
+		return nil
+	}
+	logger.Infof("Recreate requested: deleting existing cluster '%s' (%s)", existing.Name, existing.ID)
+	if err := prov.DeleteCluster(ctx, existing.ID); err != nil {
+		return fmt.Errorf("deleting cluster %s: %w", existing.ID, err)
+	}
+	deadline := time.Now().Add(20 * time.Minute)
+	for time.Now().Before(deadline) {
+		clusters, err := prov.ListClusters(ctx)
+		if err == nil {
+			gone := true
+			for _, c := range clusters {
+				if c.ID == existing.ID {
+					gone = false
+					break
+				}
+			}
+			if gone {
+				logger.Infof("Cluster '%s' deleted", existing.Name)
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(15 * time.Second):
+		}
+	}
+	return fmt.Errorf("cluster %s still listed 20 minutes after deletion", existing.ID)
 }
 
 // ProvisionEnvironment provisions using the appropriate provider based on configuration
@@ -327,6 +379,12 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 	// Validate permissions
 	if err := prov.ValidatePermissions(ctx); err != nil {
 		return nil, fmt.Errorf("permission validation failed for %s provider: %w", providerType, err)
+	}
+
+	if opts.Recreate {
+		if err := recreateCluster(ctx, prov, envConfig.Name); err != nil {
+			return nil, fmt.Errorf("recreating %s cluster: %w", providerType, err)
+		}
 	}
 
 	// Create the cluster
@@ -421,11 +479,16 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 			if replicas := parseIntOrDefault(kv.Value, spec.ControlPlane.Replicas); replicas > 0 {
 				spec.ControlPlane.Replicas = replicas
 			}
-		case "workerReplicas":
+		case "workerReplicas", "nodeCount", "numNodes":
+			// nodeCount (DO/generic) and numNodes (GKE) are the spellings used in
+			// config.yaml environments; workerReplicas is the internal name. All
+			// set the worker node pool size.
 			if replicas := parseIntOrDefault(kv.Value, workerReplicas); replicas > 0 {
 				spec.NodeGroups[0].Replicas = replicas
 			}
-		case "nodeInstanceType", "instanceType":
+		case "nodeInstanceType", "instanceType", "nodeSize", "machineType":
+			// nodeSize (DO/generic) and machineType (GKE) are the config.yaml
+			// spellings; nodeInstanceType/instanceType are internal aliases.
 			spec.NodeGroups[0].InstanceType = kv.Value
 		case "diskSize":
 			// Note: DiskSize not available in current NodeGroupSpec

@@ -1,0 +1,71 @@
+# Tekton Prometheus ServiceMonitors
+# Not emitted by the upstream release manifests. Tekton Pipelines (v0.65.0) ships a
+# Service per component, each with an "http-metrics" port (9090):
+#   controller (tekton_pipelines_controller_* pipelinerun/taskrun metrics),
+#   webhook, events, resolvers.
+# The install.yaml was re-namespaced to adhar-system, which also rewrote the
+# app.kubernetes.io/part-of label from "tekton-pipelines" to "adhar-system"; the
+# selector below follows that label and narrows on the component names so nothing
+# else that might carry part-of=adhar-system is matched. Tekton Triggers (v0.30.0)
+# exposes "http-metrics" (9000) on its controller Service only. The dashboard
+# (tekton-dashboard) has no Prometheus endpoint. Prometheus serviceMonitorSelector
+# is empty ({}), so these are scraped as-is and feed the Tekton Grafana dashboard.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tekton-pipelines
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: tekton-pipelines
+    app.kubernetes.io/part-of: tekton-pipelines
+    app.kubernetes.io/managed-by: adhar
+spec:
+  # job becomes adhar-system-controller / adhar-system-webhook / ...
+  jobLabel: app
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: adhar-system
+      app.kubernetes.io/instance: default
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - controller
+          - webhook
+          - events
+          - resolvers
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tekton-triggers
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: tekton-triggers
+    app.kubernetes.io/part-of: tekton-triggers
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: tekton-triggers
+      app.kubernetes.io/instance: default
+      app.kubernetes.io/name: controller
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

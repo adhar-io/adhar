@@ -15,3 +15,14 @@ config:
       endpoint: http://alloy.adhar-system.svc.cluster.local:4318
     otel_traces_export:
       endpoint: http://alloy.adhar-system.svc.cluster.local:4318
+
+# eBPF auto-instrumentation runs on every node with no chart default for
+# resources; unbounded it became the recurring SystemOOM victim/trigger on a
+# fully loaded 16 GiB worker (node flapping NotReady, Gitea cache lost, ArgoCD
+# unable to fetch). Bound it so the kernel evicts Beyla, not the node.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi

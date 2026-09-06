@@ -8,6 +8,12 @@ metadata:
   labels:
     app.kubernetes.io/name: nexus
     app.kubernetes.io/part-of: adhar-supply-chain
+  annotations:
+    # After the oauth2-proxy (wave 5): ArgoCD holds a wave until its resources
+    # are healthy, and a route whose backend Service does not exist yet is
+    # Degraded (ResolvedRefs=False) — at wave 0 that deadlocked the sync on a
+    # fresh cluster and the proxy was never created.
+    argocd.argoproj.io/sync-wave: "6"
 spec:
   parentRefs:
     - name: adhar-gateway

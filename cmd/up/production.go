@@ -84,8 +84,9 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 
 	// Set provision options
 	provisionOpts := pfactory.ProvisionOptions{
-		DryRun: dryRun,
-		Force:  force,
+		DryRun:   dryRun,
+		Force:    force,
+		Recreate: recreateCluster,
 	}
 
 	result, err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts)
@@ -109,7 +110,11 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	log.FinishOperation("Environment Provisioning", fmt.Sprintf("%s environment ready", environment))
 
 	// Print success message
-	printProductionSuccessMsg(environment)
+	clusterName := result.Cluster.Name
+	if clusterName == "" {
+		clusterName = result.Cluster.ID
+	}
+	printProductionSuccessMsg(environment, cfg.GlobalSettings.DefaultHost, clusterName)
 	return nil
 }
 
@@ -143,8 +148,12 @@ func resolveEnvironmentConfig(cfg *config.Config, envName string) (*config.Resol
 	return envConfig, nil
 }
 
-// printProductionSuccessMsg prints success message for production cluster
-func printProductionSuccessMsg(envName string) {
+// printProductionSuccessMsg prints the success message for a provisioned
+// production cluster with real, copy-pasteable next steps: the kubeconfig was
+// persisted and merged during bootstrap (context adhar-<cluster>, now current),
+// and every platform URL derives from the configured base domain (no
+// hardcoded host).
+func printProductionSuccessMsg(envName, host, clusterName string) {
 	fmt.Printf("\n\n########################### Successfully Provisioned Production Cluster! ############################\n\n\n")
 	fmt.Printf("Environment: %s\n", envName)
 	fmt.Printf("Cluster has been provisioned with:\n")
@@ -153,9 +162,11 @@ func printProductionSuccessMsg(envName string) {
 	fmt.Printf("  ✓ Security policies and monitoring\n")
 	fmt.Printf("  ✓ Auto-scaling and high availability\n\n")
 	fmt.Printf("Next steps:\n")
-	fmt.Printf("  1. Configure kubectl: kubectl config current-context\n")
-	fmt.Printf("  2. Access ArgoCD dashboard\n")
-	fmt.Printf("  3. Deploy your applications\n\n")
+	fmt.Printf("  1. kubectl is ready — context %q is current\n", "adhar-"+clusterName)
+	fmt.Printf("     (standalone copy: ~/.adhar/clusters/%s/kubeconfig)\n", clusterName)
+	fmt.Printf("  2. Platform credentials:  adhar get secrets        (e.g. adhar get secrets -p argocd)\n")
+	fmt.Printf("  3. Console: https://console.%s   ArgoCD: https://argocd.%s   Gitea: https://gitea.%s\n", host, host, host)
+	fmt.Printf("  4. Deploy your applications\n\n")
 }
 
 // provisionCompletePlatformNew provisions the complete Adhar platform using the new provider system
@@ -186,8 +197,9 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 		}
 
 		provisionOpts := pfactory.ProvisionOptions{
-			DryRun: dryRun,
-			Force:  force,
+			DryRun:   dryRun,
+			Force:    force,
+			Recreate: recreateCluster,
 		}
 
 		result, err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts)

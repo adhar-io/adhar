@@ -6,11 +6,13 @@
 #     of NodePort + pinned ports
 #   - HTTPS listener carries the platform wildcard hostname so cert-manager's
 #     gateway support can manage its certificate
-#   - cert-manager.io/cluster-issuer defaults to adhar-selfsigned (works with
-#     zero external configuration, same trust posture as local); switch the
-#     annotation to a DNS-01-configured ACME issuer for publicly trusted
-#     wildcard certificates (see the adhar-letsencrypt-* ClusterIssuers in the
-#     cert-manager package)
+#   - cert-manager.io/cluster-issuer is chosen by the platform spec: when a DNS
+#     provider with credentials is configured (BuildCustomizationSpec.DNSProvider,
+#     derived from the cloud provider or globalSettings.dnsProvider) it is the
+#     DNS-01 ACME issuer adhar-letsencrypt-dns — a publicly trusted wildcard
+#     certificate for *.<host>; otherwise adhar-selfsigned (zero external
+#     configuration, same trust posture as local). Both ClusterIssuers live in
+#     the cert-manager package (cluster-issuers.yaml.tmpl).
 #   - no 8443 listener (that exists only for Kind's host port-mapping)
 ---
 apiVersion: cilium.io/v2alpha1
@@ -44,7 +46,7 @@ metadata:
     app.kubernetes.io/name: adhar-gateway
     app.kubernetes.io/managed-by: adhar
   annotations:
-    cert-manager.io/cluster-issuer: adhar-selfsigned
+    cert-manager.io/cluster-issuer: {{ .ACMEIssuer }}
 spec:
   gatewayClassName: adhar
   listeners:

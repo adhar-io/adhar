@@ -152,11 +152,6 @@ spec:
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/fluent-bit/manifests"
-          - name: "kafka"
-            enabled: "true"
-            namespace: "adhar-system"
-            category: "data"
-            manifestPath: "data/kafka/manifests"
           - name: "airbyte"
             enabled: "true"
             namespace: "adhar-system"
@@ -211,11 +206,6 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/coder/manifests"
-          - name: "devtron"
-            enabled: "true"
-            namespace: "adhar-system"
-            category: "application"
-            manifestPath: "application/devtron/manifests"
           - name: "n8n"
             enabled: "true"
             namespace: "adhar-system"
@@ -231,18 +221,13 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/posthog/manifests"
-          - name: "supabase"
-            enabled: "true"
-            namespace: "adhar-system"
-            category: "application"
-            manifestPath: "application/supabase/manifests"
           - name: "plane"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/plane/manifests"
           - name: "baserow"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/baserow/manifests"
@@ -252,7 +237,7 @@ spec:
             category: "core"
             manifestPath: "core/vcluster/manifests"
           - name: "sveltos"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "core"
             manifestPath: "core/sveltos/manifests"
@@ -262,7 +247,7 @@ spec:
             category: "core"
             manifestPath: "core/open-cluster-management/manifests"
           - name: "kamaji"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "core"
             manifestPath: "core/Kamaji/manifests"
@@ -317,13 +302,6 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/tekton/manifests"
-          # Jenkins X pipeline layer on Tekton (ADR-0018): Lighthouse webhooks,
-          # ChatOps and Tekton triggering against the in-cluster Gitea.
-          - name: "jenkins-x"
-            enabled: "true"
-            namespace: "adhar-system"
-            category: "application"
-            manifestPath: "application/jenkins-x/manifests"
           - name: "argo-workflows"
             enabled: "true"
             namespace: "adhar-system"
@@ -339,6 +317,37 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/harbor/manifests"
+          # Nexus Repository OSS — artefact repository for language packages
+          # (Maven/npm/PyPI). Harbor stays OCI-images-only; Nexus owns the rest.
+          - name: "nexus"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/nexus/manifests"
+          - name: "kafka-ui"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/kafka-ui/manifests"
+          # Kubeflow Pipelines (standalone) — ML pipeline orchestration. Deploys
+          # into its own `kubeflow` namespace. Heavy (MySQL/MinIO/Argo/API/UI);
+          # disabled in the local core, enable per environment.
+          - name: "kubeflow"
+            enabled: "true"
+            namespace: "kubeflow"
+            category: "data"
+            manifestPath: "data/kubeflow/manifests"
+          # Prefect — Python workflow orchestration (data platform). Opt-in.
+          - name: "prefect"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/prefect/manifests"
+          - name: "tooljet"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/tooljet/manifests"
           # End-to-end software supply chain (kpack build+sign → trivy/cosign gate
           # → kyverno verify → service-from-template). Depends on
           # buildpack/harbor/cosign/kyverno/tekton.
@@ -502,7 +511,17 @@ spec:
             duration: 5s
             factor: 2
             maxDuration: 3m0s
-          limit: 30
+          # Unlimited (see adhar-appset-local.yaml): cross-package CRD
+          # dependencies make first syncs fail until the provider package has
+          # applied its CRDs; a finite limit leaves them Failed forever.
+          limit: -1
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+          # Packages ship CRs whose CRDs come from OTHER packages (ServiceMonitor
+          # from kube-prometheus, Cluster from cnpg, …). Without this, ArgoCD
+          # rejects the whole sync ("synchronization tasks are not valid: failed
+          # to discover server resources …") until the CRD exists, stalling the
+          # cnpg → keycloak → console chain behind parallel first-boot ordering.
+          # With it, valid resources apply now and CRD-dependent ones retry.
+          - SkipDryRunOnMissingResource=true

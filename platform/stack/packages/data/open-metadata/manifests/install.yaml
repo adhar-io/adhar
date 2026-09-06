@@ -7,10 +7,10 @@ kind: ServiceAccount
 metadata:
   name: openmetadata
   labels:    
-    helm.sh/chart: openmetadata-1.12.10
+    helm.sh/chart: openmetadata-2.0.1
     app.kubernetes.io/name: openmetadata
     app.kubernetes.io/instance: openmetadata
-    app.kubernetes.io/version: "1.12.10"
+    app.kubernetes.io/version: "2.0.1"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: openmetadata/templates/secrets.yaml
@@ -211,10 +211,10 @@ kind: Service
 metadata:
   name: openmetadata
   labels:    
-    helm.sh/chart: openmetadata-1.12.10
+    helm.sh/chart: openmetadata-2.0.1
     app.kubernetes.io/name: openmetadata
     app.kubernetes.io/instance: openmetadata
-    app.kubernetes.io/version: "1.12.10"
+    app.kubernetes.io/version: "2.0.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -237,10 +237,10 @@ kind: Deployment
 metadata:
   name: openmetadata
   labels:    
-    helm.sh/chart: openmetadata-1.12.10
+    helm.sh/chart: openmetadata-2.0.1
     app.kubernetes.io/name: openmetadata
     app.kubernetes.io/instance: openmetadata
-    app.kubernetes.io/version: "1.12.10"
+    app.kubernetes.io/version: "2.0.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -251,16 +251,16 @@ spec:
   template:
     metadata:
       labels:        
-        helm.sh/chart: openmetadata-1.12.10
+        helm.sh/chart: openmetadata-2.0.1
         app.kubernetes.io/name: openmetadata
         app.kubernetes.io/instance: openmetadata
-        app.kubernetes.io/version: "1.12.10"
+        app.kubernetes.io/version: "2.0.1"
         app.kubernetes.io/managed-by: Helm
     spec:
       serviceAccountName: openmetadata
       initContainers:
       - name: run-db-migrations
-        image: "docker.getcollate.io/openmetadata/server:1.12.10"
+        image: "docker.getcollate.io/openmetadata/server:2.0.1"
         imagePullPolicy: Always
         
         
@@ -309,7 +309,7 @@ spec:
       volumes:
       containers:
         - name: openmetadata
-          image: "docker.getcollate.io/openmetadata/server:1.12.10"
+          image: "docker.getcollate.io/openmetadata/server:2.0.1"
           imagePullPolicy: Always
           volumeMounts:
           ports:
@@ -385,10 +385,10 @@ metadata:
   name: cron-deploy-pipelines
   labels:
     
-    helm.sh/chart: openmetadata-1.12.10
+    helm.sh/chart: openmetadata-2.0.1
     app.kubernetes.io/name: openmetadata
     app.kubernetes.io/instance: openmetadata
-    app.kubernetes.io/version: "1.12.10"
+    app.kubernetes.io/version: "2.0.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   suspend: true
@@ -402,10 +402,10 @@ spec:
         metadata:
           labels:
             
-            helm.sh/chart: openmetadata-1.12.10
+            helm.sh/chart: openmetadata-2.0.1
             app.kubernetes.io/name: openmetadata
             app.kubernetes.io/instance: openmetadata
-            app.kubernetes.io/version: "1.12.10"
+            app.kubernetes.io/version: "2.0.1"
             app.kubernetes.io/managed-by: Helm
         spec:
           serviceAccountName: openmetadata
@@ -413,7 +413,7 @@ spec:
             []
           containers:
           - name: cron-deploy-pipelines
-            image: "docker.getcollate.io/openmetadata/server:1.12.10"
+            image: "docker.getcollate.io/openmetadata/server:2.0.1"
             imagePullPolicy: Always
             volumeMounts:
             command: 
@@ -470,10 +470,10 @@ metadata:
   name: cron-reindex
   labels:
     
-    helm.sh/chart: openmetadata-1.12.10
+    helm.sh/chart: openmetadata-2.0.1
     app.kubernetes.io/name: openmetadata
     app.kubernetes.io/instance: openmetadata
-    app.kubernetes.io/version: "1.12.10"
+    app.kubernetes.io/version: "2.0.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   suspend: true
@@ -486,10 +486,10 @@ spec:
       template:
         metadata:
           labels:            
-            helm.sh/chart: openmetadata-1.12.10
+            helm.sh/chart: openmetadata-2.0.1
             app.kubernetes.io/name: openmetadata
             app.kubernetes.io/instance: openmetadata
-            app.kubernetes.io/version: "1.12.10"
+            app.kubernetes.io/version: "2.0.1"
             app.kubernetes.io/managed-by: Helm
         spec:
           serviceAccountName: openmetadata
@@ -497,7 +497,7 @@ spec:
             []
           containers:
           - name: cron-reindex
-            image: "docker.getcollate.io/openmetadata/server:1.12.10"
+            image: "docker.getcollate.io/openmetadata/server:2.0.1"
             imagePullPolicy: Always
             volumeMounts:
             command: 
@@ -556,10 +556,10 @@ kind: Pod
 metadata:
   name: "openmetadata-test-connection"
   labels:    
-    helm.sh/chart: openmetadata-1.12.10
+    helm.sh/chart: openmetadata-2.0.1
     app.kubernetes.io/name: openmetadata
     app.kubernetes.io/instance: openmetadata
-    app.kubernetes.io/version: "1.12.10"
+    app.kubernetes.io/version: "2.0.1"
     app.kubernetes.io/managed-by: Helm
   annotations:
     "helm.sh/hook": test

@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.16.7"
+CHART_VERSION="1.16.11"
 
 echo "# BEYLA INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/beyla/generate-manifests.sh'" >>${INSTALL_YAML}

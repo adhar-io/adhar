@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.9.2"
+CHART_VERSION="1.9.3"
 
 echo "# AIRBYTE INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/airbyte/generate-manifests.sh'" >>${INSTALL_YAML}

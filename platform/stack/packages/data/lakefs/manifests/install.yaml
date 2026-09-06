@@ -7,11 +7,11 @@ kind: Secret
 metadata:
   name: lakefs
   labels:
-    helm.sh/chart: lakefs-1.12.2
+    helm.sh/chart: lakefs-1.12.27
     app: lakefs
     app.kubernetes.io/name: lakefs
     app.kubernetes.io/instance: lakefs
-    app.kubernetes.io/version: "1.86.1"
+    app.kubernetes.io/version: "1.106.0"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 data:
@@ -35,11 +35,11 @@ kind: Service
 metadata:
   name: lakefs
   labels:
-    helm.sh/chart: lakefs-1.12.2
+    helm.sh/chart: lakefs-1.12.27
     app: lakefs
     app.kubernetes.io/name: lakefs
     app.kubernetes.io/instance: lakefs
-    app.kubernetes.io/version: "1.86.1"
+    app.kubernetes.io/version: "1.106.0"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -61,11 +61,11 @@ kind: Deployment
 metadata:
   name: lakefs
   labels:
-    helm.sh/chart: lakefs-1.12.2
+    helm.sh/chart: lakefs-1.12.27
     app: lakefs
     app.kubernetes.io/name: lakefs
     app.kubernetes.io/instance: lakefs
-    app.kubernetes.io/version: "1.86.1"
+    app.kubernetes.io/version: "1.106.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -91,7 +91,7 @@ spec:
           args: ["run", "--config", "/etc/lakefs/config.yaml"]
           securityContext:
             null
-          image: "treeverse/lakefs:1.81.1"
+          image: "treeverse/lakefs:1.86.0"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

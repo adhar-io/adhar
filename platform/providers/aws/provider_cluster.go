@@ -216,7 +216,12 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 		return fmt.Errorf("failed to initialize primary master: %w", err)
 	}
 
+	joined := provider.KubeadmJoinedNodes(signer, awsSSHUser, primaryMaster.PublicIP)
 	for i, worker := range infrastructure.WorkerNodes {
+		if joined.Has(worker.InstanceId, worker.PublicIP, worker.PrivateIP) {
+			fmt.Printf("👷 Worker node %s is already part of the cluster; skipping prep/join\n", worker.InstanceId)
+			continue
+		}
 		fmt.Printf("👷 Joining worker node %d: %s\n", i+1, worker.InstanceId)
 		if worker.PublicIP == "" {
 			return fmt.Errorf("worker node %s has no public IP", worker.InstanceId)

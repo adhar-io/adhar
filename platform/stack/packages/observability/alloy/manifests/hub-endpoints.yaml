@@ -9,6 +9,12 @@
 #   HUB_TEMPO_URL:    https://tempo.<host>
 #   HUB_CLUSTER_NAME: <workload cluster name>
 # (the mimir/loki/tempo packages ship HTTPRoutes for these hostnames).
+# Those external routes sit behind a Keycloak oauth2-proxy (each package's
+# sso.yaml, generated with SSO_BEARER=1): a spoke must send a Keycloak bearer
+# access token obtained via client_credentials with client id mimir/loki/tempo
+# and the matching <MIMIR|LOKI|TEMPO>_CLIENT_SECRET from the hub's
+# keycloak-clients Secret (Alloy: the `oauth2 {}` block on prometheus.remote_write
+# / loki.write, or an oauth2client auth extension for otelcol exporters).
 apiVersion: v1
 kind: ConfigMap
 metadata:

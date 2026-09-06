@@ -1,0 +1,29 @@
+# Argo Rollouts controller metrics Service
+# The chart (argo-rollouts-2.41.0) only renders its "argo-rollouts-metrics" Service
+# when controller.metrics.enabled=true, which is off in our values. The controller
+# always serves rollout_* / analysis_run_* / experiment_* / controller_runtime_*
+# metrics on container port "metrics" (8090, --metricsPort=8090), so this Service
+# exposes that port for the companion servicemonitor.yaml. Named to match the
+# upstream Service so a later values-driven regeneration is a drop-in replacement.
+apiVersion: v1
+kind: Service
+metadata:
+  name: argo-rollouts-metrics
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-rollouts
+    app.kubernetes.io/instance: argo-rollouts
+    app.kubernetes.io/component: rollouts-controller
+    app.kubernetes.io/part-of: argo-rollouts
+    app.kubernetes.io/managed-by: adhar
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: argo-rollouts
+    app.kubernetes.io/instance: argo-rollouts
+    app.kubernetes.io/component: rollouts-controller
+  ports:
+    - name: metrics
+      port: 8090
+      targetPort: metrics
+      protocol: TCP

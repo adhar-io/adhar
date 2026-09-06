@@ -14,3 +14,15 @@ echo "# This file is auto-generated with 'platform/stack/packages/application/ex
 helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/ --force-update
 helm repo update external-dns
 helm template --namespace adhar-system external-dns external-dns/external-dns -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}
+
+# The Deployment is owned by manifests/deployment.yaml.tmpl (a stack template
+# rendered per cluster with the platform's DNS provider, zone and credentials),
+# so drop the chart's copy; keep the ServiceAccount/RBAC/Service it generates.
+# Re-check deployment.yaml.tmpl against the chart's Deployment when bumping
+# CHART_VERSION (image tag, probes, security context).
+python3 - "${INSTALL_YAML}" <<'EOF'
+import re, sys
+p = sys.argv[1]
+docs = open(p).read().split('\n---\n')
+open(p, 'w').write('\n---\n'.join(d for d in docs if not re.search(r'^kind: Deployment$', d, re.M)))
+EOF

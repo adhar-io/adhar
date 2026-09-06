@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.13.8"
+CHART_VERSION="1.13.21"
 
 echo "# DAGSTER INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/dagster/generate-manifests.sh'" >>${INSTALL_YAML}

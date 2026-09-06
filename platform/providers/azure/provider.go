@@ -686,7 +686,12 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	if err != nil {
 		return nil, err
 	}
+	joined := provider.KubeadmJoinedNodes(signer, azureSSHUser, master.PublicIP)
 	for _, w := range infrastructure.WorkerNodes {
+		if joined.Has(w.VMName, w.PublicIP, w.PrivateIP) {
+			log.Printf("Worker %s is already part of the cluster; skipping prep/join", w.VMName)
+			continue
+		}
 		if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, w.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", w.VMName, err)
 		}

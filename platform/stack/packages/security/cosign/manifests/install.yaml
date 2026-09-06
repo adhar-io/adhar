@@ -7,7 +7,7 @@ kind: PodDisruptionBudget
 metadata:
   name: policy-controller-webhook
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -26,7 +26,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -40,7 +40,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -132,7 +132,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1081,7 +1081,7 @@ kind: ClusterRole
 metadata:
   name: policy-controller-webhook
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1148,7 +1148,7 @@ kind: ClusterRoleBinding
 metadata:
   name: policy-controller-webhook
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1170,7 +1170,7 @@ metadata:
   name: policy-controller-webhook
   namespace: cosign-system
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1212,7 +1212,7 @@ metadata:
   name: policy-controller-webhook
   namespace: cosign-system
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1232,7 +1232,7 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1257,7 +1257,7 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1282,7 +1282,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1301,7 +1301,7 @@ spec:
     metadata:
       labels:
         control-plane: policy-controller-webhook
-        helm.sh/chart: policy-controller-0.10.6
+        helm.sh/chart: policy-controller-0.10.7
         app.kubernetes.io/name: policy-controller
         app.kubernetes.io/instance: policy-controller
         app.kubernetes.io/version: "0.13.1"
@@ -1509,7 +1509,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1529,7 +1529,7 @@ metadata:
   name: policy-controller-cleanup
   namespace: cosign-system
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1551,7 +1551,7 @@ metadata:
   name: policy-controller-cleanup
   namespace: cosign-system
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"
@@ -1577,7 +1577,7 @@ metadata:
   name: leases-cleanup
   namespace: cosign-system
   labels:
-    helm.sh/chart: policy-controller-0.10.6
+    helm.sh/chart: policy-controller-0.10.7
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
     app.kubernetes.io/version: "0.13.1"

@@ -160,22 +160,47 @@ Notable: VPC-native clusters, Workload Identity, Autopilot and Standard modes.
 ### DigitalOcean (droplets; DOKS via useManagedK8s)
 
 ```bash
-export DIGITALOCEAN_TOKEN="…"
+export DIGITALOCEAN_TOKEN="…"        # doctl's DIGITALOCEAN_ACCESS_TOKEN is accepted too
 ```
 
 ```yaml
+globalSettings:
+  defaultHost: platform.example.io   # a DigitalOcean DNS zone → records + wildcard TLS are automatic
+  email: admin@example.io
 environments:
   production:
     provider: digitalocean
     name: adhar-prod
     region: nyc3
     clusterConfig:
-      - { key: node_size,  value: s-2vcpu-4gb }
-      - { key: node_count, value: "3" }
-      - { key: auto_scale, value: "true" }
+      - { key: nodeSize,  value: s-8vcpu-16gb }
+      - { key: nodeCount, value: "8" }
 ```
 
 Sweet spot: cost-effective small/medium production.
+
+> `adhar up -f config.yaml` provisions **every** environment in the file.
+> Target one with `adhar up -f config.yaml --env production`; re-running
+> against an existing cluster adopts its droplets and re-seeds the platform.
+
+**Sizing (verified live, 2026-09):** DigitalOcean allows **7 attached block
+volumes per droplet** and the kubelet defaults to 110 pods per node. The full
+production profile (all packages enabled) creates ~55–60 PersistentVolumes and
+~300 pods, so it needs **at least 10 workers** regardless of their size —
+pods stay `Pending` with "node(s) exceed max volume count" otherwise (8 workers
+hit the ceiling in the verified run). A curated profile (~30 packages) runs
+comfortably on 3–4 × `s-8vcpu-16gb`. Grow or shrink an existing cluster any
+time:
+
+```bash
+adhar cluster scale adhar-prod --workers 8 -p digitalocean -f config.yaml   # kubeadm join / drain
+```
+
+**Teardown** (`adhar cluster delete <name>` or `adhar up … --recreate`) removes
+everything the cluster created in the account: droplets, the CCM-provisioned
+LoadBalancer(s) in the cluster VPC, the block-storage volumes behind its
+PersistentVolumes (the CSI driver tags them with the cluster tag
+`adhar-cluster-<name>`), the firewall, the VPC, and the SSH key.
 
 ### Civo (K3S)
 
@@ -235,3 +260,7 @@ The provider interface is intentionally broad but not all-or-nothing — unimple
 ---
 
 **Related**: [Getting Started](GETTING_STARTED.md) · [Production Guide](PRODUCTION.md) · [Customization §9](CUSTOMIZATION.md#9-add-a-provider)
+
+## Accessing a provisioned production cluster
+
+See [PRODUCTION_ACCESS.md](PRODUCTION_ACCESS.md) — kubeconfig is persisted + merged automatically by `adhar up`, credentials via `adhar get secrets`, and every URL derives from `globalSettings.defaultHost` (DNS via external-dns, TLS via cert-manager). The complete, verified DigitalOcean run (exact config, commands, timings, verification, teardown) is in [DIGITALOCEAN_PRODUCTION.md](DIGITALOCEAN_PRODUCTION.md).

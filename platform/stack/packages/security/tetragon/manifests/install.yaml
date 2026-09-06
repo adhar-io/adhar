@@ -10,8 +10,8 @@ metadata:
   labels:
     app.kubernetes.io/name: "tetragon-operator"
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: operator
@@ -25,8 +25,8 @@ metadata:
   labels:
     app.kubernetes.io/name: tetragon
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: agent
@@ -40,8 +40,8 @@ metadata:
   labels:
     app.kubernetes.io/name: "tetragon-operator"
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: operator
@@ -65,8 +65,8 @@ metadata:
   labels:
     app.kubernetes.io/name: tetragon
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: agent
@@ -120,8 +120,8 @@ metadata:
   labels:
     app.kubernetes.io/name: tetragon
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: agent
@@ -166,8 +166,8 @@ metadata:
   labels:
     app.kubernetes.io/name: "tetragon-operator"
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: operator
@@ -220,8 +220,8 @@ metadata:
   labels:
     app.kubernetes.io/name: tetragon
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: agent
@@ -242,8 +242,8 @@ metadata:
   labels:
     app.kubernetes.io/name: "tetragon-operator"
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: operator
@@ -265,8 +265,8 @@ metadata:
   labels:
     app.kubernetes.io/name: tetragon
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: agent
@@ -281,8 +281,8 @@ metadata:
   labels:
     app.kubernetes.io/name: tetragon
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: agent
@@ -304,8 +304,8 @@ metadata:
   labels:
     app.kubernetes.io/name: "tetragon-operator"
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: operator
@@ -327,8 +327,8 @@ metadata:
   labels:
     app.kubernetes.io/name: tetragon
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: agent
@@ -343,8 +343,8 @@ spec:
   selector:
     app.kubernetes.io/name: tetragon
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: agent
@@ -357,8 +357,8 @@ metadata:
   labels:
     app.kubernetes.io/name: tetragon
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: agent
@@ -372,12 +372,12 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/configmap: 3b1383327a20d0c6bc81228e8050e41ff728aef94c56d240a3759515082a828c
+        checksum/configmap: b4fc33ae89bf9853d1a89ad2cacd60ba97f7b05b7f4725d4d8f703f1a9d1da8f
       labels:
         app.kubernetes.io/name: tetragon
         app.kubernetes.io/instance: tetragon
-        helm.sh/chart: tetragon-1.7.0
-        app.kubernetes.io/version: "1.7.0"
+        helm.sh/chart: tetragon-1.7.1
+        app.kubernetes.io/version: "1.7.1"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: tetragon
         app.kubernetes.io/component: agent
@@ -404,7 +404,7 @@ spec:
       - name: tetragon
         securityContext:
           privileged: true
-        image: "quay.io/cilium/tetragon:v1.7.0"
+        image: "quay.io/cilium/tetragon:v1.7.1"
         imagePullPolicy: IfNotPresent
         terminationMessagePolicy: FallbackToLogsOnError
         args:
@@ -473,8 +473,8 @@ metadata:
   labels:
     app.kubernetes.io/name: "tetragon-operator"
     app.kubernetes.io/instance: tetragon
-    helm.sh/chart: tetragon-1.7.0
-    app.kubernetes.io/version: "1.7.0"
+    helm.sh/chart: tetragon-1.7.1
+    app.kubernetes.io/version: "1.7.1"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: tetragon
     app.kubernetes.io/component: operator
@@ -491,8 +491,8 @@ spec:
       labels:
         app.kubernetes.io/name: "tetragon-operator"
         app.kubernetes.io/instance: tetragon
-        helm.sh/chart: tetragon-1.7.0
-        app.kubernetes.io/version: "1.7.0"
+        helm.sh/chart: tetragon-1.7.1
+        app.kubernetes.io/version: "1.7.1"
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: tetragon
         app.kubernetes.io/component: operator
@@ -505,7 +505,7 @@ spec:
           - serve
           - --config-dir=/etc/tetragon/operator.conf.d/
           - --metrics-bind-address=:2113
-        image: "quay.io/cilium/tetragon-operator:v1.7.0"
+        image: "quay.io/cilium/tetragon-operator:v1.7.1"
         imagePullPolicy: IfNotPresent
         volumeMounts:
           - mountPath: /etc/tetragon/operator.conf.d/

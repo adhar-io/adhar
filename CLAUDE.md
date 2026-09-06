@@ -47,7 +47,7 @@ Adhar uses a two-phase deployment model:
 9. Create the `adhar` Gitea org (teams `Owners`/`developers`/`viewers`, mapped from Keycloak groups via the auth source's `--group-team-map`) and the `environments` and `packages` repos under it (via API with `auto_init: true`); constants in `globals/project.go` (`GiteaPlatformOrg`, `GitOpsRepo*`)
 10. Populate repos: `kubectl cp` from `platform/stack/{packages,environments}` → Gitea pod → git push
 11. Apply ArgoCD auth (repo secrets + dedicated `gitea-argocd` service)
-12. Apply `adhar-appset-local.yaml` (ApplicationSet wiring 69 packages; a `selector` on `enabled: "true"` deploys a curated local-safe core (~16), the rest are wired but disabled)
+12. Apply `adhar-appset-local.yaml` (ApplicationSet wiring 85 packages; a `selector` on `enabled: "true"` deploys a curated local-safe core (31), the rest are wired but disabled)
 13. ArgoCD syncs all applications from Gitea repos
 14. Controller detects platform is deployed → graceful shutdown → success message
 
@@ -134,9 +134,9 @@ adhar/
 │   │   └── kind/                  # Local Kind cluster (cluster.go, config.go, coredns.go, tls.go)
 │   ├── config/                    # Multi-layered config (global, provider, template, environment)
 │   ├── stack/                     # GitOps content pushed to Gitea repos
-│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (69 wired, enabled-gated; curated core for local)
+│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (85 wired, enabled-gated; curated core for local; adhar-appset-production.yaml: 85 wired / 76 enabled)
 │   │   ├── argocd-auth.yaml         # ArgoCD repo secrets + gitea-argocd service
-│   │   ├── packages/                # 87 package directories (security/, data/, observability/, etc.)
+│   │   ├── packages/                # 96 package directories (security/, data/, observability/, etc.)
 │   │   └── environments/            # Environment configs (local, dev, staging, prod)
 │   ├── k8s/                       # Kubernetes client, schema, provisioning, deserialization
 │   ├── utils/                     # ArgoCD, Gitea, Git, URL, filesystem utilities
@@ -256,7 +256,7 @@ Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
 - **Package .xpkg** built via `crossplane xpkg build` (`make build-control-plane`) into the gitignored `platform/controlplane/dist/adhar-control-plane-<version>.xpkg`, versioned from the latest git tag (Makefile `VERSION`) and uploaded as a release asset by GoReleaser; the controller applies the embedded `configuration/` tree directly, so the file is not tracked in git.
 - Install order: Crossplane core → wait for ready → XRDs → Compositions → Functions → ProviderConfigs → Operations
 
-### GitOps Phase (69 packages wired via ApplicationSet; curated core enabled for local, rest toggleable)
+### GitOps Phase (85 packages wired via ApplicationSet; curated core enabled for local, rest toggleable; production set enables 76)
 **Security**: cert-manager, external-secrets, kyverno, kyverno-policies, keycloak
 **Data**: cnpg, jupyterhub, minio, redis, spark-operator
 **Observability**: metrics-server, kube-prometheus, loki, alloy, tempo, mimir, opencost, oncall, headlamp

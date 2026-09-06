@@ -1,0 +1,62 @@
+# Velero Prometheus ServiceMonitor + node-agent PodMonitor
+# Not emitted by the chart (metrics.serviceMonitor.enabled left default off;
+# only prometheus.io/* scrape annotations are rendered, which the operator-
+# managed Prometheus ignores). The server exposes velero_backup_* /
+# velero_restore_* metrics on the "velero" Service, port 8085 named
+# "http-monitoring" at /metrics.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Velero Stats Grafana dashboard (gnetId 11055).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: velero
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: velero
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: velero
+      app.kubernetes.io/instance: velero
+  endpoints:
+    - port: http-monitoring
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+---
+# The node-agent DaemonSet (file-system backup / data mover) has no Service; it
+# serves pod_volume_backup_* / data-mover metrics on its pod port
+# "http-monitoring" (8085), so it is scraped with a PodMonitor.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: velero-node-agent
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: velero
+    app.kubernetes.io/instance: velero
+    app.kubernetes.io/component: node-agent
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: velero
+      app.kubernetes.io/instance: velero
+      name: node-agent
+  podMetricsEndpoints:
+    - port: http-monitoring
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

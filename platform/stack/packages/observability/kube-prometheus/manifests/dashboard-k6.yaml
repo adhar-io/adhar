@@ -1,0 +1,1156 @@
+# Grafana dashboard for the k6 Operator (application/k6). Fed by
+# application/k6/manifests/servicemonitor.yaml (job k6-operator,
+# controller-runtime metrics on the chart's metrics Service). Test-run panels
+# use kube-state-metrics (k6 runner pods carry the label app=k6); k6 result
+# metrics themselves flow to Prometheus via remote write from the TestRun spec.
+# Hand written (no upstream operator dashboard on grafana.com); datasource is
+# variable-driven.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-dashboard-k6
+  namespace: adhar-system
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: adhar-observability
+  annotations:
+    grafana_folder: "Platform"
+data:
+  k6.json: |
+    {
+      "uid": "adhar-k6-operator",
+      "title": "Adhar / k6 Operator",
+      "description": "k6 Operator controller health (controller_runtime_* / workqueue_* from the manager) and TestRun runner pods.",
+      "tags": [
+        "adhar",
+        "k6",
+        "application"
+      ],
+      "editable": true,
+      "schemaVersion": 39,
+      "version": 1,
+      "id": null,
+      "timezone": "",
+      "graphTooltip": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "links": [],
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {
+              "selected": false,
+              "text": "Prometheus",
+              "value": "Prometheus"
+            },
+            "hide": 0,
+            "includeAll": false,
+            "multi": false,
+            "options": [],
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false
+          }
+        ]
+      },
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "panels": [],
+          "title": "Overview",
+          "type": "row"
+        },
+        {
+          "type": "stat",
+          "title": "k6 operator",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 2,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "red"
+                    }
+                  }
+                },
+                {
+                  "type": "range",
+                  "options": {
+                    "from": 1,
+                    "to": 1000000,
+                    "result": {
+                      "text": "UP",
+                      "color": "green"
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "orientation": "auto",
+            "justifyMode": "auto",
+            "wideLayout": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "max(up{job=\"k6-operator\"})",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 0,
+            "y": 1
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Reconciles / s",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 3,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "orientation": "auto",
+            "justifyMode": "auto",
+            "wideLayout": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(rate(controller_runtime_reconcile_total{job=\"k6-operator\"}[5m])) or vector(0)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 6,
+            "y": 1
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Reconcile errors / s",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 4,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.01
+                  }
+                ]
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "orientation": "auto",
+            "justifyMode": "auto",
+            "wideLayout": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum(rate(controller_runtime_reconcile_errors_total{job=\"k6-operator\"}[5m])) or vector(0)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 12,
+            "y": 1
+          }
+        },
+        {
+          "type": "stat",
+          "title": "k6 runner pods",
+          "description": "Runner pods created by the operator carry app=k6, runner=true (needs those labels in kube-state-metrics' metric-labels-allowlist).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 5,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [],
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "orientation": "auto",
+            "justifyMode": "auto",
+            "wideLayout": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "count(kube_pod_labels{label_app=\"k6\", label_runner=\"true\"}) or vector(0)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 1
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 5
+          },
+          "id": 6,
+          "panels": [],
+          "title": "k6 Operator (controller-runtime)",
+          "type": "row"
+        },
+        {
+          "type": "timeseries",
+          "title": "Reconciles / s",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 7,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (controller, result) (rate(controller_runtime_reconcile_total{job=~\"k6-operator\"}[5m]))",
+              "legendFormat": "{{controller}} {{result}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 6
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Reconcile errors / s",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 8,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (controller) (rate(controller_runtime_reconcile_errors_total{job=~\"k6-operator\"}[5m]))",
+              "legendFormat": "{{controller}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 6
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Reconcile duration p95",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 9,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le, controller) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\"k6-operator\"}[5m])))",
+              "legendFormat": "{{controller}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 6
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Workqueue depth",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 10,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (name) (workqueue_depth{job=~\"k6-operator\"})",
+              "legendFormat": "{{name}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 14
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Workqueue adds / s",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 11,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (name) (rate(workqueue_adds_total{job=~\"k6-operator\"}[5m]))",
+              "legendFormat": "{{name}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 14
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Workqueue latency p95",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 12,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le, name) (rate(workqueue_queue_duration_seconds_bucket{job=~\"k6-operator\"}[5m])))",
+              "legendFormat": "{{name}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 14
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Active workers",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 13,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (controller) (controller_runtime_active_workers{job=~\"k6-operator\"})",
+              "legendFormat": "{{controller}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 22
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Go goroutines",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 14,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (pod) (go_goroutines{job=~\"k6-operator\"})",
+              "legendFormat": "{{pod}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 22
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Process memory (RSS)",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 15,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (pod) (process_resident_memory_bytes{job=~\"k6-operator\"})",
+              "legendFormat": "{{pod}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 22
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 30
+          },
+          "id": 16,
+          "panels": [],
+          "title": "k6 test runs (kube-state-metrics)",
+          "type": "row"
+        },
+        {
+          "type": "timeseries",
+          "title": "k6 pods by phase",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 17,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (phase) (kube_pod_status_phase * on (namespace, pod) group_left() kube_pod_labels{label_app=\"k6\"})",
+              "legendFormat": "{{phase}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 31
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "k6 runner CPU",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 18,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]) * on (namespace, pod) group_left() kube_pod_labels{label_app=\"k6\"})",
+              "legendFormat": "{{pod}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 31
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 39
+          },
+          "id": 19,
+          "panels": [],
+          "title": "Resources",
+          "type": "row"
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU usage",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 20,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"adhar-system\", pod=~\"k6-k6-operator-controller-manager-.*\", container!=\"\"}[5m]))",
+              "legendFormat": "{{pod}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 40
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory (working set)",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "id": 21,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "$datasource"
+              },
+              "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"adhar-system\", pod=~\"k6-k6-operator-controller-manager-.*\", container!=\"\"})",
+              "legendFormat": "{{pod}}",
+              "refId": "A",
+              "range": true
+            }
+          ],
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 40
+          }
+        }
+      ]
+    }

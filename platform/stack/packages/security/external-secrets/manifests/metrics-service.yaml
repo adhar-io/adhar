@@ -1,0 +1,76 @@
+# external-secrets metrics Services
+# The chart's metrics Service is disabled by default (metrics.service.enabled
+# and webhook/certController metrics.service.enabled all false), so the three
+# controllers only expose their controller-runtime metrics as a pod port
+# ("metrics", 8080, --metrics-addr=:8080). These Services select the chart's
+# pods so a ServiceMonitor can scrape them. Names deliberately contain
+# "external-secrets" because the External Secrets Operator dashboard filters on
+# service=~".*external-secrets.*".
+# Long-term the chart-native fix is metrics.service.enabled=true (plus
+# webhook.metrics.service.enabled / certController.metrics.service.enabled) in
+# values.yaml; drop this file when that is regenerated.
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-secrets-metrics
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: external-secrets
+    app.kubernetes.io/instance: external-secrets
+    app.kubernetes.io/part-of: external-secrets
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/managed-by: adhar
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: external-secrets
+    app.kubernetes.io/instance: external-secrets
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-secrets-webhook-metrics
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: external-secrets-webhook
+    app.kubernetes.io/instance: external-secrets
+    app.kubernetes.io/part-of: external-secrets
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/managed-by: adhar
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: external-secrets-webhook
+    app.kubernetes.io/instance: external-secrets
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-secrets-cert-controller-metrics
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: external-secrets-cert-controller
+    app.kubernetes.io/instance: external-secrets
+    app.kubernetes.io/part-of: external-secrets
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/managed-by: adhar
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: external-secrets-cert-controller
+    app.kubernetes.io/instance: external-secrets
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP

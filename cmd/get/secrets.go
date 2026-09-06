@@ -61,7 +61,7 @@ var (
 )
 
 func init() {
-	secretsCmd.Flags().StringVarP(&provider, "provider", "p", "", "Filter secrets by provider (argocd, gitea, keycloak, vault, postgres, redis)")
+	secretsCmd.Flags().StringVarP(&provider, "provider", "p", "", "Filter secrets by provider (argocd, gitea, keycloak, adhar-console, vault, postgres, redis)")
 	secretsCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all secrets including system ones")
 	secretsCmd.Flags().BoolVarP(&debug, "debug", "d", false, "Show debug information about secret keys")
 }
@@ -73,7 +73,7 @@ type providerConfig struct {
 }
 
 // essentialProviders are shown by default with `adhar get secrets`
-var essentialProviders = []string{"argocd", "gitea", "keycloak-admin", "keycloak-user"}
+var essentialProviders = []string{"argocd", "gitea", "keycloak-admin", "keycloak-user", "adhar-console"}
 
 // knownProviders maps provider names to their search configuration.
 // "keycloak-admin" and "keycloak-user" both read keycloak-config but extract different fields.
@@ -87,11 +87,15 @@ var knownProviders = map[string]providerConfig{
 	"keycloak-admin": {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config"}},
 	"keycloak-user":  {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config"}},
 	"keycloak":       {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config", "keycloak-clients"}},
-	"vault":          {namespaces: []string{"adhar-system"}, patterns: []string{"vault-keys", "vault-unseal-keys", "vault-root-token"}},
-	"postgres":       {namespaces: []string{"adhar-system"}, patterns: []string{"postgres", "postgresql"}},
-	"redis":          {namespaces: []string{"adhar-system"}, patterns: []string{"redis"}},
-	"harbor":         {namespaces: []string{"adhar-system"}, patterns: []string{"harbor-admin", "harbor-core"}},
-	"rustfs":         {namespaces: []string{"adhar-system"}, patterns: []string{"rustfs-credentials"}},
+	// The Adhar Console's own SSO client (id + secret) — the confidential
+	// Keycloak client the console authenticates with. Shown by default so
+	// operators can see the console is wired and grab the client secret.
+	"adhar-console": {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-clients"}},
+	"vault":         {namespaces: []string{"adhar-system"}, patterns: []string{"vault-keys", "vault-unseal-keys", "vault-root-token"}},
+	"postgres":      {namespaces: []string{"adhar-system"}, patterns: []string{"postgres", "postgresql"}},
+	"redis":         {namespaces: []string{"adhar-system"}, patterns: []string{"redis"}},
+	"harbor":        {namespaces: []string{"adhar-system"}, patterns: []string{"harbor-admin", "harbor-core"}},
+	"rustfs":        {namespaces: []string{"adhar-system"}, patterns: []string{"rustfs-credentials"}},
 }
 
 func runGetSecrets(cmd *cobra.Command, args []string) error {
@@ -123,7 +127,7 @@ func getKubernetesClient() (*kubernetes.Clientset, error) {
 // getProviderSecrets retrieves secrets for a specific provider
 func getProviderSecrets(clientset *kubernetes.Clientset, providerName string) error {
 	if _, exists := knownProviders[providerName]; !exists {
-		available := []string{"argocd", "gitea", "keycloak", "vault", "postgres", "redis", "harbor", "rustfs"}
+		available := []string{"argocd", "gitea", "keycloak", "adhar-console", "vault", "postgres", "redis", "harbor", "rustfs"}
 		return fmt.Errorf("unknown provider %q (available: %s)", providerName, strings.Join(available, ", "))
 	}
 
@@ -233,10 +237,22 @@ func matchesAny(name string, patterns []string) bool {
 	return false
 }
 
-// buildGiteaAdminSecret creates a virtual secret from Gitea deployment env vars
+// buildGiteaAdminSecret returns the Gitea admin credentials as a virtual
+// secret. The platform's gitea-credential Secret is authoritative — it holds
+// the password actually in force (production clusters rotate the bootstrap
+// password, so the deployment's env var is stale there); the deployment env
+// vars are only a fallback for clusters that predate that Secret.
 func buildGiteaAdminSecret(clientset *kubernetes.Clientset) *corev1.Secret {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	if s, err := clientset.CoreV1().Secrets("adhar-system").Get(ctx, "gitea-credential", metav1.GetOptions{}); err == nil &&
+		len(s.Data["username"]) > 0 && len(s.Data["password"]) > 0 {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "gitea-admin-credentials", Namespace: "adhar-system"},
+			Data:       map[string][]byte{"username": s.Data["username"], "password": s.Data["password"]},
+		}
+	}
 
 	deployments, err := clientset.AppsV1().Deployments("adhar-system").List(ctx, metav1.ListOptions{
 		LabelSelector: "app=gitea",
@@ -299,6 +315,17 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 			return []SecretEntry{{
 				Icon: "🦊", Service: "Gitea",
 				Username: string(secret.Data["username"]), Password: string(secret.Data["password"]),
+			}}
+		}
+	case "adhar-console":
+		if strings.Contains(secret.Name, "keycloak-clients") {
+			id := string(secret.Data["ADHAR_CONSOLE_CLIENT_ID"])
+			if id == "" {
+				id = "adhar-console"
+			}
+			return []SecretEntry{{
+				Icon: "🧭", Service: "Adhar Console (SSO client)",
+				Username: id, Password: string(secret.Data["ADHAR_CONSOLE_CLIENT_SECRET"]),
 			}}
 		}
 	case "keycloak-admin":

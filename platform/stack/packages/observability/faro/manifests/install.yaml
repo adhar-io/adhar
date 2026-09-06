@@ -9,10 +9,10 @@ metadata:
   name: faro-alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: faro
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -24,10 +24,10 @@ metadata:
   name: faro-alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: faro
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: config
@@ -66,10 +66,10 @@ kind: ClusterRole
 metadata:
   name: faro-alloy
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: faro
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -194,10 +194,10 @@ kind: ClusterRoleBinding
 metadata:
   name: faro-alloy
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: faro
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -217,10 +217,10 @@ metadata:
   name: faro-alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: faro
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: networking
@@ -247,10 +247,10 @@ metadata:
   name: faro-alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.8.2
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: faro
-    app.kubernetes.io/version: "v1.16.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
 spec:
@@ -271,7 +271,7 @@ spec:
       serviceAccountName: faro-alloy
       containers:
         - name: alloy
-          image: docker.io/grafana/alloy:v1.16.1
+          image: docker.io/grafana/alloy:v1.19.2
           imagePullPolicy: IfNotPresent
           args:
             - run
@@ -320,6 +320,17 @@ spec:
             requests:
               cpu: 10m
               memory: 50Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsGroup: 65534
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
       dnsPolicy: ClusterFirst
       volumes:
         - name: config

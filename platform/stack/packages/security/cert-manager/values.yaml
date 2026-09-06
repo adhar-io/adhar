@@ -1,0 +1,9 @@
+
+
+# Gateway API support (gateway-shim controller): the platform Gateway carries the
+# cert-manager.io/cluster-issuer annotation and cert-manager issues the wildcard
+# certificate for its HTTPS listener. Without this flag the controller logs
+# "skipping disabled controller gateway-shim" and no Certificate is created.
+# Kept in values (not hand-edited into install.yaml) so chart bumps preserve it.
+extraArgs:
+  - --enable-gateway-api

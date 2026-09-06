@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="2.34.0"
+CHART_VERSION="2.37.0"
 
 echo "# CODER INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/coder/generate-manifests.sh'" >>${INSTALL_YAML}

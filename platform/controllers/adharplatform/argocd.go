@@ -44,6 +44,10 @@ func (r *AdharPlatformReconciler) ReconcileArgo(ctx context.Context, req ctrl.Re
 		logger.Error(err, "Failed to read ArgoCD install manifest", "path", argocdManifestPath)
 		return ctrl.Result{}, fmt.Errorf("reading argocd manifest %s: %w", argocdManifestPath, err)
 	}
+	// Render {{ .Host }}/{{ .PortSuffix }} etc. — the manifest is templated, never raw.
+	if manifestBytes, err = r.renderEmbedded(manifestBytes); err != nil {
+		return ctrl.Result{}, fmt.Errorf("rendering argocd manifest %s: %w", argocdManifestPath, err)
+	}
 
 	if err := r.applyManifest(ctx, manifestBytes, resource, "ArgoCD install"); err != nil {
 		logger.Error(err, "Failed to apply ArgoCD install manifest")
@@ -58,6 +62,9 @@ func (r *AdharPlatformReconciler) ReconcileArgo(ctx context.Context, req ctrl.Re
 	if err != nil {
 		logger.Error(err, "Failed to read ArgoCD post-install manifest", "path", argocdPostInstallPath)
 		return ctrl.Result{}, fmt.Errorf("reading argocd post-install manifest %s: %w", argocdPostInstallPath, err)
+	}
+	if postInstallBytes, err = r.renderEmbedded(postInstallBytes); err != nil {
+		return ctrl.Result{}, fmt.Errorf("rendering argocd post-install manifest %s: %w", argocdPostInstallPath, err)
 	}
 
 	if err := r.applyManifest(ctx, postInstallBytes, resource, "ArgoCD post-install"); err != nil {

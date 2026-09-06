@@ -1,0 +1,34 @@
+# Tetragon Prometheus ServiceMonitor
+# Not emitted by the chart (tetragon.prometheus.serviceMonitor.enabled and
+# tetragonOperator.prometheus.serviceMonitor.enabled left default off).
+# The agent DaemonSet exposes tetragon_* metrics on the "tetragon" Service
+# (port 2112 named "metrics") and the operator on "tetragon-operator-metrics"
+# (port 2113 named "metrics"), both at /metrics. One selector on the shared
+# part-of/instance labels covers both Services.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Adhar / Tetragon Grafana dashboard.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tetragon
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: tetragon
+    app.kubernetes.io/instance: tetragon
+    app.kubernetes.io/part-of: tetragon
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: tetragon
+      app.kubernetes.io/instance: tetragon
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

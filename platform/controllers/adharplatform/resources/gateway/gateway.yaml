@@ -65,6 +65,9 @@ spec:
     # https://keycloak.adhar.localtest.me:8443/...) connect to the Gateway Service
     # on :8443 directly, so the Gateway must also listen there. HTTPRoutes attach
     # to all listeners, so every route is served on 80, 443 and 8443 alike.
+    # NOTE: this file is the Kind-only variant and is applied RAW (not templated);
+    # cloud/on-prem clusters use gateway-cloud.yaml, which is templated. Do not
+    # add template directives here.
     - name: https-8443
       protocol: HTTPS
       port: 8443

@@ -8,10 +8,10 @@ metadata:
   name: fluent-bit
   namespace: adhar-system
   labels:
-    helm.sh/chart: fluent-bit-0.58.0
+    helm.sh/chart: fluent-bit-0.58.1
     app.kubernetes.io/name: fluent-bit
     app.kubernetes.io/instance: fluent-bit
-    app.kubernetes.io/version: "5.1.0"
+    app.kubernetes.io/version: "5.1.1"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: fluent-bit/templates/configmap.yaml
@@ -21,10 +21,10 @@ metadata:
   name: fluent-bit
   namespace: adhar-system
   labels:
-    helm.sh/chart: fluent-bit-0.58.0
+    helm.sh/chart: fluent-bit-0.58.1
     app.kubernetes.io/name: fluent-bit
     app.kubernetes.io/instance: fluent-bit
-    app.kubernetes.io/version: "5.1.0"
+    app.kubernetes.io/version: "5.1.1"
     app.kubernetes.io/managed-by: Helm
 data:
   custom_parsers.conf: |
@@ -103,10 +103,10 @@ kind: ClusterRole
 metadata:
   name: fluent-bit
   labels:
-    helm.sh/chart: fluent-bit-0.58.0
+    helm.sh/chart: fluent-bit-0.58.1
     app.kubernetes.io/name: fluent-bit
     app.kubernetes.io/instance: fluent-bit
-    app.kubernetes.io/version: "5.1.0"
+    app.kubernetes.io/version: "5.1.1"
     app.kubernetes.io/managed-by: Helm
 rules:
   - apiGroups:
@@ -125,10 +125,10 @@ kind: ClusterRoleBinding
 metadata:
   name: fluent-bit
   labels:
-    helm.sh/chart: fluent-bit-0.58.0
+    helm.sh/chart: fluent-bit-0.58.1
     app.kubernetes.io/name: fluent-bit
     app.kubernetes.io/instance: fluent-bit
-    app.kubernetes.io/version: "5.1.0"
+    app.kubernetes.io/version: "5.1.1"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -146,10 +146,10 @@ metadata:
   name: fluent-bit
   namespace: adhar-system
   labels:
-    helm.sh/chart: fluent-bit-0.58.0
+    helm.sh/chart: fluent-bit-0.58.1
     app.kubernetes.io/name: fluent-bit
     app.kubernetes.io/instance: fluent-bit
-    app.kubernetes.io/version: "5.1.0"
+    app.kubernetes.io/version: "5.1.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -169,10 +169,10 @@ metadata:
   name: fluent-bit
   namespace: adhar-system
   labels:
-    helm.sh/chart: fluent-bit-0.58.0
+    helm.sh/chart: fluent-bit-0.58.1
     app.kubernetes.io/name: fluent-bit
     app.kubernetes.io/instance: fluent-bit
-    app.kubernetes.io/version: "5.1.0"
+    app.kubernetes.io/version: "5.1.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   selector:
@@ -185,7 +185,7 @@ spec:
         app.kubernetes.io/name: fluent-bit
         app.kubernetes.io/instance: fluent-bit
       annotations:
-        checksum/config: 642c3f10b3d436aff75c67570e4f44ec2fd632945a71c41e442c624ad973bd71
+        checksum/config: c740498eca2e7a0c2de5f98f96c742727883a41ec53ffb1a2a4aef6d7576d973
     spec:
       
       serviceAccountName: fluent-bit
@@ -203,7 +203,7 @@ spec:
               - ALL
             privileged: false
             readOnlyRootFilesystem: false
-          image: "cr.fluentbit.io/fluent/fluent-bit:5.1.0"
+          image: "cr.fluentbit.io/fluent/fluent-bit:5.1.1"
           imagePullPolicy: IfNotPresent
           command:
             - /fluent-bit/bin/fluent-bit
@@ -265,10 +265,10 @@ metadata:
   name: fluent-bit
   namespace: adhar-system
   labels:
-    helm.sh/chart: fluent-bit-0.58.0
+    helm.sh/chart: fluent-bit-0.58.1
     app.kubernetes.io/name: fluent-bit
     app.kubernetes.io/instance: fluent-bit
-    app.kubernetes.io/version: "5.1.0"
+    app.kubernetes.io/version: "5.1.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   jobLabel: app.kubernetes.io/instance

@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="2.5.22"
+CHART_VERSION="2.5.30"
 
 echo "# OPENCOST INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/opencost/generate-manifests.sh'" >>${INSTALL_YAML}

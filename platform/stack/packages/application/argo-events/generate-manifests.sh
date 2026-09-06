@@ -5,7 +5,7 @@ set -e
 # so no HTTPRoute is required.
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="2.4.21"
+CHART_VERSION="2.4.26"
 
 echo "# ARGO EVENTS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/argo-events/generate-manifests.sh'" >>${INSTALL_YAML}

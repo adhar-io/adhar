@@ -8,6 +8,7 @@ echo "# VICTORIA-METRICS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/observability/victoria-metrics/generate-manifests.sh'" >>${INSTALL_YAML}
 
 
+# NOTE: victoria-metrics-single >= 0.45 requires helm >= 3.14 to render; bump helm before bumping CHART_VERSION.
 helm repo add victoria-metrics https://victoriametrics.github.io/helm-charts/ --force-update
 helm repo update victoria-metrics
 helm template --namespace adhar-system victoria-metrics victoria-metrics/victoria-metrics-single -f values.yaml --version ${CHART_VERSION} >>${INSTALL_YAML}

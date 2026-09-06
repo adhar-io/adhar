@@ -1,0 +1,80 @@
+# Keycloak OIDC clients for Kargo's NATIVE OIDC login (values.yaml api.oidc).
+# Kargo is not fronted by oauth2-proxy: its UI uses the authorization-code +
+# PKCE flow and the `kargo` CLI logs in via OIDC on a localhost callback, so
+# both clients are PUBLIC (no secret; nothing is exported to keycloak-clients).
+#
+# Generic client contract: the keycloak package's config Job and its 5-minute
+# client-reconcile CronJob ensure every ConfigMap in adhar-system labelled
+# adhar.io/keycloak-client=true with a client.json key exists in the adhar
+# realm (created if missing, redirect URIs/web origins reconciled) and carries
+# the `groups` default scope — so Kargo's admins mapping on the groups claim
+# works.
+#
+# Host convention: https://kargo.adhar.localtest.me:8443 is rewritten to the
+# real domain by the platform controller when seeding cloud clusters.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kargo-keycloak-client
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: kargo-keycloak-client
+    app.kubernetes.io/part-of: kargo
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "kargo",
+      "name": "Kargo Client",
+      "description": "Used for Kargo UI SSO (native OIDC, authorization code + PKCE; public client)",
+      "publicClient": true,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://kargo.adhar.localtest.me:8443/*"
+      },
+      "redirectUris": [
+        "https://kargo.adhar.localtest.me:8443/login",
+        "https://kargo.adhar.localtest.me:8443/*"
+      ],
+      "webOrigins": ["https://kargo.adhar.localtest.me:8443"]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kargo-cli-keycloak-client
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: kargo-cli-keycloak-client
+    app.kubernetes.io/part-of: kargo
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "kargo-cli",
+      "name": "Kargo CLI",
+      "description": "Public client for `kargo login` (OIDC authorization code + PKCE on a localhost callback)",
+      "publicClient": true,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "redirectUris": ["http://localhost:*/auth/callback"],
+      "webOrigins": ["+"]
+    }

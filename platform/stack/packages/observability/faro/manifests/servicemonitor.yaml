@@ -1,0 +1,34 @@
+# Faro collector (Alloy) Prometheus ServiceMonitor
+# Not emitted by the chart (serviceMonitor.enabled left default off). The
+# faro-alloy Deployment is an Alloy instance running faro.receiver; it exposes
+# faro_receiver_* metrics (logs/exceptions/measurements/events ingested,
+# request duration, exporter errors) plus Alloy self-metrics on the
+# "faro-alloy" Service, port 12345 named "http-metrics" at /metrics. The faro
+# ingest port (12347) is not named http-metrics and is skipped.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Adhar / Faro Grafana dashboard.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: faro-alloy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: faro
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/instance
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: faro
+      app.kubernetes.io/component: networking
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

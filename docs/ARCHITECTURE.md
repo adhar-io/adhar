@@ -320,7 +320,7 @@ In topology T3, workload clusters run only collectors; the management cluster ho
 | [ADR-0015](adr/0015-idp-critical-pillars.md) | Critical pillars of the IDP — the tests every addition must pass |
 | [ADR-0016](adr/0016-vcluster-local-first-development.md) | vCluster as the virtual-cluster primitive for local-first development and tenancy |
 | [ADR-0017](adr/0017-preview-environments.md) | Ephemeral preview environments per pull request |
-| [ADR-0018](adr/0018-jenkins-x-ci-model.md) | CI on the platform: Jenkins X pipeline model on Tekton, promotion via GitOps |
+| [ADR-0018](adr/0018-jenkins-x-ci-model.md) | CI on the platform (superseded: Jenkins X removed, Tekton app-ci is the paved road), promotion via GitOps |
 | [ADR-0019](adr/0019-secure-supply-chain-chainguard.md) | Secure software supply chain: Chainguard images, Sigstore signing, policy admission |
 | [ADR-0020](adr/0020-iceberg-data-lakehouse.md) | Data lakehouse on Apache Iceberg over platform object storage |
 | [ADR-0021](adr/0021-day2-operations-first-class.md) | Day-2 operations as a first-class product surface |

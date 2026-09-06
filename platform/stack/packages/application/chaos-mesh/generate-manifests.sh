@@ -5,7 +5,7 @@ set -e
 # Cilium Gateway (manifests/httproute.yaml); the chart Ingress stays disabled.
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="2.8.2"
+CHART_VERSION="2.8.4"
 
 echo "# CHAOS MESH INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/chaos-mesh/generate-manifests.sh'" >>${INSTALL_YAML}

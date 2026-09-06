@@ -1,0 +1,39 @@
+# JupyterHub Prometheus ServiceMonitor
+# Not emitted by the chart (jupyterhub-4.3.5 has no ServiceMonitor template). The
+# hub serves jupyterhub_* metrics (server spawn / stop durations, active users,
+# request durations) at /hub/metrics on its main port, exposed by the "hub"
+# Service as port "hub" (8081). The chart already annotates the hub pod with
+# prometheus.io/path=/hub/metrics for the same reason.
+#
+# NOTE: JupyterHub defaults to authenticate_prometheus=True (403 without a hub
+# token). Set  hub.authenticatePrometheus: false  in the chart values for this
+# target to come UP; the JupyterHub Grafana dashboard's workload panels
+# (cAdvisor / kube-state-metrics) work regardless. Prometheus
+# serviceMonitorSelector is empty ({}), so this is scraped as-is.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jupyterhub-hub
+  namespace: adhar-system
+  labels:
+    app: jupyterhub
+    release: jupyterhub
+    app.kubernetes.io/name: jupyterhub
+    app.kubernetes.io/component: hub
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app: jupyterhub
+      release: jupyterhub
+      component: hub
+  endpoints:
+    - port: hub
+      path: /hub/metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

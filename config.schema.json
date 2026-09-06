@@ -13,7 +13,12 @@
         "defaultHttpPort": { "type": "integer", "minimum": 1 },
         "defaultHttpsPort": { "type": "integer", "minimum": 1 },
         "enableHAMode": { "type": "boolean" },
-        "email": { "type": "string", "format": "email" }
+        "email": { "type": "string", "format": "email" },
+        "dnsProvider": {
+          "type": "string",
+          "description": "Edge DNS backend for external-dns records and cert-manager DNS-01 wildcard certificates. Empty = the environment's cloud provider DNS; 'none' disables edge DNS (self-signed TLS); 'cloudflare' for on-prem/custom clusters (CLOUDFLARE_API_TOKEN).",
+          "enum": ["", "none", "digitalocean", "aws", "gcp", "azure", "civo", "cloudflare"]
+        }
       },
       "additionalProperties": false
     },

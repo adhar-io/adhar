@@ -1,0 +1,127 @@
+# Platform ClusterIssuers (production edge).
+#
+# This file is a stack template: the AdharPlatform controller renders it with
+# the platform spec (host, ACME email, DNS provider) when the stack is seeded
+# into Gitea, so nothing here is hardcoded to a domain, an email or a cloud.
+#
+#   adhar-selfsigned         zero-configuration default; the cloud Gateway uses it
+#                            when no DNS provider is configured (same trust posture
+#                            as the local self-signed bootstrap certificate)
+#   adhar-letsencrypt-*      HTTP-01 through the platform Gateway for per-application
+#                            hostnames (HTTP-01 cannot issue wildcards)
+#   adhar-letsencrypt-dns    DNS-01 for the platform wildcard *.<host>; rendered only
+#                            when the DNS provider has a cert-manager solver. The
+#                            Gateway's cert-manager.io/cluster-issuer annotation points
+#                            here automatically (BuildCustomizationSpec.ACMEIssuer).
+#                            Credentials come from the adhar-dns-provider Secret the CLI
+#                            creates at bootstrap from the provider credentials — never
+#                            from Git.
+#
+# The sync options let ArgoCD apply these CRs in the same sync as the
+# cert-manager CRDs they depend on.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: adhar-selfsigned
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: adhar-letsencrypt-staging
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: {{ .ACMEEmail }}
+    privateKeySecretRef:
+      name: adhar-letsencrypt-staging-account
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - kind: Gateway
+                name: adhar-gateway
+                namespace: adhar-system
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: adhar-letsencrypt-prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: {{ .ACMEEmail }}
+    privateKeySecretRef:
+      name: adhar-letsencrypt-prod-account
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - kind: Gateway
+                name: adhar-gateway
+                namespace: adhar-system
+{{- if .HasDNS01 }}
+---
+# DNS-01 issuer for the platform wildcard certificate (*.{{ .Host }}). The
+# solver is selected from the platform's DNS provider ({{ .DNSProvider }}); the
+# selector restricts it to the platform zone so per-application certificates
+# for other zones keep using HTTP-01.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: adhar-letsencrypt-dns
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: {{ .ACMEEmail }}
+    privateKeySecretRef:
+      name: adhar-letsencrypt-dns-account
+    solvers:
+      - selector:
+          dnsZones:
+            - {{ .Host }}
+        dns01:
+{{- if eq .DNSProvider "digitalocean" }}
+          digitalocean:
+            tokenSecretRef:
+              name: adhar-dns-provider
+              key: access-token
+{{- else if eq .DNSProvider "aws" }}
+          route53:
+            accessKeyIDSecretRef:
+              name: adhar-dns-provider
+              key: access-key-id
+            secretAccessKeySecretRef:
+              name: adhar-dns-provider
+              key: secret-access-key
+{{- else if eq .DNSProvider "gcp" }}
+          cloudDNS:
+            serviceAccountSecretRef:
+              name: adhar-dns-provider
+              key: credentials.json
+{{- else if eq .DNSProvider "azure" }}
+          azureDNS:
+            clientSecretSecretRef:
+              name: adhar-dns-provider
+              key: client-secret
+            environment: AzurePublicCloud
+{{- else if eq .DNSProvider "cloudflare" }}
+          cloudflare:
+            apiTokenSecretRef:
+              name: adhar-dns-provider
+              key: api-token
+{{- end }}
+{{- end }}

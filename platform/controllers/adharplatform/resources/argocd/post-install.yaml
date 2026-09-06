@@ -65,7 +65,7 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - argocd.adhar.localtest.me
+    - argocd.{{ .Host }}
   rules:
     - matches:
         - path:

@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="0.32.0"
+CHART_VERSION="0.34.1"
 
 echo "# VAULT INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/security/vault/generate-manifests.sh'" >>${INSTALL_YAML}

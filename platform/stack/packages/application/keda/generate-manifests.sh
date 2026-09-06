@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="2.20.0"
+CHART_VERSION="2.20.2"
 
 echo "# KEDA INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/keda/generate-manifests.sh'" >>${INSTALL_YAML}

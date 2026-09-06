@@ -93,16 +93,110 @@ type PackageConfigsSpec struct {
 
 // BuildCustomizationSpec fields cannot change once a cluster is created
 type BuildCustomizationSpec struct {
-	Protocol       string `json:"protocol,omitempty"`
-	Host           string `json:"host,omitempty"`
-	IngressHost    string `json:"ingressHost,omitempty"`
-	Port           string `json:"port,omitempty"`
+	Protocol    string `json:"protocol,omitempty"`
+	Host        string `json:"host,omitempty"`
+	IngressHost string `json:"ingressHost,omitempty"`
+	Port        string `json:"port,omitempty"`
+	// PortSuffix is the URL port segment (":8443" locally, empty for the
+	// standard 443/80 used behind a real cloud LoadBalancer). Foundation
+	// manifests template it as `{{ .Host }}{{ .PortSuffix }}` so URLs and OIDC
+	// issuers are correct on every topology (local/cloud/on-prem) without any
+	// hardcoded host or port. Derived from Port + Protocol.
+	PortSuffix     string `json:"portSuffix,omitempty"`
 	UsePathRouting bool   `json:"usePathRouting,omitempty"`
 	SelfSignedCert string `json:"selfSignedCert,omitempty"`
 	StaticPassword bool   `json:"staticPassword,omitempty"`
 	// EnableHAMode renders the foundation components (ArgoCD, Gitea) with
 	// production replica counts, PodDisruptionBudgets, and topology spread.
 	EnableHAMode bool `json:"enableHAMode,omitempty"`
+	// ClusterName identifies this platform in shared external systems, e.g.
+	// as the external-dns TXT owner id so several clusters can publish into
+	// the same DNS zone without stealing each other's records.
+	ClusterName string `json:"clusterName,omitempty"`
+	// Email is the ACME registration address for the platform's Let's Encrypt
+	// ClusterIssuers (globalSettings.email). Empty → platform@<host>.
+	Email string `json:"email,omitempty"`
+	// DNSProvider is the DNS backend of the platform edge — the zone that
+	// holds the platform host — used by external-dns to publish records and by
+	// cert-manager's DNS-01 solver to issue the *.<host> wildcard certificate.
+	// Values are Adhar provider names (digitalocean, aws, gcp, azure, civo) or
+	// "cloudflare"; empty means no edge DNS (local, or "none"): records are not
+	// published and the Gateway keeps the self-signed issuer. The credentials
+	// live in the adhar-dns-provider Secret in the platform namespace, created
+	// by the CLI from the provider credentials at bootstrap — never in Git.
+	DNSProvider string `json:"dnsProvider,omitempty"`
+}
+
+// Normalize derives computed fields (PortSuffix) from Port/Protocol so that
+// foundation manifests can template `{{ .Host }}{{ .PortSuffix }}` uniformly
+// across local (":8443"), cloud, and on-prem (standard 443/80 → no suffix).
+// Call it once after populating Protocol/Host/Port.
+func (s *BuildCustomizationSpec) Normalize() {
+	standard := (s.Protocol == "https" && s.Port == "443") ||
+		(s.Protocol == "http" && s.Port == "80") || s.Port == ""
+	if standard {
+		s.PortSuffix = ""
+	} else {
+		s.PortSuffix = ":" + s.Port
+	}
+}
+
+// Edge DNS/TLS helpers, callable from foundation and stack templates as
+// `{{ .ACMEIssuer }}` etc. so the manifests carry no provider or domain logic.
+
+// DNSProviderSecretName is the Secret (platform namespace) holding the edge
+// DNS credentials consumed by external-dns and cert-manager's DNS-01 solver.
+const DNSProviderSecretName = "adhar-dns-provider"
+
+// acmeDNS01Providers are the DNSProvider values cert-manager can solve
+// DNS-01 challenges for natively; other providers (civo) publish records
+// through external-dns but keep the self-signed platform certificate.
+var acmeDNS01Providers = map[string]bool{
+	"digitalocean": true, "aws": true, "gcp": true, "azure": true, "cloudflare": true,
+}
+
+// HasDNS01 reports whether the configured DNS provider supports ACME DNS-01,
+// i.e. a publicly trusted wildcard certificate can be issued for the host.
+func (s BuildCustomizationSpec) HasDNS01() bool { return acmeDNS01Providers[s.DNSProvider] }
+
+// ACMEIssuer is the ClusterIssuer the platform Gateway requests its
+// certificate from: the DNS-01 Let's Encrypt issuer when available, else the
+// self-signed issuer (same trust posture as local).
+func (s BuildCustomizationSpec) ACMEIssuer() string {
+	if s.HasDNS01() {
+		return "adhar-letsencrypt-dns"
+	}
+	return "adhar-selfsigned"
+}
+
+// ACMEEmail is the ACME account email: the configured one, else a
+// deterministic address under the platform host.
+func (s BuildCustomizationSpec) ACMEEmail() string {
+	if s.Email != "" {
+		return s.Email
+	}
+	return "platform@" + s.Host
+}
+
+// ExternalDNSProvider maps the Adhar DNS provider name to external-dns's
+// --provider value; "inmemory" (no cloud calls) when edge DNS is not configured.
+func (s BuildCustomizationSpec) ExternalDNSProvider() string {
+	switch s.DNSProvider {
+	case "digitalocean", "aws", "azure", "civo", "cloudflare":
+		return s.DNSProvider
+	case "gcp":
+		return "google"
+	default:
+		return "inmemory"
+	}
+}
+
+// TXTOwnerID is the external-dns registry owner id for this cluster.
+func (s BuildCustomizationSpec) TXTOwnerID() string {
+	if s.ClusterName != "" {
+		return "adhar-" + s.ClusterName
+	}
+	return "adhar"
 }
 
 // PackageCustomization defines how packages are customized

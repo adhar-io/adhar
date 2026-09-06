@@ -3,11 +3,20 @@
 # Requests to /coder are forwarded to the coder service on port 80.
 # NOTE: Coder serves its UI at the root path; CODER_ACCESS_URL is set to the
 # external /coder URL in values.yaml so generated links carry the sub-path.
+#
+# SSO: every backend below is the Keycloak oauth2-proxy from sso.yaml, which
+# forwards to the original upstream(s): coder:80.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: coder
   namespace: adhar-system
+  annotations:
+    # After the oauth2-proxy (sso.yaml, wave 5): ArgoCD holds a wave until its
+    # resources are healthy, and a route whose backend Service does not exist
+    # yet is Degraded (ResolvedRefs=False) — at an earlier wave that deadlocks
+    # the sync on a fresh cluster and the proxy is never created.
+    argocd.argoproj.io/sync-wave: "6"
   labels:
     app.kubernetes.io/name: coder
     app.kubernetes.io/instance: coder
@@ -24,5 +33,5 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: coder
-          port: 80
+        - name: coder-oauth2-proxy
+          port: 4180

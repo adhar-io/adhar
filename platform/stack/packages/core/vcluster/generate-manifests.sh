@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="0.34.1"
+CHART_VERSION="0.36.1"
 
 echo "# VCLUSTER INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/core/vcluster/generate-manifests.sh'" >>${INSTALL_YAML}

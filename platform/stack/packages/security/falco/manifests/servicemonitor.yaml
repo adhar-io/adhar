@@ -1,0 +1,34 @@
+# Falco Prometheus ServiceMonitor (via Falcosidekick)
+# Not emitted by the chart (falcosidekick.serviceMonitor left default off).
+# Falcosidekick always serves Prometheus metrics (falco_events, falcosidekick_*
+# outputs) on the "falco-falcosidekick" Service, port 2801 named "http" at
+# /metrics. The Falco DaemonSet itself only serves metrics on its :8765 web
+# port when metrics.enabled=true / webserver.prometheus_metrics_enabled=true
+# in values.yaml (currently false), so only the sidekick is scraped here.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Falco Grafana dashboard (gnetId 11914, built on falco_events).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: falco-falcosidekick
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/instance: falco
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falcosidekick
+      app.kubernetes.io/instance: falco
+      app.kubernetes.io/component: core
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

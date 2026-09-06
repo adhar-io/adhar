@@ -25,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dagster-webserver
-          # Placeholder until the paved-road pipeline (jenkins-x.yml) builds and
+          # Placeholder until the paved-road pipeline (.adhar/app.yaml, Tekton app-ci) builds and
           # promotes an image with dagster/pipeline.py + dbt/ baked in. The
           # stock Dagster webserver serves the same UI/GraphQL contract on :3000;
           # replace with your registry image on first release.

@@ -48,15 +48,12 @@ false` on the crossplane Deployments, and — as of the own-namespace re-render 
 cosign no longer runs in `adhar-system` at all, so its `Service/webhook` can no
 longer inject `WEBHOOK_PORT` into platform pods.
 
-Known risk (unrenamable): the jenkins-x package's Lighthouse chart hardcodes
-`Service/hook` (its webhook receiver), which injects `HOOK_PORT` into every
-service-linked pod in the namespace. No collision has been observed yet;
-components that parse `*_PORT`-shaped env vars must set
+Components that parse `*_PORT`-shaped env vars must set
 `enableServiceLinks: false` (the standing ADR-0011 rule).
 
 Generically-named Services currently in the stack — `webhook` (buildpack; cosign's
 is now isolated in `cosign-system`), `controller` (buildpack, open-function),
-`operator` / `storage` (kubescape), `proxy` (jupyterhub), `dashboard` (devtron).
+`operator` / `storage` (kubescape), `proxy` (jupyterhub).
 
 **Set `enableServiceLinks: false` on any platform component that reads
 configuration from env vars.** Service links are almost never used and disabling

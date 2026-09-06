@@ -149,7 +149,7 @@ data:
   exec.enabled: "false"
   oidc.config: |
     name: Keycloak
-    issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
+    issuer: https://keycloak.{{ .Host }}{{ .PortSuffix }}/realms/adhar
     clientID: argocd
     clientSecret: $oidc.keycloak.clientSecret
     requestedScopes:
@@ -286,7 +286,7 @@ data:
   timeout.hard.reconciliation: 0s
   timeout.reconciliation: 300s
   timeout.reconciliation.jitter: 60s
-  url: https://argocd.adhar.localtest.me:8443
+  url: https://argocd.{{ .Host }}{{ .PortSuffix }}
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-cmd-params-cm.yaml
 apiVersion: v1

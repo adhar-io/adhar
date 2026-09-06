@@ -283,7 +283,12 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		return nil, err
 	}
 
+	joined := provider.KubeadmJoinedNodes(signer, p.config.SSHUser, masterIP)
 	for _, ip := range p.config.WorkerIPs {
+		if joined.Has("", ip) {
+			log.Printf("Worker %s is already part of the cluster; skipping join", ip)
+			continue
+		}
 		if err := provider.KubeadmJoinWorker(signer, p.config.SSHUser, ip, joinCmd); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", ip, err)
 		}

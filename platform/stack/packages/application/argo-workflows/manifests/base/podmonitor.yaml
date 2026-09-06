@@ -1,0 +1,30 @@
+# Argo Workflows controller Prometheus PodMonitor
+# The upstream install manifest declares no metrics Service; the workflow-controller
+# Deployment serves argo_workflows_* metrics on container port "metrics" (9090) at
+# /metrics. argo-server exposes no Prometheus endpoint. Prometheus podMonitorSelector
+# is empty ({}), so this is scraped as-is and feeds the two Argo Workflows Grafana
+# dashboards shipped with kube-prometheus.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: argo-workflows-controller
+  namespace: adhar-system
+  labels:
+    app: workflow-controller
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/component: workflow-controller
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app: workflow-controller
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

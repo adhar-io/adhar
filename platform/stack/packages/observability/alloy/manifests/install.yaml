@@ -9,10 +9,10 @@ metadata:
   name: alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.11.1
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.18.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -24,10 +24,10 @@ metadata:
   name: alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.11.1
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.18.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: config
@@ -150,12 +150,10 @@ data:
     		endpoint = "0.0.0.0:4318"
     	}
     	output {
-    		traces  = [otelcol.exporter.otlphttp.hub.input]
-    		metrics = [otelcol.exporter.prometheus.workloads.input]
-    		logs    = [otelcol.exporter.loki.workloads.input]
+    		traces = [otelcol.exporter.otlphttp.hub.input]
     	}
     }
-
+    
     otelcol.exporter.otlphttp "hub" {
     	client {
     		endpoint = sys.env("HUB_TEMPO_URL")
@@ -164,16 +162,6 @@ data:
     		}
     	}
     }
-
-    // OTLP metrics → Mimir (reuses the prometheus.remote_write.hub sink).
-    otelcol.exporter.prometheus "workloads" {
-    	forward_to = [prometheus.remote_write.hub.receiver]
-    }
-
-    // OTLP logs → Loki (reuses the loki.write.hub sink).
-    otelcol.exporter.loki "workloads" {
-    	forward_to = [loki.write.hub.receiver]
-    }
 ---
 # Source: alloy/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -181,10 +169,10 @@ kind: ClusterRole
 metadata:
   name: alloy
   labels:
-    helm.sh/chart: alloy-1.11.1
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.18.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -309,10 +297,10 @@ kind: ClusterRoleBinding
 metadata:
   name: alloy
   labels:
-    helm.sh/chart: alloy-1.11.1
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.18.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -332,10 +320,10 @@ metadata:
   name: alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.11.1
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.18.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: networking
@@ -350,16 +338,6 @@ spec:
       port: 12345
       targetPort: 12345
       protocol: "TCP"
-    # OTLP receivers (otelcol.receiver.otlp "workloads") — the single endpoint
-    # applications push traces/metrics/logs to; Alloy fans out to Tempo/Mimir/Loki.
-    - name: otlp-grpc
-      port: 4317
-      targetPort: 4317
-      protocol: "TCP"
-    - name: otlp-http
-      port: 4318
-      targetPort: 4318
-      protocol: "TCP"
 ---
 # Source: alloy/templates/controllers/daemonset.yaml
 apiVersion: apps/v1
@@ -368,10 +346,10 @@ metadata:
   name: alloy
   namespace: adhar-system
   labels:
-    helm.sh/chart: alloy-1.11.1
+    helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.18.1"
+    app.kubernetes.io/version: "v1.19.2"
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
 spec:
@@ -391,7 +369,7 @@ spec:
       serviceAccountName: alloy
       containers:
         - name: alloy
-          image: docker.io/grafana/alloy:v1.18.1
+          image: docker.io/grafana/alloy:v1.19.2
           imagePullPolicy: IfNotPresent
           args:
             - run

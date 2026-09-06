@@ -1,0 +1,35 @@
+# k6 Operator Prometheus ServiceMonitor
+# Not emitted by the chart (k6-operator-4.4.1 renders no ServiceMonitor). The chart
+# does ship "k6-k6-operator-controller-manager-metrics-service" whose port is named
+# "https" (8443), but controller-v1.4.0 starts the controller-runtime metrics server
+# with a plain --metrics-bind-address=:8443 and no secure serving, so the endpoint
+# is scraped over http. Emits controller_runtime_* / workqueue_* / go_* metrics and
+# feeds the Adhar / k6 Operator Grafana dashboard. Prometheus
+# serviceMonitorSelector is empty ({}), so this is scraped as-is.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k6-operator
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: k6-operator
+    app.kubernetes.io/instance: k6
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k6-operator
+      app.kubernetes.io/instance: k6
+      control-plane: controller-manager
+  endpoints:
+    - port: https
+      scheme: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

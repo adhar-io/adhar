@@ -123,12 +123,12 @@ stringData:
   security: INSTALL_LOCK=true
   server: |-
     APP_DATA_PATH=/data
-    DOMAIN=adhar.localtest.me
+    DOMAIN={{ .Host }}
     ENABLE_PPROF=false
     HTTP_PORT=3000
     PROTOCOL=http
-    ROOT_URL=https://gitea.adhar.localtest.me:8443/
-    SSH_DOMAIN=adhar.localtest.me
+    ROOT_URL=https://gitea.{{ .Host }}{{ .PortSuffix }}/
+    SSH_DOMAIN={{ .Host }}
     SSH_LISTEN_PORT=2222
     SSH_PORT=22
     START_SSH_SERVER=true

@@ -4,11 +4,20 @@
 # the /baserow/api, /baserow/ws and /baserow/media prefixes go to the backend and
 # everything else under /baserow goes to the frontend. publicBackendUrl /
 # publicFrontendUrl are set to the external /baserow URL in values.yaml.
+#
+# SSO: every backend below is the Keycloak oauth2-proxy from sso.yaml, which
+# forwards to the original upstream(s): baserow-wsgi:8000, baserow-frontend:3000.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: baserow
   namespace: adhar-system
+  annotations:
+    # After the oauth2-proxy (sso.yaml, wave 5): ArgoCD holds a wave until its
+    # resources are healthy, and a route whose backend Service does not exist
+    # yet is Degraded (ResolvedRefs=False) — at an earlier wave that deadlocks
+    # the sync on a fresh cluster and the proxy is never created.
+    argocd.argoproj.io/sync-wave: "6"
   labels:
     app.kubernetes.io/name: baserow
     app.kubernetes.io/instance: baserow
@@ -23,20 +32,20 @@ spec:
     - matches:
         - path:
             type: PathPrefix
-            value: //api
+            value: /api
         - path:
             type: PathPrefix
-            value: //ws
+            value: /ws
         - path:
             type: PathPrefix
-            value: //media
+            value: /media
       backendRefs:
-        - name: baserow-wsgi
-          port: 8000
+        - name: baserow-oauth2-proxy
+          port: 4180
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: baserow-frontend
-          port: 3000
+        - name: baserow-oauth2-proxy
+          port: 4180

@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="0.10.6"
+CHART_VERSION="0.10.7"
 # cosign gets its OWN namespace (not the shared adhar-system). This resolves two
 # collisions documented in platform/stack/packages/CONFLICTS.md:
 #   1. Secret/webhook-certs collided with tekton (whichever synced last owned the

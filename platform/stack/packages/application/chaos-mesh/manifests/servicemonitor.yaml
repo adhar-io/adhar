@@ -1,0 +1,118 @@
+# Chaos Mesh Prometheus ServiceMonitors
+# Not emitted by the chart (chaos-mesh-2.8.2 renders no ServiceMonitor). Each
+# component serves /metrics on a port already declared on its chart Service:
+#   controller-manager  port "http"    (10080, METRICS_PORT) chaos_controller_manager_*
+#   chaos-daemon        port "http"    (31766)               chaos_daemon_*
+#   chaos-dashboard     port "metric"  (2334)                chaos_dashboard_*
+#   dns-server          port "metrics" (9153, CoreDNS)       coredns_*
+# One monitor per component so the UI port of the dashboard (2333) and the gRPC
+# ports are never probed. Prometheus serviceMonitorSelector is empty ({}), so
+# these are scraped as-is and feed the Chaos Mesh Grafana dashboards
+# (gnetId 15918 overview, 15919 chaos-daemon).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chaos-mesh-controller-manager
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/instance: chaos-mesh
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/component
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-mesh
+      app.kubernetes.io/instance: chaos-mesh
+      app.kubernetes.io/component: controller-manager
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chaos-mesh-daemon
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/instance: chaos-mesh
+    app.kubernetes.io/component: chaos-daemon
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/component
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-mesh
+      app.kubernetes.io/instance: chaos-mesh
+      app.kubernetes.io/component: chaos-daemon
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chaos-mesh-dashboard
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/instance: chaos-mesh
+    app.kubernetes.io/component: chaos-dashboard
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/component
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-mesh
+      app.kubernetes.io/instance: chaos-mesh
+      app.kubernetes.io/component: chaos-dashboard
+  endpoints:
+    - port: metric
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chaos-mesh-dns-server
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/instance: chaos-mesh
+    app.kubernetes.io/component: dns-server
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/component
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chaos-mesh
+      app.kubernetes.io/instance: chaos-mesh
+      app.kubernetes.io/component: dns-server
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

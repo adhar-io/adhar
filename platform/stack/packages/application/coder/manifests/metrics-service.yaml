@@ -1,0 +1,26 @@
+# Coder metrics Service
+# The chart (coder-2.34.0) only sets CODER_PROMETHEUS_ADDRESS=0.0.0.0:2112 and
+# declares no metrics port or Service. coderd serves coderd_* metrics on 2112 once
+# CODER_PROMETHEUS_ENABLE=true is present in coder.env (see the note in
+# servicemonitor.yaml). This Service exposes that port for the ServiceMonitor.
+apiVersion: v1
+kind: Service
+metadata:
+  name: coder-metrics
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: coder
+    app.kubernetes.io/instance: coder
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: coder
+    app.kubernetes.io/managed-by: adhar
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: coder
+    app.kubernetes.io/instance: coder
+  ports:
+    - name: metrics
+      port: 2112
+      targetPort: 2112
+      protocol: TCP

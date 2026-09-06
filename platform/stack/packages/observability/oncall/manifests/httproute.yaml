@@ -1,14 +1,25 @@
 # OnCall routed through the Cilium Gateway (adhar-gateway). TLS terminates at the
 # Gateway, replacing the chart's bundled cert-manager/nginx Ingress (which also
 # shipped its own ingress-nginx IngressClass, now removed). The original Ingress
-# used the placeholder host "example.com"; it is preserved here unchanged.
+# uses the platform's local host convention (oncall.adhar.localtest.me), which the
+# controller rewrites to the configured base domain (e.g. oncall.platform.adhar.io)
+# when seeding the stack into Gitea for cloud/on-prem clusters — no hardcoded domain.
 # No rewrite annotations were present, so paths are forwarded as-is. Gateway API
 # matches the most specific PathPrefix first, so /grafana takes precedence over /.
+#
+# SSO: every backend below is the Keycloak oauth2-proxy from sso.yaml, which
+# forwards to the original upstream(s): oncall-grafana:80, oncall-engine:8080.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: oncall
   namespace: adhar-system
+  annotations:
+    # After the oauth2-proxy (sso.yaml, wave 5): ArgoCD holds a wave until its
+    # resources are healthy, and a route whose backend Service does not exist
+    # yet is Degraded (ResolvedRefs=False) — at an earlier wave that deadlocks
+    # the sync on a fresh cluster and the proxy is never created.
+    argocd.argoproj.io/sync-wave: "6"
   labels:
     app.kubernetes.io/name: oncall
     app.kubernetes.io/instance: oncall
@@ -18,19 +29,19 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - example.com
+    - oncall.adhar.localtest.me
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /grafana
       backendRefs:
-        - name: oncall-grafana
-          port: 80
+        - name: oncall-oauth2-proxy
+          port: 4180
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: oncall-engine
-          port: 8080
+        - name: oncall-oauth2-proxy
+          port: 4180

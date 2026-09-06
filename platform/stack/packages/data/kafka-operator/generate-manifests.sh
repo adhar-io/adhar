@@ -7,7 +7,7 @@ set -e
 # by applying Kafka CRs. This keeps the local footprint to a single lightweight
 # operator Deployment.
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.1.0"
+CHART_VERSION="1.2.0"
 
 echo "# KAFKA OPERATOR (STRIMZI) INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/kafka-operator/generate-manifests.sh'" >>${INSTALL_YAML}

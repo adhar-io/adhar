@@ -17,7 +17,7 @@ Airbyte (ingest) -> Iceberg (table format) -> dbt/Trino (transform) -> Dagster (
 - **Runtime** — `manifests/`: the Dagster webserver Deployment + Service, an
   HTTPRoute through the platform Gateway, and a CronJob that materializes the
   pipeline daily.
-- **CI** — `jenkins-x.yml` + `.lighthouse/triggers.yaml` (ADR-0018): PRs run the
+- **CI** — `.adhar/app.yaml` + the platform Tekton `app-ci` pipeline (supply-chain package): PRs run the
   platform `adhar-pr-verify` pipeline, merges to `main` run `adhar-release`.
 
 Once synced by ArgoCD, the Dagster UI answers at

@@ -1149,7 +1149,7 @@ data:
   exec.enabled: "false"
   oidc.config: |
     name: Keycloak
-    issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
+    issuer: https://keycloak.{{ .Host }}{{ .PortSuffix }}/realms/adhar
     clientID: argocd
     clientSecret: $oidc.keycloak.clientSecret
     requestedScopes:

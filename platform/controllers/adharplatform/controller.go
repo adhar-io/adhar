@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +51,7 @@ import (
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/utils"
+	"adhar-io/adhar/platform/utils/files"
 )
 
 const (
@@ -494,6 +496,11 @@ func (r *AdharPlatformReconciler) applyArgoCDRepoAuth(ctx context.Context, resou
 	if err != nil {
 		return fmt.Errorf("reading ArgoCD repo auth manifest %s: %w", authPath, err)
 	}
+	// The stack file carries the bootstrap password; ArgoCD must use the
+	// credential currently in force (rotated on production clusters).
+	if _, pass := r.giteaAdminCredential(ctx); pass != globals.GiteaAdminPassword {
+		authBytes = bytes.ReplaceAll(authBytes, []byte(globals.GiteaAdminPassword), []byte(pass))
+	}
 
 	if err := r.applyManifestNoOwner(ctx, authBytes, resource, "ArgoCD repo auth"); err != nil {
 		return err
@@ -613,9 +620,39 @@ func (r *AdharPlatformReconciler) getGiteaPodName(ctx context.Context) (string, 
 	return pods.Items[0].Name, nil
 }
 
-// giteaAdminCurlCred is the -u argument for Gitea API calls made from
-// inside the gitea pod during bootstrap.
-var giteaAdminCurlCred = globals.GiteaAdminUser + ":" + globals.GiteaAdminPassword
+// giteaAdminCredential returns the Gitea admin username/password currently in
+// force. The gitea-credential Secret is authoritative: production clusters
+// rotate the bootstrap password (credential-rotation package) and update the
+// Secret in place, so every controller path — API calls from the pod, the git
+// push that seeds the repos, ArgoCD's repository credentials — must derive
+// from it rather than from the static bootstrap constant, which is only the
+// fallback for a cluster whose Secret does not exist yet.
+func (r *AdharPlatformReconciler) giteaAdminCredential(ctx context.Context) (string, string) {
+	sec, err := utils.GetSecretByName(ctx, r.Client, utils.GiteaNamespace, utils.GiteaAdminSecret)
+	if err == nil && len(sec.Data["username"]) > 0 && len(sec.Data["password"]) > 0 {
+		return string(sec.Data["username"]), string(sec.Data["password"])
+	}
+	return globals.GiteaAdminUser, globals.GiteaAdminPassword
+}
+
+// giteaAdminCurlCred is the (single-quoted, shell-safe) -u argument for Gitea
+// API calls made from inside the gitea pod.
+func (r *AdharPlatformReconciler) giteaAdminCurlCred(ctx context.Context) string {
+	u, p := r.giteaAdminCredential(ctx)
+	return "'" + strings.ReplaceAll(u+":"+p, "'", `'\''`) + "'"
+}
+
+// giteaAdminRepoURL is the in-pod clone/push URL for a platform repo, carrying
+// the current admin credential (URL-escaped).
+func (r *AdharPlatformReconciler) giteaAdminRepoURL(ctx context.Context, repoName string) string {
+	u, p := r.giteaAdminCredential(ctx)
+	return (&url.URL{
+		Scheme: "http",
+		User:   url.UserPassword(u, p),
+		Host:   "localhost:3000",
+		Path:   "/" + globals.GiteaPlatformOrg + "/" + repoName + ".git",
+	}).String()
+}
 
 // createGiteaOrg creates the platform org (globals.GiteaPlatformOrg) and its
 // group-mapped teams so Keycloak group membership grants repo access without
@@ -635,7 +672,7 @@ func (r *AdharPlatformReconciler) createGiteaOrg(ctx context.Context) error {
 			`curl -sf -X POST "http://localhost:3000/api/v1/%s" `+
 				`-H "Content-Type: application/json" `+
 				`-d '%s' `+
-				`-u `+giteaAdminCurlCred+` -o /dev/null -w "%%{http_code}"`,
+				`-u `+r.giteaAdminCurlCred(ctx)+` -o /dev/null -w "%%{http_code}"`,
 			path, payload)
 		out, err := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", cmd).CombinedOutput()
 		if err != nil {
@@ -685,7 +722,7 @@ func (r *AdharPlatformReconciler) createGiteaRepository(ctx context.Context, nam
 		`curl -sf -X POST "http://localhost:3000/api/v1/orgs/%s/repos" `+
 			`-H "Content-Type: application/json" `+
 			`-d '{"name":"%s","description":"%s repository","private":false,"default_branch":"main","auto_init":true}' `+
-			`-u `+giteaAdminCurlCred+` -o /dev/null -w "%%{http_code}"`,
+			`-u `+r.giteaAdminCurlCred(ctx)+` -o /dev/null -w "%%{http_code}"`,
 		globals.GiteaPlatformOrg, name, name)
 
 	cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", createCmd)
@@ -742,14 +779,103 @@ func (r *AdharPlatformReconciler) populateRepositories(ctx context.Context) erro
 
 // populateGiteaRepo clones a Gitea repo inside the pod, copies local content into it, and pushes.
 // localSourceDir is the absolute path on the host to the directory whose CONTENTS should be the repo root.
+// stackTemplateSuffix marks stack files that are rendered with the platform's
+// BuildCustomizationSpec when the stack is seeded into Gitea. Only files with
+// this suffix are templated (other manifests may legitimately contain `{{`,
+// e.g. Grafana dashboards), and the suffix is dropped from the seeded name:
+// cluster-issuers.yaml.tmpl → cluster-issuers.yaml.
+const stackTemplateSuffix = ".tmpl"
+
+// stageStack materialises the stack for this cluster before it is seeded into
+// Gitea, so every topology (local, cloud, on-prem) receives content that is
+// correct for it with nothing hardcoded:
+//
+//   - *.tmpl files are rendered with the platform spec (host, port suffix,
+//     ACME email, DNS provider, cluster name, …) — the same data and template
+//     engine the embedded foundation manifests use;
+//   - for a non-default host, the local hostname convention used throughout the
+//     stack is rewritten to the configured domain: URLs like
+//     https://keycloak.adhar.localtest.me:8443/… become
+//     https://keycloak.<host><portSuffix>/… (portSuffix is "" behind a real
+//     443 LB), and bare host references follow.
+//
+// Returns the staged directory to copy from and a cleanup func.
+func (r *AdharPlatformReconciler) stageStack(srcDir string) (string, func(), error) {
+	return stageStack(srcDir, r.Config)
+}
+
+// StageStack renders a stack directory for the given platform spec exactly as
+// it would be seeded into Gitea (templates rendered, host convention rewritten)
+// — for callers that need to compare or inspect the seeded content, e.g.
+// `adhar upgrade --diff-only`. The caller must invoke the returned cleanup.
+func StageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec) (string, func(), error) {
+	return stageStack(srcDir, spec)
+}
+
+func stageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec) (string, func(), error) {
+	noop := func() {}
+	host := spec.Host
+	rewriteHost := host != "" && host != globals.DefaultHostName
+	tmp, err := os.MkdirTemp("", "adhar-stack-")
+	if err != nil {
+		return "", noop, err
+	}
+	cleanup := func() { _ = os.RemoveAll(tmp) }
+	suffix := spec.PortSuffix
+	walkErr := filepath.Walk(srcDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(srcDir, p)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(tmp, rel)
+		if info.IsDir() {
+			return os.MkdirAll(dst, 0o755)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(p, stackTemplateSuffix) {
+			if b, err = files.ApplyTemplate(b, spec); err != nil {
+				return fmt.Errorf("rendering stack template %s: %w", rel, err)
+			}
+			dst = strings.TrimSuffix(dst, stackTemplateSuffix)
+		}
+		s := string(b)
+		if rewriteHost {
+			// host:8443 (URL host:port) first, then any bare host reference.
+			s = strings.ReplaceAll(s, globals.DefaultHostName+":8443", host+suffix)
+			s = strings.ReplaceAll(s, globals.DefaultHostName, host)
+		}
+		return os.WriteFile(dst, []byte(s), info.Mode())
+	})
+	if walkErr != nil {
+		cleanup()
+		return "", noop, walkErr
+	}
+	return tmp, cleanup, nil
+}
+
 func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName, repoName, localSourceDir string) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Populating repository", "repo", repoName, "source", localSourceDir)
 
+	// Render stack templates and rewrite the local host convention to the
+	// configured domain so seeded GitOps content is correct for this cluster.
+	stagedSrc, cleanupStage, err := r.stageStack(localSourceDir)
+	if err != nil {
+		return fmt.Errorf("staging %s with domain: %w", repoName, err)
+	}
+	defer cleanupStage()
+	localSourceDir = stagedSrc
+
 	ns := globals.AdharSystemNamespace
 	workDir := "/tmp/" + repoName + "-working"
 	stagingDir := "/tmp/" + repoName + "-staging"
-	bareRepoPath := fmt.Sprintf("http://%s:%s@localhost:3000/%s/%s.git", globals.GiteaAdminUser, globals.GiteaAdminPassword, globals.GiteaPlatformOrg, repoName)
+	bareRepoPath := r.giteaAdminRepoURL(ctx, repoName)
 
 	// Helper to run kubectl exec with sh -c for proper shell expansion
 	kubectlExecSh := func(script string) ([]byte, error) {

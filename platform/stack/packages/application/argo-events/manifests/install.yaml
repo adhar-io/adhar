@@ -9,7 +9,7 @@ metadata:
   name: argo-events-controller-manager
   namespace: "adhar-system"
   labels:
-    helm.sh/chart: argo-events-2.4.21
+    helm.sh/chart: argo-events-2.4.26
     app.kubernetes.io/name: argo-events-controller-manager
     app.kubernetes.io/instance: argo-events
     app.kubernetes.io/component: controller-manager
@@ -24,7 +24,7 @@ metadata:
   name: argo-events-events-webhook
   namespace: "adhar-system"
   labels:
-    helm.sh/chart: argo-events-2.4.21
+    helm.sh/chart: argo-events-2.4.26
     app.kubernetes.io/name: argo-events-events-webhook
     app.kubernetes.io/instance: argo-events
     app.kubernetes.io/component: events-webhook
@@ -38,7 +38,7 @@ metadata:
   name: argo-events-controller-manager
   namespace: "adhar-system"
   labels:
-    helm.sh/chart: argo-events-2.4.21
+    helm.sh/chart: argo-events-2.4.26
     app.kubernetes.io/name: argo-events-controller-manager
     app.kubernetes.io/instance: argo-events
     app.kubernetes.io/managed-by: Helm
@@ -72,6 +72,11 @@ data:
           discard: 0
         versions:
         - version: latest
+          natsImage: nats:2.10.29
+          metricsExporterImage: natsio/prometheus-nats-exporter:0.14.0
+          configReloaderImage: natsio/nats-server-config-reloader:0.14.0
+          startCommand: /nats-server
+        - version: 2.10.10
           natsImage: nats:2.10.10
           metricsExporterImage: natsio/prometheus-nats-exporter:0.14.0
           configReloaderImage: natsio/nats-server-config-reloader:0.14.0
@@ -111,8 +116,8 @@ data:
           metricsExporterImage: natsio/prometheus-nats-exporter:0.9.1
           configReloaderImage: natsio/nats-server-config-reloader:0.7.0
           startCommand: /nats-server
-        - version: 2.10.10
-          natsImage: nats:2.10.10
+        - version: 2.10.29
+          natsImage: nats:2.10.29
           metricsExporterImage: natsio/prometheus-nats-exporter:0.14.0
           configReloaderImage: natsio/nats-server-config-reloader:0.14.0
           startCommand: /nats-server
@@ -252,7 +257,7 @@ kind: ClusterRole
 metadata:
   name: argo-events-controller-manager
   labels:
-    helm.sh/chart: argo-events-2.4.21
+    helm.sh/chart: argo-events-2.4.26
     app.kubernetes.io/name: argo-events-controller-manager
     app.kubernetes.io/instance: argo-events
     app.kubernetes.io/component: controller-manager
@@ -346,7 +351,7 @@ kind: ClusterRoleBinding
 metadata:
   name: argo-events-controller-manager
   labels:
-    helm.sh/chart: argo-events-2.4.21
+    helm.sh/chart: argo-events-2.4.26
     app.kubernetes.io/name: argo-events-controller-manager
     app.kubernetes.io/instance: argo-events
     app.kubernetes.io/component: controller-manager
@@ -368,13 +373,13 @@ metadata:
   name: argo-events-controller-manager
   namespace: "adhar-system"
   labels:
-    helm.sh/chart: argo-events-2.4.21
+    helm.sh/chart: argo-events-2.4.26
     app.kubernetes.io/name: argo-events-controller-manager
     app.kubernetes.io/instance: argo-events
     app.kubernetes.io/component: controller-manager
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: argo-events
-    app.kubernetes.io/version: "v1.9.10"
+    app.kubernetes.io/version: "v1.9.11"
 spec:
   selector:
     matchLabels:
@@ -382,28 +387,31 @@ spec:
       app.kubernetes.io/instance: argo-events
   revisionHistoryLimit: 5
   replicas: 1
+  strategy:
+    type: Recreate
   template:
     metadata:
       annotations:
-        checksum/config: ec3a71ec6a2ee00c49998d33695b7ddf2f97ec4f2810fa434f325027cd9f65fa
+        checksum/config: 77d15df109f95b33fe031dfdde1a817dc5c0c2c8831d0bdf0a4d6c976d1f785d
       labels:
-        helm.sh/chart: argo-events-2.4.21
+        helm.sh/chart: argo-events-2.4.26
         app.kubernetes.io/name: argo-events-controller-manager
         app.kubernetes.io/instance: argo-events
         app.kubernetes.io/component: controller-manager
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/part-of: argo-events
-        app.kubernetes.io/version: "v1.9.10"
+        app.kubernetes.io/version: "v1.9.11"
     spec:
       containers:
       - name: controller-manager
-        image: quay.io/argoproj/argo-events:v1.9.10
+        image: quay.io/argoproj/argo-events:v1.9.11
         imagePullPolicy: IfNotPresent
         args:
         - controller
+        - --leader-election=false
         env:
         - name: ARGO_EVENTS_IMAGE
-          value: quay.io/argoproj/argo-events:v1.9.10
+          value: quay.io/argoproj/argo-events:v1.9.11
         - name: NAMESPACE
           valueFrom:
             fieldRef:

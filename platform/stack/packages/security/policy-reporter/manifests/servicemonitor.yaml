@@ -1,0 +1,30 @@
+# Policy Reporter Prometheus ServiceMonitor
+# The core deployment runs with --metrics-enabled (and metrics.enabled: true in
+# its config.yaml), serving policy_report_result / cluster_policy_report_result
+# and policy_report_summary metrics on the "policy-reporter" Service, port 8080
+# named "http" at /metrics. The UI Service (policy-reporter-ui) carries a
+# different app.kubernetes.io/name label and is not matched.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the PolicyReports Grafana dashboard (gnetId 13968).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: policy-reporter
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: policy-reporter
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: policy-reporter
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

@@ -1,0 +1,33 @@
+# Beyla Prometheus PodMonitor
+# The chart renders no Service (and podMonitor/serviceMonitor are off), so the
+# only scrape surface is the DaemonSet pod port "metrics" (9090), where Beyla's
+# prometheus_export block publishes the auto-instrumented RED metrics
+# (http_server_request_duration_seconds, rpc_server_duration_seconds, ...)
+# for every workload it attaches to. honorLabels keeps Beyla's own
+# service_name / service_namespace / instance labels intact.
+# Prometheus podMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Beyla RED Metrics Grafana dashboard (gnetId 19923).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: beyla
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: beyla
+    app.kubernetes.io/instance: beyla
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beyla
+      app.kubernetes.io/instance: beyla
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

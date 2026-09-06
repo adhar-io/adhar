@@ -275,7 +275,10 @@ data:
   devices: ""
 
   kube-proxy-replacement: "true"
-  kube-proxy-replacement-healthz-bind-address: ""
+  # Cloud LoadBalancers (DO CCM, AWS, …) health-check node port 10256; with
+  # kube-proxy replaced by Cilium nothing answers there unless bound here, so
+  # every backend reads unhealthy and the Gateway LB refuses traffic.
+  kube-proxy-replacement-healthz-bind-address: "0.0.0.0:10256"
   enable-no-service-endpoints-routable: "true"
   bpf-lb-sock: "true"
 # When Gateway API is enabled this is forced to "true" so per-backend weights

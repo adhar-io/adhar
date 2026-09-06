@@ -1,0 +1,33 @@
+# tf-controller (Terraform / OpenTofu controller) Prometheus PodMonitor
+# The manifest renders no Service for the controller, so it is scraped on its
+# pod port "http-prom" (8080, the default --metrics-addr), where it exposes the
+# Flux-style gotk_reconcile_condition / gotk_reconcile_duration_seconds /
+# gotk_suspend_status metrics (kind="Terraform") plus controller-runtime
+# metrics. honorLabels keeps the scraped `namespace`/`name` of the Terraform
+# resource rather than the controller pod's.
+# Prometheus podMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Adhar / Terraform Grafana dashboard.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: tf-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: tf-controller
+    app.kubernetes.io/instance: tf-controller
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tf-controller
+      app.kubernetes.io/instance: tf-controller
+  podMetricsEndpoints:
+    - port: http-prom
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

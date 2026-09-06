@@ -22,12 +22,17 @@ type Config struct {
 
 // GlobalSettingsConfig holds global settings
 type GlobalSettingsConfig struct {
-	AdharContext          string `mapstructure:"adharContext" json:"adharContext"`
-	DefaultHost           string `mapstructure:"defaultHost" json:"defaultHost"`
-	DefaultHttpPort       int    `mapstructure:"defaultHttpPort" json:"defaultHttpPort"`
-	DefaultHttpsPort      int    `mapstructure:"defaultHttpsPort" json:"defaultHttpsPort"`
-	EnableHAMode          bool   `mapstructure:"enableHAMode" json:"enableHAMode"`
-	Email                 string `mapstructure:"email" json:"email"`
+	AdharContext     string `mapstructure:"adharContext" json:"adharContext"`
+	DefaultHost      string `mapstructure:"defaultHost" json:"defaultHost"`
+	DefaultHttpPort  int    `mapstructure:"defaultHttpPort" json:"defaultHttpPort"`
+	DefaultHttpsPort int    `mapstructure:"defaultHttpsPort" json:"defaultHttpsPort"`
+	EnableHAMode     bool   `mapstructure:"enableHAMode" json:"enableHAMode"`
+	Email            string `mapstructure:"email" json:"email"`
+	// DNSProvider selects the edge DNS backend for external-dns records and
+	// cert-manager DNS-01 wildcard certificates. Empty = the environment's
+	// cloud provider DNS; "none" disables edge DNS (self-signed TLS);
+	// "cloudflare" for on-prem/custom clusters (CLOUDFLARE_API_TOKEN).
+	DNSProvider           string `mapstructure:"dnsProvider" json:"dnsProvider,omitempty"`
 	ProductionProvider    string `mapstructure:"productionProvider" json:"productionProvider"`
 	NonProductionProvider string `mapstructure:"nonProductionProvider" json:"nonProductionProvider"`
 }
@@ -153,6 +158,14 @@ type GlobalSettings struct {
 	DefaultHost  string `json:"defaultHost"`
 	EnableHAMode bool   `json:"enableHAMode"`
 	Email        string `json:"email"`
+	// DNSProvider selects the DNS backend used by external-dns (record
+	// publication) and cert-manager (DNS-01 wildcard certificates) for the
+	// platform edge. Empty = derive from the cloud provider of the environment
+	// (each cloud's own DNS: DigitalOcean DNS, Route53, Cloud DNS, Azure DNS,
+	// Civo DNS); "none" disables edge DNS/ACME (self-signed TLS, no records);
+	// "cloudflare" uses Cloudflare (token from CLOUDFLARE_API_TOKEN) — the
+	// usual choice for on-prem/custom clusters.
+	DNSProvider string `json:"dnsProvider,omitempty"`
 }
 
 // ClusterConfig represents a key-value cluster configuration

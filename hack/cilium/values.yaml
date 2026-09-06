@@ -2453,7 +2453,11 @@ kubeProxyReplacement: "true"
 # To enable set the value to '0.0.0.0:10256' for all ipv4
 # addresses and this '[::]:10256' for all ipv6 addresses.
 # By default it is disabled.
-kubeProxyReplacementHealthzBindAddr: ""
+# Serve the kube-proxy-compatible healthz on every node. Cloud LoadBalancers
+# (DigitalOcean CCM, AWS, …) health-check node port 10256; with kube-proxy
+# replaced by Cilium nothing answers there by default, so every backend is
+# marked unhealthy and the Gateway LB refuses all traffic. Harmless locally.
+kubeProxyReplacementHealthzBindAddr: "0.0.0.0:10256"
 l2NeighDiscovery:
   # -- Enable L2 neighbor discovery in the agent
   enabled: false

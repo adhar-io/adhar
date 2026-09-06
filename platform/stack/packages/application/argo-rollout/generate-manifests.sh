@@ -5,7 +5,7 @@ set -e
 # Cilium Gateway (manifests/httproute.yaml); the chart Ingress stays disabled.
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="2.41.0"
+CHART_VERSION="2.43.0"
 
 echo "# ARGO ROLLOUTS INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/argo-rollout/generate-manifests.sh'" >>${INSTALL_YAML}

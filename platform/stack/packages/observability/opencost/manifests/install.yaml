@@ -8,10 +8,10 @@ metadata:
   name: opencost
   namespace: adhar-system
   labels:
-    helm.sh/chart: opencost-2.5.22
+    helm.sh/chart: opencost-2.5.30
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.120.3"
+    app.kubernetes.io/version: "1.121.1"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
 automountServiceAccountToken: true
@@ -59,7 +59,7 @@ data:
         text/x-cross-domain-policy;
 
     upstream model {
-            server opencost.monitoring:9003;
+            server opencost.adhar-system:9003;
     }
 
     server {
@@ -109,10 +109,10 @@ kind: ClusterRole
 metadata:
   name: opencost
   labels:
-    helm.sh/chart: opencost-2.5.22
+    helm.sh/chart: opencost-2.5.30
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.120.3"
+    app.kubernetes.io/version: "1.121.1"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
 rules:
@@ -194,10 +194,10 @@ kind: ClusterRoleBinding
 metadata:
   name: opencost
   labels:
-    helm.sh/chart: opencost-2.5.22
+    helm.sh/chart: opencost-2.5.30
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.120.3"
+    app.kubernetes.io/version: "1.121.1"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
 roleRef:
@@ -216,10 +216,10 @@ metadata:
   name: opencost
   namespace: adhar-system
   labels:
-    helm.sh/chart: opencost-2.5.22
+    helm.sh/chart: opencost-2.5.30
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.120.3"
+    app.kubernetes.io/version: "1.121.1"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
 spec:
@@ -245,14 +245,14 @@ metadata:
   name: opencost
   namespace: adhar-system
   labels:
-    helm.sh/chart: opencost-2.5.22
+    helm.sh/chart: opencost-2.5.30
     app.kubernetes.io/name: opencost
     app.kubernetes.io/instance: opencost
-    app.kubernetes.io/version: "1.120.3"
+    app.kubernetes.io/version: "1.121.1"
     app.kubernetes.io/part-of: opencost
     app.kubernetes.io/managed-by: Helm
   annotations:
-    checksum/configs: b3aa8fabf22994651afe233f92c685a13b9a3956ae5784691e2a51087a739cdd
+    checksum/configs: 8a1f56b2d45f362c4201479add5be5b6838b63bdd28c418c38a59355a3f3e684
 spec:
   replicas: 1
   selector:
@@ -275,7 +275,7 @@ spec:
       initContainers:
       containers:
         - name: opencost
-          image: ghcr.io/opencost/opencost:1.120.3@sha256:9f282400e59a4fc886e5fa3bca3c777b9dcae866b781641ca1d1271525d15f72
+          image: ghcr.io/opencost/opencost:1.121.1@sha256:50052694785db32174332670920faf7b7f55d32a91ba3caec1e9207a58338ff5
           imagePullPolicy: IfNotPresent
           args:
           ports:
@@ -296,6 +296,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 30
+            timeoutSeconds: 1
           livenessProbe:
             httpGet:
               path: /healthz
@@ -303,6 +304,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 20
             failureThreshold: 3
+            timeoutSeconds: 1
           readinessProbe:
             httpGet:
               path: /healthz
@@ -310,19 +312,21 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
+            timeoutSeconds: 1
+            successThreshold: 1
           env:
             - name: LOG_LEVEL
               value: info
             - name: CUSTOM_COST_ENABLED
               value: "false"
             - name: INSTALL_NAMESPACE
-              value: monitoring
+              value: adhar-system
             - name: PROMETHEUS_QUERY_RESOLUTION_SECONDS
               value: "300"
             - name: API_PORT
               value: "9003"
             - name: PROMETHEUS_SERVER_ENDPOINT
-              value: "http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090"
+              value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
             - name: INSECURE_SKIP_VERIFY
               value: "false"
             - name: CLUSTER_ID
@@ -348,7 +352,7 @@ spec:
             - name: MCP_HTTP_PORT
               value: "8081"
         - name: opencost-ui
-          image: ghcr.io/opencost/opencost-ui:1.120.3@sha256:12b6e7a844c17f9a4019cdd55e5bfe6c720c1a0961d8a9be2333a97c69bffcc9
+          image: ghcr.io/opencost/opencost-ui:1.121.1@sha256:a2eaa7f585f418deba878e81cf571bdcb7ead07becf18a158138e2a39d28dc5c
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9090

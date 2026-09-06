@@ -14,6 +14,11 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create", "update", "patch"]
+  # Client discovery: any ConfigMap labelled adhar.io/keycloak-client=true
+  # (shipped by an app package) is an OIDC client to ensure — see configure.sh.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -588,6 +593,276 @@ data:
       "webOrigins": ["https://policy-reporter.adhar.localtest.me:8443"]
     }
 
+  # ---------------------------------------------------------------------
+  # configure.sh — the ONE provisioning script, shared by the Sync-hook Job
+  # (KEYCLOAK_CONFIG_MODE=full) and the client-reconcile CronJob
+  # (KEYCLOAK_CONFIG_MODE=clients). Mounted with the payloads at /var/config.
+  #
+  # OIDC clients are data-driven — there is NO hardcoded client list anywhere:
+  #   1. every /var/config/*-client-payload.json key of this ConfigMap;
+  #   2. every ConfigMap in adhar-system labelled adhar.io/keycloak-client=true
+  #      carrying a `client.json` key (same JSON shape; shipped by the app
+  #      package itself — see hack/gen-sso.sh).
+  # Each client is created if missing (or PUT-reconciled: redirectUris,
+  # webOrigins, flags), gets the `groups` default client scope, and — for
+  # confidential clients — its secret is exported into the keycloak-clients
+  # Secret as <PREFIX>_CLIENT_ID / <PREFIX>_CLIENT_SECRET, PREFIX being the
+  # clientId upper-cased with '-' -> '_' (argo-workflows -> ARGO_WORKFLOWS,
+  # adhar-console -> ADHAR_CONSOLE, nexus -> NEXUS). Per-app ExternalSecrets
+  # read those keys through the `keycloak` ClusterSecretStore.
+  #
+  # The CronJob runs the client part every 5 minutes, so a client ConfigMap
+  # added by another package is picked up without re-syncing keycloak.
+  # ---------------------------------------------------------------------
+  configure.sh: |
+    #!/bin/bash
+    set -ex -o pipefail
+
+    MODE="${KEYCLOAK_CONFIG_MODE:-full}"
+    ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
+    USER1_PASSWORD=$(cat /var/secrets/USER_PASSWORD)
+
+    KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080
+    REALM_URL="${KEYCLOAK_URL}/admin/realms/adhar"
+
+    get_token() {
+      curl -sS --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+        --data-urlencode "username=adhar-admin" \
+        --data-urlencode "password=${ADMIN_PASSWORD}" \
+        --data-urlencode "grant_type=password" \
+        --data-urlencode "client_id=admin-cli" \
+        "${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token" | jq -e -r '.access_token'
+    }
+    KEYCLOAK_TOKEN=$(get_token)
+
+    set +e
+
+    # Master-realm admin tokens default to a 60s lifespan; a full run can take
+    # longer than that between API calls and every call after expiry got HTTP
+    # 401, leaving the realm half-provisioned. Raise the lifespan first and
+    # fetch a fresh token that carries it, so the whole script runs inside one
+    # valid token.
+    curl -sS -H "Content-Type: application/json" \
+      -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+      -X PUT --data '{"accessTokenLifespan":1800}' \
+      "${KEYCLOAK_URL}/admin/realms/master"
+    KEYCLOAK_TOKEN=$(get_token)
+
+    # --- helpers ---------------------------------------------------------
+    kc() { curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "$@"; }
+    client_uuid() { kc "${REALM_URL}/clients?clientId=$1" | jq -r '.[0].id // empty'; }
+    groups_scope_id() { kc "${REALM_URL}/client-scopes" | jq -r '.[] | select(.name=="groups") | .id'; }
+    # keycloak-clients key prefix: clientId upper-cased, '-' -> '_'.
+    key_prefix() { echo "$1" | tr '[:lower:]' '[:upper:]' | tr '-' '_'; }
+    realm_exists() { curl -sS --fail -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${REALM_URL}" >/dev/null 2>&1; }
+
+    # ensure_clients_secret: the keycloak-clients Secret lives in the cluster
+    # and can be lost independently of the realm (e.g. a namespace migration)
+    # — recreate it when missing so the per-client patches below have a
+    # target and every OIDC ExternalSecret downstream can resolve.
+    # ARGOCD_SESSION_TOKEN (console's ArgoCD integration) is best-effort:
+    # ArgoCD may be briefly unreachable and that must not abort the run.
+    argocd_session_token() {
+      local pw
+      pw=$(kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}' 2>/dev/null || true)
+      curl -sS http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80/api/v1/session \
+        -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${pw}\"}" 2>/dev/null \
+        | jq -r '.token // empty' 2>/dev/null || true
+    }
+    ensure_clients_secret() {
+      local tok
+      if kubectl -n adhar-system get secret keycloak-clients >/dev/null 2>&1; then
+        if [ "${MODE}" = "full" ]; then
+          tok=$(argocd_session_token)
+          if [ -n "${tok}" ]; then
+            { set +x; kubectl -n adhar-system patch secret keycloak-clients --type merge \
+                -p "{\"stringData\":{\"ARGOCD_SESSION_TOKEN\":\"${tok}\"}}" >/dev/null; set -x; } 2>/dev/null
+          fi
+        fi
+        return 0
+      fi
+      echo "keycloak-clients secret missing; creating"
+      tok=$(argocd_session_token)
+      # Value quoted/empty-safe: an empty token must still create the key,
+      # otherwise consumers of it fail with 'could not get secret data'.
+      { set +x; kubectl -n adhar-system create secret generic keycloak-clients \
+          --from-literal=ARGOCD_SESSION_TOKEN="${tok}" >/dev/null; set -x; } 2>/dev/null
+    }
+
+    # ensure_client <payload.json>: create-or-reconcile one OIDC client,
+    # attach the groups scope, export its secret. Non-fatal per client.
+    # NOTE: keep "description" under 255 chars — Keycloak stores it in a
+    # varchar(255) and a longer value fails creation with an opaque 500.
+    ensure_client() {
+      local pf="$1" cid id kp rsec
+      cid=$(jq -r '.clientId // empty' "${pf}" 2>/dev/null)
+      if [ -z "${cid}" ]; then echo "skipping ${pf}: no clientId"; return 0; fi
+      id=$(client_uuid "${cid}")
+      if [ -n "${id}" ]; then
+        # Reconcile the representation (redirect URIs, web origins, flags) on
+        # EVERY run, so config changes reach existing clients — otherwise SSO
+        # breaks with redirect_uri mismatch after e.g. a host move.
+        echo "reconciling client ${cid}"
+        kc -X PUT --data @"${pf}" "${REALM_URL}/clients/${id}" >/dev/null 2>&1 || true
+      else
+        echo "creating client ${cid}"
+        kc -X POST --data @"${pf}" "${REALM_URL}/clients" >/dev/null 2>&1
+        id=$(client_uuid "${cid}")
+        if [ -z "${id}" ]; then echo "WARNING: client ${cid} could not be created (payload ${pf})"; return 0; fi
+      fi
+      # groups default scope: tokens carry the groups claim that app RBAC keys on.
+      if [ -n "${GROUPS_SCOPE_ID}" ]; then
+        kc -X PUT "${REALM_URL}/clients/${id}/default-client-scopes/${GROUPS_SCOPE_ID}" >/dev/null 2>&1 || true
+      fi
+      # Public clients (adhar-cli, kargo, kargo-cli) have no secret to export.
+      if [ "$(jq -r '.publicClient // false' "${pf}")" = "true" ]; then return 0; fi
+      # Keep keycloak-clients authoritative from Keycloak on every run: client
+      # secrets can drift (a recreate, a manual regenerate) and a stale copy
+      # silently breaks the app's token exchange.
+      rsec=$(kc "${REALM_URL}/clients/${id}" | jq -r '.secret // empty')
+      if [ -z "${rsec}" ]; then echo "WARNING: client ${cid} has no secret"; return 0; fi
+      kp=$(key_prefix "${cid}")
+      { set +x; kubectl -n adhar-system patch secret keycloak-clients --type merge \
+          -p "{\"stringData\":{\"${kp}_CLIENT_ID\":\"${cid}\",\"${kp}_CLIENT_SECRET\":\"${rsec}\"}}" >/dev/null \
+          && echo "keycloak-clients: ${kp}_CLIENT_SECRET set"; set -x; } 2>/dev/null
+    }
+
+    # reconcile_clients: gather every client payload from both sources and
+    # run ensure_client on each. Idempotent; this is all the CronJob does.
+    reconcile_clients() {
+      local d=/tmp/clients f name b64
+      GROUPS_SCOPE_ID=$(groups_scope_id)
+      rm -rf "${d}"; mkdir -p "${d}"
+      for f in /var/config/*-client-payload.json; do
+        [ -f "${f}" ] && cp "${f}" "${d}/file-$(basename "${f}")"
+      done
+      kubectl -n adhar-system get configmap -l adhar.io/keycloak-client=true -o json 2>/dev/null \
+        | jq -r '.items[] | select(.data["client.json"] != null) | "\(.metadata.name) \(.data["client.json"] | @base64)"' \
+        | while read -r name b64; do
+            echo "${b64}" | base64 -d > "${d}/cm-${name}.json"
+          done
+      for f in "${d}"/*.json; do
+        [ -f "${f}" ] || continue
+        ensure_client "${f}"
+      done
+    }
+
+    # --- clients-only mode (CronJob) -------------------------------------
+    if [ "${MODE}" = "clients" ]; then
+      if ! realm_exists; then
+        echo "adhar realm not provisioned yet; nothing to reconcile"
+        exit 0
+      fi
+      ensure_clients_secret
+      reconcile_clients
+      exit 0
+    fi
+
+    # --- full mode (Sync-hook Job) ---------------------------------------
+
+    # The platform runs behind the self-signed Cilium Gateway, which
+    # terminates TLS and forwards to Keycloak over plain HTTP. With the
+    # realm default sslRequired=external, Keycloak rejects browser logins
+    # coming from an external client with {"error":"HTTPS required"} unless
+    # the proxy's X-Forwarded-Proto=https reaches it — which is not
+    # guaranteed here. Relax the MASTER realm (admin console login) to
+    # sslRequired=NONE on every sync, so admin login keeps working.
+    kc -X PUT --data '{"sslRequired":"NONE"}' "${KEYCLOAK_URL}/admin/realms/master"
+
+    # Same for the adhar realm (user1/user2 + app SSO). No-op 404 on the very
+    # first run before the realm exists (it is then created with
+    # sslRequired=NONE from realm-payload.json below); on later runs it fixes
+    # a pre-existing realm created as sslRequired=external. Also (re)applies
+    # the Adhar-branded login theme so it survives realm re-imports.
+    kc -X PUT --data '{"sslRequired":"NONE","loginTheme":"adhar"}' "${REALM_URL}"
+
+    # A realm can exist half-provisioned: an earlier run that died mid-way
+    # created the realm but none of the clients. Treating bare existence as
+    # "provisioned" rebuilt keycloak-clients with EMPTY secrets. Only treat
+    # the realm as provisioned when the sentinel client is present too;
+    # otherwise drop the partial realm and provision from scratch.
+    REALM_OK=1
+    realm_exists || REALM_OK=0
+    if [ "${REALM_OK}" = "1" ] && [ -z "$(client_uuid argocd)" ]; then
+      echo "adhar realm exists but is half-provisioned (no argocd client); recreating"
+      kc -X DELETE "${REALM_URL}"
+      REALM_OK=0
+    fi
+
+    if [ "${REALM_OK}" = "0" ]; then
+      set -e
+      echo "creating adhar realm and groups"
+      kc -X POST --data @/var/config/realm-payload.json "${KEYCLOAK_URL}/admin/realms"
+      kc -X POST --data @/var/config/client-scope-groups-payload.json "${REALM_URL}/client-scopes"
+      kc -X POST --data @/var/config/group-admin-payload.json "${REALM_URL}/groups"
+      kc -X POST --data @/var/config/group-base-user-payload.json "${REALM_URL}/groups"
+
+      echo "creating platform RBAC groups"
+      kc -X POST --data @/var/config/group-platform-admin-payload.json "${REALM_URL}/groups"
+      kc -X POST --data @/var/config/group-platform-developer-payload.json "${REALM_URL}/groups"
+      kc -X POST --data @/var/config/group-platform-viewer-payload.json "${REALM_URL}/groups"
+      kc -X POST --data @/var/config/group-platform-engineer-payload.json "${REALM_URL}/groups"
+      kc -X POST --data @/var/config/group-application-admin-payload.json "${REALM_URL}/groups"
+
+      echo "adding group claim to tokens"
+      CLIENT_SCOPE_GROUPS_ID=$(kc "${REALM_URL}/client-scopes" | jq -e -r '.[] | select(.name == "groups") | .id')
+      kc -X POST --data @/var/config/group-mapper-payload.json \
+        "${REALM_URL}/client-scopes/${CLIENT_SCOPE_GROUPS_ID}/protocol-mappers/models"
+
+      echo "creating test users"
+      kc -X POST --data @/var/config/user-user1.json "${REALM_URL}/users"
+      kc -X POST --data @/var/config/user-user2.json "${REALM_URL}/users"
+      USER1ID=$(kc "${REALM_URL}/users?lastName=one" | jq -r '.[0].id')
+      USER2ID=$(kc "${REALM_URL}/users?lastName=two" | jq -r '.[0].id')
+
+      echo "setting user passwords"
+      jq -r --arg pass "${USER1_PASSWORD}" '.value = $pass' /var/config/user-password.json > /tmp/user-password-to-be-applied.json
+      kc -X PUT --data @/tmp/user-password-to-be-applied.json "${REALM_URL}/users/${USER1ID}/reset-password"
+      kc -X PUT --data @/tmp/user-password-to-be-applied.json "${REALM_URL}/users/${USER2ID}/reset-password"
+      set +e
+    fi
+
+    # Clients + keycloak-clients: the same data-driven pass on a fresh AND an
+    # existing realm, so every client (including ones shipped by other
+    # packages that are already present) converges on the FIRST run.
+    ensure_clients_secret
+    reconcile_clients
+
+    # Grant the adhar-console client's SERVICE ACCOUNT the realm-management
+    # roles the console needs to (a) reflect workspace teams / org-roles into
+    # realm groups and (b) provision per-tenant groups during onboarding
+    # (create group + add members): manage-realm + manage-users cover group
+    # create/delete + user group-membership; view-users/query-users/
+    # query-groups cover lookups. The console authenticates with
+    # client_credentials using its own (already-wired) secret.
+    #
+    # Retry + verify: on a fresh realm the client's service-account user can
+    # lag behind client creation, and a single best-effort POST then silently
+    # no-ops — leaving the console SA with ZERO realm-management roles, so
+    # onboarding's Keycloak provisioning step 403s. Force
+    # serviceAccountsEnabled, poll for the SA user, assign, and read the
+    # mapping back until manage-users is actually present. Non-fatal.
+    rm_id=$(client_uuid realm-management)
+    for attempt in 1 2 3 4 5 6; do
+      ac_id=$(client_uuid adhar-console)
+      if [ -n "${ac_id}" ]; then
+        kc -X PUT --data '{"serviceAccountsEnabled":true}' "${REALM_URL}/clients/${ac_id}" >/dev/null 2>&1 || true
+        sa_uid=$(kc "${REALM_URL}/clients/${ac_id}/service-account-user" | jq -r '.id // empty')
+      fi
+      if [ -n "${sa_uid}" ] && [ -n "${rm_id}" ]; then
+        rm_roles=$(kc "${REALM_URL}/clients/${rm_id}/roles" \
+          | jq -c '[.[] | select(.name=="manage-realm" or .name=="manage-users" or .name=="view-users" or .name=="query-users" or .name=="query-groups")]')
+        if [ -n "${rm_roles}" ] && [ "${rm_roles}" != "[]" ]; then
+          kc -X POST --data "${rm_roles}" "${REALM_URL}/users/${sa_uid}/role-mappings/clients/${rm_id}" >/dev/null 2>&1 || true
+        fi
+        have=$(kc "${REALM_URL}/users/${sa_uid}/role-mappings/clients/${rm_id}" | jq -r '[.[].name] | join(",")')
+        echo "adhar-console SA realm-management roles (attempt ${attempt}): ${have}"
+        case ",${have}," in *,manage-users,*) echo "granted realm-management roles to adhar-console service account"; break;; esac
+      fi
+      sleep 5
+    done
+    exit 0
+
 ---
 apiVersion: batch/v1
 kind: Job
@@ -632,657 +907,69 @@ spec:
             - name: config-payloads
               readOnly: true
               mountPath: "/var/config/"
-          command: ["/bin/bash", "-c"]
-          args:
-            - |
-              #! /bin/bash
-  
-              set -ex -o pipefail
-              
-              ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
-              USER1_PASSWORD=$(cat /var/secrets/USER_PASSWORD)
-
-              KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080
-
-              KEYCLOAK_TOKEN=$(curl -sS  --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
-                --data-urlencode "username=adhar-admin" \
-                --data-urlencode "password=${ADMIN_PASSWORD}" \
-                --data-urlencode "grant_type=password" \
-                --data-urlencode "client_id=admin-cli" \
-                ${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token | jq -e -r '.access_token')
-                
-              set +e
-
-              # Master-realm admin tokens default to a 60s lifespan, but this job
-              # spends minutes in apt installs and kubectl downloads between API
-              # calls — every call after the first slow section then got HTTP 401
-              # and the job died half-provisioned. Raise the lifespan first and
-              # fetch a fresh token that carries it, so the whole script runs
-              # inside one valid token.
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT --data '{"accessTokenLifespan":1800}' \
-                "${KEYCLOAK_URL}/admin/realms/master"
-              KEYCLOAK_TOKEN=$(curl -sS --fail-with-body -X POST -H "Content-Type: application/x-www-form-urlencoded" \
-                --data-urlencode "username=adhar-admin" \
-                --data-urlencode "password=${ADMIN_PASSWORD}" \
-                --data-urlencode "grant_type=password" \
-                --data-urlencode "client_id=admin-cli" \
-                ${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token | jq -e -r '.access_token')
-
-              # The platform runs behind the self-signed Cilium Gateway, which
-              # terminates TLS and forwards to Keycloak over plain HTTP. With the
-              # realm default sslRequired=external, Keycloak rejects browser logins
-              # coming from an external client with {"error":"HTTPS required"} unless
-              # the proxy's X-Forwarded-Proto=https reaches it — which is not
-              # guaranteed here. Relax the MASTER realm (admin console login) to
-              # sslRequired=NONE. This runs on every sync, BEFORE the early-exit
-              # below, so admin login keeps working even after the realm exists.
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT --data '{"sslRequired":"NONE"}' \
-                "${KEYCLOAK_URL}/admin/realms/master"
-
-              # Same for the adhar realm (user1/user2 + app SSO). This is a no-op
-              # 404 on the very first run before the realm exists (it is then
-              # created with sslRequired=NONE from realm-payload.json below), and
-              # on later runs it fixes a pre-existing realm that was created as
-              # sslRequired=external. Also (re)applies the Adhar-branded login
-              # theme on every sync so it survives realm re-imports.
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT --data '{"sslRequired":"NONE","loginTheme":"adhar"}' \
-                "${KEYCLOAK_URL}/admin/realms/adhar"
-
-              # Reconcile OIDC client configs (redirect URIs, scopes, web origins) on
-              # EVERY sync by PUT-ing the desired client representation onto the
-              # existing client. Without this, the early-exit below skips client
-              # setup on an already-provisioned realm, so config changes (e.g. the
-              # move to per-app subdomains) never reach the clients and SSO breaks
-              # with redirect_uri mismatch. Non-fatal (runs under set +e).
-              for c in argo adhar-console headlamp grafana argocd gitea prometheus vault harbor rustfs minio adhar-cli tekton nexus argo-rollout policy-reporter; do
-                pf="/var/config/${c}-client-payload.json"
-                [ -f "${pf}" ] || continue
-                cid=$(jq -r '.clientId' "${pf}")
-                id=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                  "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
-                if [ -n "${id}" ]; then
-                  echo "reconciling client ${cid}"
-                  curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                    -X PUT --data @"${pf}" "${KEYCLOAK_URL}/admin/realms/adhar/clients/${id}" >/dev/null 2>&1 || true
-                else
-                  # Client missing on an already-provisioned realm (e.g. a newly
-                  # added client like adhar-console). Create it and attach the
-                  # groups default scope so its tokens carry the groups claim.
-                  echo "creating missing client ${cid}"
-                  curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                    -X POST --data @"${pf}" "${KEYCLOAK_URL}/admin/realms/adhar/clients" >/dev/null 2>&1 || true
-                  id=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                    "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
-                  gid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                    "${KEYCLOAK_URL}/admin/realms/adhar/client-scopes" | jq -r '.[] | select(.name=="groups") | .id')
-                  if [ -n "${id}" ] && [ -n "${gid}" ]; then
-                    curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                      -X PUT "${KEYCLOAK_URL}/admin/realms/adhar/clients/${id}/default-client-scopes/${gid}" >/dev/null 2>&1 || true
-                  fi
-                fi
-              done
-
-              # Grant the adhar-console client's SERVICE ACCOUNT the realm-
-              # management roles the console needs to reflect workspace teams /
-              # org-roles into realm groups (cluster RBAC): manage-realm +
-              # manage-users cover group create/delete + user group-membership;
-              # view-users/query-groups cover lookups. The console authenticates
-              # with client_credentials using its own (already-wired) secret, so
-              # no separate admin credential is needed. Idempotent (re-POSTing
-              # existing role mappings is a no-op) and non-fatal (set +e) — on
-              # failure the console just stays "console-only" until next reconcile.
-              ac_id=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=adhar-console" | jq -r '.[0].id // empty')
-              if [ -n "${ac_id}" ]; then
-                sa_uid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                  "${KEYCLOAK_URL}/admin/realms/adhar/clients/${ac_id}/service-account-user" | jq -r '.id // empty')
-                rm_id=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                  "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=realm-management" | jq -r '.[0].id // empty')
-                if [ -n "${sa_uid}" ] && [ -n "${rm_id}" ]; then
-                  rm_roles=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                    "${KEYCLOAK_URL}/admin/realms/adhar/clients/${rm_id}/roles" \
-                    | jq -c '[.[] | select(.name=="manage-realm" or .name=="manage-users" or .name=="view-users" or .name=="query-groups")]')
-                  if [ -n "${rm_roles}" ] && [ "${rm_roles}" != "[]" ]; then
-                    curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                      -X POST --data "${rm_roles}" \
-                      "${KEYCLOAK_URL}/admin/realms/adhar/users/${sa_uid}/role-mappings/clients/${rm_id}" >/dev/null 2>&1 || true
-                    echo "granted realm-management roles to adhar-console service account"
-                  fi
-                fi
-              fi
-
-              # Re-sync EVERY confidential client's actual Keycloak secret back
-              # into the keycloak-clients Secret on every reconcile. Client
-              # secrets live in Keycloak and can drift from keycloak-clients
-              # (a reconcile PUT/recreate, a manual regenerate, a partial realm
-              # rebuild). When they drift, the app holds a stale secret and its
-              # server-side OAuth token exchange fails — SSO silently breaks
-              # (observed on grafana; previously only adhar-console was resynced
-              # here). Keeping keycloak-clients authoritative from Keycloak fixes
-              # every OIDC ExternalSecret downstream. Non-fatal (set +e).
-              if kubectl -n adhar-system get secret keycloak-clients >/dev/null 2>&1; then
-                # clientId:KEYPREFIX pairs (KEYPREFIX matches the keycloak-clients keys).
-                for pair in argo-workflows:ARGO_WORKFLOWS adhar-console:ADHAR_CONSOLE headlamp:HEADLAMP grafana:GRAFANA argocd:ARGOCD gitea:GITEA prometheus:PROMETHEUS vault:VAULT harbor:HARBOR rustfs:RUSTFS tekton:TEKTON minio:MINIO jupyterhub:JUPYTERHUB nexus:NEXUS argo-rollout:ARGO_ROLLOUT policy-reporter:POLICY_REPORTER; do
-                  cid="${pair%%:*}"; kp="${pair##*:}"
-                  rid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                    "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
-                  [ -n "${rid}" ] || continue
-                  rsec=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                    "${KEYCLOAK_URL}/admin/realms/adhar/clients/${rid}" | jq -r '.secret // empty')
-                  [ -n "${rsec}" ] || continue
-                  kubectl -n adhar-system patch secret keycloak-clients --type merge \
-                    -p "{\"stringData\":{\"${kp}_CLIENT_ID\":\"${cid}\",\"${kp}_CLIENT_SECRET\":\"${rsec}\"}}" >/dev/null 2>&1 || true
-                done
-              fi
-
-              # A realm can exist half-provisioned: an earlier job run that died
-              # mid-way (e.g. on token expiry) created the realm but none of the
-              # clients. Treating bare existence as "provisioned" made the
-              # early-exit below rebuild keycloak-clients with EMPTY secrets and
-              # exit 0, silently breaking SSO everywhere. Only early-exit when a
-              # sentinel client is present too; otherwise drop the partial realm
-              # and run full provisioning.
-              REALM_OK=1
-              curl --fail-with-body -H "Authorization: bearer ${KEYCLOAK_TOKEN}"  "${KEYCLOAK_URL}/admin/realms/adhar"  &> /dev/null || REALM_OK=0
-              if [ "${REALM_OK}" = "1" ]; then
-                SENTINEL=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=argocd" | jq -r '.[0].id // empty')
-                if [ -z "${SENTINEL}" ]; then
-                  echo "adhar realm exists but is half-provisioned (no argocd client); recreating"
-                  curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X DELETE "${KEYCLOAK_URL}/admin/realms/adhar"
-                  REALM_OK=0
-                fi
-              fi
-              if [ "${REALM_OK}" = "1" ]; then
-                # Realm already provisioned. The keycloak-clients Secret lives in
-                # the cluster and can be lost independently of the realm (e.g. a
-                # namespace migration) — rebuild it from Keycloak if missing,
-                # otherwise every OIDC ExternalSecret downstream stays broken.
-                SA_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-                SA_CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-                if ! curl -sS --fail --cacert "${SA_CA}" -H "Authorization: Bearer ${SA_TOKEN}" \
-                    "https://kubernetes.default.svc/api/v1/namespaces/adhar-system/secrets/keycloak-clients" &>/dev/null; then
-                  echo "keycloak-clients secret missing; rebuilding from Keycloak"
-                  getsec() { curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=$1" | jq -r '.[0].secret // empty'; }
-                  ARGOCD_PASSWORD=$(kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}' 2>/dev/null || true)
-                  ARGOCD_SESSION_TOKEN=$(curl -sS http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" 2>/dev/null | jq -r '.token // empty' 2>/dev/null || true)
-                  kubectl -n adhar-system create secret generic keycloak-clients \
-                    --from-literal=ARGO_WORKFLOWS_CLIENT_ID=argo-workflows --from-literal=ARGO_WORKFLOWS_CLIENT_SECRET="$(getsec argo-workflows)" \
-                    --from-literal=ARGOCD_SESSION_TOKEN="${ARGOCD_SESSION_TOKEN}" \
-                    --from-literal=ADHAR_CONSOLE_CLIENT_ID=adhar-console --from-literal=ADHAR_CONSOLE_CLIENT_SECRET="$(getsec adhar-console)" \
-                    --from-literal=HEADLAMP_CLIENT_ID=headlamp --from-literal=HEADLAMP_CLIENT_SECRET="$(getsec headlamp)" \
-                    --from-literal=GRAFANA_CLIENT_ID=grafana --from-literal=GRAFANA_CLIENT_SECRET="$(getsec grafana)" \
-                    --from-literal=ARGOCD_CLIENT_ID=argocd --from-literal=ARGOCD_CLIENT_SECRET="$(getsec argocd)" \
-                    --from-literal=GITEA_CLIENT_ID=gitea --from-literal=GITEA_CLIENT_SECRET="$(getsec gitea)" \
-                    --from-literal=PROMETHEUS_CLIENT_ID=prometheus --from-literal=PROMETHEUS_CLIENT_SECRET="$(getsec prometheus)" \
-                    --from-literal=VAULT_CLIENT_ID=vault --from-literal=VAULT_CLIENT_SECRET="$(getsec vault)" \
-                    --from-literal=HARBOR_CLIENT_ID=harbor --from-literal=HARBOR_CLIENT_SECRET="$(getsec harbor)" \
-                    --from-literal=RUSTFS_CLIENT_ID=rustfs --from-literal=RUSTFS_CLIENT_SECRET="$(getsec rustfs)" \
-                    --from-literal=TEKTON_CLIENT_ID=tekton --from-literal=TEKTON_CLIENT_SECRET="$(getsec tekton)" \
-                    --from-literal=MINIO_CLIENT_ID=minio --from-literal=MINIO_CLIENT_SECRET="$(getsec minio)" \
-                    --from-literal=ARGO_ROLLOUT_CLIENT_ID=argo-rollout --from-literal=ARGO_ROLLOUT_CLIENT_SECRET="$(getsec argo-rollout)" \
-                    --from-literal=POLICY_REPORTER_CLIENT_ID=policy-reporter --from-literal=POLICY_REPORTER_CLIENT_SECRET="$(getsec policy-reporter)" \
-                    --from-literal=JUPYTERHUB_CLIENT_ID=jupyterhub --from-literal=JUPYTERHUB_CLIENT_SECRET="$(getsec jupyterhub)" \
-                    --dry-run=client -o yaml | kubectl apply -f -
-                fi
-                exit 0
-              fi
-              set -e
-              
-              echo "creating adhar realm and groups"
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/realm-payload.json \
-                ${KEYCLOAK_URL}/admin/realms
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/client-scope-groups-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/group-admin-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/groups
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/group-base-user-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/groups
-
-              echo "creating platform RBAC groups"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/group-platform-admin-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/groups
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/group-platform-developer-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/groups
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/group-platform-viewer-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/groups
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/group-platform-engineer-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/groups
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/group-application-admin-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/groups
-
-              # Create scope mapper
-                echo 'adding group claim to tokens'
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/group-mapper-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes/${CLIENT_SCOPE_GROUPS_ID}/protocol-mappers/models
-                
-              echo "creating test users"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/user-user1.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/users
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/user-user2.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/users
-              
-              USER1ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${KEYCLOAK_URL}/admin/realms/adhar/users?lastName=one" | jq -r '.[0].id')
-              USER2ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" "${KEYCLOAK_URL}/admin/realms/adhar/users?lastName=two" | jq -r '.[0].id')
-              
-              echo "setting user passwords"
-              jq -r --arg pass ${USER1_PASSWORD}  '.value = $pass' /var/config/user-password.json > /tmp/user-password-to-be-applied.json
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT --data @/tmp/user-password-to-be-applied.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/users/${USER1ID}/reset-password
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT --data @/tmp/user-password-to-be-applied.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/users/${USER2ID}/reset-password
-            
-              echo "creating Argo Workflows client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                  -X POST --data @/var/config/argo-client-payload.json \
-                  ${KEYCLOAK_URL}/admin/realms/adhar/clients
-              
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "argo-workflows") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-              
-              ARGO_WORKFLOWS_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-              
-              # adhar-console: the dedicated confidential client for the Adhar
-              # Console. Access tokens carry aud=kubernetes (matches the
-              # apiserver --oidc-client-id) + the groups claim, so per-user
-              # kube-apiserver impersonation + RBAC work end-to-end.
-              echo "creating Adhar Console client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/adhar-console-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "adhar-console") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              ADHAR_CONSOLE_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              echo "creating Headlamp client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                  -X POST --data @/var/config/headlamp-client-payload.json \
-                  ${KEYCLOAK_URL}/admin/realms/adhar/clients
-              
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "headlamp") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-              
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-              
-              HEADLAMP_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              echo "creating Grafana client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                  -X POST --data @/var/config/grafana-client-payload.json \
-                  ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "grafana") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              GRAFANA_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              echo "creating ArgoCD client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/argocd-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "argocd") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              ARGOCD_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              echo "creating Gitea client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/gitea-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "gitea") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              GITEA_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              echo "creating Prometheus client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/prometheus-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "prometheus") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              PROMETHEUS_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              echo "creating Vault client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/vault-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "vault") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              VAULT_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              echo "creating Harbor client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/harbor-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "harbor") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              HARBOR_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              echo "creating RustFS client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/rustfs-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "rustfs") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              RUSTFS_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              echo "creating MinIO client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/minio-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "minio") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              MINIO_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-              -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-              -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              # adhar-cli: public client for the CLI's login/token/whoami
-              # (password grant + refresh). No secret export — public client;
-              # the groups scope makes tokens carry the groups claim that the
-              # Kubernetes RBAC bindings key on (k8s-rbac.yaml).
-              echo "creating Adhar CLI client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/adhar-cli-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "adhar-cli") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-
-              echo "creating Tekton client"
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/tekton-client-payload.json \
-                ${KEYCLOAK_URL}/admin/realms/adhar/clients
-
-              CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients | jq -e -r  '.[] | select(.clientId == "tekton") | .id')
-              CLIENT_SCOPE_GROUPS_ID=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET  ${KEYCLOAK_URL}/admin/realms/adhar/client-scopes | jq -e -r  '.[] | select(.name == "groups") | .id')
-              curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X PUT  ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID}/default-client-scopes/${CLIENT_SCOPE_GROUPS_ID}
-              TEKTON_CLIENT_SECRET=$(curl -sS -H "Content-Type: application/json" \
-                -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X GET ${KEYCLOAK_URL}/admin/realms/adhar/clients/${CLIENT_ID} | jq -e -r '.secret')
-
-              ARGOCD_PASSWORD=$(kubectl -n adhar-system get secret argocd-initial-admin-secret -o go-template='{{.data.password | base64decode }}')
-
-              # ArgoCD session token for the console's ArgoCD integration. This is
-              # best-effort: ArgoCD runs insecure HTTP (port 80, not 443), and if
-              # it is briefly unreachable we must NOT abort — otherwise (set -e)
-              # the job dies before writing keycloak-clients below and the whole
-              # OIDC chain stalls. `// empty` + `|| true` keep it non-fatal.
-              ARGOCD_SESSION_TOKEN=$(curl -sS http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" 2>/dev/null | jq -r '.token // empty' 2>/dev/null || true)
-              
-              echo \
-              "apiVersion: v1
-              kind: Secret
-              metadata:
-                name: keycloak-clients
-                namespace: adhar-system
-              type: Opaque
-              stringData:
-                # Values are quoted so an empty one (e.g. ARGOCD_SESSION_TOKEN
-                # when ArgoCD login is briefly unavailable) is written as an
-                # empty string rather than YAML null — otherwise kubectl drops
-                # the key entirely and every ExternalSecret that reads it (e.g.
-                # console-oidc) fails with 'could not get secret data'.
-                ARGO_WORKFLOWS_CLIENT_SECRET: \"${ARGO_WORKFLOWS_CLIENT_SECRET}\"
-                ARGO_WORKFLOWS_CLIENT_ID: \"argo-workflows\"
-                ARGOCD_SESSION_TOKEN: \"${ARGOCD_SESSION_TOKEN}\"
-                ADHAR_CONSOLE_CLIENT_SECRET: \"${ADHAR_CONSOLE_CLIENT_SECRET}\"
-                ADHAR_CONSOLE_CLIENT_ID: \"adhar-console\"
-                HEADLAMP_CLIENT_SECRET: \"${HEADLAMP_CLIENT_SECRET}\"
-                HEADLAMP_CLIENT_ID: \"headlamp\"
-                GRAFANA_CLIENT_SECRET: \"${GRAFANA_CLIENT_SECRET}\"
-                GRAFANA_CLIENT_ID: \"grafana\"
-                ARGOCD_CLIENT_SECRET: \"${ARGOCD_CLIENT_SECRET}\"
-                ARGOCD_CLIENT_ID: \"argocd\"
-                GITEA_CLIENT_SECRET: \"${GITEA_CLIENT_SECRET}\"
-                GITEA_CLIENT_ID: \"gitea\"
-                PROMETHEUS_CLIENT_SECRET: \"${PROMETHEUS_CLIENT_SECRET}\"
-                PROMETHEUS_CLIENT_ID: \"prometheus\"
-                VAULT_CLIENT_SECRET: \"${VAULT_CLIENT_SECRET}\"
-                VAULT_CLIENT_ID: \"vault\"
-                HARBOR_CLIENT_SECRET: \"${HARBOR_CLIENT_SECRET}\"
-                HARBOR_CLIENT_ID: \"harbor\"
-                RUSTFS_CLIENT_SECRET: \"${RUSTFS_CLIENT_SECRET}\"
-                TEKTON_CLIENT_ID: tekton
-                TEKTON_CLIENT_SECRET: \"${TEKTON_CLIENT_SECRET}\"
-                RUSTFS_CLIENT_ID: \"rustfs\"
-                MINIO_CLIENT_SECRET: \"${MINIO_CLIENT_SECRET}\"
-                MINIO_CLIENT_ID: \"minio\"
-              " > /tmp/secret.yaml
-
-              kubectl apply -f /tmp/secret.yaml
-
-              # --- Fresh-cluster convergence catch-all ------------------------
-              # The explicit per-client blocks above provision 13 clients and
-              # build keycloak-clients from them. Any confidential client NOT in
-              # that set (argo-rollout, policy-reporter, jupyterhub) would
-              # otherwise only be created on a SECOND job run (via the reconcile
-              # loop, which needs the realm to already exist), leaving its
-              # oauth2-proxy ExternalSecret unresolved and the app Degraded on a
-              # fresh `adhar up`. This data-driven pass ensures each such client
-              # exists (created from its mounted payload, with the groups scope)
-              # and writes its secret into keycloak-clients on the FIRST run.
-              # Extend it by adding a clientId:KEYPREFIX pair here plus the
-              # matching <clientId>-client-payload.json above. Non-fatal.
-              set +e
-              GROUPS_SCOPE_ID=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                "${KEYCLOAK_URL}/admin/realms/adhar/client-scopes" | jq -r '.[] | select(.name=="groups") | .id')
-              for pair in nexus:NEXUS argo-rollout:ARGO_ROLLOUT policy-reporter:POLICY_REPORTER jupyterhub:JUPYTERHUB; do
-                cid="${pair%%:*}"; kp="${pair##*:}"
-                pf="/var/config/${cid}-client-payload.json"
-                rid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                  "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
-                if [ -z "${rid}" ] && [ -f "${pf}" ]; then
-                  echo "provisioning missing client ${cid}"
-                  curl -sS -H "Content-Type: application/json" -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                    -X POST --data @"${pf}" "${KEYCLOAK_URL}/admin/realms/adhar/clients" >/dev/null 2>&1
-                  rid=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                    "${KEYCLOAK_URL}/admin/realms/adhar/clients?clientId=${cid}" | jq -r '.[0].id // empty')
-                  if [ -n "${rid}" ] && [ -n "${GROUPS_SCOPE_ID}" ]; then
-                    curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                      -X PUT "${KEYCLOAK_URL}/admin/realms/adhar/clients/${rid}/default-client-scopes/${GROUPS_SCOPE_ID}" >/dev/null 2>&1
-                  fi
-                fi
-                [ -n "${rid}" ] || continue
-                rsec=$(curl -sS -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                  "${KEYCLOAK_URL}/admin/realms/adhar/clients/${rid}" | jq -r '.secret // empty')
-                [ -n "${rsec}" ] || continue
-                kubectl -n adhar-system patch secret keycloak-clients --type merge \
-                  -p "{\"stringData\":{\"${kp}_CLIENT_ID\":\"${cid}\",\"${kp}_CLIENT_SECRET\":\"${rsec}\"}}" >/dev/null 2>&1
-                echo "keycloak-clients: ${kp}_CLIENT_SECRET set"
-              done
-              
+          env:
+            - name: KEYCLOAK_CONFIG_MODE
+              value: full
+          command: ["/bin/bash", "/var/config/configure.sh"]
+---
+# Client reconciler: every 5 minutes, run ONLY the client part of configure.sh
+# (idempotent). This is what lets an app package ship its own Keycloak client
+# (a ConfigMap labelled adhar.io/keycloak-client=true with client.json — see
+# hack/gen-sso.sh) and have it provisioned, with its secret exported into
+# keycloak-clients, without a keycloak re-sync. Full realm configuration stays
+# with the Sync-hook Job above.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: keycloak-client-reconcile
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: keycloak-client-reconcile
+    app.kubernetes.io/part-of: keycloak
+  annotations:
+    # After the realm job (wave 20); a run before the realm exists is a no-op.
+    argocd.argoproj.io/sync-wave: "25"
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # Must finish inside the 5-minute period (Forbid skips overlapping runs).
+      activeDeadlineSeconds: 240
+      ttlSecondsAfterFinished: 900
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: keycloak-client-reconcile
+        spec:
+          serviceAccountName: keycloak-config
+          restartPolicy: Never
+          volumes:
+            - name: keycloak-config
+              secret:
+                secretName: keycloak-config
+            - name: config-payloads
+              configMap:
+                name: config-job
+          containers:
+            - name: kubectl
+              image: docker.io/alpine/k8s:1.31.0
+              volumeMounts:
+                - name: keycloak-config
+                  readOnly: true
+                  mountPath: "/var/secrets/"
+                - name: config-payloads
+                  readOnly: true
+                  mountPath: "/var/config/"
+              env:
+                - name: KEYCLOAK_CONFIG_MODE
+                  value: clients
+              command: ["/bin/bash", "/var/config/configure.sh"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi

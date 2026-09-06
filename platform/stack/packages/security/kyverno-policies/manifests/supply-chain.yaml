@@ -43,9 +43,13 @@ spec:
             - "ghcr.io/adhar-io/*"
           attestors:
             - entries:
-                - keyless:
-                    subject: "https://lighthouse.*"
-                    issuer: "https://keycloak.*/realms/adhar"
+                # Platform-built images are signed by the supply-chain pipelines
+                # (Tekton app-ci, cosign-sign task) with the platform cosign key
+                # from the supply-chain package (Secret cosign-key: cosign.pub).
+                - keys:
+                    secret:
+                      name: cosign-key
+                      namespace: adhar-system
                     rekor:
                       url: https://rekor.sigstore.dev
           mutateDigest: true

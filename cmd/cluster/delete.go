@@ -39,6 +39,10 @@ var deleteCmd = &cobra.Command{
 
 func init() {
 	deleteCmd.Flags().BoolP("force", "f", false, "Force deletion without confirmation")
+	deleteCmd.Flags().String("file", "", "Path to configuration file")
+	deleteCmd.Flags().Bool("purge-orphaned-volumes", false,
+		"Also delete unattached pvc-* block-storage volumes in the cluster's region that carry no other cluster's tag "+
+			"(volumes left behind by clusters created before per-cluster volume tagging). Only safe when no other Kubernetes cluster uses that region.")
 }
 
 // deleteCluster deletes a cluster
@@ -46,10 +50,12 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "Deleting cluster: %s\n", name)
 
 	// Load configuration
-	cfg, err := config.LoadConfig("")
+	configFile, _ := cmd.Flags().GetString("file")
+	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	purgeVolumes, _ := cmd.Flags().GetBool("purge-orphaned-volumes")
 
 	// Find the cluster across all providers
 	var targetCluster *ptypes.Cluster
@@ -57,7 +63,11 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 	var targetProviderName string
 
 	for providerName, providerCfg := range cfg.Providers {
-		p, err := pfactory.DefaultFactory.CreateProvider(providerName, providerCfg.ToProviderMap())
+		providerMap := providerCfg.ToProviderMap()
+		if purgeVolumes {
+			providerMap["purgeOrphanedVolumes"] = true
+		}
+		p, err := pfactory.DefaultFactory.CreateProvider(providerName, providerMap)
 		if err != nil {
 			fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to create provider %s: %v\n", providerName, err)
 			continue

@@ -4,8 +4,15 @@ kind: ConfigMap
 metadata:
   name: jupyterhub-config-job
   namespace: adhar-system
+  labels:
+    # Generic Keycloak client contract: the keycloak package's config Job and
+    # its 5-minute client-reconcile CronJob ensure every ConfigMap carrying
+    # this label + a client.json key exists as a client and export its secret
+    # to keycloak-clients as JUPYTERHUB_CLIENT_ID/_SECRET. The Job below stays
+    # as the package's own fast-path convergence (same payload).
+    adhar.io/keycloak-client: "true"
 data:
-  jupyterhub-client-payload.json: |
+  client.json: |
     {
       "protocol": "openid-connect",
       "clientId": "jupyterhub",
@@ -121,7 +128,7 @@ spec:
               echo "creating Jupyterhub client"
               curl -sS -H "Content-Type: application/json" \
                 -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
-                -X POST --data @/var/config/jupyterhub-client-payload.json \
+                -X POST --data @/var/config/client.json \
                   ${KEYCLOAK_URL}/admin/realms/adhar/clients
               
               CLIENT_ID=$(curl -sS -H "Content-Type: application/json" \

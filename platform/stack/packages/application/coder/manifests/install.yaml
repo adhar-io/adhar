@@ -11,8 +11,8 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: coder
     app.kubernetes.io/part-of: coder
-    app.kubernetes.io/version: 2.34.0
-    helm.sh/chart: coder-2.34.0
+    app.kubernetes.io/version: 2.37.0
+    helm.sh/chart: coder-2.37.0
   name: coder
   namespace: adhar-system
 ---
@@ -80,11 +80,11 @@ metadata:
   name: coder
   namespace: adhar-system
   labels:
-    helm.sh/chart: coder-2.34.0
+    helm.sh/chart: coder-2.37.0
     app.kubernetes.io/name: coder
     app.kubernetes.io/instance: coder
     app.kubernetes.io/part-of: coder
-    app.kubernetes.io/version: "2.34.0"
+    app.kubernetes.io/version: "2.37.0"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -110,8 +110,8 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: coder
     app.kubernetes.io/part-of: coder
-    app.kubernetes.io/version: 2.34.0
-    helm.sh/chart: coder-2.34.0
+    app.kubernetes.io/version: 2.37.0
+    helm.sh/chart: coder-2.37.0
   name: coder
   namespace: adhar-system
 spec:
@@ -129,8 +129,8 @@ spec:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: coder
         app.kubernetes.io/part-of: coder
-        app.kubernetes.io/version: 2.34.0
-        helm.sh/chart: coder-2.34.0
+        app.kubernetes.io/version: 2.37.0
+        helm.sh/chart: coder-2.37.0
     spec:
       affinity:
         podAntiAffinity:
@@ -162,11 +162,15 @@ spec:
               fieldPath: status.podIP
         - name: CODER_DERP_SERVER_RELAY_URL
           value: http://$(KUBE_POD_IP):8080
+        - name: CODER_CLUSTER_HOST
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
         - name: CODER_ACCESS_URL
           value: https://adhar.localtest.me:8443/coder
         - name: CODER_HTTP_ADDRESS
           value: 0.0.0.0:8080
-        image: ghcr.io/coder/coder:v2.34.0
+        image: ghcr.io/coder/coder:v2.37.0
         imagePullPolicy: IfNotPresent
         lifecycle: {}
         name: coder

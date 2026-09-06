@@ -1,0 +1,66 @@
+# Argo Events Prometheus PodMonitors
+# The chart (argo-events-2.4.21) is rendered with controller.metrics/serviceMonitor
+# off, so no metrics Service exists. Two monitors cover the whole system:
+#   1. the controller-manager Deployment exposes controller_runtime_* / workqueue_*
+#      / go_* metrics on its container port "metrics" (7777);
+#   2. the EventSource and Sensor Deployments the controller creates expose the
+#      argo_events_* metrics (events sent / failed, actions triggered, latencies)
+#      on their own "metrics" port (7777). They carry the labels
+#      controller=eventsource-controller|sensor-controller and can live in any
+#      namespace, so the selector is cluster-wide.
+# Prometheus podMonitorSelector is empty ({}), so both are scraped as-is and feed
+# the Adhar / Argo Events Grafana dashboard.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: argo-events-controller
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-events-controller-manager
+    app.kubernetes.io/instance: argo-events
+    app.kubernetes.io/part-of: argo-events
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argo-events-controller-manager
+      app.kubernetes.io/instance: argo-events
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: argo-events-workloads
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argo-events-workloads
+    app.kubernetes.io/instance: argo-events
+    app.kubernetes.io/part-of: argo-events
+    app.kubernetes.io/managed-by: adhar
+spec:
+  # job becomes "eventsource-controller" / "sensor-controller"
+  jobLabel: controller
+  namespaceSelector:
+    any: true
+  selector:
+    matchExpressions:
+      - key: controller
+        operator: In
+        values:
+          - eventsource-controller
+          - sensor-controller
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

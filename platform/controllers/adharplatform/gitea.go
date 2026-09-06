@@ -7,6 +7,7 @@ import (
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/platform/k8s"
+	"adhar-io/adhar/platform/utils"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -38,6 +39,10 @@ func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.R
 		logger.Error(err, "Failed to read Gitea install manifest", "path", giteaManifestPath)
 		return ctrl.Result{}, fmt.Errorf("reading gitea manifest %s: %w", giteaManifestPath, err)
 	}
+	// Render {{ .Host }}/{{ .PortSuffix }} (DOMAIN, ROOT_URL, SSH_DOMAIN) — never apply raw.
+	if manifestBytes, err = r.renderEmbedded(manifestBytes); err != nil {
+		return ctrl.Result{}, fmt.Errorf("rendering gitea manifest %s: %w", giteaManifestPath, err)
+	}
 
 	if err := r.applyManifest(ctx, manifestBytes, resource, "Gitea install"); err != nil {
 		logger.Error(err, "Failed to apply Gitea install manifest")
@@ -50,6 +55,18 @@ func (r *AdharPlatformReconciler) ReconcileGitea(ctx context.Context, req ctrl.R
 	if err != nil {
 		logger.Error(err, "Failed to read Gitea post-install manifest", "path", giteaPostInstallPath)
 		return ctrl.Result{}, fmt.Errorf("reading gitea post-install manifest %s: %w", giteaPostInstallPath, err)
+	}
+	if postInstallBytes, err = r.renderEmbedded(postInstallBytes); err != nil {
+		return ctrl.Result{}, fmt.Errorf("rendering gitea post-install manifest %s: %w", giteaPostInstallPath, err)
+	}
+	// gitea-credential is create-once: the manifest seeds the bootstrap
+	// password, but once the Secret exists it is the source of truth (the
+	// credential-rotation package rotates the admin password and updates the
+	// Secret in place). Re-applying the manifest's copy on later reconciles or
+	// `adhar upgrade` would silently revert it and lock ArgoCD and the
+	// controller out of Gitea.
+	if existing, gerr := utils.GetSecretByName(ctx, r.Client, utils.GiteaNamespace, utils.GiteaAdminSecret); gerr == nil && len(existing.Data["password"]) > 0 {
+		postInstallBytes = dropManifestDocument(postInstallBytes, "Secret", utils.GiteaAdminSecret)
 	}
 
 	if err := r.applyManifest(ctx, postInstallBytes, resource, "Gitea post-install"); err != nil {

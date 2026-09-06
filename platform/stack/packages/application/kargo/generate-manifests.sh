@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="1.10.5"
+CHART_VERSION="1.11.4"
 
 echo "# KARGO INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/application/kargo/generate-manifests.sh'" >>${INSTALL_YAML}

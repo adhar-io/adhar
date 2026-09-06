@@ -1,0 +1,32 @@
+# OpenMetadata Prometheus ServiceMonitor
+# Not emitted by the chart (openmetadata-1.12.10 has no ServiceMonitor template).
+# The server publishes all Micrometer metrics in Prometheus format at /prometheus
+# on its admin port, exposed by the "openmetadata" Service as port "http-admin"
+# (8586, SERVER_ADMIN_PORT): jvm_*, process_*, http_server_requests_seconds,
+# jdbi_*, pipeline_client_request_status_total, logback_events_total.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Adhar / OpenMetadata Grafana dashboard.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: openmetadata
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openmetadata
+    app.kubernetes.io/instance: openmetadata
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openmetadata
+      app.kubernetes.io/instance: openmetadata
+  endpoints:
+    - port: http-admin
+      path: /prometheus
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

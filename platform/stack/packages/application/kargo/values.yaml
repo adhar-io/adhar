@@ -12,6 +12,50 @@
 api:
   # Domain (and sub-path) where Kargo's UI/API is reached through the Gateway.
   host: adhar.localtest.me
+  # Native Keycloak OIDC (NOT an oauth2-proxy front: the kargo CLI logs in via
+  # OIDC directly). Kargo uses the authorization-code flow with PKCE and takes
+  # NO client secret, so both Keycloak clients are PUBLIC; they are shipped as
+  # labelled ConfigMaps in manifests/keycloak-clients.yaml and provisioned by
+  # the keycloak package's client reconciler.
+  #   kargo      UI:  redirect https://kargo.adhar.localtest.me:8443/login
+  #   kargo-cli  CLI: redirect http://localhost:*/auth/callback
+  # Admin access maps from the realm's admin groups via the `groups` claim
+  # (the platform's Keycloak groups are `platform-admin` / `admin`).
+  #
+  # kargo-api performs OIDC discovery/token validation against the issuer over
+  # TLS. The chart has no issuer-CA option, so the platform Gateway certificate
+  # (Secret adhar-cert: self-signed locally, Let's Encrypt on cloud) is mounted
+  # and added to Go's trust directories via SSL_CERT_DIR — the system roots
+  # stay in place, the platform cert is simply an extra anchor.
+  env:
+    - name: SSL_CERT_DIR
+      value: /etc/ssl/certs:/etc/adhar-ca
+  volumes:
+    - name: adhar-ca
+      secret:
+        secretName: adhar-cert
+        items:
+          - key: tls.crt
+            path: adhar-gateway.crt
+  volumeMounts:
+    - name: adhar-ca
+      mountPath: /etc/adhar-ca
+      readOnly: true
+  oidc:
+    enabled: true
+    issuerURL: https://keycloak.adhar.localtest.me:8443/realms/adhar
+    clientID: kargo
+    cliClientID: kargo-cli
+    additionalScopes:
+      - groups
+    usernameClaim: preferred_username
+    admins:
+      claims:
+        groups:
+          - platform-admin
+          - admin
+    dex:
+      enabled: false
   ingress:
     enabled: false
     tls:

@@ -1,0 +1,40 @@
+# metrics-server Prometheus ServiceMonitor
+# Not emitted by the chart (serviceMonitor.enabled left default off).
+# metrics-server is an aggregated API server: it serves its own
+# metrics_server_* metrics (kubelet scrape latency/success, storage points,
+# API freshness) plus apiserver_* request metrics on the "metrics-server"
+# Service, port 443 named "https" (-> --secure-port=4443, hostNetwork) at
+# /metrics. The endpoint is TLS with a self-signed serving cert and delegates
+# authn/authz to the API server, so we skip cert verification and present the
+# Prometheus ServiceAccount token (its ClusterRole grants nonResourceURLs
+# /metrics) -- the same pattern the chart uses for the kubelet ServiceMonitor.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Adhar / metrics-server Grafana dashboard.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: metrics-server
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: metrics-server
+    app.kubernetes.io/instance: metrics-server
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metrics-server
+      app.kubernetes.io/instance: metrics-server
+  endpoints:
+    - port: https
+      path: /metrics
+      scheme: https
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        insecureSkipVerify: true

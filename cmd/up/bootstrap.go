@@ -19,10 +19,17 @@ package up
 import (
 	"context"
 	"fmt"
+	"io"
+	stdlog "log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/go-logr/logr"
+	"github.com/go-logr/stdr"
+	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/cmd/version"
@@ -96,6 +103,21 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	if err != nil {
 		return fmt.Errorf("retrieving kubeconfig for cluster %s: %w", result.Cluster.ID, err)
 	}
+
+	// Persist the kubeconfig next to the cluster's SSH key and merge it into the
+	// user's default kubeconfig (context adhar-<name>, made current) so kubectl
+	// and `adhar get secrets` work right after `adhar up` on the machine that
+	// ran it — no manual fetch from the control plane.
+	clusterName := result.Cluster.Name
+	if clusterName == "" {
+		clusterName = result.Cluster.ID
+	}
+	if kcPath, kcCtx, perr := persistClusterKubeconfig(clusterName, kubeconfigStr); perr != nil {
+		logger.Infof("Kubeconfig saved to %s, but merging into the default kubeconfig failed: %v", kcPath, perr)
+	} else {
+		logger.Infof("Kubeconfig saved to %s and merged as context %q (now current)", kcPath, kcCtx)
+	}
+
 	kubeconfigFile, err := os.CreateTemp("", "adhar-kubeconfig-")
 	if err != nil {
 		return fmt.Errorf("creating kubeconfig temp file: %w", err)
@@ -128,6 +150,18 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		return err
 	}
 
+	// controller-runtime/klog loggers, as in the local path: verbose shows the
+	// bootstrap controller's progress (essential when a cloud bootstrap stalls),
+	// otherwise stay silent instead of printing the "log.SetLogger(...) was
+	// never called" stack trace.
+	if verbose {
+		stdr.SetVerbosity(1)
+		ctrl.SetLogger(stdr.New(stdlog.New(os.Stderr, "", stdlog.LstdFlags)))
+	} else {
+		ctrl.SetLogger(logr.Discard())
+		klog.SetOutput(io.Discard)
+	}
+
 	// Build customization: production edges terminate TLS on 443; HA rendering
 	// follows the enableHAMode global (roadmap P1.2).
 	host := globals.DefaultHostName
@@ -144,13 +178,38 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 			host = envConfig.GlobalSettings.DefaultHost
 		}
 	}
+	platformName := globals.DefaultClusterName
+	if envConfig != nil && envConfig.Name != "" {
+		platformName = envConfig.Name
+	}
+	providerName := ""
+	if envConfig != nil {
+		providerName = envConfig.ResolvedProvider
+	}
+	email := ""
+	if cfg != nil {
+		email = cfg.GlobalSettings.Email
+	}
+	// Edge DNS/TLS: derived from the cloud provider (or globalSettings.dnsProvider)
+	// so external-dns publishes the platform zone and cert-manager issues the
+	// *.<host> wildcard — only for a real domain; the default host stays local-only.
+	dnsProvider := ""
+	if host != globals.DefaultHostName {
+		dnsProvider = resolveDNSProvider(cfg, providerName)
+	}
 	templateData := v1alpha1.BuildCustomizationSpec{
 		Protocol:     "https",
 		Host:         host,
 		IngressHost:  host,
 		Port:         "443",
 		EnableHAMode: enableHA,
+		ClusterName:  platformName,
+		Email:        email,
+		DNSProvider:  dnsProvider,
 	}
+	// Derive PortSuffix ("" for the standard 443 behind a cloud LB) so foundation
+	// manifests render clean URLs/issuers with no hardcoded host or port.
+	templateData.Normalize()
 
 	// Install platform CRDs.
 	if err := controllers.EnsureCRDs(ctx, scheme, kubeClient, templateData); err != nil {
@@ -164,6 +223,21 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		return fmt.Errorf("setting up TLS certificate: %w", err)
 	}
 	templateData.SelfSignedCert = string(cert)
+
+	// DNS provider credentials for external-dns and cert-manager DNS-01, from
+	// the provider config/environment into the cluster only (never Git).
+	if dnsProvider != "" {
+		var pc *config.ConfigProviderConfig
+		if cfg != nil {
+			if v, ok := cfg.Providers[providerName]; ok {
+				pc = &v
+			}
+		}
+		if err := ensureEdgeDNSSecret(ctx, kubeClient, dnsProvider, pc); err != nil {
+			return fmt.Errorf("configuring edge DNS (%s): %w", dnsProvider, err)
+		}
+		logger.Infof("Edge DNS configured: provider=%s zone=%s issuer=%s", dnsProvider, host, templateData.ACMEIssuer())
+	}
 
 	// The stack directory is required for GitOps repo seeding.
 	stackDir, err := filepath.Abs("platform/stack")
@@ -200,14 +274,6 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		return fmt.Errorf("starting controllers: %w", err)
 	}
 
-	platformName := globals.DefaultClusterName
-	if envConfig != nil && envConfig.Name != "" {
-		platformName = envConfig.Name
-	}
-	providerName := ""
-	if envConfig != nil {
-		providerName = envConfig.ResolvedProvider
-	}
 	platform := v1alpha1.AdharPlatform{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      platformName,

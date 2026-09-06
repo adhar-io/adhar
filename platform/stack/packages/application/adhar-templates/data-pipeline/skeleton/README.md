@@ -67,7 +67,7 @@ cd dbt && dbt build --profiles-dir profiles
 
 ## CI
 
-`jenkins-x.yml` + `.lighthouse/triggers.yaml` (ADR-0018): PRs run the platform
+`.adhar/app.yaml` + the platform Tekton `app-ci` pipeline (supply-chain package): PRs run the platform
 `adhar-pr-verify` pipeline (lint + `dbt build` against an ephemeral schema),
 merges to `main` run `adhar-release`, which opens a promotion PR against the
 environments repo. Add `ci/test.sh` to customize the checks.

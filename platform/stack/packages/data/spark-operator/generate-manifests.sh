@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="2.5.0"
+CHART_VERSION="2.5.2"
 
 echo "# SPARK-OPERATOR INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/data/spark-operator/generate-manifests.sh'" >>${INSTALL_YAML}

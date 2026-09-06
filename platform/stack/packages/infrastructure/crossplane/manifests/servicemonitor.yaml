@@ -1,0 +1,33 @@
+# Crossplane Prometheus ServiceMonitor
+# Not emitted by the chart (no serviceMonitor support). Scrapes the
+# "crossplane-metrics" Service from metrics-service.yaml, port 8080 named
+# "metrics" at /metrics, where the core manager exposes crossplane_managed_
+# resource_* / crossplane_composition_* and controller-runtime metrics. The
+# chart's "crossplane-webhooks" Service has no "metrics" port and is skipped.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Crossplane Metrics Grafana dashboard (gnetId 24549).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: crossplane
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: crossplane
+    app.kubernetes.io/instance: crossplane
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: crossplane
+      app.kubernetes.io/instance: crossplane
+      app.kubernetes.io/component: metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

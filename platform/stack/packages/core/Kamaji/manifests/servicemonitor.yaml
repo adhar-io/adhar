@@ -1,0 +1,64 @@
+# Kamaji Prometheus ServiceMonitor + etcd PodMonitor
+# Not emitted by the chart (serviceMonitor.enabled left default off).
+# The controller-manager serves kamaji_* metrics (tenant control plane /
+# datastore status, certificates, handler timings) plus controller-runtime
+# metrics on the chart-rendered "kamaji-metrics-service" Service, port 8080
+# named "metrics" (--metrics-bind-address=:8080) at /metrics.
+# Prometheus serviceMonitorSelector is empty ({}), so this is scraped as-is and
+# feeds the Kamaji Overview Grafana dashboard (upstream clastix/kamaji).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kamaji
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: kamaji
+    app.kubernetes.io/instance: kamaji
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kamaji
+      app.kubernetes.io/instance: kamaji
+      app.kubernetes.io/component: metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+---
+# The bundled etcd datastore StatefulSet serves etcd_* metrics on
+# --listen-metrics-urls=http://0.0.0.0:2381, which is neither a named container
+# port nor exposed on the "etcd" Service, so it is scraped by pod IP and port
+# number instead.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: kamaji-etcd
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: kamaji
+    app.kubernetes.io/instance: kamaji
+    app.kubernetes.io/component: etcd
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/component
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kamaji
+      app.kubernetes.io/instance: kamaji
+      app.kubernetes.io/component: etcd
+  podMetricsEndpoints:
+    - portNumber: 2381
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

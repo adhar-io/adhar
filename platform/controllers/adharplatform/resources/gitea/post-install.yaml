@@ -2,7 +2,7 @@
 # Gateway (adhar-cert).
 #
 # Gitea's sub-path model is the OPPOSITE of ArgoCD's, and needs BOTH halves:
-#   1. ROOT_URL=https://gitea.adhar.localtest.me:8443/ (install.yaml
+#   1. ROOT_URL=https://gitea.{{ .Host }}{{ .PortSuffix }}/ (install.yaml
 #      gitea-inline-config) — this ONLY controls URL generation. It sets Gitea's
 #      AppSubURL=/gitea so every emitted link, asset src, redirect, cookie path,
 #      OAuth callback and clone URL is prefixed with /gitea.
@@ -31,7 +31,7 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - gitea.adhar.localtest.me
+    - gitea.{{ .Host }}
   rules:
     - matches:
         - path:

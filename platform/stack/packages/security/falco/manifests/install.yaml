@@ -15,10 +15,10 @@ metadata:
   name: falco
   namespace: adhar-system
   labels:
-    helm.sh/chart: falco-9.0.0
+    helm.sh/chart: falco-9.1.0
     app.kubernetes.io/name: falco
     app.kubernetes.io/instance: falco
-    app.kubernetes.io/version: "0.44.0"
+    app.kubernetes.io/version: "0.44.1"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: falco/charts/falcosidekick/templates/secrets.yaml
@@ -544,10 +544,10 @@ metadata:
   name: falco
   namespace: adhar-system
   labels:
-    helm.sh/chart: falco-9.0.0
+    helm.sh/chart: falco-9.1.0
     app.kubernetes.io/name: falco
     app.kubernetes.io/instance: falco
-    app.kubernetes.io/version: "0.44.0"
+    app.kubernetes.io/version: "0.44.1"
     app.kubernetes.io/managed-by: Helm
 data:
   falco.yaml: |-
@@ -571,6 +571,7 @@ data:
       modern_ebpf:
         buf_size_preset: 4
         cpus_for_each_buffer: 2
+        disable_iterators: false
         drop_failed_exit: false
     falco_libs:
       snaplen: 80
@@ -690,10 +691,10 @@ metadata:
   name: falco-falcoctl
   namespace: adhar-system
   labels:
-    helm.sh/chart: falco-9.0.0
+    helm.sh/chart: falco-9.1.0
     app.kubernetes.io/name: falco
     app.kubernetes.io/instance: falco
-    app.kubernetes.io/version: "0.44.0"
+    app.kubernetes.io/version: "0.44.1"
     app.kubernetes.io/managed-by: Helm
 data:
   falcoctl.yaml: |-
@@ -805,10 +806,10 @@ metadata:
   name: falco
   namespace: adhar-system
   labels:
-    helm.sh/chart: falco-9.0.0
+    helm.sh/chart: falco-9.1.0
     app.kubernetes.io/name: falco
     app.kubernetes.io/instance: falco
-    app.kubernetes.io/version: "0.44.0"
+    app.kubernetes.io/version: "0.44.1"
     app.kubernetes.io/managed-by: Helm
 spec:
   selector:
@@ -822,7 +823,7 @@ spec:
         app.kubernetes.io/name: falco
         app.kubernetes.io/instance: falco
       annotations:
-        checksum/config: 4eea8c5df32859a1719a94db4dd49740dcaec2d184cb8fcd33b6a880aef2f3d7
+        checksum/config: a27701cda91b78f517442d8034003233c9a383726581beb0f688e1ea0ca79e25
         checksum/rules: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
         checksum/certs: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
     spec:
@@ -834,7 +835,7 @@ spec:
           key: node-role.kubernetes.io/control-plane
       containers:
         - name: falco
-          image: docker.io/falcosecurity/falco:0.44.0
+          image: docker.io/falcosecurity/falco:0.44.1
           imagePullPolicy: IfNotPresent
           resources:
             limits:
@@ -1045,7 +1046,7 @@ spec:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: core
       annotations:
-        checksum/config: 24fcf79d2cad43ff9cc825c068751989d5f0a416561dcbf202fc7ff1357c4105
+        checksum/config: 122b4c4f8053e841023539158188e3b1903851371a8121651fc7f4156326dd6b
     spec:
       serviceAccountName: falco-falcosidekick
       securityContext:

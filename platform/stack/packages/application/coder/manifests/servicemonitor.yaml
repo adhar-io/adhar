@@ -1,0 +1,36 @@
+# Coder Prometheus ServiceMonitor
+# Not emitted by the chart (coder-2.34.0 has no ServiceMonitor template). Scrapes
+# the "coder-metrics" Service from metrics-service.yaml, port "metrics" (2112) at
+# /metrics, and feeds the Adhar / Coder Grafana dashboard (coderd_* metrics).
+#
+# NOTE: the rendered values set CODER_PROMETHEUS_ADDRESS but not
+# CODER_PROMETHEUS_ENABLE, so coderd does not listen on 2112 until
+#   coder.env: [{name: CODER_PROMETHEUS_ENABLE, value: "true"}]
+# is added to the chart values. Until then this target reports DOWN; it is wired
+# up-front so the dashboard lights up as soon as the flag lands.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: coder
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: coder
+    app.kubernetes.io/instance: coder
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: coder
+      app.kubernetes.io/instance: coder
+      app.kubernetes.io/component: metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

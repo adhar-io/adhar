@@ -1,0 +1,63 @@
+# Trino Prometheus ServiceMonitor
+# Not emitted by the chart (trino-1.42.2 rendered with jmx.exporter / serviceMonitor
+# off). Trino 480 has a built-in OpenMetrics endpoint at /metrics on the HTTP port
+# of both the coordinator (Service "trino") and the workers (Service
+# "trino-worker"), port "http" (8080). The endpoint is guarded by the configured
+# authenticator; this deployment runs the default insecure authenticator, which
+# accepts any username via HTTP basic auth (password ignored) — the Secret below
+# supplies one, exactly as the upstream Prometheus example does.
+#
+# Metric names follow Trino's native OpenMetrics naming
+# (trino_execution_name_QueryManager_RunningQueries, jvm_*, io_airlift_*). The
+# shipped Trino Cluster / Trino Pod dashboards were built for the JMX-exporter
+# naming (trino_execution_QueryManager_*, java_lang_*); enabling
+# jmx.exporter.enabled + jmx.exporter.port in the chart values renders that
+# variant (and a jmx-exporter port to point a second endpoint at). Prometheus
+# serviceMonitorSelector is empty ({}), so this is scraped as-is.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: trino-metrics-auth
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/managed-by: adhar
+type: Opaque
+stringData:
+  # Any username works with Trino's insecure authenticator; not a credential.
+  username: prometheus
+  password: prometheus
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trino
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: trino
+    app.kubernetes.io/instance: trino
+    app.kubernetes.io/managed-by: adhar
+spec:
+  # job becomes coordinator / worker
+  jobLabel: app.kubernetes.io/component
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trino
+      app.kubernetes.io/instance: trino
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+      basicAuth:
+        username:
+          name: trino-metrics-auth
+          key: username
+        password:
+          name: trino-metrics-auth
+          key: password
