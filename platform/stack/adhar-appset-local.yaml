@@ -293,13 +293,20 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/cnpg/manifests"
+          # Required by the supply-chain package (its verify-supply-chain-images
+          # + kpack-build-ca-trust are kyverno ClusterPolicies). supply-chain is
+          # enabled below, so kyverno must stay on or supply-chain fails to sync.
           - name: "kyverno"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/kyverno/manifests"
+          # Pod Security Standards baseline (~14 ClusterPolicies, all Audit mode)
+          # + disallow-:latest / restrict-registries, with exceptions for the
+          # platform's own namespaces. Cheap: policies are just CRs, no new pods
+          # (the kyverno engine is already enabled above).
           - name: "kyverno-policies"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/kyverno-policies/manifests"
@@ -316,7 +323,7 @@ spec:
             category: "security"
             manifestPath: "security/policy-packs/manifests"
           - name: "jupyterhub"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/jupyterhub/manifests"

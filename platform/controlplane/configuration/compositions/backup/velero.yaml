@@ -195,8 +195,8 @@ spec:
 
             # Get observed state
             _observedResources = ocds or {}
-            _scheduleObserved = _observedResources.get("backup-schedule", {}).get("resource", {})
-            _scheduleStatus = _scheduleObserved.get("status", {})
+            _scheduleObserved = (_observedResources.get("backup-schedule", {}) or {}).get("resource", {}) or {}
+            _scheduleStatus = _scheduleObserved.get("status", {}) or {}
 
             _phase = "Pending"
             _message = "Backup policy provisioning initiated"

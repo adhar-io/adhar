@@ -192,12 +192,15 @@ spec:
                         }
                     }]
 
-            # Get observed state for status
+            # Get observed state for status. Coerce each step with `or {}`:
+            # ocds is Undefined on first reconcile and KCL's .get default only
+            # applies to MISSING keys (a null value returns Undefined), so a bare
+            # .get().get() chain throws "UndefinedType has no attribute get".
             _observedResources = ocds or {}
-            _dbObserved = _observedResources.get("sql-database", {}).get("resource", {})
-            _dbStatus = _dbObserved.get("status", {}).get("atProvider", {})
-            _serverObserved = _observedResources.get("sql-server", {}).get("resource", {})
-            _serverStatus = _serverObserved.get("status", {}).get("atProvider", {})
+            _dbObserved = (_observedResources.get("sql-database", {}) or {}).get("resource", {}) or {}
+            _dbStatus = (_dbObserved.get("status", {}) or {}).get("atProvider", {}) or {}
+            _serverObserved = (_observedResources.get("sql-server", {}) or {}).get("resource", {}) or {}
+            _serverStatus = (_serverObserved.get("status", {}) or {}).get("atProvider", {}) or {}
 
             _phase = "Pending"
             _message = "Database provisioning initiated"

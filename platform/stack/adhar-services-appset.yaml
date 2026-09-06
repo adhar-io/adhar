@@ -1,0 +1,55 @@
+# Service auto-discovery → control plane.
+#
+# ArgoCD ApplicationSets can only emit ArgoCD Applications, not CompositeApplication
+# XRs. So this bridges discovery → control-plane: the Gitea SCM generator finds every
+# org repo that carries a `.adhar/app.yaml` descriptor, and for each creates a small
+# BOOTSTRAP Application that syncs that repo's `.adhar/` directory. That descriptor is
+# a `CompositeApplication` (platform.adhar.io) which the Crossplane control plane then
+# expands into per-environment ArgoCD Applications (dev auto-deploys; test/prod are
+# Kargo/manual promotion targets). Net effect: push a new service repo containing
+# `.adhar/app.yaml` + `deploy/`, and its full dev/test/prod workflow provisions itself.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: adhar-services
+  namespace: adhar-system
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - scmProvider:
+        gitea:
+          owner: adhar
+          # In-cluster Gitea API. Token from the gitea-credential secret (key: token).
+          api: http://gitea-http.adhar-system.svc.cluster.local:3000
+          allBranches: false
+          tokenRef:
+            secretName: gitea-credential
+            key: token
+        filters:
+          # Only repos that opt in with a control-plane descriptor are adopted —
+          # this naturally excludes the platform repos (packages, environments,
+          # templates, adhar-ui/kit) which have no .adhar/app.yaml.
+          - pathsExist: [".adhar/app.yaml"]
+  template:
+    metadata:
+      name: "{{ .repository }}-bootstrap"
+      labels:
+        adhar.io/service: "{{ .repository }}"
+        adhar.io/type: service-bootstrap
+    spec:
+      project: default
+      source:
+        # In-cluster URL (repos are org-public); avoids external TLS + per-repo creds.
+        repoURL: "http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/{{ .repository }}"
+        targetRevision: "{{ .branch }}"
+        path: ".adhar"
+      destination:
+        server: https://kubernetes.default.svc
+        # The CompositeApplication XR (namespaced, Crossplane v2) lands in a
+        # per-service namespace; the composition fans out from there.
+        namespace: "{{ .repository }}"
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions:
+          - CreateNamespace=true

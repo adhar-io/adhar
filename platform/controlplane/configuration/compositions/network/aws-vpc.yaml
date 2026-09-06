@@ -429,8 +429,8 @@ spec:
 
             # Get observed state
             _observedResources = ocds or {}
-            _vpcObserved = _observedResources.get("vpc", {}).get("resource", {})
-            _vpcStatus = _vpcObserved.get("status", {}).get("atProvider", {})
+            _vpcObserved = (_observedResources.get("vpc", {}) or {}).get("resource", {}) or {}
+            _vpcStatus = (_vpcObserved.get("status", {}) or {}).get("atProvider", {})
 
             _phase = "Pending"
             _message = "Network provisioning initiated"

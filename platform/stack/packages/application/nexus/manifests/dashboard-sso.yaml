@@ -9,6 +9,12 @@ kind: Password
 metadata:
   name: nexus-oauth2-cookie
   namespace: adhar-system
+  # Wave 5: the SSO front-end must deploy AFTER the nexus core (wave 1) and its
+  # config-job (wave 2-3, which creates nexus-credentials). Otherwise this
+  # oauth2-proxy — which waits on a Keycloak-provisioned ExternalSecret — sits
+  # unhealthy at wave 0 and blocks the core registry from ever deploying, so
+  # nexus-credentials is never created and the library publish pipelines fail.
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
 spec:
   length: 32
   digits: 8
@@ -21,6 +27,7 @@ kind: ExternalSecret
 metadata:
   name: nexus-oauth2-proxy
   namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
 spec:
   refreshPolicy: CreatedOnce
   refreshInterval: 5m
@@ -54,6 +61,7 @@ kind: Deployment
 metadata:
   name: nexus-oauth2-proxy
   namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
   labels:
     app.kubernetes.io/name: nexus-oauth2-proxy
     app.kubernetes.io/part-of: nexus
@@ -110,6 +118,7 @@ kind: Service
 metadata:
   name: nexus-oauth2-proxy
   namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
   labels:
     app.kubernetes.io/name: nexus-oauth2-proxy
     app.kubernetes.io/part-of: nexus

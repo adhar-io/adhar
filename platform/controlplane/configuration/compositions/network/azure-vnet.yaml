@@ -109,8 +109,8 @@ spec:
 
             # Get observed state
             _observedResources = ocds or {}
-            _vnetObserved = _observedResources.get("vnet", {}).get("resource", {})
-            _vnetStatus = _vnetObserved.get("status", {}).get("atProvider", {})
+            _vnetObserved = (_observedResources.get("vnet", {}) or {}).get("resource", {}) or {}
+            _vnetStatus = (_vnetObserved.get("status", {}) or {}).get("atProvider", {})
 
             _phase = "Pending"
             _message = "Network provisioning initiated"

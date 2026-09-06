@@ -394,8 +394,8 @@ spec:
 
             # Get observed state
             _observedResources = ocds or {}
-            _deploymentObserved = _observedResources.get("opencost-deployment", {}).get("resource", {})
-            _deploymentStatus = _deploymentObserved.get("status", {})
+            _deploymentObserved = (_observedResources.get("opencost-deployment", {}) or {}).get("resource", {}) or {}
+            _deploymentStatus = _deploymentObserved.get("status", {}) or {}
 
             _phase = "Pending"
             _message = "Cost tracking provisioning initiated"

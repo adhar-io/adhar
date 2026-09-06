@@ -8,8 +8,11 @@ spec:
   names:
     kind: CompositeDatabase
     plural: compositedatabases
+  # Local-safe default: an unqualified CompositeDatabase provisions an in-cluster
+  # CloudNativePG Postgres (no cloud credentials needed). Pick a cloud provider by
+  # setting spec.compositionSelector.matchLabels.provider to aws|gcp|azure.
   defaultCompositionRef:
-    name: compositedatabase-aws-rds-postgresql
+    name: compositedatabase-local-cnpg
   versions:
     - name: v1alpha1
       served: true
@@ -36,6 +39,9 @@ spec:
                   default:
                     matchLabels:
                       feature: database
+                      # Default to the in-cluster provider so a bare request
+                      # never selects a cloud composition that has no credentials.
+                      provider: local
                 providerConfigRef:
                   type: object
                   properties:
@@ -49,8 +55,11 @@ spec:
                   properties:
                     displayName:
                       type: string
+                      description: "Human-friendly name shown in the console (defaults to the resource name)."
                     engine:
                       type: string
+                      description: "Database engine. The local (in-cluster) provider supports postgresql; mysql/mariadb/mongodb/redis/valkey require a cloud provider."
+                      default: postgresql
                       enum:
                         - postgresql
                         - mysql
@@ -60,14 +69,18 @@ spec:
                         - valkey
                     engineVersion:
                       type: string
+                      description: "Major engine version (e.g. \"16\" for postgresql). Optional for the local provider — defaults to 16."
+                      default: "16"
                     instanceClass:
                       type: string
-                      description: "Instance size/type for the database"
+                      description: "Cloud only: compute size (e.g. db.t3.micro on AWS). Ignored by the local provider, which runs a single small CNPG instance."
                     storageSize:
                       type: string
-                      description: "Storage size (e.g., 20Gi, 100Gi)"
+                      description: "Persistent storage size (e.g. 10Gi). Local can be small (1Gi+); cloud providers enforce minimums (AWS RDS ≥ 20Gi)."
+                      default: "10Gi"
                     storageType:
                       type: string
+                      description: "Cloud only: block-storage class (AWS gp3 etc.). Ignored by the local provider."
                       enum:
                         - gp2
                         - gp3
@@ -75,6 +88,7 @@ spec:
                         - standard
                     region:
                       type: string
+                      description: "Cloud only: provider region (e.g. us-west-2). Ignored by the local provider."
                     availabilityZones:
                       type: array
                       items:
@@ -119,9 +133,12 @@ spec:
                             type: string
                     credentials:
                       type: object
+                      description: "Admin credentials. If omitted, the provider generates a password into the app's connection secret."
                       properties:
                         masterUsername:
                           type: string
+                          description: "Admin/owner username for the database."
+                          default: app
                         masterPasswordSecretRef:
                           type: object
                           properties:

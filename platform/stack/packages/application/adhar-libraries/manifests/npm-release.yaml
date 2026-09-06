@@ -50,7 +50,12 @@ spec:
         always-auth=true
         EOF
         corepack enable
-        pnpm install --frozen-lockfile
+        # --no-frozen-lockfile: the mirrored repo's pnpm-lock.yaml can lag behind
+        # package.json (e.g. apps/storybook), which hard-fails a frozen install in
+        # CI. Resolve/refresh the lockfile at build time so a stale lock upstream
+        # doesn't block the publish (we're publishing packages, not enforcing a
+        # reproducible app deploy here).
+        pnpm install --no-frozen-lockfile
         # Build all packages if a build script is defined, then publish each. A
         # version already present in Nexus must not hard-fail the run (idempotent).
         pnpm -r build || true

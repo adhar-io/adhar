@@ -87,7 +87,17 @@ func (r *AdharPlatformReconciler) applyControlPlaneConfiguration(ctx context.Con
 	logger := log.FromContext(ctx)
 	fsys := controlplane.ConfigurationFS
 
-	// XRDs first — they must establish before Compositions can reference them.
+	// RBAC first — the crossplane-compose-local ClusterRole aggregates into the
+	// Crossplane service account so it may create the composed resources our
+	// local compositions render (CNPG Clusters, Valkey, ArgoCD Applications, …).
+	// Without it every local self-service request (e.g. CompositeDatabase) fails
+	// with "cannot patch resource ... forbidden". Cluster-scoped + dependency-free,
+	// so it applies before anything composes.
+	if err := r.applyEmbeddedManifests(ctx, fsys, "configuration/rbac", resource, "Compose RBAC", false, false); err != nil {
+		return fmt.Errorf("applying compose RBAC: %w", err)
+	}
+
+	// XRDs next — they must establish before Compositions can reference them.
 	if err := r.applyEmbeddedManifests(ctx, fsys, "configuration/xrd", resource, "XRDs", false, false); err != nil {
 		return fmt.Errorf("applying XRDs: %w", err)
 	}

@@ -76,9 +76,13 @@ spec:
                 }
             }
 
-            # Compute XR status from the Release status
-            _releaseObserved = ocds.get("loki", {}).get("resource", {})
-            _releaseState = _releaseObserved.get("status", {}).get("atProvider", {}).get("state", "")
+            # Compute XR status from the Release status. Coerce each step with
+            # `or {}`: ocds is Undefined on the first reconcile and KCL's .get
+            # default only covers MISSING keys (a null value returns Undefined),
+            # so a bare .get().get() chain throws "UndefinedType has no get".
+            _observedResources = ocds or {}
+            _releaseObserved = (_observedResources.get("loki", {}) or {}).get("resource", {}) or {}
+            _releaseState = ((_releaseObserved.get("status", {}) or {}).get("atProvider", {}) or {}).get("state", "")
 
             _phase = "Pending"
             _message = "Logging stack provisioning initiated"

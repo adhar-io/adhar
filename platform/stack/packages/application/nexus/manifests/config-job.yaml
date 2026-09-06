@@ -83,7 +83,12 @@ spec:
               # builds resolve deps through Nexus. The release pipeline mirrors
               # * -> maven-public, which 404s (fails all resolution) without this group.
               mkrepo maven/proxy '{"name":"maven-central","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://repo1.maven.org/maven2/","contentMaxAge":-1,"metadataMaxAge":1440},"negativeCache":{"enabled":true,"timeToLive":1440},"httpClient":{"blocked":false,"autoBlock":true},"maven":{"versionPolicy":"RELEASE","layoutPolicy":"PERMISSIVE"}}'
-              mkrepo maven/group '{"name":"maven-public","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"group":{"memberNames":["maven-hosted","maven-central"]}}'
+              # Lombok edge-releases proxy: adhar-kit builds on JDK 25 and depends on
+              # org.projectlombok:lombok:edge-SNAPSHOT (only the edge channel supports
+              # the newest JDKs; it is NOT on Maven Central). versionPolicy MIXED so the
+              # -SNAPSHOT resolves. Added to maven-public below so builds see it.
+              mkrepo maven/proxy '{"name":"lombok-edge","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://projectlombok.org/edge-releases/","contentMaxAge":-1,"metadataMaxAge":60},"negativeCache":{"enabled":true,"timeToLive":60},"httpClient":{"blocked":false,"autoBlock":true},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
+              mkrepo maven/group '{"name":"maven-public","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"group":{"memberNames":["maven-hosted","maven-central","lombok-edge"]}}'
               # 3) Enable the auth realms:
               #    - NpmToken       : `npm publish` bearer tokens
               #    - rutauth-realm  : Rut Auth (HTTP header) — lets the Keycloak

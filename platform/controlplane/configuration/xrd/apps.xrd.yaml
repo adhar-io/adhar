@@ -8,8 +8,11 @@ spec:
   names:
     kind: CompositeApplication
     plural: compositeapplications
+  # Default to the multi-environment fan-out: a new CompositeApplication provisions
+  # dev/test/prod ArgoCD apps (dev auto-deploys; test/prod are promotion targets).
+  # For a single-namespace app, select compositeapplication-argocd instead.
   defaultCompositionRef:
-    name: compositeapplication-argocd
+    name: compositeapplication-multienv
   versions:
     - name: v1alpha1
       served: true
@@ -45,8 +48,9 @@ spec:
                   type: object
                   required:
                     - source
-                    - destination
                     - project
+                  # destination is optional: when `environments` is set, each env
+                  # derives its own destination namespace (<app>-<env>).
                   properties:
                     displayName:
                       type: string
@@ -54,6 +58,36 @@ spec:
                       type: string
                     description:
                       type: string
+                    # Multi-environment fan-out. Each entry becomes its own ArgoCD
+                    # Application deploying the same source into namespace
+                    # "<app>-<env>". Only environments with autoSync:true deploy
+                    # automatically (dev by default); the rest are created but
+                    # gated — Kargo (or a manual sync) promotes an image into them
+                    # dev → test → prod. Leave empty for a single-namespace app
+                    # (uses destination.namespace as-is).
+                    environments:
+                      type: array
+                      default:
+                        - {name: dev, autoSync: true, order: 0}
+                        - {name: test, autoSync: false, order: 1}
+                        - {name: prod, autoSync: false, order: 2}
+                      items:
+                        type: object
+                        required: [name]
+                        properties:
+                          name:
+                            type: string
+                            description: "Environment name (dev, test, prod, …)."
+                          namespace:
+                            type: string
+                            description: "Target namespace (defaults to <app>-<env>)."
+                          autoSync:
+                            type: boolean
+                            default: false
+                            description: "Deploy automatically. Typically true only for dev; higher envs are promoted into."
+                          order:
+                            type: integer
+                            description: "Promotion order (0=first). Used to wire the Kargo dev→test→prod stage chain."
                     source:
                       type: object
                       required:

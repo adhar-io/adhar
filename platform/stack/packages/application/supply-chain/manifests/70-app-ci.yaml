@@ -1,0 +1,197 @@
+# Automatic CI/CD for application repositories (the paved road).
+#
+# On every push to an app repo's main branch, a Gitea webhook hits the `app-ci`
+# EventListener, which starts the `app-ci` Pipeline:
+#
+#   clone → buildpacks build (auto-detects Java/Go/Node/Python) → Harbor
+#         → trivy scan → cosign sign → GitOps writeback
+#
+# The writeback stamps the built commit SHA into the app's Deployment annotation
+# and pushes it back with "[skip ci]" (so it does NOT retrigger a build); ArgoCD
+# then reconciles the change and rolls the workload to the freshly-built, signed
+# image. That is how a git push reaches the cluster — build automatic, deploy
+# through GitOps.
+#
+# Platform repos (adhar-ui/kit, packages, environments, templates, adhar-templates)
+# are excluded here — adhar-ui/kit have their own release pipelines (adhar-ci EL),
+# and the GitOps repos are not application source.
+---
+# Gitea credentials for the writeback push. Same admin the platform bootstraps
+# with; kept inline like harbor-dockercfg since this is the in-cluster registry/git.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitea-ci-creds
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+type: Opaque
+stringData:
+  username: gitea_admin
+  password: "r8sA8CPHD9!bt6d"
+---
+# Writeback task: pin the app Deployment to the built revision and push it back.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: gitops-writeback
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: repo-name, type: string}
+    - {name: revision, type: string}
+  steps:
+    - name: writeback
+      image: alpine/git:2.45.2
+      env:
+        - {name: GIT_USER, valueFrom: {secretKeyRef: {name: gitea-ci-creds, key: username}}}
+        - {name: GIT_PASS, valueFrom: {secretKeyRef: {name: gitea-ci-creds, key: password}}}
+      script: |
+        #!/bin/sh
+        set -e
+        REPO="$(params.repo-name)"
+        REV="$(params.revision)"
+        # URL-encode the '!' in the password so basic-auth in the URL parses.
+        PASS_ENC=$(echo "$GIT_PASS" | sed 's/!/%21/g')
+        URL="http://${GIT_USER}:${PASS_ENC}@gitea-http.adhar-system.svc.cluster.local:3000/adhar/${REPO}.git"
+        cd /tmp
+        rm -rf work && git clone --depth 1 "$URL" work
+        cd work
+        DEP="manifests/deployment.yaml"
+        if [ ! -f "$DEP" ]; then echo "no $DEP — nothing to roll"; exit 0; fi
+        # Bump the build-revision annotation so ArgoCD rolls the Deployment.
+        sed -i "s|adhar.io/build-revision:.*|adhar.io/build-revision: \"${REV}\"|" "$DEP"
+        if git diff --quiet; then echo "no change (already at ${REV})"; exit 0; fi
+        git config user.name  "adhar-ci"
+        git config user.email "adhar-ci@adhar.localtest.me"
+        git commit -aqm "ci: deploy ${REV} [skip ci]"
+        git push -q origin HEAD:main
+        echo "wrote back revision ${REV} to adhar/${REPO} → ArgoCD will roll the deployment"
+---
+# The CI pipeline: source → signed image in Harbor → GitOps rollout.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: app-ci
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: repo-name, type: string}
+    - {name: revision, type: string, default: main}
+  workspaces:
+    - {name: shared}
+  tasks:
+    - name: clone
+      taskRef: {name: git-clone}
+      params:
+        - {name: url, value: "http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/$(params.repo-name)"}
+        - {name: revision, value: main}
+      workspaces: [{name: output, workspace: shared}]
+    - name: build
+      runAfter: [clone]
+      taskRef: {name: buildpacks-build}
+      params:
+        - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
+      workspaces: [{name: source, workspace: shared}]
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):latest"}]
+    - name: sign
+      runAfter: [scan]
+      taskRef: {name: cosign-sign}
+      params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}]
+    - name: deploy
+      runAfter: [sign]
+      taskRef: {name: gitops-writeback}
+      params:
+        - {name: repo-name, value: "$(params.repo-name)"}
+        - {name: revision, value: "$(params.revision)"}
+---
+# Trigger template: turn a push event into an app-ci PipelineRun.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: run-app-ci
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: repo-name}
+    - {name: revision}
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: app-ci-$(tt.params.repo-name)-
+        namespace: adhar-system
+        labels:
+          adhar.io/app: $(tt.params.repo-name)
+          tekton.dev/pipeline: app-ci
+      spec:
+        pipelineRef: {name: app-ci}
+        taskRunTemplate: {serviceAccountName: adhar-pipeline}
+        params:
+          - {name: repo-name, value: $(tt.params.repo-name)}
+          - {name: revision, value: $(tt.params.revision)}
+        workspaces:
+          - name: shared
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources: {requests: {storage: 2Gi}}
+---
+# EventListener RBAC (mirrors the adhar-ci library EL).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-ci
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-ci-eventlistener
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tekton-triggers-eventlistener-roles}
+subjects: [{kind: ServiceAccount, name: app-ci, namespace: adhar-system}]
+---
+# Cluster-scoped: the EventListener lists ClusterInterceptors (the `cel`
+# interceptor) + ClusterTriggerBindings, which live at cluster scope — so this
+# MUST be a ClusterRoleBinding, not a namespaced RoleBinding (a RoleBinding
+# grants the ClusterRole only within the namespace, so the informer's
+# cluster-scoped LIST is forbidden and the EventListener crash-loops).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: app-ci-eventlistener-clusterroles
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tekton-triggers-eventlistener-clusterroles}
+subjects: [{kind: ServiceAccount, name: app-ci, namespace: adhar-system}]
+---
+# EventListener: any app repo's main-branch push (not platform repos, not a
+# writeback commit) starts an app-ci run. Reuses the gitea-push TriggerBinding.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: app-ci
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  serviceAccountName: app-ci
+  triggers:
+    - name: app-push
+      interceptors:
+        - ref: {name: cel}
+          params:
+            - name: filter
+              value: >-
+                body.ref == 'refs/heads/main' &&
+                !(body.repository.name in ['adhar-ui','adhar-kit','packages','environments','templates','adhar-templates']) &&
+                (!has(body.head_commit) || !body.head_commit.message.contains('[skip ci]'))
+      bindings:
+        - {ref: gitea-push}
+      template: {ref: run-app-ci}

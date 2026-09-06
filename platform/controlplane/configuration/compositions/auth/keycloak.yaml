@@ -281,8 +281,8 @@ spec:
 
             # Get observed state
             _observedResources = ocds or {}
-            _deploymentObserved = _observedResources.get("keycloak-deployment", {}).get("resource", {})
-            _deploymentStatus = _deploymentObserved.get("status", {})
+            _deploymentObserved = (_observedResources.get("keycloak-deployment", {}) or {}).get("resource", {}) or {}
+            _deploymentStatus = _deploymentObserved.get("status", {}) or {}
 
             _phase = "Pending"
             _message = "Auth stack provisioning initiated"

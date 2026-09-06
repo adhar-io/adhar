@@ -139,9 +139,11 @@ build-control-plane: ## Build Crossplane control-plane configuration package
 		crossplane xpkg build \
 			--package-root=platform/controlplane/configuration \
 			--examples-root=platform/controlplane/dist/examples \
-			--ignore="providers/*,providers/config/*,providers/cloud/*,functions/*,operations/*" \
+			--ignore="providers/*,providers/config/*,providers/cloud/*,functions/*,operations/*,rbac/*" \
 			-o platform/controlplane/dist/adhar-control-plane-$(VERSION).xpkg; \
+		status=$$?; \
 		rm -rf platform/controlplane/dist/examples; \
+		[ $$status -eq 0 ] || { echo "✗ control-plane package build failed ($$status)"; exit $$status; }; \
 	else \
 		echo "  crossplane CLI not found; falling back to tarball bundle"; \
 		tar -czf platform/controlplane/dist/adhar-control-plane-$(VERSION).xpkg -C platform/controlplane/configuration .; \
@@ -191,7 +193,7 @@ preload-images: ## Pre-pull platform bootstrap + core images into the host Docke
 		echo "preload-images: Docker not available — skipping cache warm (adhar up will pull images in-cluster)"; \
 	else \
 		echo "preload-images: warming host Docker cache ($(words $(ADHAR_PRELOAD_IMAGES)) images, parallel)…"; \
-		echo "$(ADHAR_PRELOAD_IMAGES)" | tr ' ' '\n' | grep . | xargs -P 4 -I{} sh -c 'docker pull "{}" >/dev/null 2>&1 && echo "  ok  {}" || echo "  skip {}"'; \
+		echo "$(ADHAR_PRELOAD_IMAGES)" | tr ' ' '\n' | grep . | xargs -P 4 -n 1 sh -c 'docker pull "$$1" >/dev/null 2>&1 && echo "  ok  $$1" || echo "  skip $$1"' _; \
 		echo "Host cache warmed. 'adhar up' will preload these into the Kind node."; \
 	fi
 

@@ -17,7 +17,9 @@ spec:
     - {name: source}
   steps:
     - name: mvn-deploy
-      image: docker.io/library/maven:3.9-eclipse-temurin-21
+      # adhar-kit's parent pom enforces RequireJavaVersion [25,), so the build
+      # image must ship JDK 25 (temurin-21 fails the maven-enforcer plugin).
+      image: docker.io/library/maven:3.9-eclipse-temurin-25
       env:
         # Nexus credentials + endpoints published by the nexus-config bootstrap Job.
         - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}

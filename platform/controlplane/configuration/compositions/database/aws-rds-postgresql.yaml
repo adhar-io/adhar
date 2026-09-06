@@ -202,10 +202,14 @@ spec:
                     }
                 }]
 
-            # Get observed state for status
+            # Get observed state for status. Coerce every navigation step with
+            # `or {}`: on the first reconcile ocds is Undefined, and KCL's
+            # dict.get(k, default) only returns the default when the key is
+            # MISSING — a present-but-null value returns Undefined, so chaining
+            # .get().get() on the same line throws "UndefinedType has no get".
             _observedResources = ocds or {}
-            _rdsObserved = _observedResources.get("rds-instance", {}).get("resource", {})
-            _rdsStatus = _rdsObserved.get("status", {}).get("atProvider", {})
+            _rdsObserved = (_observedResources.get("rds-instance", {}) or {}).get("resource", {}) or {}
+            _rdsStatus = (_rdsObserved.get("status", {}) or {}).get("atProvider", {}) or {}
 
             _phase = "Pending"
             _message = "Database provisioning initiated"
@@ -219,8 +223,8 @@ spec:
                     _phase = "Available"
                     _message = "Database is ready"
                     _ready = True
-                    _endpoint = _rdsStatus.get("endpoint", {}).get("address", "")
-                    _port = _rdsStatus.get("endpoint", {}).get("port", 5432)
+                    _endpoint = (_rdsStatus.get("endpoint", {}) or {}).get("address", "")
+                    _port = (_rdsStatus.get("endpoint", {}) or {}).get("port", 5432)
                 elif _dbStatus in ["creating", "backing-up", "modifying"]:
                     _phase = "Creating"
                     _message = "Database is being provisioned"

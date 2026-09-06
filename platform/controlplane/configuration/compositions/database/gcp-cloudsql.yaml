@@ -185,10 +185,13 @@ spec:
                 }
             ]
 
-            # Get observed state for status
+            # Get observed state for status. Coerce each step with `or {}`:
+            # ocds is Undefined on first reconcile and KCL's .get default only
+            # applies to MISSING keys (a null value returns Undefined), so a bare
+            # .get().get() chain throws "UndefinedType has no attribute get".
             _observedResources = ocds or {}
-            _instanceObserved = _observedResources.get("cloudsql-instance", {}).get("resource", {})
-            _instanceStatus = _instanceObserved.get("status", {}).get("atProvider", {})
+            _instanceObserved = (_observedResources.get("cloudsql-instance", {}) or {}).get("resource", {}) or {}
+            _instanceStatus = (_instanceObserved.get("status", {}) or {}).get("atProvider", {}) or {}
 
             _phase = "Pending"
             _message = "Database provisioning initiated"
