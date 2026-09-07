@@ -295,7 +295,7 @@ spec:
             category: "security"
             manifestPath: "security/kyverno-policies/manifests"
           - name: "policy-reporter"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/policy-reporter/manifests"
@@ -562,6 +562,12 @@ spec:
           # ServiceMonitor/ExternalSecret CRs; a healthy resource still applies
           # on the first attempt, so unlimited only costs time on failures.)
           limit: -1
+        # Namespaces ArgoCD creates for packages carry the ADR-0023 placement
+        # label (platform packages run on the control plane) so the
+        # require-namespace-plane-label policy reports them as compliant.
+        managedNamespaceMetadata:
+          labels:
+            adhar.io/plane: control
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -46,24 +47,36 @@ This command retrieves and displays:
 • Database credentials
 • API tokens and keys
 
+Values are shown in full (never truncated). In a terminal an interactive
+picker follows the table: ↑/↓ choose a credential, u copies the username,
+p/Enter copies the password, q quits.
+
 Examples:
-  adhar get secrets                    # Get all platform secrets
+  adhar get secrets                    # Get all platform secrets (+ copy picker)
   adhar get secrets -p argocd         # Get ArgoCD specific secrets
-  adhar get secrets -p gitea          # Get Gitea specific secrets
-  adhar get secrets -p keycloak       # Get Keycloak specific secrets`,
+  adhar get secrets -p keycloak       # Get Keycloak specific secrets
+  adhar get secrets --copy argocd     # Copy the ArgoCD password to the clipboard
+  adhar get secrets -o json           # Machine-readable
+  eval "$(adhar get secrets -o env)"  # ARGOCD_PASSWORD, GITEA_USERNAME, ... in the shell`,
 	RunE: runGetSecrets,
 }
 
 var (
-	provider string
-	showAll  bool
-	debug    bool
+	provider      string
+	showAll       bool
+	debug         bool
+	copyPassword  string
+	copyUsername  string
+	noInteractive bool
 )
 
 func init() {
 	secretsCmd.Flags().StringVarP(&provider, "provider", "p", "", "Filter secrets by provider (argocd, gitea, keycloak, adhar-console, vault, postgres, redis)")
 	secretsCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all secrets including system ones")
 	secretsCmd.Flags().BoolVarP(&debug, "debug", "d", false, "Show debug information about secret keys")
+	secretsCmd.Flags().StringVar(&copyPassword, "copy", "", "Copy the password of the named service to the clipboard (e.g. --copy argocd) and exit")
+	secretsCmd.Flags().StringVar(&copyUsername, "copy-user", "", "Copy the username of the named service to the clipboard and exit")
+	secretsCmd.Flags().BoolVar(&noInteractive, "no-interactive", false, "Print the table only; skip the interactive copy picker")
 }
 
 // providerConfig defines where to look for each provider's secrets
@@ -99,7 +112,10 @@ var knownProviders = map[string]providerConfig{
 }
 
 func runGetSecrets(cmd *cobra.Command, args []string) error {
-	logger.Info("Retrieving platform secrets...")
+	// Machine-readable output must be the only thing on stdout.
+	if f := strings.ToLower(outputFormat); f != outputJSON && f != outputEnv {
+		logger.Info("Retrieving platform secrets...")
+	}
 
 	clientset, err := getKubernetesClient()
 	if err != nil {
@@ -445,64 +461,54 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 
 // displaySecretEntries renders the entries as a clean table
 func displaySecretEntries(entries []SecretEntry, label string) error {
+	// Scripting paths first: nothing but the payload on stdout.
+	switch strings.ToLower(outputFormat) {
+	case outputJSON:
+		return writeSecretsJSON(os.Stdout, entries)
+	case outputEnv:
+		return writeSecretsEnv(os.Stdout, entries)
+	case outputTable, "":
+	default:
+		return fmt.Errorf("unknown output format %q (table, json, env)", outputFormat)
+	}
+
+	// --copy / --copy-user: copy one value and exit without printing secrets.
+	for _, want := range []struct{ name, what string }{{copyPassword, "password"}, {copyUsername, "username"}} {
+		if want.name == "" {
+			continue
+		}
+		e, ok := findEntry(entries, want.name)
+		if !ok {
+			return fmt.Errorf("no credential matches %q (services: %s)", want.name, strings.Join(serviceNames(entries), ", "))
+		}
+		value := e.Password
+		if want.what == "username" {
+			value = e.Username
+		}
+		via, err := copyToClipboard(value)
+		if err != nil {
+			return err
+		}
+		fmt.Println(helpers.SuccessStyle.Render(fmt.Sprintf("✓ %s for %s copied to clipboard (%s)", want.what, e.Service, via)))
+		return nil
+	}
+
 	fmt.Println()
 	logger.Info(fmt.Sprintf("Found %d credential(s) for %s\n", len(entries), label))
-
-	// Calculate column widths from data
-	svcW, userW, passW := 22, 20, 20
-	for _, e := range entries {
-		if l := len(e.Service) + 4; l > svcW { // +4 for icon + spaces
-			svcW = l
-		}
-		if l := len(e.Username); l > userW {
-			userW = l
-		}
-		if l := len(e.Password); l > passW {
-			passW = l
-		}
-	}
-	// Cap max widths
-	if svcW > 30 {
-		svcW = 30
-	}
-	if userW > 25 {
-		userW = 25
-	}
-	if passW > 45 {
-		passW = 45
-	}
-
-	totalW := svcW + userW + passW + 10 // padding between columns
-	var tb strings.Builder
-
-	headerFmt := fmt.Sprintf("  %%-%ds  %%-%ds  %%-%ds", svcW, userW, passW)
-	tb.WriteString(helpers.CreateHighlight(fmt.Sprintf(headerFmt, "SERVICE", "USERNAME", "PASSWORD")))
-	tb.WriteString("\n")
-	tb.WriteString(strings.Repeat("─", totalW))
-	tb.WriteString("\n")
-
-	rowFmt := fmt.Sprintf("  %%-%ds  %%-%ds  %%s\n", svcW, userW)
-	for _, e := range entries {
-		svc := truncate(e.Icon+" "+e.Service, svcW)
-		user := truncate(e.Username, userW)
-		pass := truncate(e.Password, passW)
-		if user == "" {
-			user = "-"
-		}
-		if pass == "" {
-			pass = "-"
-		}
-		tb.WriteString(fmt.Sprintf(rowFmt, svc, user, pass))
-	}
-
-	fmt.Println(helpers.BorderStyle.Width(totalW + 6).Render(tb.String()))
+	width := terminalWidth()
+	fmt.Println(renderSecretsTable(entries, width))
 	fmt.Println()
-	return nil
+
+	if noInteractive || width == 0 {
+		return nil
+	}
+	return runSecretsPicker(entries)
 }
 
-func truncate(s string, max int) string {
-	if len(s) > max {
-		return s[:max-3] + "..."
+func serviceNames(entries []SecretEntry) []string {
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Service)
 	}
-	return s
+	return names
 }

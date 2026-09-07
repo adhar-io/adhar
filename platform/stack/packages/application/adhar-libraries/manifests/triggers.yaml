@@ -165,9 +165,11 @@ spec:
               set -e
               GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
               EL=http://el-adhar-ci.adhar-system.svc.cluster.local:8080
-              # wait for the EventListener service to exist
+              # wait for the EventListener to be up: its liveness endpoint
+              # answers 200 (a GET on / is rejected as a non-event request,
+              # which would make this loop wait out all 30 attempts).
               for i in $(seq 1 30); do
-                curl -sf -o /dev/null "$EL" && break || true
+                curl -sf -o /dev/null "$EL/live" && break || true
                 echo "waiting for EventListener…"; sleep 5
               done
               # skip if a hook already points at the EventListener

@@ -20,6 +20,11 @@ spec:
       # adhar-kit's parent pom enforces RequireJavaVersion [25,), so the build
       # image must ship JDK 25 (temurin-21 fails the maven-enforcer plugin).
       image: docker.io/library/maven:3.9-eclipse-temurin-25
+      # Cap the build so it cannot starve Nexus / the node (a single small
+      # node runs the whole platform); requests keep it schedulable.
+      computeResources:
+        requests: {cpu: 500m, memory: 1Gi}
+        limits: {cpu: "2", memory: 4Gi}
       env:
         # Nexus credentials + endpoints published by the nexus-config bootstrap Job.
         - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}
@@ -63,7 +68,14 @@ spec:
           </mirrors>
         </settings>
         EOF
+        # Resolution goes through the in-cluster Nexus proxy, which can be slow
+        # or briefly unavailable on a busy node: retry transfers, allow long
+        # requests, and limit parallel downloads so a cold proxy is not swamped.
         mvn -B -s settings.xml -DskipTests \
+          -Daether.connector.http.retryHandler.count=5 \
+          -Daether.connector.connectTimeout=60000 \
+          -Daether.connector.requestTimeout=600000 \
+          -Dmaven.artifact.threads=2 \
           -DaltDeploymentRepository="nexus::default::$MAVEN_URL" \
           deploy
         echo "adhar-kit published to $MAVEN_URL (resolved via $MAVEN_PUBLIC)"
@@ -81,25 +93,3 @@ spec:
       taskRef: {name: deploy-maven-project}
       params: [{name: repo, value: "adhar-kit"}]
       workspaces: [{name: source, workspace: shared}]
----
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  name: release-adhar-kit
-  namespace: adhar-system
-  annotations:
-    argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "2"
-spec:
-  pipelineRef: {name: release-adhar-kit}
-  taskRunTemplate:
-    serviceAccountName: adhar-libraries
-  workspaces:
-    - name: shared
-      volumeClaimTemplate:
-        spec:
-          accessModes: [ReadWriteOnce]
-          resources:
-            requests:
-              storage: 2Gi

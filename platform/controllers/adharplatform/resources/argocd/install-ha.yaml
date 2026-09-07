@@ -1163,6 +1163,26 @@ data:
       groups:
         essential: true
   oidc.tls.insecure.skip.verify: "true"
+  # Tekton PipelineRun health: without it ArgoCD treats a PipelineRun as Healthy
+  # the moment it is created, so hook waves cannot sequence releases and the
+  # UI cannot show a running/failed pipeline.
+  resource.customizations.health.tekton.dev_PipelineRun: |
+    local hs = {}
+    hs.status = "Progressing"
+    hs.message = "PipelineRun pending"
+    if obj.status ~= nil and obj.status.conditions ~= nil then
+      for _, c in ipairs(obj.status.conditions) do
+        if c.type == "Succeeded" then
+          if c.status == "True" then
+            hs.status = "Healthy"
+          elseif c.status == "False" then
+            hs.status = "Degraded"
+          end
+          hs.message = (c.reason or "") .. ": " .. (c.message or "")
+        end
+      end
+    end
+    return hs
   resource.customizations.health.postgresql.cnpg.io_Cluster: |
     health_status = {}
     if obj.status ~= nil and obj.status.phase ~= nil then

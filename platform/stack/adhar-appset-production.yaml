@@ -515,6 +515,12 @@ spec:
           # dependencies make first syncs fail until the provider package has
           # applied its CRDs; a finite limit leaves them Failed forever.
           limit: -1
+        # Namespaces ArgoCD creates for packages carry the ADR-0023 placement
+        # label (platform packages run on the control plane) so the
+        # require-namespace-plane-label policy reports them as compliant.
+        managedNamespaceMetadata:
+          labels:
+            adhar.io/plane: control
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true

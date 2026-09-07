@@ -1000,6 +1000,12 @@ func (r *AdharPlatformReconciler) ReconcileProjectNamespace(ctx context.Context,
 
 	logger.V(1).Info("Create or update namespace", "resource", nsResource)
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, nsResource, func() error {
+		// The platform namespace is the control plane (ADR-0023 placement
+		// label, audited by the require-namespace-plane-label policy).
+		if nsResource.Labels == nil {
+			nsResource.Labels = map[string]string{}
+		}
+		nsResource.Labels["adhar.io/plane"] = "control"
 		return nil
 	})
 	if err != nil {

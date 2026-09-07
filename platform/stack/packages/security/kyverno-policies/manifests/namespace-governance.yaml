@@ -1,0 +1,51 @@
+# Cluster-scoped governance: namespaces must declare which plane they belong to
+# (ADR-0023 placement contract — `adhar.io/plane: control|data`). Platform
+# namespaces are created with the label; tenant/application namespaces get it
+# from CompositeEnvironment / the golden-path templates. Audit only: it reports,
+# never blocks. Kubernetes' own namespaces are excluded.
+#
+# This is also the platform's cluster-scoped policy: Kyverno writes per-namespace
+# PolicyReports for namespaced resources and ClusterPolicyReports only for
+# cluster-scoped ones, so without a Namespace-level policy the cluster-wide
+# report set is empty and cluster-level tooling shows "no reports".
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-namespace-plane-label
+  annotations:
+    policies.kyverno.io/title: Require Namespace Plane Label
+    policies.kyverno.io/category: Adhar Governance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Namespace
+    policies.kyverno.io/description: >-
+      Every namespace must carry the adhar.io/plane label (control or data) so
+      workload placement and fleet policies (ADR-0023) can be enforced.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: plane-label-present
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      exclude:
+        any:
+          - resources:
+              names:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - default
+                - local-path-storage
+                - cilium-secrets   # Cilium-owned, created by the agent
+      validate:
+        message: >-
+          Namespace must be labelled adhar.io/plane=control or adhar.io/plane=data
+          (ADR-0023 placement).
+        pattern:
+          metadata:
+            labels:
+              adhar.io/plane: "control | data"

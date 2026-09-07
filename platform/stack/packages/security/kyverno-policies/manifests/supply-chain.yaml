@@ -52,7 +52,9 @@ spec:
                       namespace: adhar-system
                     rekor:
                       url: https://rekor.sigstore.dev
-          mutateDigest: true
+          # Kyverno (1.19+) rejects mutateDigest=true on an Audit policy; flip both
+          # to true together when the policy moves to Enforce.
+          mutateDigest: false
           verifyDigest: false
           required: false
 ---

@@ -78,16 +78,21 @@ spec:
             periodSeconds: 10
             failureThreshold: 120
             timeoutSeconds: 5
+          # Nexus answers slowly while it proxies a cold dependency tree for a
+          # build on a busy node; a tight liveness probe then restarts it
+          # mid-transfer (Maven "Failed to read artifact descriptor", pnpm
+          # ECONNRESET/ECONNREFUSED). Generous timeouts: only a truly hung
+          # process gets restarted (~15 min of failed probes).
           readinessProbe:
             httpGet: {path: /service/rest/v1/status, port: 8081}
             periodSeconds: 15
-            failureThreshold: 5
-            timeoutSeconds: 5
+            failureThreshold: 8
+            timeoutSeconds: 15
           livenessProbe:
             httpGet: {path: /, port: 8081}
             periodSeconds: 30
-            failureThreshold: 10
-            timeoutSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 20
           volumeMounts:
             - {name: nexus-data, mountPath: /nexus-data}
       volumes:

@@ -75,7 +75,13 @@ adhar get secrets                 # all platform credentials
 adhar get secrets -p argocd       # a single package, e.g. the ArgoCD admin login
 adhar get secrets -p gitea
 adhar get secrets -p keycloak
+adhar get secrets --copy argocd   # password straight to the clipboard (--copy-user for the username)
+adhar get secrets -o json         # machine-readable; -o env prints export lines: eval "$(adhar get secrets -o env)"
 ```
+
+Values are always printed in full (the table grows to fit; narrow terminals get
+one card per credential). In a terminal the table is followed by a picker:
+↑/↓ select, `u` copies the username, `p`/Enter copies the password, `q` quits.
 
 Because the context is already current after `adhar up`, no `export KUBECONFIG`
 is needed on that machine. From elsewhere, point `KUBECONFIG` at the standalone

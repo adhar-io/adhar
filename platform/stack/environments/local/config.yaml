@@ -261,7 +261,7 @@ packages:
     category: "security"
     manifestPath: "security/kyverno-policies/manifests"
   - name: "policy-reporter"
-    enabled: "false"
+    enabled: "true"
     namespace: "adhar-system"
     category: "security"
     manifestPath: "security/policy-reporter/manifests"

@@ -55,12 +55,12 @@ spec:
                 - keys:
                     secret: { name: cosign-key, namespace: adhar-system }   # platform signing key (supply-chain package)
                     rekor: { url: https://rekor.sigstore.dev }
-          mutateDigest: true
+          mutateDigest: false         # Kyverno rejects mutateDigest=true on Audit policies; enable with Enforce
           verifyDigest: false
           required: false             # advisory in Audit; flip to true when enforcing
 ```
 
-Signatures are bound to the **platform's own signing key** (`cosign-key`, generated in-cluster by the supply-chain package and used by the Tekton `app-ci` `cosign-sign` task); keyless Fulcio signing against the Keycloak issuer is the planned follow-up once the CI identity is exposed as an OIDC audience. `mutateDigest: true` pins the tag to the resolved digest on admit; `required: false` keeps missing signatures advisory while in Audit.
+Signatures are bound to the **platform's own signing key** (`cosign-key`, generated in-cluster by the supply-chain package and used by the Tekton `app-ci` `cosign-sign` task); keyless Fulcio signing against the Keycloak issuer is the planned follow-up once the CI identity is exposed as an OIDC audience. `mutateDigest` stays false while the policy is in Audit (Kyverno refuses digest mutation for Audit policies); it pins tags to digests once the policy is Enforce. `required: false` keeps missing signatures advisory while in Audit.
 
 Only images built by the platform (`harbor.*/library/*`, `ghcr.io/adhar-io/*`) are matched; third-party images pass this rule and are governed by the registry allowlist instead. Platform namespaces are excluded because foundation images are pinned at the release boundary and an admission gate on the platform's own control loop is an ADR-0012-class cluster-wide risk.
 

@@ -19,6 +19,11 @@ spec:
   steps:
     - name: build-and-publish
       image: docker.io/library/node:20-bookworm
+      # Cap the build so it cannot starve Nexus / the node (a single small
+      # node runs the whole platform); requests keep it schedulable.
+      computeResources:
+        requests: {cpu: 500m, memory: 512Mi}
+        limits: {cpu: "2", memory: 3Gi}
       env:
         # Nexus credentials + endpoints published by the nexus-config bootstrap Job.
         - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}
@@ -55,7 +60,12 @@ spec:
         # CI. Resolve/refresh the lockfile at build time so a stale lock upstream
         # doesn't block the publish (we're publishing packages, not enforcing a
         # reproducible app deploy here).
-        pnpm install --no-frozen-lockfile
+        # The in-cluster Nexus proxy can be slow/briefly unavailable on a busy
+        # node: retry harder and keep parallel fetches modest so a cold proxy
+        # (every package fetched from upstream on first use) is not swamped.
+        pnpm install --no-frozen-lockfile \
+          --fetch-retries=8 --fetch-retry-mintimeout=10000 --fetch-retry-maxtimeout=120000 \
+          --fetch-timeout=300000 --network-concurrency=6
         # Build all packages if a build script is defined, then publish each. A
         # version already present in Nexus must not hard-fail the run (idempotent).
         pnpm -r build || true
@@ -78,25 +88,3 @@ spec:
         - {name: repo, value: "adhar-ui"}
         - {name: scope, value: "@adhar-ui"}
       workspaces: [{name: source, workspace: shared}]
----
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  name: release-adhar-ui
-  namespace: adhar-system
-  annotations:
-    argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "2"
-spec:
-  pipelineRef: {name: release-adhar-ui}
-  taskRunTemplate:
-    serviceAccountName: adhar-libraries
-  workspaces:
-    - name: shared
-      volumeClaimTemplate:
-        spec:
-          accessModes: [ReadWriteOnce]
-          resources:
-            requests:
-              storage: 2Gi
