@@ -17,3 +17,44 @@ ingress-nginx:
 web:
   service:
     type: ClusterIP
+
+# Bitnami pruned the "-debian-10-rNN" builds that this chart's bundled
+# subcharts pin (kafka 2.8.1-debian-10-r99, zookeeper 3.7.0-debian-10-r70,
+# postgresql 11.7.0-debian-10-r9, redis 6.2.7-debian-10-r0), so every one of
+# those pods failed with ImagePullBackOff / manifest unknown. The same
+# SOFTWARE VERSIONS are still published in the bitnamilegacy repository under
+# plain version tags, so pin those: identical versions (the subchart's
+# configuration stays valid), tags that actually exist.
+postgresql:
+  image:
+    repository: bitnamilegacy/postgresql
+    tag: 11.7.0
+pgbouncer:
+  image:
+    repository: bitnamilegacy/pgbouncer
+    tag: 1.18.0
+redis:
+  image:
+    repository: bitnamilegacy/redis
+    tag: 6.2.7
+
+# Use the platform's shared Strimzi Kafka (KRaft, no ZooKeeper) instead of the
+# chart's bundled Kafka 2.8.1 + ZooKeeper ensemble, whose Bitnami images
+# upstream deleted. One Kafka for the whole platform, on a supported version.
+kafka:
+  enabled: false
+zookeeper:
+  enabled: false
+externalKafka:
+  brokers:
+    - adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+  tls: false
+
+# Point ClickHouse at the platform's ClickHouse Keeper (manifests/
+# clickhouse-keeper.yaml) rather than the chart's Bitnami ZooKeeper ensemble.
+# Keeper speaks the same protocol on the same port, so this is a drop-in.
+clickhouse:
+  externalZookeeper:
+    servers:
+      - host: posthog-clickhouse-keeper
+        port: 2181

@@ -2,5 +2,8 @@ opencost:
   prometheus:
     internal:
       serviceName: prometheus-kube-prometheus-prometheus
-      namespaceName: monitoring
+      # Every platform package installs into adhar-system (ADR-0011); the
+      # chart default ("prometheus-system") and this previous "monitoring"
+      # value made opencost dial a non-existent Service and exit fatally.
+      namespaceName: adhar-system
       port: 9090

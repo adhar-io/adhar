@@ -1,0 +1,70 @@
+# The platform's shared Kafka cluster, managed by the Strimzi operator this
+# package installs. Strimzi 1.x runs Kafka 4.x, which is KRaft-only — there is
+# no ZooKeeper anywhere in the platform.
+#
+# Before this existed the operator was installed with no cluster, so every
+# application that needed Kafka bundled its own: PostHog shipped Kafka 2.8.1
+# plus a ZooKeeper ensemble on images upstream has since deleted. Applications
+# now point at this one cluster instead
+# (adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092).
+#
+# Sized for a single-node/local-friendly default (one dual-role node,
+# replication factor 1). Scale `replicas` and the replication factors together
+# for a production fleet.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: adhar-kafka-dual-role
+  namespace: adhar-system
+  labels:
+    strimzi.io/cluster: adhar-kafka
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  replicas: 1
+  roles:
+    - controller
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 10Gi
+        deleteClaim: false
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: adhar-kafka
+  namespace: adhar-system
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  kafka:
+    # Let Strimzi derive metadataVersion from the Kafka version — pinning it
+    # to a non-existent IV level makes the cluster NotReady ("invalid").
+    version: 4.3.1
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+      auto.create.topics.enable: true
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}

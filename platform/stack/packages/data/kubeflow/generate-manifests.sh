@@ -22,3 +22,26 @@ echo "---" >>"${INSTALL_YAML}"
 kustomize build "${BASE}/env/platform-agnostic?ref=${KFP_VERSION}&timeout=120" >>"${INSTALL_YAML}"
 
 echo "Generated ${INSTALL_YAML} for Kubeflow Pipelines ${KFP_VERSION}"
+
+# Kubeflow Pipelines bundles its own MinIO (Deployment "minio", its PVC and
+# Service). The platform provides object storage, and KFP's upstream image
+# (gcr.io/ml-pipeline/minio:RELEASE.2019-08-14…) has been deleted from gcr.io,
+# so those pods can never start. Strip them; manifests/platform-minio.yaml
+# re-creates `minio-service` as an ExternalName alias to the platform MinIO and
+# fills KFP's credential Secret from it.
+python3 - "${INSTALL_YAML}" <<'PYEOF_INNER'
+import sys, yaml
+p = sys.argv[1]
+docs = [d for d in yaml.safe_load_all(open(p)) if d]
+kept = []
+for d in docs:
+    name = (d.get("metadata") or {}).get("name")
+    kind = d.get("kind")
+    if kind == "Deployment" and name == "minio": continue
+    if kind == "PersistentVolumeClaim" and name == "minio-pvc": continue
+    if kind == "Service" and name == "minio-service": continue
+    kept.append(d)
+with open(p, "w") as f:
+    f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in kept))
+print(f"stripped bundled MinIO: {len(docs) - len(kept)} resource(s)")
+PYEOF_INNER

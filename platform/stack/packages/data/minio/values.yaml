@@ -7,12 +7,23 @@ resources:
 
 persistence:
   enabled: true
-  storageClass: standard
-  size: 512Mi
-  volumeName: backup
+  # No storageClass and no volumeName: the claim binds to whatever the
+  # cluster's DEFAULT StorageClass provisions (local-path on Kind,
+  # do-block-storage / gp3 / pd-balanced on the clouds). This package used to
+  # ship a hostPath PersistentVolume ("backup" -> /backup, storageClass
+  # "standard") and pin the claim to it with volumeName. That is Kind-only,
+  # and the root-owned host directory is not writable by minio's uid 1000, so
+  # minio crash-looped with "Unable to initialize backend: Unable to write to
+  # the backend". Dynamically provisioned volumes honour the pod's fsGroup.
+  size: 10Gi
 
 buckets:
   - name: adhar-backups
+  # Kubeflow Pipelines' artifact store. KFP ships its own MinIO deployment
+  # upstream, but its image (gcr.io/ml-pipeline/minio:RELEASE.2019-…) no longer
+  # exists and a second object store on the same cluster is waste: the kubeflow
+  # package points at this MinIO instead (see kubeflow/manifests/platform-minio.yaml).
+  - name: mlpipeline
 
 # Ingress is disabled: the MinIO console is now exposed via a Gateway API
 # HTTPRoute (manifests/httproute.yaml) attached to the Cilium adhar-gateway,

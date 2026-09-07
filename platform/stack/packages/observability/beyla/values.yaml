@@ -25,4 +25,6 @@ resources:
     cpu: 100m
     memory: 256Mi
   limits:
-    memory: 1Gi
+    # 1Gi OOM-looped beyla (exit 137) on every node of a busy cluster; the cap
+    # still protects the node but now sits above beyla's real usage.
+    memory: 2Gi

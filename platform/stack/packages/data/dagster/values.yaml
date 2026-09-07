@@ -9,3 +9,10 @@ dagsterWebserver:
   service:
     type: ClusterIP
     port: 80
+
+# The chart ships a demo "k8s-example-user-code" deployment whose image fails to
+# load its Dagster definitions (DagsterUserCodeLoadError) and crash-loops on a
+# real cluster. Teams add their own code locations; the platform ships none.
+dagster-user-deployments:
+  enabled: true
+  deployments: []

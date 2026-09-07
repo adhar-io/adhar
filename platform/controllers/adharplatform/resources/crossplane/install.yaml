@@ -1,3 +1,8 @@
+# NOTE: container resource *limits* below are caps, not reservations — the
+# requests stay small so a single-node Kind cluster is unaffected. Crossplane
+# was throttled and OOM-killed in a loop (29 restarts on a 10-node cloud
+# cluster) at cpu 200m / memory 512Mi once the cloud provider packages
+# registered their CRDs, so no package, XRD or composition ever reconciled.
 ---
 # Source: crossplane/templates/rbac-manager-serviceaccount.yaml
 apiVersion: v1
@@ -760,8 +765,8 @@ spec:
           - "*"
           resources:
             limits:
-              cpu: 200m
-              memory: 512Mi
+              cpu: "1"
+              memory: 2Gi
             requests:
               cpu: 50m
               memory: 128Mi
@@ -815,8 +820,8 @@ spec:
         imagePullPolicy: IfNotPresent
         resources:
             limits:
-              cpu: 200m
-              memory: 512Mi
+              cpu: "1"
+              memory: 2Gi
             requests:
               cpu: 50m
               memory: 128Mi
@@ -941,8 +946,8 @@ spec:
         imagePullPolicy: IfNotPresent
         resources:
             limits:
-              cpu: 50m
-              memory: 256Mi
+              cpu: 200m
+              memory: 512Mi
             requests:
               cpu: 25m
               memory: 128Mi
@@ -974,8 +979,8 @@ spec:
         imagePullPolicy: IfNotPresent
         resources:
             limits:
-              cpu: 50m
-              memory: 256Mi
+              cpu: 200m
+              memory: 512Mi
             requests:
               cpu: 25m
               memory: 128Mi

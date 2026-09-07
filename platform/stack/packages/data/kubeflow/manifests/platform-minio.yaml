@@ -1,0 +1,115 @@
+# Kubeflow Pipelines uses the platform's MinIO, not its own.
+#
+# Platform principle: applications consume platform-provisioned capabilities
+# (object storage, Kafka, PostgreSQL, cache, search) rather than bundling their
+# own. Upstream KFP ships a private MinIO Deployment whose image
+# (gcr.io/ml-pipeline/minio:RELEASE.2019-08-14…) no longer exists, which took
+# ml-pipeline and ml-pipeline-persistenceagent down with it.
+#
+# generate-manifests.sh strips that Deployment, its PVC and its Service; these
+# resources take their place:
+#   * minio-service            -> ExternalName alias to the platform MinIO, so
+#                                 every upstream reference to
+#                                 "minio-service.kubeflow:9000" keeps working
+#                                 unchanged (same port 9000).
+#   * mlpipeline-minio-artifact-> KFP's credential Secret, filled from the
+#                                 platform MinIO root credentials.
+# The "mlpipeline" bucket is provisioned by the minio package (values.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-service
+  namespace: kubeflow
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  type: ExternalName
+  externalName: minio.adhar-system.svc.cluster.local
+  ports:
+    - {name: http, port: 9000, targetPort: 9000}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubeflow-minio-credentials
+  namespace: kubeflow
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubeflow-minio-credentials
+  namespace: kubeflow
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubeflow-minio-credentials
+  namespace: kubeflow
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kubeflow-minio-credentials}
+subjects: [{kind: ServiceAccount, name: kubeflow-minio-credentials, namespace: kubeflow}]
+---
+# Read-only access to the platform MinIO root credentials in adhar-system.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubeflow-minio-credentials-reader
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [root-creds]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubeflow-minio-credentials-reader
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kubeflow-minio-credentials-reader}
+subjects: [{kind: ServiceAccount, name: kubeflow-minio-credentials, namespace: kubeflow}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kubeflow-minio-credentials
+  namespace: kubeflow
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      serviceAccountName: kubeflow-minio-credentials
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      containers:
+        - name: sync
+          image: docker.io/bitnami/kubectl:1.33
+          command: [sh, -c]
+          args:
+            - |
+              set -eu
+              # Wait for the platform MinIO root credentials to exist.
+              for i in $(seq 1 60); do
+                kubectl -n adhar-system get secret root-creds >/dev/null 2>&1 && break
+                echo "waiting for platform minio root-creds…"; sleep 10
+              done
+              ACCESS=$(kubectl -n adhar-system get secret root-creds -o jsonpath='{.data.rootUser}' | base64 -d)
+              SECRET=$(kubectl -n adhar-system get secret root-creds -o jsonpath='{.data.rootPassword}' | base64 -d)
+              kubectl -n kubeflow create secret generic mlpipeline-minio-artifact \
+                --from-literal=accesskey="$ACCESS" --from-literal=secretkey="$SECRET" \
+                --dry-run=client -o yaml | kubectl apply -f -
+              echo "mlpipeline-minio-artifact now carries the platform MinIO credentials"
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}

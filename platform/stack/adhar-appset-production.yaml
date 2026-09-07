@@ -101,8 +101,11 @@ spec:
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/faro/manifests"
+          # pixie disabled: Vizier must register against Pixie Cloud with a deploy key
+          # (px.dev account); without one it exits fatally ("Failed to register vizier
+          # deployment"). Enable after setting the deploy key in the package values.
           - name: "pixie"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/pixie/manifests"
@@ -343,8 +346,10 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/prefect/manifests"
+          # tooljet disabled: low-code app builder, not part of the paved road;
+          # its container crash-loops on startup and nothing else depends on it.
           - name: "tooljet"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/tooljet/manifests"

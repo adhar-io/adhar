@@ -1,19 +1,6 @@
 # POSTHOG INSTALL RESOURCES
 # This file is auto-generated with 'platform/stack/packages/application/posthog/generate-manifests.sh'
 ---
-# Source: posthog/charts/kafka/templates/serviceaccount.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: posthog-posthog-kafka
-  labels:
-    app.kubernetes.io/name: posthog-kafka
-    helm.sh/chart: kafka-14.9.3
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: kafka
-automountServiceAccountToken: true
----
 # Source: posthog/charts/redis/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -82,31 +69,8 @@ metadata:
     "helm.sh/chart": "posthog-30.46.0"
 type: Opaque
 data:
-  posthog-secret: "blF0V25rNmFVZG9yRlg2MkIxb0xwaW5LY2hiVlBFOFptT2FSMkY5QQ=="
+  posthog-secret: "MnR4ZWgweU9zQU5tWHc0dHNQdngxbFFGSk1WTlJxckcxcm5Oc2phcQ=="
   smtp-password: ""
----
-# Source: posthog/charts/kafka/templates/scripts-configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: posthog-posthog-kafka-scripts
-  labels:
-    app.kubernetes.io/name: posthog-kafka
-    helm.sh/chart: kafka-14.9.3
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/managed-by: Helm
-data:
-  setup.sh: |-
-    #!/bin/bash
-
-    ID="${MY_POD_NAME#"posthog-posthog-kafka-"}"
-    if [[ -f "/bitnami/kafka/data/meta.properties" ]]; then
-        export KAFKA_CFG_BROKER_ID="$(grep "broker.id" /bitnami/kafka/data/meta.properties | awk -F '=' '{print $2}')"
-    else
-        export KAFKA_CFG_BROKER_ID="$((ID + 0))"
-    fi
-
-    exec /entrypoint.sh /run.sh
 ---
 # Source: posthog/charts/redis/templates/configmap.yaml
 apiVersion: v1
@@ -752,14 +716,14 @@ data:
 # NAMESPACE=adhar-system
 # COMMENT=#
 # ROLE_KIND=ClusterRole
-# ROLE_NAME=clickhouse-operator-posthog
+# ROLE_NAME=clickhouse-operator-adhar-system
 # ROLE_BINDING_KIND=ClusterRoleBinding
-# ROLE_BINDING_NAME=clickhouse-operator-posthog
+# ROLE_BINDING_NAME=clickhouse-operator-adhar-system
 #
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: clickhouse-operator-posthog
+  name: clickhouse-operator-adhar-system
   namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
@@ -917,70 +881,18 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: clickhouse-operator-posthog
+  name: clickhouse-operator-adhar-system
   namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: clickhouse-operator-posthog
+  name: clickhouse-operator-adhar-system
 subjects:
 - kind: ServiceAccount
   name: clickhouse-operator
   namespace: adhar-system
----
-# Source: posthog/charts/kafka/templates/svc-headless.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: posthog-posthog-kafka-headless
-  labels:
-    app.kubernetes.io/name: posthog-kafka
-    helm.sh/chart: kafka-14.9.3
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: kafka
-spec:
-  type: ClusterIP
-  clusterIP: None
-  ports:
-    - name: tcp-client
-      port: 9092
-      protocol: TCP
-      targetPort: kafka-client
-    - name: tcp-internal
-      port: 9093
-      protocol: TCP
-      targetPort: kafka-internal
-  selector:
-    app.kubernetes.io/name: posthog-kafka
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/component: kafka
----
-# Source: posthog/charts/kafka/templates/svc.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: posthog-posthog-kafka
-  labels:
-    app.kubernetes.io/name: posthog-kafka
-    helm.sh/chart: kafka-14.9.3
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: kafka
-spec:
-  type: ClusterIP
-  ports:
-    - name: tcp-client
-      port: 9092
-      protocol: TCP
-      targetPort: kafka-client
-      nodePort: null
-  selector:
-    app.kubernetes.io/name: posthog-kafka
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/component: kafka
 ---
 # Source: posthog/charts/postgresql/templates/svc-headless.yaml
 apiVersion: v1
@@ -1074,73 +986,6 @@ spec:
     app.kubernetes.io/instance: posthog
     app.kubernetes.io/component: master
 ---
-# Source: posthog/charts/zookeeper/templates/svc-headless.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: posthog-posthog-zookeeper-headless
-  namespace: adhar-system
-  labels:
-    app.kubernetes.io/name: posthog-zookeeper
-    helm.sh/chart: zookeeper-7.0.5
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: zookeeper
-spec:
-  type: ClusterIP
-  clusterIP: None
-  publishNotReadyAddresses: true
-  ports:
-    
-    - name: tcp-client
-      port: 2181
-      targetPort: client
-    
-    
-    - name: follower
-      port: 2888
-      targetPort: follower
-    - name: tcp-election
-      port: 3888
-      targetPort: election
-  selector:
-    app.kubernetes.io/name: posthog-zookeeper
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/component: zookeeper
----
-# Source: posthog/charts/zookeeper/templates/svc.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: posthog-posthog-zookeeper
-  namespace: adhar-system
-  labels:
-    app.kubernetes.io/name: posthog-zookeeper
-    helm.sh/chart: zookeeper-7.0.5
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: zookeeper
-spec:
-  type: ClusterIP
-  ports:
-    
-    - name: tcp-client
-      port: 2181
-      targetPort: client
-      nodePort: null
-    
-    
-    - name: follower
-      port: 2888
-      targetPort: follower
-    - name: tcp-election
-      port: 3888
-      targetPort: election
-  selector:
-    app.kubernetes.io/name: posthog-zookeeper
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/component: zookeeper
----
 # Source: posthog/templates/clickhouse-operator/service.yaml
 # Template Parameters:
 #
@@ -1150,7 +995,7 @@ spec:
 # Setup ClusterIP Service to provide monitoring metrics for Prometheus
 # Service would be created in kubectl-specified namespace
 # In order to get access outside of k8s it should be exposed as:
-# kubectl --namespace adhar-system port-forward service/prometheus 9090
+# kubectl --namespace prometheus port-forward service/prometheus 9090
 # and point browser to localhost:9090
 kind: Service
 apiVersion: v1
@@ -1175,7 +1020,7 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -1201,7 +1046,7 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -1232,7 +1077,7 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
 spec:
   type: NodePort
   ports:
@@ -1390,7 +1235,7 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -1408,7 +1253,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 0122d53618bbf3d97dee215f8667648c3ce685738ae4831f30256ca56e316d65
+        checksum/secrets.yaml: 19c45fa71feb8a5cfd07cede75fcf72807688ecbf6e3d26c7fc8d3e5626b4641
       labels:
         app: posthog
         release: "posthog"
@@ -1435,16 +1280,15 @@ spec:
         
         # NOTE: This is deprecated and KAFKA_HOSTS should be used instead but whilst the chart is still available we need to keep this for backwards compatibility
         - name: KAFKA_URL
-          value: kafka://posthog-posthog-kafka:9092
-        
+          value: "kafka://adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server. Expected format: comma-separated list of "host:port"
         - name: KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: "adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server when running a recordings workload. Expected format: comma-separated list of "host:port"
         - name: SESSION_RECORDING_KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: ""
 
         # Object Storage env variables        
         
@@ -1641,19 +1485,6 @@ spec:
                 do
                     echo "waiting for Redis"; sleep 1;
                 done
-                
-        
-                
-        
-                KAFKA_BROKERS="posthog-posthog-kafka:9092"
-        
-                KAFKA_HOST=$(echo $KAFKA_BROKERS | cut -f1 -d:)
-                KAFKA_PORT=$(echo $KAFKA_BROKERS | cut -f2 -d:)
-        
-                until (nc -vz "$KAFKA_HOST.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local" $KAFKA_PORT);
-                do
-                    echo "waiting for Kafka"; sleep 1;
-                done
 ---
 # Source: posthog/templates/pgbouncer-deployment.yaml
 apiVersion: apps/v1
@@ -1663,7 +1494,7 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -1680,7 +1511,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: c9be5acc777590cb241a1707915f3a368e1db18c1076fae4baff7911a58fdd9c
+        checksum/secrets.yaml: 98a5f330686cc302ce335701728ed38d05ccd20d31516cc829d0b0fe680c3fd1
 
         
 
@@ -1788,7 +1619,7 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -1806,7 +1637,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: bf9854970c7843bd71aeb713550a74db170cbb97b82947adcaa36086d607d676
+        checksum/secrets.yaml: 8ee2efbb15ee0e6a7e9c082bdb585b9886dffe10d01e8d837e09050dd9a9e176
       labels:
         app: posthog
         release: "posthog"
@@ -1840,16 +1671,15 @@ spec:
         
         # NOTE: This is deprecated and KAFKA_HOSTS should be used instead but whilst the chart is still available we need to keep this for backwards compatibility
         - name: KAFKA_URL
-          value: kafka://posthog-posthog-kafka:9092
-        
+          value: "kafka://adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server. Expected format: comma-separated list of "host:port"
         - name: KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: "adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server when running a recordings workload. Expected format: comma-separated list of "host:port"
         - name: SESSION_RECORDING_KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: ""
 
         # Object Storage env variables
         
@@ -1998,17 +1828,6 @@ spec:
                 done
                 
         
-                
-        
-                KAFKA_BROKERS="posthog-posthog-kafka:9092"
-        
-                KAFKA_HOST=$(echo $KAFKA_BROKERS | cut -f1 -d:)
-                KAFKA_PORT=$(echo $KAFKA_BROKERS | cut -f2 -d:)
-        
-                until (nc -vz "$KAFKA_HOST.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local" $KAFKA_PORT);
-                do
-                    echo "waiting for Kafka"; sleep 1;
-                done
                         
         - name: wait-for-migrations
           image: "posthog/posthog:latest"
@@ -2109,7 +1928,7 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -2127,7 +1946,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: e1908894f322e07a4c39a5ab48d94bd117d66eec8b851f853c6c00a992c9c18d
+        checksum/secrets.yaml: 76e6024ab5ec91fa161780d6fe274919ed94e2b7cf8d2df137e68737487be354
       labels:
         app: posthog
         release: "posthog"
@@ -2156,16 +1975,15 @@ spec:
         
         # NOTE: This is deprecated and KAFKA_HOSTS should be used instead but whilst the chart is still available we need to keep this for backwards compatibility
         - name: KAFKA_URL
-          value: kafka://posthog-posthog-kafka:9092
-        
+          value: "kafka://adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server. Expected format: comma-separated list of "host:port"
         - name: KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: "adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server when running a recordings workload. Expected format: comma-separated list of "host:port"
         - name: SESSION_RECORDING_KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: ""
 
         # Object Storage env variables        
         
@@ -2382,17 +2200,6 @@ spec:
                 done
                 
         
-                
-        
-                KAFKA_BROKERS="posthog-posthog-kafka:9092"
-        
-                KAFKA_HOST=$(echo $KAFKA_BROKERS | cut -f1 -d:)
-                KAFKA_PORT=$(echo $KAFKA_BROKERS | cut -f2 -d:)
-        
-                until (nc -vz "$KAFKA_HOST.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local" $KAFKA_PORT);
-                do
-                    echo "waiting for Kafka"; sleep 1;
-                done
                         
         - name: wait-for-migrations
           image: "posthog/posthog:latest"
@@ -2493,7 +2300,7 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
 spec:
   selector:
     matchLabels:
@@ -2511,7 +2318,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 18222ca6ff6f57ebebe70a33aec628d5892219ef5c8532e0e0c8364ee3bf89c5
+        checksum/secrets.yaml: 70578055dbc2b33ca98f6ead53845e1203426551f3aa435e4e41e5702303b050
       labels:
         app: posthog
         release: "posthog"
@@ -2537,16 +2344,15 @@ spec:
         
         # NOTE: This is deprecated and KAFKA_HOSTS should be used instead but whilst the chart is still available we need to keep this for backwards compatibility
         - name: KAFKA_URL
-          value: kafka://posthog-posthog-kafka:9092
-        
+          value: "kafka://adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server. Expected format: comma-separated list of "host:port"
         - name: KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: "adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server when running a recordings workload. Expected format: comma-separated list of "host:port"
         - name: SESSION_RECORDING_KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: ""
 
         # Object Storage env variables        
         
@@ -2691,17 +2497,6 @@ spec:
                 done
                 
         
-                
-        
-                KAFKA_BROKERS="posthog-posthog-kafka:9092"
-        
-                KAFKA_HOST=$(echo $KAFKA_BROKERS | cut -f1 -d:)
-                KAFKA_PORT=$(echo $KAFKA_BROKERS | cut -f2 -d:)
-        
-                until (nc -vz "$KAFKA_HOST.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local" $KAFKA_PORT);
-                do
-                    echo "waiting for Kafka"; sleep 1;
-                done
                         
         - name: wait-for-migrations
           image: "posthog/posthog:latest"
@@ -2788,193 +2583,6 @@ spec:
         
           # Global ENV variables
 ---
-# Source: posthog/charts/kafka/templates/statefulset.yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: posthog-posthog-kafka
-  labels:
-    app.kubernetes.io/name: posthog-kafka
-    helm.sh/chart: kafka-14.9.3
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: kafka
-spec:
-  podManagementPolicy: Parallel
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: posthog-kafka
-      app.kubernetes.io/instance: posthog
-      app.kubernetes.io/component: kafka
-  serviceName: posthog-posthog-kafka-headless
-  updateStrategy:
-    type: "RollingUpdate"
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: posthog-kafka
-        helm.sh/chart: kafka-14.9.3
-        app.kubernetes.io/instance: posthog
-        app.kubernetes.io/managed-by: Helm
-        app.kubernetes.io/component: kafka
-    spec:
-      
-      affinity:
-        podAffinity:
-          
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app.kubernetes.io/name: posthog-kafka
-                    app.kubernetes.io/instance: posthog
-                    app.kubernetes.io/component: kafka
-                namespaces:
-                  - "posthog"
-                topologyKey: kubernetes.io/hostname
-              weight: 1
-        nodeAffinity:
-          
-      securityContext:
-        fsGroup: 1001
-        runAsUser: 1001
-      serviceAccountName: posthog-posthog-kafka
-      containers:
-        - name: kafka
-          image: docker.io/bitnamilegacy/kafka:2.8.1-debian-10-r99
-          imagePullPolicy: "IfNotPresent"
-          command:
-            - /scripts/setup.sh
-          env:
-            - name: BITNAMI_DEBUG
-              value: "false"
-            - name: MY_POD_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.podIP
-            - name: MY_POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: KAFKA_CFG_ZOOKEEPER_CONNECT
-              value: posthog-posthog-zookeeper:2181
-            - name: KAFKA_INTER_BROKER_LISTENER_NAME
-              value: "INTERNAL"
-            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
-              value: "INTERNAL:PLAINTEXT,CLIENT:PLAINTEXT"
-            - name: KAFKA_CFG_LISTENERS
-              value: "INTERNAL://:9093,CLIENT://:9092"
-            - name: KAFKA_CFG_ADVERTISED_LISTENERS
-              value: "INTERNAL://$(MY_POD_NAME).posthog-posthog-kafka-headless.adhar-system.svc.cluster.local:9093,CLIENT://$(MY_POD_NAME).posthog-posthog-kafka-headless.adhar-system.svc.cluster.local:9092"
-            - name: ALLOW_PLAINTEXT_LISTENER
-              value: "yes"
-            - name: KAFKA_VOLUME_DIR
-              value: "/bitnami/kafka"
-            - name: KAFKA_LOG_DIR
-              value: "/opt/bitnami/kafka/logs"
-            - name: KAFKA_CFG_DELETE_TOPIC_ENABLE
-              value: "false"
-            - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
-              value: "true"
-            - name: KAFKA_HEAP_OPTS
-              value: "-Xmx1024m -Xms1024m"
-            - name: KAFKA_CFG_LOG_FLUSH_INTERVAL_MESSAGES
-              value: "10000"
-            - name: KAFKA_CFG_LOG_FLUSH_INTERVAL_MS
-              value: "1000"
-            - name: KAFKA_CFG_LOG_RETENTION_BYTES
-              value: "15000000000"
-            - name: KAFKA_CFG_LOG_RETENTION_CHECK_INTERVALS_MS
-              value: "300000"
-            - name: KAFKA_CFG_LOG_RETENTION_HOURS
-              value: "24"
-            - name: KAFKA_CFG_MESSAGE_MAX_BYTES
-              value: "1000012"
-            - name: KAFKA_CFG_LOG_SEGMENT_BYTES
-              value: "1073741824"
-            - name: KAFKA_CFG_LOG_DIRS
-              value: "/bitnami/kafka/data"
-            - name: KAFKA_CFG_DEFAULT_REPLICATION_FACTOR
-              value: "1"
-            - name: KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR
-              value: "1"
-            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
-              value: "1"
-            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR
-              value: "1"
-            - name: KAFKA_CFG_NUM_IO_THREADS
-              value: "8"
-            - name: KAFKA_CFG_NUM_NETWORK_THREADS
-              value: "3"
-            - name: KAFKA_CFG_NUM_PARTITIONS
-              value: "1"
-            - name: KAFKA_CFG_NUM_RECOVERY_THREADS_PER_DATA_DIR
-              value: "1"
-            - name: KAFKA_CFG_SOCKET_RECEIVE_BUFFER_BYTES
-              value: "102400"
-            - name: KAFKA_CFG_SOCKET_REQUEST_MAX_BYTES
-              value: "104857600"
-            - name: KAFKA_CFG_SOCKET_SEND_BUFFER_BYTES
-              value: "102400"
-            - name: KAFKA_CFG_ZOOKEEPER_CONNECTION_TIMEOUT_MS
-              value: "6000"
-            - name: KAFKA_CFG_AUTHORIZER_CLASS_NAME
-              value: ""
-            - name: KAFKA_CFG_ALLOW_EVERYONE_IF_NO_ACL_FOUND
-              value: "true"
-            - name: KAFKA_CFG_SUPER_USERS
-              value: "User:admin"
-          ports:
-            - name: kafka-client
-              containerPort: 9092
-            - name: kafka-internal
-              containerPort: 9093
-          livenessProbe:
-            tcpSocket:
-              port: kafka-client
-            initialDelaySeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-            periodSeconds: 10
-            successThreshold: 1
-          readinessProbe:
-            tcpSocket:
-              port: kafka-client
-            initialDelaySeconds: 5
-            timeoutSeconds: 5
-            failureThreshold: 6
-            periodSeconds: 10
-            successThreshold: 1
-          resources:
-            limits: {}
-            requests: {}
-          volumeMounts:
-            - name: data
-              mountPath: /bitnami/kafka
-            - name: logs
-              mountPath: /opt/bitnami/kafka/logs
-            - name: scripts
-              mountPath: /scripts/setup.sh
-              subPath: setup.sh
-      volumes:
-        - name: scripts
-          configMap:
-            name: posthog-posthog-kafka-scripts
-            defaultMode: 0755
-        - name: logs
-          emptyDir: {}
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes:
-          - "ReadWriteOnce"
-        resources:
-          requests:
-            storage: "20Gi"
----
 # Source: posthog/charts/postgresql/templates/statefulset.yaml
 apiVersion: apps/v1
 kind: StatefulSet
@@ -3014,7 +2622,7 @@ spec:
         
       containers:
         - name: posthog-posthog-postgresql
-          image: docker.io/bitnamilegacy/postgresql:11.7.0-debian-10-r9
+          image: docker.io/bitnamilegacy/postgresql:11.7.0
           imagePullPolicy: "IfNotPresent"
           resources:
             requests:
@@ -3064,7 +2672,6 @@ spec:
                 - -e
                 - |
                   exec pg_isready -U "postgres" -d "posthog" -h 127.0.0.1 -p 5432
-                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
@@ -3123,9 +2730,9 @@ spec:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: master
       annotations:
-        checksum/configmap: 6b3f126c623a8103c4bcce1e67dacc4b1eb60b17d3a410449c6480cc5ec5b0db
-        checksum/health: 33010810ebe5c0a3bf6bfb10a18e2ecf4c212452dc3d857a6f3f617df5c1d9db
-        checksum/scripts: 3560c3c1abbb5e61ad9fdab0236c6057073fcdde37e000a88d6f3c9959f6dcc6
+        checksum/configmap: c42c3ee066fc1b8d4ccc879545aaf7d2827f1e785d4a0c6471a35eec1829a5c6
+        checksum/health: 44403b367e3011c3883a7f52d5f76f7b20d97ed179886bace53886001b22030c
+        checksum/scripts: d688eaeab373acc6bba4ec363b768f3b71ac09c40036da9d4b5d3f6dff422afc
         checksum/secret: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
     spec:
       
@@ -3144,7 +2751,7 @@ spec:
                     app.kubernetes.io/instance: posthog
                     app.kubernetes.io/component: master
                 namespaces:
-                  - "posthog"
+                  - "adhar-system"
                 topologyKey: kubernetes.io/hostname
               weight: 1
         nodeAffinity:
@@ -3152,7 +2759,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: redis
-          image: docker.io/bitnamilegacy/redis:6.2.7-debian-10-r0
+          image: docker.io/bitnamilegacy/redis:6.2.7
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsUser: 1001
@@ -3245,172 +2852,11 @@ spec:
           requests:
             storage: "5Gi"
 ---
-# Source: posthog/charts/zookeeper/templates/statefulset.yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: posthog-posthog-zookeeper
-  namespace: adhar-system
-  labels:
-    app.kubernetes.io/name: posthog-zookeeper
-    helm.sh/chart: zookeeper-7.0.5
-    app.kubernetes.io/instance: posthog
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: zookeeper
-    role: zookeeper
-spec:
-  serviceName: posthog-posthog-zookeeper-headless
-  replicas: 1
-  podManagementPolicy: Parallel
-  updateStrategy:
-    type: RollingUpdate
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: posthog-zookeeper
-      app.kubernetes.io/instance: posthog
-      app.kubernetes.io/component: zookeeper
-  template:
-    metadata:
-      name: posthog-posthog-zookeeper
-      labels:
-        app.kubernetes.io/name: posthog-zookeeper
-        helm.sh/chart: zookeeper-7.0.5
-        app.kubernetes.io/instance: posthog
-        app.kubernetes.io/managed-by: Helm
-        app.kubernetes.io/component: zookeeper
-    spec:
-      
-      serviceAccountName: default
-      securityContext:
-        fsGroup: 1001
-      affinity:
-        podAffinity:
-          
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app.kubernetes.io/name: posthog-zookeeper
-                    app.kubernetes.io/instance: posthog
-                    app.kubernetes.io/component: zookeeper
-                namespaces:
-                  - "posthog"
-                topologyKey: kubernetes.io/hostname
-              weight: 1
-        nodeAffinity:
-          
-      containers:
-        - name: zookeeper
-          image: docker.io/bitnamilegacy/zookeeper:3.7.0-debian-10-r70
-          imagePullPolicy: "IfNotPresent"
-          securityContext:
-            runAsUser: 1001
-          command:
-            - bash
-            - -ec
-            - |
-                # Execute entrypoint as usual after obtaining ZOO_SERVER_ID
-                # check ZOO_SERVER_ID in persistent volume via myid
-                # if not present, set based on POD hostname
-                if [[ -f "/bitnami/zookeeper/data/myid" ]]; then
-                  export ZOO_SERVER_ID="$(cat /bitnami/zookeeper/data/myid)"
-                else
-                  HOSTNAME=`hostname -s`
-                  if [[ $HOSTNAME =~ (.*)-([0-9]+)$ ]]; then
-                    ORD=${BASH_REMATCH[2]}
-                    export ZOO_SERVER_ID=$((ORD + 1 ))
-                  else
-                    echo "Failed to get index from hostname $HOST"
-                    exit 1
-                  fi
-                fi
-                exec /entrypoint.sh /run.sh
-          resources:
-            requests:
-              cpu: 250m
-              memory: 256Mi
-          env:
-            - name: ZOO_DATA_LOG_DIR
-              value: ""
-            - name: ZOO_PORT_NUMBER
-              value: "2181"
-            - name: ZOO_TICK_TIME
-              value: "2000"
-            - name: ZOO_INIT_LIMIT
-              value: "10"
-            - name: ZOO_SYNC_LIMIT
-              value: "5"
-            - name: ZOO_MAX_CLIENT_CNXNS
-              value: "60"
-            - name: ZOO_4LW_COMMANDS_WHITELIST
-              value: "srvr, mntr, ruok"
-            - name: ZOO_LISTEN_ALLIPS_ENABLED
-              value: "no"
-            - name: ZOO_AUTOPURGE_INTERVAL
-              value: "1"
-            - name: ZOO_AUTOPURGE_RETAIN_COUNT
-              value: "3"
-            - name: ZOO_MAX_SESSION_TIMEOUT
-              value: "40000"
-            - name: ZOO_SERVERS
-              value: posthog-posthog-zookeeper-0.posthog-posthog-zookeeper-headless.adhar-system.svc.cluster.local:2888:3888::1 
-            - name: ZOO_ENABLE_AUTH
-              value: "no"
-            - name: ZOO_HEAP_SIZE
-              value: "1024"
-            - name: ZOO_LOG_LEVEL
-              value: "ERROR"
-            - name: ALLOW_ANONYMOUS_LOGIN
-              value: "yes"
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  apiVersion: v1
-                  fieldPath: metadata.name
-          ports:
-            - name: client
-              containerPort: 2181
-            - name: follower
-              containerPort: 2888
-            - name: election
-              containerPort: 3888
-          livenessProbe:
-            exec:
-              command: ['/bin/bash', '-c', 'echo "ruok" | timeout 2 nc -w 2 localhost 2181 | grep imok']
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            successThreshold: 1
-            failureThreshold: 6
-          readinessProbe:
-            exec:
-              command: ['/bin/bash', '-c', 'echo "ruok" | timeout 2 nc -w 2 localhost 2181 | grep imok']
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            successThreshold: 1
-            failureThreshold: 6
-          volumeMounts:
-            - name: data
-              mountPath: /bitnami/zookeeper
-      volumes:
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-        annotations:
-      spec:
-        accessModes:
-          - "ReadWriteOnce"
-        resources:
-          requests:
-            storage: "8Gi"
----
 # Source: posthog/templates/migrate.job.yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-migrate-2026-06-07-09-33-21
+  name: posthog-migrate-2026-09-07-17-25-26
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -3420,13 +2866,13 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
 spec:
   template:
     metadata:
-      name: posthog-migrate-2026-06-07-09-33-21
+      name: posthog-migrate-2026-09-07-17-25-26
       annotations:
-        checksum/secrets.yaml: 7885fb2f573b62e2ff1f5b589dc48a99b1c5f75b15ea7eaaf53eca29e29cace4
+        checksum/secrets.yaml: f50a7b2e52ff5fbe69e276628b029e15745bf1efab0a280cd304c9cd100f03aa
       labels:
         app: posthog
         release: "posthog"
@@ -3453,16 +2899,15 @@ spec:
         
         # NOTE: This is deprecated and KAFKA_HOSTS should be used instead but whilst the chart is still available we need to keep this for backwards compatibility
         - name: KAFKA_URL
-          value: kafka://posthog-posthog-kafka:9092
-        
+          value: "kafka://adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server. Expected format: comma-separated list of "host:port"
         - name: KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: "adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
         
         # Used by PostHog/plugin-server when running a recordings workload. Expected format: comma-separated list of "host:port"
         - name: SESSION_RECORDING_KAFKA_HOSTS
-          value: posthog-posthog-kafka:9092
+          value: ""
 
         # Object Storage env variables        
         
@@ -3599,19 +3044,6 @@ spec:
                 do
                     echo "waiting for Redis"; sleep 1;
                 done
-                
-        
-                
-        
-                KAFKA_BROKERS="posthog-posthog-kafka:9092"
-        
-                KAFKA_HOST=$(echo $KAFKA_BROKERS | cut -f1 -d:)
-                KAFKA_PORT=$(echo $KAFKA_BROKERS | cut -f2 -d:)
-        
-                until (nc -vz "$KAFKA_HOST.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local" $KAFKA_PORT);
-                do
-                    echo "waiting for Kafka"; sleep 1;
-                done
 ---
 # Source: posthog/templates/eventrouter.yaml
 #
@@ -3686,7 +3118,7 @@ spec:
 
     zookeeper:
       nodes:
-        - host: posthog-posthog-zookeeper
+        - host: posthog-clickhouse-keeper
           port: 2181
 
   templates:
@@ -3754,7 +3186,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-grafana-annotation-job-post-2026-06-07-09-33-21
+  name: posthog-grafana-annotation-job-post-2026-09-07-17-25-26
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -3764,13 +3196,13 @@ metadata:
   annotations:
     
     "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "posthog"
+    "meta.helm.sh/release-namespace": "adhar-system"
     "helm.sh/hook": "post-install,post-upgrade,post-rollback"
     "helm.sh/hook-delete-policy": "hook-succeeded, hook-failed"
 spec:
   template:
     metadata:
-      name: posthog-grafana-annotation-job-post-2026-06-07-09-33-21
+      name: posthog-grafana-annotation-job-post-2026-09-07-17-25-26
     spec:
       restartPolicy: Never
 

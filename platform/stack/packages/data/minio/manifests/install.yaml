@@ -129,6 +129,7 @@ data:
     
     # Create the buckets
     createBucket adhar-backups "none" false false false
+    createBucket mlpipeline "none" false false false
     
   add-user: |-
     #!/bin/sh
@@ -423,9 +424,7 @@ spec:
     - "ReadWriteOnce"
   resources:
     requests:
-      storage: "512Mi"
-  storageClassName: "standard"
-  volumeName: "backup"
+      storage: "10Gi"
 ---
 # Source: minio/templates/console-service.yaml
 apiVersion: v1
@@ -499,7 +498,7 @@ spec:
         release: minio
       annotations:
         checksum/secrets: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
-        checksum/config: 0f06a3a87e9ecbd7b2795fcf59871f5c18cadbb288a3ff141e6ca2034cd05a8c
+        checksum/config: e6fd3dec3bf5e8868a3fe4de69741ca16cd1709f7eac262a87d86ed4699b6c65
     spec:
       securityContext:
         

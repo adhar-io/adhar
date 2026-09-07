@@ -63,6 +63,45 @@ subjects:
 # Kept as a separate role from console-read-all so it can be reviewed/revoked
 # independently. Without it the provisioner degrades honestly (each step reports
 # "not available") and the org is still created + activated.
+# User impersonation — REQUIRED on managed control planes.
+#
+# The console's security model is "act as the signed-in user". Where the API
+# server is configured with OIDC flags (kind, kubeadm, RKE2) it forwards the
+# user's Keycloak token directly. Managed control planes — DigitalOcean DOKS,
+# EKS, GKE, AKS — do not let you set `--oidc-*` flags, so that token is
+# rejected with 401 Unauthorized and EVERY cluster page fails.
+#
+# With this role the console authenticates as its own ServiceAccount and sets
+# Impersonate-User / Impersonate-Group, so the API server still evaluates the
+# USER's RBAC (the `oidc:` ClusterRoleBindings in the Keycloak package). The
+# console never gains permissions of its own beyond impersonation: it can only
+# act as an already-authenticated user, and only within that user's rights.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: console-impersonator
+  labels:
+    adhar.io/component: rbac
+rules:
+- apiGroups: [""]
+  resources: ["users", "groups"]
+  verbs: ["impersonate"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: console-impersonator
+  labels:
+    adhar.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: console-impersonator
+subjects:
+- kind: ServiceAccount
+  name: console
+  namespace: adhar-system
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -183,11 +222,30 @@ spec:
           name: http
         env:
         - { name: PORT, value: '3000' }
+        # ── The ONE setting an install chooses ───────────────────────────────
+        # The domain this platform is served on. Everything public the console
+        # needs — its own URL, Keycloak, and every tool tile — is derived from
+        # it as `<name>.<domain>`. A cluster on a real domain sets this (and the
+        # matching HTTPRoute hostnames) and nothing else; hardcoding public URLs
+        # below is what previously sent a DigitalOcean install to a
+        # *.localtest.me Keycloak.
+        #
+        # The value below is written in the local-host convention on purpose:
+        # stageStack() rewrites `adhar.localtest.me:8443` to `<host><portSuffix>`
+        # for every file it seeds into Gitea, so a DigitalOcean install receives
+        # `platform.adhar.io` here and a kind install keeps the literal. This is
+        # the same mechanism the HTTPRoute hostnames already rely on.
+        #
+        # NOTE: never `kubectl apply` this file straight from the repo against a
+        # non-local cluster — that skips the rewrite and pins the console to the
+        # local domain. Change it in Git and let Argo CD sync the seeded copy.
+        - { name: ADHAR_DOMAIN, value: 'adhar.localtest.me:8443' }
         # SSO — dedicated confidential 'adhar-console' Keycloak client. This env
         # is what flips the console from "Keycloak not configured" to real SSO.
         # The client's access tokens carry aud=kubernetes + the groups claim, so
         # per-user kube-apiserver impersonation + RBAC work (see keycloak-config).
-        - { name: KEYCLOAK_URL, value: 'https://keycloak.adhar.localtest.me:8443' }
+        # KEYCLOAK_URL / AUTH_PUBLIC_URL are intentionally NOT set: the console
+        # derives them from ADHAR_DOMAIN. Set them only to override.
         # In-cluster backchannel: the public KEYCLOAK_URL isn't routable from
         # inside the cluster (split-horizon DNS behind the gateway), so the
         # console does server-side OIDC (discovery/token/JWKS) against the
@@ -195,7 +253,6 @@ spec:
         - { name: KEYCLOAK_INTERNAL_URL, value: 'http://keycloak.adhar-system.svc.cluster.local:8080' }
         - { name: KEYCLOAK_REALM, value: 'adhar' }
         - { name: KEYCLOAK_CLIENT_ID, value: 'adhar-console' }
-        - { name: AUTH_PUBLIC_URL, value: 'https://console.adhar.localtest.me:8443' }
         - { name: AUTH_SCOPES, value: 'openid profile email offline_access' }
         - { name: AUTH_COOKIE_SECURE, value: 'true' }
         - { name: K8S_API_URL, value: 'https://kubernetes.default.svc' }

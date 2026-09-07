@@ -75,6 +75,13 @@ cat >/etc/sysctl.d/k8s.conf <<'EOF'
 net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward                 = 1
+# Kubernetes nodes run dozens of controllers, each holding inotify instances
+# and watches. The kernel defaults (128 instances / 8192 watches) are exhausted
+# on a dense platform node and controller-runtime managers then die with
+# "too many open files" (observed: chaos-mesh restarting ~60 times).
+fs.inotify.max_user_instances       = 8192
+fs.inotify.max_user_watches         = 524288
+fs.file-max                         = 2097152
 EOF
 sysctl --system
 
@@ -82,8 +89,58 @@ sysctl --system
 swapoff -a
 sed -i '/ swap / s/^/#/' /etc/fstab || true
 
+# Resilient node DNS. Cloud images point /etc/resolv.conf at the
+# systemd-resolved stub (127.0.0.53). The stub is a single local daemon: when
+# it is unavailable — it is among the first processes the kernel OOM-killer
+# reaps on a loaded node — every containerd image pull fails with
+# "connection refused on 127.0.0.53" and pods across the cluster get stuck in
+# ImagePullBackOff even though the network is fine. Pin /etc/resolv.conf to the
+# real upstream resolvers instead (taken from resolved's own upstream list, so
+# the cloud/on-prem provider's servers are preserved, with public resolvers
+# only as a last resort) so image pulls never depend on a local daemon.
+# CoreDNS forwards to this file too, so cluster DNS gains the same resilience.
+upstreams=""
+if [ -s /run/systemd/resolve/resolv.conf ]; then
+  upstreams=$(grep -E '^nameserver' /run/systemd/resolve/resolv.conf | awk '{print $2}' | grep -v '^127\.' || true)
+fi
+if [ -z "$upstreams" ]; then
+  upstreams=$(grep -E '^nameserver' /etc/resolv.conf 2>/dev/null | awk '{print $2}' | grep -v '^127\.' || true)
+fi
+if [ -z "$upstreams" ]; then
+  upstreams="1.1.1.1 8.8.8.8"
+fi
+{
+  echo "# Managed by adhar (node prep): static upstream resolvers so container"
+  echo "# image pulls do not depend on the local systemd-resolved stub."
+  for ns in $upstreams; do echo "nameserver $ns"; done
+  echo "options timeout:2 attempts:3"
+} >/etc/resolv.conf.adhar
+rm -f /etc/resolv.conf
+mv /etc/resolv.conf.adhar /etc/resolv.conf
+# Keep resolved running for the rest of the system, with the same upstreams.
+mkdir -p /etc/systemd/resolved.conf.d
+{
+  echo "[Resolve]"
+  echo "DNS=$(echo $upstreams | tr '\n' ' ')"
+  echo "FallbackDNS=1.1.1.1 8.8.8.8"
+} >/etc/systemd/resolved.conf.d/adhar.conf
+systemctl restart systemd-resolved 2>/dev/null || true
+
 apt-get update
 apt-get install -y containerd apt-transport-https ca-certificates curl gpg
+
+# systemd limits. containerd runs every container as a transient systemd scope
+# ("cri-containerd-<id>.scope"); on a dense node the defaults run out and pods
+# fail to start with "unable to apply cgroup configuration: unable to start
+# unit" / FailedCreatePodContainer, which looks like an image or app fault but
+# is the node refusing to create the cgroup.
+mkdir -p /etc/systemd/system.conf.d
+cat >/etc/systemd/system.conf.d/adhar.conf <<'EOF'
+[Manager]
+DefaultTasksMax=infinity
+DefaultLimitNOFILE=1048576:1048576
+EOF
+systemctl daemon-reexec || true
 
 # containerd with the systemd cgroup driver
 mkdir -p /etc/containerd

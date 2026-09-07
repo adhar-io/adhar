@@ -125,9 +125,11 @@ resourcesCrossplane:
   limits:
     # -- CPU resource limits for the Crossplane pod.
     # LOCAL DEV: Reduced limits for resource efficiency
-    cpu: 200m
+    cpu: "1"
     # -- Memory resource limits for the Crossplane pod.
-    memory: 512Mi
+    # A cap, not a reservation: the full provider set registers thousands of
+    # CRDs and crossplane OOM-looped at 512Mi.
+    memory: 2Gi
   requests:
     # -- CPU resource requests for the Crossplane pod.
     # LOCAL DEV: Minimal resource requests

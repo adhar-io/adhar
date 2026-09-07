@@ -77,20 +77,6 @@ data:
   DAGSTER_K8S_PIPELINE_RUN_NAMESPACE: "adhar-system"
   DAGSTER_K8S_PIPELINE_RUN_ENV_CONFIGMAP: "dagster-dagster-user-deployments-pipeline-env"
 ---
-# Source: dagster/charts/dagster-user-deployments/templates/configmap-env-user.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: dagster-dagster-user-deployments-k8s-example-user-code-1-user-env
-  labels:
-    app: dagster-user-deployments
-    chart: dagster-user-deployments-1.13.21
-    release: dagster
-    heritage: Helm
-data:
-  # If this is a map, we write it to this configmap. If it's a list, we include it
-  # directly on the container (can use more k8s spec like valueFrom).
----
 # Source: dagster/templates/configmap-env-daemon.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -264,11 +250,7 @@ metadata:
     heritage: Helm
 data:
   workspace.yaml: |
-    load_from:
-      - grpc_server:
-          host: k8s-example-user-code-1
-          port: 3030
-          location_name: k8s-example-user-code-1
+    load_from: []
 ---
 # Source: dagster/charts/dagster-user-deployments/templates/role.yaml
 kind: Role
@@ -363,32 +345,6 @@ roleRef:
   kind: Role
   name: dagster-role
 ---
-# Source: dagster/charts/dagster-user-deployments/templates/service-user.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: k8s-example-user-code-1
-  labels:
-    helm.sh/chart: dagster-user-deployments-1.13.21
-    app.kubernetes.io/name: dagster-user-deployments
-    app.kubernetes.io/instance: dagster
-    app.kubernetes.io/version: "1.13.21"
-    app.kubernetes.io/managed-by: Helm
-    component: user-deployments
-    deployment: k8s-example-user-code-1
-  annotations:
-spec:
-  type: "ClusterIP"
-  ports:
-    - port: 3030
-      protocol: TCP
-      name: grpc
-  selector:
-    app.kubernetes.io/name: dagster-user-deployments
-    app.kubernetes.io/instance: dagster
-    component: user-deployments
-    deployment: k8s-example-user-code-1
----
 # Source: dagster/charts/postgresql/templates/svc-headless.yaml
 apiVersion: v1
 kind: Service
@@ -455,96 +411,6 @@ spec:
     app.kubernetes.io/instance: dagster
     component: dagster-webserver
 ---
-# Source: dagster/charts/dagster-user-deployments/templates/deployment-user.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: dagster-dagster-user-deployments-k8s-example-user-code-1
-  labels:
-    helm.sh/chart: dagster-user-deployments-1.13.21
-    app.kubernetes.io/name: dagster-user-deployments
-    app.kubernetes.io/instance: dagster
-    app.kubernetes.io/version: "1.13.21"
-    app.kubernetes.io/managed-by: Helm
-    component: user-deployments
-    deployment: k8s-example-user-code-1
-  annotations: 
-    {}
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: dagster-user-deployments
-      app.kubernetes.io/instance: dagster
-      component: user-deployments
-      deployment: k8s-example-user-code-1
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: dagster-user-deployments
-        app.kubernetes.io/instance: dagster
-        component: user-deployments
-        deployment: k8s-example-user-code-1
-      annotations:
-        checksum/dagster-user-deployment: 00af02a6950885ab033ca1fe38e540fb1be5f24542d03102a6a7073707023f2c
-    spec:
-      imagePullSecrets: 
-        []
-      serviceAccountName: dagster-dagster-user-deployments-user-deployments
-      automountServiceAccountToken: true
-      securityContext: 
-        {}
-      containers:
-        - name: dagster-user-deployments
-          securityContext: 
-            {}
-          imagePullPolicy: Always
-          image: "docker.io/dagster/user-code-example:1.13.21"
-          args: ["dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "3030", "--fixed-server-id", "00af02a6950885ab033ca1fe38e540fb1be5f24542d03102a6a7073707023f2c", "--python-file","/example_project/example_repo/repo.py"]
-          env:
-            - name: DAGSTER_CURRENT_IMAGE
-              value: "docker.io/dagster/user-code-example:1.13.21"
-            - name: DAGSTER_PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dagster-postgresql-secret
-                  key: postgresql-password
-            # uses the auto_envvar_prefix of the dagster cli to set the --container-context arg
-            # on 'dagster api grpc'
-            - name: DAGSTER_CLI_API_GRPC_CONTAINER_CONTEXT
-              value: "{\"k8s\":{\"env_config_maps\":[\"dagster-dagster-user-deployments-k8s-example-user-code-1-user-env\"],\"image_pull_policy\":\"Always\",\"namespace\":\"adhar-system\",\"run_k8s_config\":{\"pod_spec_config\":{\"automount_service_account_token\":true}},\"service_account_name\":\"dagster-dagster-user-deployments-user-deployments\"}}"
-            # If this is a map, we write it to a configmap. If it's a list, we include it here (can use more k8s spec like valueFrom).
-          envFrom:
-            - configMapRef:
-                name: dagster-dagster-user-deployments-user-deployments-shared-env
-            - configMapRef:
-                name: dagster-dagster-user-deployments-k8s-example-user-code-1-user-env
-            - secretRef:
-                name: dagster-celery-config-secret
-                optional: true
-          resources: 
-            {}
-          volumeMounts:
-        # Only disable readiness if explicitly set to false
-          readinessProbe:
-            exec:
-              command: ["dagster", "api", "grpc-health-check", "-p", "3030"]
-            periodSeconds:
-              20
-            timeoutSeconds:
-              10
-            successThreshold:
-              1
-            failureThreshold:
-              1
-      nodeSelector: 
-        {}
-      affinity: 
-        {}
-      tolerations:
-        []
-      volumes:
----
 # Source: dagster/templates/deployment-daemon.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -577,7 +443,7 @@ spec:
         component: dagster-daemon
         deployment: daemon
       annotations:
-        checksum/dagster-workspace: 648ca2a2861c5e321d8a9e69c1c2913d51f1c5940ebefd589536a9cb142c2bc3
+        checksum/dagster-workspace: c60964ad2ea021725e841b8a0b398de25eecc0eb0d658e17e0398a6c0ed34618
         checksum/dagster-instance: ade191f05aad99fd232b942b221c516fff3336308f91e60a0c320645fed8931b
     spec:
       imagePullSecrets:
@@ -594,11 +460,6 @@ spec:
           securityContext:
             {}
           resources:
-            {}
-        - name: "init-user-deployment-k8s-example-user-code-1"
-          image: "docker.io/busybox:1.28"
-          command: ['sh', '-c', "until nslookup k8s-example-user-code-1; do echo waiting for user service; sleep 2; done"]
-          securityContext:
             {}
       containers:
         - name: dagster
@@ -674,7 +535,7 @@ spec:
         app.kubernetes.io/instance: dagster
         component: dagster-webserver
       annotations:
-        checksum/dagster-workspace: 648ca2a2861c5e321d8a9e69c1c2913d51f1c5940ebefd589536a9cb142c2bc3
+        checksum/dagster-workspace: c60964ad2ea021725e841b8a0b398de25eecc0eb0d658e17e0398a6c0ed34618
         checksum/dagster-instance: ade191f05aad99fd232b942b221c516fff3336308f91e60a0c320645fed8931b
     spec:
       serviceAccountName: dagster
@@ -686,11 +547,6 @@ spec:
           image: "docker.io/library/postgres:14.6"
           imagePullPolicy: IfNotPresent
           command: ['sh', '-c', 'until pg_isready -h dagster-postgresql -p 5432 -U test; do echo waiting for database; sleep 2; done;']
-          securityContext:
-            {}
-        - name: "init-user-deployment-k8s-example-user-code-1"
-          image: "docker.io/busybox:1.28"
-          command: ['sh', '-c', "until nslookup k8s-example-user-code-1; do echo waiting for user service; sleep 2; done"]
           securityContext:
             {}
       containers:

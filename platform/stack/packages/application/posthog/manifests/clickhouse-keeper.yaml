@@ -1,0 +1,96 @@
+# ClickHouse Keeper — the coordination service PostHog's ClickHouse needs for
+# its Replicated* table engines.
+#
+# The chart's default is a Bitnami ZooKeeper ensemble; the platform does not
+# run ZooKeeper anywhere (its Kafka is Strimzi/KRaft), and those Bitnami images
+# were deleted upstream. ClickHouse Keeper is ClickHouse's own built-in
+# implementation of the same coordination protocol on the same port (2181), so
+# it is a drop-in replacement: same wire protocol, no ZooKeeper, one small pod,
+# maintained as part of ClickHouse itself.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: posthog-clickhouse-keeper-config
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+data:
+  keeper_config.xml: |
+    <clickhouse>
+      <logger><level>information</level><console>true</console></logger>
+      <listen_host>0.0.0.0</listen_host>
+      <keeper_server>
+        <tcp_port>2181</tcp_port>
+        <server_id>1</server_id>
+        <log_storage_path>/var/lib/clickhouse-keeper/log</log_storage_path>
+        <snapshot_storage_path>/var/lib/clickhouse-keeper/snapshots</snapshot_storage_path>
+        <coordination_settings>
+          <operation_timeout_ms>10000</operation_timeout_ms>
+          <session_timeout_ms>30000</session_timeout_ms>
+          <raft_logs_level>warning</raft_logs_level>
+        </coordination_settings>
+        <raft_configuration>
+          <server><id>1</id><hostname>posthog-clickhouse-keeper-0.posthog-clickhouse-keeper</hostname><port>9234</port></server>
+        </raft_configuration>
+      </keeper_server>
+    </clickhouse>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: posthog-clickhouse-keeper
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+  labels: {app: posthog-clickhouse-keeper}
+spec:
+  clusterIP: None
+  selector: {app: posthog-clickhouse-keeper}
+  ports:
+    - {name: client, port: 2181, targetPort: 2181}
+    - {name: raft, port: 9234, targetPort: 9234}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: posthog-clickhouse-keeper
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+  labels: {app: posthog-clickhouse-keeper}
+spec:
+  serviceName: posthog-clickhouse-keeper
+  replicas: 1
+  selector: {matchLabels: {app: posthog-clickhouse-keeper}}
+  template:
+    metadata:
+      labels: {app: posthog-clickhouse-keeper}
+    spec:
+      enableServiceLinks: false
+      securityContext: {fsGroup: 101, runAsUser: 101, runAsGroup: 101}
+      containers:
+        - name: keeper
+          image: clickhouse/clickhouse-keeper:24.8-alpine
+          args: ["--config-file=/etc/clickhouse-keeper/keeper_config.xml"]
+          ports:
+            - {name: client, containerPort: 2181}
+            - {name: raft, containerPort: 9234}
+          readinessProbe:
+            tcpSocket: {port: 2181}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: 2181}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/clickhouse-keeper}
+            - {name: data, mountPath: /var/lib/clickhouse-keeper}
+      volumes:
+        - name: config
+          configMap: {name: posthog-clickhouse-keeper-config}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 2Gi}}
