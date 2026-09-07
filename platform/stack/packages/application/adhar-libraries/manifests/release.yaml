@@ -14,19 +14,36 @@ kind: Pipeline
 metadata:
   name: release-adhar-libraries
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "1"}
+  annotations:
+    argocd.argoproj.io/sync-wave: '1'
 spec:
   workspaces:
-    - {name: maven}
-    - {name: npm}
+  - name: maven
+  - name: npm
   tasks:
-    - name: maven
-      taskRef: {name: deploy-maven-project}
-      workspaces: [{name: shared, workspace: maven}]
-    - name: npm
-      runAfter: [maven]
-      taskRef: {name: publish-npm-workspace}
-      workspaces: [{name: shared, workspace: npm}]
+  - name: maven
+    taskRef:
+      name: deploy-maven-project
+    params:
+    - name: repo
+      value: adhar-kit
+    workspaces:
+    - name: source
+      workspace: maven
+  - name: npm
+    runAfter:
+    - maven
+    taskRef:
+      name: publish-npm-workspace
+    params:
+    - name: repo
+      value: adhar-ui
+    - name: scope
+      value: '@adhar-ui'
+    workspaces:
+    - name: source
+      workspace: npm
+
 ---
 apiVersion: tekton.dev/v1
 kind: PipelineRun
@@ -36,19 +53,28 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: '2'
 spec:
-  pipelineRef: {name: release-adhar-libraries}
-  taskRunTemplate: {serviceAccountName: adhar-libraries}
-  timeouts: {pipeline: 2h0m0s}
+  pipelineRef:
+    name: release-adhar-libraries
+  taskRunTemplate:
+    serviceAccountName: adhar-libraries
+  timeouts:
+    pipeline: 2h0m0s
   workspaces:
-    - name: maven
-      volumeClaimTemplate:
-        spec:
-          accessModes: [ReadWriteOnce]
-          resources: {requests: {storage: 2Gi}}
-    - name: npm
-      volumeClaimTemplate:
-        spec:
-          accessModes: [ReadWriteOnce]
-          resources: {requests: {storage: 2Gi}}
+  - name: maven
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+  - name: npm
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi

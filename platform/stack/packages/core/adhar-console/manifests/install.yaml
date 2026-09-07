@@ -232,6 +232,16 @@ spec:
               name: argocd-credentials
               key: ARGOCD_ADMIN_PASSWORD
         - { name: GRAFANA_URL, value: 'http://prometheus-grafana.adhar-system.svc.cluster.local:80' }
+        # Grafana dashboards need auth — the console uses the chart's admin
+        # secret as HTTP Basic until a service token is minted.
+        - name: GRAFANA_USERNAME
+          valueFrom:
+            secretKeyRef: { name: prometheus-grafana, key: admin-user, optional: true }
+        - name: GRAFANA_PASSWORD
+          valueFrom:
+            secretKeyRef: { name: prometheus-grafana, key: admin-password, optional: true }
+        # Mimir's gateway is multi-tenant; the console sends this X-Scope-OrgID.
+        - { name: MIMIR_TENANT, value: 'anonymous' }
         - { name: PROMETHEUS_URL, value: 'http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090' }
         - { name: LOKI_URL, value: 'http://loki.adhar-system.svc.cluster.local:3100' }
         - { name: MIMIR_URL, value: 'http://mimir-gateway.adhar-system.svc.cluster.local:80' }
@@ -239,6 +249,13 @@ spec:
         - { name: VAULT_URL, value: 'http://vault.adhar-system.svc.cluster.local:8200' }
         - { name: TEKTON_URL, value: 'http://tekton-dashboard.adhar-system.svc.cluster.local:9097' }
         - { name: HARBOR_URL, value: 'http://harbor.adhar-system.svc.cluster.local:80' }
+        # Harbor project the platform pushes images to + admin Basic auth so
+        # private projects and scan overviews are visible in the Registry page.
+        - { name: HARBOR_PROJECT, value: 'library' }
+        - { name: HARBOR_USERNAME, value: 'admin' }
+        - name: HARBOR_PASSWORD
+          valueFrom:
+            secretKeyRef: { name: harbor-core, key: HARBOR_ADMIN_PASSWORD, optional: true }
         - { name: NEXUS_URL, value: 'http://nexus.adhar-system.svc.cluster.local:8081' }
         - { name: KAFKA_UI_URL, value: 'http://kafka-ui.adhar-system.svc.cluster.local:80' }
         - { name: TOOLJET_URL, value: 'http://tooljet.adhar-system.svc.cluster.local:80' }

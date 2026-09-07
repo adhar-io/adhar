@@ -20,13 +20,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,36 +47,24 @@ This command retrieves and displays:
 • Database credentials
 • API tokens and keys
 
-Values are shown in full (never truncated). In a terminal an interactive
-picker follows the table: ↑/↓ choose a credential, u copies the username,
-p/Enter copies the password, q quits.
-
 Examples:
-  adhar get secrets                    # Get all platform secrets (+ copy picker)
+  adhar get secrets                    # Get all platform secrets
   adhar get secrets -p argocd         # Get ArgoCD specific secrets
-  adhar get secrets -p keycloak       # Get Keycloak specific secrets
-  adhar get secrets --copy argocd     # Copy the ArgoCD password to the clipboard
-  adhar get secrets -o json           # Machine-readable
-  eval "$(adhar get secrets -o env)"  # ARGOCD_PASSWORD, GITEA_USERNAME, ... in the shell`,
+  adhar get secrets -p gitea          # Get Gitea specific secrets
+  adhar get secrets -p keycloak       # Get Keycloak specific secrets`,
 	RunE: runGetSecrets,
 }
 
 var (
-	provider      string
-	showAll       bool
-	debug         bool
-	copyPassword  string
-	copyUsername  string
-	noInteractive bool
+	provider string
+	showAll  bool
+	debug    bool
 )
 
 func init() {
 	secretsCmd.Flags().StringVarP(&provider, "provider", "p", "", "Filter secrets by provider (argocd, gitea, keycloak, adhar-console, vault, postgres, redis)")
 	secretsCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all secrets including system ones")
 	secretsCmd.Flags().BoolVarP(&debug, "debug", "d", false, "Show debug information about secret keys")
-	secretsCmd.Flags().StringVar(&copyPassword, "copy", "", "Copy the password of the named service to the clipboard (e.g. --copy argocd) and exit")
-	secretsCmd.Flags().StringVar(&copyUsername, "copy-user", "", "Copy the username of the named service to the clipboard and exit")
-	secretsCmd.Flags().BoolVar(&noInteractive, "no-interactive", false, "Print the table only; skip the interactive copy picker")
 }
 
 // providerConfig defines where to look for each provider's secrets
@@ -86,7 +74,10 @@ type providerConfig struct {
 }
 
 // essentialProviders are shown by default with `adhar get secrets`
-var essentialProviders = []string{"argocd", "gitea", "keycloak-admin", "keycloak-user", "adhar-console"}
+// The console has no password of its own: users log in through Keycloak SSO
+// (user1/user2 above), so its OIDC client secret is not listed by default —
+// `-p adhar-console` shows it for operators who need the client credential.
+var essentialProviders = []string{"argocd", "gitea", "keycloak-admin", "keycloak-user"}
 
 // knownProviders maps provider names to their search configuration.
 // "keycloak-admin" and "keycloak-user" both read keycloak-config but extract different fields.
@@ -112,10 +103,7 @@ var knownProviders = map[string]providerConfig{
 }
 
 func runGetSecrets(cmd *cobra.Command, args []string) error {
-	// Machine-readable output must be the only thing on stdout.
-	if f := strings.ToLower(outputFormat); f != outputJSON && f != outputEnv {
-		logger.Info("Retrieving platform secrets...")
-	}
+	logger.Info("Retrieving platform secrets...")
 
 	clientset, err := getKubernetesClient()
 	if err != nil {
@@ -334,13 +322,16 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 			}}
 		}
 	case "adhar-console":
-		if strings.Contains(secret.Name, "keycloak-clients") {
+		// Only the secret that actually carries the console client (name-pattern
+		// matching also catches e.g. keycloak-clients-* helper secrets, and an
+		// empty entry would win the de-duplication over the real one).
+		if strings.Contains(secret.Name, "keycloak-clients") && len(secret.Data["ADHAR_CONSOLE_CLIENT_SECRET"]) > 0 {
 			id := string(secret.Data["ADHAR_CONSOLE_CLIENT_ID"])
 			if id == "" {
 				id = "adhar-console"
 			}
 			return []SecretEntry{{
-				Icon: "🧭", Service: "Adhar Console (SSO client)",
+				Icon: "🧭", Service: "Adhar Console OIDC client (not a login)",
 				Username: id, Password: string(secret.Data["ADHAR_CONSOLE_CLIENT_SECRET"]),
 			}}
 		}
@@ -461,54 +452,36 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 
 // displaySecretEntries renders the entries as a clean table
 func displaySecretEntries(entries []SecretEntry, label string) error {
-	// Scripting paths first: nothing but the payload on stdout.
-	switch strings.ToLower(outputFormat) {
-	case outputJSON:
-		return writeSecretsJSON(os.Stdout, entries)
-	case outputEnv:
-		return writeSecretsEnv(os.Stdout, entries)
-	case outputTable, "":
-	default:
-		return fmt.Errorf("unknown output format %q (table, json, env)", outputFormat)
-	}
-
-	// --copy / --copy-user: copy one value and exit without printing secrets.
-	for _, want := range []struct{ name, what string }{{copyPassword, "password"}, {copyUsername, "username"}} {
-		if want.name == "" {
-			continue
-		}
-		e, ok := findEntry(entries, want.name)
-		if !ok {
-			return fmt.Errorf("no credential matches %q (services: %s)", want.name, strings.Join(serviceNames(entries), ", "))
-		}
-		value := e.Password
-		if want.what == "username" {
-			value = e.Username
-		}
-		via, err := copyToClipboard(value)
-		if err != nil {
-			return err
-		}
-		fmt.Println(helpers.SuccessStyle.Render(fmt.Sprintf("✓ %s for %s copied to clipboard (%s)", want.what, e.Service, via)))
-		return nil
-	}
-
 	fmt.Println()
 	logger.Info(fmt.Sprintf("Found %d credential(s) for %s\n", len(entries), label))
-	width := terminalWidth()
-	fmt.Println(renderSecretsTable(entries, width))
-	fmt.Println()
 
-	if noInteractive || width == 0 {
-		return nil
-	}
-	return runSecretsPicker(entries)
-}
-
-func serviceNames(entries []SecretEntry) []string {
-	names := make([]string, 0, len(entries))
+	// Column widths follow the content (display width, so emoji icons and
+	// multi-byte names line up) and nothing is ever truncated: a credential you
+	// cannot read in full is useless.
+	svcW, userW, passW := lipgloss.Width("SERVICE"), lipgloss.Width("USERNAME"), lipgloss.Width("PASSWORD")
 	for _, e := range entries {
-		names = append(names, e.Service)
+		svcW = max(svcW, lipgloss.Width(e.Icon+" "+e.Service))
+		userW = max(userW, lipgloss.Width(orDash(e.Username)))
+		passW = max(passW, lipgloss.Width(orDash(e.Password)))
 	}
-	return names
+	pad := func(s string, w int) string {
+		if n := w - lipgloss.Width(s); n > 0 {
+			return s + strings.Repeat(" ", n)
+		}
+		return s
+	}
+
+	totalW := svcW + userW + passW + 10 // padding between columns
+	var tb strings.Builder
+	tb.WriteString(helpers.CreateHighlight("  " + pad("SERVICE", svcW) + "  " + pad("USERNAME", userW) + "  " + pad("PASSWORD", passW)))
+	tb.WriteString("\n")
+	tb.WriteString(strings.Repeat("─", totalW))
+	tb.WriteString("\n")
+	for _, e := range entries {
+		tb.WriteString("  " + pad(e.Icon+" "+e.Service, svcW) + "  " + pad(orDash(e.Username), userW) + "  " + orDash(e.Password) + "\n")
+	}
+
+	fmt.Println(helpers.BorderStyle.Width(totalW + 6).Render(tb.String()))
+	fmt.Println()
+	return nil
 }
