@@ -1,0 +1,119 @@
+# Restarts Coder once the Keycloak OIDC client secret is available.
+#
+# Problem: Coder reads CODER_OIDC_CLIENT_SECRET from the `coder-oidc` Secret at
+# container start. That Secret is produced by an ExternalSecret that depends on
+# Keycloak's realm job (keycloak-clients), which finishes minutes AFTER Coder is
+# already running — so the running server comes up with an empty client secret,
+# never builds its OIDC config, and the "Sign in with Keycloak" button is absent.
+# Nothing restarts it afterwards. The secretKeyRef is `optional: true` on purpose
+# so Coder still boots (with the generated `adhar-admin` password login as
+# break-glass) before Keycloak exists.
+#
+# Fix: a PostSync hook that waits for the secret, then restarts the Deployment
+# ONLY if the running pod is actually missing the env — idempotent, so steady
+# state syncs are a no-op and there is no restart loop.
+# Same shape as observability/kube-prometheus/manifests/grafana-oidc-reload.yaml.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: coder-oidc-reload
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: coder-oidc-reload
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: coder-oidc-reload
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: coder-oidc-reload
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: coder-oidc-reload
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coder-oidc-reload
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      generateName: coder-oidc-reload
+    spec:
+      serviceAccountName: coder-oidc-reload
+      restartPolicy: Never
+      containers:
+        - name: kubectl
+          image: docker.io/bitnamilegacy/kubectl:1.31
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              NS=adhar-system
+              DEPLOY=coder
+              SECRET=coder-oidc
+
+              # 1. Wait (bounded, 240 x 10s = 40 min — a cold bootstrap has to
+              #    get through keycloak-db -> keycloak -> realm job ->
+              #    ExternalSecret) for the client secret. Non-fatal on timeout.
+              ok=""
+              for i in $(seq 1 240); do
+                if kubectl -n "$NS" get secret "$SECRET" \
+                     -o jsonpath='{.data.clientSecret}' 2>/dev/null | grep -q .; then
+                  ok=1; break
+                fi
+                echo "waiting for $SECRET clientSecret ($i)"
+                sleep 10
+              done
+              if [ -z "$ok" ]; then
+                echo "secret not ready yet; leaving Coder as-is (will retry next sync)"
+                exit 0
+              fi
+
+              # 2. Only restart if the RUNNING pod lacks the client secret env.
+              POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=coder \
+                      --field-selector=status.phase=Running \
+                      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+              if [ -n "$POD" ]; then
+                if kubectl -n "$NS" exec "$POD" -c coder -- \
+                     sh -c 'test -n "$CODER_OIDC_CLIENT_SECRET"' 2>/dev/null; then
+                  echo "Coder already has the OIDC client secret; nothing to do."
+                  exit 0
+                fi
+              fi
+
+              echo "Restarting $DEPLOY to load Keycloak OIDC env..."
+              kubectl -n "$NS" rollout restart deployment "$DEPLOY"
+              kubectl -n "$NS" rollout status deployment "$DEPLOY" --timeout=300s || true
+              echo "Coder OIDC reload complete."
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}

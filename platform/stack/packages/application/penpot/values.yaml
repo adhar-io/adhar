@@ -6,8 +6,45 @@
 # minimal in-namespace Postgres + Valkey (manifests/dependencies.yaml) that the
 # config below points at.
 config:
+  # Assets in the platform MinIO (bucket `penpot`, credentials mirrored from
+  # root-creds by manifests/platform-storage.yaml). The chart's default is a
+  # filesystem backend on ONE ReadWriteOnce volume mounted by both the backend
+  # and the frontend, which deadlocks every rolling update (the new frontend
+  # pod cannot attach the volume another node still holds) and is not
+  # "platform-provided object storage" anyway.
+  # Keycloak SSO, natively (Penpot speaks OIDC; "Sign in with OpenID" on the
+  # login page). The client `penpot` is provisioned by the keycloak package from
+  # manifests/keycloak-client.yaml and its secret mirrored into penpot-oidc.
+  # Realm roles are not checked (roles: "") — any realm user may sign in and
+  # is auto-registered (enable-registration).
+  providers:
+    oidc:
+      enabled: true
+      # Trailing slash matters: Penpot URI-joins ".well-known/openid-configuration"
+      # onto this value, and without the slash RFC 3986 resolution drops the
+      # last path segment (".../realms/.well-known/…" → discovery fails).
+      baseURI: https://keycloak.adhar.localtest.me:8443/realms/adhar/
+      # the chart default here is the literal placeholder "scope1 scope2"
+      scopes: "openid profile email"
+      roles: ""
+      nameAttribute: name
+      emailAttribute: email
+    existingSecret: penpot-oidc
+    secretKeys:
+      oidcClientIDKey: clientID
+      oidcClientSecretKey: clientSecret
+  objectsStorage:
+    storageBackend: s3
+    s3:
+      region: us-east-1
+      bucket: penpot
+      existingSecret: penpot-s3-credentials
+      secretKeys:
+        accessKeyIDKey: accessKeyID
+        secretAccessKey: secretAccessKey
+        endpointURIKey: endpointURI
   publicUri: "https://penpot.adhar.localtest.me:8443"
-  flags: "enable-registration enable-login-with-password disable-email-verification disable-secure-session-cookies"
+  flags: "enable-registration enable-login-with-password enable-login-with-oidc disable-email-verification disable-secure-session-cookies"
   postgresql:
     host: "penpot-postgresql.adhar-system.svc.cluster.local"
     port: 5432
@@ -29,3 +66,7 @@ backend:
 frontend:
   service:
     type: ClusterIP
+
+persistence:
+  assets:
+    enabled: false

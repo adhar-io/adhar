@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -131,7 +132,13 @@ func getKubernetesClient() (*kubernetes.Clientset, error) {
 // getProviderSecrets retrieves secrets for a specific provider
 func getProviderSecrets(clientset *kubernetes.Clientset, providerName string) error {
 	if _, exists := knownProviders[providerName]; !exists {
+		// Not a built-in: any package that labels its credential Secret
+		// adhar.io/cli-secret=true + adhar.io/package-name=<name> is served here.
+		if entries := labelledPackageEntries(clientset, providerName); len(entries) > 0 {
+			return displaySecretEntries(entries, providerName)
+		}
 		available := []string{"argocd", "gitea", "keycloak", "adhar-console", "vault", "postgres", "redis", "harbor", "rustfs"}
+		available = append(available, labelledPackageNames(clientset)...)
 		return fmt.Errorf("unknown provider %q (available: %s)", providerName, strings.Join(available, ", "))
 	}
 
@@ -162,6 +169,9 @@ func getAllPlatformSecrets(clientset *kubernetes.Clientset) error {
 	}
 
 	entries := resolveSecrets(clientset, providers)
+	if showAll {
+		entries = append(entries, labelledPackageEntries(clientset, "")...)
+	}
 
 	if len(entries) == 0 {
 		logger.Info("No platform secrets found")
@@ -484,4 +494,82 @@ func displaySecretEntries(entries []SecretEntry, label string) error {
 	fmt.Println(helpers.BorderStyle.Width(totalW + 6).Render(tb.String()))
 	fmt.Println()
 	return nil
+}
+
+// Package-provided credentials: a package ships its admin credentials as a
+// Secret labelled adhar.io/cli-secret="true" and adhar.io/package-name=<pkg>
+// with `username`/`password` keys (email/passwords for apps whose login is
+// their own, e.g. Plane, Airbyte). Nothing here needs a code change per app.
+const (
+	cliSecretLabel   = "adhar.io/cli-secret"
+	packageNameLabel = "adhar.io/package-name"
+)
+
+func listLabelledSecrets(clientset *kubernetes.Clientset) []corev1.Secret {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	list, err := clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{LabelSelector: cliSecretLabel + "=true"})
+	if err != nil {
+		logger.Debugf("Failed to list package credential secrets: %v", err)
+		return nil
+	}
+	return list.Items
+}
+
+// labelledPackageNames returns the distinct package names that ship
+// CLI-visible credentials.
+func labelledPackageNames(clientset *kubernetes.Clientset) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, s := range listLabelledSecrets(clientset) {
+		if n := s.Labels[packageNameLabel]; n != "" && !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// labelledPackageEntries turns the labelled Secrets (optionally of one package)
+// into display entries. A Secret without a username key is shown by its
+// password-like key only when it is the sole credential (tokens).
+func labelledPackageEntries(clientset *kubernetes.Clientset, pkg string) []SecretEntry {
+	var entries []SecretEntry
+	for _, s := range listLabelledSecrets(clientset) {
+		name := s.Labels[packageNameLabel]
+		if name == "" || (pkg != "" && name != pkg) {
+			continue
+		}
+		user := firstKey(s, "username", "user", "email", "instance-admin-email", "rootUser", "admin-user")
+		pass := firstKey(s, "password", "instance-admin-password", "rootPassword", "admin-password", "token")
+		if pass == "" {
+			continue
+		}
+		service := name
+		if len(listLabelledSecretsOf(clientset, name)) > 1 {
+			service = name + " (" + s.Name + ")"
+		}
+		entries = append(entries, SecretEntry{Icon: "🔐", Service: service, Username: user, Password: pass})
+	}
+	return entries
+}
+
+func listLabelledSecretsOf(clientset *kubernetes.Clientset, pkg string) []corev1.Secret {
+	var out []corev1.Secret
+	for _, s := range listLabelledSecrets(clientset) {
+		if s.Labels[packageNameLabel] == pkg {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func firstKey(s corev1.Secret, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := s.Data[k]; ok && len(v) > 0 {
+			return string(v)
+		}
+	}
+	return ""
 }

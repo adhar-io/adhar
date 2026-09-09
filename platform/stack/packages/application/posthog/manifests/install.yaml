@@ -3025,7 +3025,7 @@ metadata:
     "helm.sh/chart": "posthog-30.46.0"
 type: Opaque
 data:
-  posthog-secret: "dFBFazBVVFdObWIyRWVlaW8wWVZ3OWNJQnR6TlJpMkVvT3FBTXU0VA=="
+  posthog-secret: "ak8xTFVJaDNJNkhSc0luYkE5Mk93alk0UnNVSEdpTnlNZ1NBMWw3ZA=="
   smtp-password: ""
 ---
 # Source: posthog/charts/redis/templates/configmap.yaml
@@ -4167,7 +4167,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 4503e6b4e8bd978a47fc700631023811a16ee3210a741680a27e74b6f790410b
+        checksum/secrets.yaml: 06628f3a48ae5d00206c92c04c10af73377edf7c1edd84a07ca25588ae84356b
       labels:
         app: posthog
         release: "posthog"
@@ -4422,7 +4422,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: aa860b55027f946aeb064c087b7eeffea38dda41aa3217feb6f163cbe46421b6
+        checksum/secrets.yaml: dca9dd7e9bfc52fe2451271d0f54ee912bbdd52ccdc66ce6f295e9c1682fa48b
 
         
 
@@ -4548,7 +4548,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 552cd9c89016f5eb09583950205bddcd415cb35d1c734459cea4c26173df7ed3
+        checksum/secrets.yaml: d3263ba3b9e1abe6dd91b8acf116e235b674ffe6b2ab500e065b4b27671fe49e
       labels:
         app: posthog
         release: "posthog"
@@ -4857,7 +4857,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 797e55621efd60dd1959f37cc5b9d6cc3b3c7e05fdf7a30a389e0b4dc8bd3087
+        checksum/secrets.yaml: 4386a3bf54c2684bd94df9bca4426379aa3504ec8b11bdfb515f8e0d21c822e8
       labels:
         app: posthog
         release: "posthog"
@@ -5229,7 +5229,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: bf44f0c136a66d64758a5cf60b8ab8f629876c2d2eb705b09ba30b5fa4427134
+        checksum/secrets.yaml: fbb0f4eba4d7e1ca385175025aeb255927f28c3170e1a6f9838b9e66ecfd080e
       labels:
         app: posthog
         release: "posthog"
@@ -5652,7 +5652,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-migrate-2026-09-09-06-05-01
+  name: posthog-migrate-2026-09-10-06-12-34
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -5666,9 +5666,9 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-migrate-2026-09-09-06-05-01
+      name: posthog-migrate-2026-09-10-06-12-34
       annotations:
-        checksum/secrets.yaml: dc10f520838b8be04376e46c5796c72c2c056593048a7c0256e9aa1ad1881f89
+        checksum/secrets.yaml: f550a6e7e0af53637c8ae9b2ec9e719104e597c86eb6812b22ac3f207287366f
       labels:
         app: posthog
         release: "posthog"
@@ -5894,6 +5894,38 @@ spec:
     settings:
       default_database: posthog
       format_schema_path: /etc/clickhouse-server/config.d/
+      macros/hostClusterRole: coordinator
+      macros/hostClusterType: online
+      remote_servers/ai_events/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/ai_events/shard/replica/port: "9000"
+      remote_servers/aux/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/aux/shard/replica/port: "9000"
+      remote_servers/data_warehouse/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/data_warehouse/shard/replica/port: "9000"
+      remote_servers/ops/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/ops/shard/replica/port: "9000"
+      remote_servers/posthog_analytics/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_analytics/shard/replica/port: "9000"
+      remote_servers/posthog_aux/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_aux/shard/replica/port: "9000"
+      remote_servers/posthog_code/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_code/shard/replica/port: "9000"
+      remote_servers/posthog_data_warehouse/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_data_warehouse/shard/replica/port: "9000"
+      remote_servers/posthog_events/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_events/shard/replica/port: "9000"
+      remote_servers/posthog_logs/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_logs/shard/replica/port: "9000"
+      remote_servers/posthog_migrations/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_migrations/shard/replica/port: "9000"
+      remote_servers/posthog_primary_replica/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_primary_replica/shard/replica/port: "9000"
+      remote_servers/posthog_single_shard/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_single_shard/shard/replica/port: "9000"
+      remote_servers/posthog_svc/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_svc/shard/replica/port: "9000"
+      remote_servers/posthog_writable/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_writable/shard/replica/port: "9000"
 
     files:
       events.proto: |
@@ -5979,7 +6011,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-grafana-annotation-job-post-2026-09-09-06-05-01
+  name: posthog-grafana-annotation-job-post-2026-09-10-06-12-34
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -5995,7 +6027,7 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-grafana-annotation-job-post-2026-09-09-06-05-01
+      name: posthog-grafana-annotation-job-post-2026-09-10-06-12-34
     spec:
       restartPolicy: Never
 

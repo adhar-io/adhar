@@ -168,6 +168,32 @@ spec:
               fieldPath: status.podIP
         - name: CODER_ACCESS_URL
           value: https://coder.adhar.localtest.me:8443
+        - name: CODER_OIDC_ISSUER_URL
+          value: https://keycloak.adhar.localtest.me:8443/realms/adhar
+        - name: CODER_OIDC_CLIENT_ID
+          value: coder
+        - name: CODER_OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: clientSecret
+              name: coder-oidc
+              optional: true
+        - name: CODER_OIDC_SIGN_IN_TEXT
+          value: Sign in with Keycloak
+        - name: CODER_OIDC_ALLOW_SIGNUPS
+          value: "true"
+        - name: CODER_OIDC_SCOPES
+          value: openid,profile,email,groups
+        - name: CODER_OIDC_GROUP_FIELD
+          value: groups
+        - name: CODER_OIDC_USER_ROLE_FIELD
+          value: groups
+        - name: CODER_OIDC_USER_ROLE_MAPPING
+          value: '{"platform-admin":["owner"],"admin":["owner"]}'
+        - name: CODER_DISABLE_PASSWORD_AUTH
+          value: "false"
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/adhar-ca
         image: ghcr.io/coder/coder:v2.37.0
         imagePullPolicy: IfNotPresent
         lifecycle: {}
@@ -197,8 +223,17 @@ spec:
           runAsUser: 1000
           seccompProfile:
             type: RuntimeDefault
-        volumeMounts: []
+        volumeMounts:
+        - mountPath: /etc/adhar-ca
+          name: adhar-ca
+          readOnly: true
       restartPolicy: Always
       serviceAccountName: coder
       terminationGracePeriodSeconds: 60
-      volumes: []
+      volumes:
+      - name: adhar-ca
+        secret:
+          items:
+          - key: tls.crt
+            path: adhar-gateway.crt
+          secretName: adhar-cert

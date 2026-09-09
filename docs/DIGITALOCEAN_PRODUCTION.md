@@ -162,6 +162,39 @@ kubectl -n adhar-system get compositecluster drill-reconstructability   # Ready 
 kubectl get operations -o jsonpath='{range .items[*]}{.status.pipeline[*].output.verdict}{"\n"}{end}'   # pass
 ```
 
+### 3.2 Application logins
+
+Every platform UI sits behind Keycloak (oauth2-proxy front). A few apps have
+no OIDC in their open-source edition and keep their own login behind that
+gate; the platform provisions their first admin for you and `adhar get
+secrets -p <app>` prints the credentials:
+
+| App      | Inside the app                                              | Credentials                         |
+|----------|-------------------------------------------------------------|-------------------------------------|
+| Coder    | **Keycloak OIDC natively** ("Sign in with Keycloak"); break-glass owner `adhar-admin` | `adhar get secrets -p coder` |
+| Kargo    | Keycloak OIDC natively (UI + CLI)                           | your Keycloak user                  |
+| Plane    | email + password (instance set up automatically)            | `adhar get secrets -p plane`        |
+| Airbyte  | Airbyte's own login (`global.auth.enabled`); OIDC is Enterprise-only | `adhar get secrets -p airbyte` |
+| Metabase | Metabase's own login (setup wizard completed automatically; SSO is paid) | `adhar get secrets -p metabase` |
+| Penpot   | **Keycloak OIDC natively** ("Sign in with OpenID"); password login kept | your Keycloak user            |
+
+Every other UI is fronted by oauth2-proxy and needs nothing but your Keycloak
+user. OIDC inside Plane, Airbyte and Metabase is a commercial feature of those
+products; the Keycloak front is what enforces platform SSO there.
+
+**If every SSO login suddenly fails with 503**, check Keycloak's database
+first: `kubectl -n adhar-system get cluster keycloak-db` — its volume was
+1 GiB and filled with retained WAL the moment archiving to MinIO hiccupped.
+Platform databases now start at 5 GiB and CNPG grows them online
+(`resizeInUseVolumes`).
+
+**DNS hygiene.** external-dns creates one A record per platform hostname and
+never touches records it did not create. A manually created wildcard
+(`*.<host>`) pointing at an old load-balancer IP will shadow any hostname that
+has no explicit record — after a `--recreate` that IP may already belong to
+someone else, and the browser then shows a certificate for a stranger's domain.
+Do not keep a wildcard record in the platform zone.
+
 ## 4. Day-2
 
 ```bash

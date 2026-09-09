@@ -1,6 +1,15 @@
 # Coder values for Adhar. Ingress disabled -- routing is handled by the Cilium
-# Gateway API (adhar-gateway) via manifests/httproute.yaml. Coder is served under
-# the /coder sub-path on adhar.localtest.me.
+# Gateway API (adhar-gateway) via manifests/httproute.yaml. Coder is served on
+# its own hostname, coder.adhar.localtest.me (rewritten to the platform domain
+# at seed time).
+#
+# Auth: NATIVE Keycloak OIDC (like Kargo, not an oauth2-proxy front). Coder
+# cannot sit behind oauth2-proxy: the `coder` CLI and every workspace agent
+# dial CODER_ACCESS_URL with a token, and a proxy that demands a browser login
+# 302s them — workspaces would never connect. The `coder` Keycloak client is
+# shipped as a labelled ConfigMap in manifests/keycloak-client.yaml; its secret
+# reaches this Deployment through the `coder-oidc` Secret (ExternalSecret in the
+# same file, fed from keycloak-clients).
 coder:
   ingress:
     enable: false
@@ -11,5 +20,65 @@ coder:
     # "duplicate entries for key [name=CODER_HTTP_ADDRESS]".
     - name: CODER_ACCESS_URL
       value: "https://coder.adhar.localtest.me:8443"
+
+    # --- Keycloak OIDC ------------------------------------------------------
+    - name: CODER_OIDC_ISSUER_URL
+      value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+    - name: CODER_OIDC_CLIENT_ID
+      value: "coder"
+    # optional:true is deliberate: on a cold bootstrap Keycloak's realm job has
+    # not produced keycloak-clients yet, and a hard secretKeyRef would wedge the
+    # pod in CreateContainerConfigError. With an EMPTY secret Coder simply does
+    # not enable OIDC (it only builds the OIDC config when a client secret is
+    # present) and still serves with password auth; manifests/oidc-reload.yaml
+    # restarts the Deployment once the real secret lands.
+    - name: CODER_OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: coder-oidc
+          key: clientSecret
+          optional: true
+    - name: CODER_OIDC_SIGN_IN_TEXT
+      value: "Sign in with Keycloak"
+    # Anyone who can authenticate against the platform realm gets a Coder
+    # account on first login (the realm itself is the gate).
+    - name: CODER_OIDC_ALLOW_SIGNUPS
+      value: "true"
+    - name: CODER_OIDC_SCOPES
+      value: "openid,profile,email,groups"
+    # Group/role sync from the realm's `groups` claim (platform-admin, admin,
+    # developer, ...). NOTE: group and role sync are licensed Coder features —
+    # on the OSS build these settings are parsed and then ignored, they do NOT
+    # fail the login. The bootstrap owner created by manifests/admin-setup.yaml
+    # is what makes the deployment usable without a license.
+    - name: CODER_OIDC_GROUP_FIELD
+      value: "groups"
+    - name: CODER_OIDC_USER_ROLE_FIELD
+      value: "groups"
+    - name: CODER_OIDC_USER_ROLE_MAPPING
+      value: '{"platform-admin":["owner"],"admin":["owner"]}'
+    # Keep the local password login enabled: it is the break-glass path for the
+    # generated `adhar-admin` owner (`adhar get secrets -p coder`) and the only
+    # way in if Keycloak is down.
+    - name: CODER_DISABLE_PASSWORD_AUTH
+      value: "false"
+    # Coder performs OIDC discovery/token exchange against the issuer over TLS.
+    # The platform Gateway certificate (Secret adhar-cert: self-signed locally,
+    # Let's Encrypt on cloud) is mounted below and added as an extra trust
+    # anchor via Go's SSL_CERT_DIR — the system roots stay in place. Same
+    # mechanism as Kargo (application/kargo/values.yaml).
+    - name: SSL_CERT_DIR
+      value: "/etc/ssl/certs:/etc/adhar-ca"
+  volumes:
+    - name: adhar-ca
+      secret:
+        secretName: adhar-cert
+        items:
+          - key: tls.crt
+            path: adhar-gateway.crt
+  volumeMounts:
+    - name: adhar-ca
+      mountPath: /etc/adhar-ca
+      readOnly: true
   service:
     type: ClusterIP

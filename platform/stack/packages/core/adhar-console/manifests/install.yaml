@@ -166,7 +166,9 @@ metadata:
 spec:
   instances: 1
   storage:
-    size: 1Gi
+    # 1Gi filled up in a day: WAL is retained locally whenever archiving
+    # to MinIO hiccups (keycloak-db went down with "Not enough disk space").
+    size: 5Gi
   bootstrap:
     initdb:
       database: console
@@ -342,6 +344,13 @@ spec:
         # syncs from the `gitea` ClusterSecretStore, not `keycloak`.
         - secretRef:
             name: gitea-credentials
+        # Coder bootstrap owner (CODER_USERNAME/CODER_PASSWORD) for the
+        # server-side Coder proxy: the BFF signs in with these and caches the
+        # session token (`login` auth mode). Optional so the console still
+        # boots on a stack without the coder package.
+        - secretRef:
+            name: coder-credentials
+            optional: true
         resources:
           requests:
             cpu: 100m
@@ -485,3 +494,30 @@ spec:
     remoteRef:
       key: gitea-credential
       property: token
+---
+# Coder bootstrap owner for the console's Cloud Dev Environments page. The
+# `gitea` ClusterSecretStore is a plain Kubernetes-provider store over
+# adhar-system, so it can read the `coder-admin-credentials` Secret that
+# application/coder/manifests/admin-setup.yaml generates. The BFF posts these
+# to /api/v2/users/login and proxies with the resulting session token.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: coder-credentials
+  namespace: adhar-system
+spec:
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  target:
+    name: coder-credentials
+  data:
+  - secretKey: CODER_USERNAME
+    remoteRef:
+      key: coder-admin-credentials
+      property: username
+  - secretKey: CODER_PASSWORD
+    remoteRef:
+      key: coder-admin-credentials
+      property: password

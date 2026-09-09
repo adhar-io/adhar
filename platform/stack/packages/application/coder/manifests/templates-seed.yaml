@@ -1,0 +1,100 @@
+# Seed a starter workspace template so Cloud Dev Environments work out of the box.
+#
+# A fresh Coder has no templates, so the console's "New env" dialog (and the
+# Coder dashboard) has nothing to offer. This PostSync Job pushes Coder's own
+# `kubernetes` starter template (embedded in the server binary — `coder
+# templates init --id kubernetes`) as `kubernetes`: one Ubuntu pod per
+# workspace in adhar-system, code-server + terminal via the agent, a PVC for
+# /home/coder. The chart's `coder` ServiceAccount already holds the
+# pods/PVC RBAC for its own namespace (Role coder-workspace-perms), so the
+# template runs with in-cluster auth (use_kubeconfig=false).
+#
+# Idempotent: exits 0 when a template named `kubernetes` already exists, so
+# operators can edit / version it from the Coder UI without the hook clobbering
+# it on every sync. Runs after admin-setup.yaml (wave 10) because it signs in
+# with the generated owner.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coder-templates-seed
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: seed
+          # Same image as the coder Deployment: the server binary IS the CLI
+          # (/opt/coder) and the starter templates are embedded in it.
+          image: ghcr.io/coder/coder:v2.37.0
+          env:
+            - name: CODER_URL
+              value: http://coder.adhar-system.svc.cluster.local:80
+            - name: HOME
+              value: /tmp
+            - name: CODER_CONFIG_DIR
+              value: /tmp/coder-config
+            - name: ADMIN_EMAIL
+              valueFrom: {secretKeyRef: {name: coder-admin-credentials, key: username}}
+            - name: ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: coder-admin-credentials, key: password}}
+            # Namespace workspaces are scheduled into. Must match the namespace
+            # the chart's workspace RBAC covers.
+            - name: WORKSPACE_NAMESPACE
+              value: adhar-system
+            - name: TEMPLATE_NAME
+              value: kubernetes
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+
+              # 1. Wait for the API (migrations first) and for the first user.
+              for i in $(seq 1 120); do
+                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${CODER_URL}/api/v2/users/first" 2>/dev/null || echo 000)
+                [ "${code}" = "200" ] && break
+                echo "waiting for the Coder API + first user (${i}, http ${code})"
+                sleep 5
+              done
+
+              # 2. Password login for the bootstrap owner -> session token for the CLI.
+              CODER_SESSION_TOKEN=$(curl -sf --max-time 15 -X POST "${CODER_URL}/api/v2/users/login" \
+                -H 'content-type: application/json' \
+                -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+                | sed -n 's/.*"session_token":"\([^"]*\)".*/\1/p')
+              if [ -z "${CODER_SESSION_TOKEN}" ]; then
+                echo "could not sign in as ${ADMIN_EMAIL}; failing so the Job retries"
+                exit 1
+              fi
+              export CODER_SESSION_TOKEN
+
+              # 3. Idempotency: leave an existing template alone.
+              if /opt/coder templates list -o json 2>/dev/null | grep -q "\"name\": *\"${TEMPLATE_NAME}\""; then
+                echo "template ${TEMPLATE_NAME} already exists; nothing to do"
+                exit 0
+              fi
+
+              # 4. Materialise the embedded starter and push it.
+              rm -rf /tmp/tpl && mkdir -p /tmp/tpl
+              /opt/coder templates init --id kubernetes /tmp/tpl/${TEMPLATE_NAME}
+              /opt/coder templates push "${TEMPLATE_NAME}" \
+                --directory "/tmp/tpl/${TEMPLATE_NAME}" \
+                --variable "namespace=${WORKSPACE_NAMESPACE}" \
+                --variable "use_kubeconfig=false" \
+                --message "Seeded by the Adhar platform" \
+                --yes
+              echo "template ${TEMPLATE_NAME} pushed"
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}

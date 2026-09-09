@@ -50,6 +50,49 @@ externalKafka:
 # clickhouse-keeper.yaml) rather than the chart's Bitnami ZooKeeper ensemble.
 # Keeper speaks the same protocol on the same port, so this is a drop-in.
 clickhouse:
+  # PostHog's migrations read two ClickHouse macros the chart never defines
+  # ("No macro hostClusterType in config"); the operator writes settings as
+  # config.d XML paths, so these land in <macros>.
+  settings:
+    macros/hostClusterType: online
+    macros/hostClusterRole: coordinator
+    # PostHog's migrations address several *named* ClickHouse clusters
+    # (posthog_migrations, posthog_single_shard, ai_events, …) that the chart's
+    # single-cluster ClickHouseInstallation never defines ("Requested cluster
+    # 'ai_events' not found"). On a single-node ClickHouse they are all the same
+    # node, so declare them as remote_servers entries pointing at it. The
+    # operator writes settings as config.d XML paths. The list comes from grepping
+# cluster names out of the PostHog image (/code/posthog/clickhouse).
+    remote_servers/posthog_migrations/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_migrations/shard/replica/port: "9000"
+    remote_servers/posthog_single_shard/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_single_shard/shard/replica/port: "9000"
+    remote_servers/ai_events/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/ai_events/shard/replica/port: "9000"
+    remote_servers/posthog_logs/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_logs/shard/replica/port: "9000"
+    remote_servers/aux/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/aux/shard/replica/port: "9000"
+    remote_servers/ops/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/ops/shard/replica/port: "9000"
+    remote_servers/posthog_writable/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_writable/shard/replica/port: "9000"
+    remote_servers/posthog_svc/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_svc/shard/replica/port: "9000"
+    remote_servers/posthog_primary_replica/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_primary_replica/shard/replica/port: "9000"
+    remote_servers/posthog_aux/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_aux/shard/replica/port: "9000"
+    remote_servers/data_warehouse/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/data_warehouse/shard/replica/port: "9000"
+    remote_servers/posthog_data_warehouse/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_data_warehouse/shard/replica/port: "9000"
+    remote_servers/posthog_analytics/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_analytics/shard/replica/port: "9000"
+    remote_servers/posthog_events/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_events/shard/replica/port: "9000"
+    remote_servers/posthog_code/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_code/shard/replica/port: "9000"
   externalZookeeper:
     servers:
       - host: posthog-clickhouse-keeper

@@ -197,16 +197,13 @@ data:
   KARGO_NAMESPACE: adhar-system
   LOG_LEVEL: "INFO"
   LOG_FORMAT: "CONSOLE"
-  TLS_ENABLED: "true"
-  TLS_CERT_PATH: /etc/kargo/tls.crt
-  TLS_KEY_PATH: /etc/kargo/tls.key
   SECRET_MANAGEMENT_ENABLED: "true"
   SYSTEM_RESOURCES_NAMESPACE: "kargo-system-resources"
   SHARED_RESOURCES_NAMESPACE: "kargo-shared-resources"
   PERMISSIVE_CORS_POLICY_ENABLED: "false"
   ADMIN_ACCOUNT_ENABLED: "true"
-  ADMIN_ACCOUNT_TOKEN_ISSUER: https://adhar.localtest.me
-  ADMIN_ACCOUNT_TOKEN_AUDIENCE: "adhar.localtest.me"
+  ADMIN_ACCOUNT_TOKEN_ISSUER: http://kargo.adhar.localtest.me
+  ADMIN_ACCOUNT_TOKEN_AUDIENCE: "kargo.adhar.localtest.me"
   ADMIN_ACCOUNT_TOKEN_TTL: "24h"
   OIDC_ENABLED: "true"
   OIDC_ADDITIONAL_SCOPES: "groups"
@@ -233,7 +230,7 @@ metadata:
     
   
 data:
-  API_SERVER_BASE_URL: https://adhar.localtest.me
+  API_SERVER_BASE_URL: http://kargo.adhar.localtest.me
   LOG_LEVEL: "INFO"
   LOG_FORMAT: "CONSOLE"
   KARGO_NAMESPACE: adhar-system
@@ -8442,8 +8439,8 @@ spec:
   type: ClusterIP
   ports:
   - protocol: TCP
-    appProtocol: https
-    port: 443
+    appProtocol: http
+    port: 80
     targetPort: 8080
   selector:
     app.kubernetes.io/name: kargo
@@ -8534,7 +8531,7 @@ spec:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/component: api
       annotations:
-        configmap/checksum: e4e734f3dafe8d10fb8e56768b684da23001ff910f57f371542a8278d5a31076
+        configmap/checksum: 8bb5f105dc99924df90aeb514e047ad2827a4740cc5f11d17da3397f6024467c
         secret/checksum: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
     spec:
       serviceAccountName: kargo-api
@@ -8571,40 +8568,24 @@ spec:
           httpGet:
             path: /healthz
             port: 8080
-            scheme: HTTPS
           failureThreshold: 30
           initialDelaySeconds: 10
         livenessProbe:
           httpGet:
             path: /healthz
             port: 8080
-            scheme: HTTPS
         readinessProbe:
           httpGet:
             path: /healthz
             port: 8080
-            scheme: HTTPS
           initialDelaySeconds: 5
         volumeMounts:
-        - mountPath: /etc/kargo
-          name: config
-          readOnly: true
         - mountPath: /etc/adhar-ca
           name: adhar-ca
           readOnly: true
         resources:
           {}
       volumes:
-      - name: config
-        projected:
-          sources:
-          - secret:
-              name: kargo-api-cert
-              items:
-              - key: tls.crt
-                path: tls.crt
-              - key: tls.key
-                path: tls.key
       - name: adhar-ca
         secret:
           items:
@@ -8649,7 +8630,7 @@ spec:
         app.kubernetes.io/component: controller
         
       annotations:
-        configmap/checksum: 04a27d23f3bcd4e10c37f0f7830dc7149171897845bee79eb7f5e2bf58216176
+        configmap/checksum: cc9e3a19aaeae17bf96a029f25615f37c9d302ea30cf61d962ab81c79cf984e0
     spec:
       serviceAccountName: kargo-controller
       containers:
@@ -8988,29 +8969,6 @@ spec:
             resources:
               {}
           restartPolicy: Never
----
-# Source: kargo/templates/api/cert.yaml
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: kargo-api
-  namespace: adhar-system
-  labels:
-    helm.sh/chart: kargo-1.11.4
-    app.kubernetes.io/name: kargo
-    app.kubernetes.io/instance: kargo
-    app.kubernetes.io/version: "v1.11.4"
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/component: api
-  
-spec:
-  dnsNames:
-  - "adhar.localtest.me"
-  issuerRef:
-    group: cert-manager.io
-    kind: Issuer
-    name: kargo-selfsigned-cert-issuer
-  secretName: kargo-api-cert
 ---
 # Source: kargo/templates/external-webhooks-server/cert.yaml
 apiVersion: cert-manager.io/v1

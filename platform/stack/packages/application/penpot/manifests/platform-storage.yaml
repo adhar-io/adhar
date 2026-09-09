@@ -1,0 +1,31 @@
+# Penpot's object storage is the platform MinIO. Credentials are mirrored from
+# the MinIO root Secret by External Secrets (the `gitea` ClusterSecretStore is
+# the platform's Kubernetes-provider store over adhar-system), so rotations
+# follow automatically. The bucket is provisioned by the minio package.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: penpot-s3-credentials
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: penpot-s3-credentials
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        accessKeyID: '{{ .accessKeyID }}'
+        secretAccessKey: '{{ .secretAccessKey }}'
+        endpointURI: http://minio.adhar-system.svc.cluster.local:9000
+  data:
+    - secretKey: accessKeyID
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: secretAccessKey
+      remoteRef: {key: root-creds, property: rootPassword}

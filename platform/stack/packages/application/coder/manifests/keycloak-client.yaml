@@ -1,0 +1,85 @@
+# Keycloak OIDC client for Coder's NATIVE OIDC login (values.yaml coder.env
+# CODER_OIDC_*).
+#
+# Coder is NOT fronted by an oauth2-proxy: the `coder` CLI and the workspace
+# agents talk to CODER_ACCESS_URL with a bearer token, and a proxy that requires
+# an interactive browser login breaks both. Coder does the authorization-code
+# flow itself as a CONFIDENTIAL client, so the secret matters.
+#
+# Generic client contract: the keycloak package's config Job and its 5-minute
+# client-reconcile CronJob ensure every ConfigMap in adhar-system labelled
+# adhar.io/keycloak-client=true carrying a `client.json` key exists in the
+# `adhar` realm (created if missing, redirect URIs / web origins / flags
+# reconciled on every run), gets the `groups` default client scope, and — for
+# confidential clients — exports its secret into the keycloak-clients Secret as
+# CODER_CLIENT_ID / CODER_CLIENT_SECRET (PREFIX = clientId upper-cased, '-' ->
+# '_'). The ExternalSecret below republishes that secret as `coder-oidc`
+# (key clientSecret), which the Deployment reads as an OPTIONAL secretKeyRef.
+#
+# Host convention: https://coder.adhar.localtest.me:8443 is rewritten to the
+# real domain by the platform controller when seeding cloud clusters.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coder-keycloak-client
+  namespace: adhar-system
+  labels:
+    # Picked up by the keycloak package's client reconciler (see
+    # security/keycloak/manifests/keycloak-config.yaml, configure.sh).
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: coder-keycloak-client
+    app.kubernetes.io/part-of: coder
+  # Wave 0: a ConfigMap is healthy instantly and blocks nothing; the earlier it
+  # exists, the sooner the reconciler exports the client secret.
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  # Keep "description" under 255 chars (Keycloak varchar; longer fails with 500).
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "coder",
+      "name": "Coder Client",
+      "description": "Used for Coder SSO (native OIDC, authorization code; confidential client)",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "post.logout.redirect.uris": "https://coder.adhar.localtest.me:8443/*"
+      },
+      "redirectUris": [
+        "https://coder.adhar.localtest.me:8443/api/v2/users/oidc/callback"
+      ],
+      "webOrigins": ["https://coder.adhar.localtest.me:8443"]
+    }
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: coder-oidc
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  # Explicit 1h: leaving refreshInterval unset means 0 = a single sync attempt
+  # with no retry, so an ES created before the Keycloak realm job has written
+  # keycloak-clients wedges as SecretSyncedError forever.
+  refreshInterval: 1h
+  target:
+    name: coder-oidc
+    template:
+      engineVersion: v2
+      data:
+        clientID: coder
+        clientSecret: "{{ .CODER_CLIENT_SECRET }}"
+  data:
+    - secretKey: CODER_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: CODER_CLIENT_SECRET

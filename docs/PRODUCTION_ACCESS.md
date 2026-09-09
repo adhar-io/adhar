@@ -79,6 +79,11 @@ adhar get secrets -p keycloak
 
 Values are always printed in full — the table grows to fit the longest secret.
 
+Packages whose UI keeps its own login (Plane, Airbyte, PostHog, …) ship their
+generated admin credentials as a Secret labelled `adhar.io/cli-secret=true`
+with `adhar.io/package-name=<package>`; `adhar get secrets -p <package>`
+prints them and `--all` lists every such package — no per-app code in the CLI.
+
 Because the context is already current after `adhar up`, no `export KUBECONFIG`
 is needed on that machine. From elsewhere, point `KUBECONFIG` at the standalone
 file (section 2) first.

@@ -173,7 +173,7 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: "mimir-minio-sa"
+  name: "minio-sa"
 ---
 # Source: mimir-distributed/templates/serviceaccount.yaml
 apiVersion: v1
@@ -1400,10 +1400,7 @@ metadata:
     heritage: Helm
 spec:
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 100%
-      maxUnavailable: 0
+    type: Recreate
   replicas: 1
   selector:
     matchLabels:
@@ -1426,7 +1423,7 @@ spec:
         runAsGroup: 1000
         runAsUser: 1000
       
-      serviceAccountName: mimir-minio-sa
+      serviceAccountName: minio-sa
       containers:
         - name: minio
           image: "quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z"
@@ -1461,7 +1458,7 @@ spec:
               value: "public"
           resources:
             requests:
-              cpu: 50m
+              cpu: 100m
               memory: 128Mi
           securityContext: 
             readOnlyRootFilesystem: false      
@@ -2547,7 +2544,7 @@ spec:
                   name: mimir-minio
               - secret:
                   name: mimir-minio
-      serviceAccountName: mimir-minio-sa
+      serviceAccountName: minio-sa
       containers:
         - name: minio-make-bucket
           image: "quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z"

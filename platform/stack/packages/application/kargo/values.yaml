@@ -10,8 +10,15 @@
 # the chart does not generate its own.
 
 api:
-  # Domain (and sub-path) where Kargo's UI/API is reached through the Gateway.
-  host: adhar.localtest.me
+  # Hostname where Kargo's UI/API is reached through the Gateway (host-based
+  # route, rewritten to the platform domain at seed time).
+  host: kargo.adhar.localtest.me
+  # TLS terminates at the Cilium Gateway; the API must speak plain HTTP behind
+  # it. With the chart default (self-signed TLS on the API pod) every request
+  # through the route died with "client sent an HTTP request to an HTTPS
+  # server" (HTTP 400).
+  tls:
+    enabled: false
   # Native Keycloak OIDC (NOT an oauth2-proxy front: the kargo CLI logs in via
   # OIDC directly). Kargo uses the authorization-code flow with PKCE and takes
   # NO client secret, so both Keycloak clients are PUBLIC; they are shipped as

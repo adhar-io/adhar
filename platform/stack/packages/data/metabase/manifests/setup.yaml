@@ -1,0 +1,167 @@
+# First-run setup for Metabase, done for you.
+#
+# A fresh Metabase shows the "Welcome to Metabase" wizard and refuses to do
+# anything until someone clicks through it. This Job completes that wizard with
+# a generated admin password, so the package is usable straight after
+# `adhar up`:
+#
+#   adhar get secrets -p metabase   # email/password of the Metabase admin
+#
+# Auth model: Metabase OSS has NO OIDC (SSO is a paid feature), so the platform
+# gate is the Keycloak oauth2-proxy in front (manifests/sso.yaml) — you reach
+# the UI only after a Keycloak login — and Metabase's own account is this
+# generated admin.
+#
+# Idempotent: /api/session/properties only carries a `setup-token` while setup
+# is still pending. No token => already set up => exit 0.
+# (Plain .yaml on purpose: the ESO template directives must survive seeding.)
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: metabase-admin
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 24
+  digits: 4
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: metabase-admin-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: metabase-admin-credentials
+    template:
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: metabase
+      engineVersion: v2
+      data:
+        username: metabase-admin@adhar.local
+        password: '{{ .PASSWORD }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: metabase-admin
+      rewrite:
+        - transform:
+            template: 'PASSWORD'
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: metabase-setup
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      containers:
+        - name: setup
+          image: docker.io/curlimages/curl:8.11.1
+          env:
+            # In-cluster Service from install.yaml (metabase:80 -> 3000).
+            # Deliberately NOT the external URL: that one goes through the
+            # oauth2-proxy, which would bounce this Job to a Keycloak login.
+            - name: MB_URL
+              value: http://metabase.adhar-system.svc.cluster.local:80
+            - name: ADMIN_EMAIL
+              valueFrom: {secretKeyRef: {name: metabase-admin-credentials, key: username}}
+            - name: ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: metabase-admin-credentials, key: password}}
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+
+              # 1. Wait for Metabase (first boot runs its H2/app-db migrations,
+              #    which takes minutes). 180 x 10s = 30 min, then fail so the
+              #    Job's backoff retries.
+              ready=""
+              for i in $(seq 1 180); do
+                if curl -sf --max-time 10 "${MB_URL}/api/health" 2>/dev/null | grep -q '"ok"'; then
+                  ready=1; break
+                fi
+                echo "waiting for the Metabase API (${i})"
+                sleep 10
+              done
+              if [ -z "${ready}" ]; then
+                echo "Metabase did not become healthy; failing so the Job retries"
+                exit 1
+              fi
+
+              # 2. Metabase keeps publishing a setup-token after setup; the
+              #    authoritative flag is has-user-setup (a first user exists).
+              PROPS=$(curl -sf --max-time 10 "${MB_URL}/api/session/properties" 2>/dev/null)
+              if echo "${PROPS}" | grep -q '"has-user-setup":true'; then
+                echo "has-user-setup=true: Metabase is already set up; nothing to do"
+                exit 0
+              fi
+              TOKEN=$(echo "${PROPS}" | sed -n 's/.*"setup-token":"\([^"]*\)".*/\1/p')
+              if [ -z "${TOKEN}" ]; then
+                echo "no setup-token: Metabase is already set up; nothing to do"
+                exit 0
+              fi
+
+              # 3. Complete the wizard. The generated password is alphanumeric
+              #    (symbols: 0), so it needs no JSON escaping.
+              cat >/tmp/setup.json <<JSON
+              {
+                "token": "${TOKEN}",
+                "user": {
+                  "email": "${ADMIN_EMAIL}",
+                  "password": "${ADMIN_PASSWORD}",
+                  "first_name": "Adhar",
+                  "last_name": "Admin",
+                  "site_name": "Adhar"
+                },
+                "prefs": {
+                  "site_name": "Adhar",
+                  "allow_tracking": "false"
+                }
+              }
+              JSON
+
+              CODE=$(curl -s -o /tmp/resp.json -w '%{http_code}' --max-time 60 \
+                       -X POST -H 'Content-Type: application/json' \
+                       --data @/tmp/setup.json "${MB_URL}/api/setup")
+              if [ "${CODE}" = "200" ]; then
+                echo "Metabase setup complete for ${ADMIN_EMAIL}"
+                exit 0
+              fi
+              echo "POST /api/setup returned ${CODE}:"
+              cat /tmp/resp.json || true
+              echo
+              if [ "${CODE}" = "403" ] && grep -q "user currently exists" /tmp/resp.json; then
+                echo "first user already exists; nothing to do"
+                exit 0
+              fi
+
+              # Lost a race with another attempt: if the token is gone, someone
+              # else finished the wizard and that is success.
+              if ! curl -sf --max-time 10 "${MB_URL}/api/session/properties" 2>/dev/null \
+                     | grep -q '"setup-token":"'; then
+                echo "setup already completed by another run; treating as success"
+                exit 0
+              fi
+              exit 1
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}

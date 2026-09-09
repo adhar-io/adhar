@@ -1,0 +1,54 @@
+# Keycloak client for Penpot's native OIDC login (no oauth2-proxy front: the
+# app handles the login itself). Provisioned by the keycloak package's client
+# reconciler; the secret it exports (PENPOT_CLIENT_SECRET in keycloak-clients)
+# is mirrored into the Secret the chart reads (penpot-oidc). Negative waves:
+# the backend Deployment mounts that Secret, so it must exist before wave 0.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: penpot-keycloak-client
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: penpot-keycloak-client
+    app.kubernetes.io/part-of: penpot
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
+data:
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "penpot",
+      "name": "Penpot",
+      "description": "Penpot native OIDC login",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "redirectUris": ["https://penpot.adhar.localtest.me:8443/api/auth/oauth/oidc/callback"],
+      "webOrigins": ["https://penpot.adhar.localtest.me:8443"]
+    }
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: penpot-oidc
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: penpot-oidc
+    template:
+      engineVersion: v2
+      data:
+        clientID: penpot
+        clientSecret: "{{ .PENPOT_CLIENT_SECRET }}"
+  dataFrom:
+    - extract:
+        key: keycloak-clients

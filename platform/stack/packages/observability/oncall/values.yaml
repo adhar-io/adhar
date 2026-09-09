@@ -11,3 +11,9 @@ ingress-nginx:
 
 cert-manager:
   enabled: false
+# Recreate: this Deployment owns a ReadWriteOnce volume, so a RollingUpdate can
+# never schedule its replacement (the volume stays attached to the old pod's
+# node) and every change parked the new pod in ContainerCreating for good.
+grafana:
+  deploymentStrategy:
+    type: Recreate

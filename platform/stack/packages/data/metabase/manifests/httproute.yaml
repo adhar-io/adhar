@@ -1,7 +1,7 @@
 # Metabase UI routed through the Cilium Gateway (adhar-gateway). TLS terminates
-# at the Gateway (adhar-cert). Replaces any nginx Ingress. The /metabase prefix
-# is forwarded as-is (MB_SITE_URL carries the /metabase sub-path) to the
-# metabase service:80.
+# at the Gateway (adhar-cert). Replaces any nginx Ingress. Metabase is served at
+# the root of its own hostname (MB_SITE_URL in manifests/install.yaml matches)
+# and the request is forwarded to the metabase service:80.
 #
 # SSO: every backend below is the Keycloak oauth2-proxy from sso.yaml, which
 # forwards to the original upstream(s): metabase:80.

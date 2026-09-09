@@ -1,0 +1,161 @@
+# First-run setup for Coder, done for you.
+#
+# A fresh Coder deployment has NO users: every page redirects to the "Create
+# admin user" setup screen and even the OIDC sign-in button is useless until an
+# owner exists. This Job creates that owner with a generated password, so the
+# package is usable straight after `adhar up`:
+#
+#   adhar get secrets -p coder    # username/password of the `adhar-admin` owner
+#
+# Keycloak users can then sign in with "Sign in with Keycloak" (native OIDC,
+# see values.yaml + manifests/keycloak-client.yaml); this local owner is the
+# break-glass account and the one Coder needs in order to serve at all.
+#
+# Idempotent: GET /api/v2/users/first returns 200 once a first user exists, and
+# the Job exits 0 without touching anything. It is a PostSync hook with a
+# generous retry budget because Coder needs its database migrations to finish
+# before the API answers.
+# (Plain .yaml on purpose: the ESO template directives must survive seeding.)
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: coder-admin
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 24
+  digits: 4
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: coder-admin-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: coder-admin-credentials
+    template:
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: coder
+      engineVersion: v2
+      data:
+        username: coder-admin@adhar.local
+        password: '{{ .PASSWORD }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: coder-admin
+      rewrite:
+        - transform:
+            template: 'PASSWORD'
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coder-first-user
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: first-user
+          # Same image as the coder Deployment (manifests/install.yaml): the
+          # server binary IS the CLI. Entry point is /opt/coder (not on PATH).
+          image: ghcr.io/coder/coder:v2.37.0
+          env:
+            # In-cluster Service from install.yaml (coder:80 -> container 8080).
+            # Deliberately NOT the external URL: the Gateway certificate is
+            # self-signed locally and DNS for the platform host may not resolve
+            # from inside the cluster yet.
+            - name: CODER_URL
+              value: http://coder.adhar-system.svc.cluster.local:80
+            # The CLI writes its session file; the image's home may be read-only
+            # for this UID depending on the node's fsGroup.
+            - name: HOME
+              value: /tmp
+            - name: CODER_CONFIG_DIR
+              value: /tmp/coder-config
+            - name: ADMIN_EMAIL
+              valueFrom: {secretKeyRef: {name: coder-admin-credentials, key: username}}
+            - name: ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: coder-admin-credentials, key: password}}
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+
+              # Small HTTP status helper. The coder image ships curl; wget is
+              # kept as a fallback (it cannot report the code, so a successful
+              # fetch is reported as 200 and anything else as 000 — enough for
+              # both checks below).
+              status() {
+                if command -v curl >/dev/null 2>&1; then
+                  curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null || echo 000
+                elif command -v wget >/dev/null 2>&1; then
+                  if wget -q -T 10 -O /dev/null "$1" 2>/dev/null; then echo 200; else echo 000; fi
+                else
+                  echo 000
+                fi
+              }
+
+              # 1. Wait for the API to answer (database migrations run first).
+              ready=""
+              for i in $(seq 1 120); do
+                if [ "$(status "${CODER_URL}/api/v2/buildinfo")" = "200" ]; then ready=1; break; fi
+                echo "waiting for the Coder API (${i})"
+                sleep 5
+              done
+              if [ -z "${ready}" ]; then
+                echo "Coder API did not become ready; failing so the Job retries"
+                exit 1
+              fi
+
+              # 2. Idempotency: 200 means a first user already exists.
+              if [ "$(status "${CODER_URL}/api/v2/users/first")" = "200" ]; then
+                echo "first user already created; nothing to do"
+                exit 0
+              fi
+
+              # 3. Create the owner.
+              echo "creating the first Coder user (adhar-admin)"
+              if out=$(/opt/coder login "${CODER_URL}" \
+                    --first-user-email "${ADMIN_EMAIL}" \
+                    --first-user-username adhar-admin \
+                    --first-user-password "${ADMIN_PASSWORD}" \
+                    --first-user-trial=false 2>&1); then
+                echo "first user created: ${ADMIN_EMAIL}"
+                exit 0
+              fi
+              echo "${out}"
+              # Lost a race with another attempt / a previous run: still success.
+              case "${out}" in
+                *"already"*|*"first user"*|*"has been created"*)
+                  echo "first user already exists; treating as success"
+                  exit 0
+                  ;;
+              esac
+              exit 1
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}

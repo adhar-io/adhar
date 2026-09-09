@@ -28,8 +28,28 @@ spec:
         env:
         - name: MB_JETTY_PORT
           value: '3000'
+        # Host-based route (manifests/httproute.yaml, via the metabase
+        # oauth2-proxy); rewritten to the platform domain at seed time. It must
+        # match the browser URL or Metabase emits absolute links (emails,
+        # pulses, embeds) that point somewhere unreachable.
         - name: MB_SITE_URL
-          value: https://adhar.localtest.me:8443/metabase
+          value: https://metabase.adhar.localtest.me:8443
+        # Application database on the platform CNPG operator
+        # (manifests/platform-postgres.yaml) — the image default is an H2 file
+        # inside the container, so every restart wiped users, dashboards and
+        # the completed setup wizard.
+        - name: MB_DB_TYPE
+          value: postgres
+        - name: MB_DB_HOST
+          value: metabase-db-rw.adhar-system.svc.cluster.local
+        - name: MB_DB_PORT
+          value: "5432"
+        - name: MB_DB_DBNAME
+          value: metabase
+        - name: MB_DB_USER
+          valueFrom: {secretKeyRef: {name: metabase-db-credentials, key: username}}
+        - name: MB_DB_PASS
+          valueFrom: {secretKeyRef: {name: metabase-db-credentials, key: password}}
         readinessProbe:
           httpGet:
             path: /api/health

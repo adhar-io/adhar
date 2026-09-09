@@ -199,7 +199,9 @@ spec:
   # bootstrap-phase gitea-db). Rendered at seed time from the platform spec.
   instances: {{ if .EnableHAMode }}2{{ else }}1{{ end }}
   storage:
-    size: 1Gi
+    # 1Gi filled up in a day: WAL is retained locally whenever archiving
+    # to MinIO hiccups (keycloak-db went down with "Not enough disk space").
+    size: 5Gi
   # Guaranteed CPU/memory so the database is not starved during the initial
   # convergence write-storm. Without a request, the Postgres process was
   # CPU-throttled under load — a trivial `SELECT ID FROM REALM` took 35s, the

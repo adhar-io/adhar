@@ -130,6 +130,7 @@ data:
     # Create the buckets
     createBucket adhar-backups "none" false false false
     createBucket mlpipeline "none" false false false
+    createBucket penpot "none" false false false
     
   add-user: |-
     #!/bin/sh
@@ -481,10 +482,7 @@ metadata:
     heritage: Helm
 spec:
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 100%
-      maxUnavailable: 0
+    type: Recreate
   replicas: 1
   selector:
     matchLabels:
@@ -498,7 +496,7 @@ spec:
         release: minio
       annotations:
         checksum/secrets: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
-        checksum/config: e6fd3dec3bf5e8868a3fe4de69741ca16cd1709f7eac262a87d86ed4699b6c65
+        checksum/config: cc4b5d7c9520d6caa2f89b1be6418a9a7a7fb33f166612f483a6d5e7945df2a4
     spec:
       securityContext:
         
