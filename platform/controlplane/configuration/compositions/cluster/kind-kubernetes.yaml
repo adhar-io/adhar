@@ -36,21 +36,23 @@ spec:
             {{- $k8sProvider := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
             {{- $helmProvider := dig "spec" "helmProviderConfigRef" "name" "helm-provider" $xr -}}
             ---
-            # Namespace for cluster resources (native object, managed by Crossplane v2)
-            apiVersion: v1
-            kind: Namespace
-            metadata:
-              name: {{ $name }}
-              labels:
-                cluster.adhar.io/name: {{ $name }}
-                cluster.adhar.io/provider: kind
-            ---
-            # ConfigMap recording cluster metadata
+            # ConfigMap recording cluster metadata. A native, namespaced resource
+            # composed directly (Crossplane v2): it lives in the XR's own
+            # namespace. (A Namespace cannot be composed here — namespaced XRs
+            # may not own cluster-scoped objects — and every composed resource
+            # must carry the composition-resource-name annotation, plus an
+            # explicit ready marker for kinds that have no status conditions.)
             apiVersion: v1
             kind: ConfigMap
             metadata:
               name: {{ $name }}-info
-              namespace: {{ $name }}
+              namespace: {{ $xr.metadata.namespace }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: cluster-info
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                cluster.adhar.io/name: {{ $name }}
+                cluster.adhar.io/provider: kind
             data:
               clusterName: {{ $name }}
               provider: kind
@@ -62,6 +64,8 @@ spec:
             kind: Object
             metadata:
               name: {{ $name }}-healthcheck
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: healthcheck
             spec:
               providerConfigRef:
                 name: {{ $k8sProvider }}
@@ -71,7 +75,7 @@ spec:
                   apiVersion: v1
                   kind: ConfigMap
                   metadata:
-                    name: cluster-healthcheck
+                    name: {{ $name }}-healthcheck
                     namespace: kube-system
                     labels:
                       managed-by: adhar
@@ -83,6 +87,8 @@ spec:
             kind: Release
             metadata:
               name: {{ $name }}-cilium
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: cilium
             spec:
               providerConfigRef:
                 name: {{ $helmProvider }}
@@ -109,6 +115,8 @@ spec:
             kind: Release
             metadata:
               name: {{ $name }}-metrics-server
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: metrics-server
             spec:
               providerConfigRef:
                 name: {{ $helmProvider }}

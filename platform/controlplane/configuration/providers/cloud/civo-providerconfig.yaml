@@ -11,7 +11,7 @@ spec:
   credentials:
     source: Secret
     secretRef:
-      namespace: crossplane-system
+      namespace: adhar-system
       name: civo-credentials
       key: token
   # Default region for Civo clusters

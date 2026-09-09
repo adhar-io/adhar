@@ -18,6 +18,11 @@ configuration:
     - name: default
       provider: aws
       bucket: adhar-backups
+      # Velero owns only this prefix. The bucket is shared with the CNPG WAL
+      # archives (cnpg/<cluster>/…) and Velero refuses a backup store whose
+      # root holds directories it did not create ("Backup store contains
+      # invalid top-level directories: [cnpg]" -> BSL Unavailable).
+      prefix: velero
       credential:
         name: secret-key
         key: aws

@@ -1,3 +1,18 @@
+# DigitalOcean: crossplane-contrib/provider-digitalocean (the old
+# kubernetes.digitalocean.crossplane.io API) is archived and its package is no
+# longer published anywhere; the maintained replacement is the upjet-generated
+# provider-upjet-digitalocean (API group digitalocean.crossplane.io). Civo: the
+# only published package is xpkg.upbound.io/civo/provider-civo:v0.1
+# (cluster.civo.crossplane.io/v1alpha1 CivoKubernetes) — unverified on a live
+# Civo account.
+#
+# Provider packages come from the community registry (xpkg.crossplane.io,
+# crossplane-contrib). The Upbound-published `upbound/provider-*` packages from
+# v2.0.0 on refuse to start on vanilla Crossplane ("this Upbound Official
+# package version is only compatible with Upbound Crossplane (UXP)") — verified
+# live: 11 provider pods crash-looping. The crossplane-contrib builds are the
+# same upjet providers and serve the same API groups (*.aws.m.upbound.io etc.),
+# so compositions are unchanged; only the package reference differs.
 # Cloud Crossplane Provider packages. Applied best-effort by the controller and
 # only meaningful in cloud mode (they are heavy and unnecessary on a local Kind
 # node). Versions are kept in sync with ../../crossplane.yaml dependsOn.
@@ -7,35 +22,35 @@ kind: Provider
 metadata:
   name: provider-aws-eks
 spec:
-  package: xpkg.upbound.io/upbound/provider-aws-eks:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-aws-eks:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-aws-ec2
 spec:
-  package: xpkg.upbound.io/upbound/provider-aws-ec2:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-aws-ec2:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-aws-rds
 spec:
-  package: xpkg.upbound.io/upbound/provider-aws-rds:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-aws-rds:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-aws-iam
 spec:
-  package: xpkg.upbound.io/upbound/provider-aws-iam:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-aws-iam:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-aws-s3
 spec:
-  package: xpkg.upbound.io/upbound/provider-aws-s3:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-aws-s3:v2.0.0
 ---
 # Azure (Upbound, modular)
 apiVersion: pkg.crossplane.io/v1
@@ -43,28 +58,28 @@ kind: Provider
 metadata:
   name: provider-azure-containerservice
 spec:
-  package: xpkg.upbound.io/upbound/provider-azure-containerservice:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-azure-containerservice:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-azure-network
 spec:
-  package: xpkg.upbound.io/upbound/provider-azure-network:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-azure-network:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-azure-sql
 spec:
-  package: xpkg.upbound.io/upbound/provider-azure-sql:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-azure-sql:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-azure-storage
 spec:
-  package: xpkg.upbound.io/upbound/provider-azure-storage:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-azure-storage:v2.0.0
 ---
 # GCP (Upbound, modular)
 apiVersion: pkg.crossplane.io/v1
@@ -72,28 +87,28 @@ kind: Provider
 metadata:
   name: provider-gcp-container
 spec:
-  package: xpkg.upbound.io/upbound/provider-gcp-container:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-gcp-container:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-gcp-compute
 spec:
-  package: xpkg.upbound.io/upbound/provider-gcp-compute:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-gcp-compute:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-gcp-sql
 spec:
-  package: xpkg.upbound.io/upbound/provider-gcp-sql:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-gcp-sql:v2.0.0
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-gcp-storage
 spec:
-  package: xpkg.upbound.io/upbound/provider-gcp-storage:v2.0.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-gcp-storage:v2.0.0
 ---
 # DigitalOcean & Civo (community)
 apiVersion: pkg.crossplane.io/v1
@@ -101,11 +116,11 @@ kind: Provider
 metadata:
   name: provider-digitalocean
 spec:
-  package: xpkg.upbound.io/crossplane-contrib/provider-digitalocean:v0.7.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-upjet-digitalocean:v1.0.2
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-civo
 spec:
-  package: xpkg.upbound.io/crossplane-contrib/provider-civo:v0.3.0
+  package: xpkg.upbound.io/civo/provider-civo:v0.1

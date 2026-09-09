@@ -6,8 +6,21 @@ config:
   create: true
   data:
     discovery:
+      # Instrument APPLICATION workloads only. Platform components in
+      # adhar-system (and the system namespaces) already ship their own
+      # exporters/ServiceMonitors, and eBPF-instrumenting ~50 platform pods
+      # per node made Beyla grow past 3 GiB and OOM-loop on dense control-plane
+      # nodes — for RED metrics nothing else was collecting. On data planes
+      # (where applications run, ADR-0023) every namespace is instrumented.
       services:
         - k8s_namespace: .
+      exclude_services:
+        - k8s_namespace: ^(adhar-system|kube-system|kube-public|kube-node-lease|local-path-storage|cilium-secrets|kubeflow|kpack-system|cosign-system|adhar-environments|kargo-.*|dp-.*)$
+        - k8s_deployment_name: ^(alloy|beyla|prometheus.*|loki.*|tempo.*|mimir.*|hubble.*|cilium.*)$
+      # Go-specific tracers attach uprobes into every Go binary; the generic
+      # kernel probes give the same HTTP/gRPC RED metrics at a fraction of the
+      # memory (only Go library-level spans such as sql/kafka are omitted).
+      skip_go_specific_tracers: true
     attributes:
       kubernetes:
         enable: true

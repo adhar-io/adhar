@@ -7,12 +7,16 @@
 # implementation of the same coordination protocol on the same port (2181), so
 # it is a drop-in replacement: same wire protocol, no ZooKeeper, one small pod,
 # maintained as part of ClickHouse itself.
+#
+# Negative sync waves: the chart's migrate Job is a sync hook that needs a
+# reachable coordinator, so Keeper must exist before the hook runs — at a
+# positive wave it sat behind the failing hook forever.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: posthog-clickhouse-keeper-config
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "1"}
+  annotations: {argocd.argoproj.io/sync-wave: "-4"}
 data:
   keeper_config.xml: |
     <clickhouse>
@@ -39,7 +43,7 @@ kind: Service
 metadata:
   name: posthog-clickhouse-keeper
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "1"}
+  annotations: {argocd.argoproj.io/sync-wave: "-4"}
   labels: {app: posthog-clickhouse-keeper}
 spec:
   clusterIP: None
@@ -53,7 +57,7 @@ kind: StatefulSet
 metadata:
   name: posthog-clickhouse-keeper
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "2"}
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
   labels: {app: posthog-clickhouse-keeper}
 spec:
   serviceName: posthog-clickhouse-keeper
@@ -67,8 +71,11 @@ spec:
       securityContext: {fsGroup: 101, runAsUser: 101, runAsGroup: 101}
       containers:
         - name: keeper
+          # The image entrypoint already passes --config-file pointing at
+          # /etc/clickhouse-keeper/keeper_config.xml (where the ConfigMap is
+          # mounted); passing it again aborts with "Option must not be given
+          # more than once".
           image: clickhouse/clickhouse-keeper:24.8-alpine
-          args: ["--config-file=/etc/clickhouse-keeper/keeper_config.xml"]
           ports:
             - {name: client, containerPort: 2181}
             - {name: raft, containerPort: 9234}

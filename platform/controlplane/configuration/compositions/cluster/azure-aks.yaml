@@ -15,9 +15,10 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $params := $xr.spec.parameters -}}
@@ -28,12 +29,16 @@ spec:
             {{- $network := default (dict) $params.networkConfig -}}
             {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
             {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
-            {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
+            {{- $secretNamespace := default "adhar-system" (get $conn "namespace") -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "default" $xr -}}
             {{- $tags := default (dict) $params.tags -}}
             {{- $firstPool := index $params.nodePools 0 -}}
-            {{- $rg := required "providerSettings.azure.resourceGroupName must be supplied" (get $azure "resourceGroupName") -}}
-            {{- $dns := required "providerSettings.azure.dnsPrefix must be supplied" (get $azure "dnsPrefix") -}}
+            {{- /* function-go-templating exposes sprig's generic map, which has no
+                   Helm-only `required`; `fail` is the supported equivalent. */ -}}
+            {{- $rg := get $azure "resourceGroupName" -}}
+            {{- if not $rg }}{{ fail "providerSettings.azure.resourceGroupName must be supplied" }}{{ end -}}
+            {{- $dns := get $azure "dnsPrefix" -}}
+            {{- if not $dns }}{{ fail "providerSettings.azure.dnsPrefix must be supplied" }}{{ end -}}
             {{- $aksversion := default $params.version (get $azure "kubernetesVersion") -}}
             {{- $identityType := default "SystemAssigned" (get $identity "type") -}}
             {{- $userAssigned := default (list) (coalesce (get $identity "userAssignedIdentityIDs") (get $azure "userAssignedIdentityIDs")) -}}
@@ -46,210 +51,208 @@ spec:
             {{- $aadProfile := default (dict) (get $azure "aadProfile") -}}
             {{- $addonProfiles := default (dict) (get $azure "addonProfiles") -}}
             {{- $autoScalerProfile := default (dict) (get $azure "autoScalerProfile") -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                - name: aks-cluster
-                  resource:
-                    apiVersion: containerservice.azure.m.upbound.io/v1beta1
-                    kind: ManagedCluster
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: azure
-                    spec:
-                      forProvider:
-                        location: {{ quote $params.region }}
-                        resourceGroupName: {{ quote $rg }}
-                        dnsPrefix: {{ quote $dns }}
-                        kubernetesVersion: {{ quote $aksversion }}
-                        defaultNodePool:
-                          - name: {{ quote (default "systempool" $firstPool.name) }}
-                            vmSize: {{ quote $firstPool.instanceType }}
-                            nodeCount: {{ default 1 $firstPool.count }}
-                            {{- if $firstPool.osDiskSizeGb }}
-                            osDiskSizeGb: {{ $firstPool.osDiskSizeGb }}
-                            {{- end }}
-                            {{- if $firstPool.availabilityZones }}
-                            availabilityZones:
-                            {{- range $firstPool.availabilityZones }}
-                              - {{ quote . }}
-                            {{- end }}
-                            {{- end }}
-                            {{- if $firstPool.mode }}
-                            mode: {{ quote $firstPool.mode }}
-                            {{- else }}
-                            mode: System
-                            {{- end }}
-                        identity:
-                          - type: {{ quote $identityType }}
-                            {{- if $userAssigned }}
-                            userAssignedIdentityIds:
-                            {{- range $userAssigned }}
-                              - {{ quote . }}
-                            {{- end }}
-                            {{- end }}
-                        {{- if $identity.servicePrincipalClientID }}
-                        servicePrincipalProfile:
-                          - clientId: {{ quote $identity.servicePrincipalClientID }}
-                            {{- if $identity.servicePrincipalSecretRef }}
-                            secretSecretRef:
-                              name: {{ quote (get $identity.servicePrincipalSecretRef "name") }}
-                              namespace: {{ quote (default "crossplane-system" (get $identity.servicePrincipalSecretRef "namespace")) }}
-                            {{- end }}
+            ---
+            apiVersion: containerservice.azure.m.upbound.io/v1beta1
+            kind: ManagedCluster
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: aks-cluster
+              labels:
+                feature: cluster
+                provider: azure
+            spec:
+              forProvider:
+                location: {{ quote $params.region }}
+                resourceGroupName: {{ quote $rg }}
+                dnsPrefix: {{ quote $dns }}
+                kubernetesVersion: {{ quote $aksversion }}
+                defaultNodePool:
+                  - name: {{ quote (default "systempool" $firstPool.name) }}
+                    vmSize: {{ quote $firstPool.instanceType }}
+                    nodeCount: {{ default 1 $firstPool.count }}
+                    {{- if $firstPool.osDiskSizeGb }}
+                    osDiskSizeGb: {{ $firstPool.osDiskSizeGb }}
+                    {{- end }}
+                    {{- if $firstPool.availabilityZones }}
+                    availabilityZones:
+                    {{- range $firstPool.availabilityZones }}
+                      - {{ quote . }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if $firstPool.mode }}
+                    mode: {{ quote $firstPool.mode }}
+                    {{- else }}
+                    mode: System
+                    {{- end }}
+                identity:
+                  - type: {{ quote $identityType }}
+                    {{- if $userAssigned }}
+                    userAssignedIdentityIds:
+                    {{- range $userAssigned }}
+                      - {{ quote . }}
+                    {{- end }}
+                    {{- end }}
+                {{- if $identity.servicePrincipalClientID }}
+                servicePrincipalProfile:
+                  - clientId: {{ quote $identity.servicePrincipalClientID }}
+                    {{- if $identity.servicePrincipalSecretRef }}
+                    secretSecretRef:
+                      name: {{ quote (get $identity.servicePrincipalSecretRef "name") }}
+                      namespace: {{ quote (default "adhar-system" (get $identity.servicePrincipalSecretRef "namespace")) }}
+                    {{- end }}
+                {{- end }}
+                {{- if or $network.cniPlugin (get $azure "networkPlugin") $network.serviceCidrBlock $network.podCidrBlock (get $azure "networkPolicy") (get $azure "outboundType") (get $azure "loadBalancerSku") (get $network "dnsServiceIP") (get $network "dockerBridgeCidr") }}
+                networkProfile:
+                  - networkPlugin: {{ quote (default (default "azure" (get $network "cniPlugin")) (get $azure "networkPlugin")) }}
+                    {{- if (get $azure "networkPolicy") }}
+                    networkPolicy: {{ quote (get $azure "networkPolicy") }}
+                    {{- end }}
+                    {{- if $network.podCidrBlock }}
+                    podCidr: {{ quote $network.podCidrBlock }}
+                    {{- end }}
+                    {{- if $network.serviceCidrBlock }}
+                    serviceCidr: {{ quote $network.serviceCidrBlock }}
+                    {{- end }}
+                    {{- if (get $network "dnsServiceIP") }}
+                    dnsServiceIP: {{ quote (get $network "dnsServiceIP") }}
+                    {{- end }}
+                    {{- if (get $network "dockerBridgeCidr") }}
+                    dockerBridgeCidr: {{ quote (get $network "dockerBridgeCidr") }}
+                    {{- end }}
+                    {{- if (get $azure "outboundType") }}
+                    outboundType: {{ quote (get $azure "outboundType") }}
+                    {{- end }}
+                    {{- if (get $azure "loadBalancerSku") }}
+                    loadBalancerSku: {{ quote (get $azure "loadBalancerSku") }}
+                    {{- end }}
+                {{- end }}
+                {{- if $hasAuthorized }}
+                apiServerAccessProfile:
+                  - authorizedIpRanges:
+                    {{- range $authorized }}
+                      - {{ quote . }}
+                    {{- end }}
+                {{- end }}
+                {{- if or $aadProfile $enableAzureRBAC }}
+                azureActiveDirectoryRoleBasedAccessControl:
+                  - managed: {{ default false (get $aadProfile "managed") }}
+                    {{- if $enableAzureRBAC }}
+                    azureRbacEnabled: true
+                    {{- else if (get $aadProfile "enableAzureRBAC") }}
+                    azureRbacEnabled: {{ get $aadProfile "enableAzureRBAC" }}
+                    {{- end }}
+                    {{- if (get $aadProfile "adminGroupObjectIDs") }}
+                    adminGroupObjectIds:
+                    {{- range (get $aadProfile "adminGroupObjectIDs") }}
+                      - {{ quote . }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if (get $aadProfile "tenantId") }}
+                    tenantId: {{ quote (get $aadProfile "tenantId") }}
+                    {{- end }}
+                {{- end }}
+                {{- if or $enableOmsAgent $enableAzurePolicy (get $addonProfiles "httpApplicationRouting") }}
+                addonProfile:
+                  {{- if or $enableOmsAgent (get (default (dict) (get $addonProfiles "omsAgent")) "enabled") }}
+                  - omsAgent:
+                      - enabled: true
+                        {{- if $logAnalyticsWorkspaceId }}
+                        logAnalyticsWorkspaceId: {{ quote $logAnalyticsWorkspaceId }}
+                        {{- else if (get (default (dict) (get (default (dict) (get $addonProfiles "omsAgent")) "config")) "logAnalyticsWorkspaceResourceID") }}
+                        logAnalyticsWorkspaceId: {{ quote (get (default (dict) (get (default (dict) (get $addonProfiles "omsAgent")) "config")) "logAnalyticsWorkspaceResourceID") }}
                         {{- end }}
-                        {{- if or $network.cniPlugin (get $azure "networkPlugin") $network.serviceCidrBlock $network.podCidrBlock (get $azure "networkPolicy") (get $azure "outboundType") (get $azure "loadBalancerSku") (get $network "dnsServiceIP") (get $network "dockerBridgeCidr") }}
-                        networkProfile:
-                          - networkPlugin: {{ quote (default (default "azure" (get $network "cniPlugin")) (get $azure "networkPlugin")) }}
-                            {{- if (get $azure "networkPolicy") }}
-                            networkPolicy: {{ quote (get $azure "networkPolicy") }}
-                            {{- end }}
-                            {{- if $network.podCidrBlock }}
-                            podCidr: {{ quote $network.podCidrBlock }}
-                            {{- end }}
-                            {{- if $network.serviceCidrBlock }}
-                            serviceCidr: {{ quote $network.serviceCidrBlock }}
-                            {{- end }}
-                            {{- if (get $network "dnsServiceIP") }}
-                            dnsServiceIP: {{ quote (get $network "dnsServiceIP") }}
-                            {{- end }}
-                            {{- if (get $network "dockerBridgeCidr") }}
-                            dockerBridgeCidr: {{ quote (get $network "dockerBridgeCidr") }}
-                            {{- end }}
-                            {{- if (get $azure "outboundType") }}
-                            outboundType: {{ quote (get $azure "outboundType") }}
-                            {{- end }}
-                            {{- if (get $azure "loadBalancerSku") }}
-                            loadBalancerSku: {{ quote (get $azure "loadBalancerSku") }}
-                            {{- end }}
-                        {{- end }}
-                        {{- if $hasAuthorized }}
-                        apiServerAccessProfile:
-                          - authorizedIpRanges:
-                            {{- range $authorized }}
-                              - {{ quote . }}
-                            {{- end }}
-                        {{- end }}
-                        {{- if or $aadProfile $enableAzureRBAC }}
-                        azureActiveDirectoryRoleBasedAccessControl:
-                          - managed: {{ default false (get $aadProfile "managed") }}
-                            {{- if $enableAzureRBAC }}
-                            azureRbacEnabled: true
-                            {{- else if (get $aadProfile "enableAzureRBAC") }}
-                            azureRbacEnabled: {{ get $aadProfile "enableAzureRBAC" }}
-                            {{- end }}
-                            {{- if (get $aadProfile "adminGroupObjectIDs") }}
-                            adminGroupObjectIds:
-                            {{- range (get $aadProfile "adminGroupObjectIDs") }}
-                              - {{ quote . }}
-                            {{- end }}
-                            {{- end }}
-                            {{- if (get $aadProfile "tenantId") }}
-                            tenantId: {{ quote (get $aadProfile "tenantId") }}
-                            {{- end }}
-                        {{- end }}
-                        {{- if or $enableOmsAgent $enableAzurePolicy (get $addonProfiles "httpApplicationRouting") }}
-                        addonProfile:
-                          {{- if or $enableOmsAgent (get (get $addonProfiles "omsAgent") "enabled") }}
-                          - omsAgent:
-                              - enabled: true
-                                {{- if $logAnalyticsWorkspaceId }}
-                                logAnalyticsWorkspaceId: {{ quote $logAnalyticsWorkspaceId }}
-                                {{- else if (get (get (get $addonProfiles "omsAgent") "config") "logAnalyticsWorkspaceResourceID") }}
-                                logAnalyticsWorkspaceId: {{ quote (get (get (get $addonProfiles "omsAgent") "config") "logAnalyticsWorkspaceResourceID") }}
-                                {{- end }}
-                          {{- end }}
-                          {{- if or $enableAzurePolicy (get (get $addonProfiles "azurePolicy") "enabled") }}
-                          - azurePolicy:
-                              - enabled: true
-                          {{- end }}
-                          {{- if (get (get $addonProfiles "httpApplicationRouting") "enabled") }}
-                          - httpApplicationRouting:
-                              - enabled: true
-                          {{- end }}
-                        {{- end }}
-                        {{- if (gt (len $autoScalerProfile) 0) }}
-                        autoScalerProfile:
-                          - {{- if (get $autoScalerProfile "scaleDownDelayAfterAdd") }}
-                            scaleDownDelayAfterAdd: {{ quote (get $autoScalerProfile "scaleDownDelayAfterAdd") }}
-                            {{- end }}
-                            {{- if (get $autoScalerProfile "scaleDownDelayAfterDelete") }}
-                            scaleDownDelayAfterDelete: {{ quote (get $autoScalerProfile "scaleDownDelayAfterDelete") }}
-                            {{- end }}
-                            {{- if (get $autoScalerProfile "scaleDownDelayAfterFailure") }}
-                            scaleDownDelayAfterFailure: {{ quote (get $autoScalerProfile "scaleDownDelayAfterFailure") }}
-                            {{- end }}
-                            {{- if (get $autoScalerProfile "scaleDownUnneededTime") }}
-                            scaleDownUnneededTime: {{ quote (get $autoScalerProfile "scaleDownUnneededTime") }}
-                            {{- end }}
-                        {{- end }}
-                        {{- if $tags }}
-                        tags:
-                        {{- range $k, $v := $tags }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                        kind: ClusterProviderConfig
-                      writeConnectionSecretToRef:
-                        name: {{ quote $secretName }}
-                        namespace: {{ quote $secretNamespace }}
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
-                {{- range $index, $pool := $params.nodePools }}
-                {{- if gt $index 0 }}
-                - name: aks-nodepool-{{ $index }}
-                  resource:
-                    apiVersion: containerservice.azure.m.upbound.io/v1beta1
-                    kind: AgentPool
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: azure
-                        cluster-name: {{ quote $xr.metadata.name }}
-                    spec:
-                      forProvider:
-                        name: {{ quote $pool.name }}
-                        kubernetesClusterIdSelector:
-                          matchControllerRef: true
-                        vmSize: {{ quote $pool.instanceType }}
-                        nodeCount: {{ default 1 $pool.count }}
-                        {{- if $pool.mode }}
-                        mode: {{ quote $pool.mode }}
-                        {{- else }}
-                        mode: User
-                        {{- end }}
-                        {{- if $pool.osDiskSizeGb }}
-                        osDiskSizeGb: {{ $pool.osDiskSizeGb }}
-                        {{- end }}
-                        {{- if $pool.availabilityZones }}
-                        availabilityZones:
-                        {{- range $pool.availabilityZones }}
-                          - {{ quote . }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $pool.taints }}
-                        nodeTaints:
-                        {{- range $pool.taints }}
-                          - {{ printf "%s=%s:%s" .key (default "" .value) .effect | quote }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $pool.labels }}
-                        nodeLabels:
-                        {{- range $k, $v := $pool.labels }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $pool.publicIPNodePool }}
-                        enableNodePublicIP: true
-                        {{- end }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                        kind: ClusterProviderConfig
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                  {{- end }}
+                  {{- if or $enableAzurePolicy (get (default (dict) (get $addonProfiles "azurePolicy")) "enabled") }}
+                  - azurePolicy:
+                      - enabled: true
+                  {{- end }}
+                  {{- if (get (default (dict) (get $addonProfiles "httpApplicationRouting")) "enabled") }}
+                  - httpApplicationRouting:
+                      - enabled: true
+                  {{- end }}
+                {{- end }}
+                {{- if (gt (len $autoScalerProfile) 0) }}
+                autoScalerProfile:
+                  - {{- if (get $autoScalerProfile "scaleDownDelayAfterAdd") }}
+                    scaleDownDelayAfterAdd: {{ quote (get $autoScalerProfile "scaleDownDelayAfterAdd") }}
+                    {{- end }}
+                    {{- if (get $autoScalerProfile "scaleDownDelayAfterDelete") }}
+                    scaleDownDelayAfterDelete: {{ quote (get $autoScalerProfile "scaleDownDelayAfterDelete") }}
+                    {{- end }}
+                    {{- if (get $autoScalerProfile "scaleDownDelayAfterFailure") }}
+                    scaleDownDelayAfterFailure: {{ quote (get $autoScalerProfile "scaleDownDelayAfterFailure") }}
+                    {{- end }}
+                    {{- if (get $autoScalerProfile "scaleDownUnneededTime") }}
+                    scaleDownUnneededTime: {{ quote (get $autoScalerProfile "scaleDownUnneededTime") }}
+                    {{- end }}
+                {{- end }}
+                {{- if $tags }}
+                tags:
+                {{- range $k, $v := $tags }}
+                  {{ $k }}: {{ quote $v }}
                 {{- end }}
                 {{- end }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+                kind: ClusterProviderConfig
+              writeConnectionSecretToRef:
+                name: {{ quote $secretName }}
+                namespace: {{ quote $secretNamespace }}
+              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+            {{- range $index, $pool := $params.nodePools }}
+            {{- if gt $index 0 }}
+            ---
+            apiVersion: containerservice.azure.m.upbound.io/v1beta1
+            kind: AgentPool
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: aks-nodepool-{{ $index }}
+              labels:
+                feature: cluster
+                provider: azure
+                cluster-name: {{ quote $xr.metadata.name }}
+            spec:
+              forProvider:
+                name: {{ quote $pool.name }}
+                kubernetesClusterIdSelector:
+                  matchControllerRef: true
+                vmSize: {{ quote $pool.instanceType }}
+                nodeCount: {{ default 1 $pool.count }}
+                {{- if $pool.mode }}
+                mode: {{ quote $pool.mode }}
+                {{- else }}
+                mode: User
+                {{- end }}
+                {{- if $pool.osDiskSizeGb }}
+                osDiskSizeGb: {{ $pool.osDiskSizeGb }}
+                {{- end }}
+                {{- if $pool.availabilityZones }}
+                availabilityZones:
+                {{- range $pool.availabilityZones }}
+                  - {{ quote . }}
+                {{- end }}
+                {{- end }}
+                {{- if $pool.taints }}
+                nodeTaints:
+                {{- range $pool.taints }}
+                  - {{ printf "%s=%s:%s" .key (default "" .value) .effect | quote }}
+                {{- end }}
+                {{- end }}
+                {{- if $pool.labels }}
+                nodeLabels:
+                {{- range $k, $v := $pool.labels }}
+                  {{ $k }}: {{ quote $v }}
+                {{- end }}
+                {{- end }}
+                {{- if $pool.publicIPNodePool }}
+                enableNodePublicIP: true
+                {{- end }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+                kind: ClusterProviderConfig
+              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+            {{- end }}
+            {{- end }}
     # ArgoCD auto-registration (roadmap P2.1): parse the kubeconfig from the
     # cluster's connection details and publish an ArgoCD cluster Secret in
     # adhar-system. Uses the credentials embedded in the provider-issued
@@ -258,64 +261,62 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $observed := default (dict) .observed.resources -}}
             {{- $conn := dig "aks-cluster" "connectionDetails" (dict) $observed -}}
             {{- $raw := coalesce (get $conn "kubeconfig") (get $conn "attribute.kube_config_raw") -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                {{- if $raw }}
-                {{- $kc := fromYaml (b64dec $raw) }}
-                {{- $clusters := dig "clusters" (list) $kc }}
-                {{- $users := dig "users" (list) $kc }}
-                {{- if and $clusters $users }}
-                {{- $cluster0 := dig "cluster" (dict) (index $clusters 0) }}
-                {{- $user0 := dig "user" (dict) (index $users 0) }}
-                {{- $server := dig "server" "" $cluster0 }}
-                {{- $caData := dig "certificate-authority-data" "" $cluster0 }}
-                {{- $certData := dig "client-certificate-data" "" $user0 }}
-                {{- $keyData := dig "client-key-data" "" $user0 }}
-                {{- $token := dig "token" "" $user0 }}
-                {{- if $server }}
-                - name: argocd-cluster-registration
-                  resource:
-                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
-                    kind: Object
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: azure
-                        adhar.io/argocd-registration: "true"
-                    spec:
-                      forProvider:
-                        manifest:
-                          apiVersion: v1
-                          kind: Secret
-                          metadata:
-                            name: cluster-{{ $xr.metadata.name }}
-                            namespace: adhar-system
-                            labels:
-                              argocd.argoproj.io/secret-type: cluster
-                              adhar.io/cluster: {{ quote $xr.metadata.name }}
-                          type: Opaque
-                          stringData:
-                            name: {{ quote $xr.metadata.name }}
-                            server: {{ quote $server }}
-                            config: |
-                              {{- if $token }}
-                              {"bearerToken": {{ quote $token }}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
-                              {{- else }}
-                              {"tlsClientConfig": {"caData": {{ quote $caData }}, "certData": {{ quote $certData }}, "keyData": {{ quote $keyData }}}}
-                              {{- end }}
-                      providerConfigRef:
-                        name: kubernetes-provider
-                        kind: ClusterProviderConfig
-                {{- end }}
-                {{- end }}
-                {{- end }}
+            {{- if $raw }}
+            {{- $kc := fromYaml (b64dec $raw) }}
+            {{- $clusters := dig "clusters" (list) $kc }}
+            {{- $users := dig "users" (list) $kc }}
+            {{- if and $clusters $users }}
+            {{- $cluster0 := dig "cluster" (dict) (index $clusters 0) }}
+            {{- $user0 := dig "user" (dict) (index $users 0) }}
+            {{- $server := dig "server" "" $cluster0 }}
+            {{- $caData := dig "certificate-authority-data" "" $cluster0 }}
+            {{- $certData := dig "client-certificate-data" "" $user0 }}
+            {{- $keyData := dig "client-key-data" "" $user0 }}
+            {{- $token := dig "token" "" $user0 }}
+            {{- if $server }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: argocd-cluster-registration
+              labels:
+                feature: cluster
+                provider: azure
+                adhar.io/argocd-registration: "true"
+            spec:
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: cluster-{{ $xr.metadata.name }}
+                    namespace: adhar-system
+                    labels:
+                      argocd.argoproj.io/secret-type: cluster
+                      adhar.io/cluster: {{ quote $xr.metadata.name }}
+                  type: Opaque
+                  stringData:
+                    name: {{ quote $xr.metadata.name }}
+                    server: {{ quote $server }}
+                    config: |
+                      {{- if $token }}
+                      {"bearerToken": {{ quote $token }}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
+                      {{- else }}
+                      {"tlsClientConfig": {"caData": {{ quote $caData }}, "certData": {{ quote $certData }}, "keyData": {{ quote $keyData }}}}
+                      {{- end }}
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+            {{- end }}
+            {{- end }}
+            {{- end }}

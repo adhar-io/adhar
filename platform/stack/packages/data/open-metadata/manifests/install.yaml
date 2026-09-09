@@ -29,13 +29,13 @@ metadata:
   name: openmetadata-db-secret
 type: Opaque
 data:
-  DB_HOST: bXlzcWw=
-  DB_PORT: MzMwNg==
-  DB_DRIVER_CLASS: Y29tLm15c3FsLmNqLmpkYmMuRHJpdmVy
-  DB_SCHEME: bXlzcWw=
+  DB_HOST: b3Blbm1ldGFkYXRhLWRiLXJ3LmFkaGFyLXN5c3RlbS5zdmMuY2x1c3Rlci5sb2NhbA==
+  DB_PORT: NTQzMg==
+  DB_DRIVER_CLASS: b3JnLnBvc3RncmVzcWwuRHJpdmVy
+  DB_SCHEME: cG9zdGdyZXNxbA==
   OM_DATABASE: b3Blbm1ldGFkYXRhX2Ri
-  DB_PARAMS: "YWxsb3dQdWJsaWNLZXlSZXRyaWV2YWw9dHJ1ZSZ1c2VTU0w9ZmFsc2Umc2VydmVyVGltZXpvbmU9VVRD"
-  DB_USER: b3Blbm1ldGFkYXRhX3VzZXI=
+  DB_PARAMS: ""
+  DB_USER: b3Blbm1ldGFkYXRh
   DB_CONNECTION_POOL_MAX_SIZE: IjUwIg==
   DB_CONNECTION_POOL_MIN_SIZE: IjEwIg==
   DB_CONNECTION_POOL_INITIAL_SIZE: IjEwIg==
@@ -51,7 +51,7 @@ metadata:
   name: openmetadata-search-secret
 type: Opaque
 data:
-  ELASTICSEARCH_HOST: Im9wZW5zZWFyY2gi
+  ELASTICSEARCH_HOST: Im9wZW5tZXRhZGF0YS1vcGVuc2VhcmNoLmFkaGFyLXN5c3RlbS5zdmMuY2x1c3Rlci5sb2NhbCI=
   SEARCH_TYPE: Im9wZW5zZWFyY2gi
   ELASTICSEARCH_PORT: IjkyMDAi
   ELASTICSEARCH_SCHEME: Imh0dHAi
@@ -59,6 +59,7 @@ data:
   ELASTICSEARCH_KEEP_ALIVE_TIMEOUT_SECS: IjYwMCI=
   ELASTICSEARCH_CLUSTER_ALIAS: IiI=
   ELASTICSEARCH_PAYLOAD_BYTES_SIZE: MTA0ODU3NjA=
+  ELASTICSEARCH_USER: ImFkbWluIg==
 ---
 # Source: openmetadata/templates/secrets.yaml
 apiVersion: v1
@@ -67,18 +68,7 @@ metadata:
   name: openmetadata-pipeline-secret
 type: Opaque
 data:
-  PIPELINE_SERVICE_CLIENT_ENABLED: InRydWUi
-  # Common configuration for all pipeline service clients
-  SERVER_HOST_API_URL: aHR0cDovL29wZW5tZXRhZGF0YTo4NTg1L2FwaQ==
-  # Airflow configuration
-  PIPELINE_SERVICE_CLIENT_CLASS_NAME: Im9yZy5vcGVubWV0YWRhdGEuc2VydmljZS5jbGllbnRzLnBpcGVsaW5lLmFpcmZsb3cuQWlyZmxvd1JFU1RDbGllbnQi
-  PIPELINE_SERVICE_CLIENT_ENDPOINT: aHR0cDovL29wZW5tZXRhZGF0YS1kZXBlbmRlbmNpZXMtYXBpLXNlcnZlcjo4MDgw
-  PIPELINE_SERVICE_CLIENT_VERIFY_SSL: Im5vLXNzbCI=
-  PIPELINE_SERVICE_IP_INFO_ENABLED: ImZhbHNlIg==
-  PIPELINE_SERVICE_CLIENT_HEALTH_CHECK_INTERVAL: IjMwMCI=
-  PIPELINE_SERVICE_CLIENT_SSL_CERT_PATH: Ii9uby9wYXRoIg==
-  AIRFLOW_USERNAME: YWRtaW4=
-  AIRFLOW_TRUST_STORE_PATH: IiI=
+  PIPELINE_SERVICE_CLIENT_ENABLED: ImZhbHNlIg==
 ---
 # Source: openmetadata/templates/secrets.yaml
 apiVersion: v1
@@ -269,6 +259,10 @@ spec:
         - "-c"
         - "/opt/openmetadata/bootstrap/openmetadata-ops.sh migrate "
         volumeMounts:
+        resources:
+          requests:
+            cpu: 250m
+            memory: 1Gi
         envFrom:
           - secretRef:
               name: openmetadata-config-secret
@@ -296,16 +290,18 @@ spec:
               name: openmetadata-fernetkey-secret
         env:
         
+        - name: ELASTICSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: openmetadata-opensearch-secrets
+              key: openmetadata-opensearch-password
         - name: DB_USER_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: mysql-secrets
-              key: openmetadata-mysql-password
-        - name: AIRFLOW_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: airflow-secrets
-              key: openmetadata-airflow-password
+              name: openmetadata-db-credentials
+              key: password
+        - name: PIPELINE_SERVICE_CLIENT_ENABLED
+          value: "false"
       volumes:
       containers:
         - name: openmetadata
@@ -342,16 +338,18 @@ spec:
             successThreshold: 1
           env:
           
+          - name: ELASTICSEARCH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: openmetadata-opensearch-secrets
+                key: openmetadata-opensearch-password
           - name: DB_USER_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: mysql-secrets
-                key: openmetadata-mysql-password
-          - name: AIRFLOW_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: airflow-secrets
-                key: openmetadata-airflow-password
+                name: openmetadata-db-credentials
+                key: password
+          - name: PIPELINE_SERVICE_CLIENT_ENABLED
+            value: "false"
           envFrom:
             - secretRef:
                 name: openmetadata-config-secret
@@ -377,91 +375,10 @@ spec:
                 name: openmetadata-jwt-secret
             - secretRef:
                 name: openmetadata-fernetkey-secret
----
-# Source: openmetadata/templates/cron-deploy-pipelines.yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: cron-deploy-pipelines
-  labels:
-    
-    helm.sh/chart: openmetadata-2.0.1
-    app.kubernetes.io/name: openmetadata
-    app.kubernetes.io/instance: openmetadata
-    app.kubernetes.io/version: "2.0.1"
-    app.kubernetes.io/managed-by: Helm
-spec:
-  suspend: true
-  failedJobsHistoryLimit: 1  
-  successfulJobsHistoryLimit: 1 
-  jobTemplate:
-    metadata:                    
-      name: cron-deploy-pipelines
-    spec:
-      template:
-        metadata:
-          labels:
-            
-            helm.sh/chart: openmetadata-2.0.1
-            app.kubernetes.io/name: openmetadata
-            app.kubernetes.io/instance: openmetadata
-            app.kubernetes.io/version: "2.0.1"
-            app.kubernetes.io/managed-by: Helm
-        spec:
-          serviceAccountName: openmetadata
-          volumes:
-            []
-          containers:
-          - name: cron-deploy-pipelines
-            image: "docker.getcollate.io/openmetadata/server:2.0.1"
-            imagePullPolicy: Always
-            volumeMounts:
-            command: 
-            
-            
-              - "/bin/bash"
-              - "-c"
-              - "/opt/openmetadata/bootstrap/openmetadata-ops.sh deploy-pipelines "
-            env:
-            
-            - name: DB_USER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-secrets
-                  key: openmetadata-mysql-password
-            - name: AIRFLOW_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: airflow-secrets
-                  key: openmetadata-airflow-password
-            envFrom:
-            - secretRef:
-                name: openmetadata-config-secret
-            - secretRef:
-                name: openmetadata-omd-secret
-            - secretRef:
-                name: openmetadata-db-secret
-            - secretRef:
-                name: openmetadata-search-secret
-            - secretRef:
-                name: openmetadata-authorizer-secret
-            - secretRef:
-                name: openmetadata-secretsmanager-secret
-            - secretRef:
-                name: openmetadata-web-secret
-            - secretRef:
-                name: openmetadata-authentication-secret
-            - secretRef:
-                name: openmetadata-eventmonitor-secret
-            - secretRef:
-                name: openmetadata-pipeline-secret
-            - secretRef:
-                name: openmetadata-jwt-secret
-            - secretRef:
-                name: openmetadata-fernetkey-secret                     
-          restartPolicy: OnFailure
-  schedule: "0/5 * * * *"
-  startingDeadlineSeconds: 100
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
 ---
 # Source: openmetadata/templates/cron-reindex.yaml
 apiVersion: batch/v1
@@ -508,16 +425,18 @@ spec:
               - "/opt/openmetadata/bootstrap/openmetadata-ops.sh reindex "
             env:
             
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: openmetadata-opensearch-secrets
+                  key: openmetadata-opensearch-password
             - name: DB_USER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: mysql-secrets
-                  key: openmetadata-mysql-password
-            - name: AIRFLOW_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: airflow-secrets
-                  key: openmetadata-airflow-password
+                  name: openmetadata-db-credentials
+                  key: password
+            - name: PIPELINE_SERVICE_CLIENT_ENABLED
+              value: "false"
             envFrom:
               - secretRef:
                   name: openmetadata-config-secret
@@ -538,11 +457,13 @@ spec:
               - secretRef:
                   name: openmetadata-eventmonitor-secret
               - secretRef:
-                  name: openmetadata-pipeline-secret
-              - secretRef:
                   name: openmetadata-jwt-secret
               - secretRef:
-                  name: openmetadata-fernetkey-secret                     
+                  name: openmetadata-fernetkey-secret
+            resources:
+              requests:
+                cpu: 250m
+                memory: 1Gi                     
           restartPolicy: OnFailure
   schedule: "0/5 * * * *"
   startingDeadlineSeconds: 100

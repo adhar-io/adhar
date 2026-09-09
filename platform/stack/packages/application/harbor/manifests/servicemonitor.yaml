@@ -9,6 +9,8 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: harbor
   namespace: adhar-system
   labels:

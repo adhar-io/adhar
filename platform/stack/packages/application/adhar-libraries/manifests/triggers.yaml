@@ -72,6 +72,10 @@ spec:
         generateName: release-adhar-ui-
       spec:
         pipelineRef: {name: release-adhar-ui}
+        # Build exactly the pushed commit, not whatever main is by the time
+        # the run is scheduled.
+        params:
+          - {name: revision, value: $(tt.params.revision)}
         taskRunTemplate:
           serviceAccountName: adhar-libraries
         workspaces:
@@ -79,7 +83,7 @@ spec:
             volumeClaimTemplate:
               spec:
                 accessModes: [ReadWriteOnce]
-                resources: {requests: {storage: 2Gi}}
+                resources: {requests: {storage: 4Gi}}
 ---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerTemplate
@@ -98,6 +102,10 @@ spec:
         generateName: release-adhar-kit-
       spec:
         pipelineRef: {name: release-adhar-kit}
+        # Build exactly the pushed commit, not whatever main is by the time
+        # the run is scheduled.
+        params:
+          - {name: revision, value: $(tt.params.revision)}
         taskRunTemplate:
           serviceAccountName: adhar-libraries
         workspaces:
@@ -105,7 +113,7 @@ spec:
             volumeClaimTemplate:
               spec:
                 accessModes: [ReadWriteOnce]
-                resources: {requests: {storage: 2Gi}}
+                resources: {requests: {storage: 4Gi}}
 ---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: EventListener

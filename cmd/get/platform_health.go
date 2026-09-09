@@ -255,6 +255,39 @@ func attachPlatformHealth(status *PlatformStatus) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	status.Platform = collectPlatformConditions(ctx)
+	status.Fleet = collectFleet(ctx)
 	status.Packages = collectPackageHealth(ctx)
 	status.URLs = collectAccessURLs(ctx)
+}
+
+// collectFleet returns the data-plane roll-up the DataPlane controller keeps
+// on the AdharPlatform status (nil when there are no data planes).
+func collectFleet(ctx context.Context) *v1alpha1.FleetStatus {
+	cl, err := getControllerRuntimeClient()
+	if err != nil {
+		return nil
+	}
+	platforms := &v1alpha1.AdharPlatformList{}
+	if err := cl.List(ctx, platforms, client.InNamespace(globals.AdharSystemNamespace)); err != nil || len(platforms.Items) == 0 {
+		return nil
+	}
+	return platforms.Items[0].Status.Fleet
+}
+
+// displayFleet prints the data planes attached to this control plane.
+func displayFleet(fleet *v1alpha1.FleetStatus) {
+	if fleet == nil || fleet.DataPlanes == 0 {
+		return
+	}
+	fmt.Printf("\n%s\n", helpers.CreateHighlight(fmt.Sprintf("🛰️  Data Planes (%d/%d ready)", fleet.Ready, fleet.DataPlanes)))
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("  %-24s %-10s %-8s %-6s %s\n", "NAME", "MODE", "READY", "APPS", "KUBERNETES"))
+	for _, p := range fleet.Planes {
+		ready := "✅"
+		if !p.Ready {
+			ready = "⏳"
+		}
+		b.WriteString(fmt.Sprintf("  %-24s %-10s %-8s %-6d %s\n", p.Name, p.Mode, ready, p.Apps, orDash(p.KubernetesVersion)))
+	}
+	fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))
 }

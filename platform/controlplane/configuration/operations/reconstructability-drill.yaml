@@ -75,6 +75,17 @@ spec:
                           },
                       },
                       "spec": {
+                          # Crossplane v2 (namespaced XR): composition selection lives under
+                          # spec.crossplane.*; a top-level compositionSelector is ignored and the
+                          # XRD default (AWS EKS) would be used — the drill must pick the kind one.
+                          "crossplane": {
+                              "compositionSelector": {
+                                  "matchLabels": {
+                                      "feature": "cluster",
+                                      "provider": "kind",
+                                  },
+                              }
+                          },
                           "compositionSelector": {
                               "matchLabels": {
                                   "feature": "cluster",
@@ -82,8 +93,18 @@ spec:
                               },
                           },
                           "parameters": {
+                              # The XRD requires provider/region/version/
+                              # controlPlane/nodePools; KIND keeps the drill on
+                              # the management cluster (no cloud spend).
+                              "provider": "KIND",
                               "version": "1.31",
                               "region": "local",
+                              "environmentType": "development",
+                              "controlPlane": {
+                                  "highAvailability": False,
+                                  "endpointAccess": "Public",
+                                  "kubernetesVersion": "1.31",
+                              },
                               "nodePools": [
                                   {
                                       "name": "drill",

@@ -758,8 +758,8 @@ spec:
           - "*"
           resources:
             limits:
-              cpu: 200m
-              memory: 512Mi
+              cpu: "2"
+              memory: 4Gi
             requests:
               cpu: 50m
               memory: 128Mi
@@ -809,11 +809,12 @@ spec:
         args:
         - core
         - start
+        - --enable-operations
         imagePullPolicy: IfNotPresent
         resources:
             limits:
-              cpu: 200m
-              memory: 512Mi
+              cpu: "2"
+              memory: 4Gi
             requests:
               cpu: 50m
               memory: 128Mi
@@ -935,8 +936,8 @@ spec:
         imagePullPolicy: IfNotPresent
         resources:
             limits:
-              cpu: 50m
-              memory: 256Mi
+              cpu: 200m
+              memory: 512Mi
             requests:
               cpu: 25m
               memory: 128Mi
@@ -968,8 +969,8 @@ spec:
         imagePullPolicy: IfNotPresent
         resources:
             limits:
-              cpu: 50m
-              memory: 256Mi
+              cpu: 200m
+              memory: 512Mi
             requests:
               cpu: 25m
               memory: 128Mi

@@ -262,6 +262,34 @@ type AdharPlatformStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Fleet rolls up the DataPlanes attached to this control plane
+	// (ADR-0023). Maintained by the DataPlane controller.
+	// +optional
+	Fleet *FleetStatus `json:"fleet,omitempty"`
+}
+
+// FleetStatus summarises the data planes registered with the control plane.
+type FleetStatus struct {
+	// DataPlanes is the number of DataPlane objects.
+	DataPlanes int `json:"dataPlanes"`
+	// Ready is how many of them report the Ready condition True.
+	Ready int `json:"ready"`
+	// Planes lists every data plane with its readiness and placed-app count.
+	// +optional
+	Planes []FleetPlane `json:"planes,omitempty"`
+}
+
+// FleetPlane is one data plane in the fleet roll-up.
+type FleetPlane struct {
+	Name string `json:"name"`
+	Mode string `json:"mode,omitempty"`
+	// +optional
+	Ready bool `json:"ready"`
+	// +optional
+	Apps int `json:"apps,omitempty"`
+	// +optional
+	KubernetesVersion string `json:"kubernetesVersion,omitempty"`
 }
 
 type CrossplaneStatus struct {

@@ -147,7 +147,7 @@ spec:
           env:
             # General settings
             - name: PENPOT_PUBLIC_URI
-              value: "https://adhar.localtest.me:8443/penpot"
+              value: "https://penpot.adhar.localtest.me:8443"
             - name: PENPOT_FLAGS
               value: "$PENPOT_FLAGS enable-registration enable-login-with-password disable-email-verification disable-secure-session-cookies"
             - name: PENPOT_SECRET_KEY
@@ -247,7 +247,7 @@ spec:
             runAsUser: 1001
           env:
             - name: PENPOT_PUBLIC_URI
-              value: "https://adhar.localtest.me:8443/penpot"
+              value: "https://penpot.adhar.localtest.me:8443"
             - name: PENPOT_INTERNAL_URI
               value: http://penpot:8080
             - name: PENPOT_SECRET_KEY
@@ -313,7 +313,7 @@ spec:
             - name: PENPOT_FLAGS
               value: "$PENPOT_FLAGS enable-registration enable-login-with-password disable-email-verification disable-secure-session-cookies"
             - name: PENPOT_PUBLIC_URI
-              value: "https://adhar.localtest.me:8443/penpot"
+              value: "https://penpot.adhar.localtest.me:8443"
             - name: PENPOT_BACKEND_URI
               value: http://penpot-backend:6060
             - name: PENPOT_EXPORTER_URI

@@ -240,7 +240,7 @@ data:
   SYSTEM_RESOURCES_NAMESPACE: "kargo-system-resources"
   IS_DEFAULT_CONTROLLER: "true"
   SHARED_RESOURCES_NAMESPACE: "kargo-shared-resources"
-  ALLOW_CREDENTIALS_OVER_HTTP: "false"
+  ALLOW_CREDENTIALS_OVER_HTTP: "true"
   GITCLIENT_NAME: "Kargo"
   GITCLIENT_EMAIL: "no-reply@kargo.io"
   GIT_PUSH_INTEGRATION_POLICY: "AlwaysRebase"
@@ -8649,7 +8649,7 @@ spec:
         app.kubernetes.io/component: controller
         
       annotations:
-        configmap/checksum: 9b7c0b06f63038075510b76fa81b03e353c6f3fb236575fc0ec83c37f1142484
+        configmap/checksum: 04a27d23f3bcd4e10c37f0f7830dc7149171897845bee79eb7f5e2bf58216176
     spec:
       serviceAccountName: kargo-controller
       containers:

@@ -15,9 +15,10 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $params := $xr.spec.parameters -}}
@@ -25,7 +26,10 @@ spec:
             {{- $source := default (dict) $params.source -}}
             {{- $sync := default (dict) $params.syncPolicy -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
-            {{- $repoURL := required "source.repoURL must be provided" (get $source "repoURL") -}}
+            {{- /* sprig's generic map has no Helm-only `required`; `fail` is the
+                   supported equivalent in function-go-templating. */ -}}
+            {{- $repoURL := get $source "repoURL" -}}
+            {{- if not $repoURL }}{{ fail "source.repoURL must be provided" }}{{ end -}}
             {{- $path := default "deploy" (get $source "path") -}}
             {{- $revision := default "main" (get $source "targetRevision") -}}
             {{- $project := default "default" $params.project -}}
@@ -38,91 +42,93 @@ spec:
             {{- $observed := default (dict) .observed.resources -}}
             {{- $ready := 0 -}}
             {{- $total := len $envs -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-              {{- range $envs }}
-                {{- $env := . -}}
-                {{- $envName := $env.name -}}
-                {{- $ns := default (printf "%s-%s" $name $envName) (get $env "namespace") -}}
-                {{- $appName := printf "%s-%s" $name $envName -}}
-                {{- $auto := default false (get $env "autoSync") -}}
-                {{- $obsApp := default (dict) (get $observed (printf "app-%s" $envName)) -}}
-                {{- $obsRes := default (dict) (get $obsApp "resource") -}}
-                {{- $obsStatus := default (dict) (get (default (dict) (get $obsRes "status")) "health") -}}
-                {{- if eq (default "" (get $obsStatus "status")) "Healthy" }}{{- $ready = add1 $ready -}}{{- end }}
-                # Per-env Harbor pull secret so <app>-<env> can pull the built image.
-                - name: pull-secret-{{ $envName }}
-                  resource:
-                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
-                    kind: Object
-                    metadata:
-                      labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
-                    spec:
-                      forProvider:
-                        manifest:
-                          apiVersion: v1
-                          kind: Secret
-                          metadata:
-                            name: harbor-pull
-                            namespace: {{ quote $ns }}
-                          type: kubernetes.io/dockerconfigjson
-                          stringData:
-                            .dockerconfigjson: |
-                              {"auths":{"harbor-core.adhar-system.svc.cluster.local":{"username":"admin","password":"Harbor12345","auth":"YWRtaW46SGFyYm9yMTIzNDU="}}}
-                      {{- if $providerConfig }}
-                      providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
-                      {{- end }}
-                # Per-env ArgoCD Application. Only autoSync envs (dev) deploy on
-                # their own; higher envs are created but wait to be promoted into.
-                - name: app-{{ $envName }}
-                  resource:
-                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
-                    kind: Object
-                    metadata:
-                      labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
-                    spec:
-                      forProvider:
-                        manifest:
-                          apiVersion: argoproj.io/v1alpha1
-                          kind: Application
-                          metadata:
-                            name: {{ quote $appName }}
-                            namespace: argocd
-                            labels:
-                              project: {{ quote $project }}
-                              adhar.io/application: {{ quote $name }}
-                              adhar.io/environment: {{ quote $envName }}
-                            finalizers: [resources-finalizer.argocd.argoproj.io]
-                          spec:
-                            project: {{ quote $project }}
-                            source:
-                              repoURL: {{ quote $repoURL }}
-                              path: {{ quote $path }}
-                              targetRevision: {{ quote $revision }}
-                            destination:
-                              server: https://kubernetes.default.svc
-                              namespace: {{ quote $ns }}
-                            syncPolicy:
-                              syncOptions:
-                                - CreateNamespace=true
-                                - RespectIgnoreDifferences=true
-                              {{- if $auto }}
-                              automated: {prune: true, selfHeal: true}
-                              retry: {limit: 10, backoff: {duration: 10s, factor: 2, maxDuration: 3m}}
-                              {{- end }}
-                            ignoreDifferences:
-                              - group: argoproj.io
-                                kind: Rollout
-                                jqPathExpressions: ['.spec.template.spec.containers[]?.image']
-                              - group: gateway.networking.k8s.io
-                                kind: HTTPRoute
-                                jsonPointers: ['/status']
-                      {{- if $providerConfig }}
-                      providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
-                      {{- end }}
+            {{- range $envs }}
+            {{- $env := . -}}
+            {{- $envName := $env.name -}}
+            {{- $ns := default (printf "%s-%s" $name $envName) (get $env "namespace") -}}
+            {{- $appName := printf "%s-%s" $name $envName -}}
+            {{- $auto := default false (get $env "autoSync") -}}
+            {{- $obsApp := default (dict) (get $observed (printf "app-%s" $envName)) -}}
+            {{- $obsRes := default (dict) (get $obsApp "resource") -}}
+            {{- $obsStatus := default (dict) (get (default (dict) (get $obsRes "status")) "health") -}}
+            {{- if eq (default "" (get $obsStatus "status")) "Healthy" }}{{- $ready = add1 $ready -}}{{- end }}
+            ---
+            # Per-env Harbor pull secret so <app>-<env> can pull the built image.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: pull-secret-{{ $envName }}
+              labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
+            spec:
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: harbor-pull
+                    namespace: {{ quote $ns }}
+                  type: kubernetes.io/dockerconfigjson
+                  stringData:
+                    .dockerconfigjson: |
+                      {"auths":{"harbor-core.adhar-system.svc.cluster.local":{"username":"admin","password":"Harbor12345","auth":"YWRtaW46SGFyYm9yMTIzNDU="}}}
+              {{- if $providerConfig }}
+              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
               {{- end }}
-              status:
-                phase: {{ if eq $ready $total }}Healthy{{ else if gt $ready 0 }}Progressing{{ else }}Pending{{ end }}
-                message: {{ quote (printf "%d/%d environments healthy" $ready $total) }}
+            ---
+            # Per-env ArgoCD Application. Only autoSync envs (dev) deploy on
+            # their own; higher envs are created but wait to be promoted into.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: app-{{ $envName }}
+              labels: {feature: apps, managed-by: adhar, adhar.io/environment: {{ quote $envName }}}
+            spec:
+              forProvider:
+                manifest:
+                  apiVersion: argoproj.io/v1alpha1
+                  kind: Application
+                  metadata:
+                    name: {{ quote $appName }}
+                    namespace: argocd
+                    labels:
+                      project: {{ quote $project }}
+                      adhar.io/application: {{ quote $name }}
+                      adhar.io/environment: {{ quote $envName }}
+                    finalizers: [resources-finalizer.argocd.argoproj.io]
+                  spec:
+                    project: {{ quote $project }}
+                    source:
+                      repoURL: {{ quote $repoURL }}
+                      path: {{ quote $path }}
+                      targetRevision: {{ quote $revision }}
+                    destination:
+                      server: https://kubernetes.default.svc
+                      namespace: {{ quote $ns }}
+                    syncPolicy:
+                      syncOptions:
+                        - CreateNamespace=true
+                        - RespectIgnoreDifferences=true
+                      {{- if $auto }}
+                      automated: {prune: true, selfHeal: true}
+                      retry: {limit: 10, backoff: {duration: 10s, factor: 2, maxDuration: 3m}}
+                      {{- end }}
+                    ignoreDifferences:
+                      - group: argoproj.io
+                        kind: Rollout
+                        jqPathExpressions: ['.spec.template.spec.containers[]?.image']
+                      - group: gateway.networking.k8s.io
+                        kind: HTTPRoute
+                        jsonPointers: ['/status']
+              {{- if $providerConfig }}
+              providerConfigRef: {name: {{ quote $providerConfig }}, kind: ClusterProviderConfig}
+              {{- end }}
+            {{- end }}
+            ---
+            # Roll the per-environment health up onto the XR status.
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeApplication
+            status:
+              phase: {{ if eq $ready $total }}Healthy{{ else if gt $ready 0 }}Progressing{{ else }}Pending{{ end }}
+              message: {{ quote (printf "%d/%d environments healthy" $ready $total) }}

@@ -1,12 +1,12 @@
 # Penpot values for Adhar. Ingress disabled -- routing is handled by the Cilium
 # Gateway API (adhar-gateway) via manifests/httproute.yaml. Penpot is served
-# under the /penpot sub-path on adhar.localtest.me.
+# on its own host (penpot.<host>) behind the Keycloak oauth2-proxy front.
 #
 # The 1.x Penpot chart does NOT bundle PostgreSQL/Valkey, so this package ships a
 # minimal in-namespace Postgres + Valkey (manifests/dependencies.yaml) that the
 # config below points at.
 config:
-  publicUri: "https://adhar.localtest.me:8443/penpot"
+  publicUri: "https://penpot.adhar.localtest.me:8443"
   flags: "enable-registration enable-login-with-password disable-email-verification disable-secure-session-cookies"
   postgresql:
     host: "penpot-postgresql.adhar-system.svc.cluster.local"

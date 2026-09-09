@@ -9,6 +9,8 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: velero
   namespace: adhar-system
   labels:
@@ -37,6 +39,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: velero-node-agent
   namespace: adhar-system
   labels:

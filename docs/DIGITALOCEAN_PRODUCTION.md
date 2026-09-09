@@ -114,6 +114,54 @@ Log in at `https://console.platform.adhar.io` with the Keycloak `user1`
 (`argocd.`, `gitea.`, `grafana.`, `harbor.`, `nexus.`, …`.platform.adhar.io`)
 uses the same SSO.
 
+### 3.1 Verified day-2 drills (2026-09)
+
+Everything below was run against the verified cluster; use it as the acceptance
+checklist for a new environment.
+
+```bash
+# in-cluster controller + fleet
+kubectl -n adhar-system get deploy adhar-controller-manager            # 1/1
+adhar get dataplanes                                                   # planes + readiness
+adhar get status                                                       # conditions, packages, Data Planes roll-up
+
+# backup / restore drill (Velero -> platform MinIO, prefix velero/)
+kubectl -n adhar-system get backupstoragelocation default              # Available
+kubectl -n adhar-system create -f - <<'EOF'
+apiVersion: velero.io/v1
+kind: Backup
+metadata: {name: drill, namespace: adhar-system}
+spec: {includedNamespaces: [adhar-environments], storageLocation: default, ttl: 24h0m0s}
+EOF
+kubectl -n adhar-system create -f - <<'EOF'
+apiVersion: velero.io/v1
+kind: Restore
+metadata: {name: drill-restore, namespace: adhar-system}
+spec: {backupName: drill, namespaceMapping: {adhar-environments: adhar-restore-drill}}
+EOF
+kubectl -n adhar-restore-drill get project.kargo.akuity.io               # restored
+
+# environment promotion (Kargo)
+git -C environments commit -am "bump" && git push                        # anything under development/
+kubectl -n adhar-environments get freight,promotion                     # staging auto-promotes; production waits
+
+# data plane (vcluster on the control plane) + thin profile
+kubectl apply -f - <<'EOF'
+apiVersion: platform.adhar.io/v1alpha1
+kind: DataPlane
+metadata: {name: dp-local, labels: {adhar.io/plane: data}}
+spec: {infrastructure: {mode: vcluster}, profile: standard, placement: {labels: {tier: local}}}
+EOF
+kubectl get dataplane dp-local                                          # Ready in ~3 min
+kubectl -n adhar-system get applications -l adhar.io/cluster=dp-local   # kyverno, alloy, external-secrets Healthy
+
+# reconstructability drill (Crossplane Operations)
+kubectl get cronoperation adhar-reconstructability-drill -o jsonpath='{.spec.operationTemplate}' | \
+  jq '{apiVersion:"ops.crossplane.io/v1alpha1",kind:"Operation",metadata:{generateName:"drill-manual-"},spec:.spec}' | kubectl create -f -
+kubectl -n adhar-system get compositecluster drill-reconstructability   # Ready in seconds
+kubectl get operations -o jsonpath='{range .items[*]}{.status.pipeline[*].output.verdict}{"\n"}{end}'   # pass
+```
+
 ## 4. Day-2
 
 ```bash
@@ -126,6 +174,37 @@ adhar up -f config.yaml --env dev --recreate --force   # delete + fresh cluster
 `credential-rotation` (enabled in production) rotates the Gitea admin
 password; the platform reads it from the `gitea-credential` Secret everywhere
 (`adhar get secrets` shows the current one).
+
+`adhar upgrade` converges the foundation (Cilium, Gateway, ArgoCD, Gitea,
+CNPG in HA mode, Crossplane **and its control-plane configuration** — XRDs,
+Compositions, Functions, provider packages, Operations are re-applied on every
+upgrade), then diffs and pushes the stack.
+
+**Who owns what on a running platform.** Components that are both a bootstrap
+manifest and a stack package (Crossplane is one) are owned by the *stack
+package* once ArgoCD runs: `selfHeal` re-applies the package's rendering over
+anything else, so tune them in `platform/stack/packages/<pkg>/values.yaml`,
+not in the embedded manifest. The in-cluster controller
+(`adhar-controller-manager`) runs the **released** image matching the CLI
+version (`ghcr.io/adhar-io/adhar:<version>`; development builds track
+`:latest`) and keeps reconciling the platform with *that* release's manifests
+— to exercise unreleased foundation/controller code on a cloud cluster, park
+it (`kubectl -n adhar-system scale deploy adhar-controller-manager --replicas=0`)
+and run `adhar controller --platform-name <env>` from the checkout, or push a
+dev image to the platform Harbor and point the Deployment at it.
+
+**Crossplane cloud providers.** Only the platform's own cloud gets its
+provider packages and ProviderConfig (DigitalOcean →
+`provider-upjet-digitalocean`); the CLI materialises the API token into the
+`digitalocean-credentials` Secret the ProviderConfig reads. Every extra upjet
+family registers hundreds of CRDs (AWS+Azure+GCP together ≈3 000), which on a
+single control-plane node pushed the API server into timeouts for no benefit.
+Opt a second cloud in by applying its entries from
+`platform/controlplane/configuration/providers/cloud/provider-packages.yaml`
+and its `<cloud>-providerconfig.yaml`, plus a `<cloud>-credentials` Secret in
+`adhar-system`. Packages come from `xpkg.crossplane.io/crossplane-contrib`
+— the Upbound-published `upbound/provider-*:v2.x` packages refuse to start on
+vanilla Crossplane (UXP-only).
 
 ## 5. Tear down
 
@@ -143,7 +222,22 @@ delete them in the DigitalOcean DNS panel if the zone is retired.
 
 ## 6. Known limits (verified run)
 
-- Single control plane (HA control planes are the next step).
+- Single control plane (HA control planes are the next step). A `dev` control
+  plane on `s-4vcpu-8gb` copes with the full profile + one cloud's providers;
+  it did **not** cope with all five clouds' providers (see §4).
+- Kubernetes: kubeadm clusters follow the platform default
+  (`globals.DefaultKubernetesVersion`, v1.37 — the same minor Kind runs); pin
+  `kubernetesVersion` on the environment to stay behind.
+- First boot ordering: every package's ServiceMonitor/PodMonitor/PrometheusRule
+  is applied in sync-wave 10 so a package's core resources and PostSync hooks
+  (Keycloak client provisioning, ClusterIssuers, MinIO credentials) land before
+  the Prometheus Operator CRDs exist; ArgoCD's unlimited retries pick the
+  monitors up minutes later. Expect ~20 apps to show Progressing/Degraded for
+  the first 10–15 minutes and then converge on their own.
+- Nodes are hardened by the kubeadm prep script (static upstream resolvers,
+  inotify/file-descriptor and systemd task limits); before that, a wedged
+  `systemd-resolved` stub failed every image pull cluster-wide and dense nodes
+  refused to create container cgroups.
 - The console image polls the API with HTTP/2 and logs
   `upstream error … GOAWAY` when the API server closes idle connections; the
   UI recovers on the next poll. Fix belongs to the console image (retry on
@@ -152,4 +246,5 @@ delete them in the DigitalOcean DNS panel if the zone is retired.
   memory but ~130 % of limits; the eBPF agents (Beyla, Tetragon, Pixie) are the
   first SystemOOM victims when a node saturates, which flaps the node NotReady
   and takes whatever stateful pod lives there (Gitea's Valkey cache in the run)
-  with it. Beyla now ships with a 1 GiB memory limit; prefer 10 workers.
+  with it. Beyla now skips Go-specific uprobes and excludes the
+  observability plumbing (2 GiB cap); prefer 10 workers.

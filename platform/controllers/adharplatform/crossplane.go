@@ -29,6 +29,10 @@ func (r *AdharPlatformReconciler) ReconcileCrossplane(ctx context.Context, req c
 
 	// Step 1: Install Crossplane core
 	manifestPath := "resources/crossplane/install.yaml"
+	if resource.Spec.BuildCustomization.EnableHAMode {
+		// Two replicas with leader election, larger caps (see install-ha.yaml).
+		manifestPath = "resources/crossplane/install-ha.yaml"
+	}
 	manifestBytes, err := crossplaneFS.ReadFile(manifestPath)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reading crossplane manifest: %w", err)
@@ -144,7 +148,14 @@ func (r *AdharPlatformReconciler) applyControlPlaneConfiguration(ctx context.Con
 	// provider images) and useless without cloud credentials — their pods just
 	// crash-loop on a local cluster. Install them only on cloud platforms.
 	if isCloudProvider(resource.Spec.Provider) {
-		if err := r.applyEmbeddedManifests(ctx, fsys, "configuration/providers/cloud", resource, "Cloud providers", true, true); err != nil {
+		// Only THIS cloud's provider packages and ProviderConfig. Every upjet
+		// provider family registers hundreds of CRDs (AWS+Azure+GCP together
+		// ~3,000); installing all of them on a DigitalOcean platform pushed a
+		// single control-plane node's API server into timeouts and bought
+		// nothing. Additional clouds are opted in by applying their
+		// provider-packages entries and ProviderConfig from
+		// platform/controlplane/configuration/providers/cloud (see README).
+		if err := r.applyCloudProviders(ctx, fsys, resource); err != nil {
 			logger.Info("Cloud provider configuration deferred", "error", err)
 		}
 	} else {
@@ -176,7 +187,11 @@ func (r *AdharPlatformReconciler) applyEmbeddedManifests(ctx context.Context, fs
 			}
 			return nil
 		}
-		if isYAML(p) {
+		// *-template.yaml files are documentation (placeholder Secrets such
+		// as credential-secrets-template.yaml) — applying them would create
+		// Secrets holding the literal "<TOKEN>" strings and clobber the real
+		// credentials the CLI materialises. Never apply them.
+		if isYAML(p) && !strings.HasSuffix(p, "-template.yaml") {
 			files = append(files, p)
 		}
 		return nil
@@ -214,4 +229,69 @@ func isCloudProvider(p v1alpha1.EnvironmentProvider) bool {
 	default:
 		return false
 	}
+}
+
+// cloudFamily maps the platform's provider to the token that names its
+// Crossplane provider packages (provider-<family>-*, provider-family-<family>)
+// and ProviderConfig file (<family>-providerconfig.yaml).
+func cloudFamily(p v1alpha1.EnvironmentProvider) string {
+	switch p {
+	case v1alpha1.ProviderAWS:
+		return "aws"
+	case v1alpha1.ProviderAzure:
+		return "azure"
+	case v1alpha1.ProviderGKE:
+		return "gcp"
+	case v1alpha1.ProviderDO:
+		return "digitalocean"
+	case v1alpha1.ProviderCivo:
+		return "civo"
+	default:
+		return ""
+	}
+}
+
+// applyCloudProviders applies the Provider packages for the platform's own
+// cloud (the documents of providers/cloud/provider-packages.yaml whose name
+// carries the cloud family) and that cloud's ProviderConfig. Best-effort per
+// document: the ProviderConfig CRD only exists once the package has installed,
+// so the first pass logs and the reconcile retries.
+func (r *AdharPlatformReconciler) applyCloudProviders(ctx context.Context, fsys fs.FS, resource *v1alpha1.AdharPlatform) error {
+	logger := log.FromContext(ctx)
+	family := cloudFamily(resource.Spec.Provider)
+	if family == "" {
+		return nil
+	}
+	pkgs, err := fs.ReadFile(fsys, "configuration/providers/cloud/provider-packages.yaml")
+	if err != nil {
+		return fmt.Errorf("reading provider packages: %w", err)
+	}
+	var selected []string
+	for _, doc := range strings.Split(string(pkgs), "\n---") {
+		if strings.TrimSpace(doc) == "" {
+			continue
+		}
+		if strings.Contains(doc, "provider-"+family+"-") || strings.Contains(doc, "provider-"+family+":") ||
+			strings.Contains(doc, "provider-family-"+family) || strings.Contains(doc, "name: provider-"+family) ||
+			strings.Contains(doc, "provider-upjet-"+family) {
+			selected = append(selected, doc)
+		}
+	}
+	if len(selected) == 0 {
+		logger.Info("No Crossplane provider packages found for cloud", "family", family)
+		return nil
+	}
+	logger.Info("Applying Crossplane cloud providers", "family", family, "packages", len(selected))
+	if err := r.applyManifest(ctx, []byte(strings.Join(selected, "\n---")), resource, "Cloud providers:"+family); err != nil {
+		return fmt.Errorf("applying %s provider packages: %w", family, err)
+	}
+	pc := "configuration/providers/cloud/" + family + "-providerconfig.yaml"
+	data, err := fs.ReadFile(fsys, pc)
+	if err != nil {
+		return nil // no ProviderConfig shipped for this cloud
+	}
+	if err := r.applyManifest(ctx, data, resource, "ProviderConfig:"+family); err != nil {
+		logger.Info("Cloud ProviderConfig deferred (provider CRDs not ready yet)", "family", family, "error", err.Error())
+	}
+	return nil
 }

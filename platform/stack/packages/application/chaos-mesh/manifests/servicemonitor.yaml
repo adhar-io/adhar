@@ -12,6 +12,8 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: chaos-mesh-controller-manager
   namespace: adhar-system
   labels:
@@ -39,6 +41,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: chaos-mesh-daemon
   namespace: adhar-system
   labels:
@@ -66,6 +70,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: chaos-mesh-dashboard
   namespace: adhar-system
   labels:
@@ -93,6 +99,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: chaos-mesh-dns-server
   namespace: adhar-system
   labels:

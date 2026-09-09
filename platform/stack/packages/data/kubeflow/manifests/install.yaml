@@ -2987,6 +2987,7 @@ spec:
           runAsUser: 1000
           seccompProfile:
             type: RuntimeDefault
+        env: []
 
 ---
 apiVersion: apps/v1
@@ -3102,6 +3103,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: MINIO_SERVICE_SERVICE_HOST
+          value: minio.adhar-system.svc.cluster.local
+        - name: MINIO_SERVICE_SERVICE_PORT
+          value: '9000'
         image: ghcr.io/kubeflow/kfp-metadata-writer:2.4.1
         name: main
         securityContext:
@@ -3228,6 +3233,10 @@ spec:
             secretKeyRef:
               key: secretkey
               name: mlpipeline-minio-artifact
+        - name: MINIO_SERVICE_SERVICE_HOST
+          value: minio.adhar-system.svc.cluster.local
+        - name: MINIO_SERVICE_SERVICE_PORT
+          value: '9000'
         image: ghcr.io/kubeflow/kfp-api-server:2.4.1
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -3322,6 +3331,10 @@ spec:
           value: '2'
         - name: LOG_LEVEL
           value: info
+        - name: MINIO_SERVICE_SERVICE_HOST
+          value: minio.adhar-system.svc.cluster.local
+        - name: MINIO_SERVICE_SERVICE_PORT
+          value: '9000'
         image: ghcr.io/kubeflow/kfp-persistence-agent:2.4.1
         imagePullPolicy: IfNotPresent
         name: ml-pipeline-persistenceagent
@@ -3387,6 +3400,10 @@ spec:
             configMapKeyRef:
               key: cronScheduleTimezone
               name: pipeline-install-config
+        - name: MINIO_SERVICE_SERVICE_HOST
+          value: minio.adhar-system.svc.cluster.local
+        - name: MINIO_SERVICE_SERVICE_PORT
+          value: '9000'
         image: ghcr.io/kubeflow/kfp-scheduled-workflow-controller:2.4.1
         imagePullPolicy: IfNotPresent
         name: ml-pipeline-scheduledworkflow
@@ -3448,6 +3465,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: MINIO_SERVICE_SERVICE_HOST
+          value: minio.adhar-system.svc.cluster.local
+        - name: MINIO_SERVICE_SERVICE_PORT
+          value: '9000'
         image: ghcr.io/kubeflow/kfp-frontend:2.4.1
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -3531,6 +3552,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: MINIO_SERVICE_SERVICE_HOST
+          value: minio.adhar-system.svc.cluster.local
+        - name: MINIO_SERVICE_SERVICE_PORT
+          value: '9000'
         image: ghcr.io/kubeflow/kfp-viewer-crd-controller:2.4.1
         imagePullPolicy: Always
         name: ml-pipeline-viewer-crd
@@ -3613,6 +3638,7 @@ spec:
           runAsUser: 1000
           seccompProfile:
             type: RuntimeDefault
+        env: []
       serviceAccountName: ml-pipeline-visualizationserver
 
 ---

@@ -8,6 +8,8 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: cilium-agent
   namespace: adhar-system
   labels:
@@ -26,6 +28,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: cilium-operator
   namespace: adhar-system
   labels:
@@ -44,6 +48,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: hubble
   namespace: adhar-system
   labels:

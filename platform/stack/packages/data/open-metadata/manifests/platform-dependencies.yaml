@@ -1,0 +1,345 @@
+# OpenMetadata platform dependencies — the PostgreSQL database and the OpenSearch
+# wiring the upstream chart expects to already exist.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# The openmetadata Helm chart renders only the server: it assumes an external
+# MySQL/Postgres, an external Elasticsearch/OpenSearch and (optionally) an
+# Airflow. Nothing in this package provisioned them, so the `run-db-migrations`
+# init container of the openmetadata Deployment failed at startup with
+#   secret "mysql-secrets" not found
+# (the chart's default DB credential reference) and the app stayed Degraded.
+#
+# Adhar's platform rule is that applications CONSUME platform capabilities and
+# never bundle their own subcharts, so nothing here installs a database or a
+# search engine: it declares one CNPG `Cluster` for the platform `cnpg` operator
+# to provision, and bridges to the platform `opensearch` package.
+#
+# WHY POSTGRESQL AND NOT THE PLATFORM MySQL OPERATOR
+# --------------------------------------------------
+# This package used to declare an `InnoDBCluster` (Oracle MySQL Operator). That
+# cannot work, and no amount of tuning fixes it:
+#
+#   * An InnoDBCluster is MySQL Group Replication. GR refuses writes to any table
+#     without a primary key — "The table does not comply with the requirements by
+#     an external plugin" — and OpenMetadata's schema contains primary-key-less
+#     tables, so its migrations die mid-flight.
+#   * The only GR workaround is `sql_generate_invisible_primary_key=ON`, which
+#     OpenMetadata's own migrations then reject with "doesn't yet support an
+#     operation that leaves the table without a PRIMARY KEY".
+#
+# The two requirements are mutually exclusive. OpenMetadata supports PostgreSQL
+# natively (org.postgresql.Driver / dbScheme postgresql) and Adhar already runs
+# CloudNativePG as its platform Postgres operator, so the catalog rides on CNPG
+# like every other platform database (see application/posthog for the same
+# pattern) — including MinIO-backed barman backups.
+#
+# SYNC WAVES — the chart's own resources carry no wave (wave 0), so everything
+# a wave 0 Deployment needs has to land at a negative wave:
+#   -6  credentials (ESO Password generator + ExternalSecret + the OpenSearch
+#       admin Secret)
+#   -5  the CNPG Cluster and the OpenSearch TLS bridge
+#   -4  the daily ScheduledBackup
+#    0  the chart (Deployment, Service, Secrets, CronJobs)
+#    5  sso.yaml (oauth2-proxy), 6 httproute.yaml, 10 servicemonitor.yaml
+#
+# No schema/account bootstrap Job is needed any more: CNPG's `bootstrap.initdb`
+# creates the `openmetadata_db` database and its `openmetadata` owner from the
+# basic-auth Secret below, which is exactly what the MySQL path needed a Job for
+# (the Oracle operator's initDB only supports clone/dump/clusterSet).
+---
+# Random-password source for the OpenMetadata database account.
+# Same pattern as application/posthog/manifests/platform-postgres.yaml.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: open-metadata-db
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-6"}
+spec:
+  length: 28
+  digits: 5
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+# The application account, consumed twice:
+#   * CNPG reads it via bootstrap.initdb.secret to create the owner role;
+#   * the chart points DB_USER_PASSWORD at it through
+#     openmetadata.config.database.auth.password.secretRef/secretKey.
+# CNPG requires type kubernetes.io/basic-auth with `username` + `password`, and
+# `username` MUST equal bootstrap.initdb.owner.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: openmetadata-db-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-6"}
+spec:
+  # '0' = generate once and never rotate: the password is baked into the role at
+  # first initialisation, so a refresh would desynchronise Secret and database.
+  refreshInterval: '0'
+  target:
+    name: openmetadata-db-credentials
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: open-metadata
+      engineVersion: v2
+      data:
+        username: openmetadata
+        password: '{{ .PASSWORD }}'
+        # Convenience copy for `adhar get secrets -p open-metadata` / psql tooling;
+        # the chart only reads the `password` key.
+        database: openmetadata_db
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: open-metadata-db
+      rewrite:
+        - transform:
+            template: 'PASSWORD'
+---
+# The platform PostgreSQL for OpenMetadata, provisioned by the `cnpg` package.
+# CNPG publishes:
+#   * Service `openmetadata-db-rw` -> primary,  port 5432  (what the chart uses)
+#   * Service `openmetadata-db-ro` -> replicas, `-r` -> any instance
+# ServerSideApply: CNPG's defaulting webhook fights a client-side apply.
+# SkipDryRunOnMissingResource: on a fresh cluster the CNPG CRDs arrive with the
+# cnpg Application, which may sync after this one; without it ArgoCD rejects the
+# whole sync instead of retrying just this resource.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: openmetadata-db
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openmetadata-db
+    app.kubernetes.io/part-of: open-metadata
+    adhar.io/component: open-metadata
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+    argocd.argoproj.io/sync-options: ServerSideApply=true,SkipDryRunOnMissingResource=true
+spec:
+  instances: 1
+  storage:
+    size: 20Gi
+  enableSuperuserAccess: false
+  bootstrap:
+    initdb:
+      database: openmetadata_db
+      owner: openmetadata
+      secret:
+        name: openmetadata-db-credentials
+  backup:
+    retentionPolicy: 30d
+    barmanObjectStore:
+      destinationPath: s3://adhar-backups/cnpg/openmetadata-db
+      endpointURL: http://minio.adhar-system.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId:
+          name: root-creds
+          key: rootUser
+        secretAccessKey:
+          name: root-creds
+          key: rootPassword
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: openmetadata-db-daily
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openmetadata-db
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  schedule: "0 30 1 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: openmetadata-db
+---
+# OpenSearch credentials. NOT generated: this mirrors the admin password the
+# opensearch package bakes into its StatefulSet as OPENSEARCH_INITIAL_ADMIN_PASSWORD
+# (platform/stack/packages/data/opensearch/values.yaml). If that value is changed
+# per environment, change it here too.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openmetadata-opensearch-secrets
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-6"}
+  labels:
+    adhar.io/cli-secret: 'true'
+    adhar.io/package-name: open-metadata
+type: Opaque
+stringData:
+  openmetadata-opensearch-username: admin
+  openmetadata-opensearch-password: "Adh@rOpenSearch2026"
+---
+# ---------------------------------------------------------------------------
+# OpenSearch TLS bridge
+# ---------------------------------------------------------------------------
+# The platform opensearch package runs the security plugin with the OpenSearch
+# DEMO certificates: HTTPS on 9200, self-signed CA, and a node certificate whose
+# SANs (node-0.example.com / 127.0.0.1) do not cover
+# `opensearch-cluster-master.adhar-system.svc.cluster.local`.
+#
+# OpenMetadata builds its search RestClient with the default TLS strategy and
+# the default hostname verifier and offers no verification-skip option — the
+# chart only exposes elasticsearch.trustStore.path, which can supply the CA but
+# cannot satisfy hostname verification. (OpenSearch Dashboards sidesteps the same
+# problem with `opensearch.ssl.verificationMode: none`.)
+#
+# So this Deployment terminates TLS on OpenMetadata's behalf: it listens on plain
+# HTTP 9200 inside the cluster and re-originates HTTPS to OpenSearch with
+# verification off. It carries no credentials — the Authorization header
+# OpenMetadata sends (admin + openmetadata-opensearch-secrets) is proxied through
+# unchanged, so OpenSearch still authenticates the caller.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openmetadata-opensearch
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-5"}
+  labels:
+    app.kubernetes.io/name: openmetadata-opensearch
+    app.kubernetes.io/part-of: open-metadata
+data:
+  nginx.conf: |
+    worker_processes 1;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      access_log off;
+      # nginx-unprivileged runs as uid 101 with a read-only-ish filesystem: keep
+      # every scratch path under the /tmp emptyDir.
+      client_body_temp_path /tmp/client_body;
+      proxy_temp_path       /tmp/proxy;
+      fastcgi_temp_path     /tmp/fastcgi;
+      uwsgi_temp_path       /tmp/uwsgi;
+      scgi_temp_path        /tmp/scgi;
+
+      # OpenMetadata bulk-indexes with a 10 MiB payload ceiling
+      # (elasticsearch.payLoadSize); do not let nginx cap it lower.
+      client_max_body_size 0;
+      proxy_read_timeout   600s;
+      proxy_send_timeout   600s;
+
+      server {
+        listen 9200;
+
+        location = /healthz {
+          add_header Content-Type text/plain;
+          return 200 "ok\n";
+        }
+
+        location / {
+          proxy_pass https://opensearch-cluster-master.adhar-system.svc.cluster.local:9200;
+          # The demo certificate is self-signed AND its SANs do not match the
+          # Service DNS name; this hop never leaves the cluster network.
+          proxy_ssl_verify      off;
+          proxy_ssl_server_name on;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header Host $proxy_host;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openmetadata-opensearch
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-5"}
+  labels:
+    app.kubernetes.io/name: openmetadata-opensearch
+    app.kubernetes.io/part-of: open-metadata
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openmetadata-opensearch
+  template:
+    metadata:
+      labels:
+        app: openmetadata-opensearch
+        app.kubernetes.io/name: openmetadata-opensearch
+        app.kubernetes.io/part-of: open-metadata
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: docker.io/nginxinc/nginx-unprivileged:1.29-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 9200
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: openmetadata-opensearch
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openmetadata-opensearch
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-5"}
+  labels:
+    app.kubernetes.io/name: openmetadata-opensearch
+    app.kubernetes.io/part-of: open-metadata
+spec:
+  selector:
+    app: openmetadata-opensearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: http

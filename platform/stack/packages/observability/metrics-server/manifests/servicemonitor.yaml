@@ -13,6 +13,8 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: metrics-server
   namespace: adhar-system
   labels:

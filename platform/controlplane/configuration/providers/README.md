@@ -61,7 +61,9 @@ This directory contains provider configurations for all supported cloud provider
 
 ### Setting Up Credentials
 
-All provider credentials must be created in the `crossplane-system` namespace before deploying resources.
+Provider credentials live in the platform namespace (`adhar-system`, ADR-0011 — the platform never creates `crossplane-system`).
+
+**For the platform's own cloud nothing is needed**: `adhar up` materialises the credentials it provisioned the cluster with into `<cloud>-credentials` (e.g. `digitalocean-credentials`, key `token`) and installs only that cloud's provider packages + ProviderConfig. The steps below are for opting an *additional* cloud in.
 
 **Template File**: See `credential-secrets-template.yaml` for credential secret templates.
 
@@ -70,14 +72,14 @@ All provider credentials must be created in the `crossplane-system` namespace be
 ```bash
 # AWS
 kubectl create secret generic aws-credentials \
-  -n crossplane-system \
+  -n adhar-system \
   --from-literal=credentials="[default]
 aws_access_key_id = YOUR_ACCESS_KEY
 aws_secret_access_key = YOUR_SECRET_KEY"
 
 # Azure
 kubectl create secret generic azure-credentials \
-  -n crossplane-system \
+  -n adhar-system \
   --from-literal=credentials='{
     "clientId": "YOUR_CLIENT_ID",
     "clientSecret": "YOUR_CLIENT_SECRET",
@@ -87,22 +89,22 @@ kubectl create secret generic azure-credentials \
 
 # GCP
 kubectl create secret generic gcp-credentials \
-  -n crossplane-system \
+  -n adhar-system \
   --from-file=credentials=./gcp-service-account.json
 
 # DigitalOcean
 kubectl create secret generic digitalocean-credentials \
-  -n crossplane-system \
+  -n adhar-system \
   --from-literal=token=YOUR_DO_TOKEN
 
 # Civo
 kubectl create secret generic civo-credentials \
-  -n crossplane-system \
+  -n adhar-system \
   --from-literal=token=YOUR_CIVO_API_KEY
 
 # External Kubernetes Cluster
 kubectl create secret generic kubernetes-credentials \
-  -n crossplane-system \
+  -n adhar-system \
   --from-file=kubeconfig=./external-cluster-kubeconfig.yaml
 ```
 
@@ -115,7 +117,7 @@ Each provider has dedicated `ProviderConfig` resources that reference credential
 - **AWS**: Separate configs for EKS, EC2, RDS, IAM, S3 (all using `aws-credentials`)
 - **Azure**: Separate configs for Container Service, Network, SQL, Storage (all using `azure-credentials`)
 - **GCP**: Separate configs for Container, Compute, SQL, Storage (all using `gcp-credentials`)
-- **DigitalOcean**: Single config using `digitalocean-credentials`
+- **DigitalOcean**: Single config using `digitalocean-credentials` (provider `crossplane-contrib/provider-upjet-digitalocean`, API group `digitalocean.crossplane.io`)
 - **Civo**: Single config using `civo-credentials` with default region
 - **Kubernetes**: Two configs (in-cluster and external)
 - **Helm**: Two configs (in-cluster and external)
@@ -161,16 +163,16 @@ providers/
 kubectl get providers
 
 # Check provider logs
-kubectl logs -n crossplane-system deployment/<provider-name>
+kubectl logs -n adhar-system deployment/<provider-name>
 ```
 
 ### Credential Issues
 ```bash
 # Verify secret exists
-kubectl get secret <provider>-credentials -n crossplane-system
+kubectl get secret <provider>-credentials -n adhar-system
 
 # Check secret contents (be careful with output!)
-kubectl get secret <provider>-credentials -n crossplane-system -o yaml
+kubectl get secret <provider>-credentials -n adhar-system -o yaml
 ```
 
 ### ProviderConfig Not Found

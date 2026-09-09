@@ -68,3 +68,10 @@ api:
 externalWebhooksServer:
   ingress:
     enabled: false
+
+controller:
+  # The environments repo is reached over the in-cluster Gitea service
+  # (plain HTTP inside the cluster, TLS terminates at the Gateway). Kargo
+  # otherwise "refused to get credentials for insecure HTTP endpoint" and every
+  # promotion's git-push failed with "could not read Username".
+  allowCredentialsOverHTTP: true

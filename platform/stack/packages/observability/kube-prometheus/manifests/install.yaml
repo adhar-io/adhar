@@ -76889,6 +76889,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-alertmanager.rules
   namespace: adhar-system
   labels:
@@ -77044,6 +77046,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-config-reloaders
   namespace: adhar-system
   labels:
@@ -77076,6 +77080,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-general.rules
   namespace: adhar-system
   labels:
@@ -77144,6 +77150,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-k8s.rules.container-cpu-usage-second
   namespace: adhar-system
   labels:
@@ -77179,6 +77187,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-k8s.rules.container-memory-cache
   namespace: adhar-system
   labels:
@@ -77206,6 +77216,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-k8s.rules.container-memory-rss
   namespace: adhar-system
   labels:
@@ -77233,6 +77245,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-k8s.rules.container-memory-swap
   namespace: adhar-system
   labels:
@@ -77260,6 +77274,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-k8s.rules.container-memory-working-s
   namespace: adhar-system
   labels:
@@ -77287,6 +77303,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-k8s.rules.container-resource
   namespace: adhar-system
   labels:
@@ -77376,6 +77394,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-k8s.rules.pod-owner
   namespace: adhar-system
   labels:
@@ -77524,6 +77544,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kube-apiserver-availability.rules
   namespace: adhar-system
   labels:
@@ -77646,6 +77668,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kube-apiserver-burnrate.rules
   namespace: adhar-system
   labels:
@@ -77968,6 +77992,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kube-apiserver-histogram.rules
   namespace: adhar-system
   labels:
@@ -77999,6 +78025,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kube-apiserver-slos
   namespace: adhar-system
   labels:
@@ -78076,6 +78104,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kube-prometheus-general.rules
   namespace: adhar-system
   labels:
@@ -78101,6 +78131,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kube-prometheus-node-recording.rules
   namespace: adhar-system
   labels:
@@ -78134,6 +78166,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kube-state-metrics
   namespace: adhar-system
   labels:
@@ -78203,6 +78237,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kubelet.rules
   namespace: adhar-system
   labels:
@@ -78254,6 +78290,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kubernetes-apps
   namespace: adhar-system
   labels:
@@ -78543,6 +78581,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kubernetes-resources
   namespace: adhar-system
   labels:
@@ -78749,6 +78789,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kubernetes-storage
   namespace: adhar-system
   labels:
@@ -78863,6 +78905,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kubernetes-system-apiserver
   namespace: adhar-system
   labels:
@@ -78953,6 +78997,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kubernetes-system-kubelet
   namespace: adhar-system
   labels:
@@ -79157,6 +79203,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kubernetes-system
   namespace: adhar-system
   labels:
@@ -79200,6 +79248,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-node-exporter.rules
   namespace: adhar-system
   labels:
@@ -79303,6 +79353,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-node-exporter
   namespace: adhar-system
   labels:
@@ -79641,6 +79693,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-node-network
   namespace: adhar-system
   labels:
@@ -79671,6 +79725,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-node.rules
   namespace: adhar-system
   labels:
@@ -79728,6 +79784,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-prometheus-operator
   namespace: adhar-system
   labels:
@@ -79821,6 +79879,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-prometheus
   namespace: adhar-system
   labels:
@@ -80111,6 +80171,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-grafana
   namespace: adhar-system
   labels:
@@ -80139,6 +80201,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-state-metrics
   namespace: adhar-system
   labels:    
@@ -80164,6 +80228,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-prometheus-node-exporter
   namespace: adhar-system
   labels:
@@ -80192,6 +80258,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-alertmanager
   namespace: adhar-system
   labels:
@@ -80225,6 +80293,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-coredns
   namespace: adhar-system
   labels:
@@ -80255,6 +80325,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-apiserver
   namespace: adhar-system
   labels:
@@ -80296,6 +80368,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-kubelet
   namespace: adhar-system
   labels:
@@ -80410,6 +80484,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-operator
   namespace: adhar-system
   labels:
@@ -80449,6 +80525,8 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: prometheus-kube-prometheus-prometheus
   namespace: adhar-system
   labels:

@@ -14,9 +14,10 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $params := $xr.spec.parameters -}}
@@ -25,8 +26,12 @@ spec:
             {{- $sync := default (dict) $params.syncPolicy -}}
             {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
             {{- $secretName := default (printf "%s-application" $xr.metadata.name) (get $conn "name") -}}
-            {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
+            {{- $secretNamespace := default "adhar-system" (get $conn "namespace") -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
+            {{- /* sprig's generic map has no Helm-only `required`; `fail` is the
+                   supported equivalent in function-go-templating. */ -}}
+            {{- $repoURL := get $source "repoURL" -}}
+            {{- if not $repoURL }}{{ fail "source.repoURL must be provided" }}{{ end -}}
             {{- $observedResources := default (dict) .observed.resources -}}
             {{- $appObserved := default (dict) (get $observedResources "argocd-application") -}}
             {{- $appResource := default (dict) (get $appObserved "resource") -}}
@@ -72,172 +77,171 @@ spec:
               {{- $res := dict "group" (default "" (get . "group")) "kind" (default "" (get . "kind")) "name" (default "" (get . "name")) "namespace" (default "" (get . "namespace")) "status" (default "" (get . "status")) "health" (default "" (toString (get (default (dict) (get . "health")) "status"))) -}}
               {{- $resourceSummary = append $resourceSummary $res -}}
             {{- end }}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              connectionDetails:
-                applicationName: {{ quote $xr.metadata.name }}
-                project: {{ quote $params.project }}
-                destination: {{ quote (default (printf "%s:%s" (default "" (get $destination "server")) (default "" (get $destination "namespace"))) "") }}
-                syncStatus: {{ quote $syncStatus }}
-                healthStatus: {{ quote $healthStatus }}
-              status:
-                phase: {{ quote $phase }}
-                message: {{ quote $joinedMessages }}
-                healthStatus: {{ quote $healthStatus }}
-                syncStatus: {{ quote $syncStatus }}
-                revision: {{ quote $appRevision }}
-                {{- if $operationState }}
-                operationState:
-                  phase: {{ quote (default "" (get $operationState "phase")) }}
-                  message: {{ quote (default "" (get $operationState "message")) }}
-                  {{- if (get $operationState "startedAt") }}
-                  startedAt: {{ quote (get $operationState "startedAt") }}
-                  {{- end }}
-                  {{- if (get $operationState "finishedAt") }}
-                  finishedAt: {{ quote (get $operationState "finishedAt") }}
-                  {{- end }}
-                {{- end }}
-                {{- if $structuredConditions }}
-                conditions: {{ toYaml $structuredConditions | nindent 18 }}
-                {{- end }}
-                {{- if $resourceSummary }}
-                resources: {{ toYaml $resourceSummary | nindent 18 }}
-                {{- end }}
-              resources:
-                - name: argocd-application
-                  resource:
-                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
-                    kind: Object
-                    metadata:
-                      labels:
-                        feature: apps
-                        managed-by: adhar
-                    spec:
-                      forProvider:
-                        manifest:
-                          apiVersion: argoproj.io/v1alpha1
-                          kind: Application
-                          metadata:
-                            name: {{ quote $xr.metadata.name }}
-                            namespace: argocd
-                            labels:
-                              project: {{ quote $params.project }}
-                              adhar.io/application: {{ quote (default $params.displayName $xr.metadata.name) }}
-                            finalizers:
-                              - resources-finalizer.argocd.argoproj.io
-                          spec:
-                            project: {{ quote $params.project }}
-                            source:
-                              repoURL: {{ quote (required "source.repoURL must be provided" (get $source "repoURL")) }}
-                              {{- if (get $source "path") }}
-                              path: {{ quote (get $source "path") }}
-                              {{- end }}
-                              {{- if (get $source "chart") }}
-                              chart: {{ quote (get $source "chart") }}
-                              {{- end }}
-                              {{- if (get $source "targetRevision") }}
-                              targetRevision: {{ quote (get $source "targetRevision") }}
-                              {{- end }}
-                              {{- if (get $source "helm") }}
-                              helm:
-                                {{- with (get $source "helm") }}
-                                {{- if .releaseName }}
-                                releaseName: {{ quote .releaseName }}
-                                {{- end }}
-                                {{- if .valueFiles }}
-                                valueFiles:
-                                {{- range .valueFiles }}
-                                  - {{ quote . }}
-                                {{- end }}
-                                {{- end }}
-                                {{- if .values }}
-                                values: {{ printf "%s" .values | quote }}
-                                {{- end }}
-                                {{- end }}
-                              {{- end }}
-                              {{- if (get $source "directory") }}
-                              directory:
-                                {{- with (get $source "directory") }}
-                                {{- if hasKey . "recurse" }}
-                                recurse: {{ default false .recurse }}
-                                {{- end }}
-                                {{- end }}
-                              {{- end }}
-                              {{- if (get $source "kustomize") }}
-                              kustomize:
-                                {{- with (get $source "kustomize") }}
-                                {{- if .images }}
-                                images:
-                                {{- range .images }}
-                                  - {{ quote . }}
-                                {{- end }}
-                                {{- end }}
-                                {{- end }}
-                              {{- end }}
-                            destination:
-                              {{- if (get $destination "server") }}
-                              server: {{ quote (get $destination "server") }}
-                              {{- end }}
-                              {{- if (get $destination "namespace") }}
-                              namespace: {{ quote (get $destination "namespace") }}
-                              {{- end }}
-                              {{- if (get $destination "name") }}
-                              name: {{ quote (get $destination "name") }}
-                              {{- end }}
-                            {{- if $params.ignoreDifferences }}
-                            ignoreDifferences:
-                            {{- range $params.ignoreDifferences }}
-                              - kind: {{ quote .kind }}
-                                {{- if .name }}
-                                name: {{ quote .name }}
-                                {{- end }}
-                                {{- if .jsonPointers }}
-                                jsonPointers:
-                                {{- range .jsonPointers }}
-                                  - {{ quote . }}
-                                {{- end }}
-                                {{- end }}
-                            {{- end }}
-                            {{- end }}
-                            {{- if $sync }}
-                            syncPolicy:
-                              {{- if (get $sync "automated") }}
-                              automated:
-                                {{- with (get $sync "automated") }}
-                                {{- if hasKey . "prune" }}
-                                prune: {{ default false .prune }}
-                                {{- end }}
-                                {{- if hasKey . "selfHeal" }}
-                                selfHeal: {{ default false .selfHeal }}
-                                {{- end }}
-                                {{- if hasKey . "allowEmpty" }}
-                                allowEmpty: {{ default false .allowEmpty }}
-                                {{- end }}
-                                {{- end }}
-                              {{- end }}
-                              {{- if (get $sync "retry") }}
-                              retry:
-                                {{- with (get $sync "retry") }}
-                                {{- if hasKey . "limit" }}
-                                limit: {{ .limit }}
-                                {{- end }}
-                                {{- end }}
-                              {{- end }}
-                              {{- if (get $sync "syncOptions") }}
-                              syncOptions:
-                              {{- range (get $sync "syncOptions") }}
-                                - {{ quote . }}
-                              {{- end }}
-                              {{- end }}
-                            {{- end }}
-                      {{- if $providerConfig }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                        kind: ClusterProviderConfig
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: argocd-application
+              labels:
+                feature: apps
+                managed-by: adhar
+            spec:
+              forProvider:
+                manifest:
+                  apiVersion: argoproj.io/v1alpha1
+                  kind: Application
+                  metadata:
+                    name: {{ quote $xr.metadata.name }}
+                    namespace: argocd
+                    labels:
+                      project: {{ quote $params.project }}
+                      adhar.io/application: {{ quote (default $params.displayName $xr.metadata.name) }}
+                    finalizers:
+                      - resources-finalizer.argocd.argoproj.io
+                  spec:
+                    project: {{ quote $params.project }}
+                    source:
+                      repoURL: {{ quote $repoURL }}
+                      {{- if (get $source "path") }}
+                      path: {{ quote (get $source "path") }}
                       {{- end }}
-                      {{- if $secretName }}
-                      writeConnectionSecretToRef:
-                        name: {{ quote $secretName }}
-                        namespace: {{ quote $secretNamespace }}
+                      {{- if (get $source "chart") }}
+                      chart: {{ quote (get $source "chart") }}
                       {{- end }}
+                      {{- if (get $source "targetRevision") }}
+                      targetRevision: {{ quote (get $source "targetRevision") }}
+                      {{- end }}
+                      {{- if (get $source "helm") }}
+                      helm:
+                        {{- with (get $source "helm") }}
+                        {{- if .releaseName }}
+                        releaseName: {{ quote .releaseName }}
+                        {{- end }}
+                        {{- if .valueFiles }}
+                        valueFiles:
+                        {{- range .valueFiles }}
+                          - {{ quote . }}
+                        {{- end }}
+                        {{- end }}
+                        {{- if .values }}
+                        values: {{ printf "%s" .values | quote }}
+                        {{- end }}
+                        {{- end }}
+                      {{- end }}
+                      {{- if (get $source "directory") }}
+                      directory:
+                        {{- with (get $source "directory") }}
+                        {{- if hasKey . "recurse" }}
+                        recurse: {{ default false .recurse }}
+                        {{- end }}
+                        {{- end }}
+                      {{- end }}
+                      {{- if (get $source "kustomize") }}
+                      kustomize:
+                        {{- with (get $source "kustomize") }}
+                        {{- if .images }}
+                        images:
+                        {{- range .images }}
+                          - {{ quote . }}
+                        {{- end }}
+                        {{- end }}
+                        {{- end }}
+                      {{- end }}
+                    destination:
+                      {{- if (get $destination "server") }}
+                      server: {{ quote (get $destination "server") }}
+                      {{- end }}
+                      {{- if (get $destination "namespace") }}
+                      namespace: {{ quote (get $destination "namespace") }}
+                      {{- end }}
+                      {{- if (get $destination "name") }}
+                      name: {{ quote (get $destination "name") }}
+                      {{- end }}
+                    {{- if $params.ignoreDifferences }}
+                    ignoreDifferences:
+                    {{- range $params.ignoreDifferences }}
+                      - kind: {{ quote .kind }}
+                        {{- if .name }}
+                        name: {{ quote .name }}
+                        {{- end }}
+                        {{- if .jsonPointers }}
+                        jsonPointers:
+                        {{- range .jsonPointers }}
+                          - {{ quote . }}
+                        {{- end }}
+                        {{- end }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if $sync }}
+                    syncPolicy:
+                      {{- if (get $sync "automated") }}
+                      automated:
+                        {{- with (get $sync "automated") }}
+                        {{- if hasKey . "prune" }}
+                        prune: {{ default false .prune }}
+                        {{- end }}
+                        {{- if hasKey . "selfHeal" }}
+                        selfHeal: {{ default false .selfHeal }}
+                        {{- end }}
+                        {{- if hasKey . "allowEmpty" }}
+                        allowEmpty: {{ default false .allowEmpty }}
+                        {{- end }}
+                        {{- end }}
+                      {{- end }}
+                      {{- if (get $sync "retry") }}
+                      retry:
+                        {{- with (get $sync "retry") }}
+                        {{- if hasKey . "limit" }}
+                        limit: {{ .limit }}
+                        {{- end }}
+                        {{- end }}
+                      {{- end }}
+                      {{- if (get $sync "syncOptions") }}
+                      syncOptions:
+                      {{- range (get $sync "syncOptions") }}
+                        - {{ quote . }}
+                      {{- end }}
+                      {{- end }}
+                    {{- end }}
+              {{- if $providerConfig }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+                kind: ClusterProviderConfig
+              {{- end }}
+              {{- if $secretName }}
+              writeConnectionSecretToRef:
+                name: {{ quote $secretName }}
+                namespace: {{ quote $secretNamespace }}
+              {{- end }}
+            ---
+            # Publish the observed ArgoCD Application state on the XR status.
+            # NOTE: XR-level connection details are not available to v2 composite
+            # resources (CONVENTIONS.md §1 — the CompositeConnectionDetails
+            # resource is v1-only), so the application coordinates that used to be
+            # emitted as connection details are surfaced through status instead.
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeApplication
+            status:
+              phase: {{ quote $phase }}
+              message: {{ quote $joinedMessages }}
+              healthStatus: {{ quote $healthStatus }}
+              syncStatus: {{ quote $syncStatus }}
+              revision: {{ quote $appRevision }}
+              {{- if $operationState }}
+              operationState:
+                phase: {{ quote (default "" (get $operationState "phase")) }}
+                message: {{ quote (default "" (get $operationState "message")) }}
+                {{- if (get $operationState "startedAt") }}
+                startedAt: {{ quote (get $operationState "startedAt") }}
+                {{- end }}
+                {{- if (get $operationState "finishedAt") }}
+                finishedAt: {{ quote (get $operationState "finishedAt") }}
+                {{- end }}
+              {{- end }}
+              {{- if $structuredConditions }}
+              conditions: {{ toYaml $structuredConditions | nindent 4 }}
+              {{- end }}
+              {{- if $resourceSummary }}
+              resources: {{ toYaml $resourceSummary | nindent 4 }}
+              {{- end }}

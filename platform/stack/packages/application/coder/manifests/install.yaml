@@ -167,9 +167,7 @@ spec:
             fieldRef:
               fieldPath: status.podIP
         - name: CODER_ACCESS_URL
-          value: https://adhar.localtest.me:8443/coder
-        - name: CODER_HTTP_ADDRESS
-          value: 0.0.0.0:8080
+          value: https://coder.adhar.localtest.me:8443
         image: ghcr.io/coder/coder:v2.37.0
         imagePullPolicy: IfNotPresent
         lifecycle: {}

@@ -29,11 +29,24 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "11"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+---
+# Promotion policy lives in ProjectConfig since Kargo 1.3 (Project has no
+# spec any more — an inline promotionPolicies block fails validation).
+apiVersion: kargo.akuity.io/v1alpha1
+kind: ProjectConfig
+metadata:
+  name: adhar-environments
+  namespace: adhar-environments
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   promotionPolicies:
-    - stage: staging
+    - stageSelector:
+        name: staging
       autoPromotionEnabled: true
-    - stage: production
+    - stageSelector:
+        name: production
       autoPromotionEnabled: false
 ---
 # Git credentials for Kargo, projected from the platform's gitea-credential.
@@ -81,8 +94,11 @@ spec:
     - git:
         repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/environments
         branch: main
+        # Kargo treats a bare entry as a path PREFIX (use "glob:"/"regex:" for
+        # patterns); "development/**" matched nothing and the Warehouse sat at
+        # "No commits discovered".
         includePaths:
-          - development/**
+          - glob:development/**
 ---
 apiVersion: kargo.akuity.io/v1alpha1
 kind: Stage

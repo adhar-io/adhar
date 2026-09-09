@@ -172,6 +172,13 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			step{"gitea", reconciler.ReconcileGitea},
 			step{"crossplane", reconciler.ReconcileCrossplane},
 		)
+		// The Crossplane reconciler applies the control-plane configuration
+		// (XRDs, Compositions, Functions, provider packages, Operations) only
+		// while ControlPlaneApplied is false — once per platform lifetime on
+		// the steady-state controller. An upgrade exists precisely to roll a
+		// newer configuration out, so clear the gate for this pass; every
+		// apply is server-side and idempotent.
+		platform.Status.Crossplane.ControlPlaneApplied = false
 		for _, s := range steps {
 			fmt.Printf("   • %s\n", s.name)
 			if _, err := s.run(ctx, ctrl.Request{}, &platform); err != nil {

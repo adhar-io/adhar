@@ -7,18 +7,26 @@
 replicas: 1
 
 # LOCAL DEV: reduced resource footprint.
+# Limits are caps, not reservations: requests stay small so a single-node
+# Kind cluster is unaffected, while the cap covers a full production control
+# plane. This package owns the crossplane Deployment on a running platform
+# (ArgoCD selfHeal wins over the bootstrap manifest), so the numbers here are
+# the ones that count. At 200m/512Mi crossplane was CPU-throttled and
+# OOM-killed in a loop on a 10-node cloud cluster once the cloud provider
+# packages registered their thousands of CRDs, and no package, XRD or
+# composition ever reconciled.
 resourcesCrossplane:
   limits:
-    cpu: 200m
-    memory: 512Mi
+    cpu: "2"
+    memory: 4Gi
   requests:
     cpu: 50m
     memory: 128Mi
 
 resourcesRBACManager:
   limits:
-    cpu: 50m
-    memory: 256Mi
+    cpu: 200m
+    memory: 512Mi
   requests:
     cpu: 25m
     memory: 128Mi
@@ -26,3 +34,10 @@ resourcesRBACManager:
 metrics:
   # LOCAL DEV: metrics disabled to reduce resource usage.
   enabled: false
+
+# Day-2 Operations (ops.crossplane.io CronOperation / WatchOperation — daily
+# backup, weekly secret rotation, drift watch, reconstructability drill) need
+# the alpha feature flag on the core. The bootstrap manifest sets it; this
+# package owns the Deployment on a running platform, so it must set it too.
+args:
+  - --enable-operations

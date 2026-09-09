@@ -74,7 +74,7 @@ spec:
 
             # Connection secret
             secretName = conn.name or "${metadata.name}-db"
-            secretNamespace = conn.namespace or "crossplane-system"
+            secretNamespace = conn.namespace or "adhar-system"
 
             # Generate DB identifier
             dbIdentifier = metadata.name
@@ -105,7 +105,7 @@ spec:
                             if masterPasswordSecretRef:
                                 passwordSecretRef: {
                                     name: masterPasswordSecretRef.name
-                                    namespace: masterPasswordSecretRef.namespace or "crossplane-system"
+                                    namespace: masterPasswordSecretRef.namespace or "adhar-system"
                                     key: masterPasswordSecretRef.key or "password"
                                 }
                             dbName: "${metadata.name}db"

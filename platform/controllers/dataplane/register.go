@@ -61,6 +61,13 @@ func (r *DataPlaneReconciler) ensureArgoRegistration(ctx context.Context, dp *v1
 	labels := map[string]string{
 		argoClusterSecretTypeLabel: argoClusterSecretTypeValue,
 		dataPlaneLabelKey:          dp.Name,
+		// The thin workload profile (adhar-appset-workload.yaml) selects
+		// clusters on this label — the same one the CompositeCluster
+		// register-argocd step stamps, so both registration paths get it.
+		clusterLabelKey: dp.Name,
+		// The thin profile varies by plane mode (a vcluster proxies the host's
+		// metrics API and must not run its own metrics-server).
+		dataPlaneModeLabelKey: string(dp.Spec.Infrastructure.Mode),
 	}
 	for k, v := range dp.Spec.Placement.Labels {
 		labels[k] = v

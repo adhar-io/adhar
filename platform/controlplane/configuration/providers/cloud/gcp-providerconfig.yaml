@@ -13,6 +13,6 @@ spec:
   credentials:
     source: Secret
     secretRef:
-      namespace: crossplane-system
+      namespace: adhar-system
       name: gcp-credentials
       key: credentials

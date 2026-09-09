@@ -1,50 +1,86 @@
-# Build + release adhar-ui (@adhar-ui/*) to the Sonatype Nexus npm registry
-# (repository `npm-hosted`). Tekton pipeline; the PipelineRun below runs it once
-# per sync (PostSync, after the mirror). Dependency resolution is pulled through
-# the Nexus `npm-registry` proxy (which caches npmjs.org).
-# A Gitea webhook → EventListener (triggers.yaml) reruns it on push.
+# adhar-ui (@adhar-ui/*) — its own multi-stage Tekton Pipeline.
+#
+# Stages (one Tekton task each, so the dashboard and the console show them as
+# separate stages with their own logs and status):
+#   clone   → shallow clone of adhar/adhar-ui from Gitea at the requested revision
+#   build   → deno task build (the repo's own build entry point)
+#   test    → deno task test
+#   lint    → deno lint
+#   scan    → trivy filesystem scan — reports; failOnCritical=true blocks publish
+#   publish → pnpm publish of every package to the Nexus `npm-hosted` registry,
+#             resolving through the Nexus `npm-registry` proxy (caches npmjs.org)
+#
+# The shared tasks `git-clone-gitea` and `trivy-fs-scan` are defined in
+# maven-release.yaml. The release PipelineRun lives in release.yaml; the
+# push-triggered one in triggers.yaml. Both reference THIS pipeline by name.
 ---
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: publish-npm-workspace
+  name: deno-task
   namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
+  description: Run a Deno command in the cloned source (adhar-ui builds, tests and lints with Deno).
   params:
-    - {name: repo, type: string}
-    - {name: scope, type: string}
+    - {name: command, type: string, description: "e.g. 'task build', 'task test', 'lint'"}
   workspaces:
     - {name: source}
   steps:
-    - name: build-and-publish
-      image: docker.io/library/node:20-bookworm
-      # Cap the build so it cannot starve Nexus / the node (a single small
-      # node runs the whole platform); requests keep it schedulable.
+    - name: deno
+      # adhar-ui's deno.lock is lockfile v5, which Deno < 2.5 cannot read
+      # ("Unsupported lockfile version '5'"); track a current Deno 2.x.
+      image: docker.io/denoland/deno:2.9.6
       computeResources:
         requests: {cpu: 500m, memory: 512Mi}
         limits: {cpu: "2", memory: 3Gi}
       env:
-        # Nexus credentials + endpoints published by the nexus-config bootstrap Job.
+        # Keep Deno's cache on the workspace so test/lint reuse what build fetched.
+        - {name: DENO_DIR, value: "$(workspaces.source.path)/.deno"}
+      workingDir: $(workspaces.source.path)/src
+      script: |
+        #!/bin/sh
+        set -eu
+        deno --version
+        # Materialise node_modules from deno.lock first. The per-package builds
+        # run `deno run -A npm:tsup …`, and tsup's config loader imports the
+        # bare specifier "tsup", which only resolves once `deno install` has
+        # laid out node_modules (a bare `deno task build` on a fresh clone
+        # fails with "Import 'tsup' not a dependency"). Idempotent, so every
+        # stage may run it; later stages hit the cache on the workspace.
+        deno install
+        deno $(params.command)
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pnpm-publish-nexus
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  description: Publish every workspace package to the Nexus npm-hosted registry.
+  params:
+    - {name: scope, type: string, description: "npm scope routed to the hosted registry, e.g. @adhar-ui"}
+  workspaces:
+    - {name: source}
+  steps:
+    - name: publish
+      image: docker.io/library/node:20-bookworm
+      computeResources:
+        requests: {cpu: 500m, memory: 512Mi}
+        limits: {cpu: "2", memory: 3Gi}
+      env:
         - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}
         - {name: NEXUS_PASS, valueFrom: {secretKeyRef: {name: nexus-credentials, key: password}}}
         - {name: NEXUS_NPM, valueFrom: {secretKeyRef: {name: nexus-credentials, key: npm-hosted}}}
         - {name: NEXUS_URL, valueFrom: {secretKeyRef: {name: nexus-credentials, key: url}}}
-        # Clone source from Gitea (git mirror is still Gitea-hosted).
-        - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
-        - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
-      workingDir: $(workspaces.source.path)
+      workingDir: $(workspaces.source.path)/src
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
-        GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
-        # Publish target (hosted) + resolution proxy (caches npmjs.org).
         NPM_HOSTED="${NEXUS_NPM%/}/"
         NPM_PROXY="${NEXUS_URL%/}/repository/npm-registry/"
-        # Host:port for the per-registry auth lines (derived, not hardcoded).
         HOST="${NEXUS_URL#*://}"
-        git clone --depth 1 "$GITEA/adhar/$(params.repo).git" src
-        cd src
         # Nexus npm accepts base64(user:pass) as _auth on the registry path.
         AUTH=$(printf '%s:%s' "$NEXUS_USER" "$NEXUS_PASS" | base64 | tr -d '\n')
         cat > .npmrc <<EOF
@@ -55,23 +91,16 @@ spec:
         always-auth=true
         EOF
         corepack enable
-        # --no-frozen-lockfile: the mirrored repo's pnpm-lock.yaml can lag behind
-        # package.json (e.g. apps/storybook), which hard-fails a frozen install in
-        # CI. Resolve/refresh the lockfile at build time so a stale lock upstream
-        # doesn't block the publish (we're publishing packages, not enforcing a
-        # reproducible app deploy here).
-        # The in-cluster Nexus proxy can be slow/briefly unavailable on a busy
-        # node: retry harder and keep parallel fetches modest so a cold proxy
-        # (every package fetched from upstream on first use) is not swamped.
+        # The mirrored lockfile may lag package.json; refresh it here — we are
+        # publishing packages, not enforcing a reproducible app deploy.
         pnpm install --no-frozen-lockfile \
           --fetch-retries=8 --fetch-retry-mintimeout=10000 --fetch-retry-maxtimeout=120000 \
           --fetch-timeout=300000 --network-concurrency=6
-        # Build all packages if a build script is defined, then publish each. A
-        # version already present in Nexus must not hard-fail the run (idempotent).
-        pnpm -r build || true
-        pnpm -r --no-git-checks publish --registry "$NPM_HOSTED" || \
-          echo "some packages may already be published at this version"
-        echo "adhar-ui published to $NPM_HOSTED (resolved via $NPM_PROXY)"
+        # A version already present in Nexus must not fail the run (idempotent
+        # re-publish of an unchanged package is a no-op, not an error).
+        pnpm -r --filter './packages/*' --no-git-checks publish --registry "$NPM_HOSTED" || \
+          echo "some packages are already published at this version"
+        echo "published $(params.scope)/* to $NPM_HOSTED (resolved via $NPM_PROXY)"
 ---
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -80,11 +109,44 @@ metadata:
   namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
+  description: adhar-ui — clone, build, test, lint, scan, publish to Nexus (npm-hosted).
+  params:
+    - {name: revision, type: string, default: main}
+    - {name: failOnCritical, type: string, default: "false"}
   workspaces: [{name: shared}]
+  results:
+    - {name: commit, value: $(tasks.clone.results.commit)}
+    - {name: critical-vulnerabilities, value: $(tasks.scan.results.critical)}
   tasks:
-    - name: publish
-      taskRef: {name: publish-npm-workspace}
+    - name: clone
+      taskRef: {name: git-clone-gitea}
       params:
-        - {name: repo, value: "adhar-ui"}
-        - {name: scope, value: "@adhar-ui"}
+        - {name: repo, value: adhar-ui}
+        - {name: revision, value: $(params.revision)}
+      workspaces: [{name: source, workspace: shared}]
+    - name: build
+      runAfter: [clone]
+      taskRef: {name: deno-task}
+      params: [{name: command, value: "task build"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: test
+      runAfter: [build]
+      taskRef: {name: deno-task}
+      params: [{name: command, value: "task test"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: lint
+      runAfter: [build]
+      taskRef: {name: deno-task}
+      params: [{name: command, value: "lint"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-fs-scan}
+      params:
+        - {name: failOnCritical, value: $(params.failOnCritical)}
+      workspaces: [{name: source, workspace: shared}]
+    - name: publish
+      runAfter: [test, lint, scan]
+      taskRef: {name: pnpm-publish-nexus}
+      params: [{name: scope, value: "@adhar-ui"}]
       workspaces: [{name: source, workspace: shared}]

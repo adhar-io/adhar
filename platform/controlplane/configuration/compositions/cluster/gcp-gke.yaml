@@ -15,9 +15,10 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $params := $xr.spec.parameters -}}
@@ -26,134 +27,132 @@ spec:
             {{- $network := default (dict) $params.networkConfig -}}
             {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
             {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
-            {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
+            {{- $secretNamespace := default "adhar-system" (get $conn "namespace") -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "default" $xr -}}
             {{- $tags := default (dict) $params.tags -}}
             {{- $releaseChannel := upper (default "REGULAR" (get $gcp "releaseChannel")) -}}
             {{- $removeDefault := default true (get $gcp "removeDefaultNodePool") -}}
             {{- $loggingService := get $gcp "loggingService" -}}
             {{- $monitoringService := get $gcp "monitoringService" -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                - name: gke-cluster
-                  resource:
-                    apiVersion: container.gcp.m.upbound.io/v1beta1
-                    kind: Cluster
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: gcp
-                    spec:
-                      forProvider:
-                        location: {{ quote $params.region }}
-                        initialClusterVersion: {{ quote $params.version }}
-                        removeDefaultNodePool: {{ $removeDefault }}
-                        {{- if (get $gcp "projectId") }}
-                        project: {{ quote (get $gcp "projectId") }}
-                        {{- end }}
-                        {{- if (get $gcp "network") }}
-                        network: {{ quote (get $gcp "network") }}
-                        {{- end }}
-                        {{- if (get $gcp "subnetwork") }}
-                        subnetwork: {{ quote (get $gcp "subnetwork") }}
-                        {{- else if $network.subnetIds }}
-                        subnetwork: {{ quote (index $network.subnetIds 0) }}
-                        {{- end }}
-                        releaseChannel:
-                          - channel: {{ quote $releaseChannel }}
-                        {{- if $loggingService }}
-                        loggingService: {{ quote $loggingService }}
-                        {{- end }}
-                        {{- if $monitoringService }}
-                        monitoringService: {{ quote $monitoringService }}
-                        {{- end }}
-                        {{- if $network.clusterIPv4CIDR }}
-                        clusterIpv4Cidr: {{ quote $network.clusterIPv4CIDR }}
-                        {{- end }}
-                        {{- if $network.serviceCidrBlock }}
-                        servicesIpv4Cidr: {{ quote $network.serviceCidrBlock }}
-                        {{- end }}
-                        {{- if $tags }}
-                        resourceLabels:
-                        {{- range $k, $v := $tags }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
-                      writeConnectionSecretToRef:
-                        name: {{ quote $secretName }}
-                        namespace: {{ quote $secretNamespace }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                        kind: ClusterProviderConfig
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
-                {{- range $index, $pool := $params.nodePools }}
-                - name: gke-nodepool-{{ $index }}
-                  resource:
-                    apiVersion: container.gcp.m.upbound.io/v1beta1
-                    kind: NodePool
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: gcp
-                        cluster-name: {{ $xr.metadata.name | quote }}
-                    spec:
-                      forProvider:
-                        location: {{ quote $params.region }}
-                        clusterRef:
-                          name: {{ quote $xr.metadata.name }}
-                        initialNodeCount: {{ default 1 $pool.count }}
-                        {{- if or $pool.minCount $pool.maxCount }}
-                        autoscaling:
-                          - minNodeCount: {{ default (default 1 $pool.count) $pool.minCount }}
-                            maxNodeCount: {{ default (default 1 $pool.count) $pool.maxCount }}
-                        {{- end }}
-                        {{- if $pool.availabilityZones }}
-                        nodeLocations:
-                        {{- range $pool.availabilityZones }}
-                          - {{ quote . }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $pool.kubernetesVersion }}
-                        version: {{ quote $pool.kubernetesVersion }}
-                        {{- end }}
-                        nodeConfig:
-                          - machineType: {{ quote $pool.instanceType }}
-                            {{- if $pool.storageSize }}
-                            {{- $disk := trimSuffix "Gi" $pool.storageSize -}}
-                            {{- if $disk }}
-                            diskSizeGb: {{ atoi $disk }}
-                            {{- end }}
-                            {{- end }}
-                            {{- if $pool.labels }}
-                            labels:
-                            {{- range $k, $v := $pool.labels }}
-                              {{ $k }}: {{ quote $v }}
-                            {{- end }}
-                            {{- end }}
-                            {{- if $pool.taints }}
-                            taints:
-                            {{- range $pool.taints }}
-                              - key: {{ quote .key }}
-                                {{- if .value }}
-                                value: {{ quote .value }}
-                                {{- end }}
-                                effect: {{ quote .effect }}
-                            {{- end }}
-                            {{- end }}
-                            {{- if $params.addons.enableClusterAutoscaler }}
-                            oauthScopes:
-                              - https://www.googleapis.com/auth/cloud-platform
-                            {{- end }}
-                            {{- if $pool.spot }}
-                            preemptible: true
-                            {{- end }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                        kind: ClusterProviderConfig
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+            ---
+            apiVersion: container.gcp.m.upbound.io/v1beta1
+            kind: Cluster
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: gke-cluster
+              labels:
+                feature: cluster
+                provider: gcp
+            spec:
+              forProvider:
+                location: {{ quote $params.region }}
+                initialClusterVersion: {{ quote $params.version }}
+                removeDefaultNodePool: {{ $removeDefault }}
+                {{- if (get $gcp "projectId") }}
+                project: {{ quote (get $gcp "projectId") }}
                 {{- end }}
+                {{- if (get $gcp "network") }}
+                network: {{ quote (get $gcp "network") }}
+                {{- end }}
+                {{- if (get $gcp "subnetwork") }}
+                subnetwork: {{ quote (get $gcp "subnetwork") }}
+                {{- else if $network.subnetIds }}
+                subnetwork: {{ quote (index $network.subnetIds 0) }}
+                {{- end }}
+                releaseChannel:
+                  - channel: {{ quote $releaseChannel }}
+                {{- if $loggingService }}
+                loggingService: {{ quote $loggingService }}
+                {{- end }}
+                {{- if $monitoringService }}
+                monitoringService: {{ quote $monitoringService }}
+                {{- end }}
+                {{- if $network.clusterIPv4CIDR }}
+                clusterIpv4Cidr: {{ quote $network.clusterIPv4CIDR }}
+                {{- end }}
+                {{- if $network.serviceCidrBlock }}
+                servicesIpv4Cidr: {{ quote $network.serviceCidrBlock }}
+                {{- end }}
+                {{- if $tags }}
+                resourceLabels:
+                {{- range $k, $v := $tags }}
+                  {{ $k }}: {{ quote $v }}
+                {{- end }}
+                {{- end }}
+              writeConnectionSecretToRef:
+                name: {{ quote $secretName }}
+                namespace: {{ quote $secretNamespace }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+                kind: ClusterProviderConfig
+              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+            {{- range $index, $pool := $params.nodePools }}
+            ---
+            apiVersion: container.gcp.m.upbound.io/v1beta1
+            kind: NodePool
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: gke-nodepool-{{ $index }}
+              labels:
+                feature: cluster
+                provider: gcp
+                cluster-name: {{ $xr.metadata.name | quote }}
+            spec:
+              forProvider:
+                location: {{ quote $params.region }}
+                clusterRef:
+                  name: {{ quote $xr.metadata.name }}
+                initialNodeCount: {{ default 1 $pool.count }}
+                {{- if or $pool.minCount $pool.maxCount }}
+                autoscaling:
+                  - minNodeCount: {{ default (default 1 $pool.count) $pool.minCount }}
+                    maxNodeCount: {{ default (default 1 $pool.count) $pool.maxCount }}
+                {{- end }}
+                {{- if $pool.availabilityZones }}
+                nodeLocations:
+                {{- range $pool.availabilityZones }}
+                  - {{ quote . }}
+                {{- end }}
+                {{- end }}
+                {{- if $pool.kubernetesVersion }}
+                version: {{ quote $pool.kubernetesVersion }}
+                {{- end }}
+                nodeConfig:
+                  - machineType: {{ quote $pool.instanceType }}
+                    {{- if $pool.storageSize }}
+                    {{- $disk := trimSuffix "Gi" $pool.storageSize -}}
+                    {{- if $disk }}
+                    diskSizeGb: {{ atoi $disk }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if $pool.labels }}
+                    labels:
+                    {{- range $k, $v := $pool.labels }}
+                      {{ $k }}: {{ quote $v }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if $pool.taints }}
+                    taints:
+                    {{- range $pool.taints }}
+                      - key: {{ quote .key }}
+                        {{- if .value }}
+                        value: {{ quote .value }}
+                        {{- end }}
+                        effect: {{ quote .effect }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if (dig "addons" "enableClusterAutoscaler" false $params) }}
+                    oauthScopes:
+                      - https://www.googleapis.com/auth/cloud-platform
+                    {{- end }}
+                    {{- if $pool.spot }}
+                    preemptible: true
+                    {{- end }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+                kind: ClusterProviderConfig
+              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+            {{- end }}
     # ArgoCD auto-registration (roadmap P2.1): publish an ArgoCD cluster
     # Secret once GKE reports its endpoint and CA. Auth uses ArgoCD's
     # argocd-k8s-auth gcp exec plugin — the ArgoCD pods authenticate with
@@ -162,9 +161,10 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $observed := default (dict) .observed.resources -}}
@@ -172,39 +172,36 @@ spec:
             {{- $at := dig "status" "atProvider" (dict) $cluster -}}
             {{- $endpoint := dig "endpoint" "" $at -}}
             {{- $authList := dig "masterAuth" (list) $at -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                {{- if and $endpoint $authList }}
-                {{- $caData := dig "clusterCaCertificate" "" (index $authList 0) }}
-                - name: argocd-cluster-registration
-                  resource:
-                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
-                    kind: Object
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: gcp
-                        adhar.io/argocd-registration: "true"
-                    spec:
-                      forProvider:
-                        manifest:
-                          apiVersion: v1
-                          kind: Secret
-                          metadata:
-                            name: cluster-{{ $xr.metadata.name }}
-                            namespace: adhar-system
-                            labels:
-                              argocd.argoproj.io/secret-type: cluster
-                              adhar.io/cluster: {{ quote $xr.metadata.name }}
-                          type: Opaque
-                          stringData:
-                            name: {{ quote $xr.metadata.name }}
-                            server: https://{{ $endpoint }}
-                            config: |
-                              {"execProviderConfig": {"command": "argocd-k8s-auth", "args": ["gcp"], "apiVersion": "client.authentication.k8s.io/v1beta1"}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
-                      providerConfigRef:
-                        name: kubernetes-provider
-                        kind: ClusterProviderConfig
-                {{- end }}
+            {{- if and $endpoint $authList }}
+            {{- $caData := dig "clusterCaCertificate" "" (index $authList 0) }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: argocd-cluster-registration
+              labels:
+                feature: cluster
+                provider: gcp
+                adhar.io/argocd-registration: "true"
+            spec:
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: cluster-{{ $xr.metadata.name }}
+                    namespace: adhar-system
+                    labels:
+                      argocd.argoproj.io/secret-type: cluster
+                      adhar.io/cluster: {{ quote $xr.metadata.name }}
+                  type: Opaque
+                  stringData:
+                    name: {{ quote $xr.metadata.name }}
+                    server: https://{{ $endpoint }}
+                    config: |
+                      {"execProviderConfig": {"command": "argocd-k8s-auth", "args": ["gcp"], "apiVersion": "client.authentication.k8s.io/v1beta1"}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+            {{- end }}

@@ -181,7 +181,7 @@ spec:
                   properties:
                     namespace:
                       type: string
-                      default: crossplane-system
+                      default: adhar-system
                     name:
                       type: string
             status:

@@ -83,6 +83,14 @@ spec:
       labels:
         app.kubernetes.io/name: rustfs
     spec:
+      # rustfs runs unprivileged; the data volume is provisioned root-owned,
+      # so without fsGroup the server dies with "Permission denied (os error
+      # 13)" on first start. Match the image's rustfs user.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: rustfs
           image: docker.io/rustfs/rustfs:1.0.0-beta.8

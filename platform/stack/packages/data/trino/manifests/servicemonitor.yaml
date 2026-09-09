@@ -32,6 +32,8 @@ stringData:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
   name: trino
   namespace: adhar-system
   labels:

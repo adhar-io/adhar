@@ -72,6 +72,30 @@ spec:
                   *) echo "warn: $1 -> $code $(head -c 120 /tmp/r)" ;;
                 esac
               }
+              # Create-or-UPDATE (PUT on exists). Required for anything Nexus
+              # pre-creates at first boot — maven-public ships with
+              # [maven-releases, maven-snapshots, maven-central] — because a
+              # create-only POST returns 400 and silently leaves the default
+              # member list in place. That is exactly how maven-hosted and
+              # lombok-edge went missing from the group: every adhar-kit build
+              # then failed with "Could not find org.projectlombok:lombok:
+              # edge-SNAPSHOT in nexus-public" although the proxy itself served it.
+              # $1=path (e.g. maven/group) $2=name $3=json
+              upsertrepo() {
+                code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
+                  -X POST "${API}/repositories/$1" -d "$3")
+                case "$code" in
+                  201) echo "created $2" ;;
+                  400)
+                    code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
+                      -X PUT "${API}/repositories/$1/$2" -d "$3")
+                    case "$code" in
+                      204) echo "updated $2" ;;
+                      *) echo "warn: update $2 -> $code $(head -c 120 /tmp/r)" ;;
+                    esac ;;
+                  *) echo "warn: $2 -> $code $(head -c 120 /tmp/r)" ;;
+                esac
+              }
               # 2) Hosted repositories for each ecosystem.
               mkrepo maven/hosted '{"name":"maven-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false,"writePolicy":"ALLOW"},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
               mkrepo npm/hosted   '{"name":"npm-hosted","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"}}'
@@ -92,7 +116,11 @@ spec:
               # the newest JDKs; it is NOT on Maven Central). versionPolicy MIXED so the
               # -SNAPSHOT resolves. Added to maven-public below so builds see it.
               mkrepo maven/proxy '{"name":"lombok-edge","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://projectlombok.org/edge-releases/","contentMaxAge":-1,"metadataMaxAge":60},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":true},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
-              mkrepo maven/group '{"name":"maven-public","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"group":{"memberNames":["maven-hosted","maven-central","lombok-edge"]}}'
+              # maven-public pre-exists (Nexus creates it at first boot), so this
+              # MUST be an upsert — see upsertrepo. Keep Nexus's own
+              # maven-releases/maven-snapshots members so nothing that already
+              # resolves through the default group regresses.
+              upsertrepo maven/group maven-public '{"name":"maven-public","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"group":{"memberNames":["maven-hosted","maven-releases","maven-snapshots","maven-central","lombok-edge"]}}'
               # 3) Enable the auth realms:
               #    - NpmToken       : `npm publish` bearer tokens
               #    - rutauth-realm  : Rut Auth (HTTP header) — lets the Keycloak

@@ -20,15 +20,39 @@ import (
 	"strings"
 	"time"
 
+	"adhar-io/adhar/globals"
+
 	"golang.org/x/crypto/ssh"
 )
 
-const (
-	// KubeadmDefaultK8sMinor selects the pkgs.k8s.io package stream when the
-	// cluster spec does not pin a Kubernetes version. Derived from the
-	// platform-wide default in globals (currently v1.36.x).
-	KubeadmDefaultK8sMinor = "1.36"
+// KubeadmDefaultK8sMinor selects the pkgs.k8s.io package stream when the
+// cluster spec does not pin a Kubernetes version. It is DERIVED from the
+// platform-wide default (globals.DefaultKubernetesVersion) rather than typed
+// here: the two were once maintained by hand and drifted — globals said
+// v1.37.0 while this stayed "1.36" — so a DigitalOcean install came up on the
+// latest 1.36 patch while Kind ran 1.37. With the derivation, bumping the one
+// constant in globals moves every provider, and apt installs the newest patch
+// of that minor on each node at provisioning time.
+var KubeadmDefaultK8sMinor = minorOf(globals.DefaultKubernetesVersion, kubeadmFallbackK8sMinor)
 
+// kubeadmFallbackK8sMinor is used only if globals carries an unparseable
+// version; it must never be the value anyone edits to change the platform.
+const kubeadmFallbackK8sMinor = "1.37"
+
+// minorOf extracts "MAJOR.MINOR" from "v1.37.0" / "1.37" / "1.37.2", or
+// returns fallback when the input has no numeric major.minor.
+func minorOf(version, fallback string) string {
+	v := strings.TrimPrefix(strings.TrimSpace(version), "v")
+	parts := strings.Split(v, ".")
+	if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
+		if strings.IndexFunc(parts[0]+parts[1], func(r rune) bool { return r < '0' || r > '9' }) == -1 {
+			return parts[0] + "." + parts[1]
+		}
+	}
+	return fallback
+}
+
+const (
 	// KubeadmCloudInitMarker is touched by the node-preparation script so the
 	// provider knows a VM finished preparing before it drives kubeadm via SSH.
 	KubeadmCloudInitMarker = "/var/lib/adhar/cloud-init-done"
@@ -41,17 +65,7 @@ const (
 // K8sMinorFromVersion derives the pkgs.k8s.io minor stream ("1.34") from a
 // requested version ("", "1.34", "1.34.2", "v1.34.2").
 func K8sMinorFromVersion(requested string) string {
-	v := strings.TrimPrefix(strings.TrimSpace(requested), "v")
-	if v == "" {
-		return KubeadmDefaultK8sMinor
-	}
-	parts := strings.Split(v, ".")
-	if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
-		if strings.IndexFunc(parts[0]+parts[1], func(r rune) bool { return r < '0' || r > '9' }) == -1 {
-			return parts[0] + "." + parts[1]
-		}
-	}
-	return KubeadmDefaultK8sMinor
+	return minorOf(requested, KubeadmDefaultK8sMinor)
 }
 
 // KubeadmNodePrepScript returns the VM user-data/startup script that prepares

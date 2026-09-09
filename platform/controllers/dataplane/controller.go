@@ -22,6 +22,8 @@ package dataplane
 
 import (
 	"context"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,9 +33,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"adhar-io/adhar/api/v1alpha1"
 )
@@ -151,7 +151,50 @@ func (r *DataPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := r.Status().Update(ctx, dp); err != nil {
 		return ctrl.Result{}, err
 	}
+	r.rollUpFleet(ctx)
 	return ctrl.Result{RequeueAfter: defaultRequeueTime}, nil
+}
+
+// rollUpFleet writes the fleet summary (every DataPlane, its readiness and
+// placed-app count) onto the control plane's AdharPlatform status so
+// `adhar get status` and the console see the whole fleet in one place.
+// Best-effort: a missing AdharPlatform (envtest) is not an error.
+func (r *DataPlaneReconciler) rollUpFleet(ctx context.Context) {
+	logger := log.FromContext(ctx)
+	platforms := &v1alpha1.AdharPlatformList{}
+	if err := r.List(ctx, platforms, client.InNamespace(controlPlaneNamespace)); err != nil || len(platforms.Items) == 0 {
+		return
+	}
+	dps := &v1alpha1.DataPlaneList{}
+	if err := r.List(ctx, dps); err != nil {
+		return
+	}
+	fleet := &v1alpha1.FleetStatus{DataPlanes: len(dps.Items)}
+	for i := range dps.Items {
+		d := &dps.Items[i]
+		ready := false
+		for _, c := range d.Status.Conditions {
+			if c.Type == string(v1alpha1.DataPlaneReady) && c.Status == metav1.ConditionTrue {
+				ready = true
+			}
+		}
+		if ready {
+			fleet.Ready++
+		}
+		fleet.Planes = append(fleet.Planes, v1alpha1.FleetPlane{
+			Name:              d.Name,
+			Mode:              string(d.Spec.Infrastructure.Mode),
+			Ready:             ready,
+			Apps:              d.Status.AppCount,
+			KubernetesVersion: d.Status.KubernetesVersion,
+		})
+	}
+	platform := &platforms.Items[0]
+	patch := client.MergeFrom(platform.DeepCopy())
+	platform.Status.Fleet = fleet
+	if err := r.Status().Patch(ctx, platform, patch); err != nil {
+		logger.V(1).Info("fleet roll-up not recorded", "error", err.Error())
+	}
 }
 
 // finalize deregisters the ArgoCD cluster secret and (for controller-created
@@ -159,6 +202,17 @@ func (r *DataPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 // the finalizer.
 func (r *DataPlaneReconciler) finalize(ctx context.Context, dp *v1alpha1.DataPlane) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	// Retire the plane's Applications while ArgoCD can still reach the
+	// cluster: once the cluster secret is gone their resources-finalizer can
+	// never complete and every app hangs in Terminating.
+	if pending, err := r.deletePlacedApps(ctx, dp); err != nil {
+		logger.Error(err, "deleting the plane's Applications during finalize")
+		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+	} else if pending > 0 {
+		logger.Info("waiting for the plane's Applications to finish deleting", "pending", pending)
+		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+	}
 
 	// Deregister ArgoCD cluster secret (best-effort; ignore if already gone).
 	if err := r.deleteArgoRegistration(ctx, dp); err != nil {
@@ -179,6 +233,7 @@ func (r *DataPlaneReconciler) finalize(ctx context.Context, dp *v1alpha1.DataPla
 	if err := r.Update(ctx, dp); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	r.rollUpFleet(ctx)
 	return ctrl.Result{}, nil
 }
 
@@ -205,46 +260,41 @@ func (r *DataPlaneReconciler) countPlacedApps(ctx context.Context, argoName stri
 // SetupWithManager wires the controller: reconcile DataPlanes, own the
 // CompositeCluster XRs it authors, and recount placed apps when Application
 // health changes.
+// SetupWithManager wires the controller. It deliberately watches only core
+// types: the CompositeCluster XRD and the ArgoCD Application CRD are installed
+// late in (or after) bootstrap, and a watch on a not-yet-registered kind blocks
+// the manager's cache sync and kills it at WaitForCacheSyncTimeout — which is
+// how an early version left ArgoCD empty on fresh `adhar up`. Progress on the
+// managed infra is picked up by the reconcile's own requeue cadence instead.
 func (r *DataPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	composite := &unstructured.Unstructured{}
-	composite.SetGroupVersionKind(compositeClusterGVK)
-
-	app := &unstructured.Unstructured{}
-	app.SetGroupVersionKind(argoApplicationGVK)
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.DataPlane{}).
-		Owns(composite).
-		Watches(app, handler.EnqueueRequestsFromMapFunc(r.appToDataPlane)).
+		Owns(&corev1.Secret{}).
 		Complete(r)
 }
 
-// appToDataPlane maps an ArgoCD Application event to the DataPlane whose
-// registered cluster it targets, so app-count is recomputed on health changes.
-func (r *DataPlaneReconciler) appToDataPlane(ctx context.Context, obj client.Object) []reconcile.Request {
-	u, ok := obj.(*unstructured.Unstructured)
-	if !ok {
-		return nil
+// deletePlacedApps deletes every ArgoCD Application generated for this plane
+// (label adhar.io/cluster=<name>) and returns how many still exist. Tolerant
+// of the Application CRD being absent (envtest).
+func (r *DataPlaneReconciler) deletePlacedApps(ctx context.Context, dp *v1alpha1.DataPlane) (int, error) {
+	apps := &unstructured.UnstructuredList{}
+	apps.SetGroupVersionKind(argoApplicationListGVK)
+	if err := r.List(ctx, apps, client.InNamespace(controlPlaneNamespace), client.MatchingLabels{clusterLabelKey: dp.Name}); err != nil {
+		if isMissingKind(err) {
+			return 0, nil
+		}
+		return 0, err
 	}
-	server, name, _ := applicationDestination(u)
-	target := name
-	if target == "" {
-		target = server
-	}
-	if target == "" {
-		return nil
-	}
-
-	dps := &v1alpha1.DataPlaneList{}
-	if err := r.List(ctx, dps); err != nil {
-		return nil
-	}
-	var reqs []reconcile.Request
-	for i := range dps.Items {
-		dp := &dps.Items[i]
-		if dp.Status.ArgoCDCluster == target || dp.Status.Endpoint == target || dp.Name == target {
-			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(dp)})
+	pending := 0
+	for i := range apps.Items {
+		app := &apps.Items[i]
+		pending++
+		if !app.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		if err := r.Delete(ctx, app); err != nil && !apierrors.IsNotFound(err) {
+			return pending, err
 		}
 	}
-	return reqs
+	return pending, nil
 }

@@ -25,10 +25,6 @@ web:
 # SOFTWARE VERSIONS are still published in the bitnamilegacy repository under
 # plain version tags, so pin those: identical versions (the subchart's
 # configuration stays valid), tags that actually exist.
-postgresql:
-  image:
-    repository: bitnamilegacy/postgresql
-    tag: 11.7.0
 pgbouncer:
   image:
     repository: bitnamilegacy/pgbouncer
@@ -58,3 +54,24 @@ clickhouse:
     servers:
       - host: posthog-clickhouse-keeper
         port: 2181
+
+# PostHog runs its ClickHouse migrations against a cluster named
+# "posthog_migrations" by default; the chart's ClickHouseInstallation only
+# defines the "posthog" cluster, so the migrate Job died with "Requested
+# cluster 'posthog_migrations' not found". With a single-shard ClickHouse the
+# two are the same set of nodes.
+env:
+  - name: CLICKHOUSE_MIGRATIONS_CLUSTER
+    value: posthog
+
+# PostgreSQL comes from the platform CNPG operator (manifests/platform-postgres.yaml):
+# the chart's bundled PostgreSQL is 11.7 and PostHog requires 14+.
+postgresql:
+  enabled: false
+externalPostgresql:
+  postgresqlHost: posthog-db-rw.adhar-system.svc.cluster.local
+  postgresqlPort: 5432
+  postgresqlDatabase: posthog
+  postgresqlUsername: posthog
+  existingSecret: posthog-db-credentials
+  existingSecretPasswordKey: postgresql-password

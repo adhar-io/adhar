@@ -46,7 +46,7 @@ spec:
             deletionPolicy = params.deletionPolicy or "Delete"
 
             secretName = conn.name or "${metadata.name}-auth"
-            secretNamespace = conn.namespace or "crossplane-system"
+            secretNamespace = conn.namespace or "adhar-system"
 
             # Keycloak namespace
             keycloakNamespace = params.namespace or "keycloak"

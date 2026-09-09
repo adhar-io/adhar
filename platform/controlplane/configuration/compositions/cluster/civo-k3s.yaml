@@ -19,9 +19,10 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $params := $xr.spec.parameters -}}
@@ -29,7 +30,7 @@ spec:
             {{- $civo := default (dict) (get $providerSettings "civo") -}}
             {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
             {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
-            {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
+            {{- $secretNamespace := default "adhar-system" (get $conn "namespace") -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "civo" $xr -}}
             {{- $pools := $params.nodePools -}}
             {{- $applications := default (list) (get $civo "applications") -}}
@@ -38,79 +39,76 @@ spec:
             {{- $clusterVersion := default $params.version (get $civo "version") -}}
             {{- $secretPrefix := default $xr.metadata.name (get $civo "connectionSecretNamePrefix") -}}
             {{- $secretNS := default $secretNamespace (get $civo "connectionSecretNamespace") -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                - name: civo-cluster
-                  resource:
-                    apiVersion: cluster.civo.crossplane.io/v1alpha1
-                    kind: CivoKubernetes
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: civo
-                    spec:
-                      forProvider:
-                        name: {{ quote (default $xr.metadata.name $params.displayName) }}
-                        pools:
-                        {{- range $index, $pool := $pools }}
-                          - size: {{ quote $pool.instanceType }}
-                            count: {{ default 1 $pool.count }}
-                            {{- if $pool.regionOverride }}
-                            region: {{ quote $pool.regionOverride }}
-                            {{- else }}
-                            region: {{ quote $params.region }}
-                            {{- end }}
-                            {{- if (or $pool.taints $publicIPDefault $pool.publicIPNodePool $pool.labels) }}
-                            {{- if $pool.labels }}
-                            labels:
-                            {{- range $k, $v := $pool.labels }}
-                              {{ $k }}: {{ quote $v }}
-                            {{- end }}
-                            {{- end }}
-                            {{- if $pool.taints }}
-                            taints:
-                            {{- range $pool.taints }}
-                              - key: {{ quote .key }}
-                                value: {{ quote (default "" .value) }}
-                                effect: {{ quote .effect }}
-                            {{- end }}
-                            {{- else }}
-                            taints: []
-                            {{- end }}
-                            {{- if $pool.publicIPNodePool }}
-                            public_ip_node_pool: true
-                            {{- else if $publicIPDefault }}
-                            public_ip_node_pool: true
-                            {{- end }}
-                            {{- else }}
-                            taints: []
-                            {{- end }}
-                        {{- end }}
-                        {{- if $applications }}
-                        applications:
-                        {{- range $applications }}
-                          - {{ quote . }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $clusterVersion }}
-                        version: {{ quote $clusterVersion }}
-                        {{- end }}
-                        {{- if $cni }}
-                        cni: {{ quote $cni }}
-                        {{- end }}
-                        connectionDetails:
-                          connectionSecretNamePrefix: {{ quote $secretPrefix }}
-                          connectionSecretNamespace: {{ quote $secretNS }}
-                      {{- if $providerConfig }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                      {{- end }}
-                      writeConnectionSecretToRef:
-                        name: {{ quote $secretName }}
-                        namespace: {{ quote $secretNamespace }}
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+            ---
+            apiVersion: cluster.civo.crossplane.io/v1alpha1
+            kind: CivoKubernetes
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: civo-cluster
+              labels:
+                feature: cluster
+                provider: civo
+            spec:
+              forProvider:
+                name: {{ quote (default $xr.metadata.name $params.displayName) }}
+                pools:
+                {{- range $index, $pool := $pools }}
+                  - size: {{ quote $pool.instanceType }}
+                    count: {{ default 1 $pool.count }}
+                    {{- if $pool.regionOverride }}
+                    region: {{ quote $pool.regionOverride }}
+                    {{- else }}
+                    region: {{ quote $params.region }}
+                    {{- end }}
+                    {{- if (or $pool.taints $publicIPDefault $pool.publicIPNodePool $pool.labels) }}
+                    {{- if $pool.labels }}
+                    labels:
+                    {{- range $k, $v := $pool.labels }}
+                      {{ $k }}: {{ quote $v }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if $pool.taints }}
+                    taints:
+                    {{- range $pool.taints }}
+                      - key: {{ quote .key }}
+                        value: {{ quote (default "" .value) }}
+                        effect: {{ quote .effect }}
+                    {{- end }}
+                    {{- else }}
+                    taints: []
+                    {{- end }}
+                    {{- if $pool.publicIPNodePool }}
+                    public_ip_node_pool: true
+                    {{- else if $publicIPDefault }}
+                    public_ip_node_pool: true
+                    {{- end }}
+                    {{- else }}
+                    taints: []
+                    {{- end }}
+                {{- end }}
+                {{- if $applications }}
+                applications:
+                {{- range $applications }}
+                  - {{ quote . }}
+                {{- end }}
+                {{- end }}
+                {{- if $clusterVersion }}
+                version: {{ quote $clusterVersion }}
+                {{- end }}
+                {{- if $cni }}
+                cni: {{ quote $cni }}
+                {{- end }}
+                connectionDetails:
+                  connectionSecretNamePrefix: {{ quote $secretPrefix }}
+                  connectionSecretNamespace: {{ quote $secretNS }}
+              {{- if $providerConfig }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+              {{- end }}
+              writeConnectionSecretToRef:
+                name: {{ quote $secretName }}
+                namespace: {{ quote $secretNamespace }}
+              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
     # ArgoCD auto-registration (roadmap P2.1): parse the kubeconfig from the
     # cluster's connection details and publish an ArgoCD cluster Secret in
     # adhar-system. Uses the credentials embedded in the provider-issued
@@ -119,64 +117,62 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $observed := default (dict) .observed.resources -}}
             {{- $conn := dig "civo-cluster" "connectionDetails" (dict) $observed -}}
             {{- $raw := coalesce (get $conn "kubeconfig") (get $conn "attribute.kube_config_raw") -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                {{- if $raw }}
-                {{- $kc := fromYaml (b64dec $raw) }}
-                {{- $clusters := dig "clusters" (list) $kc }}
-                {{- $users := dig "users" (list) $kc }}
-                {{- if and $clusters $users }}
-                {{- $cluster0 := dig "cluster" (dict) (index $clusters 0) }}
-                {{- $user0 := dig "user" (dict) (index $users 0) }}
-                {{- $server := dig "server" "" $cluster0 }}
-                {{- $caData := dig "certificate-authority-data" "" $cluster0 }}
-                {{- $certData := dig "client-certificate-data" "" $user0 }}
-                {{- $keyData := dig "client-key-data" "" $user0 }}
-                {{- $token := dig "token" "" $user0 }}
-                {{- if $server }}
-                - name: argocd-cluster-registration
-                  resource:
-                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
-                    kind: Object
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: civo
-                        adhar.io/argocd-registration: "true"
-                    spec:
-                      forProvider:
-                        manifest:
-                          apiVersion: v1
-                          kind: Secret
-                          metadata:
-                            name: cluster-{{ $xr.metadata.name }}
-                            namespace: adhar-system
-                            labels:
-                              argocd.argoproj.io/secret-type: cluster
-                              adhar.io/cluster: {{ quote $xr.metadata.name }}
-                          type: Opaque
-                          stringData:
-                            name: {{ quote $xr.metadata.name }}
-                            server: {{ quote $server }}
-                            config: |
-                              {{- if $token }}
-                              {"bearerToken": {{ quote $token }}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
-                              {{- else }}
-                              {"tlsClientConfig": {"caData": {{ quote $caData }}, "certData": {{ quote $certData }}, "keyData": {{ quote $keyData }}}}
-                              {{- end }}
-                      providerConfigRef:
-                        name: kubernetes-provider
-                        kind: ClusterProviderConfig
-                {{- end }}
-                {{- end }}
-                {{- end }}
+            {{- if $raw }}
+            {{- $kc := fromYaml (b64dec $raw) }}
+            {{- $clusters := dig "clusters" (list) $kc }}
+            {{- $users := dig "users" (list) $kc }}
+            {{- if and $clusters $users }}
+            {{- $cluster0 := dig "cluster" (dict) (index $clusters 0) }}
+            {{- $user0 := dig "user" (dict) (index $users 0) }}
+            {{- $server := dig "server" "" $cluster0 }}
+            {{- $caData := dig "certificate-authority-data" "" $cluster0 }}
+            {{- $certData := dig "client-certificate-data" "" $user0 }}
+            {{- $keyData := dig "client-key-data" "" $user0 }}
+            {{- $token := dig "token" "" $user0 }}
+            {{- if $server }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: argocd-cluster-registration
+              labels:
+                feature: cluster
+                provider: civo
+                adhar.io/argocd-registration: "true"
+            spec:
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: cluster-{{ $xr.metadata.name }}
+                    namespace: adhar-system
+                    labels:
+                      argocd.argoproj.io/secret-type: cluster
+                      adhar.io/cluster: {{ quote $xr.metadata.name }}
+                  type: Opaque
+                  stringData:
+                    name: {{ quote $xr.metadata.name }}
+                    server: {{ quote $server }}
+                    config: |
+                      {{- if $token }}
+                      {"bearerToken": {{ quote $token }}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
+                      {{- else }}
+                      {"tlsClientConfig": {"caData": {{ quote $caData }}, "certData": {{ quote $certData }}, "keyData": {{ quote $keyData }}}}
+                      {{- end }}
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+            {{- end }}
+            {{- end }}
+            {{- end }}

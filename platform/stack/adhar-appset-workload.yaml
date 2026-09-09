@@ -32,6 +32,12 @@ spec:
                 matchExpressions:
                   - key: adhar.io/cluster
                     operator: Exists
+                  # vcluster planes (label stamped by the DataPlane controller)
+                  # get metrics.k8s.io from vcluster's own host proxy; see the
+                  # second generator below.
+                  - key: adhar.io/dataplane-mode
+                    operator: NotIn
+                    values: ["vcluster"]
           - list:
               elements:
                 # Each element carries `plane` (control | workload | both) as the
@@ -44,6 +50,67 @@ spec:
                   namespace: "adhar-system"
                   category: "observability"
                   manifestPath: "observability/metrics-server/manifests"
+                - packageName: "kyverno"
+                  enabled: "true"
+                  plane: "both"
+                  namespace: "adhar-system"
+                  category: "security"
+                  manifestPath: "security/kyverno/manifests"
+                - packageName: "kyverno-policies"
+                  enabled: "true"
+                  plane: "both"
+                  namespace: "adhar-system"
+                  category: "security"
+                  manifestPath: "security/kyverno-policies/manifests"
+                # Telemetry shipper: collects on the workload cluster, ships
+                # to the management-cluster hub (roadmap P2.3; endpoints come
+                # from the alloy package's observability-hub ConfigMap).
+                - packageName: "alloy"
+                  enabled: "true"
+                  plane: "both"
+                  namespace: "adhar-system"
+                  category: "observability"
+                  manifestPath: "observability/alloy/manifests"
+                # Secrets agent: an External Secrets Operator instance on the
+                # data plane, so workloads resolve secrets from the control-plane
+                # Vault via a ClusterSecretStore (ADR-0023 §8, ADR-0009). Completes
+                # the ProfileStandard bundle. The SPIRE agent (workload identity)
+                # ships bundled with Cilium and arrives with the Cluster Mesh work
+                # (roadmap P2.4), so it is intentionally not a separate element here.
+                - packageName: "external-secrets"
+                  enabled: "true"
+                  plane: "workload"
+                  namespace: "adhar-system"
+                  category: "security"
+                  manifestPath: "security/external-secrets/manifests"
+            # Sibling of `list`, not nested inside it — the enabled gate.
+            selector:
+              matchLabels:
+                enabled: "true"
+    # vcluster data planes: identical thin profile without metrics-server
+    # (vcluster serves metrics.k8s.io itself via integrations.metricsServer).
+    - matrix:
+        generators:
+          # Every ArgoCD-registered workload cluster (P2.1 registration
+          # secrets). The local/management cluster is not matched: its
+          # in-cluster destination has no adhar.io/cluster label.
+          - clusters:
+              selector:
+                matchExpressions:
+                  - key: adhar.io/cluster
+                    operator: Exists
+                  # vcluster planes (label stamped by the DataPlane controller)
+                  # get metrics.k8s.io from vcluster's own host proxy; see the
+                  # second generator below.
+                  - key: adhar.io/dataplane-mode
+                    operator: In
+                    values: ["vcluster"]
+          - list:
+              elements:
+                # Each element carries `plane` (control | workload | both) as the
+                # single source of truth for placement (ADR-0023 §3). The thin
+                # profile is exactly the `both` agents plus the ESO secrets agent:
+                # they run on every data plane AND on the control plane itself.
                 - packageName: "kyverno"
                   enabled: "true"
                   plane: "both"
@@ -98,9 +165,24 @@ spec:
         repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/packages
         targetRevision: main
         path: "{{ .manifestPath }}"
+        directory:
+          # Data planes run no Prometheus Operator (metrics are shipped to
+          # the hub by Alloy), so a package's ServiceMonitor/PodMonitor/
+          # PrometheusRule/dashboard ConfigMaps must not be part of the app —
+          # an unknown kind makes ArgoCD reject the whole sync as invalid.
+          exclude: "{servicemonitor.yaml,servicemonitors.yaml,podmonitor.yaml,podmonitors.yaml,prometheusrule*.yaml,*dashboard*.yaml}"
       destination:
         server: "{{ .server }}"
         namespace: "{{ .namespace }}"
+      # The DataPlane controller (field manager "adhar") writes the hub
+      # endpoints into observability-hub on each data plane — the same
+      # ConfigMap the alloy package ships with in-cluster defaults. Leave the
+      # controller-owned fields alone instead of fighting over them.
+      ignoreDifferences:
+        - kind: ConfigMap
+          name: observability-hub
+          managedFieldsManagers:
+            - adhar
       syncPolicy:
         automated:
           prune: true
@@ -108,3 +190,11 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: -1
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m

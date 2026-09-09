@@ -19,9 +19,10 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $params := $xr.spec.parameters -}}
@@ -30,7 +31,7 @@ spec:
             {{- $network := default (dict) $params.networkConfig -}}
             {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
             {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
-            {{- $secretNamespace := default "crossplane-system" (get $conn "namespace") -}}
+            {{- $secretNamespace := default "adhar-system" (get $conn "namespace") -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "digitalocean" $xr -}}
             {{- $clusterTags := list }}
             {{- range (default (list) (get $doks "tags")) }}
@@ -46,144 +47,142 @@ spec:
             {{- $clusterSubnet := get $doks "clusterSubnet" -}}
             {{- $serviceSubnet := get $doks "serviceSubnet" -}}
             {{- $vpcUuid := default (get $doks "vpcUuid") $network.vpcId -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                - name: doks-cluster
-                  resource:
-                    apiVersion: kubernetes.digitalocean.crossplane.io/v1alpha1
-                    kind: Cluster
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: digitalocean
-                    spec:
-                      forProvider:
-                        name: {{ quote (default $xr.metadata.name $params.displayName) }}
-                        region: {{ quote $params.region }}
-                        version: {{ quote $params.version }}
-                        {{- if $clusterSubnet }}
-                        clusterSubnet: {{ quote $clusterSubnet }}
-                        {{- end }}
-                        {{- if $serviceSubnet }}
-                        serviceSubnet: {{ quote $serviceSubnet }}
-                        {{- end }}
-                        {{- if (ne $autoUpgrade nil) }}
-                        autoUpgrade: {{ $autoUpgrade }}
-                        {{- end }}
-                        {{- if (ne $surgeUpgrade nil) }}
-                        surgeUpgrade: {{ $surgeUpgrade }}
-                        {{- end }}
-                        {{- if $maintenance }}
-                        maintenancePolicy:
-                          - day: {{ quote (get $maintenance "day") }}
-                            startTime: {{ quote (get $maintenance "startTime") }}
-                        {{- end }}
-                        {{- if $vpcUuid }}
-                        vpcUuid: {{ quote $vpcUuid }}
-                        {{- end }}
-                        {{- if $clusterTags }}
-                        tags:
-                        {{- range $clusterTags }}
-                          - {{ quote . }}
-                        {{- end }}
-                        {{- end }}
-                        nodePool:
-                          name: {{ quote (default $firstPool.name "default") }}
-                          size: {{ quote $firstPool.instanceType }}
-                          nodeCount: {{ default 1 $firstPool.count }}
-                          {{- if and $firstPool.minCount $firstPool.maxCount }}
-                          autoScale: true
-                          minNodes: {{ $firstPool.minCount }}
-                          maxNodes: {{ $firstPool.maxCount }}
-                          {{- else if $firstPool.minCount }}
-                          minNodes: {{ $firstPool.minCount }}
-                          {{- else if $firstPool.maxCount }}
-                          maxNodes: {{ $firstPool.maxCount }}
-                          {{- end }}
-                          {{- if $firstPool.labels }}
-                          labels:
-                          {{- range $k, $v := $firstPool.labels }}
-                            {{ $k }}: {{ quote $v }}
-                          {{- end }}
-                          {{- end }}
-                          {{- if $firstPool.taints }}
-                          taint:
-                          {{- range $firstPool.taints }}
-                            - key: {{ quote .key }}
-                              value: {{ quote (default "" .value) }}
-                              effect: {{ quote .effect }}
-                          {{- end }}
-                          {{- end }}
-                          {{- if $firstPool.tags }}
-                          tags:
-                          {{- range $k, $v := $firstPool.tags }}
-                            - {{ quote (printf "%s:%s" $k $v) }}
-                          {{- end }}
-                          {{- end }}
-                      writeConnectionSecretToRef:
-                        name: {{ quote $secretName }}
-                        namespace: {{ quote $secretNamespace }}
-                      {{- if $providerConfig }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                      {{- end }}
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
-                {{- range $index, $pool := $params.nodePools }}
-                {{- if gt $index 0 }}
-                - name: doks-nodepool-{{ $index }}
-                  resource:
-                    apiVersion: kubernetes.digitalocean.crossplane.io/v1alpha1
-                    kind: NodePool
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: digitalocean
-                        cluster-name: {{ quote $xr.metadata.name }}
-                    spec:
-                      forProvider:
-                        clusterIdSelector:
-                          matchControllerRef: true
-                        name: {{ quote $pool.name }}
-                        size: {{ quote $pool.instanceType }}
-                        nodeCount: {{ default 1 $pool.count }}
-                        {{- if and $pool.minCount $pool.maxCount }}
-                        autoScale: true
-                        minNodes: {{ $pool.minCount }}
-                        maxNodes: {{ $pool.maxCount }}
-                        {{- else if $pool.minCount }}
-                        minNodes: {{ $pool.minCount }}
-                        {{- else if $pool.maxCount }}
-                        maxNodes: {{ $pool.maxCount }}
-                        {{- end }}
-                        {{- if $pool.labels }}
-                        labels:
-                        {{- range $k, $v := $pool.labels }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $pool.taints }}
-                        taint:
-                        {{- range $pool.taints }}
-                          - key: {{ quote .key }}
-                            value: {{ quote (default "" .value) }}
-                            effect: {{ quote .effect }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $pool.tags }}
-                        tags:
-                        {{- range $k, $v := $pool.tags }}
-                          - {{ quote (printf "%s:%s" $k $v) }}
-                        {{- end }}
-                        {{- end }}
-                      {{- if $providerConfig }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                      {{- end }}
-                      deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+            ---
+            apiVersion: kubernetes.digitalocean.crossplane.io/v1alpha1
+            kind: Cluster
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: doks-cluster
+              labels:
+                feature: cluster
+                provider: digitalocean
+            spec:
+              forProvider:
+                name: {{ quote (default $xr.metadata.name $params.displayName) }}
+                region: {{ quote $params.region }}
+                version: {{ quote $params.version }}
+                {{- if $clusterSubnet }}
+                clusterSubnet: {{ quote $clusterSubnet }}
+                {{- end }}
+                {{- if $serviceSubnet }}
+                serviceSubnet: {{ quote $serviceSubnet }}
+                {{- end }}
+                {{- if (ne $autoUpgrade "") }}
+                autoUpgrade: {{ $autoUpgrade }}
+                {{- end }}
+                {{- if (ne $surgeUpgrade "") }}
+                surgeUpgrade: {{ $surgeUpgrade }}
+                {{- end }}
+                {{- if $maintenance }}
+                maintenancePolicy:
+                  - day: {{ quote (get $maintenance "day") }}
+                    startTime: {{ quote (get $maintenance "startTime") }}
+                {{- end }}
+                {{- if $vpcUuid }}
+                vpcUuid: {{ quote $vpcUuid }}
+                {{- end }}
+                {{- if $clusterTags }}
+                tags:
+                {{- range $clusterTags }}
+                  - {{ quote . }}
                 {{- end }}
                 {{- end }}
+                nodePool:
+                  name: {{ quote (default $firstPool.name "default") }}
+                  size: {{ quote $firstPool.instanceType }}
+                  nodeCount: {{ default 1 $firstPool.count }}
+                  {{- if and $firstPool.minCount $firstPool.maxCount }}
+                  autoScale: true
+                  minNodes: {{ $firstPool.minCount }}
+                  maxNodes: {{ $firstPool.maxCount }}
+                  {{- else if $firstPool.minCount }}
+                  minNodes: {{ $firstPool.minCount }}
+                  {{- else if $firstPool.maxCount }}
+                  maxNodes: {{ $firstPool.maxCount }}
+                  {{- end }}
+                  {{- if $firstPool.labels }}
+                  labels:
+                  {{- range $k, $v := $firstPool.labels }}
+                    {{ $k }}: {{ quote $v }}
+                  {{- end }}
+                  {{- end }}
+                  {{- if $firstPool.taints }}
+                  taint:
+                  {{- range $firstPool.taints }}
+                    - key: {{ quote .key }}
+                      value: {{ quote (default "" .value) }}
+                      effect: {{ quote .effect }}
+                  {{- end }}
+                  {{- end }}
+                  {{- if $firstPool.tags }}
+                  tags:
+                  {{- range $k, $v := $firstPool.tags }}
+                    - {{ quote (printf "%s:%s" $k $v) }}
+                  {{- end }}
+                  {{- end }}
+              writeConnectionSecretToRef:
+                name: {{ quote $secretName }}
+                namespace: {{ quote $secretNamespace }}
+              {{- if $providerConfig }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+              {{- end }}
+              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+            {{- range $index, $pool := $params.nodePools }}
+            {{- if gt $index 0 }}
+            ---
+            apiVersion: kubernetes.digitalocean.crossplane.io/v1alpha1
+            kind: NodePool
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: doks-nodepool-{{ $index }}
+              labels:
+                feature: cluster
+                provider: digitalocean
+                cluster-name: {{ quote $xr.metadata.name }}
+            spec:
+              forProvider:
+                clusterIdSelector:
+                  matchControllerRef: true
+                name: {{ quote $pool.name }}
+                size: {{ quote $pool.instanceType }}
+                nodeCount: {{ default 1 $pool.count }}
+                {{- if and $pool.minCount $pool.maxCount }}
+                autoScale: true
+                minNodes: {{ $pool.minCount }}
+                maxNodes: {{ $pool.maxCount }}
+                {{- else if $pool.minCount }}
+                minNodes: {{ $pool.minCount }}
+                {{- else if $pool.maxCount }}
+                maxNodes: {{ $pool.maxCount }}
+                {{- end }}
+                {{- if $pool.labels }}
+                labels:
+                {{- range $k, $v := $pool.labels }}
+                  {{ $k }}: {{ quote $v }}
+                {{- end }}
+                {{- end }}
+                {{- if $pool.taints }}
+                taint:
+                {{- range $pool.taints }}
+                  - key: {{ quote .key }}
+                    value: {{ quote (default "" .value) }}
+                    effect: {{ quote .effect }}
+                {{- end }}
+                {{- end }}
+                {{- if $pool.tags }}
+                tags:
+                {{- range $k, $v := $pool.tags }}
+                  - {{ quote (printf "%s:%s" $k $v) }}
+                {{- end }}
+                {{- end }}
+              {{- if $providerConfig }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+              {{- end }}
+              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+            {{- end }}
+            {{- end }}
     # ArgoCD auto-registration (roadmap P2.1): parse the kubeconfig from the
     # cluster's connection details and publish an ArgoCD cluster Secret in
     # adhar-system. Uses the credentials embedded in the provider-issued
@@ -192,64 +191,62 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $observed := default (dict) .observed.resources -}}
             {{- $conn := dig "doks-cluster" "connectionDetails" (dict) $observed -}}
             {{- $raw := coalesce (get $conn "kubeconfig") (get $conn "attribute.kube_config_raw") -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                {{- if $raw }}
-                {{- $kc := fromYaml (b64dec $raw) }}
-                {{- $clusters := dig "clusters" (list) $kc }}
-                {{- $users := dig "users" (list) $kc }}
-                {{- if and $clusters $users }}
-                {{- $cluster0 := dig "cluster" (dict) (index $clusters 0) }}
-                {{- $user0 := dig "user" (dict) (index $users 0) }}
-                {{- $server := dig "server" "" $cluster0 }}
-                {{- $caData := dig "certificate-authority-data" "" $cluster0 }}
-                {{- $certData := dig "client-certificate-data" "" $user0 }}
-                {{- $keyData := dig "client-key-data" "" $user0 }}
-                {{- $token := dig "token" "" $user0 }}
-                {{- if $server }}
-                - name: argocd-cluster-registration
-                  resource:
-                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
-                    kind: Object
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: digitalocean
-                        adhar.io/argocd-registration: "true"
-                    spec:
-                      forProvider:
-                        manifest:
-                          apiVersion: v1
-                          kind: Secret
-                          metadata:
-                            name: cluster-{{ $xr.metadata.name }}
-                            namespace: adhar-system
-                            labels:
-                              argocd.argoproj.io/secret-type: cluster
-                              adhar.io/cluster: {{ quote $xr.metadata.name }}
-                          type: Opaque
-                          stringData:
-                            name: {{ quote $xr.metadata.name }}
-                            server: {{ quote $server }}
-                            config: |
-                              {{- if $token }}
-                              {"bearerToken": {{ quote $token }}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
-                              {{- else }}
-                              {"tlsClientConfig": {"caData": {{ quote $caData }}, "certData": {{ quote $certData }}, "keyData": {{ quote $keyData }}}}
-                              {{- end }}
-                      providerConfigRef:
-                        name: kubernetes-provider
-                        kind: ClusterProviderConfig
-                {{- end }}
-                {{- end }}
-                {{- end }}
+            {{- if $raw }}
+            {{- $kc := fromYaml (b64dec $raw) }}
+            {{- $clusters := dig "clusters" (list) $kc }}
+            {{- $users := dig "users" (list) $kc }}
+            {{- if and $clusters $users }}
+            {{- $cluster0 := dig "cluster" (dict) (index $clusters 0) }}
+            {{- $user0 := dig "user" (dict) (index $users 0) }}
+            {{- $server := dig "server" "" $cluster0 }}
+            {{- $caData := dig "certificate-authority-data" "" $cluster0 }}
+            {{- $certData := dig "client-certificate-data" "" $user0 }}
+            {{- $keyData := dig "client-key-data" "" $user0 }}
+            {{- $token := dig "token" "" $user0 }}
+            {{- if $server }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: argocd-cluster-registration
+              labels:
+                feature: cluster
+                provider: digitalocean
+                adhar.io/argocd-registration: "true"
+            spec:
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: cluster-{{ $xr.metadata.name }}
+                    namespace: adhar-system
+                    labels:
+                      argocd.argoproj.io/secret-type: cluster
+                      adhar.io/cluster: {{ quote $xr.metadata.name }}
+                  type: Opaque
+                  stringData:
+                    name: {{ quote $xr.metadata.name }}
+                    server: {{ quote $server }}
+                    config: |
+                      {{- if $token }}
+                      {"bearerToken": {{ quote $token }}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
+                      {{- else }}
+                      {"tlsClientConfig": {"caData": {{ quote $caData }}, "certData": {{ quote $certData }}, "keyData": {{ quote $keyData }}}}
+                      {{- end }}
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+            {{- end }}
+            {{- end }}
+            {{- end }}

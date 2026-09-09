@@ -1346,6 +1346,13 @@ data:
   repo.server: argo-cd-argocd-repo-server:8081
   reposerver.log.format: text
   reposerver.log.level: info
+  # Raised from the 10M default: the observability stack (kube-prometheus) ships
+  # ~100 Grafana dashboards inlined as ConfigMaps, so its rendered manifest path
+  # is ~13M. Below this limit the repo-server refuses to render kube-prometheus,
+  # which cascades — the Prometheus Operator (ServiceMonitor CRD) never installs,
+  # so cnpg and keycloak (both carry a ServiceMonitor) fail resource discovery
+  # and never come up. 64M leaves headroom for further dashboard growth.
+  reposerver.max.combined.directory.manifests.size: 64M
   reposerver.parallelism.limit: "0"
   server.basehref: /
   server.dex.server: https://argo-cd-argocd-dex-server:5556
@@ -1353,7 +1360,7 @@ data:
   server.disable.auth: "false"
   server.enable.gzip: "true"
   server.enable.proxy.extension: "false"
-  server.insecure: "false"
+  server.insecure: "true"
   server.log.format: text
   server.log.level: info
   server.repo.server.strict.tls: "false"

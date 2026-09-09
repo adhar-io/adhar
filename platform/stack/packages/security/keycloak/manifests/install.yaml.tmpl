@@ -195,7 +195,9 @@ metadata:
     # of the invalid replace(--force) + --server-side combination.
     argocd.argoproj.io/sync-options: ServerSideApply=true
 spec:
-  instances: 1
+  # One instance on a laptop; a primary + replica in HA mode (matches the
+  # bootstrap-phase gitea-db). Rendered at seed time from the platform spec.
+  instances: {{ if .EnableHAMode }}2{{ else }}1{{ end }}
   storage:
     size: 1Gi
   # Guaranteed CPU/memory so the database is not starved during the initial

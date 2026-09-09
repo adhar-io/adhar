@@ -3922,6 +3922,7 @@ spec:
   accessMode: ReadWrite
   objectStorage:
     bucket: "adhar-backups"
+    prefix: "velero"
   config:
     region: "minio"
     s3ForcePathStyle: "true"

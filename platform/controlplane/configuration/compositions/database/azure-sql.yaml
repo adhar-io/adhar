@@ -58,7 +58,7 @@ spec:
 
             # Connection secret
             secretName = conn.name or "${metadata.name}-db"
-            secretNamespace = conn.namespace or "crossplane-system"
+            secretNamespace = conn.namespace or "adhar-system"
 
             # Server name
             serverName = metadata.name
@@ -102,7 +102,7 @@ spec:
                             if masterPasswordSecretRef:
                                 administratorLoginPasswordSecretRef: {
                                     name: masterPasswordSecretRef.name
-                                    namespace: masterPasswordSecretRef.namespace or "crossplane-system"
+                                    namespace: masterPasswordSecretRef.namespace or "adhar-system"
                                     key: masterPasswordSecretRef.key or "password"
                                 }
                             publicNetworkAccessEnabled: publiclyAccessible

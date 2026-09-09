@@ -478,7 +478,9 @@ configs:
     ## Server properties
     # -- Run server without TLS
     ## NOTE: This value should be set when you generate params by other means as it changes ports used by ingress template.
-    server.insecure: false
+    # TLS terminates at the Cilium Gateway; the server must speak plain HTTP
+    # behind it or every request 307-loops to itself (HA variant regression).
+    server.insecure: true
     # -- Value for base href in index.html. Used if Argo CD is running behind reverse proxy under subpath different from /
     server.basehref: /
     # -- Used if Argo CD is running behind reverse proxy under subpath different from /
@@ -499,6 +501,13 @@ configs:
     ## Repo-server properties
     # -- Limit on number of concurrent manifests generate requests. Any value less the 1 means no limit.
     reposerver.parallelism.limit: 0
+    # -- Max combined size of the manifests in one directory. The stack
+    # ships ~14M of Grafana dashboards under
+    # observability/kube-prometheus/manifests; the 10M default made the
+    # repo-server refuse to render that Application, which left the
+    # Prometheus operator CRDs uninstalled and broke every package that
+    # ships a ServiceMonitor.
+    reposerver.max.combined.directory.manifests.size: 64M
 
     ## ApplicationSet Properties
     # -- Modify how application is synced between the generator and the cluster. One of: `sync`, `create-only`, `create-update`, `create-delete`

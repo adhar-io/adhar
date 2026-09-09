@@ -37,8 +37,12 @@ data:
       kubernetes:
         enable: true
     discovery:
+      exclude_services:
+      - k8s_namespace: ^(adhar-system|kube-system|kube-public|kube-node-lease|local-path-storage|cilium-secrets|kubeflow|kpack-system|cosign-system|adhar-environments|kargo-.*|dp-.*)$
+      - k8s_deployment_name: ^(alloy|beyla|prometheus.*|loki.*|tempo.*|mimir.*|hubble.*|cilium.*)$
       services:
       - k8s_namespace: .
+      skip_go_specific_tracers: true
     filter:
       network:
         k8s_dst_owner_name:
@@ -121,7 +125,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 6feac18258fd82168e7fe9f244d511722bd51b904033e08274e72de30efed498
+        checksum/config: bccb23c8eab030cc21a930a44d30000e84ad56316293b0e180229ac8834e0164
       labels:
         helm.sh/chart: beyla-1.16.11
         app.kubernetes.io/name: beyla

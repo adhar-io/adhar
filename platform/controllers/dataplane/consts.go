@@ -21,5 +21,9 @@ package dataplane
 const (
 	apiVersionV1alpha1 = "v1alpha1"
 	dataPlaneLabelKey  = "adhar.io/dataplane"
-	keyName            = "name"
+	clusterLabelKey    = "adhar.io/cluster"
+	// dataPlaneModeLabelKey carries spec.infrastructure.mode on the ArgoCD
+	// cluster secret so ApplicationSets can vary the profile per mode.
+	dataPlaneModeLabelKey = "adhar.io/dataplane-mode"
+	keyName               = "name"
 )

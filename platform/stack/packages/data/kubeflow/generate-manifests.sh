@@ -45,3 +45,29 @@ with open(p, "w") as f:
     f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in kept))
 print(f"stripped bundled MinIO: {len(docs) - len(kept)} resource(s)")
 PYEOF_INNER
+
+# KFP's api-server config resolves the object store from the MINIO_SERVICE_SERVICE_HOST /
+# _PORT service-link env vars, which Kubernetes injects only for ClusterIP Services — never
+# for the ExternalName alias platform-minio.yaml provides. Set them explicitly on every
+# Deployment that consumes the object store.
+python3 - "${INSTALL_YAML}" <<'PYEOF_MINIO'
+import sys, yaml
+p = sys.argv[1]
+docs = [d for d in yaml.safe_load_all(open(p)) if d]
+inject = [{"name": "MINIO_SERVICE_SERVICE_HOST", "value": "minio.adhar-system.svc.cluster.local"},
+          {"name": "MINIO_SERVICE_SERVICE_PORT", "value": "9000"}]
+n = 0
+for d in docs:
+    if d.get("kind") != "Deployment": continue
+    for c in d["spec"]["template"]["spec"].get("containers", []):
+        env = c.setdefault("env", [])
+        names = {e.get("name") for e in env}
+        blob = yaml.safe_dump(c)
+        if "MINIO" in blob or "OBJECTSTORE" in blob or "minio" in blob or d["metadata"]["name"] in ("ml-pipeline", "ml-pipeline-persistenceagent", "ml-pipeline-ui", "ml-pipeline-scheduledworkflow", "ml-pipeline-viewer-crd", "metadata-writer"):
+            for e in inject:
+                if e["name"] not in names:
+                    env.append(e); n += 1
+with open(p, "w") as f:
+    f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in docs))
+print(f"injected MinIO service-link env into {n} container env lists")
+PYEOF_MINIO

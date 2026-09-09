@@ -23,51 +23,51 @@ spec:
     # under the *.aws.m.upbound.io API groups).
     # ---------------------------------------------------------------------------
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-aws-eks
+      package: xpkg.crossplane.io/crossplane-contrib/provider-aws-eks
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-aws-ec2
+      package: xpkg.crossplane.io/crossplane-contrib/provider-aws-ec2
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-aws-rds
+      package: xpkg.crossplane.io/crossplane-contrib/provider-aws-rds
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-aws-iam
+      package: xpkg.crossplane.io/crossplane-contrib/provider-aws-iam
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-aws-s3
+      package: xpkg.crossplane.io/crossplane-contrib/provider-aws-s3
       version: ">=v2.0.0"
 
     # ---------------------------------------------------------------------------
     # Azure - Upbound official providers (v2, *.azure.m.upbound.io).
     # ---------------------------------------------------------------------------
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-azure-containerservice
+      package: xpkg.crossplane.io/crossplane-contrib/provider-azure-containerservice
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-azure-network
+      package: xpkg.crossplane.io/crossplane-contrib/provider-azure-network
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-azure-sql
+      package: xpkg.crossplane.io/crossplane-contrib/provider-azure-sql
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-azure-storage
+      package: xpkg.crossplane.io/crossplane-contrib/provider-azure-storage
       version: ">=v2.0.0"
 
     # ---------------------------------------------------------------------------
     # GCP - Upbound official providers (v2, *.gcp.m.upbound.io).
     # ---------------------------------------------------------------------------
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-gcp-container
+      package: xpkg.crossplane.io/crossplane-contrib/provider-gcp-container
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-gcp-compute
+      package: xpkg.crossplane.io/crossplane-contrib/provider-gcp-compute
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-gcp-sql
+      package: xpkg.crossplane.io/crossplane-contrib/provider-gcp-sql
       version: ">=v2.0.0"
     - type: Provider
-      package: xpkg.upbound.io/upbound/provider-gcp-storage
+      package: xpkg.crossplane.io/crossplane-contrib/provider-gcp-storage
       version: ">=v2.0.0"
 
     # ---------------------------------------------------------------------------

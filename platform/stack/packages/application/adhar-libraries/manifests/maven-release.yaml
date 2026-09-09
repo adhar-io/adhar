@@ -1,84 +1,159 @@
-# Build + release adhar-kit (com.adhar.kit:*) to the Sonatype Nexus Maven
-# registry (repository `maven-hosted`). Tekton pipeline; the PipelineRun runs it
-# once per sync (PostSync, after mirror). Dependency resolution is pulled through
-# Nexus via a `<mirror>` onto the default `maven-public` group.
-# Adjust the builder image if adhar-kit targets a newer JDK.
+# adhar-kit (com.adhar.kit:*) — its own multi-stage Tekton Pipeline.
+#
+# Stages (one Tekton task each, so the dashboard and the console show them as
+# separate stages with their own logs and status):
+#   clone   → shallow clone of adhar/adhar-kit from Gitea at the requested revision
+#   build   → mvn package (tests skipped here; they get their own stage)
+#   test    → mvn test (unit tests; failsafe ITs are not run in-cluster)
+#   scan    → trivy filesystem scan (vulnerabilities, secrets, misconfig) — reports;
+#             set failOnCritical=true to block the publish on CRITICAL findings
+#   publish → mvn deploy to the Nexus `maven-hosted` repository
+#
+# Dependency resolution goes through Nexus `maven-public` (Central + the
+# projectlombok.org edge proxy — adhar-kit needs lombok edge on JDK 25). The
+# release PipelineRun lives in release.yaml; the push-triggered one in
+# triggers.yaml. Both reference THIS pipeline by name.
 ---
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
-  name: deploy-maven-project
+  name: git-clone-gitea
   namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
+  description: Clone an adhar/<repo> repository from the in-cluster Gitea into the workspace.
   params:
     - {name: repo, type: string}
+    - {name: revision, type: string, default: main}
   workspaces:
     - {name: source}
+  results:
+    - {name: commit, description: Resolved commit SHA}
   steps:
-    - name: mvn-deploy
-      # adhar-kit's parent pom enforces RequireJavaVersion [25,), so the build
-      # image must ship JDK 25 (temurin-21 fails the maven-enforcer plugin).
-      image: docker.io/library/maven:3.9-eclipse-temurin-25
-      # Cap the build so it cannot starve Nexus / the node (a single small
-      # node runs the whole platform); requests keep it schedulable.
+    - name: clone
+      image: docker.io/alpine/git:2.45.2
       computeResources:
-        requests: {cpu: 500m, memory: 1Gi}
-        limits: {cpu: "2", memory: 4Gi}
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {cpu: "1", memory: 512Mi}
       env:
-        # Nexus credentials + endpoints published by the nexus-config bootstrap Job.
-        - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}
-        - {name: NEXUS_PASS, valueFrom: {secretKeyRef: {name: nexus-credentials, key: password}}}
-        - {name: NEXUS_MAVEN, valueFrom: {secretKeyRef: {name: nexus-credentials, key: maven-hosted}}}
-        - {name: NEXUS_URL, valueFrom: {secretKeyRef: {name: nexus-credentials, key: url}}}
-        # Clone source from Gitea (git mirror is still Gitea-hosted).
         - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
         - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
       workingDir: $(workspaces.source.path)
       script: |
+        #!/bin/sh
+        set -eu
+        GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
+        AUTH=$(printf '%s:%s' "$GITEA_USER" "$GITEA_PASS" | base64 | tr -d '\n')
+        rm -rf src
+        # A full-ish clone of the one ref: --depth 1 is enough to build, and a
+        # commit SHA as revision still works via fetch.
+        git -c http.extraHeader="Authorization: Basic $AUTH" clone --depth 1 --branch "$(params.revision)" \
+          "$GITEA/adhar/$(params.repo).git" src 2>/dev/null || {
+          git -c http.extraHeader="Authorization: Basic $AUTH" clone --depth 1 "$GITEA/adhar/$(params.repo).git" src
+          cd src
+          git -c http.extraHeader="Authorization: Basic $AUTH" fetch --depth 1 origin "$(params.revision)"
+          git checkout -q FETCH_HEAD
+          cd ..
+        }
+        cd src
+        git rev-parse HEAD | tr -d '\n' | tee "$(results.commit.path)"
+        echo
+        echo "cloned adhar/$(params.repo) @ $(cat "$(results.commit.path)")"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: trivy-fs-scan
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  description: Trivy filesystem scan of the cloned source (vulnerabilities, secrets, misconfigurations).
+  params:
+    - {name: failOnCritical, type: string, default: "false"}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: critical, description: Number of CRITICAL vulnerabilities found}
+  steps:
+    - name: scan
+      image: docker.io/aquasec/trivy:0.58.1
+      computeResources:
+        requests: {cpu: 250m, memory: 512Mi}
+        limits: {cpu: "1", memory: 2Gi}
+      workingDir: $(workspaces.source.path)/src
+      script: |
+        #!/bin/sh
+        set -eu
+        # Human-readable report in the log; JSON alongside for the count.
+        trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 0 \
+          --skip-dirs node_modules,target,dist --format table .
+        trivy fs --scanners vuln --severity CRITICAL --exit-code 0 \
+          --skip-dirs node_modules,target,dist --format json -o /tmp/trivy.json . >/dev/null
+        n=$(grep -o '"Severity":"CRITICAL"' /tmp/trivy.json | wc -l | tr -d ' ')
+        printf '%s' "$n" | tee "$(results.critical.path)"
+        echo
+        echo "CRITICAL vulnerabilities: $n"
+        if [ "$(params.failOnCritical)" = "true" ] && [ "$n" != "0" ]; then
+          echo "failing the pipeline: failOnCritical=true"
+          exit 1
+        fi
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: maven
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  description: Run a Maven goal against the cloned source, resolving and publishing through Nexus.
+  params:
+    - {name: goals, type: string, description: "Maven goals, e.g. 'package' or 'deploy'"}
+    - {name: args, type: string, default: ""}
+  workspaces:
+    - {name: source}
+  steps:
+    - name: mvn
+      # adhar-kit's parent pom enforces RequireJavaVersion [25,), so the build
+      # image must ship JDK 25 (temurin-21 fails the maven-enforcer plugin).
+      image: docker.io/library/maven:3.9-eclipse-temurin-25
+      # Cap the build so it cannot starve Nexus / the node; requests keep it schedulable.
+      computeResources:
+        requests: {cpu: 500m, memory: 1Gi}
+        limits: {cpu: "2", memory: 4Gi}
+      env:
+        - {name: NEXUS_USER, valueFrom: {secretKeyRef: {name: nexus-credentials, key: username}}}
+        - {name: NEXUS_PASS, valueFrom: {secretKeyRef: {name: nexus-credentials, key: password}}}
+        - {name: NEXUS_MAVEN, valueFrom: {secretKeyRef: {name: nexus-credentials, key: maven-hosted}}}
+        - {name: NEXUS_URL, valueFrom: {secretKeyRef: {name: nexus-credentials, key: url}}}
+        # Keep the local repository on the shared workspace so later stages
+        # (test, publish) reuse what build resolved instead of re-downloading.
+        - {name: MAVEN_OPTS, value: "-Dmaven.repo.local=$(workspaces.source.path)/.m2"}
+      workingDir: $(workspaces.source.path)/src
+      script: |
         #!/usr/bin/env bash
         set -euo pipefail
-        GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
-        # Publish target (hosted) + resolution group (default Nexus maven-public).
         MAVEN_URL="${NEXUS_MAVEN%/}"
         MAVEN_PUBLIC="${NEXUS_URL%/}/repository/maven-public/"
-        git clone --depth 1 "$GITEA/adhar/$(params.repo).git" src
-        cd src
-        cat > settings.xml <<EOF
+        cat > /tmp/settings.xml <<EOF
         <settings>
           <servers>
-            <server>
-              <id>nexus</id>
-              <username>${NEXUS_USER}</username>
-              <password>${NEXUS_PASS}</password>
-            </server>
-            <server>
-              <id>nexus-public</id>
-              <username>${NEXUS_USER}</username>
-              <password>${NEXUS_PASS}</password>
-            </server>
+            <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASS}</password></server>
+            <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASS}</password></server>
           </servers>
           <mirrors>
-            <mirror>
-              <id>nexus-public</id>
-              <name>Nexus Public Mirror</name>
-              <url>${MAVEN_PUBLIC}</url>
-              <mirrorOf>*</mirrorOf>
-            </mirror>
+            <mirror><id>nexus-public</id><name>Nexus Public Mirror</name><url>${MAVEN_PUBLIC}</url><mirrorOf>*</mirrorOf></mirror>
           </mirrors>
         </settings>
         EOF
-        # Resolution goes through the in-cluster Nexus proxy, which can be slow
-        # or briefly unavailable on a busy node: retry transfers, allow long
-        # requests, and limit parallel downloads so a cold proxy is not swamped.
-        mvn -B -s settings.xml -DskipTests \
+        # The in-cluster Nexus proxy can be slow or briefly unavailable on a
+        # busy node: retry transfers, allow long requests, limit parallelism.
+        mvn -B -s /tmp/settings.xml \
           -Daether.connector.http.retryHandler.count=5 \
           -Daether.connector.connectTimeout=60000 \
           -Daether.connector.requestTimeout=600000 \
           -Dmaven.artifact.threads=2 \
           -DaltDeploymentRepository="nexus::default::$MAVEN_URL" \
-          deploy
-        echo "adhar-kit published to $MAVEN_URL (resolved via $MAVEN_PUBLIC)"
+          $(params.args) $(params.goals)
 ---
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -87,9 +162,44 @@ metadata:
   namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
+  description: adhar-kit — clone, build, test, scan, publish to Nexus (maven-hosted).
+  params:
+    - {name: revision, type: string, default: main}
+    - {name: failOnCritical, type: string, default: "false"}
   workspaces: [{name: shared}]
+  results:
+    - {name: commit, value: $(tasks.clone.results.commit)}
+    - {name: critical-vulnerabilities, value: $(tasks.scan.results.critical)}
   tasks:
-    - name: deploy
-      taskRef: {name: deploy-maven-project}
-      params: [{name: repo, value: "adhar-kit"}]
+    - name: clone
+      taskRef: {name: git-clone-gitea}
+      params:
+        - {name: repo, value: adhar-kit}
+        - {name: revision, value: $(params.revision)}
+      workspaces: [{name: source, workspace: shared}]
+    - name: build
+      runAfter: [clone]
+      taskRef: {name: maven}
+      params:
+        - {name: goals, value: package}
+        - {name: args, value: "-DskipTests"}
+      workspaces: [{name: source, workspace: shared}]
+    - name: test
+      runAfter: [build]
+      taskRef: {name: maven}
+      params:
+        - {name: goals, value: test}
+      workspaces: [{name: source, workspace: shared}]
+    - name: scan
+      runAfter: [build]
+      taskRef: {name: trivy-fs-scan}
+      params:
+        - {name: failOnCritical, value: $(params.failOnCritical)}
+      workspaces: [{name: source, workspace: shared}]
+    - name: publish
+      runAfter: [test, scan]
+      taskRef: {name: maven}
+      params:
+        - {name: goals, value: deploy}
+        - {name: args, value: "-DskipTests"}
       workspaces: [{name: source, workspace: shared}]

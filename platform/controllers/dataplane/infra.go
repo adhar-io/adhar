@@ -19,13 +19,14 @@ package dataplane
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/tools/clientcmd"
@@ -109,25 +110,62 @@ func (r *DataPlaneReconciler) ensureComposite(ctx context.Context, dp *v1alpha1.
 	return r.clientFromKubeconfigSecret(ctx, dp, dp.Name+"-kubeconfig", controlPlaneNamespace, false)
 }
 
-// ensureVCluster server-side-applies a vcluster resource on the control plane
-// and waits for its kubeconfig secret. Real but tolerant: the vcluster CRD may
-// be absent under envtest, in which case the apply is skipped and the phase
-// stays not-ready until a `<dp>-kubeconfig` secret appears.
+// ensureVCluster realises a mode=vcluster plane as a vcluster (loft.sh) control
+// plane running ON the management cluster, installed through an ArgoCD
+// Application that ArgoCD is guaranteed to have (the foundation installs it
+// before anything else). vcluster publishes its admin kubeconfig into the
+// Secret `vc-<name>` in its own namespace; the controller copies that into the
+// control-plane namespace as `<dp>-kubeconfig` (the name every later phase
+// reads) and verifies the API server answers before reporting ready.
+//
+// Tolerant of ArgoCD not being installed yet (envtest, very early bootstrap):
+// the phase simply stays "provisioning" until it is.
 func (r *DataPlaneReconciler) ensureVCluster(ctx context.Context, dp *v1alpha1.DataPlane) (client.Client, bool, error) {
 	logger := log.FromContext(ctx)
 
-	vc := r.vclusterFor(dp)
-	if err := controllerutil.SetControllerReference(dp, vc, r.Scheme); err != nil {
-		return nil, false, fmt.Errorf("setting owner reference on vcluster: %w", err)
+	app := r.vclusterFor(dp)
+	if err := controllerutil.SetControllerReference(dp, app, r.Scheme); err != nil {
+		return nil, false, fmt.Errorf("setting owner reference on vcluster Application: %w", err)
 	}
-	if err := ssaApply(ctx, r.Client, vc); err != nil {
+	if err := ssaApply(ctx, r.Client, app); err != nil {
 		if !isMissingKind(err) {
-			return nil, false, fmt.Errorf("applying vcluster: %w", err)
+			return nil, false, fmt.Errorf("applying vcluster Application: %w", err)
 		}
-		logger.V(1).Info("vcluster CRD not installed; skipping apply", "error", err.Error())
+		logger.V(1).Info("ArgoCD Application CRD not installed; vcluster provisioning deferred", "error", err.Error())
+		return nil, false, nil
 	}
 
-	// vcluster publishes its kubeconfig into a secret named <dp>-kubeconfig.
+	// vcluster writes vc-<name> (key "config") into its namespace once the
+	// syncer is up. Mirror it into the control-plane namespace under the
+	// canonical name; the copy is owned by the DataPlane for garbage collection.
+	src := &corev1.Secret{}
+	if err := r.Get(ctx, types.NamespacedName{Name: "vc-" + dp.Name, Namespace: vclusterNamespace(dp)}, src); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, false, nil // vcluster still coming up
+		}
+		return nil, false, fmt.Errorf("reading vcluster kubeconfig secret: %w", err)
+	}
+	raw := kubeconfigBytes(src)
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	dst := &corev1.Secret{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      dp.Name + "-kubeconfig",
+			Namespace: controlPlaneNamespace,
+			Labels:    map[string]string{dataPlaneLabelKey: dp.Name, "adhar.io/component": "vcluster-kubeconfig"},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{"config": raw},
+	}
+	if err := controllerutil.SetControllerReference(dp, dst, r.Scheme); err != nil {
+		return nil, false, fmt.Errorf("setting owner reference on kubeconfig secret: %w", err)
+	}
+	if err := ssaApply(ctx, r.Client, dst); err != nil {
+		return nil, false, fmt.Errorf("publishing %s-kubeconfig: %w", dp.Name, err)
+	}
+
 	return r.clientFromKubeconfigSecret(ctx, dp, dp.Name+"-kubeconfig", controlPlaneNamespace, false)
 }
 
@@ -183,26 +221,49 @@ func (r *DataPlaneReconciler) clientFromKubeconfigSecret(ctx context.Context, dp
 	return cl, true, nil
 }
 
-// compositeClusterFor builds the CompositeCluster XR for a mode=composite plane.
+// compositeClusterFor builds the CompositeCluster XR for a mode=composite plane
+// in the exact shape the XRD (platform/controlplane/configuration/xrd/
+// cluster.xrd.yaml) validates: everything under spec.parameters, the provider
+// as the XRD enum, node pools keyed by instanceType, and a compositionSelector
+// that picks the per-cloud composition by its `provider` label.
 func (r *DataPlaneReconciler) compositeClusterFor(dp *v1alpha1.DataPlane) *unstructured.Unstructured {
-	pools := make([]interface{}, 0, len(dp.Spec.Infrastructure.NodePools))
-	for _, p := range dp.Spec.Infrastructure.NodePools {
-		pools = append(pools, map[string]interface{}{
-			keyName: p.Name,
-			"size":  p.Size,
-			"count": int64(p.Count),
-			"gpu":   p.GPU,
-		})
+	infra := dp.Spec.Infrastructure
+	pools := make([]interface{}, 0, len(infra.NodePools))
+	for _, p := range infra.NodePools {
+		pool := map[string]interface{}{
+			keyName:        p.Name,
+			"instanceType": p.Size,
+			"count":        int64(p.Count),
+		}
+		if p.GPU {
+			pool["gpu"] = true
+		}
+		pools = append(pools, pool)
+	}
+	if len(pools) == 0 {
+		pools = append(pools, map[string]interface{}{keyName: "default", "instanceType": defaultNodeSize(infra.Provider), "count": int64(2)})
 	}
 	xr := &unstructured.Unstructured{}
 	xr.SetGroupVersionKind(compositeClusterGVK)
 	xr.SetName(dp.Name)
 	xr.SetNamespace(controlPlaneNamespace)
-	_ = unstructured.SetNestedField(xr.Object, string(dp.Spec.Infrastructure.Provider), "spec", "provider")
-	_ = unstructured.SetNestedField(xr.Object, dp.Spec.Infrastructure.Region, "spec", "region")
-	if len(pools) > 0 {
-		_ = unstructured.SetNestedSlice(xr.Object, pools, "spec", "nodePools")
+	xr.SetLabels(map[string]string{dataPlaneLabelKey: dp.Name})
+	selector := map[string]interface{}{
+		"matchLabels": map[string]interface{}{"feature": "cluster", "provider": compositionProvider(infra.Provider)},
 	}
+	// Crossplane v2 namespaced XRs read composition selection from
+	// spec.crossplane.*; the top-level copy satisfies the XRD's legacy
+	// `required: [compositionSelector]` but is otherwise ignored.
+	_ = unstructured.SetNestedMap(xr.Object, selector, "spec", "crossplane", "compositionSelector")
+	_ = unstructured.SetNestedMap(xr.Object, selector, "spec", "compositionSelector")
+	_ = unstructured.SetNestedMap(xr.Object, map[string]interface{}{
+		"provider":     xrdProvider(infra.Provider),
+		"region":       infra.Region,
+		"version":      infra.Version,
+		"controlPlane": map[string]interface{}{"endpointAccess": "Public"},
+		"nodePools":    pools,
+		"displayName":  dp.Name,
+	}, "spec", "parameters")
 	_ = unstructured.SetNestedMap(xr.Object, map[string]interface{}{
 		keyName:     dp.Name + "-kubeconfig",
 		"namespace": controlPlaneNamespace,
@@ -210,23 +271,142 @@ func (r *DataPlaneReconciler) compositeClusterFor(dp *v1alpha1.DataPlane) *unstr
 	return xr
 }
 
-// vclusterFor builds the vcluster resource for a mode=vcluster plane. It uses a
-// generic vcluster GVK; the real chart values (storage, gateway exposure) are a
-// follow-up — this keeps the apply idempotent and tolerant.
-func (r *DataPlaneReconciler) vclusterFor(dp *v1alpha1.DataPlane) *unstructured.Unstructured {
-	vc := &unstructured.Unstructured{}
-	vc.SetGroupVersionKind(vclusterGVK)
-	vc.SetName(dp.Name)
-	vc.SetNamespace(controlPlaneNamespace)
-	_ = unstructured.SetNestedField(vc.Object, "adhar", "spec", "chart", keyName)
-	_ = unstructured.SetNestedField(vc.Object, dp.Name+"-kubeconfig", "spec", "kubeConfigSecret")
-	return vc
+// compositionProvider maps the platform provider names onto the `provider`
+// label the cluster Compositions carry.
+func compositionProvider(p v1alpha1.EnvironmentProvider) string {
+	switch strings.ToLower(string(p)) {
+	case "aws", "eks":
+		return "aws"
+	case "gcp", "gke", "google":
+		return "gcp"
+	case "azure", "aks":
+		return "azure"
+	case "do", "doks", "digitalocean":
+		return "digitalocean"
+	case "civo", "k3s":
+		return "civo"
+	default:
+		return "kind"
+	}
 }
 
-// vclusterGVK identifies the vcluster custom resource realised on the control
-// plane. Kept as a variable so a real vcluster operator GVK can replace it once
-// the chart/values wiring lands (follow-up).
-var vclusterGVK = schema.GroupVersionKind{Group: "infra.adhar.io", Version: apiVersionV1alpha1, Kind: "VCluster"}
+// xrdProvider maps the platform provider names onto the CompositeCluster XRD
+// enum (AWS_EKS, GCP_GKE, AZURE_AKS, DIGITALOCEAN_DOKS, CIVO_K3S, KIND).
+func xrdProvider(p v1alpha1.EnvironmentProvider) string {
+	switch compositionProvider(p) {
+	case "aws":
+		return "AWS_EKS"
+	case "gcp":
+		return "GCP_GKE"
+	case "azure":
+		return "AZURE_AKS"
+	case "digitalocean":
+		return "DIGITALOCEAN_DOKS"
+	case "civo":
+		return "CIVO_K3S"
+	default:
+		return "KIND"
+	}
+}
+
+// defaultNodeSize is the smallest sensible worker size per cloud, used when a
+// composite plane declares no node pools.
+func defaultNodeSize(p v1alpha1.EnvironmentProvider) string {
+	switch compositionProvider(p) {
+	case "aws":
+		return "t3.medium"
+	case "gcp":
+		return "e2-standard-2"
+	case "azure":
+		return "Standard_B2s"
+	case "digitalocean":
+		return "s-2vcpu-4gb"
+	case "civo":
+		return "g4s.kube.medium"
+	default:
+		return "local"
+	}
+}
+
+// vclusterChartVersion pins the vcluster chart the controller installs for
+// mode=vcluster; keep it in step with platform/stack/packages/core/vcluster.
+const (
+	vclusterChartRepo    = "https://charts.loft.sh"
+	vclusterChartName    = "vcluster"
+	vclusterChartVersion = "0.36.1"
+)
+
+// vclusterNamespace is the host namespace a mode=vcluster plane runs in.
+func vclusterNamespace(dp *v1alpha1.DataPlane) string { return "dp-" + dp.Name }
+
+// vclusterServer is the in-cluster URL of the vcluster API server — what the
+// exported kubeconfig points at, so ArgoCD on the management cluster can reach
+// the plane without any external exposure.
+func vclusterServer(dp *v1alpha1.DataPlane) string {
+	return fmt.Sprintf("https://%s.%s.svc.cluster.local", dp.Name, vclusterNamespace(dp))
+}
+
+// vclusterFor builds the ArgoCD Application that installs the vcluster chart
+// for a mode=vcluster plane. ArgoCD (not Helm-in-process) so the install is
+// declarative, self-healing and visible in the same UI as every other
+// platform component.
+func (r *DataPlaneReconciler) vclusterFor(dp *v1alpha1.DataPlane) *unstructured.Unstructured {
+	ns := vclusterNamespace(dp)
+	values := map[string]interface{}{
+		"exportKubeConfig": map[string]interface{}{
+			"server": vclusterServer(dp),
+		},
+		// A vcluster has no kubelets of its own: serve metrics.k8s.io by
+		// proxying the host's metrics API instead of running metrics-server
+		// inside (which only sees 403s from the host kubelets). The workload
+		// profile skips metrics-server on vcluster planes accordingly.
+		"integrations": map[string]interface{}{
+			"metricsServer": map[string]interface{}{"enabled": true, "nodes": true, "pods": true},
+		},
+		"controlPlane": map[string]interface{}{
+			"ingress": map[string]interface{}{"enabled": false},
+			"proxy": map[string]interface{}{
+				"extraSANs": []interface{}{
+					dp.Name + "." + ns + ".svc.cluster.local",
+					dp.Name + "." + ns + ".svc",
+				},
+			},
+			"statefulSet": map[string]interface{}{
+				"persistence": map[string]interface{}{
+					"volumeClaim": map[string]interface{}{"enabled": true, "size": "10Gi"},
+				},
+			},
+		},
+	}
+	app := &unstructured.Unstructured{}
+	app.SetGroupVersionKind(argoApplicationGVK)
+	app.SetName("dp-" + dp.Name + "-vcluster")
+	app.SetNamespace(controlPlaneNamespace)
+	app.SetLabels(map[string]string{dataPlaneLabelKey: dp.Name, "adhar.io/component": "vcluster"})
+	// Cascade: deleting the Application removes the vcluster it installed.
+	app.SetFinalizers([]string{"resources-finalizer.argoproj.io"})
+	app.Object["spec"] = map[string]interface{}{
+		"project": "default",
+		"source": map[string]interface{}{
+			"repoURL":        vclusterChartRepo,
+			"chart":          vclusterChartName,
+			"targetRevision": vclusterChartVersion,
+			"helm": map[string]interface{}{
+				"releaseName":  dp.Name,
+				"valuesObject": values,
+			},
+		},
+		"destination": map[string]interface{}{
+			"server":    "https://kubernetes.default.svc",
+			"namespace": ns,
+		},
+		"syncPolicy": map[string]interface{}{
+			"automated":   map[string]interface{}{"prune": true, "selfHeal": true},
+			"syncOptions": []interface{}{"CreateNamespace=true", "ServerSideApply=true"},
+		},
+	}
+	return app
+}
 
 // deleteManagedInfra deletes the controller-created infra (CompositeCluster or
 // vcluster) during finalize. Best-effort and tolerant of already-deleted or
@@ -242,10 +422,17 @@ func (r *DataPlaneReconciler) deleteManagedInfra(ctx context.Context, dp *v1alph
 		return nil
 	}
 	if err := r.Delete(ctx, obj); err != nil {
-		if apierrors.IsNotFound(err) || isMissingKind(err) {
-			return nil
+		if !apierrors.IsNotFound(err) && !isMissingKind(err) {
+			return err
 		}
-		return err
+	}
+	if dp.Spec.Infrastructure.Mode == v1alpha1.InfraModeVCluster {
+		// ArgoCD created the host namespace (CreateNamespace=true) but does not
+		// own it; remove it once the Application cascade has run.
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: vclusterNamespace(dp)}}
+		if err := r.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
 	}
 	return nil
 }

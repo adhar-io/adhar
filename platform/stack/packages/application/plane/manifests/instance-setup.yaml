@@ -1,0 +1,111 @@
+# First-run instance setup for Plane, done for you.
+#
+# Plane Community Edition has no OIDC login (that is a commercial feature); the
+# platform fronts the whole app with Keycloak through oauth2-proxy (sso.yaml)
+# and Plane's own sign-in is email + password. Until an instance admin has
+# completed the "god-mode" setup, Plane's sign-in page shows "No authentication
+# methods available" — so this Job completes it: it creates the instance admin
+# with a generated password (surfaced by `adhar get secrets -p plane`), marks
+# the instance set up and enables password login + sign-up. Idempotent.
+# (Plain .yaml on purpose: the ESO template directives must survive seeding.)
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: plane-admin
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 24
+  digits: 4
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: plane-admin-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: plane-admin-credentials
+    template:
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: plane
+      engineVersion: v2
+      data:
+        username: plane-admin@adhar.local
+        password: '{{ .PASSWORD }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: plane-admin
+      rewrite:
+        - transform:
+            template: 'PASSWORD'
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: plane-instance-setup
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      containers:
+        - name: setup
+          image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
+          envFrom:
+            - configMapRef: {name: plane-app-vars}
+            - secretRef: {name: plane-app-secrets}
+            - secretRef: {name: plane-doc-store-secrets}
+          env:
+            - name: ADMIN_EMAIL
+              valueFrom: {secretKeyRef: {name: plane-admin-credentials, key: username}}
+            - name: ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: plane-admin-credentials, key: password}}
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              cd /code
+              python manage.py shell <<'PY'
+              import os, uuid
+              from django.contrib.auth.hashers import make_password
+              from plane.db.models import User
+              from plane.license.models import Instance, InstanceAdmin, InstanceConfiguration
+              email = os.environ["ADMIN_EMAIL"].strip().lower()
+              password = os.environ["ADMIN_PASSWORD"]
+              user, created = User.objects.get_or_create(email=email, defaults={
+                  "username": uuid.uuid4().hex, "first_name": "Adhar", "last_name": "Admin",
+                  "is_active": True, "is_email_verified": True})
+              user.set_password(password)
+              user.is_password_autoset = False
+              user.is_active = True
+              user.save()
+              instance = Instance.objects.first()
+              if instance is None:
+                  raise SystemExit("instance not registered yet (api migrate job not finished) — retrying")
+              instance.is_setup_done = True
+              instance.save()
+              InstanceAdmin.objects.get_or_create(instance=instance, user=user, defaults={"role": 20})
+              for key, value in {"ENABLE_SIGNUP": "1", "ENABLE_EMAIL_PASSWORD": "1", "ENABLE_MAGIC_LINK_LOGIN": "0"}.items():
+                  InstanceConfiguration.objects.update_or_create(key=key, defaults={"value": value, "category": "AUTHENTICATION"})
+              print(f"instance setup done; admin {'created' if created else 'updated'}: {email}")
+              PY
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {memory: 1Gi}

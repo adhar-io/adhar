@@ -765,8 +765,8 @@ spec:
           - "*"
           resources:
             limits:
-              cpu: "1"
-              memory: 2Gi
+              cpu: "2"
+              memory: 4Gi
             requests:
               cpu: 50m
               memory: 128Mi
@@ -820,8 +820,8 @@ spec:
         imagePullPolicy: IfNotPresent
         resources:
             limits:
-              cpu: "1"
-              memory: 2Gi
+              cpu: "2"
+              memory: 4Gi
             requests:
               cpu: 50m
               memory: 128Mi

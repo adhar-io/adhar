@@ -1,0 +1,113 @@
+# Airbyte instance-admin credentials (consumed by the chart via
+# global.auth.instanceAdmin.secretName). Generated once by External Secrets;
+# surfaced by `adhar get secrets -p airbyte`.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: airbyte-admin
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 24
+  digits: 4
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: airbyte-config-secrets
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: airbyte-config-secrets
+    template:
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: airbyte
+      engineVersion: v2
+      data:
+        instance-admin-email: airbyte-admin@adhar.local
+        instance-admin-password: '{{ .PASSWORD }}'
+        username: airbyte-admin@adhar.local
+        password: '{{ .PASSWORD }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: airbyte-admin
+      rewrite:
+        - transform:
+            template: 'PASSWORD'
+---
+# Runtime auth material the chart references but does not create
+# (airbyte-auth-secrets): JWT signing secret and the instance-admin's
+# OAuth client + password. Generated alongside the admin credentials.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: airbyte-auth
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 40
+  digits: 8
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: airbyte-auth-secrets
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: airbyte-auth-secrets
+    template:
+      engineVersion: v2
+      data:
+        jwt-signature-secret: '{{ .JWT }}'
+        instance-admin-password: '{{ .ADMIN }}'
+        instance-admin-client-id: '{{ .CLIENT_ID }}'
+        instance-admin-client-secret: '{{ .CLIENT_SECRET }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: airbyte-auth
+      rewrite:
+        - transform:
+            template: 'JWT'
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: airbyte-admin
+      rewrite:
+        - transform:
+            template: 'ADMIN'
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: airbyte-auth
+      rewrite:
+        - transform:
+            template: 'CLIENT_ID'
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: airbyte-auth
+      rewrite:
+        - transform:
+            template: 'CLIENT_SECRET'

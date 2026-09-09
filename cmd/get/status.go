@@ -17,6 +17,7 @@ limitations under the License.
 package get
 
 import (
+	"adhar-io/adhar/api/v1alpha1"
 	"context"
 	"fmt"
 	"strings"
@@ -83,6 +84,8 @@ type PlatformStatus struct {
 	CriticalIssues []string
 	// Platform holds the AdharPlatform CR conditions (empty on non-Adhar clusters).
 	Platform []PlatformConditionInfo
+	// Fleet is the data-plane roll-up from the AdharPlatform status (nil when none).
+	Fleet *v1alpha1.FleetStatus
 	// Packages summarizes ArgoCD-managed platform package health.
 	Packages *PackageHealthSummary
 	// URLs lists every Gateway-routed platform UI endpoint.
@@ -543,6 +546,7 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	// Display AdharPlatform conditions and package readiness
 	displayPlatformHealth(status.Platform, status.Packages)
+	displayFleet(status.Fleet)
 
 	// Display browsable platform endpoints
 	displayAccessURLs(status.URLs)

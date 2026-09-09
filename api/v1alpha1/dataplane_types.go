@@ -73,6 +73,10 @@ type DataPlaneInfrastructure struct {
 	Provider EnvironmentProvider `json:"provider,omitempty"` // for mode=composite
 	// +optional
 	Region string `json:"region,omitempty"`
+	// Version is the Kubernetes version slug for mode=composite, in the
+	// cloud's own form (e.g. "1.31.1-do.4" for DOKS, "1.31" for EKS).
+	// +optional
+	Version string `json:"version,omitempty"`
 	// +optional
 	NodePools []NodePoolSpec `json:"nodePools,omitempty"`
 	// CompositeRef links the CompositeCluster XR the controller created (mode=composite).

@@ -15,9 +15,10 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $params := $xr.spec.parameters -}}
@@ -28,7 +29,7 @@ spec:
             {{- $aws := default (dict) (get $providerSettings "aws") -}}
             {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
             {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (index $conn "name") -}}
-            {{- $secretNamespace := default "crossplane-system" (index $conn "namespace") -}}
+            {{- $secretNamespace := default "adhar-system" (index $conn "namespace") -}}
             {{- $access := default "Public" $cp.endpointAccess -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "default" $xr -}}
             {{- $tags := default (dict) $params.tags -}}
@@ -38,219 +39,219 @@ spec:
             {{- $deletionPolicy := default "Delete" $params.deletionPolicy -}}
             {{- $clusterRoleArn := index $iam "clusterRoleARN" -}}
             {{- $nodeRoleArn := index $iam "nodeRoleARN" -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                {{- if not $clusterRoleArn }}
-                - name: eks-cluster-role
-                  resource:
-                    apiVersion: iam.aws.m.upbound.io/v1beta1
-                    kind: Role
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: aws
-                        role: eks-cluster
-                    spec:
-                      forProvider:
-                        assumeRolePolicy: |
-                          {
-                            "Version": "2012-10-17",
-                            "Statement": [{
-                              "Effect": "Allow",
-                              "Principal": {"Service": "eks.amazonaws.com"},
-                              "Action": "sts:AssumeRole"
-                            }]
-                          }
-                        managedPolicyArns:
-                          - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
-                        {{- if $tags }}
-                        tags:
-                        {{- range $k, $v := $tags }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                        kind: ClusterProviderConfig
-                      deletionPolicy: {{ $deletionPolicy }}
+            {{- if not $clusterRoleArn }}
+            ---
+            apiVersion: iam.aws.m.upbound.io/v1beta1
+            kind: Role
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: eks-cluster-role
+              labels:
+                feature: cluster
+                provider: aws
+                role: eks-cluster
+            spec:
+              forProvider:
+                assumeRolePolicy: |
+                  {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                      "Effect": "Allow",
+                      "Principal": {"Service": "eks.amazonaws.com"},
+                      "Action": "sts:AssumeRole"
+                    }]
+                  }
+                managedPolicyArns:
+                  - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+                {{- if $tags }}
+                tags:
+                {{- range $k, $v := $tags }}
+                  {{ $k }}: {{ quote $v }}
                 {{- end }}
-                {{- if not $nodeRoleArn }}
-                - name: eks-node-role
-                  resource:
-                    apiVersion: iam.aws.m.upbound.io/v1beta1
-                    kind: Role
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: aws
-                        role: eks-node
-                    spec:
-                      forProvider:
-                        assumeRolePolicy: |
-                          {
-                            "Version": "2012-10-17",
-                            "Statement": [{
-                              "Effect": "Allow",
-                              "Principal": {"Service": "ec2.amazonaws.com"},
-                              "Action": "sts:AssumeRole"
-                            }]
-                          }
-                        managedPolicyArns:
-                          - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
-                          - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
-                          - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
-                        {{- if $tags }}
-                        tags:
-                        {{- range $k, $v := $tags }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                        kind: ClusterProviderConfig
-                      deletionPolicy: {{ $deletionPolicy }}
                 {{- end }}
-                - name: eks-cluster
-                  resource:
-                    apiVersion: eks.aws.m.upbound.io/v1beta1
-                    kind: Cluster
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: aws
-                    spec:
-                      forProvider:
-                        region: {{ quote $params.region }}
-                        version: {{ quote $params.version }}
-                        {{- if $clusterRoleArn }}
-                        roleArn: {{ quote $clusterRoleArn }}
-                        {{- else }}
-                        roleArnSelector:
-                          matchControllerRef: true
-                          matchLabels:
-                            role: eks-cluster
-                        {{- end }}
-                        {{- if $loggingTypes }}
-                        enabledClusterLogTypes:
-                        {{- range $loggingTypes }}
-                          - {{ quote . }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $kmsKeyArn }}
-                        encryptionConfig:
-                          - provider:
-                              keyArn: {{ quote $kmsKeyArn }}
-                            resources:
-                              - secrets
-                        {{- end }}
-                        vpcConfig:
-                          - endpointPublicAccess: {{ or (eq $access "Public") (eq $access "PublicAndPrivate") }}
-                            endpointPrivateAccess: {{ ne $access "Public" }}
-                            {{- if $network.subnetIds }}
-                            subnetIds:
-                            {{- range $network.subnetIds }}
-                              - {{ quote . }}
-                            {{- end }}
-                            {{- end }}
-                            {{- if $securityGroups }}
-                            securityGroupIds:
-                            {{- range $securityGroups }}
-                              - {{ quote . }}
-                            {{- end }}
-                            {{- end }}
-                        {{- if $tags }}
-                        tags:
-                        {{- range $k, $v := $tags }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
-                      writeConnectionSecretToRef:
-                        name: {{ quote $secretName }}
-                        namespace: {{ quote $secretNamespace }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                        kind: ClusterProviderConfig
-                      deletionPolicy: {{ $deletionPolicy }}
-                {{- range $index, $pool := $params.nodePools }}
-                - name: eks-nodegroup-{{ $index }}
-                  resource:
-                    apiVersion: eks.aws.m.upbound.io/v1beta1
-                    kind: NodeGroup
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: aws
-                        cluster-name: {{ $xr.metadata.name | quote }}
-                    spec:
-                      forProvider:
-                        region: {{ quote $params.region }}
-                        clusterNameSelector:
-                          matchControllerRef: true
-                        {{- if $nodeRoleArn }}
-                        nodeRoleArn: {{ quote $nodeRoleArn }}
-                        {{- else }}
-                        nodeRoleArnSelector:
-                          matchControllerRef: true
-                          matchLabels:
-                            role: eks-node
-                        {{- end }}
-                        {{- if $network.subnetIds }}
-                        subnetIds:
-                        {{- range $network.subnetIds }}
-                          - {{ quote . }}
-                        {{- end }}
-                        {{- else }}
-                        subnetIdSelector:
-                          matchControllerRef: true
-                        {{- end }}
-                        scalingConfig:
-                          - desiredSize: {{ default 1 $pool.count }}
-                            minSize: {{ default (default 1 $pool.count) $pool.minCount }}
-                            maxSize: {{ default (default 1 $pool.count) $pool.maxCount }}
-                        instanceTypes:
-                          - {{ quote $pool.instanceType }}
-                        {{- if $pool.taints }}
-                        taint:
-                        {{- range $pool.taints }}
-                          - key: {{ quote .key }}
-                            {{- if .value }}
-                            value: {{ quote .value }}
-                            {{- end }}
-                            effect: {{ quote .effect }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $pool.labels }}
-                        labels:
-                        {{- range $k, $v := $pool.labels }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $pool.storageSize }}
-                        {{- $disk := trimSuffix "Gi" $pool.storageSize -}}
-                        {{- if $disk }}
-                        diskSize: {{ atoi $disk }}
-                        {{- end }}
-                        {{- end }}
-                        {{- if $pool.spot }}
-                        capacityType: SPOT
-                        {{- else }}
-                        capacityType: ON_DEMAND
-                        {{- end }}
-                        {{- $poolTags := default (dict) $pool.tags -}}
-                        {{- $allTags := merge (dict) $tags $poolTags -}}
-                        {{- if $allTags }}
-                        tags:
-                        {{- range $k, $v := $allTags }}
-                          {{ $k }}: {{ quote $v }}
-                        {{- end }}
-                        {{- end }}
-                      providerConfigRef:
-                        name: {{ quote $providerConfig }}
-                        kind: ClusterProviderConfig
-                      deletionPolicy: {{ $deletionPolicy }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+                kind: ClusterProviderConfig
+              deletionPolicy: {{ $deletionPolicy }}
+            {{- end }}
+            {{- if not $nodeRoleArn }}
+            ---
+            apiVersion: iam.aws.m.upbound.io/v1beta1
+            kind: Role
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: eks-node-role
+              labels:
+                feature: cluster
+                provider: aws
+                role: eks-node
+            spec:
+              forProvider:
+                assumeRolePolicy: |
+                  {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                      "Effect": "Allow",
+                      "Principal": {"Service": "ec2.amazonaws.com"},
+                      "Action": "sts:AssumeRole"
+                    }]
+                  }
+                managedPolicyArns:
+                  - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+                  - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+                  - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+                {{- if $tags }}
+                tags:
+                {{- range $k, $v := $tags }}
+                  {{ $k }}: {{ quote $v }}
                 {{- end }}
+                {{- end }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+                kind: ClusterProviderConfig
+              deletionPolicy: {{ $deletionPolicy }}
+            {{- end }}
+            ---
+            apiVersion: eks.aws.m.upbound.io/v1beta1
+            kind: Cluster
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: eks-cluster
+              labels:
+                feature: cluster
+                provider: aws
+            spec:
+              forProvider:
+                region: {{ quote $params.region }}
+                version: {{ quote $params.version }}
+                {{- if $clusterRoleArn }}
+                roleArn: {{ quote $clusterRoleArn }}
+                {{- else }}
+                roleArnSelector:
+                  matchControllerRef: true
+                  matchLabels:
+                    role: eks-cluster
+                {{- end }}
+                {{- if $loggingTypes }}
+                enabledClusterLogTypes:
+                {{- range $loggingTypes }}
+                  - {{ quote . }}
+                {{- end }}
+                {{- end }}
+                {{- if $kmsKeyArn }}
+                encryptionConfig:
+                  - provider:
+                      keyArn: {{ quote $kmsKeyArn }}
+                    resources:
+                      - secrets
+                {{- end }}
+                vpcConfig:
+                  - endpointPublicAccess: {{ or (eq $access "Public") (eq $access "PublicAndPrivate") }}
+                    endpointPrivateAccess: {{ ne $access "Public" }}
+                    {{- if $network.subnetIds }}
+                    subnetIds:
+                    {{- range $network.subnetIds }}
+                      - {{ quote . }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if $securityGroups }}
+                    securityGroupIds:
+                    {{- range $securityGroups }}
+                      - {{ quote . }}
+                    {{- end }}
+                    {{- end }}
+                {{- if $tags }}
+                tags:
+                {{- range $k, $v := $tags }}
+                  {{ $k }}: {{ quote $v }}
+                {{- end }}
+                {{- end }}
+              writeConnectionSecretToRef:
+                name: {{ quote $secretName }}
+                namespace: {{ quote $secretNamespace }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+                kind: ClusterProviderConfig
+              deletionPolicy: {{ $deletionPolicy }}
+            {{- range $index, $pool := $params.nodePools }}
+            ---
+            apiVersion: eks.aws.m.upbound.io/v1beta1
+            kind: NodeGroup
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: eks-nodegroup-{{ $index }}
+              labels:
+                feature: cluster
+                provider: aws
+                cluster-name: {{ $xr.metadata.name | quote }}
+            spec:
+              forProvider:
+                region: {{ quote $params.region }}
+                clusterNameSelector:
+                  matchControllerRef: true
+                {{- if $nodeRoleArn }}
+                nodeRoleArn: {{ quote $nodeRoleArn }}
+                {{- else }}
+                nodeRoleArnSelector:
+                  matchControllerRef: true
+                  matchLabels:
+                    role: eks-node
+                {{- end }}
+                {{- if $network.subnetIds }}
+                subnetIds:
+                {{- range $network.subnetIds }}
+                  - {{ quote . }}
+                {{- end }}
+                {{- else }}
+                subnetIdSelector:
+                  matchControllerRef: true
+                {{- end }}
+                scalingConfig:
+                  - desiredSize: {{ default 1 $pool.count }}
+                    minSize: {{ default (default 1 $pool.count) $pool.minCount }}
+                    maxSize: {{ default (default 1 $pool.count) $pool.maxCount }}
+                instanceTypes:
+                  - {{ quote $pool.instanceType }}
+                {{- if $pool.taints }}
+                taint:
+                {{- range $pool.taints }}
+                  - key: {{ quote .key }}
+                    {{- if .value }}
+                    value: {{ quote .value }}
+                    {{- end }}
+                    effect: {{ quote .effect }}
+                {{- end }}
+                {{- end }}
+                {{- if $pool.labels }}
+                labels:
+                {{- range $k, $v := $pool.labels }}
+                  {{ $k }}: {{ quote $v }}
+                {{- end }}
+                {{- end }}
+                {{- if $pool.storageSize }}
+                {{- $disk := trimSuffix "Gi" $pool.storageSize -}}
+                {{- if $disk }}
+                diskSize: {{ atoi $disk }}
+                {{- end }}
+                {{- end }}
+                {{- if $pool.spot }}
+                capacityType: SPOT
+                {{- else }}
+                capacityType: ON_DEMAND
+                {{- end }}
+                {{- $poolTags := default (dict) $pool.tags -}}
+                {{- $allTags := merge (dict) $tags $poolTags -}}
+                {{- if $allTags }}
+                tags:
+                {{- range $k, $v := $allTags }}
+                  {{ $k }}: {{ quote $v }}
+                {{- end }}
+                {{- end }}
+              providerConfigRef:
+                name: {{ quote $providerConfig }}
+                kind: ClusterProviderConfig
+              deletionPolicy: {{ $deletionPolicy }}
+            {{- end }}
     # ArgoCD auto-registration (roadmap P2.1): once the EKS control plane
     # reports its endpoint and CA, publish an ArgoCD cluster Secret in
     # adhar-system on the management cluster. Auth uses ArgoCD's native EKS
@@ -261,9 +262,10 @@ spec:
       functionRef:
         name: function-go-templating
       input:
-        apiVersion: templating.fn.crossplane.io/v1beta1
-        kind: Template
-        spec:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $observed := default (dict) .observed.resources -}}
@@ -272,39 +274,36 @@ spec:
             {{- $endpoint := dig "endpoint" "" $at -}}
             {{- $caList := dig "certificateAuthority" (list) $at -}}
             {{- $extName := dig "metadata" "annotations" "crossplane.io/external-name" $xr.metadata.name $cluster -}}
-            apiVersion: fn.crossplane.io/v1beta1
-            kind: FunctionIO
-            desired:
-              resources:
-                {{- if and $endpoint $caList }}
-                {{- $caData := dig "data" "" (index $caList 0) }}
-                - name: argocd-cluster-registration
-                  resource:
-                    apiVersion: kubernetes.m.crossplane.io/v1alpha1
-                    kind: Object
-                    metadata:
-                      labels:
-                        feature: cluster
-                        provider: aws
-                        adhar.io/argocd-registration: "true"
-                    spec:
-                      forProvider:
-                        manifest:
-                          apiVersion: v1
-                          kind: Secret
-                          metadata:
-                            name: cluster-{{ $xr.metadata.name }}
-                            namespace: adhar-system
-                            labels:
-                              argocd.argoproj.io/secret-type: cluster
-                              adhar.io/cluster: {{ quote $xr.metadata.name }}
-                          type: Opaque
-                          stringData:
-                            name: {{ quote $xr.metadata.name }}
-                            server: {{ quote $endpoint }}
-                            config: |
-                              {"awsAuthConfig": {"clusterName": {{ quote $extName }}}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
-                      providerConfigRef:
-                        name: kubernetes-provider
-                        kind: ClusterProviderConfig
-                {{- end }}
+            {{- if and $endpoint $caList }}
+            {{- $caData := dig "data" "" (index $caList 0) }}
+            ---
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: argocd-cluster-registration
+              labels:
+                feature: cluster
+                provider: aws
+                adhar.io/argocd-registration: "true"
+            spec:
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: cluster-{{ $xr.metadata.name }}
+                    namespace: adhar-system
+                    labels:
+                      argocd.argoproj.io/secret-type: cluster
+                      adhar.io/cluster: {{ quote $xr.metadata.name }}
+                  type: Opaque
+                  stringData:
+                    name: {{ quote $xr.metadata.name }}
+                    server: {{ quote $endpoint }}
+                    config: |
+                      {"awsAuthConfig": {"clusterName": {{ quote $extName }}}, "tlsClientConfig": {"caData": {{ quote $caData }}}}
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+            {{- end }}

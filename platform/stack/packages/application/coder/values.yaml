@@ -5,9 +5,11 @@ coder:
   ingress:
     enable: false
   env:
+    # Host-based route (manifests/httproute.yaml); the host is rewritten to the
+    # platform domain at seed time. CODER_HTTP_ADDRESS is set by the chart —
+    # a second copy here made the Deployment fail server-side apply with
+    # "duplicate entries for key [name=CODER_HTTP_ADDRESS]".
     - name: CODER_ACCESS_URL
-      value: "https://adhar.localtest.me:8443/coder"
-    - name: CODER_HTTP_ADDRESS
-      value: "0.0.0.0:8080"
+      value: "https://coder.adhar.localtest.me:8443"
   service:
     type: ClusterIP

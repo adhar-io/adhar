@@ -62,9 +62,16 @@ func k8sClientFromConfig(restConfig *rest.Config, scheme *runtime.Scheme) (clien
 }
 
 // defaultControllerImage is the released adhar image matching this CLI build
-// (goreleaser tags images without the leading "v").
+// (goreleaser tags images without the leading "v"). A development build
+// ("v0.0.1-dev", or any pre-release suffix) has no published image, so it
+// tracks the latest release instead of leaving the in-cluster manager in
+// ImagePullBackOff; pass --controller-image to pin something else.
 func defaultControllerImage() string {
-	return fmt.Sprintf("ghcr.io/adhar-io/adhar:%s", strings.TrimPrefix(version.Version, "v"))
+	v := strings.TrimPrefix(version.Version, "v")
+	if v == "" || strings.Contains(v, "-dev") || strings.HasPrefix(v, "0.0.1") {
+		return "ghcr.io/adhar-io/adhar:latest"
+	}
+	return "ghcr.io/adhar-io/adhar:" + v
 }
 
 // providerNameToEnvironmentProvider maps a resolved provider string from the
@@ -237,6 +244,24 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 			return fmt.Errorf("configuring edge DNS (%s): %w", dnsProvider, err)
 		}
 		logger.Infof("Edge DNS configured: provider=%s zone=%s issuer=%s", dnsProvider, host, templateData.ACMEIssuer())
+	}
+
+	// Crossplane cloud credentials: the control plane's ProviderConfig for this
+	// cloud reads `<provider>-credentials`; materialise it from the same
+	// configuration the cluster was created with so CompositeCluster and
+	// friends work out of the box (nothing credential-shaped enters Git).
+	if cp := canonicalProvider(providerName); crossplaneCredentialSecretName(cp) != "" {
+		var pc *config.ConfigProviderConfig
+		if cfg != nil {
+			if v, ok := cfg.Providers[providerName]; ok {
+				pc = &v
+			}
+		}
+		if err := ensureCrossplaneCredentialSecret(ctx, kubeClient, cp, pc); err != nil {
+			logger.Warnf("Crossplane credentials for %s not materialised: %v (cloud compositions will wait for %s-credentials)", cp, err, cp)
+		} else {
+			logger.Infof("Crossplane credentials materialised: %s-credentials", cp)
+		}
 	}
 
 	// The stack directory is required for GitOps repo seeding.

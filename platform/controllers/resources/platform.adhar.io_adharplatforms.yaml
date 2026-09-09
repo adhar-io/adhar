@@ -226,6 +226,42 @@ spec:
                   controlPlaneApplied:
                     type: boolean
                 type: object
+              fleet:
+                description: |-
+                  Fleet rolls up the DataPlanes attached to this control plane
+                  (ADR-0023). Maintained by the DataPlane controller.
+                properties:
+                  dataPlanes:
+                    description: DataPlanes is the number of DataPlane objects.
+                    type: integer
+                  planes:
+                    description: Planes lists every data plane with its readiness
+                      and placed-app count.
+                    items:
+                      description: FleetPlane is one data plane in the fleet roll-up.
+                      properties:
+                        apps:
+                          type: integer
+                        kubernetesVersion:
+                          type: string
+                        mode:
+                          type: string
+                        name:
+                          type: string
+                        ready:
+                          type: boolean
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  ready:
+                    description: Ready is how many of them report the Ready condition
+                      True.
+                    type: integer
+                required:
+                - dataPlanes
+                - ready
+                type: object
               gateway:
                 properties:
                   available:

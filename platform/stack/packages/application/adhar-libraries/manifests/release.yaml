@@ -1,54 +1,24 @@
-# Platform library release, run once per adhar-libraries sync (PostSync, after
-# the git mirrors and the CI webhook registration).
+# Platform library releases — ONE PipelineRun PER LIBRARY, run on every
+# adhar-libraries sync (PostSync, after the git mirrors and the CI webhook
+# registration).
 #
-# ONE PipelineRun executes the Maven release and then the npm release
-# (`runAfter`), never in parallel: both resolve and publish through the single
-# in-cluster Nexus, and running them concurrently on a small node has starved
-# Nexus and even the node itself (taint evictions, ECONNREFUSED mid-transfer).
-# ArgoCD hook waves cannot enforce that ordering because a PipelineRun is
-# "created" long before it finishes, so the ordering lives in Tekton instead.
-# Per-repository push builds still use the individual release-adhar-kit /
-# release-adhar-ui Pipelines through the CI EventListener (triggers.yaml).
-apiVersion: tekton.dev/v1
-kind: Pipeline
-metadata:
-  name: release-adhar-libraries
-  namespace: adhar-system
-  annotations:
-    argocd.argoproj.io/sync-wave: '1'
-spec:
-  workspaces:
-  - name: maven
-  - name: npm
-  tasks:
-  - name: maven
-    taskRef:
-      name: deploy-maven-project
-    params:
-    - name: repo
-      value: adhar-kit
-    workspaces:
-    - name: source
-      workspace: maven
-  - name: npm
-    runAfter:
-    - maven
-    taskRef:
-      name: publish-npm-workspace
-    params:
-    - name: repo
-      value: adhar-ui
-    - name: scope
-      value: '@adhar-ui'
-    workspaces:
-    - name: source
-      workspace: npm
-
+# adhar-kit and adhar-ui are separate repositories with their own code, build
+# tooling and registries, so each has its own Pipeline (maven-release.yaml /
+# npm-release.yaml) with its own stages — clone, build, test, (lint,) scan,
+# publish — and its own run below. Nothing couples one library's outcome to the
+# other's.
+#
+# Both publish through the single in-cluster Nexus, and running two builds at
+# once on a small node has starved it before, so the runs are staggered with
+# hook waves: ArgoCD waits for the wave-2 run to finish (its PipelineRun health
+# check reports Progressing until Succeeded/Failed) before creating wave 3.
+# Per-repository push builds use the same Pipelines via the CI EventListener
+# (triggers.yaml).
 ---
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  name: release-adhar-libraries
+  name: release-adhar-kit
   namespace: adhar-system
   annotations:
     argocd.argoproj.io/hook: PostSync
@@ -56,25 +26,45 @@ metadata:
     argocd.argoproj.io/sync-wave: '2'
 spec:
   pipelineRef:
-    name: release-adhar-libraries
+    name: release-adhar-kit
+  params:
+    - {name: revision, value: main}
   taskRunTemplate:
     serviceAccountName: adhar-libraries
   timeouts:
     pipeline: 2h0m0s
   workspaces:
-  - name: maven
-    volumeClaimTemplate:
-      spec:
-        accessModes:
-        - ReadWriteOnce
-        resources:
-          requests:
-            storage: 2Gi
-  - name: npm
-    volumeClaimTemplate:
-      spec:
-        accessModes:
-        - ReadWriteOnce
-        resources:
-          requests:
-            storage: 2Gi
+    - name: shared
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 4Gi
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: release-adhar-ui
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: '3'
+spec:
+  pipelineRef:
+    name: release-adhar-ui
+  params:
+    - {name: revision, value: main}
+  taskRunTemplate:
+    serviceAccountName: adhar-libraries
+  timeouts:
+    pipeline: 2h0m0s
+  workspaces:
+    - name: shared
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 4Gi

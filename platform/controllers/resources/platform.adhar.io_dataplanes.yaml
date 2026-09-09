@@ -110,6 +110,11 @@ spec:
                     type: string
                   region:
                     type: string
+                  version:
+                    description: |-
+                      Version is the Kubernetes version slug for mode=composite, in the
+                      cloud's own form (e.g. "1.31.1-do.4" for DOKS, "1.31" for EKS).
+                    type: string
                 required:
                 - mode
                 type: object
