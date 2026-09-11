@@ -1,18 +1,6 @@
-# kpack runs in its OWN namespace (kpack-system), NOT adhar-system. Both kpack
-# and tekton-pipelines are knative-based webhooks that hardcode the same
-# `webhook-certs` secret name; sharing a namespace makes them clobber each
-# other's cert, which breaks Tekton (and kpack) admission. A dedicated namespace
-# keeps the two webhook cert secrets separate — the sanctioned exception pattern
-# (see packages/CONFLICTS.md), like cosign-system / openfunction.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kpack-system
-  labels:
-    adhar.io/managed: "true"
-  annotations:
-    argocd.argoproj.io/sync-wave: "-5"
----
+# BUILDPACK (kpack) INSTALL RESOURCES
+# This file is auto-generated with 'platform/stack/packages/application/buildpack/generate-manifests.sh'
+# kpack v0.17.1 (upstream release manifest), post-processed into kpack-system (ADR-0011 exception: hardcoded Secret/webhook-certs)
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -76,6 +64,7 @@ spec:
     categories:
     - kpack
   scope: Namespaced
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -141,6 +130,7 @@ spec:
     categories:
     - kpack
   scope: Namespaced
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -173,6 +163,7 @@ spec:
     categories:
     - kpack
   scope: Namespaced
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -227,6 +218,7 @@ spec:
     categories:
     - kpack
   scope: Cluster
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -259,6 +251,7 @@ spec:
     categories:
     - kpack
   scope: Cluster
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -288,6 +281,7 @@ spec:
     categories:
     - kpack
   scope: Cluster
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -330,6 +324,7 @@ spec:
     categories:
     - kpack
   scope: Cluster
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -372,6 +367,7 @@ spec:
     categories:
     - kpack
   scope: Cluster
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -386,6 +382,7 @@ data:
     : \"msg\",\n    \"stacktraceKey\": \"stacktrace\",\n    \"lineEnding\": \"\",\n\
     \    \"levelEncoder\": \"\",\n    \"timeEncoder\": \"rfc3339nano\",\n    \"durationEncoder\"\
     : \"\",\n    \"callerEncoder\": \"\"\n  }\n}\n"
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -394,6 +391,7 @@ metadata:
   namespace: kpack-system
 data:
   image: ghcr.io/buildpacks-community/kpack/build-init@sha256:6af2cff7d138985177197cb1b13c341f72a889127b6ba8360819202ee328bc83
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -402,6 +400,7 @@ metadata:
   namespace: kpack-system
 data:
   image: ghcr.io/buildpacks-community/kpack/build-waiter@sha256:8ca7742861120fc0909e671bfbaf5148bcfd86c98c510803c6f25c75b5e1044e
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -410,6 +409,7 @@ metadata:
   namespace: kpack-system
 data:
   image: ghcr.io/buildpacks-community/kpack/rebase@sha256:3fd1b0f148519a6f0391d1aaadb73cd734bba5f914c3366534e2d7571edf7a2d
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -418,6 +418,7 @@ metadata:
   namespace: kpack-system
 data:
   image: ghcr.io/buildpacks-community/kpack/completion@sha256:67aef8fadfbb18e45248449f56e27bf7141fb9324fd914236e82bc3fe974bc24
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -465,9 +466,9 @@ spec:
         - name: INSECURE_SSH_TRUST_UNKNOWN_HOSTS
           value: 'true'
         - name: CONFIG_LOGGING_NAME
-          value: config-logging
+          value: buildpack-config-logging
         - name: CONFIG_OBSERVABILITY_NAME
-          value: config-observability
+          value: buildpack-config-observability
         - name: METRICS_DOMAIN
           value: kpack.io
         - name: SCALING_FACTOR
@@ -498,35 +499,31 @@ spec:
             configMapKeyRef:
               name: completion-image
               key: image
-        # HTTPS-everywhere: the controller resolves and pushes the ClusterBuilder
-        # image to Harbor (harbor-core.adhar-system.svc, now TLS). Trust the
-        # platform `adhar` CA that signs Harbor's internal certs by searching it
-        # alongside the system trust store (Go honours SSL_CERT_DIR). The CA is
-        # projected into kpack-system as the `adhar-ca` ConfigMap by the
-        # supply-chain package's CA-distribution hook.
         - name: SSL_CERT_DIR
           value: /etc/ssl/certs:/etc/adhar-ca
-        volumeMounts:
-        - name: adhar-ca
-          mountPath: /etc/adhar-ca
-          readOnly: true
         resources:
           requests:
             cpu: 20m
             memory: 1Gi
           limits:
             memory: 1Gi
+        volumeMounts:
+        - name: adhar-ca
+          mountPath: /etc/adhar-ca
+          readOnly: true
       volumes:
       - name: adhar-ca
         configMap:
           name: adhar-ca
           optional: true
+
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: controller
   namespace: kpack-system
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -605,6 +602,7 @@ rules:
   - nodes
   verbs:
   - list
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -618,6 +616,7 @@ roleRef:
   kind: ClusterRole
   name: kpack-controller-admin
   apiGroup: rbac.authorization.k8s.io
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -627,6 +626,7 @@ aggregationRule:
   clusterRoleSelectors:
   - matchLabels:
       servicebinding.io/controller: 'true'
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -640,6 +640,7 @@ roleRef:
   kind: ClusterRole
   name: kpack-controller-servicebindings-cluster-role
   apiGroup: rbac.authorization.k8s.io
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -655,6 +656,7 @@ rules:
   - get
   - list
   - watch
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -669,6 +671,7 @@ roleRef:
   kind: Role
   name: kpack-controller-local-config
   apiGroup: rbac.authorization.k8s.io
+
 ---
 apiVersion: kpack.io/v1alpha2
 kind: ClusterLifecycle
@@ -676,6 +679,7 @@ metadata:
   name: default-lifecycle
 spec:
   image: ghcr.io/buildpacks-community/kpack/lifecycle@sha256:85b41ff7170c517a464279a5ba9fc4ce7e4ffc42abf99b149175808b5fe753ab
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -740,6 +744,7 @@ spec:
     categories:
     - kpack
   scope: Namespaced
+
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -748,6 +753,7 @@ metadata:
 value: 10000
 globalDefault: false
 description: Super High priority class for kpack control plane components
+
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -756,6 +762,7 @@ metadata:
 value: 1000
 globalDefault: false
 description: High priority class for kpack builds triggered by user changes.
+
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -765,6 +772,7 @@ value: 1
 globalDefault: false
 preemptionPolicy: Never
 description: Low priority class for kpack builds triggered by operator changes.
+
 ---
 apiVersion: v1
 kind: Service
@@ -777,6 +785,7 @@ spec:
     targetPort: 8443
   selector:
     role: webhook
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -830,6 +839,7 @@ spec:
     categories:
     - kpack
   scope: Namespaced
+
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
@@ -846,6 +856,7 @@ webhooks:
   matchPolicy: Exact
   sideEffects: None
   name: defaults.webhook.kpack.io
+
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -862,12 +873,14 @@ webhooks:
   matchPolicy: Exact
   sideEffects: None
   name: validation.webhook.kpack.io
+
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: buildpack-webhook-certs
+  name: webhook-certs
   namespace: kpack-system
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -911,9 +924,9 @@ spec:
           containerPort: 8443
         env:
         - name: CONFIG_LOGGING_NAME
-          value: config-logging
+          value: buildpack-config-logging
         - name: CONFIG_OBSERVABILITY_NAME
-          value: config-observability
+          value: buildpack-config-observability
         - name: METRICS_DOMAIN
           value: kpack.io
         - name: SYSTEM_NAMESPACE
@@ -927,12 +940,14 @@ spec:
           limits:
             cpu: 100m
             memory: 200Mi
+
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: webhook
   namespace: kpack-system
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -976,6 +991,7 @@ rules:
   - delete
   - patch
   - watch
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -990,6 +1006,7 @@ roleRef:
   kind: Role
   name: kpack-webhook-certs-admin
   apiGroup: rbac.authorization.k8s.io
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -1073,6 +1090,7 @@ rules:
   - get
   - list
   - watch
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

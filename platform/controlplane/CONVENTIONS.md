@@ -85,9 +85,14 @@ ProviderConfig names used by compositions:
 - provider-kubernetes → `ClusterProviderConfig` named **`kubernetes-provider`**.
 - provider-helm → `ClusterProviderConfig` named **`helm-provider`**.
 
-DigitalOcean and Civo community providers (v0.x) have **no** namespaced MRs yet,
-so their compositions remain legacy cluster-scoped and reference the plain
-`ProviderConfig` (`digitalocean` / `civo`).
+DigitalOcean uses the upjet provider (`provider-upjet-digitalocean` v1.0.2),
+which **does** ship namespaced MRs: `*.digitalocean.m.crossplane.io` (note the
+namespaced DO APIs are `v1alpha1`, not `v1beta1`) with a
+`ClusterProviderConfig` named **`default`**. Its credential secret value must be
+a JSON object (`{"token": "..."}`) — the provider unmarshals it straight into
+the Terraform provider configuration. Civo's community provider (v0.x) still has
+no namespaced MRs, so its composition remains legacy cluster-scoped against the
+plain `ProviderConfig` (`civo`).
 
 ### KCL providerConfigRef pattern
 

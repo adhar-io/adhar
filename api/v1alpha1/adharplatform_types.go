@@ -19,6 +19,9 @@ package v1alpha1
 import (
 	"adhar-io/adhar/globals"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -67,6 +70,166 @@ type AdharPlatformSpec struct {
 	Provider           EnvironmentProvider    `json:"provider,omitempty"`
 	PackageConfigs     PackageConfigsSpec     `json:"packageConfigs,omitempty"`
 	BuildCustomization BuildCustomizationSpec `json:"buildCustomization,omitempty"`
+
+	// Autoscaling configures the platform's own node autoscaler: the cluster
+	// starts small and grows only when pods cannot be scheduled, shrinking
+	// again when the workers sit idle. Adhar runs self-managed kubeadm
+	// clusters on raw cloud compute, for which the upstream cluster-autoscaler
+	// has no cloud provider, so the platform does it itself (see
+	// platform/controllers/autoscaler). Nil or disabled = fixed worker count.
+	// +optional
+	Autoscaling *AutoscalingSpec `json:"autoscaling,omitempty"`
+}
+
+// Autoscaling defaults. They are expressed as constants (not only kubebuilder
+// markers) because the reconciler must behave identically for a CR that was
+// created before the field existed, or built in a unit test, where the API
+// server never applied the CRD's structural defaults.
+const (
+	// DefaultAutoscalingNodeGroup is the worker node group the autoscaler
+	// grows and shrinks — the same name `adhar cluster scale --node-group`
+	// uses and the one every provider creates by default.
+	DefaultAutoscalingNodeGroup = "workers"
+	// DefaultScaleDownUtilizationThreshold is the cluster-wide requested
+	// CPU/memory share below which workers are considered removable.
+	DefaultScaleDownUtilizationThreshold = "50%"
+	// DefaultMinWorkers keeps at least one worker: draining the last one would
+	// push platform workloads onto the control plane.
+	DefaultMinWorkers int32 = 1
+	// DefaultMaxWorkers is a deliberately conservative spend ceiling for a
+	// config that enables autoscaling without stating a maximum.
+	DefaultMaxWorkers int32 = 5
+)
+
+var (
+	// DefaultScaleDownDelay is how long utilization must stay below the
+	// threshold before a node is removed. Long enough that a batch job's gap
+	// between waves does not cost a node (and a re-join takes ~10 minutes).
+	DefaultScaleDownDelay = metav1.Duration{Duration: 10 * time.Minute}
+	// DefaultScaleUpCooldown spaces consecutive additions so the pods that
+	// triggered the first one can actually land on it before the next node is
+	// bought: kubeadm join + CNI readiness takes minutes on a fresh VM.
+	DefaultScaleUpCooldown = metav1.Duration{Duration: 3 * time.Minute}
+)
+
+// AutoscalingSpec is the node-autoscaler configuration. It mirrors
+// `environments[].autoscaling` in config.yaml.
+type AutoscalingSpec struct {
+	// Enabled turns the autoscaler on for this platform. When false the
+	// controller is still running but takes no action.
+	Enabled bool `json:"enabled,omitempty"`
+
+	// MinWorkers is the floor the autoscaler never scales below.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=1
+	// +optional
+	MinWorkers int32 `json:"minWorkers,omitempty"`
+
+	// MaxWorkers is the ceiling the autoscaler never scales above — the
+	// platform's spend limit.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=5
+	// +optional
+	MaxWorkers int32 `json:"maxWorkers,omitempty"`
+
+	// NodeGroup is the provider node group to scale.
+	// +kubebuilder:default=workers
+	// +optional
+	NodeGroup string `json:"nodeGroup,omitempty"`
+
+	// ScaleDownUtilizationThreshold is the requested-vs-allocatable share
+	// (e.g. "50%", or a bare fraction "0.5") that cluster CPU *and* memory must
+	// both stay under before a worker is removed.
+	// +kubebuilder:default="50%"
+	// +optional
+	ScaleDownUtilizationThreshold string `json:"scaleDownUtilizationThreshold,omitempty"`
+
+	// ScaleDownDelay is how long the cluster must stay under the threshold
+	// before a node is drained and removed.
+	// +kubebuilder:default="10m"
+	// +optional
+	ScaleDownDelay metav1.Duration `json:"scaleDownDelay,omitempty"`
+
+	// ScaleUpCooldown is the minimum gap between two node additions.
+	// +kubebuilder:default="3m"
+	// +optional
+	ScaleUpCooldown metav1.Duration `json:"scaleUpCooldown,omitempty"`
+}
+
+// WithDefaults returns a copy with every unset field filled in, so callers can
+// read the spec without repeating the fallbacks.
+func (a *AutoscalingSpec) WithDefaults() AutoscalingSpec {
+	out := AutoscalingSpec{}
+	if a != nil {
+		out = *a
+	}
+	if out.NodeGroup == "" {
+		out.NodeGroup = DefaultAutoscalingNodeGroup
+	}
+	if out.ScaleDownUtilizationThreshold == "" {
+		out.ScaleDownUtilizationThreshold = DefaultScaleDownUtilizationThreshold
+	}
+	if out.MinWorkers <= 0 {
+		out.MinWorkers = DefaultMinWorkers
+	}
+	if out.MaxWorkers <= 0 {
+		out.MaxWorkers = DefaultMaxWorkers
+	}
+	// A max below the min would make every tick oscillate; the floor wins,
+	// since it is the availability guarantee.
+	if out.MaxWorkers < out.MinWorkers {
+		out.MaxWorkers = out.MinWorkers
+	}
+	if out.ScaleDownDelay.Duration <= 0 {
+		out.ScaleDownDelay = DefaultScaleDownDelay
+	}
+	if out.ScaleUpCooldown.Duration <= 0 {
+		out.ScaleUpCooldown = DefaultScaleUpCooldown
+	}
+	return out
+}
+
+// ScaleDownThreshold parses ScaleDownUtilizationThreshold into a 0..1
+// fraction. An unparseable value falls back to the default rather than
+// failing the reconcile — a typo must not silently disable the floor/ceiling
+// logic, and the reason is surfaced in status.
+func (a AutoscalingSpec) ScaleDownThreshold() float64 {
+	v := strings.TrimSpace(a.ScaleDownUtilizationThreshold)
+	pct := strings.HasSuffix(v, "%")
+	f, err := strconv.ParseFloat(strings.TrimSuffix(v, "%"), 64)
+	if err != nil || f < 0 {
+		return 0.5
+	}
+	if pct {
+		f /= 100
+	}
+	if f > 1 {
+		return 1
+	}
+	return f
+}
+
+// AutoscalingStatus reports what the node autoscaler last observed and did.
+type AutoscalingStatus struct {
+	// Enabled mirrors spec.autoscaling.enabled so `adhar get status` can show
+	// the mode without reading the spec.
+	Enabled bool `json:"enabled,omitempty"`
+	// Workers is the number of schedulable worker nodes at the last tick.
+	Workers int32 `json:"workers"`
+	// +optional
+	LastScaleUp *metav1.Time `json:"lastScaleUp,omitempty"`
+	// +optional
+	LastScaleDown *metav1.Time `json:"lastScaleDown,omitempty"`
+	// LastReason explains the most recent decision (including "no action" ones)
+	// in one line.
+	// +optional
+	LastReason string `json:"lastReason,omitempty"`
+	// UnderutilizedSince is when the cluster first dropped below the scale-down
+	// threshold in the current stretch. It is persisted (rather than kept in
+	// memory) so the ScaleDownDelay survives a controller restart or a leader
+	// election handover.
+	// +optional
+	UnderutilizedSince *metav1.Time `json:"underutilizedSince,omitempty"`
 }
 
 // ArgoPackageConfigSpec Allows for configuration of the ArgoCD Installation.
@@ -254,6 +417,10 @@ type AdharPlatformStatus struct {
 	Gateway            GatewayStatus    `json:"gateway,omitempty"`
 	Gitea              GiteaStatus      `json:"gitea,omitempty"`
 	Crossplane         CrossplaneStatus `json:"crossplane,omitempty"`
+
+	// Autoscaling reports the node autoscaler's view of the cluster.
+	// +optional
+	Autoscaling *AutoscalingStatus `json:"autoscaling,omitempty"`
 
 	// Conditions represent the latest observations of the platform's state.
 	// Types: ArgoCDReady, GatewayReady, GiteaReady, CrossplaneReady,

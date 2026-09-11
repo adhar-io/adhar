@@ -324,7 +324,7 @@ rules:
   - get
   - update
   resourceNames:
-  - webhook-certs
+  - tekton-webhook-certs
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1099,7 +1099,7 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: webhook-certs
+  name: tekton-webhook-certs
   namespace: adhar-system
   labels:
     app.kubernetes.io/component: webhook
@@ -2923,7 +2923,7 @@ spec:
         - name: WEBHOOK_SERVICE_NAME
           value: adhar-system-webhook
         - name: WEBHOOK_SECRET_NAME
-          value: webhook-certs
+          value: tekton-webhook-certs
         - name: METRICS_DOMAIN
           value: tekton.dev/pipeline
         securityContext:

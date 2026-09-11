@@ -1,19 +1,18 @@
 # Sigstore policy-controller (cosign) Prometheus ServiceMonitor
 # Not emitted by the chart (serviceMonitor left default off). The webhook
 # exposes its metrics on the chart-rendered "policy-controller-webhook-metrics"
-# Service (cosign-system), port 9090 named "metrics" at /metrics. The label
-# selector also matches the "webhook" Service, but that one has no port named
-# "metrics", so only the metrics Service yields a scrape target.
-# Lives in cosign-system (the package's ArgoCD destination); Prometheus
-# serviceMonitorNamespaceSelector is empty ({}), so it is picked up anyway and
-# feeds the Adhar / Cosign Grafana dashboard.
+# Service (adhar-system), port 9090 named "metrics" at /metrics. The label
+# selector also matches the "cosign-policy-webhook" Service, but that one has no
+# port named "metrics", so only the metrics Service yields a scrape target.
+# Lives in adhar-system with every other platform package (ADR-0011) and feeds
+# the Adhar / Cosign Grafana dashboard.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "10"
   name: policy-controller
-  namespace: cosign-system
+  namespace: adhar-system
   labels:
     app.kubernetes.io/name: policy-controller
     app.kubernetes.io/instance: policy-controller
@@ -22,7 +21,7 @@ spec:
   jobLabel: app.kubernetes.io/name
   namespaceSelector:
     matchNames:
-      - cosign-system
+      - adhar-system
   selector:
     matchLabels:
       app.kubernetes.io/name: policy-controller

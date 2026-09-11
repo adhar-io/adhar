@@ -1,7 +1,8 @@
 # n8n routed through the Cilium Gateway (adhar-gateway). TLS terminates at the
 # Gateway (adhar-cert), replacing the chart's Ingress (disabled in values.yaml).
-# Requests to /n8n are forwarded to the n8n service on port 80. n8n is configured
-# (N8N_PATH / WEBHOOK_URL) to serve under the /n8n sub-path.
+# Requests to n8n.<host> are forwarded to the n8n service on port 80. n8n is
+# configured host-based (N8N_HOST / N8N_EDITOR_BASE_URL / WEBHOOK_URL) so its
+# editor and webhook URLs match this route on every domain.
 #
 # SSO: every backend below is the Keycloak oauth2-proxy from sso.yaml, which
 # forwards to the original upstream(s): n8n:80.

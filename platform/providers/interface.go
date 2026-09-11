@@ -66,6 +66,19 @@ type Provider interface {
 	InvestigateCluster(ctx context.Context, clusterID string) error
 }
 
+// NodeRemover is an optional capability: removing one *named* worker node
+// rather than a count. The platform node autoscaler needs it because it picks
+// the node to retire itself (the emptiest one that is safe to drain), which
+// ScaleNodeGroup — a desired-count API that removes the highest-indexed
+// instance — cannot express. Providers that do not implement it simply do not
+// support automatic scale-down.
+type NodeRemover interface {
+	// RemoveWorkerNode drains the node out of the Kubernetes cluster and then
+	// deletes the instance backing it. nodeName is the Kubernetes node name,
+	// which for adhar-provisioned compute nodes equals the instance name.
+	RemoveWorkerNode(ctx context.Context, clusterID string, nodeName string) error
+}
+
 // ProviderFactory creates provider instances
 type ProviderFactory interface {
 	CreateProvider(providerType string, config map[string]interface{}) (Provider, error)

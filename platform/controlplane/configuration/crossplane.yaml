@@ -73,9 +73,11 @@ spec:
     # ---------------------------------------------------------------------------
     # DigitalOcean & Civo - community providers.
     # ---------------------------------------------------------------------------
+    # provider-digitalocean (v0.x) is archived; the upjet build serves both the
+    # legacy and the namespaced (kubernetes.digitalocean.m.crossplane.io) kinds.
     - type: Provider
-      package: xpkg.upbound.io/crossplane-contrib/provider-digitalocean
-      version: ">=v0.7.0"
+      package: xpkg.crossplane.io/crossplane-contrib/provider-upjet-digitalocean
+      version: ">=v1.0.2"
     - type: Provider
       package: xpkg.upbound.io/crossplane-contrib/provider-civo
       version: ">=v0.3.0"

@@ -4,7 +4,9 @@ import (
 	"context"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/controllers/adharplatform"
+	"adhar-io/adhar/platform/controllers/autoscaler"
 	"adhar-io/adhar/platform/controllers/custompackage"
 	"adhar-io/adhar/platform/controllers/dataplane"
 	"adhar-io/adhar/platform/utils"
@@ -75,6 +77,18 @@ func RunControllers(
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create dataplane controller")
+	}
+
+	// The node autoscaler is registered unconditionally: it watches only core
+	// types (Pods, Nodes) and no-ops unless the AdharPlatform enables
+	// autoscaling, so it is safe before any CRD or cloud credential exists.
+	if err := (&autoscaler.Reconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Recorder:  mgr.GetEventRecorderFor("node-autoscaler"),
+		Namespace: globals.AdharSystemNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		logger.Error(err, "unable to create node autoscaler controller")
 	}
 
 	// Start our manager in another goroutine

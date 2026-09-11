@@ -1,0 +1,26 @@
+# Loki's object-store credentials: the platform MinIO root credentials, read
+# from the same Gitea-backed ClusterSecretStore every other MinIO consumer
+# uses (see application/penpot/manifests/platform-storage.yaml). The keys are
+# environment variable names — Loki expands ${MINIO_*} in its config at
+# start-up (-config.expand-env=true in values.yaml).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: loki-s3-credentials
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: loki-s3-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: MINIO_ACCESS_KEY_ID
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: MINIO_SECRET_ACCESS_KEY
+      remoteRef: {key: root-creds, property: rootPassword}

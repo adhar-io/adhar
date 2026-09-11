@@ -1,0 +1,44 @@
+# ClickHouse creates its system log tables lazily (on the first flush), but
+# PostHog's ClickHouse migrations query system.crash_log directly ("Unknown
+# table expression identifier 'system.crash_log'") — on a fresh cluster the
+# table does not exist until something is flushed. This PostSync hook runs
+# before the chart's migrate Job (wave 0) and forces the tables into
+# existence with SYSTEM FLUSH LOGS. Credentials are the chart's admin user
+# (values.yaml clickhouse.user/password, the same literal the chart renders).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: posthog-clickhouse-prepare
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: prepare
+          image: clickhouse/clickhouse-server:26.6.2.158
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" -q "SELECT 1" >/dev/null 2>&1; do
+                echo "waiting for clickhouse-posthog"; sleep 5
+              done
+              clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" -q "SYSTEM FLUSH LOGS"
+              clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" -q "SELECT name FROM system.tables WHERE database='system' AND name IN ('crash_log','session_log','query_thread_log')"
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              value: "a1f31e03-c88e-4ca6-a2df-ad49183d15d9"
+          securityContext:
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}

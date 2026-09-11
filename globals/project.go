@@ -52,6 +52,24 @@ const (
 	// Platform GitOps repository names created under GiteaPlatformOrg.
 	GitOpsRepoPackages     = "packages"
 	GitOpsRepoEnvironments = "environments"
+	// ClusterSpecConfigMapName holds the provider facts the in-cluster
+	// controllers need to talk back to the cloud the cluster was created on
+	// (provider, region, cluster name, node group, instance size, Kubernetes
+	// version, plus the sanitized provider config as JSON). The CLI writes it
+	// at bootstrap because nothing else in the cluster knows how it was made;
+	// the node autoscaler reads it to reconstruct the same provider client
+	// `adhar cluster scale` uses. It carries no credentials.
+	ClusterSpecConfigMapName = "adhar-cluster-spec"
+
+	// ClusterSSHSecretName holds the cluster's kubeadm SSH private key (key
+	// "id_ed25519"), mirrored from ~/.adhar/clusters/<name>/ at bootstrap.
+	// Joining a new worker means running kubeadm on the control plane over
+	// SSH, so an in-cluster autoscaler cannot work without it. Only created
+	// for self-managed (kubeadm) clusters.
+	ClusterSSHSecretName = "adhar-cluster-ssh"
+	// ClusterSSHSecretKey is the key inside ClusterSSHSecretName.
+	ClusterSSHSecretKey = "id_ed25519"
+
 	// GitOpsRepoTemplates holds the service/application templates the Console and
 	// the `adhar apps deploy --template` CLI both instantiate through the
 	// CompositeApplication control-plane layer — the single source of truth for

@@ -1,9 +1,32 @@
 ---
-# DigitalOcean Provider Configuration.
-# NOTE: provider-digitalocean (community, v0.x) does not yet ship namespaced
-# managed resources, so this remains a legacy cluster-scoped ProviderConfig.
-# DOKS compositions therefore run under the LegacyCluster scope.
-apiVersion: digitalocean.crossplane.io/v1alpha1
+# DigitalOcean Provider Configuration (provider-upjet-digitalocean v1.0.2).
+#
+# The upjet provider ships the Crossplane v2 namespaced APIs, so the DOKS
+# composition composes namespaced MRs (kubernetes.digitalocean.m.crossplane.io)
+# that reference a cluster-scoped ClusterProviderConfig named `default`, the
+# same convention AWS/Azure/GCP follow (CONVENTIONS.md §3).
+#
+# Credentials: the upjet provider json.Unmarshals the secret value straight
+# into the Terraform provider configuration, so the value must be a JSON object
+# ({"token": "dop_v1_..."}), not the bare token. `adhar up` materialises both
+# keys on the `digitalocean-credentials` Secret: `token` (raw, for the CLI and
+# the autoscaler) and `credentials` (JSON, for Crossplane).
+apiVersion: digitalocean.m.crossplane.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: adhar-system
+      name: digitalocean-credentials
+      key: credentials
+---
+# Legacy cluster-scoped ProviderConfig, kept for anything still using the
+# non-namespaced DigitalOcean kinds (none in-tree; namespaced XRs cannot use
+# them). Same JSON credential format.
+apiVersion: digitalocean.crossplane.io/v1beta1
 kind: ProviderConfig
 metadata:
   name: digitalocean
@@ -13,4 +36,4 @@ spec:
     secretRef:
       namespace: adhar-system
       name: digitalocean-credentials
-      key: token
+      key: credentials

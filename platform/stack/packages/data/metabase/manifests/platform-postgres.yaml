@@ -56,6 +56,11 @@ metadata:
     argocd.argoproj.io/sync-options: ServerSideApply=true,SkipDryRunOnMissingResource=true
 spec:
   instances: 1
+  # Expose the instance exporter to kube-prometheus: CNPG creates a PodMonitor
+  # (skipped gracefully while the monitoring CRDs are absent) so the Platform and
+  # CloudNativePG dashboards show this cluster. Without it no cnpg_* series exist.
+  monitoring:
+    enablePodMonitor: true
   storage:
     size: 20Gi
   enableSuperuserAccess: false
@@ -66,7 +71,7 @@ spec:
       secret:
         name: metabase-db-credentials
   backup:
-    retentionPolicy: 30d
+    retentionPolicy: 7d  # a week of PITR; 30d of WAL for every platform DB filled the shared MinIO
     barmanObjectStore:
       destinationPath: s3://adhar-backups/cnpg/metabase-db
       endpointURL: http://minio.adhar-system.svc.cluster.local:9000

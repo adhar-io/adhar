@@ -3,16 +3,24 @@ set -e
 
 INSTALL_YAML="manifests/install.yaml"
 CHART_VERSION="0.10.7"
-# cosign gets its OWN namespace (not the shared adhar-system). This resolves two
-# collisions documented in platform/stack/packages/CONFLICTS.md:
-#   1. Secret/webhook-certs collided with tekton (whichever synced last owned the
-#      cert; the other's admission webhook then failed TLS).
-#   2. Service/webhook injected WEBHOOK_PORT into every adhar-system pod via
-#      service-links, which crashlooped crossplane (--webhook-port parse error).
-# A dedicated namespace removes both by construction. The ApplicationSet sets the
-# Application destination namespace to cosign-system with CreateNamespace=true, so
-# the package does NOT ship a kind:Namespace object (ADR-0011 invariant).
-NAMESPACE="cosign-system"
+# Every platform package installs into the shared adhar-system namespace
+# (ADR-0011); the package ships no kind:Namespace object (ADR-0011 invariant).
+#
+# Two names in this chart are NOT renameable -- the policy-controller binary
+# hardcodes both (cmd/webhook/main.go: webhook.Options{ServiceName: "webhook",
+# SecretName: "webhook-certs"}), so a manifest rename desynchronises the cert
+# SANs / clientConfig and breaks admission TLS:
+#   * Service/webhook -- injects WEBHOOK_PORT=tcp://... into every adhar-system
+#     pod through service links. Components that parse *_PORT-shaped env vars
+#     MUST set enableServiceLinks:false (crossplane already does) or set the
+#     variable explicitly; that is the standing ADR-0011 rule.
+#   * Secret/webhook-certs -- shared with any other knative-based webhook in the
+#     namespace. tekton was moved off it (WEBHOOK_SECRET_NAME ->
+#     tekton-webhook-certs, see application/tekton/generate-manifests.sh), but
+#     kpack (the buildpack package) hardcodes it too and CANNOT be moved.
+#     cosign and buildpack are therefore mutually exclusive while both live in
+#     adhar-system -- see platform/stack/packages/CONFLICTS.md.
+NAMESPACE="adhar-system"
 
 echo "# COSIGN (SIGSTORE POLICY-CONTROLLER) INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/security/cosign/generate-manifests.sh'" >>${INSTALL_YAML}

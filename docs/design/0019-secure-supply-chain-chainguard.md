@@ -66,9 +66,9 @@ Only images built by the platform (`harbor.*/library/*`, `ghcr.io/adhar-io/*`) a
 
 ### 2.2 Sigstore policy-controller (`security/cosign`) — shipped, enabled in production
 
-The `cosign` package renders `sigstore/policy-controller` 0.10.6 (`--include-crds`) into its own `cosign-system` namespace: the `ClusterImagePolicy`/`TrustRoot` CRDs (`policy.sigstore.dev`), the validating webhook (`policy-controller-webhook`, PDB `minAvailable: 1`, `webhook-certs` Secret), and the `config-sigstore-keys` / `config-image-policies` ConfigMaps (shipped with only `_example` data — no live `ClusterImagePolicy` is defined). This is the native cosign admission path (air-gap-capable via `TrustRoot` for a private Sigstore).
+The `cosign` package renders `sigstore/policy-controller` 0.10.6 (`--include-crds`) into `adhar-system` (ADR-0011; it lived in its own `cosign-system` namespace until 2026-09): the `ClusterImagePolicy`/`TrustRoot` CRDs (`policy.sigstore.dev`), the validating webhook (`policy-controller-webhook`, PDB `minAvailable: 1`, `webhook-certs` Secret), and the `config-sigstore-keys` / `config-image-policies` ConfigMaps (shipped with only `_example` data — no live `ClusterImagePolicy` is defined). This is the native cosign admission path (air-gap-capable via `TrustRoot` for a private Sigstore).
 
-It is `enabled: "true"` in production and `enabled: "false"` in the local core. Moving cosign into its own `cosign-system` namespace resolved the earlier collision (CONFLICTS.md): `Secret/webhook-certs` and the webhook name no longer clash with Tekton's cosign usage in `adhar-system`, and its `Service/webhook` no longer injects `WEBHOOK_PORT` into platform pods.
+It is `enabled: "true"` in production and `enabled: "false"` in the local core. The earlier collision (CONFLICTS.md) is resolved differently now that cosign is back in `adhar-system`: Tekton reads its Secret name from `WEBHOOK_SECRET_NAME` (`tekton-webhook-certs`) and pins `WEBHOOK_PORT`, so cosign's `Service/webhook` service link is harmless; buildpack (kpack), which hardcodes the same `webhook-certs`, keeps `kpack-system`.
 
 ## 3. Scanning plane — Trivy + Harbor
 
@@ -132,7 +132,7 @@ Ordering/idempotency: policies are plain ArgoCD-synced manifests (SSA, self-heal
 
 - **Kyverno unavailable** → webhooks fail-open (`Ignore`); admission proceeds unverified. Acceptable in Audit; when enforcing, this is the availability/security trade-off the ADR flags.
 - **Rekor unreachable** (`verifyImages` keyless) → in Audit with `required: false` the check is advisory and does not fail admission; air-gapped/enforce deployments must run a private Sigstore or fall back to key-based signing (ADR-0019 consequence; `cosign` package's `TrustRoot` CRD is the air-gap hook).
-- **Cosign package namespace collision** → resolved by moving cosign into its own `cosign-system` namespace (`webhook-certs`/`WEBHOOK_PORT` no longer clash with Tekton in `adhar-system`); documented in the production appset comment and CONFLICTS.md.
+- **Cosign package namespace collision** → resolved by renaming Tekton's Secret (`WEBHOOK_SECRET_NAME=tekton-webhook-certs`) and pinning its `WEBHOOK_PORT`, so cosign lives in `adhar-system` (ADR-0011); kpack keeps `kpack-system` because it hardcodes the same Secret name; documented in the production appset comment and CONFLICTS.md.
 - **Trivy scan-job pressure** → `scanJobsConcurrentLimit: 5` + local disablement bound the churn.
 
 ## 9. Testing

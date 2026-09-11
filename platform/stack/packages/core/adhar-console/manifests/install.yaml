@@ -165,6 +165,11 @@ metadata:
     argocd.argoproj.io/sync-options: ServerSideApply=true
 spec:
   instances: 1
+  # Expose the instance exporter to kube-prometheus: CNPG creates a PodMonitor
+  # (skipped gracefully while the monitoring CRDs are absent) so the Platform and
+  # CloudNativePG dashboards show this cluster. Without it no cnpg_* series exist.
+  monitoring:
+    enablePodMonitor: true
   storage:
     # 1Gi filled up in a day: WAL is retained locally whenever archiving
     # to MinIO hiccups (keycloak-db went down with "Not enough disk space").
@@ -350,6 +355,15 @@ spec:
         # boots on a stack without the coder package.
         - secretRef:
             name: coder-credentials
+            optional: true
+        # Plane API key + in-cluster API URL + workspace slug, written by the
+        # plane package's instance-setup Job (application/plane/manifests/
+        # instance-setup.yaml). Plane's /api/v1 only accepts X-API-Key and its
+        # public route sits behind oauth2-proxy, so the Define phase needs
+        # exactly this — without it every Plane call is a 503
+        # "tool_service_token_missing". Optional for stacks without Plane.
+        - secretRef:
+            name: plane-api-token
             optional: true
         resources:
           requests:

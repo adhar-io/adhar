@@ -24,3 +24,27 @@ data:
         - groups
     nodeEvents:
       enabled: false
+    # Default artifact repository for every Workflow this controller runs.
+    # Kubeflow Pipelines used to ship its own Argo controller with its own
+    # artifact repository; since all platform packages share adhar-system
+    # (ADR-0011) the KFP bundle is stripped (data/kubeflow/generate-manifests.sh)
+    # and its Workflows are served by this controller, so its artifact store
+    # configuration lives here. `minio` is the platform MinIO; the `mlpipeline`
+    # bucket is provisioned by the minio package and the credential Secret is
+    # mirrored from the MinIO root credentials by the kubeflow package's
+    # ExternalSecret. Nothing references it unless a Workflow declares artifacts,
+    # so the block is inert when kubeflow is disabled (archiveLogs stays off —
+    # log archival would make every Workflow depend on the bucket).
+    artifactRepository:
+      archiveLogs: false
+      s3:
+        endpoint: minio.adhar-system.svc.cluster.local:9000
+        bucket: mlpipeline
+        insecure: true
+        accessKeySecret:
+          name: mlpipeline-minio-artifact
+          key: accesskey
+        secretKeySecret:
+          name: mlpipeline-minio-artifact
+          key: secretkey
+        keyFormat: "artifacts/{{workflow.name}}/{{workflow.creationTimestamp.Y}}/{{workflow.creationTimestamp.m}}/{{workflow.creationTimestamp.d}}/{{pod.name}}"

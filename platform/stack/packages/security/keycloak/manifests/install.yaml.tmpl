@@ -198,6 +198,11 @@ spec:
   # One instance on a laptop; a primary + replica in HA mode (matches the
   # bootstrap-phase gitea-db). Rendered at seed time from the platform spec.
   instances: {{ if .EnableHAMode }}2{{ else }}1{{ end }}
+  # Expose the instance exporter to kube-prometheus: CNPG creates a PodMonitor
+  # (skipped gracefully while the monitoring CRDs are absent) so the Platform and
+  # CloudNativePG dashboards show this cluster. Without it no cnpg_* series exist.
+  monitoring:
+    enablePodMonitor: true
   storage:
     # 1Gi filled up in a day: WAL is retained locally whenever archiving
     # to MinIO hiccups (keycloak-db went down with "Not enough disk space").
@@ -230,7 +235,7 @@ spec:
   # object storage in cloud environments. WAL archiving logs warnings until
   # the minio package is healthy, then self-heals.
   backup:
-    retentionPolicy: 30d
+    retentionPolicy: 7d  # a week of PITR; 30d of WAL for every platform DB filled the shared MinIO
     barmanObjectStore:
       destinationPath: s3://adhar-backups/cnpg/keycloak-db
       endpointURL: http://minio.adhar-system.svc.cluster.local:9000

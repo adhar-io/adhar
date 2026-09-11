@@ -73,7 +73,15 @@ func crossplaneCredentialData(provider string, pc *config.ConfigProviderConfig) 
 		if token == "" {
 			return nil, fmt.Errorf("DigitalOcean: no API token (providers.digitalocean.token or DIGITALOCEAN_TOKEN)")
 		}
-		return map[string][]byte{"token": []byte(token)}, nil
+		// provider-upjet-digitalocean json.Unmarshals the credential value
+		// straight into the Terraform provider configuration, so it needs a
+		// JSON object; `token` stays for the CLI/autoscaler and anything else
+		// reading the raw value.
+		creds, err := json.Marshal(map[string]string{"token": token})
+		if err != nil {
+			return nil, err
+		}
+		return map[string][]byte{"token": []byte(token), "credentials": creds}, nil
 	case dnsCivo:
 		token := get(pcv.Token, "CIVO_TOKEN", "CIVO_API_KEY")
 		if token == "" {

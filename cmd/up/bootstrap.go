@@ -264,6 +264,16 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		}
 	}
 
+	// Cloud facts + kubeadm SSH key for the in-cluster controllers: without
+	// them nothing inside the cluster can call back to the provider (the node
+	// autoscaler is the first consumer).
+	if err := ensureClusterSpecConfigMap(ctx, kubeClient, envConfig, clusterName); err != nil {
+		logger.Warnf("Cluster spec not recorded: %v (node autoscaling will be inactive)", err)
+	}
+	if err := ensureClusterSSHSecret(ctx, kubeClient, clusterName); err != nil {
+		logger.Warnf("Cluster SSH key not mirrored: %v (node autoscaling cannot join new workers)", err)
+	}
+
 	// The stack directory is required for GitOps repo seeding.
 	stackDir, err := filepath.Abs("platform/stack")
 	if err != nil {
@@ -299,6 +309,17 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		return fmt.Errorf("starting controllers: %w", err)
 	}
 
+	// Node autoscaling (environments[].autoscaling): the cluster is created at
+	// the configured nodeCount and the in-cluster autoscaler moves it between
+	// min and max from there.
+	var autoscaling *v1alpha1.AutoscalingSpec
+	if envConfig != nil {
+		autoscaling, err = autoscalingSpecFromConfig(envConfig.Autoscaling)
+		if err != nil {
+			return err
+		}
+	}
+
 	platform := v1alpha1.AdharPlatform{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      platformName,
@@ -312,6 +333,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		platform.ObjectMeta.Annotations[v1alpha1.CliStartTimeAnnotation] = time.Now().Format(time.RFC3339Nano)
 		platform.Spec = v1alpha1.AdharPlatformSpec{
 			Provider:           providerNameToEnvironmentProvider(providerName),
+			Autoscaling:        autoscaling,
 			BuildCustomization: templateData,
 			PackageConfigs: v1alpha1.PackageConfigsSpec{
 				Argo:                     v1alpha1.ArgoPackageConfigSpec{Enabled: true},

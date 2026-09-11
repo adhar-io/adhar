@@ -535,3 +535,16 @@ spec:
                   type: string
                 ready:
                   type: boolean
+                # API server URL of the provisioned cluster, once the provider
+                # reports it.
+                endpoint:
+                  type: string
+                # Where the composition published the cluster kubeconfig (the
+                # Secret the DataPlane controller reads for mode=composite).
+                kubeconfigSecret:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string

@@ -1302,7 +1302,7 @@ data:
   timeout.hard.reconciliation: 0s
   timeout.reconciliation: 30s
   timeout.reconciliation.jitter: 10s
-  url: https://argocd.example.com
+  url: https://argocd.{{ .Host }}{{ .PortSuffix }}
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-cmd-params-cm.yaml
 apiVersion: v1
@@ -1415,7 +1415,17 @@ metadata:
     app.kubernetes.io/part-of: argocd
     app.kubernetes.io/version: "v3.5.1"
 data:
-  policy.csv: ""
+  policy.csv: |
+    p, role:platform-developer, applications, get, */*, allow
+    p, role:platform-developer, applications, sync, */*, allow
+    p, role:platform-developer, applications, action/*, */*, allow
+    p, role:platform-developer, logs, get, */*, allow
+    p, role:platform-developer, repositories, get, *, allow
+    p, role:platform-developer, projects, get, *, allow
+    p, role:platform-developer, clusters, get, *, allow
+    g, platform-admin, role:admin
+    g, platform-developer, role:platform-developer
+    g, platform-viewer, role:readonly
   policy.default: ""
   policy.matchMode: glob
   scopes: '[groups]'

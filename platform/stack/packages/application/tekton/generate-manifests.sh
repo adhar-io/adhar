@@ -23,3 +23,18 @@ done
 # All platform packages deploy into adhar-system.
 sed -i.bak 's/tekton-pipelines-resolvers/adhar-system/g; s/tekton-pipelines/adhar-system/g' ${INSTALL_YAML}
 rm -f ${INSTALL_YAML}.bak
+
+# Tekton's webhook cert Secret is called "webhook-certs" upstream, which collides
+# with sigstore policy-controller (the cosign package) now that every package
+# shares adhar-system (ADR-0011). policy-controller hardcodes that Secret name in
+# its binary; Tekton takes it from the WEBHOOK_SECRET_NAME env var, so Tekton is
+# the side that renames. Rewrites the Secret, the Role resourceNames entry and the
+# env value -- but never the already-distinct "triggers-webhook-certs".
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s, n = re.subn(r'(?<![-\w])webhook-certs\b', 'tekton-webhook-certs', s)
+open(p, 'w').write(s)
+print(f"renamed Secret/webhook-certs -> Secret/tekton-webhook-certs ({n} reference(s))")
+PYEOF

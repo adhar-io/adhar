@@ -1,9 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kubeflow
-
----
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -540,90 +534,6 @@ status:
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: apiextensions.k8s.io|CustomResourceDefinition|default|clusterworkflowtemplates.argoproj.io
-  name: clusterworkflowtemplates.argoproj.io
-spec:
-  group: argoproj.io
-  names:
-    kind: ClusterWorkflowTemplate
-    listKind: ClusterWorkflowTemplateList
-    plural: clusterworkflowtemplates
-    shortNames:
-    - clusterwftmpl
-    - cwft
-    singular: clusterworkflowtemplate
-  scope: Cluster
-  versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            type: string
-          kind:
-            type: string
-          metadata:
-            type: object
-          spec:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-        required:
-        - metadata
-        - spec
-        type: object
-    served: true
-    storage: true
-
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: apiextensions.k8s.io|CustomResourceDefinition|default|cronworkflows.argoproj.io
-  name: cronworkflows.argoproj.io
-spec:
-  group: argoproj.io
-  names:
-    kind: CronWorkflow
-    listKind: CronWorkflowList
-    plural: cronworkflows
-    shortNames:
-    - cwf
-    - cronwf
-    singular: cronworkflow
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            type: string
-          kind:
-            type: string
-          metadata:
-            type: object
-          spec:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-          status:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-        required:
-        - metadata
-        - spec
-        type: object
-    served: true
-    storage: true
-
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
   name: scheduledworkflows.kubeflow.org
 spec:
   group: kubeflow.org
@@ -698,826 +608,11 @@ spec:
     storage: true
 
 ---
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: apiextensions.k8s.io|CustomResourceDefinition|default|workflowartifactgctasks.argoproj.io
-  name: workflowartifactgctasks.argoproj.io
-spec:
-  group: argoproj.io
-  names:
-    kind: WorkflowArtifactGCTask
-    listKind: WorkflowArtifactGCTaskList
-    plural: workflowartifactgctasks
-    shortNames:
-    - wfat
-    singular: workflowartifactgctask
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            type: string
-          kind:
-            type: string
-          metadata:
-            type: object
-          spec:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-          status:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-        required:
-        - metadata
-        - spec
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
-
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: apiextensions.k8s.io|CustomResourceDefinition|default|workfloweventbindings.argoproj.io
-  name: workfloweventbindings.argoproj.io
-spec:
-  group: argoproj.io
-  names:
-    kind: WorkflowEventBinding
-    listKind: WorkflowEventBindingList
-    plural: workfloweventbindings
-    shortNames:
-    - wfeb
-    singular: workfloweventbinding
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            type: string
-          kind:
-            type: string
-          metadata:
-            type: object
-          spec:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-        required:
-        - metadata
-        - spec
-        type: object
-    served: true
-    storage: true
-
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: apiextensions.k8s.io|CustomResourceDefinition|default|workflows.argoproj.io
-  name: workflows.argoproj.io
-spec:
-  group: argoproj.io
-  names:
-    kind: Workflow
-    listKind: WorkflowList
-    plural: workflows
-    shortNames:
-    - wf
-    singular: workflow
-  scope: Namespaced
-  versions:
-  - additionalPrinterColumns:
-    - description: Status of the workflow
-      jsonPath: .status.phase
-      name: Status
-      type: string
-    - description: When the workflow was started
-      format: date-time
-      jsonPath: .status.startedAt
-      name: Age
-      type: date
-    - description: Human readable message indicating details about why the workflow
-        is in this condition.
-      jsonPath: .status.message
-      name: Message
-      type: string
-    name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            type: string
-          kind:
-            type: string
-          metadata:
-            type: object
-          spec:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-          status:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-        required:
-        - metadata
-        - spec
-        type: object
-    served: true
-    storage: true
-    subresources: {}
-
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: apiextensions.k8s.io|CustomResourceDefinition|default|workflowtaskresults.argoproj.io
-  name: workflowtaskresults.argoproj.io
-spec:
-  group: argoproj.io
-  names:
-    kind: WorkflowTaskResult
-    listKind: WorkflowTaskResultList
-    plural: workflowtaskresults
-    singular: workflowtaskresult
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            type: string
-          kind:
-            type: string
-          message:
-            type: string
-          metadata:
-            type: object
-          outputs:
-            properties:
-              artifacts:
-                items:
-                  properties:
-                    archive:
-                      properties:
-                        none:
-                          type: object
-                        tar:
-                          properties:
-                            compressionLevel:
-                              format: int32
-                              type: integer
-                          type: object
-                        zip:
-                          type: object
-                      type: object
-                    archiveLogs:
-                      type: boolean
-                    artifactGC:
-                      properties:
-                        podMetadata:
-                          properties:
-                            annotations:
-                              additionalProperties:
-                                type: string
-                              type: object
-                            labels:
-                              additionalProperties:
-                                type: string
-                              type: object
-                          type: object
-                        serviceAccountName:
-                          type: string
-                        strategy:
-                          enum:
-                          - ''
-                          - OnWorkflowCompletion
-                          - OnWorkflowDeletion
-                          - Never
-                          type: string
-                      type: object
-                    artifactory:
-                      properties:
-                        passwordSecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        url:
-                          type: string
-                        usernameSecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                      required:
-                      - url
-                      type: object
-                    azure:
-                      properties:
-                        accountKeySecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        blob:
-                          type: string
-                        container:
-                          type: string
-                        endpoint:
-                          type: string
-                        useSDKCreds:
-                          type: boolean
-                      required:
-                      - blob
-                      - container
-                      - endpoint
-                      type: object
-                    deleted:
-                      type: boolean
-                    from:
-                      type: string
-                    fromExpression:
-                      type: string
-                    gcs:
-                      properties:
-                        bucket:
-                          type: string
-                        key:
-                          type: string
-                        serviceAccountKeySecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                      required:
-                      - key
-                      type: object
-                    git:
-                      properties:
-                        branch:
-                          type: string
-                        depth:
-                          format: int64
-                          type: integer
-                        disableSubmodules:
-                          type: boolean
-                        fetch:
-                          items:
-                            type: string
-                          type: array
-                        insecureIgnoreHostKey:
-                          type: boolean
-                        passwordSecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        repo:
-                          type: string
-                        revision:
-                          type: string
-                        singleBranch:
-                          type: boolean
-                        sshPrivateKeySecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        usernameSecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                      required:
-                      - repo
-                      type: object
-                    globalName:
-                      type: string
-                    hdfs:
-                      properties:
-                        addresses:
-                          items:
-                            type: string
-                          type: array
-                        force:
-                          type: boolean
-                        hdfsUser:
-                          type: string
-                        krbCCacheSecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        krbConfigConfigMap:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        krbKeytabSecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        krbRealm:
-                          type: string
-                        krbServicePrincipalName:
-                          type: string
-                        krbUsername:
-                          type: string
-                        path:
-                          type: string
-                      required:
-                      - path
-                      type: object
-                    http:
-                      properties:
-                        auth:
-                          properties:
-                            basicAuth:
-                              properties:
-                                passwordSecret:
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    optional:
-                                      type: boolean
-                                  required:
-                                  - key
-                                  type: object
-                                usernameSecret:
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    optional:
-                                      type: boolean
-                                  required:
-                                  - key
-                                  type: object
-                              type: object
-                            clientCert:
-                              properties:
-                                clientCertSecret:
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    optional:
-                                      type: boolean
-                                  required:
-                                  - key
-                                  type: object
-                                clientKeySecret:
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    optional:
-                                      type: boolean
-                                  required:
-                                  - key
-                                  type: object
-                              type: object
-                            oauth2:
-                              properties:
-                                clientIDSecret:
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    optional:
-                                      type: boolean
-                                  required:
-                                  - key
-                                  type: object
-                                clientSecretSecret:
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    optional:
-                                      type: boolean
-                                  required:
-                                  - key
-                                  type: object
-                                endpointParams:
-                                  items:
-                                    properties:
-                                      key:
-                                        type: string
-                                      value:
-                                        type: string
-                                    required:
-                                    - key
-                                    type: object
-                                  type: array
-                                scopes:
-                                  items:
-                                    type: string
-                                  type: array
-                                tokenURLSecret:
-                                  properties:
-                                    key:
-                                      type: string
-                                    name:
-                                      type: string
-                                    optional:
-                                      type: boolean
-                                  required:
-                                  - key
-                                  type: object
-                              type: object
-                          type: object
-                        headers:
-                          items:
-                            properties:
-                              name:
-                                type: string
-                              value:
-                                type: string
-                            required:
-                            - name
-                            - value
-                            type: object
-                          type: array
-                        url:
-                          type: string
-                      required:
-                      - url
-                      type: object
-                    mode:
-                      format: int32
-                      type: integer
-                    name:
-                      type: string
-                    optional:
-                      type: boolean
-                    oss:
-                      properties:
-                        accessKeySecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        bucket:
-                          type: string
-                        createBucketIfNotPresent:
-                          type: boolean
-                        endpoint:
-                          type: string
-                        key:
-                          type: string
-                        lifecycleRule:
-                          properties:
-                            markDeletionAfterDays:
-                              format: int32
-                              type: integer
-                            markInfrequentAccessAfterDays:
-                              format: int32
-                              type: integer
-                          type: object
-                        secretKeySecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        securityToken:
-                          type: string
-                      required:
-                      - key
-                      type: object
-                    path:
-                      type: string
-                    raw:
-                      properties:
-                        data:
-                          type: string
-                      required:
-                      - data
-                      type: object
-                    recurseMode:
-                      type: boolean
-                    s3:
-                      properties:
-                        accessKeySecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        bucket:
-                          type: string
-                        createBucketIfNotPresent:
-                          properties:
-                            objectLocking:
-                              type: boolean
-                          type: object
-                        encryptionOptions:
-                          properties:
-                            enableEncryption:
-                              type: boolean
-                            kmsEncryptionContext:
-                              type: string
-                            kmsKeyId:
-                              type: string
-                            serverSideCustomerKeySecret:
-                              properties:
-                                key:
-                                  type: string
-                                name:
-                                  type: string
-                                optional:
-                                  type: boolean
-                              required:
-                              - key
-                              type: object
-                          type: object
-                        endpoint:
-                          type: string
-                        insecure:
-                          type: boolean
-                        key:
-                          type: string
-                        region:
-                          type: string
-                        roleARN:
-                          type: string
-                        secretKeySecret:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        useSDKCreds:
-                          type: boolean
-                      type: object
-                    subPath:
-                      type: string
-                  required:
-                  - name
-                  type: object
-                type: array
-              exitCode:
-                type: string
-              parameters:
-                items:
-                  properties:
-                    default:
-                      type: string
-                    description:
-                      type: string
-                    enum:
-                      items:
-                        type: string
-                      type: array
-                    globalName:
-                      type: string
-                    name:
-                      type: string
-                    value:
-                      type: string
-                    valueFrom:
-                      properties:
-                        configMapKeyRef:
-                          properties:
-                            key:
-                              type: string
-                            name:
-                              type: string
-                            optional:
-                              type: boolean
-                          required:
-                          - key
-                          type: object
-                        default:
-                          type: string
-                        event:
-                          type: string
-                        expression:
-                          type: string
-                        jqFilter:
-                          type: string
-                        jsonPath:
-                          type: string
-                        parameter:
-                          type: string
-                        path:
-                          type: string
-                        supplied:
-                          type: object
-                      type: object
-                  required:
-                  - name
-                  type: object
-                type: array
-              result:
-                type: string
-            type: object
-          phase:
-            type: string
-          progress:
-            type: string
-        required:
-        - metadata
-        type: object
-    served: true
-    storage: true
-
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: apiextensions.k8s.io|CustomResourceDefinition|default|workflowtasksets.argoproj.io
-  name: workflowtasksets.argoproj.io
-spec:
-  group: argoproj.io
-  names:
-    kind: WorkflowTaskSet
-    listKind: WorkflowTaskSetList
-    plural: workflowtasksets
-    shortNames:
-    - wfts
-    singular: workflowtaskset
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            type: string
-          kind:
-            type: string
-          metadata:
-            type: object
-          spec:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-          status:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-        required:
-        - metadata
-        - spec
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
-
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: apiextensions.k8s.io|CustomResourceDefinition|default|workflowtemplates.argoproj.io
-  name: workflowtemplates.argoproj.io
-spec:
-  group: argoproj.io
-  names:
-    kind: WorkflowTemplate
-    listKind: WorkflowTemplateList
-    plural: workflowtemplates
-    shortNames:
-    - wftmpl
-    singular: workflowtemplate
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            type: string
-          kind:
-            type: string
-          metadata:
-            type: object
-          spec:
-            type: object
-            x-kubernetes-map-type: atomic
-            x-kubernetes-preserve-unknown-fields: true
-        required:
-        - metadata
-        - spec
-        type: object
-    served: true
-    storage: true
-
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kubeflow-pipelines-cache-deployer-sa
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1568,18 +663,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kubeflow-pipelines-cache-deployer-sa
-  namespace: kubeflow
-
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: '|ServiceAccount|default|argo'
-  labels:
-    application-crd-id: kubeflow-pipelines
-  name: argo
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1589,7 +673,7 @@ metadata:
     app: cache-server
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-cache
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1598,7 +682,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-container-builder
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1607,7 +691,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-metadata-writer
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1616,7 +700,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-viewer
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1625,7 +709,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: metadata-grpc-server
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1634,7 +718,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1643,7 +727,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-persistenceagent
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1652,7 +736,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-scheduledworkflow
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1661,7 +745,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-ui
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1670,7 +754,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-viewer-crd-service-account
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1679,7 +763,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-visualizationserver
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1688,7 +772,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: mysql
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -1697,131 +781,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: pipeline-runner
-  namespace: kubeflow
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: rbac.authorization.k8s.io|Role|default|argo-role
-  labels:
-    application-crd-id: kubeflow-pipelines
-  name: argo-role
-  namespace: kubeflow
-rules:
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-  - get
-  - update
-- apiGroups:
-  - ''
-  resources:
-  - pods
-  - pods/exec
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-  - update
-  - patch
-  - delete
-- apiGroups:
-  - ''
-  resources:
-  - configmaps
-  verbs:
-  - get
-  - watch
-  - list
-- apiGroups:
-  - ''
-  resources:
-  - persistentvolumeclaims
-  - persistentvolumeclaims/finalizers
-  verbs:
-  - create
-  - update
-  - delete
-  - get
-- apiGroups:
-  - argoproj.io
-  resources:
-  - workflows
-  - workflows/finalizers
-  - workflowtasksets
-  - workflowtasksets/finalizers
-  - workflowartifactgctasks
-  verbs:
-  - get
-  - list
-  - watch
-  - update
-  - patch
-  - delete
-  - create
-- apiGroups:
-  - argoproj.io
-  resources:
-  - workflowtemplates
-  - workflowtemplates/finalizers
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - argoproj.io
-  resources:
-  - workflowtaskresults
-  verbs:
-  - list
-  - watch
-  - deletecollection
-- apiGroups:
-  - ''
-  resources:
-  - serviceaccounts
-  verbs:
-  - get
-  - list
-- apiGroups:
-  - ''
-  resources:
-  - secrets
-  verbs:
-  - get
-- apiGroups:
-  - argoproj.io
-  resources:
-  - cronworkflows
-  - cronworkflows/finalizers
-  verbs:
-  - get
-  - list
-  - watch
-  - update
-  - patch
-  - delete
-- apiGroups:
-  - ''
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - policy
-  resources:
-  - poddisruptionbudgets
-  verbs:
-  - create
-  - get
-  - delete
+  namespace: adhar-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1831,7 +791,7 @@ metadata:
     app: cache-deployer
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-cache-deployer-role
-  namespace: kubeflow
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ''
@@ -1852,7 +812,7 @@ metadata:
     app: cache-server
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-cache-role
-  namespace: kubeflow
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ''
@@ -1906,7 +866,7 @@ metadata:
     app: kubeflow-pipelines-metadata-writer-role
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-metadata-writer-role
-  namespace: kubeflow
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ''
@@ -1943,7 +903,7 @@ metadata:
     app: ml-pipeline
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline
-  namespace: kubeflow
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ''
@@ -2026,7 +986,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-persistenceagent-role
-  namespace: kubeflow
+  namespace: adhar-system
 rules:
 - apiGroups:
   - argoproj.io
@@ -2096,7 +1056,7 @@ metadata:
     app: ml-pipeline-scheduledworkflow-role
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-scheduledworkflow-role
-  namespace: kubeflow
+  namespace: adhar-system
 rules:
 - apiGroups:
   - argoproj.io
@@ -2139,7 +1099,7 @@ metadata:
     app: ml-pipeline-ui
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-ui
-  namespace: kubeflow
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ''
@@ -2187,7 +1147,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-viewer-controller-role
-  namespace: kubeflow
+  namespace: adhar-system
 rules:
 - apiGroups:
   - '*'
@@ -2223,7 +1183,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: pipeline-runner
-  namespace: kubeflow
+  namespace: adhar-system
 rules:
 - apiGroups:
   - ''
@@ -2334,30 +1294,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: rbac.authorization.k8s.io|RoleBinding|default|argo-binding
-  labels:
-    application-crd-id: kubeflow-pipelines
-  name: argo-binding
-  namespace: kubeflow
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: argo-role
-subjects:
-- kind: ServiceAccount
-  name: argo
-  namespace: kubeflow
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
   labels:
     app: cache-server
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-cache-binding
-  namespace: kubeflow
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -2365,7 +1306,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kubeflow-pipelines-cache
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2375,7 +1316,7 @@ metadata:
     app: cache-deployer
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-cache-deployer-rolebinding
-  namespace: kubeflow
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -2391,7 +1332,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: kubeflow-pipelines-metadata-writer-binding
-  namespace: kubeflow
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -2399,7 +1340,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kubeflow-pipelines-metadata-writer
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2409,7 +1350,7 @@ metadata:
     app: ml-pipeline
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline
-  namespace: kubeflow
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -2417,7 +1358,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: ml-pipeline
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2426,7 +1367,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-persistenceagent-binding
-  namespace: kubeflow
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -2434,7 +1375,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: ml-pipeline-persistenceagent
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2443,7 +1384,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-scheduledworkflow-binding
-  namespace: kubeflow
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -2451,7 +1392,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: ml-pipeline-scheduledworkflow
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2461,7 +1402,7 @@ metadata:
     app: ml-pipeline-ui
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-ui
-  namespace: kubeflow
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -2469,7 +1410,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: ml-pipeline-ui
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2478,7 +1419,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-viewer-crd-binding
-  namespace: kubeflow
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -2486,7 +1427,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: ml-pipeline-viewer-crd-service-account
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2495,7 +1436,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: pipeline-runner-binding
-  namespace: kubeflow
+  namespace: adhar-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -2503,7 +1444,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: pipeline-runner
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -2514,7 +1455,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: kfp-launcher
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -2527,7 +1468,7 @@ metadata:
     application-crd-id: kubeflow-pipelines
     component: metadata-grpc-server
   name: metadata-grpc-configmap
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -2539,7 +1480,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-ui-configmap
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -2583,37 +1524,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: pipeline-install-config
-  namespace: kubeflow
-
----
-apiVersion: v1
-data:
-  artifactRepository: "archiveLogs: true\ns3:\n  endpoint: \"minio-service.kubeflow:9000\"\
-    \n  bucket: \"mlpipeline\"\n  # keyFormat is a format pattern to define how artifacts\
-    \ will be organized in a bucket.\n  # It can reference workflow metadata variables\
-    \ such as workflow.namespace, workflow.name,\n  # pod.name. Can also use strftime\
-    \ formating of workflow.creationTimestamp so that workflow\n  # artifacts can\
-    \ be organized by date. If omitted, will use `{{workflow.name}}/{{pod.name}}`,\n\
-    \  # which has potential for have collisions, because names do not guarantee they\
-    \ are unique\n  # over the lifetime of the cluster.\n  # Refer to https://kubernetes.io/docs/concepts/overview/working-with-objects/names/.\n\
-    \  #\n  # The following format looks like:\n  # artifacts/my-workflow-abc123/2018/08/23/my-workflow-abc123-1234567890\n\
-    \  # Adding date into the path greatly reduces the chance of {{pod.name}} collision.\n\
-    \  keyFormat: \"artifacts/{{workflow.name}}/{{workflow.creationTimestamp.Y}}/{{workflow.creationTimestamp.m}}/{{workflow.creationTimestamp.d}}/{{pod.name}}\"\
-    \n  # insecure will disable TLS. Primarily used for minio installs not configured\
-    \ with TLS\n  insecure: true\n  accessKeySecret:\n    name: mlpipeline-minio-artifact\n\
-    \    key: accesskey\n  secretKeySecret:\n    name: mlpipeline-minio-artifact\n\
-    \    key: secretkey\n"
-  executor: 'imagePullPolicy: IfNotPresent
-
-    '
-kind: ConfigMap
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: '|ConfigMap|default|workflow-controller-configmap'
-  labels:
-    application-crd-id: kubeflow-pipelines
-  name: workflow-controller-configmap
-  namespace: kubeflow
+  namespace: adhar-system
 
 ---
 apiVersion: v1
@@ -2622,7 +1533,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: mlpipeline-minio-artifact
-  namespace: kubeflow
+  namespace: adhar-system
 stringData:
   accesskey: minio
   secretkey: minio123
@@ -2634,7 +1545,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: mysql-secret
-  namespace: kubeflow
+  namespace: adhar-system
 stringData:
   password: ''
   username: root
@@ -2647,7 +1558,7 @@ metadata:
     app: cache-server
     application-crd-id: kubeflow-pipelines
   name: cache-server
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   ports:
   - port: 443
@@ -2664,7 +1575,7 @@ metadata:
     app: metadata-envoy
     application-crd-id: kubeflow-pipelines
   name: metadata-envoy-service
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   ports:
   - name: md-envoy
@@ -2683,7 +1594,7 @@ metadata:
     app: metadata
     application-crd-id: kubeflow-pipelines
   name: metadata-grpc-service
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   ports:
   - name: grpc-api
@@ -2705,7 +1616,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   ports:
   - name: http
@@ -2728,7 +1639,7 @@ metadata:
     app: ml-pipeline-ui
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-ui
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   ports:
   - name: http
@@ -2746,7 +1657,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-visualizationserver
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   ports:
   - name: http
@@ -2764,7 +1675,7 @@ metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: mysql
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   ports:
   - port: 3306
@@ -2775,24 +1686,13 @@ spec:
     application-crd-id: kubeflow-pipelines
 
 ---
-apiVersion: scheduling.k8s.io/v1
-kind: PriorityClass
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: scheduling.k8s.io|PriorityClass|default|workflow-controller
-  labels:
-    application-crd-id: kubeflow-pipelines
-  name: workflow-controller
-value: 1000000
-
----
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   labels:
     application-crd-id: kubeflow-pipelines
   name: mysql-pv-claim
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   accessModes:
   - ReadWriteOnce
@@ -2808,7 +1708,7 @@ metadata:
     app: cache-deployer
     application-crd-id: kubeflow-pipelines
   name: cache-deployer-deployment
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -2843,7 +1743,7 @@ metadata:
     app: cache-server
     application-crd-id: kubeflow-pipelines
   name: cache-server
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -2954,7 +1854,7 @@ metadata:
     application-crd-id: kubeflow-pipelines
     component: metadata-envoy
   name: metadata-envoy-deployment
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -2997,7 +1897,7 @@ metadata:
     application-crd-id: kubeflow-pipelines
     component: metadata-grpc-server
   name: metadata-grpc-deployment
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -3084,7 +1984,7 @@ metadata:
     app: metadata-writer
     application-crd-id: kubeflow-pipelines
   name: metadata-writer
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   replicas: 1
   selector:
@@ -3129,7 +2029,7 @@ metadata:
     app: ml-pipeline
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -3305,7 +2205,7 @@ metadata:
     app: ml-pipeline-persistenceagent
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-persistenceagent
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -3373,7 +2273,7 @@ metadata:
     app: ml-pipeline-scheduledworkflow
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-scheduledworkflow
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -3427,7 +2327,7 @@ metadata:
     app: ml-pipeline-ui
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-ui
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -3530,7 +2430,7 @@ metadata:
     app: ml-pipeline-viewer-crd
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-viewer-crd
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -3579,7 +2479,7 @@ metadata:
     app: ml-pipeline-visualizationserver
     application-crd-id: kubeflow-pipelines
   name: ml-pipeline-visualizationserver
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -3649,7 +2549,7 @@ metadata:
     app: mysql
     application-crd-id: kubeflow-pipelines
   name: mysql
-  namespace: kubeflow
+  namespace: adhar-system
 spec:
   selector:
     matchLabels:
@@ -3702,73 +2602,3 @@ spec:
       - name: mysql-persistent-storage
         persistentVolumeClaim:
           claimName: mysql-pv-claim
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  annotations:
-    internal.kpt.dev/upstream-identifier: apps|Deployment|default|workflow-controller
-  labels:
-    application-crd-id: kubeflow-pipelines
-  name: workflow-controller
-  namespace: kubeflow
-spec:
-  selector:
-    matchLabels:
-      app: workflow-controller
-      application-crd-id: kubeflow-pipelines
-  template:
-    metadata:
-      labels:
-        app: workflow-controller
-        application-crd-id: kubeflow-pipelines
-    spec:
-      containers:
-      - args:
-        - --configmap
-        - workflow-controller-configmap
-        - --executor-image
-        - gcr.io/ml-pipeline/argoexec:v3.4.17-license-compliance
-        - --namespaced
-        command:
-        - workflow-controller
-        env:
-        - name: LEADER_ELECTION_IDENTITY
-          valueFrom:
-            fieldRef:
-              apiVersion: v1
-              fieldPath: metadata.name
-        image: gcr.io/ml-pipeline/workflow-controller:v3.4.17-license-compliance
-        livenessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /healthz
-            port: 6060
-          initialDelaySeconds: 90
-          periodSeconds: 60
-          timeoutSeconds: 30
-        name: workflow-controller
-        ports:
-        - containerPort: 9090
-          name: metrics
-        - containerPort: 6060
-        resources:
-          requests:
-            cpu: 100m
-            memory: 500Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-          readOnlyRootFilesystem: true
-          runAsNonRoot: true
-          seccompProfile:
-            type: RuntimeDefault
-      nodeSelector:
-        kubernetes.io/os: linux
-      priorityClassName: workflow-controller
-      securityContext:
-        runAsNonRoot: true
-      serviceAccountName: argo

@@ -3025,7 +3025,7 @@ metadata:
     "helm.sh/chart": "posthog-30.46.0"
 type: Opaque
 data:
-  posthog-secret: "ak8xTFVJaDNJNkhSc0luYkE5Mk93alk0UnNVSEdpTnlNZ1NBMWw3ZA=="
+  posthog-secret: "eGliSWllYVF2Y3NZTjBnWThoWlFCMXRRaWdMVVBna0prVG42b1RObQ=="
   smtp-password: ""
 ---
 # Source: posthog/charts/redis/templates/configmap.yaml
@@ -4167,7 +4167,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 06628f3a48ae5d00206c92c04c10af73377edf7c1edd84a07ca25588ae84356b
+        checksum/secrets.yaml: 81cd72602a340c824422f1aa172720c78162dbe3b564c61dc462652b5e2aac14
       labels:
         app: posthog
         release: "posthog"
@@ -4422,7 +4422,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: dca9dd7e9bfc52fe2451271d0f54ee912bbdd52ccdc66ce6f295e9c1682fa48b
+        checksum/secrets.yaml: 31c8541a42002e04b300890f0109fc1731b85900e41103f2a7fd4af2f60e911a
 
         
 
@@ -4548,7 +4548,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: d3263ba3b9e1abe6dd91b8acf116e235b674ffe6b2ab500e065b4b27671fe49e
+        checksum/secrets.yaml: 736e4056a67370d02e795ab34c77bfdb209f5c5615654e550d116ea8f3f31553
       labels:
         app: posthog
         release: "posthog"
@@ -4857,7 +4857,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 4386a3bf54c2684bd94df9bca4426379aa3504ec8b11bdfb515f8e0d21c822e8
+        checksum/secrets.yaml: 46ab6112240764a04974904f16674521bc26df5b72d33988fc76ecf1efd215d8
       labels:
         app: posthog
         release: "posthog"
@@ -5229,7 +5229,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: fbb0f4eba4d7e1ca385175025aeb255927f28c3170e1a6f9838b9e66ecfd080e
+        checksum/secrets.yaml: 28f24552086203f08d16a5c11f13d4a339ac539827d6a5bcbd537bf313057ed2
       labels:
         app: posthog
         release: "posthog"
@@ -5652,7 +5652,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-migrate-2026-09-10-06-12-34
+  name: posthog-migrate-2026-09-11-08-53-37
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -5666,9 +5666,9 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-migrate-2026-09-10-06-12-34
+      name: posthog-migrate-2026-09-11-08-53-37
       annotations:
-        checksum/secrets.yaml: f550a6e7e0af53637c8ae9b2ec9e719104e597c86eb6812b22ac3f207287366f
+        checksum/secrets.yaml: 8fb9b73a8c56e599551cb708d52dd56022a89fb766b3694f391c8c8b503bbfc1
       labels:
         app: posthog
         release: "posthog"
@@ -5877,6 +5877,8 @@ spec:
         - "192.168.0.0/16"
       admin/profile: default
       admin/quota: default
+      admin/access_management: "1"
+      admin/named_collection_control: "1"
     profiles:
       default/allow_experimental_window_functions: "1"
       default/allow_nondeterministic_mutations: "1"
@@ -5892,18 +5894,40 @@ spec:
           shardsCount: 1
 
     settings:
+      crash_log/database: system
+      crash_log/flush_interval_milliseconds: "1000"
+      crash_log/table: crash_log
       default_database: posthog
       format_schema_path: /etc/clickhouse-server/config.d/
       macros/hostClusterRole: coordinator
       macros/hostClusterType: online
+      named_collections/msk_cluster/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+      named_collections/warpstream_calculated_events/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+      named_collections/warpstream_cyclotron/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+      named_collections/warpstream_ingestion/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+      named_collections/warpstream_logs/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+      named_collections/warpstream_metrics/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+      named_collections/warpstream_replay/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+      named_collections/warpstream_shared/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+      named_collections/warpstream_traces/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+      query_thread_log/database: system
+      query_thread_log/flush_interval_milliseconds: "7500"
+      query_thread_log/partition_by: toYYYYMM(event_date)
+      query_thread_log/table: query_thread_log
       remote_servers/ai_events/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/ai_events/shard/replica/port: "9000"
       remote_servers/aux/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/aux/shard/replica/port: "9000"
       remote_servers/data_warehouse/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/data_warehouse/shard/replica/port: "9000"
+      remote_servers/logs/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/logs/shard/replica/port: "9000"
       remote_servers/ops/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/ops/shard/replica/port: "9000"
+      remote_servers/persons/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/persons/shard/replica/port: "9000"
+      remote_servers/posthog_ai_events/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_ai_events/shard/replica/port: "9000"
       remote_servers/posthog_analytics/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/posthog_analytics/shard/replica/port: "9000"
       remote_servers/posthog_aux/shard/replica/host: chi-posthog-posthog-0-0
@@ -5916,16 +5940,38 @@ spec:
       remote_servers/posthog_events/shard/replica/port: "9000"
       remote_servers/posthog_logs/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/posthog_logs/shard/replica/port: "9000"
+      remote_servers/posthog_logs_v2/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_logs_v2/shard/replica/port: "9000"
       remote_servers/posthog_migrations/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/posthog_migrations/shard/replica/port: "9000"
+      remote_servers/posthog_ops/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_ops/shard/replica/port: "9000"
+      remote_servers/posthog_persons/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_persons/shard/replica/port: "9000"
       remote_servers/posthog_primary_replica/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/posthog_primary_replica/shard/replica/port: "9000"
+      remote_servers/posthog_session_replay/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_session_replay/shard/replica/port: "9000"
+      remote_servers/posthog_sessions/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_sessions/shard/replica/port: "9000"
       remote_servers/posthog_single_shard/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/posthog_single_shard/shard/replica/port: "9000"
       remote_servers/posthog_svc/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/posthog_svc/shard/replica/port: "9000"
+      remote_servers/posthog_web_analytics/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/posthog_web_analytics/shard/replica/port: "9000"
       remote_servers/posthog_writable/shard/replica/host: chi-posthog-posthog-0-0
       remote_servers/posthog_writable/shard/replica/port: "9000"
+      remote_servers/session_replay/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/session_replay/shard/replica/port: "9000"
+      remote_servers/sessions/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/sessions/shard/replica/port: "9000"
+      remote_servers/web_analytics/shard/replica/host: chi-posthog-posthog-0-0
+      remote_servers/web_analytics/shard/replica/port: "9000"
+      session_log/database: system
+      session_log/flush_interval_milliseconds: "7500"
+      session_log/partition_by: toYYYYMM(event_date)
+      session_log/table: session_log
 
     files:
       events.proto: |
@@ -5961,7 +6007,7 @@ spec:
 
           containers:
             - name: clickhouse
-              image: "clickhouse/clickhouse-server:23.9.2.56"
+              image: "clickhouse/clickhouse-server:26.6.2.158"
               command:
                 - /bin/bash
                 - -c
@@ -6011,7 +6057,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-grafana-annotation-job-post-2026-09-10-06-12-34
+  name: posthog-grafana-annotation-job-post-2026-09-11-08-53-37
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -6027,7 +6073,7 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-grafana-annotation-job-post-2026-09-10-06-12-34
+      name: posthog-grafana-annotation-job-post-2026-09-11-08-53-37
     spec:
       restartPolicy: Never
 

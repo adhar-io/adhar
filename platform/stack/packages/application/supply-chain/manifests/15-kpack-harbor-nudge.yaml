@@ -38,7 +38,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: kpack-harbor-nudge
-  namespace: kpack-system
+  namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "0"}
 rules:
   - {apiGroups: ["apps"], resources: [deployments], verbs: [get, patch]}
@@ -47,7 +47,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kpack-harbor-nudge
-  namespace: kpack-system
+  namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "0"}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kpack-harbor-nudge}
 subjects: [{kind: ServiceAccount, name: kpack-harbor-nudge, namespace: adhar-system}]
@@ -91,7 +91,7 @@ spec:
                   echo "adhar-builder is Ready — no nudge needed"; exit 0
                 fi
                 echo "adhar-builder not Ready yet (Ready=${ready:-unknown}); nudging kpack-controller"
-                kubectl rollout restart deploy/kpack-controller -n kpack-system || true
+                kubectl rollout restart deploy/kpack-controller -n adhar-system || true
                 sleep 30
               done
               echo "builder still not Ready after nudging — leaving it to kpack's own retry"

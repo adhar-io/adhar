@@ -9,9 +9,12 @@
 # generate-manifests.sh strips that Deployment, its PVC and its Service; these
 # resources take their place:
 #   * minio-service            -> ExternalName alias to the platform MinIO, so
-#                                 every upstream reference to
-#                                 "minio-service.kubeflow:9000" keeps working
-#                                 unchanged (same port 9000).
+#                                 every upstream reference to "minio-service"
+#                                 keeps working unchanged (same port 9000). KFP
+#                                 now shares adhar-system with the platform MinIO
+#                                 (ADR-0011), so this is a same-namespace CNAME to
+#                                 `minio`; it is kept rather than dropped because
+#                                 KFP components address the store by that name.
 #   * mlpipeline-minio-artifact-> KFP's credential Secret, mirrored from the
 #                                 platform MinIO root credentials by ESO.
 # The "mlpipeline" bucket is provisioned by the minio package (values.yaml).
@@ -21,7 +24,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: minio-service
-  namespace: kubeflow
+  namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "-2"}
 spec:
   type: ExternalName
@@ -39,7 +42,7 @@ apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: mlpipeline-minio-artifact
-  namespace: kubeflow
+  namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true

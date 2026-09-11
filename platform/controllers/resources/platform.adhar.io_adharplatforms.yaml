@@ -39,6 +39,58 @@ spec:
           spec:
             description: AdharPlatformSpec defines the desired state of AdharPlatform.
             properties:
+              autoscaling:
+                description: |-
+                  Autoscaling configures the platform's own node autoscaler: the cluster
+                  starts small and grows only when pods cannot be scheduled, shrinking
+                  again when the workers sit idle. Adhar runs self-managed kubeadm
+                  clusters on raw cloud compute, for which the upstream cluster-autoscaler
+                  has no cloud provider, so the platform does it itself (see
+                  platform/controllers/autoscaler). Nil or disabled = fixed worker count.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled turns the autoscaler on for this platform. When false the
+                      controller is still running but takes no action.
+                    type: boolean
+                  maxWorkers:
+                    default: 5
+                    description: |-
+                      MaxWorkers is the ceiling the autoscaler never scales above — the
+                      platform's spend limit.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  minWorkers:
+                    default: 1
+                    description: MinWorkers is the floor the autoscaler never scales
+                      below.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  nodeGroup:
+                    default: workers
+                    description: NodeGroup is the provider node group to scale.
+                    type: string
+                  scaleDownDelay:
+                    default: 10m
+                    description: |-
+                      ScaleDownDelay is how long the cluster must stay under the threshold
+                      before a node is drained and removed.
+                    type: string
+                  scaleDownUtilizationThreshold:
+                    default: 50%
+                    description: |-
+                      ScaleDownUtilizationThreshold is the requested-vs-allocatable share
+                      (e.g. "50%", or a bare fraction "0.5") that cluster CPU *and* memory must
+                      both stay under before a worker is removed.
+                    type: string
+                  scaleUpCooldown:
+                    default: 3m
+                    description: ScaleUpCooldown is the minimum gap between two node
+                      additions.
+                    type: string
+                type: object
               buildCustomization:
                 description: BuildCustomizationSpec fields cannot change once a cluster
                   is created
@@ -155,6 +207,42 @@ spec:
                     type: boolean
                   available:
                     type: boolean
+                type: object
+              autoscaling:
+                description: Autoscaling reports the node autoscaler's view of the
+                  cluster.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled mirrors spec.autoscaling.enabled so `adhar get status` can show
+                      the mode without reading the spec.
+                    type: boolean
+                  lastReason:
+                    description: |-
+                      LastReason explains the most recent decision (including "no action" ones)
+                      in one line.
+                    type: string
+                  lastScaleDown:
+                    format: date-time
+                    type: string
+                  lastScaleUp:
+                    format: date-time
+                    type: string
+                  underutilizedSince:
+                    description: |-
+                      UnderutilizedSince is when the cluster first dropped below the scale-down
+                      threshold in the current stretch. It is persisted (rather than kept in
+                      memory) so the ScaleDownDelay survives a controller restart or a leader
+                      election handover.
+                    format: date-time
+                    type: string
+                  workers:
+                    description: Workers is the number of schedulable worker nodes
+                      at the last tick.
+                    format: int32
+                    type: integer
+                required:
+                - workers
                 type: object
               conditions:
                 description: |-

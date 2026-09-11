@@ -50,12 +50,56 @@ externalKafka:
 # clickhouse-keeper.yaml) rather than the chart's Bitnami ZooKeeper ensemble.
 # Keeper speaks the same protocol on the same port, so this is a drop-in.
 clickhouse:
+  # Kafka-engine tables reference named collections (settings below), and
+  # ClickHouse only lets a user reference one it has been granted:
+  # "Not enough privileges ... grant NAMED COLLECTION ON msk_cluster". The chart
+  # defines the admin user in users.xml, where grants cannot be issued by SQL,
+  # so give it named-collection control there.
+  additionalUsersConfig:
+    admin/named_collection_control: "1"
+    admin/access_management: "1"
+  # posthog/posthog:latest tracks PostHog master, whose ClickHouse migrations
+  # need the ClickHouse release master runs (docker-compose.base.yml); the
+  # chart's 23.9 default is years behind it. Keep this tag in step with
+  # upstream's CLICKHOUSE_SERVER_IMAGE when bumping the app image.
+  image:
+    tag: "26.6.2.158"
   # PostHog's migrations read two ClickHouse macros the chart never defines
   # ("No macro hostClusterType in config"); the operator writes settings as
   # config.d XML paths, so these land in <macros>.
   settings:
     macros/hostClusterType: online
     macros/hostClusterRole: coordinator
+    # Kafka-engine tables are declared as `ENGINE = Kafka(<named collection>, …)`
+    # (posthog/clickhouse/kafka_engine.py, default CLICKHOUSE_KAFKA_NAMED_COLLECTION
+    # = msk_cluster); upstream's docker/clickhouse/config.d/default.xml defines
+    # the same nine collections, each just a broker list. Point them all at the
+    # platform Kafka (see externalKafka above).
+    # System log tables PostHog's ClickHouse migrations query (custom metrics
+    # read system.crash_log, …); upstream enables them in docker/clickhouse/
+    # config.xml, the chart's ClickHouseInstallation does not. Only the tables
+    # the migrations touch: declaring opentelemetry_span_log/backup_log here made
+    # ClickHouse 26.6 abort at start-up (createSystemLog<OpenTelemetrySpanLog>).
+    crash_log/database: system
+    crash_log/table: crash_log
+    crash_log/flush_interval_milliseconds: "1000"
+    session_log/database: system
+    session_log/table: session_log
+    session_log/partition_by: toYYYYMM(event_date)
+    session_log/flush_interval_milliseconds: "7500"
+    query_thread_log/database: system
+    query_thread_log/table: query_thread_log
+    query_thread_log/partition_by: toYYYYMM(event_date)
+    query_thread_log/flush_interval_milliseconds: "7500"
+    named_collections/msk_cluster/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+    named_collections/warpstream_ingestion/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+    named_collections/warpstream_calculated_events/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+    named_collections/warpstream_replay/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+    named_collections/warpstream_shared/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+    named_collections/warpstream_cyclotron/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+    named_collections/warpstream_logs/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+    named_collections/warpstream_traces/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
+    named_collections/warpstream_metrics/kafka_broker_list: adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092
     # PostHog's migrations address several *named* ClickHouse clusters
     # (posthog_migrations, posthog_single_shard, ai_events, …) that the chart's
     # single-cluster ClickHouseInstallation never defines ("Requested cluster
@@ -93,6 +137,30 @@ clickhouse:
     remote_servers/posthog_events/shard/replica/port: "9000"
     remote_servers/posthog_code/shard/replica/host: chi-posthog-posthog-0-0
     remote_servers/posthog_code/shard/replica/port: "9000"
+    remote_servers/sessions/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/sessions/shard/replica/port: "9000"
+    remote_servers/posthog_sessions/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_sessions/shard/replica/port: "9000"
+    remote_servers/logs/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/logs/shard/replica/port: "9000"
+    remote_servers/web_analytics/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/web_analytics/shard/replica/port: "9000"
+    remote_servers/posthog_web_analytics/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_web_analytics/shard/replica/port: "9000"
+    remote_servers/posthog_ai_events/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_ai_events/shard/replica/port: "9000"
+    remote_servers/posthog_ops/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_ops/shard/replica/port: "9000"
+    remote_servers/persons/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/persons/shard/replica/port: "9000"
+    remote_servers/posthog_persons/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_persons/shard/replica/port: "9000"
+    remote_servers/posthog_logs_v2/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_logs_v2/shard/replica/port: "9000"
+    remote_servers/session_replay/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/session_replay/shard/replica/port: "9000"
+    remote_servers/posthog_session_replay/shard/replica/host: chi-posthog-posthog-0-0
+    remote_servers/posthog_session_replay/shard/replica/port: "9000"
   externalZookeeper:
     servers:
       - host: posthog-clickhouse-keeper

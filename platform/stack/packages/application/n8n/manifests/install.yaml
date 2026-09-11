@@ -42,10 +42,12 @@ metadata:
     app.kubernetes.io/version: "2.36.8"
     app.kubernetes.io/managed-by: Helm
 data:
-  N8N_EDITOR_BASE_URL: "https://adhar.localtest.me:8443/n8n/"
-  N8N_PATH: "/n8n/"
+  N8N_EDITOR_BASE_URL: "https://n8n.adhar.localtest.me:8443/"
+  N8N_HOST: "n8n.adhar.localtest.me"
+  N8N_PATH: "/"
+  N8N_PROTOCOL: "https"
   N8N_PORT: "5678"
-  WEBHOOK_URL: "https://adhar.localtest.me:8443/n8n/"
+  WEBHOOK_URL: "https://n8n.adhar.localtest.me:8443/"
 ---
 # Source: n8n/templates/service.yaml
 apiVersion: v1

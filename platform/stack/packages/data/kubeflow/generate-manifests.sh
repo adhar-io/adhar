@@ -4,8 +4,15 @@ set -euo pipefail
 # of Kubeflow. Full Kubeflow (notebooks/katib/kserve/central-dashboard) requires
 # Istio + Dex + cert-manager and is far heavier than a single Kind node; the
 # standalone Pipelines deployment ("platform-agnostic" env) is the portable,
-# self-contained core and is what this package ships. Deploys into its own
-# `kubeflow` namespace (the standalone manifests hard-code it).
+# self-contained core and is what this package ships.
+#
+# The upstream kustomize env hard-codes the `kubeflow` namespace. Every platform
+# package deploys into the shared `adhar-system` namespace (ADR-0011), so the
+# post-processing below rewrites the namespace everywhere (including the
+# in-manifest DNS references) and drops the vendored `kind: Namespace` object.
+# It also strips the two sub-systems KFP bundles that the platform already
+# provides — MinIO and Argo Workflows — following the same principle as every
+# other package: consume platform capabilities, never bundle a second copy.
 #
 # Bump KFP_VERSION and re-run to update. Requires kustomize (git-capable).
 KFP_VERSION="${KFP_VERSION:-2.4.1}"
@@ -23,12 +30,89 @@ kustomize build "${BASE}/env/platform-agnostic?ref=${KFP_VERSION}&timeout=120" >
 
 echo "Generated ${INSTALL_YAML} for Kubeflow Pipelines ${KFP_VERSION}"
 
+# ADR-0011: move everything into adhar-system. The kustomize env writes the
+# namespace into metadata, into RoleBinding/ClusterRoleBinding subjects and into
+# service DNS names embedded in ConfigMap data, so all three are rewritten. The
+# vendored `kind: Namespace` object is dropped outright — a package that owns
+# Namespace/adhar-system would delete the whole platform namespace when pruned.
+python3 - "${INSTALL_YAML}" <<'PYEOF_NS'
+import sys, yaml
+p = sys.argv[1]
+OLD, NEW = "kubeflow", "adhar-system"
+docs = [d for d in yaml.safe_load_all(open(p)) if d]
+kept = [d for d in docs if d.get("kind") != "Namespace"]
+
+def walk(node):
+    """Rewrite every `namespace: kubeflow` (metadata, RoleBinding subjects,
+    webhook clientConfigs) and every `<svc>.kubeflow[:port]` DNS reference."""
+    n = 0
+    if isinstance(node, dict):
+        if node.get("namespace") == OLD:
+            node["namespace"] = NEW
+            n += 1
+        for k, v in node.items():
+            if isinstance(v, str):
+                if f".{OLD}:" in v or f".{OLD}.svc" in v or v.endswith(f".{OLD}"):
+                    node[k] = (v.replace(f".{OLD}:", f".{NEW}:")
+                                .replace(f".{OLD}.svc", f".{NEW}.svc"))
+                    if node[k].endswith(f".{OLD}"):
+                        node[k] = node[k][: -len(OLD)] + NEW
+                    n += 1
+            else:
+                n += walk(v)
+    elif isinstance(node, list):
+        for v in node:
+            n += walk(v)
+    return n
+
+changed = sum(walk(d) for d in kept)
+with open(p, "w") as f:
+    f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in kept))
+print(f"namespace {OLD} -> {NEW}: {changed} reference(s); "
+      f"dropped {len(docs) - len(kept)} Namespace object(s)")
+PYEOF_NS
+
+# KFP bundles a second Argo Workflows control plane (controller, its ConfigMap,
+# the `argo` ServiceAccount/Role/RoleBinding, the workflow-controller
+# PriorityClass and the argoproj.io CRDs). The platform already runs Argo
+# Workflows in adhar-system (application/argo-workflows), and two controllers
+# reconciling the same Workflow CRs in the same namespace fight over every run —
+# on top of the ArgoCD ownership flap from the duplicated object names. Strip the
+# bundle; KFP submits its Workflows to the shared controller. The artifact
+# repository KFP's copy configured now lives on the platform controller's
+# workflow-controller-configmap (application/argo-workflows/manifests/dev).
+python3 - "${INSTALL_YAML}" <<'PYEOF_ARGO'
+import sys, yaml
+p = sys.argv[1]
+DROP = {
+    ("Deployment", "workflow-controller"),
+    ("ConfigMap", "workflow-controller-configmap"),
+    ("ServiceAccount", "argo"),
+    ("Role", "argo-role"),
+    ("RoleBinding", "argo-binding"),
+    ("PriorityClass", "workflow-controller"),
+}
+docs = [d for d in yaml.safe_load_all(open(p)) if d]
+kept = []
+for d in docs:
+    name = (d.get("metadata") or {}).get("name", "")
+    kind = d.get("kind")
+    if (kind, name) in DROP:
+        continue
+    if kind == "CustomResourceDefinition" and name.endswith(".argoproj.io"):
+        continue
+    kept.append(d)
+with open(p, "w") as f:
+    f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in kept))
+print(f"stripped bundled Argo Workflows: {len(docs) - len(kept)} resource(s)")
+PYEOF_ARGO
+
 # Kubeflow Pipelines bundles its own MinIO (Deployment "minio", its PVC and
 # Service). The platform provides object storage, and KFP's upstream image
 # (gcr.io/ml-pipeline/minio:RELEASE.2019-08-14…) has been deleted from gcr.io,
 # so those pods can never start. Strip them; manifests/platform-minio.yaml
-# re-creates `minio-service` as an ExternalName alias to the platform MinIO and
-# fills KFP's credential Secret from it.
+# re-creates `minio-service` in adhar-system as an ExternalName alias to the
+# platform MinIO and fills KFP's credential Secret from it.
 python3 - "${INSTALL_YAML}" <<'PYEOF_INNER'
 import sys, yaml
 p = sys.argv[1]

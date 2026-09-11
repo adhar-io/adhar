@@ -1,7 +1,34 @@
-# DigitalOcean DOKS runs under LegacyCluster scope (CONVENTIONS.md §3):
-# the community provider-digitalocean has no namespaced (.m) MRs, so its
-# managed resources stay cluster-scoped and reference the plain legacy
-# ProviderConfig (name: digitalocean) with no providerConfigRef kind field.
+# DigitalOcean DOKS — provider-upjet-digitalocean v1.0.2.
+#
+# The archived crossplane-contrib/provider-digitalocean (v0.x) is replaced by
+# the upjet-generated provider (see providers/cloud/provider-packages.yaml).
+# v1.0.2 ships BOTH the legacy cluster-scoped kinds and the Crossplane v2
+# namespaced (".m") kinds, so — unlike the note in CONVENTIONS.md §3 — DOKS now
+# follows the same namespaced model as AWS/Azure/GCP:
+#
+#   kubernetes.digitalocean.m.crossplane.io/v1alpha1  Cluster, NodePool
+#   providerConfigRef: {kind: ClusterProviderConfig, name: default}
+#     (digitalocean.m.crossplane.io/v1beta1 ClusterProviderConfig)
+#
+# This is mandatory, not cosmetic: a namespaced XR may not own cluster-scoped
+# composed resources, so the legacy kinds cannot be composed from
+# CompositeCluster (scope: Namespaced) at all.
+#
+# Shape differences from the old provider worth knowing:
+#   * forProvider.nodePool is a LIST of blocks (was a single object)
+#   * writeConnectionSecretToRef takes only `name` — namespaced MRs always
+#     write into their own namespace (the XR's namespace)
+#   * connection-detail keys are upjet's flattened sensitive attributes:
+#       attribute.kube_config.0.raw_config             (full kubeconfig)
+#       attribute.kube_config.0.host                   (API server URL)
+#       attribute.kube_config.0.cluster_ca_certificate (base64 PEM)
+#       attribute.kube_config.0.token                  (bearer token)
+#       attribute.kube_config.0.client_certificate / .client_key / .expires_at
+#     DOKS credentials expire (7 days unless kubeconfig_expire_seconds is set);
+#     the provider refreshes them on every observe, and because the published
+#     Secrets below are rendered from the live connection details each
+#     reconcile, both the kubeconfig Secret and the ArgoCD cluster Secret are
+#     refreshed in place — as long as the MR keeps reconciling.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -25,30 +52,40 @@ spec:
         inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
-            {{- $params := $xr.spec.parameters -}}
-            {{- $providerSettings := default (dict) $params.providerSettings -}}
-            {{- $doks := default (dict) (get $providerSettings "digitalocean") -}}
-            {{- $network := default (dict) $params.networkConfig -}}
-            {{- $conn := default (dict) $xr.spec.writeConnectionSecretToRef -}}
-            {{- $secretName := default (printf "%s-kubeconfig" $xr.metadata.name) (get $conn "name") -}}
-            {{- $secretNamespace := default "adhar-system" (get $conn "namespace") -}}
-            {{- $providerConfig := dig "spec" "providerConfigRef" "name" "digitalocean" $xr -}}
-            {{- $clusterTags := list }}
-            {{- range (default (list) (get $doks "tags")) }}
+            {{- $name := $xr.metadata.name -}}
+            {{- $params := dig "spec" "parameters" (dict) $xr -}}
+            {{- $cp := dig "controlPlane" (dict) $params -}}
+            {{- $providerSettings := dig "providerSettings" (dict) $params -}}
+            {{- $do := dig "digitalocean" (dict) $providerSettings -}}
+            {{- $network := dig "networkConfig" (dict) $params -}}
+            {{- $providerConfig := dig "spec" "providerConfigRef" "name" "default" $xr -}}
+            {{- $deletionPolicy := default "Delete" $params.deletionPolicy -}}
+            {{- /* The MR's connection secret is always written into the XR's own
+                   namespace (namespaced MRs cannot target another namespace);
+                   the kubeconfig is republished to spec.writeConnectionSecretToRef
+                   in the next step. */ -}}
+            {{- $connSecret := printf "%s-doks-connection" $name -}}
+            {{- /* DOKS needs a full version slug ("1.33.1-do.3"); there is no
+                   "latest" alias in the API. This fallback WILL go stale — set
+                   spec.parameters.version from `doctl kubernetes options versions`. */ -}}
+            {{- $defaultVersion := "1.33.1-do.3" -}}
+            {{- $version := default $defaultVersion (coalesce $params.version (get $cp "kubernetesVersion")) -}}
+            {{- $ha := $cp.highAvailability -}}
+            {{- if hasKey $do "ha" }}{{ $ha = $do.ha }}{{ end -}}
+            {{- $vpcUuid := default (get $do "vpcUuid") $network.vpcId -}}
+            {{- $maintenance := get $do "maintenancePolicy" -}}
+            {{- $clusterTags := list -}}
+            {{- range (default (list) (get $do "tags")) }}
               {{- $clusterTags = append $clusterTags . -}}
             {{- end }}
             {{- range $k, $v := (default (dict) $params.tags) }}
               {{- $clusterTags = append $clusterTags (printf "%s:%s" $k $v) -}}
             {{- end }}
-            {{- $firstPool := index $params.nodePools 0 -}}
-            {{- $maintenance := get $doks "maintenancePolicy" -}}
-            {{- $autoUpgrade := get $doks "autoUpgrade" -}}
-            {{- $surgeUpgrade := get $doks "surgeUpgrade" -}}
-            {{- $clusterSubnet := get $doks "clusterSubnet" -}}
-            {{- $serviceSubnet := get $doks "serviceSubnet" -}}
-            {{- $vpcUuid := default (get $doks "vpcUuid") $network.vpcId -}}
+            {{- $pools := default (list) $params.nodePools -}}
+            {{- $firstPool := dict "name" "default" "instanceType" "s-2vcpu-4gb" "count" 1 -}}
+            {{- if $pools }}{{ $firstPool = index $pools 0 }}{{ end }}
             ---
-            apiVersion: kubernetes.digitalocean.crossplane.io/v1alpha1
+            apiVersion: kubernetes.digitalocean.m.crossplane.io/v1alpha1
             kind: Cluster
             metadata:
               annotations:
@@ -58,28 +95,36 @@ spec:
                 provider: digitalocean
             spec:
               forProvider:
-                name: {{ quote (default $xr.metadata.name $params.displayName) }}
+                name: {{ quote (default $name $params.displayName) }}
                 region: {{ quote $params.region }}
-                version: {{ quote $params.version }}
-                {{- if $clusterSubnet }}
-                clusterSubnet: {{ quote $clusterSubnet }}
+                version: {{ quote $version }}
+                ha: {{ if $ha }}true{{ else }}false{{ end }}
+                {{- if hasKey $do "autoUpgrade" }}
+                autoUpgrade: {{ if $do.autoUpgrade }}true{{ else }}false{{ end }}
                 {{- end }}
-                {{- if $serviceSubnet }}
-                serviceSubnet: {{ quote $serviceSubnet }}
+                {{- if hasKey $do "surgeUpgrade" }}
+                surgeUpgrade: {{ if $do.surgeUpgrade }}true{{ else }}false{{ end }}
                 {{- end }}
-                {{- if (ne $autoUpgrade "") }}
-                autoUpgrade: {{ $autoUpgrade }}
+                {{- if hasKey $do "registryIntegration" }}
+                registryIntegration: {{ if eq (printf "%v" $do.registryIntegration) "true" }}true{{ else }}false{{ end }}
                 {{- end }}
-                {{- if (ne $surgeUpgrade "") }}
-                surgeUpgrade: {{ $surgeUpgrade }}
+                {{- if get $do "clusterSubnet" }}
+                clusterSubnet: {{ quote $do.clusterSubnet }}
+                {{- else if $network.podCidrBlock }}
+                clusterSubnet: {{ quote $network.podCidrBlock }}
                 {{- end }}
-                {{- if $maintenance }}
-                maintenancePolicy:
-                  - day: {{ quote (get $maintenance "day") }}
-                    startTime: {{ quote (get $maintenance "startTime") }}
+                {{- if get $do "serviceSubnet" }}
+                serviceSubnet: {{ quote $do.serviceSubnet }}
+                {{- else if $network.serviceCidrBlock }}
+                serviceSubnet: {{ quote $network.serviceCidrBlock }}
                 {{- end }}
                 {{- if $vpcUuid }}
                 vpcUuid: {{ quote $vpcUuid }}
+                {{- end }}
+                {{- if $maintenance }}
+                maintenancePolicy:
+                  - day: {{ quote (default "any" (get $maintenance "day")) }}
+                    startTime: {{ quote (default "04:00" (get $maintenance "startTime")) }}
                 {{- end }}
                 {{- if $clusterTags }}
                 tags:
@@ -87,51 +132,48 @@ spec:
                   - {{ quote . }}
                 {{- end }}
                 {{- end }}
+                {{- /* nodePool is a list of blocks; the first pool is inlined on
+                       the cluster (DOKS requires one) and the rest become
+                       standalone NodePool MRs below. */}}
                 nodePool:
-                  name: {{ quote (default $firstPool.name "default") }}
-                  size: {{ quote $firstPool.instanceType }}
-                  nodeCount: {{ default 1 $firstPool.count }}
-                  {{- if and $firstPool.minCount $firstPool.maxCount }}
-                  autoScale: true
-                  minNodes: {{ $firstPool.minCount }}
-                  maxNodes: {{ $firstPool.maxCount }}
-                  {{- else if $firstPool.minCount }}
-                  minNodes: {{ $firstPool.minCount }}
-                  {{- else if $firstPool.maxCount }}
-                  maxNodes: {{ $firstPool.maxCount }}
-                  {{- end }}
-                  {{- if $firstPool.labels }}
-                  labels:
-                  {{- range $k, $v := $firstPool.labels }}
-                    {{ $k }}: {{ quote $v }}
-                  {{- end }}
-                  {{- end }}
-                  {{- if $firstPool.taints }}
-                  taint:
-                  {{- range $firstPool.taints }}
-                    - key: {{ quote .key }}
-                      value: {{ quote (default "" .value) }}
-                      effect: {{ quote .effect }}
-                  {{- end }}
-                  {{- end }}
-                  {{- if $firstPool.tags }}
-                  tags:
-                  {{- range $k, $v := $firstPool.tags }}
-                    - {{ quote (printf "%s:%s" $k $v) }}
-                  {{- end }}
-                  {{- end }}
+                  - name: {{ quote (default "default" $firstPool.name) }}
+                    size: {{ quote (default "s-2vcpu-4gb" $firstPool.instanceType) }}
+                    nodeCount: {{ default 1 $firstPool.count }}
+                    {{- if and $firstPool.minCount $firstPool.maxCount }}
+                    autoScale: true
+                    minNodes: {{ $firstPool.minCount }}
+                    maxNodes: {{ $firstPool.maxCount }}
+                    {{- end }}
+                    {{- if $firstPool.labels }}
+                    labels:
+                    {{- range $k, $v := $firstPool.labels }}
+                      {{ $k }}: {{ quote $v }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if $firstPool.taints }}
+                    taint:
+                    {{- range $firstPool.taints }}
+                      - key: {{ quote .key }}
+                        value: {{ quote (default "" .value) }}
+                        effect: {{ quote .effect }}
+                    {{- end }}
+                    {{- end }}
+                    {{- if $firstPool.tags }}
+                    tags:
+                    {{- range $k, $v := $firstPool.tags }}
+                      - {{ quote (printf "%s:%s" $k $v) }}
+                    {{- end }}
+                    {{- end }}
               writeConnectionSecretToRef:
-                name: {{ quote $secretName }}
-                namespace: {{ quote $secretNamespace }}
-              {{- if $providerConfig }}
+                name: {{ quote $connSecret }}
               providerConfigRef:
                 name: {{ quote $providerConfig }}
-              {{- end }}
-              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
-            {{- range $index, $pool := $params.nodePools }}
+                kind: ClusterProviderConfig
+              deletionPolicy: {{ $deletionPolicy }}
+            {{- range $index, $pool := $pools }}
             {{- if gt $index 0 }}
             ---
-            apiVersion: kubernetes.digitalocean.crossplane.io/v1alpha1
+            apiVersion: kubernetes.digitalocean.m.crossplane.io/v1alpha1
             kind: NodePool
             metadata:
               annotations:
@@ -139,7 +181,7 @@ spec:
               labels:
                 feature: cluster
                 provider: digitalocean
-                cluster-name: {{ quote $xr.metadata.name }}
+                cluster-name: {{ quote $name }}
             spec:
               forProvider:
                 clusterIdSelector:
@@ -150,10 +192,6 @@ spec:
                 {{- if and $pool.minCount $pool.maxCount }}
                 autoScale: true
                 minNodes: {{ $pool.minCount }}
-                maxNodes: {{ $pool.maxCount }}
-                {{- else if $pool.minCount }}
-                minNodes: {{ $pool.minCount }}
-                {{- else if $pool.maxCount }}
                 maxNodes: {{ $pool.maxCount }}
                 {{- end }}
                 {{- if $pool.labels }}
@@ -176,17 +214,23 @@ spec:
                   - {{ quote (printf "%s:%s" $k $v) }}
                 {{- end }}
                 {{- end }}
-              {{- if $providerConfig }}
               providerConfigRef:
                 name: {{ quote $providerConfig }}
-              {{- end }}
-              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+                kind: ClusterProviderConfig
+              deletionPolicy: {{ $deletionPolicy }}
             {{- end }}
             {{- end }}
-    # ArgoCD auto-registration (roadmap P2.1): parse the kubeconfig from the
-    # cluster's connection details and publish an ArgoCD cluster Secret in
-    # adhar-system. Uses the credentials embedded in the provider-issued
-    # kubeconfig (client certificates or bearer token).
+
+    # Publish the kubeconfig and register the cluster with ArgoCD (roadmap
+    # P2.1). Both Secrets are built from the DOKS connection details, which the
+    # template receives base64-encoded — exactly the encoding Secret.data wants,
+    # so the raw kubeconfig never has to be decoded and re-encoded.
+    #
+    # The ArgoCD cluster Secret carries the DataPlane conventions
+    # (platform/controllers/dataplane/consts.go): adhar.io/cluster,
+    # adhar.io/dataplane and adhar.io/dataplane-mode=composite, so the workload
+    # ApplicationSet profile selects this cluster the same way it selects
+    # controller-registered planes.
     - step: register-argocd
       functionRef:
         name: function-go-templating
@@ -197,21 +241,75 @@ spec:
         inline:
           template: |
             {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $params := dig "spec" "parameters" (dict) $xr -}}
+            {{- $connRef := dig "spec" "writeConnectionSecretToRef" (dict) $xr -}}
+            {{- $kubeSecret := default (printf "%s-kubeconfig" $name) (get $connRef "name") -}}
+            {{- $kubeNamespace := default "adhar-system" (get $connRef "namespace") -}}
+            {{- $connSecret := printf "%s-doks-connection" $name -}}
             {{- $observed := default (dict) .observed.resources -}}
+            {{- $cluster := dig "doks-cluster" "resource" (dict) $observed -}}
+            {{- $at := dig "status" "atProvider" (dict) $cluster -}}
             {{- $conn := dig "doks-cluster" "connectionDetails" (dict) $observed -}}
-            {{- $raw := coalesce (get $conn "kubeconfig") (get $conn "attribute.kube_config_raw") -}}
-            {{- if $raw }}
-            {{- $kc := fromYaml (b64dec $raw) }}
+            {{- /* upjet flattens the sensitive kube_config block; values arrive
+                   base64-encoded. */ -}}
+            {{- $rawB64 := default "" (get $conn "attribute.kube_config.0.raw_config") -}}
+            {{- $server := b64dec (default "" (get $conn "attribute.kube_config.0.host")) -}}
+            {{- $caData := b64dec (default "" (get $conn "attribute.kube_config.0.cluster_ca_certificate")) -}}
+            {{- $token := b64dec (default "" (get $conn "attribute.kube_config.0.token")) -}}
+            {{- $certData := b64dec (default "" (get $conn "attribute.kube_config.0.client_certificate")) -}}
+            {{- $keyData := b64dec (default "" (get $conn "attribute.kube_config.0.client_key")) -}}
+            {{- /* Fall back to parsing the kubeconfig when the individual
+                   attributes are not (yet) present. */ -}}
+            {{- if and $rawB64 (not $server) }}
+            {{- $kc := fromYaml (b64dec $rawB64) }}
             {{- $clusters := dig "clusters" (list) $kc }}
             {{- $users := dig "users" (list) $kc }}
             {{- if and $clusters $users }}
             {{- $cluster0 := dig "cluster" (dict) (index $clusters 0) }}
             {{- $user0 := dig "user" (dict) (index $users 0) }}
-            {{- $server := dig "server" "" $cluster0 }}
-            {{- $caData := dig "certificate-authority-data" "" $cluster0 }}
-            {{- $certData := dig "client-certificate-data" "" $user0 }}
-            {{- $keyData := dig "client-key-data" "" $user0 }}
-            {{- $token := dig "token" "" $user0 }}
+            {{- $server = dig "server" "" $cluster0 }}
+            {{- $caData = dig "certificate-authority-data" "" $cluster0 }}
+            {{- $certData = dig "client-certificate-data" "" $user0 }}
+            {{- $keyData = dig "client-key-data" "" $user0 }}
+            {{- $token = dig "token" "" $user0 }}
+            {{- end }}
+            {{- end }}
+            {{- if $rawB64 }}
+            {{- if not (and (eq $kubeSecret $connSecret) (eq $kubeNamespace $ns)) }}
+            ---
+            # Republish the kubeconfig where the platform expects it: the
+            # DataPlane controller reads `<name>-kubeconfig` in adhar-system
+            # (key kubeconfig/value/config/kubeConfig) for mode=composite planes.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: kubeconfig-secret
+              labels:
+                feature: cluster
+                provider: digitalocean
+                adhar.io/cluster: {{ quote $name }}
+            spec:
+              forProvider:
+                manifest:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: {{ quote $kubeSecret }}
+                    namespace: {{ quote $kubeNamespace }}
+                    labels:
+                      adhar.io/cluster: {{ quote $name }}
+                      adhar.io/dataplane: {{ quote $name }}
+                      adhar.io/component: cluster-kubeconfig
+                  type: Opaque
+                  data:
+                    kubeconfig: {{ quote $rawB64 }}
+              providerConfigRef:
+                name: kubernetes-provider
+                kind: ClusterProviderConfig
+            {{- end }}
             {{- if $server }}
             ---
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
@@ -229,14 +327,16 @@ spec:
                   apiVersion: v1
                   kind: Secret
                   metadata:
-                    name: cluster-{{ $xr.metadata.name }}
+                    name: cluster-{{ $name }}
                     namespace: adhar-system
                     labels:
                       argocd.argoproj.io/secret-type: cluster
-                      adhar.io/cluster: {{ quote $xr.metadata.name }}
+                      adhar.io/cluster: {{ quote $name }}
+                      adhar.io/dataplane: {{ quote $name }}
+                      adhar.io/dataplane-mode: composite
                   type: Opaque
                   stringData:
-                    name: {{ quote $xr.metadata.name }}
+                    name: {{ quote $name }}
                     server: {{ quote $server }}
                     config: |
                       {{- if $token }}
@@ -249,4 +349,34 @@ spec:
                 kind: ClusterProviderConfig
             {{- end }}
             {{- end }}
-            {{- end }}
+            ---
+            # XR status (schema: cluster.xrd.yaml → phase/message/ready/
+            # endpoint/kubeconfigSecret).
+            apiVersion: platform.adhar.io/v1alpha1
+            kind: CompositeCluster
+            status:
+              {{- $endpoint := default $server (dig "endpoint" "" $at) }}
+              {{- $doStatus := dig "status" "" $at }}
+              {{- if and $rawB64 (eq $doStatus "running") }}
+              phase: Available
+              ready: true
+              message: "DOKS cluster '{{ $name }}' is running{{ if not $params.version }} (version slug defaulted — set spec.parameters.version){{ end }}"
+              {{- else if $rawB64 }}
+              phase: Provisioning
+              ready: false
+              message: "DOKS cluster '{{ $name }}' reported status '{{ default "unknown" $doStatus }}'"
+              {{- else }}
+              phase: Pending
+              ready: false
+              message: "Waiting for DOKS cluster '{{ $name }}' credentials{{ if not $params.version }} (version slug defaulted — set spec.parameters.version from `doctl kubernetes options versions`){{ end }}"
+              {{- end }}
+              {{- if $endpoint }}
+              endpoint: {{ quote $endpoint }}
+              {{- end }}
+              kubeconfigSecret:
+                name: {{ quote $kubeSecret }}
+                namespace: {{ quote $kubeNamespace }}
+
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready

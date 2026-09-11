@@ -15,7 +15,7 @@ config:
       services:
         - k8s_namespace: .
       exclude_services:
-        - k8s_namespace: ^(adhar-system|kube-system|kube-public|kube-node-lease|local-path-storage|cilium-secrets|kubeflow|kpack-system|cosign-system|adhar-environments|kargo-.*|dp-.*)$
+        - k8s_namespace: ^(adhar-system|kube-system|kube-public|kube-node-lease|local-path-storage|cilium-secrets|adhar-environments|kargo-.*|dp-.*)$
         - k8s_deployment_name: ^(alloy|beyla|prometheus.*|loki.*|tempo.*|mimir.*|hubble.*|cilium.*)$
       # Go-specific tracers attach uprobes into every Go binary; the generic
       # kernel probes give the same HTTP/gRPC RED metrics at a fraction of the

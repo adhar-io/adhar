@@ -15,7 +15,14 @@ persistence:
   # and the root-owned host directory is not writable by minio's uid 1000, so
   # minio crash-looped with "Unable to initialize backend: Unable to write to
   # the backend". Dynamically provisioned volumes honour the pod's fsGroup.
-  size: 10Gi
+  #
+  # Sizing: this one volume backs Velero, every CNPG WAL archive + base backup
+  # (cnpg/<cluster>), Loki chunks, Penpot assets and the Kubeflow artifact
+  # store. A 10 GiB volume filled in two days on the DO run (Keycloak alone
+  # archived ~2 GiB of WAL a day), and a full MinIO stops WAL archiving, which
+  # then fills the Postgres volumes and takes Keycloak (all SSO) down. Cloud
+  # StorageClasses allow online expansion; grow it before it passes ~70 %.
+  size: 100Gi
 
 buckets:
   - name: adhar-backups
@@ -27,6 +34,8 @@ buckets:
   # Penpot assets (application/penpot uses the S3 backend instead of a shared
   # ReadWriteOnce volume).
   - name: penpot
+  # Loki chunks/index (observability/loki-stack uses the S3 backend).
+  - name: loki
 
 # Ingress is disabled: the MinIO console is now exposed via a Gateway API
 # HTTPRoute (manifests/httproute.yaml) attached to the Cilium adhar-gateway,

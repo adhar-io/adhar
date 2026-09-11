@@ -57,7 +57,11 @@ environments:
     clusterConfig:
       - { key: name,      value: adhar-mgmt }
       - { key: nodeSize,  value: s-8vcpu-16gb }
-      - { key: nodeCount, value: "10" }   # 8 was verified but sits at the volume ceiling
+      - { key: nodeCount, value: "3" }     # start small; the autoscaler grows it
+    autoscaling:
+      enabled: true
+      minWorkers: 3
+      maxWorkers: 10                       # 8 was verified; 10 sits at the volume ceiling
 ```
 
 Notes
@@ -65,9 +69,10 @@ Notes
   always pass `--env <name>`. Keep only real environments in the file (a
   sample `staging` block with GCP sizing created an orphan master droplet
   before failing with `422 invalid size`).
-- `nodeCount` is the desired worker count; re-running `adhar up` adopts
-  existing droplets by name (`adhar-<env>-workers-<n>`), so keep it equal to the
-  live count after scaling.
+- `nodeCount` is the worker count the cluster is **created** with; re-running
+  `adhar up` adopts existing droplets by name (`adhar-<env>-workers-<n>`), so
+  keep it equal to the live count when autoscaling is off. With autoscaling on
+  it is only the starting point — see [§4.1 Autoscaling](#41-autoscaling).
 
 ## 2. Create the platform
 
@@ -177,13 +182,30 @@ secrets -p <app>` prints the credentials:
 | Airbyte  | Airbyte's own login (`global.auth.enabled`); OIDC is Enterprise-only | `adhar get secrets -p airbyte` |
 | Metabase | Metabase's own login (setup wizard completed automatically; SSO is paid) | `adhar get secrets -p metabase` |
 | Penpot   | **Keycloak OIDC natively** ("Sign in with OpenID"); password login kept | your Keycloak user            |
+| ArgoCD   | **Keycloak OIDC natively** ("Log in via Keycloak"; `platform-admin` group → admin) | your Keycloak user      |
+| n8n      | n8n's own owner account behind the Keycloak front (host-based at `n8n.<host>`) | set on first visit       |
 
 Every other UI is fronted by oauth2-proxy and needs nothing but your Keycloak
 user. OIDC inside Plane, Airbyte and Metabase is a commercial feature of those
 products; the Keycloak front is what enforces platform SSO there.
 
-**If every SSO login suddenly fails with 503**, check Keycloak's database
-first: `kubectl -n adhar-system get cluster keycloak-db` — its volume was
+**ArgoCD "Invalid redirect URL" on Keycloak login** meant ArgoCD's own
+external URL was wrong: the HA install variant shipped
+`argocd-cm.url: https://argocd.example.com`, and ArgoCD derives the OIDC
+`redirect_uri` from it. Both install variants now template
+`https://argocd.<host>`; on a running cluster patch `argocd-cm` and restart
+`argo-cd-argocd-server`.
+
+**If every SSO login suddenly fails with 503**, check the shared MinIO
+before anything else: `kubectl -n adhar-system exec deploy/minio -- df -h
+/export`. A full MinIO stops CNPG WAL archiving on every platform database
+(`ContinuousArchiving=False`, `barman-cloud-wal-archive: exit status 4`,
+underneath it `no space left on device`); WAL then piles up on the Postgres
+volumes until CNPG reports `Not enough disk space` and Keycloak's database
+stops. The MinIO volume now ships at 100 GiB with 7-day backup retention
+(Keycloak alone archives ~2 GiB of WAL a day); expand it live with
+`kubectl patch pvc minio -p '{"spec":{"resources":{"requests":{"storage":"200Gi"}}}}'`
+and the archivers recover on their own. Then check Keycloak's database: `kubectl -n adhar-system get cluster keycloak-db` — its volume was
 1 GiB and filled with retained WAL the moment archiving to MinIO hiccupped.
 Platform databases now start at 5 GiB and CNPG grows them online
 (`resizeInUseVolumes`).
@@ -239,6 +261,79 @@ and its `<cloud>-providerconfig.yaml`, plus a `<cloud>-credentials` Secret in
 — the Upbound-published `upbound/provider-*:v2.x` packages refuse to start on
 vanilla Crossplane (UXP-only).
 
+### 4.1 Autoscaling
+
+There is no need to size the cluster for its peak up front. With
+`environments[].autoscaling.enabled: true` the cluster is created at
+`nodeCount` workers and the platform's own node autoscaler — a controller in
+`adhar-controller-manager`, not the upstream cluster-autoscaler, which has no
+provider for self-managed kubeadm clusters on raw droplets — moves the worker
+count between `minWorkers` and `maxWorkers` on demand.
+
+```yaml
+environments:
+  dev:
+    clusterConfig:
+      - { key: nodeCount, value: "3" }     # created with 3 workers
+    autoscaling:
+      enabled: true
+      minWorkers: 3
+      maxWorkers: 10
+      # Everything below is optional; these are the defaults.
+      nodeGroup: workers
+      scaleDownUtilizationThreshold: "50%"
+      scaleDownDelay: 10m
+      scaleUpCooldown: 3m
+```
+
+**Scale up** — one droplet at a time, when a pod is `Pending` with
+`PodScheduled=False/Unschedulable` *and* the scheduler blamed capacity
+("Insufficient cpu/memory/pods", "Too many pods"). Pods blocked by taints,
+node affinity that no current worker satisfies, or unbound volumes are
+ignored: another identical droplet would not schedule them. The new node is
+created, prepared and `kubeadm join`ed by the same code path
+`adhar cluster scale` uses, so it is identical to a node from `adhar up`.
+Guards: `maxWorkers`, and `scaleUpCooldown` (a join takes minutes — the
+cooldown stops the queue of pending pods from buying a droplet per tick).
+
+**Scale down** — one node at a time, when cluster-wide *requested* CPU **and**
+memory (pod requests on workers ÷ worker allocatable) stay under
+`scaleDownUtilizationThreshold` for `scaleDownDelay`. The emptiest worker is
+picked (DaemonSet pods do not count as load), cordoned and drained through the
+eviction API so PodDisruptionBudgets are honoured (5-minute timeout), then the
+droplet is deleted and the Node object removed. A node is skipped when it
+hosts a pod with a ReadWriteOnce volume (the block-storage volume is attached
+to that droplet) or a pod no controller would recreate. Never below
+`minWorkers`, and never while a node was added or removed inside the last
+`scaleDownDelay`.
+
+Watch it:
+
+```bash
+kubectl -n adhar-system get adharplatform dev -o jsonpath='{.status.autoscaling}' | jq
+kubectl -n adhar-system get events --field-selector reason=ScalingUp,reason=ScalingDown
+```
+
+`status.autoscaling` carries `workers`, `lastScaleUp`, `lastScaleDown`,
+`underutilizedSince` and a one-line `lastReason` for the most recent tick
+(including the "did nothing because…" ones). Every action is also an Event on
+the `AdharPlatform`.
+
+Two bootstrap-time objects make this possible on a self-managed cluster, both
+written by `adhar up`: the `adhar-cluster-spec` ConfigMap (provider, region,
+cluster name, node group, instance size — no credentials) and the
+`adhar-cluster-ssh` Secret, a copy of `~/.adhar/clusters/<env>/id_ed25519`.
+Joining a worker means running `kubeadm token create` on the control plane
+over SSH, so the in-cluster controller needs that key; the cloud API token is
+the `digitalocean-credentials` Secret that already exists for Crossplane. A
+cluster bootstrapped before those objects existed (or from another machine)
+reports the reason in `status.autoscaling.lastReason` and keeps a fixed size —
+re-run `adhar up` against it, or scale by hand with `adhar cluster scale`.
+
+**Manual scaling still works** and is not fought over: `adhar cluster scale`
+changes the count directly, and the autoscaler's next tick simply observes the
+new count (keep it inside `min`/`max`, or the autoscaler will pull it back).
+
 ## 5. Tear down
 
 ```bash
@@ -252,6 +347,30 @@ unattached `pvc-*` volumes in the region that no other cluster tag claims —
 use it when the account has no other Kubernetes cluster in that region.
 DNS records created by external-dns are left in place (policy `upsert-only`);
 delete them in the DigitalOcean DNS panel if the zone is retired.
+
+### 4.2 One namespace for the platform
+
+Every platform package installs into `adhar-system` — including the former
+hold-outs (Kubeflow Pipelines, cosign, OpenFunction), whose charts and
+kustomize bases are re-rendered for it at generation time. The only namespaces
+the platform creates elsewhere are Kargo `Project` namespaces
+(`adhar-environments`; Kargo requires one per Project), data-plane vclusters
+(`dp-<name>`), and `kpack-system` for buildpack: kpack and cosign both hardcode
+`Secret/webhook-certs` in their binaries, and two knative webhooks cannot share
+one Secret. Application environments you create get their own
+namespaces; platform components never do (ADR-0011).
+
+### 4.3 Observability of the platform itself
+
+The **Adhar Platform** Grafana dashboard (folder *Platform*) is the single
+pane: overview tiles, capacity and nodes, GitOps and delivery, identity and
+edge, data services, the observability pipeline, security and policy,
+workloads, cost. Every panel is backed by a metric that exists on a verified
+run. The **CloudNativePG** dashboard lists all platform databases in one table
+(instances, primary, lag, WAL archiving, backup age, size, connections, TPS)
+with a multi-select `cluster` variable. Every platform CNPG Cluster now sets
+`monitoring.enablePodMonitor: true` — without it no `cnpg_*` series exist and
+the Postgres rows stay empty.
 
 ## 6. Known limits (verified run)
 
@@ -271,6 +390,18 @@ delete them in the DigitalOcean DNS panel if the zone is retired.
   inotify/file-descriptor and systemd task limits); before that, a wedged
   `systemd-resolved` stub failed every image pull cluster-wide and dense nodes
   refused to create container cgroups.
+- Loki ingests through MinIO (`loki` bucket) with raised ingestion limits
+  (32 MB/s, 64 MB burst, 8 MB per stream); the chart default of 4 MB/s dropped
+  lines from the busier namespaces ("ingestion rate limit exceeded").
+- PostHog runs `posthog/posthog:latest`, which tracks PostHog master; its
+  ClickHouse migrations need the ClickHouse release master runs (26.6.x — the
+  chart default 23.9 stops after three migrations), Kafka *named collections*
+  (`msk_cluster`, `warpstream_*`, pointed at the platform Kafka) and a
+  `named_collection_control` grant for the chart's `admin` user, plus every
+  named cluster the migrations address declared in `remote_servers`. All of it
+  lives in `application/posthog/values.yaml`; `bin/migrate` runs the ClickHouse
+  step in the background, so its error is only visible by running
+  `python manage.py migrate_clickhouse` by hand in a copy of the migrate Job.
 - The console image polls the API with HTTP/2 and logs
   `upstream error … GOAWAY` when the API server closes idle connections; the
   UI recovers on the next poll. Fix belongs to the console image (retry on

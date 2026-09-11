@@ -90,6 +90,10 @@ type EnvironmentConfig struct {
 	ClusterConfig []KeyValueConfig         `mapstructure:"clusterConfig" json:"clusterConfig"`
 	CoreServices  map[string]ServiceConfig `mapstructure:"coreServices" json:"coreServices,omitempty"`
 	Addons        []AddonConfig            `mapstructure:"addons" json:"addons,omitempty"`
+	// Autoscaling turns the environment's worker count into a range instead of
+	// a fixed `nodeCount`: the cluster is created with nodeCount workers and
+	// the in-cluster node autoscaler grows/shrinks it between min and max.
+	Autoscaling *AutoscalingConfig `mapstructure:"autoscaling" json:"autoscaling,omitempty"`
 }
 
 // EnvironmentTemplateConfig holds environment template configuration
@@ -97,6 +101,27 @@ type EnvironmentTemplateConfig struct {
 	ClusterConfig []KeyValueConfig         `mapstructure:"clusterConfig" json:"clusterConfig"`
 	CoreServices  map[string]ServiceConfig `mapstructure:"coreServices" json:"coreServices"`
 	Addons        []AddonConfig            `mapstructure:"addons" json:"addons,omitempty"`
+	// Autoscaling is the default for every environment using this template;
+	// an environment's own block wins.
+	Autoscaling *AutoscalingConfig `mapstructure:"autoscaling" json:"autoscaling,omitempty"`
+}
+
+// AutoscalingConfig is the config.yaml form of the node autoscaler settings
+// (api/v1alpha1.AutoscalingSpec). Durations are strings here because that is
+// what a YAML file naturally carries ("10m"); they are parsed when the
+// AdharPlatform resource is built.
+type AutoscalingConfig struct {
+	Enabled    bool  `mapstructure:"enabled" json:"enabled"`
+	MinWorkers int32 `mapstructure:"minWorkers" json:"minWorkers,omitempty"`
+	MaxWorkers int32 `mapstructure:"maxWorkers" json:"maxWorkers,omitempty"`
+	// NodeGroup is the provider node group to scale (default "workers").
+	NodeGroup string `mapstructure:"nodeGroup" json:"nodeGroup,omitempty"`
+	// ScaleDownUtilizationThreshold is a percentage ("50%") or fraction.
+	ScaleDownUtilizationThreshold string `mapstructure:"scaleDownUtilizationThreshold" json:"scaleDownUtilizationThreshold,omitempty"`
+	// ScaleDownDelay is a Go duration ("10m").
+	ScaleDownDelay string `mapstructure:"scaleDownDelay" json:"scaleDownDelay,omitempty"`
+	// ScaleUpCooldown is a Go duration ("3m").
+	ScaleUpCooldown string `mapstructure:"scaleUpCooldown" json:"scaleUpCooldown,omitempty"`
 }
 
 // KeyValueConfig holds key-value configuration pairs
@@ -137,6 +162,9 @@ type ResolvedEnvironmentConfig struct {
 	ResolvedCoreServices  *ResolvedCoreServices `json:"resolvedCoreServices,omitempty"`
 	ResolvedAddons        []AddonConfig         `json:"resolvedAddons,omitempty"`
 	GlobalSettings        *GlobalSettings       `json:"globalSettings,omitempty"`
+	// Autoscaling is the environment's node autoscaler configuration, resolved
+	// from the environment block with the template as fallback.
+	Autoscaling *AutoscalingConfig `json:"autoscaling,omitempty"`
 	// ProviderConfig is the full provider block from `providers.<name>` for the
 	// resolved provider. Without it the provisioning path only sees region +
 	// cluster-config key/values, silently dropping credentials (token) and the
@@ -648,6 +676,14 @@ func (c *Config) resolveEnvironment(envName string, envConfig EnvironmentConfig)
 			templateAddons := make([]AddonConfig, len(template.Addons))
 			copy(templateAddons, template.Addons)
 			resolved.ResolvedAddons = append(templateAddons, resolved.ResolvedAddons...)
+		}
+	}
+
+	// Resolve autoscaling: environment first, template as the default.
+	resolved.Autoscaling = envConfig.Autoscaling
+	if resolved.Autoscaling == nil && envConfig.Template != "" {
+		if template, exists := c.EnvironmentTemplates[envConfig.Template]; exists {
+			resolved.Autoscaling = template.Autoscaling
 		}
 	}
 

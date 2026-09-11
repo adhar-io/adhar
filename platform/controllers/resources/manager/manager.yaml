@@ -66,6 +66,14 @@ spec:
           args:
             - controller
             - --leader-elect=true
+          env:
+            # The node autoscaler drives the cloud provider through the same
+            # helpers the CLI uses, and those keep per-cluster state (the
+            # kubeadm SSH key) under $HOME/.adhar. The image runs as uid 65532
+            # with a read-only root filesystem, so point HOME at the writable
+            # emptyDir instead of a non-existent home.
+            - name: HOME
+              value: /tmp
           # Probe windows sized for a loaded single-node cluster (ADR-0012):
           # a healthy manager can take seconds to answer under convergence load.
           livenessProbe:

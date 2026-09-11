@@ -42,11 +42,15 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/vault/manifests"
-          # cosign installs into its own cosign-system namespace (CONFLICTS.md
-          # resolved). Disabled in the local core to keep the footprint small.
+          # cosign installs into the shared adhar-system namespace (ADR-0011).
+          # policy-controller hardcodes Service/webhook and Secret/webhook-certs
+          # in its binary, so neither can be renamed: tekton was moved off the
+          # Secret (tekton-webhook-certs), but kpack (buildpack) hardcodes it
+          # too -- cosign and buildpack are mutually exclusive in one namespace.
+          # See platform/stack/packages/CONFLICTS.md before enabling both.
           - name: "cosign"
             enabled: "true"
-            namespace: "cosign-system"
+            namespace: "adhar-system"
             category: "security"
             manifestPath: "security/cosign/manifests"
           # Agentic AI control plane (ADR-0024) — opt-in; needs adhar-ai images +
@@ -164,12 +168,13 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/prefect/manifests"
-          # Kubeflow Pipelines (standalone) — ML pipeline orchestration. Deploys
-          # into its own `kubeflow` namespace. Heavy (MySQL/MinIO/Argo/API/UI);
+          # Kubeflow Pipelines (standalone) — ML pipeline orchestration. The
+          # upstream kustomize env hardcodes `kubeflow`; generate-manifests.sh
+          # rewrites it to adhar-system (ADR-0011). Heavy (MySQL/Argo/API/UI);
           # disabled in the local core, enable per environment.
           - name: "kubeflow"
             enabled: "false"
-            namespace: "kubeflow"
+            namespace: "adhar-system"
             category: "data"
             manifestPath: "data/kubeflow/manifests"
           - name: "open-metadata"
@@ -187,6 +192,13 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/argo-rollout/manifests"
+          # kpack: the ONE package outside adhar-system (ADR-0011 exception).
+          # Its webhook hardcodes Secret/webhook-certs, exactly like cosign's
+          # policy-controller, and both are enabled here; two knative webhooks
+          # sharing that Secret leave one without a valid serving cert. The
+          # generator drops upstream's Namespace object (pod-security
+          # enforce=restricted) and renders everything into kpack-system, which
+          # ArgoCD creates (CreateNamespace=true). See CONFLICTS.md.
           - name: "buildpack"
             enabled: "true"
             namespace: "kpack-system"
@@ -204,10 +216,12 @@ spec:
             manifestPath: "application/external-dns/manifests"
           - name: "open-function"
             enabled: "false"
-            # Own namespace: open-function vendors Knative and Tekton objects
-            # (config-defaults, config-logging, config-tracing, ...) whose names
-            # are fixed upstream and collide with the core tekton package.
-            namespace: "openfunction"
+            # adhar-system like every other package (ADR-0011). Kept DISABLED:
+            # it vendors Knative/Tekton ConfigMaps (config-defaults,
+            # config-tracing) whose names are fixed upstream and collide with the
+            # core tekton package once both live in adhar-system. Enabling it
+            # requires disabling tekton first (see CONFLICTS.md).
+            namespace: "adhar-system"
             category: "application"
             manifestPath: "application/open-function/manifests"
           - name: "coder"
@@ -496,10 +510,12 @@ spec:
       name: "{{ .name }}"
     spec:
       destination:
-        # Per-element so a package that cannot share adhar-system can opt out.
-        # Nearly everything uses adhar-system; open-function needs its own because
-        # it vendors Knative/Tekton objects whose names are fixed upstream and
-        # therefore collide (see platform/stack/packages/CONFLICTS.md).
+        # Every platform package targets adhar-system (ADR-0011). The field is
+        # kept per-element as an escape hatch, but no platform package uses a
+        # different value; the only sanctioned non-adhar-system namespaces are
+        # Kargo Project namespaces (adhar-environments — Kargo requires one
+        # namespace per Project) and data-plane vclusters (dp-*), neither of
+        # which is wired through this ApplicationSet.
         namespace: "{{ .namespace }}"
         server: https://kubernetes.default.svc
       project: default

@@ -26,6 +26,11 @@ metadata:
     argocd.argoproj.io/sync-options: ServerSideApply=true
 spec:
   instances: 1
+  # Expose the instance exporter to kube-prometheus: CNPG creates a PodMonitor
+  # (skipped gracefully while the monitoring CRDs are absent) so the Platform and
+  # CloudNativePG dashboards show this cluster. Without it no cnpg_* series exist.
+  monitoring:
+    enablePodMonitor: true
   # pgvector-enabled image; postC7 CNPG ships the vector extension in the
   # -bookworm images. Adjust the tag to your platform's pinned major.
   imageName: ghcr.io/cloudnative-pg/postgresql:16-bookworm
@@ -52,7 +57,7 @@ spec:
   # the keycloak-db posture. RAG content is reconstructable from docs, so this is
   # convenience, not a hard dependency; WAL warns until minio is healthy.
   backup:
-    retentionPolicy: 14d
+    retentionPolicy: 7d  # a week of PITR; 30d of WAL for every platform DB filled the shared MinIO
     barmanObjectStore:
       destinationPath: s3://adhar-backups/cnpg/adhar-ai-rag
       endpointURL: http://minio.adhar-system.svc.cluster.local:9000

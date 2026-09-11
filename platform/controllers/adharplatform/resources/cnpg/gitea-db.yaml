@@ -28,6 +28,11 @@ metadata:
     adhar.io/component: gitea
 spec:
   instances: 2
+  # Expose the instance exporter to kube-prometheus: CNPG creates a PodMonitor
+  # (skipped gracefully while the monitoring CRDs are absent) so the Platform and
+  # CloudNativePG dashboards show this cluster. Without it no cnpg_* series exist.
+  monitoring:
+    enablePodMonitor: true
   storage:
     size: 10Gi
   enableSuperuserAccess: false
@@ -43,7 +48,7 @@ spec:
   # database itself is unaffected. Point at real object storage in cloud
   # environments.
   backup:
-    retentionPolicy: 30d
+    retentionPolicy: 7d  # a week of PITR; 30d of WAL for every platform DB filled the shared MinIO
     barmanObjectStore:
       destinationPath: s3://adhar-backups/cnpg/gitea-db
       endpointURL: http://minio.adhar-system.svc.cluster.local:9000

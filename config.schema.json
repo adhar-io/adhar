@@ -132,7 +132,8 @@
         "addons": {
           "type": "array",
           "items": { "$ref": "#/definitions/addonConfig" }
-        }
+        },
+        "autoscaling": { "$ref": "#/definitions/autoscalingConfig" }
       },
       "additionalProperties": false
     },
@@ -150,6 +151,51 @@
         "addons": {
           "type": "array",
           "items": { "$ref": "#/definitions/addonConfig" }
+        },
+        "autoscaling": { "$ref": "#/definitions/autoscalingConfig" }
+      },
+      "additionalProperties": false
+    },
+    "autoscalingConfig": {
+      "type": "object",
+      "description": "Node autoscaling: the cluster is created with the configured worker count and the in-cluster node autoscaler moves it between minWorkers and maxWorkers on demand",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable the node autoscaler for this environment",
+          "default": false
+        },
+        "minWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Never scale below this many workers",
+          "default": 1
+        },
+        "maxWorkers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Never scale above this many workers (the spend ceiling)",
+          "default": 5
+        },
+        "nodeGroup": {
+          "type": "string",
+          "description": "Provider node group to scale",
+          "default": "workers"
+        },
+        "scaleDownUtilizationThreshold": {
+          "type": "string",
+          "description": "Requested-vs-allocatable share (e.g. \"50%\") that cluster CPU and memory must both stay under before a worker is removed",
+          "default": "50%"
+        },
+        "scaleDownDelay": {
+          "type": "string",
+          "description": "How long the cluster must stay under the threshold before a worker is drained and removed (Go duration)",
+          "default": "10m"
+        },
+        "scaleUpCooldown": {
+          "type": "string",
+          "description": "Minimum gap between two node additions (Go duration)",
+          "default": "3m"
         }
       },
       "additionalProperties": false

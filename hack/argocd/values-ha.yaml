@@ -548,7 +548,19 @@ configs:
 
     # -- File containing user-defined policies and role definitions.
     # @default -- `''` (See [values.yaml])
-    policy.csv: ""
+    # Keycloak group -> ArgoCD role mapping (same as values.yaml). Without it a
+    # Keycloak login has no policy at all and the UI shows an empty app list.
+    policy.csv: |
+      p, role:platform-developer, applications, get, */*, allow
+      p, role:platform-developer, applications, sync, */*, allow
+      p, role:platform-developer, applications, action/*, */*, allow
+      p, role:platform-developer, logs, get, */*, allow
+      p, role:platform-developer, repositories, get, *, allow
+      p, role:platform-developer, projects, get, *, allow
+      p, role:platform-developer, clusters, get, *, allow
+      g, platform-admin, role:admin
+      g, platform-developer, role:platform-developer
+      g, platform-viewer, role:readonly
     # Policy rules are in the form:
     #  p, subject, resource, action, object, effect
     # Role definitions and bindings are in the form:

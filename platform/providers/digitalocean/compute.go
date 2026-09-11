@@ -831,21 +831,83 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 		// Remove the highest-indexed workers first: drain + remove from the
 		// cluster on the control plane, then delete the droplet.
 		for i := current - 1; i >= desired; i-- {
-			d := workers[i]
-			drain := fmt.Sprintf(
-				"kubectl --kubeconfig /etc/kubernetes/admin.conf drain %[1]s --ignore-daemonsets --delete-emptydir-data --timeout=5m || true; "+
-					"kubectl --kubeconfig /etc/kubernetes/admin.conf delete node %[1]s --ignore-not-found", d.Name)
-			if out, err := provider.SSHRun(signer, computeSSHUser, masterIP, drain, 10*time.Minute); err != nil {
-				log.Printf("Warning: drain of %s reported: %v (%s)", d.Name, err, provider.LastLines(out, 5))
-			}
-			if _, err := p.client.Droplets.Delete(ctx, d.ID); err != nil {
-				return fmt.Errorf("failed to delete droplet %s: %w", d.Name, err)
+			if err := p.retireComputeWorker(ctx, signer, masterIP, workers[i]); err != nil {
+				return err
 			}
 		}
 	}
 
 	log.Printf("Scaled cluster %q workers to %d", name, desired)
 	return nil
+}
+
+// retireComputeWorker takes one worker out of service: drained and deleted
+// from the Kubernetes cluster via the control plane's admin kubeconfig, then
+// the droplet itself. A drain that reports an error is not fatal — the node is
+// going away regardless and blocking here would leave a cordoned node and a
+// billed droplet behind.
+func (p *Provider) retireComputeWorker(ctx context.Context, signer ssh.Signer, masterIP string, d godo.Droplet) error {
+	drain := fmt.Sprintf(
+		"kubectl --kubeconfig /etc/kubernetes/admin.conf drain %[1]s --ignore-daemonsets --delete-emptydir-data --timeout=5m || true; "+
+			"kubectl --kubeconfig /etc/kubernetes/admin.conf delete node %[1]s --ignore-not-found", d.Name)
+	if out, err := provider.SSHRun(signer, computeSSHUser, masterIP, drain, 10*time.Minute); err != nil {
+		log.Printf("Warning: drain of %s reported: %v (%s)", d.Name, err, provider.LastLines(out, 5))
+	}
+	if _, err := p.client.Droplets.Delete(ctx, d.ID); err != nil {
+		return fmt.Errorf("failed to delete droplet %s: %w", d.Name, err)
+	}
+	return nil
+}
+
+// RemoveWorkerNode implements provider.NodeRemover for compute-mode clusters:
+// it retires the one worker the caller named instead of the highest-indexed
+// one. The node autoscaler uses it to remove the specific node it chose and
+// already drained; managed DOKS clusters have no such API (the node pool owns
+// its members), so they are rejected rather than silently scaling something
+// else.
+func (p *Provider) RemoveWorkerNode(ctx context.Context, clusterID string, nodeName string) error {
+	if !p.isComputeCluster(ctx, clusterID) {
+		return fmt.Errorf("removing an individual node is not supported for managed DOKS cluster %s; scale the node pool instead", clusterID)
+	}
+	name := computeClusterName(clusterID)
+	droplets, err := p.computeClusterDroplets(ctx, name)
+	if err != nil {
+		return err
+	}
+	var masterIP string
+	var target *godo.Droplet
+	for i := range droplets {
+		d := droplets[i]
+		isMaster := false
+		for _, t := range d.Tags {
+			if t == computeMasterTag {
+				isMaster = true
+			}
+		}
+		if isMaster {
+			masterIP, _ = d.PublicIPv4()
+			continue
+		}
+		if d.Name == nodeName {
+			target = &droplets[i]
+		}
+	}
+	if masterIP == "" {
+		return fmt.Errorf("no reachable control-plane droplet for cluster %s", name)
+	}
+	if target == nil {
+		// Nothing to delete: the droplet is already gone (a retry after a
+		// partial removal), so report success and let the caller reconcile the
+		// leftover Node object.
+		log.Printf("Worker %q not found in cluster %q; nothing to remove", nodeName, name)
+		return nil
+	}
+	signer, err := provider.LoadClusterSSHKey(name)
+	if err != nil {
+		return err
+	}
+	log.Printf("Removing worker %q from cluster %q", nodeName, name)
+	return p.retireComputeWorker(ctx, signer, masterIP, *target)
 }
 
 // DigitalOcean cloud integration for self-managed clusters: the external

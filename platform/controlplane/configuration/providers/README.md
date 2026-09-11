@@ -117,7 +117,7 @@ Each provider has dedicated `ProviderConfig` resources that reference credential
 - **AWS**: Separate configs for EKS, EC2, RDS, IAM, S3 (all using `aws-credentials`)
 - **Azure**: Separate configs for Container Service, Network, SQL, Storage (all using `azure-credentials`)
 - **GCP**: Separate configs for Container, Compute, SQL, Storage (all using `gcp-credentials`)
-- **DigitalOcean**: Single config using `digitalocean-credentials` (provider `crossplane-contrib/provider-upjet-digitalocean`, API group `digitalocean.crossplane.io`)
+- **DigitalOcean**: `ClusterProviderConfig` named `default` (`digitalocean.m.crossplane.io/v1beta1`) plus a legacy `ProviderConfig` for the cluster-scoped kinds, both reading the `credentials` key (JSON `{"token": "..."}`) of `digitalocean-credentials` (provider `crossplane-contrib/provider-upjet-digitalocean` v1.0.2; namespaced MRs under `*.digitalocean.m.crossplane.io`)
 - **Civo**: Single config using `civo-credentials` with default region
 - **Kubernetes**: Two configs (in-cluster and external)
 - **Helm**: Two configs (in-cluster and external)
