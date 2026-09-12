@@ -2,7 +2,6 @@ package gitrepository
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -59,41 +58,49 @@ func TestGetGiteaToken(t *testing.T) {
 	assert.Error(t, err) // Replace with actual mock behavior validation
 }
 
+// The previous version of this test defined a local mock config, re-implemented
+// the URL formatting inline, and asserted on its own output -- utils.GiteaBaseUrl
+// was never called, so it could not fail and would not have caught either branch
+// changing. It now exercises the real routing rule.
 func TestGiteaBaseUrl(t *testing.T) {
-	ctx := context.TODO()
-
-	// Mock IDP configuration
-	mockIDPConfig := struct {
-		Protocol       string
-		Host           string
-		Port           string
-		UsePathRouting bool
+	tests := []struct {
+		name string
+		cfg  v1alpha1.BuildCustomizationSpec
+		want string
 	}{
-		Protocol:       "http",
-		Host:           "localhost",
-		Port:           "3000",
-		UsePathRouting: false,
+		{
+			name: "subdomain routing gives gitea its own host",
+			cfg: v1alpha1.BuildCustomizationSpec{
+				Protocol: "http", Host: "localhost", Port: "3000", UsePathRouting: false,
+			},
+			want: "http://gitea.localhost:3000",
+		},
+		{
+			name: "path routing keeps one host and adds a prefix",
+			cfg: v1alpha1.BuildCustomizationSpec{
+				Protocol: "http", Host: "localhost", Port: "3000", UsePathRouting: true,
+			},
+			want: "http://localhost:3000/gitea",
+		},
+		{
+			name: "https on the platform host",
+			cfg: v1alpha1.BuildCustomizationSpec{
+				Protocol: "https", Host: "adhar.localtest.me", Port: "8443", UsePathRouting: false,
+			},
+			want: "https://gitea.adhar.localtest.me:8443",
+		},
+		{
+			name: "path routing on the platform host",
+			cfg: v1alpha1.BuildCustomizationSpec{
+				Protocol: "https", Host: "adhar.localtest.me", Port: "8443", UsePathRouting: true,
+			},
+			want: "https://adhar.localtest.me:8443/gitea",
+		},
 	}
 
-	// Inline mock for GetConfig
-	getConfig := func(ctx context.Context) (struct {
-		Protocol       string
-		Host           string
-		Port           string
-		UsePathRouting bool
-	}, error) {
-		return mockIDPConfig, nil
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, utils.GiteaBaseUrlFromConfig(tc.cfg))
+		})
 	}
-
-	idpConfig, err := getConfig(ctx)
-	assert.NoError(t, err)
-
-	var url string
-	if idpConfig.UsePathRouting {
-		url = fmt.Sprintf("%s://%s%s:%s%s", idpConfig.Protocol, "", idpConfig.Host, idpConfig.Port, "/gitea")
-	} else {
-		url = fmt.Sprintf("%s://%s%s:%s", idpConfig.Protocol, "gitea.", idpConfig.Host, idpConfig.Port)
-	}
-
-	assert.Equal(t, "http://gitea.localhost:3000", url)
 }

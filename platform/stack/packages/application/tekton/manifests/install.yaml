@@ -1,3 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adhar-system
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pod-security.kubernetes.io/enforce: restricted
+---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -2133,6 +2142,7 @@ spec:
       - name: config-registry-cert
         configMap:
           name: config-registry-cert
+      enableServiceLinks: false
 ---
 apiVersion: v1
 kind: Service
@@ -2275,6 +2285,7 @@ spec:
       - name: config-registry-cert
         configMap:
           name: config-registry-cert
+      enableServiceLinks: false
 ---
 apiVersion: v1
 kind: Service
@@ -2306,6 +2317,16 @@ spec:
     app.kubernetes.io/component: events
     app.kubernetes.io/instance: default
     app.kubernetes.io/part-of: adhar-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adhar-system
+  labels:
+    app.kubernetes.io/component: resolvers
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: adhar-system
+    pod-security.kubernetes.io/enforce: restricted
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -2739,8 +2760,8 @@ spec:
             cpu: 100m
             memory: 100Mi
           limits:
-            cpu: 500m
-            memory: 512Mi
+            cpu: 1000m
+            memory: 4Gi
         ports:
         - name: metrics
           containerPort: 9090
@@ -2778,6 +2799,7 @@ spec:
             - ALL
           seccompProfile:
             type: RuntimeDefault
+      enableServiceLinks: false
 ---
 apiVersion: v1
 kind: Service
@@ -2962,6 +2984,7 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
           timeoutSeconds: 5
+      enableServiceLinks: false
 ---
 apiVersion: v1
 kind: Service
@@ -4305,6 +4328,7 @@ spec:
           runAsNonRoot: true
           seccompProfile:
             type: RuntimeDefault
+      enableServiceLinks: false
 ---
 apiVersion: v1
 kind: Service
@@ -4400,6 +4424,7 @@ spec:
             - ALL
           seccompProfile:
             type: RuntimeDefault
+      enableServiceLinks: false
 ---
 apiVersion: v1
 kind: Secret
@@ -4489,6 +4514,7 @@ spec:
             - ALL
           seccompProfile:
             type: RuntimeDefault
+      enableServiceLinks: false
 ---
 apiVersion: v1
 kind: Service
@@ -4583,6 +4609,14 @@ spec:
       namespace: adhar-system
       path: gitlab
       port: 8443
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-dashboard
+  name: tekton-dashboard
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -4963,6 +4997,7 @@ spec:
         kubernetes.io/os: linux
       serviceAccountName: tekton-dashboard
       volumes: []
+      enableServiceLinks: false
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

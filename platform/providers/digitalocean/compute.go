@@ -53,14 +53,38 @@ func (p *Provider) ensureSSHKey(ctx context.Context, clusterName string) (*godo.
 
 	keyName := "adhar-" + clusterName
 
-	// Reuse the registered key when present (matching by name).
 	keys, _, err := p.client.Keys.List(ctx, &godo.ListOptions{PerPage: 200})
-	if err == nil {
-		for i := range keys {
-			if keys[i].Name == keyName {
-				return &keys[i], signer, nil
-			}
+	if err != nil {
+		// Not fatal on its own -- Create below still reports a real conflict --
+		// but silently swallowing it used to hide auth failures behind a
+		// confusing droplet-create error, so say what happened.
+		log.Printf("listing DigitalOcean SSH keys failed (%v); attempting to register %s", err, keyName)
+	}
+
+	// Reuse the registered key ONLY when it is the same key we hold locally.
+	//
+	// Matching on name alone is wrong after a delete/recreate: the private half
+	// lives in the cluster state directory, which `adhar cluster delete` removes,
+	// so the next `adhar up` generates a FRESH keypair while an old key of the
+	// same name is still registered. Reusing that id builds a cluster whose
+	// droplets trust a key nobody has -- every later SSH step (kubeadm join,
+	// scale, the autoscaler) then fails with no obvious cause. DigitalOcean also
+	// rejected the stale id outright with
+	//   422 ... are invalid key identifiers for Droplet creation
+	// which is what surfaced the bug.
+	want := normalizeAuthorizedKey(pubKey)
+	for i := range keys {
+		if keys[i].Name != keyName {
+			continue
 		}
+		if normalizeAuthorizedKey(keys[i].PublicKey) == want {
+			return &keys[i], signer, nil
+		}
+		log.Printf("DigitalOcean SSH key %q (id %d) does not match the local private key; replacing it", keyName, keys[i].ID)
+		if _, err := p.client.Keys.DeleteByID(ctx, keys[i].ID); err != nil {
+			return nil, nil, fmt.Errorf("replacing stale DigitalOcean SSH key %q (id %d): %w", keyName, keys[i].ID, err)
+		}
+		break
 	}
 
 	key, _, err := p.client.Keys.Create(ctx, &godo.KeyCreateRequest{
@@ -71,6 +95,17 @@ func (p *Provider) ensureSSHKey(ctx context.Context, clusterName string) (*godo.
 		return nil, nil, fmt.Errorf("failed to register SSH key with DigitalOcean: %w", err)
 	}
 	return key, signer, nil
+}
+
+// normalizeAuthorizedKey reduces an authorized-keys line to the parts that
+// identify the key -- its type and base64 body -- so a differing trailing
+// comment does not make two copies of the same key look different.
+func normalizeAuthorizedKey(s string) string {
+	fields := strings.Fields(s)
+	if len(fields) < 2 {
+		return strings.TrimSpace(s)
+	}
+	return fields[0] + " " + fields[1]
 }
 
 // ensureComputeVPC returns the VPC UUID to place the cluster in: an explicitly

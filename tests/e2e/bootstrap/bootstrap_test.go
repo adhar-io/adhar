@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
@@ -89,7 +90,7 @@ func resolveHealthProbes(t *testing.T) []string {
 }
 
 // Timeout budgets. A cold bootstrap is dominated by container image pulls for
-// the whole curated core (Keycloak, Harbor, kube-prometheus, Vault, SPIRE, …):
+// the whole curated core (Keycloak, Harbor, kube-prometheus, Vault, …):
 // measured well over an hour on a laptop with an empty image cache, so the
 // defaults are generous and every budget is overridable for CI tuning.
 //
@@ -130,8 +131,12 @@ func Test_FullBootstrapSequence(t *testing.T) {
 				downCtx, downCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 				defer downCancel()
 				out, dErr := e2e.RunAdhar(downCtx, 5*time.Minute, "down")
+				// A failed teardown used to be logged and swallowed, so a broken
+				// `adhar down` passed CI indefinitely while leaving a cluster
+				// behind on every run. Teardown is part of the contract this
+				// test exists to protect, so it fails the test.
 				if dErr != nil {
-					t.Logf("adhar down failed (cluster may need manual cleanup): %v, %s", dErr, out)
+					t.Errorf("adhar down failed (cluster needs manual cleanup): %v\n%s", dErr, out)
 				}
 			}()
 		}
@@ -182,12 +187,22 @@ func Test_FullBootstrapSequence(t *testing.T) {
 			assert.NoError(t, kubeClient.List(ctx, list, client.InNamespace(e2e.PlatformNamespace)))
 		}
 
-		// SPIFFE workload identity ships in the foundation (ADR-0022/P2.4):
-		// the SPIRE server runs in the platform namespace.
+		// SPIRE is deliberately NOT deployed, and this asserts that it stays
+		// that way. Cilium's SPIRE-backed mutual auth is deprecated as of
+		// v1.20 (the version the platform runs) and, when half-registered,
+		// floods the operator with "no identity issued" retries that starve its
+		// gateway-api controller -- the Gateway then takes minutes to reach
+		// Programmed. hack/cilium/values.yaml sets authentication.mutual.enabled
+		// to false for exactly this reason.
+		//
+		// This assertion used to require a spire-server StatefulSet to EXIST,
+		// which no configuration in the repository can produce, so the whole
+		// e2e suite failed on every run and gave no regression signal at all.
 		spire := appsv1.StatefulSet{}
-		assert.NoError(t, kubeClient.Get(ctx,
-			client.ObjectKey{Namespace: e2e.PlatformNamespace, Name: "spire-server"}, &spire),
-			"SPIRE server must be part of the foundation")
+		err = kubeClient.Get(ctx,
+			client.ObjectKey{Namespace: e2e.PlatformNamespace, Name: "spire-server"}, &spire)
+		assert.True(t, apierrors.IsNotFound(err),
+			"SPIRE must not be deployed: Cilium mutual auth is disabled on purpose (got err=%v)", err)
 
 		// ArgoCD must carry the fast CNPG health script: the bundled community
 		// Lua times out under load and wedges every app that owns a database.
@@ -236,9 +251,17 @@ func Test_FullBootstrapSequence(t *testing.T) {
 		require.NoError(t, kubeClient.Get(ctx,
 			client.ObjectKey{Namespace: e2e.PlatformNamespace, Name: e2e.PlatformAppSet}, &appset))
 
+		// The ApplicationSet controller generates Applications asynchronously,
+		// so a bare List right after the AppSet appears is a race: on a slow
+		// runner it returned an empty list and failed a working platform.
 		apps := argov1alpha1.ApplicationList{}
-		require.NoError(t, kubeClient.List(ctx, &apps, client.InNamespace(e2e.PlatformNamespace)))
-		assert.NotEmpty(t, apps.Items, "ApplicationSet generated no applications")
+		require.Eventually(t, func() bool {
+			if err := kubeClient.List(ctx, &apps, client.InNamespace(e2e.PlatformNamespace)); err != nil {
+				t.Logf("listing applications: %v", err)
+				return false
+			}
+			return len(apps.Items) > 0
+		}, 5*time.Minute, 5*time.Second, "ApplicationSet generated no applications")
 
 		probes := resolveHealthProbes(t)
 		t.Logf("probing convergence of enabled packages: %v", probes)

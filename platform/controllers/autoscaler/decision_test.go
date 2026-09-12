@@ -1,6 +1,7 @@
 package autoscaler
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -361,5 +362,112 @@ func TestScaleUpOnVolumeAttachLimit(t *testing.T) {
 				t.Fatalf("message %q: action=%s wantScaleUp=%v (%s)", tc.message, d.Action, tc.wantUp, d.Reason)
 			}
 		})
+	}
+}
+
+// Scaling one worker at a time is far too slow when the whole catalogue lands
+// at once. The first wall is the CSI attach limit (7 volumes per droplet on
+// DigitalOcean), and clearing ~50 blocked volumes one 7-slot worker per
+// cooldown costs half an hour during which Applications sit Degraded. When the
+// blocked pods are volume-limited, the number of workers needed is arithmetic,
+// so the decision buys them in one step.
+func TestScaleUpBurstsForVolumeLimitedPods(t *testing.T) {
+	const volMsg = "0/3 nodes are available: 3 node(s) exceed max volume count."
+	const cpuMsg = "0/3 nodes are available: 3 Insufficient cpu."
+
+	pendingPods := func(n int, msg string) []corev1.Pod {
+		out := make([]corev1.Pod, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, pending(fmt.Sprintf("p%d", i), msg))
+		}
+		return out
+	}
+
+	tests := []struct {
+		name           string
+		pods           []corev1.Pod
+		volumesPerNode int
+		workers        int32
+		maxWorkers     int32
+		want           int32
+	}{
+		{
+			name:           "one blocked volume needs one worker",
+			pods:           pendingPods(1, volMsg),
+			volumesPerNode: 7,
+			workers:        3, maxWorkers: 10,
+			want: 1,
+		},
+		{
+			name:           "exactly one node's worth still needs one worker",
+			pods:           pendingPods(7, volMsg),
+			volumesPerNode: 7,
+			workers:        3, maxWorkers: 10,
+			want: 1,
+		},
+		{
+			// The case that cost half an hour: 8 blocked volumes against 7
+			// slots per node is two workers, not one-then-wait.
+			name:           "eight blocked volumes round up to two workers",
+			pods:           pendingPods(8, volMsg),
+			volumesPerNode: 7,
+			workers:        3, maxWorkers: 10,
+			want: 2,
+		},
+		{
+			name:           "a large backlog is capped by maxScaleUpBurst",
+			pods:           pendingPods(60, volMsg),
+			volumesPerNode: 7,
+			workers:        3, maxWorkers: 20,
+			want: maxScaleUpBurst,
+		},
+		{
+			name:           "the burst never exceeds the room under maxWorkers",
+			pods:           pendingPods(60, volMsg),
+			volumesPerNode: 7,
+			workers:        8, maxWorkers: 10,
+			want: 2,
+		},
+		{
+			name:           "cpu pressure stays at one worker per tick",
+			pods:           pendingPods(20, cpuMsg),
+			volumesPerNode: 7,
+			workers:        3, maxWorkers: 10,
+			want: 1,
+		},
+		{
+			// With no advertised CSI limit we cannot say how much one worker
+			// absorbs, so fall back to the conservative single step.
+			name:           "an unknown attach limit falls back to one worker",
+			pods:           pendingPods(20, volMsg),
+			volumesPerNode: 0,
+			workers:        3, maxWorkers: 10,
+			want: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			names := make([]string, 0, len(tc.pods))
+			for i := range tc.pods {
+				names = append(names, tc.pods[i].Namespace+"/"+tc.pods[i].Name)
+			}
+			s := Snapshot{Pods: tc.pods, VolumesPerNode: tc.volumesPerNode}
+			if got := scaleUpBurst(s, names, tc.workers, tc.maxWorkers); got != tc.want {
+				t.Fatalf("scaleUpBurst() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// A burst must never be zero or negative: Decide only calls it when it has
+// already decided to scale up, so "add nothing" would stall the cluster.
+func TestScaleUpBurstIsAlwaysAtLeastOne(t *testing.T) {
+	s := Snapshot{VolumesPerNode: 7}
+	for _, room := range []struct{ workers, max int32 }{{9, 10}, {10, 10}, {11, 10}} {
+		if got := scaleUpBurst(s, nil, room.workers, room.max); got < 1 {
+			t.Fatalf("scaleUpBurst(workers=%d,max=%d) = %d, must be >= 1",
+				room.workers, room.max, got)
+		}
 	}
 }

@@ -5,7 +5,7 @@ on:
     branches: ['**'] # not tags
   workflow_dispatch:
 
-# E2E bootstraps a full platform (~15 min); cancel superseded runs on the same ref.
+# E2E bootstraps a full platform; cancel superseded runs on the same ref.
 concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
@@ -13,8 +13,21 @@ concurrency:
 jobs:
   e2e:
     name: Full bootstrap sequence
+    # The job budget must EXCEED the test's own, or GitHub kills the runner
+    # first and every failure looks identical (a cancelled job with no output).
+    # The test defaults to a 90m overall budget and 60m for `adhar up`; the
+    # budgets below are tightened for a CI runner, and this timeout leaves room
+    # for checkout, the Go toolchain and the teardown after the test returns.
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 90
+    env:
+      # A cold GitHub runner has an empty image cache, so the bootstrap is
+      # dominated by image pulls. These keep the run bounded while still leaving
+      # enough headroom that a slow-but-working platform is not reported as a
+      # regression.
+      ADHAR_E2E_TIMEOUT: 75m
+      ADHAR_E2E_UP_TIMEOUT: 45m
+      ADHAR_E2E_HEALTH_TIMEOUT: 20m
     steps:
       - uses: actions/checkout@v4
         with:

@@ -1,10 +1,56 @@
-# ClickHouse creates its system log tables lazily (on the first flush), but
-# PostHog's ClickHouse migrations query system.crash_log directly ("Unknown
-# table expression identifier 'system.crash_log'") — on a fresh cluster the
-# table does not exist until something is flushed. This PostSync hook runs
-# before the chart's migrate Job (wave 0) and forces the tables into
-# existence with SYSTEM FLUSH LOGS. Credentials are the chart's admin user
-# (values.yaml clickhouse.user/password, the same literal the chart renders).
+# ClickHouse creates its system log tables lazily, on the first flush. PostHog's
+# ClickHouse migration queries system.crash_log directly, and that table only
+# ever receives data when the server CRASHES -- so on a fresh cluster it does not
+# exist and the migration dies with
+#   Unknown table expression identifier 'system.crash_log'
+#
+# This hook forces the table into existence. It CANNOT run before the chart's
+# migrate Job: ClickHouse itself is a wave-0 resource, so a PreSync/early-wave
+# hook would block the sync waiting for a server that the same sync has not
+# created yet. It therefore runs PostSync and repairs the ordering instead --
+# it flushes the logs and then deletes a migrate Job that already failed, so
+# ArgoCD recreates it against a ClickHouse that now has the table.
+#
+# Without that second step the Job exhausts its backoffLimit while the fix is
+# being applied, and PostHog stays Degraded on every fresh cluster until someone
+# deletes the Job by hand.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: posthog-clickhouse-prepare
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: posthog-clickhouse-prepare
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-2"
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: posthog-clickhouse-prepare
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-2"
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: posthog-clickhouse-prepare}
+subjects: [{kind: ServiceAccount, name: posthog-clickhouse-prepare, namespace: adhar-system}]
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -19,9 +65,12 @@ spec:
   ttlSecondsAfterFinished: 3600
   template:
     spec:
+      serviceAccountName: posthog-clickhouse-prepare
       restartPolicy: OnFailure
-      containers:
-        - name: prepare
+      # Two steps, two toolchains: the ClickHouse image has clickhouse-client but
+      # no kubectl, and the kubectl image has no clickhouse-client.
+      initContainers:
+        - name: flush-system-logs
           image: clickhouse/clickhouse-server:26.6.2.158
           command:
             - /bin/sh
@@ -43,13 +92,56 @@ spec:
                 clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" \
                   -q "SYSTEM FLUSH LOGS $tbl" || echo "  $tbl not configured on this server; skipping"
               done
-              clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" -q "SELECT name FROM system.tables WHERE database='system' AND name IN ('crash_log','session_log','query_thread_log')"
+              clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" \
+                -q "SELECT name FROM system.tables WHERE database='system' AND name IN ('crash_log','session_log','query_thread_log')"
           env:
             - name: CLICKHOUSE_PASSWORD
               value: "a1f31e03-c88e-4ca6-a2df-ad49183d15d9"
           securityContext:
             runAsUser: 101
             runAsGroup: 101
+            allowPrivilegeEscalation: false
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+      containers:
+        - name: repair-migration
+          image: alpine/k8s:1.31.1
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              # Repair the ordering. The chart's migrate Job runs in the SAME sync
+              # as ClickHouse itself, so on a fresh cluster it starts before this
+              # hook and fails against a server with no system.crash_log. Once it
+              # exhausts its backoffLimit it never retries on its own, and PostHog
+              # stays Degraded until somebody deletes the Job by hand.
+              #
+              # Deleting a FAILED migrate Job makes ArgoCD recreate it on the next
+              # sync, now against a ClickHouse that has the table. A Job that is
+              # running, or already succeeded, is left strictly alone.
+              found=0
+              for j in $(kubectl -n "$NS" get jobs -o name 2>/dev/null | grep 'job.batch/posthog-migrate' || true); do
+                found=1
+                succeeded=$(kubectl -n "$NS" get "$j" -o jsonpath='{.status.succeeded}' 2>/dev/null)
+                failed=$(kubectl -n "$NS" get "$j" -o jsonpath='{.status.failed}' 2>/dev/null)
+                if [ -n "$succeeded" ] && [ "$succeeded" != "0" ]; then
+                  echo "$j already succeeded; leaving it"
+                  continue
+                fi
+                if [ -n "$failed" ] && [ "$failed" -ge 1 ] 2>/dev/null; then
+                  echo "$j has $failed failed pod(s); deleting so ArgoCD recreates it"
+                  kubectl -n "$NS" delete "$j" --wait=false || true
+                else
+                  echo "$j is still running; leaving it"
+                fi
+              done
+              [ "$found" = "0" ] && echo "no posthog-migrate Job present yet; nothing to repair"
+              echo "clickhouse prepare done"
+          env:
+            - name: NS
+              value: adhar-system
+          securityContext:
             allowPrivilegeEscalation: false
           resources:
             requests: {cpu: 50m, memory: 64Mi}

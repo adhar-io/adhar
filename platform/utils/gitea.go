@@ -90,14 +90,14 @@ func GetGiteaToken(ctx context.Context, baseUrl, username, password string) (str
 	}
 	tokens, resp, err := giteaClient.ListAccessTokens(gitea.ListAccessTokensOptions{})
 	if err != nil {
-		return "", fmt.Errorf("listing gitea access tokens. status: %s error : %w", resp.Status, err)
+		return "", fmt.Errorf("listing gitea access tokens%s: %w", responseStatus(resp), err)
 	}
 
 	for i := range tokens {
 		if tokens[i].Name == GiteaAdminTokenName {
 			resp, err := giteaClient.DeleteAccessToken(tokens[i].ID)
 			if err != nil {
-				return "", fmt.Errorf("deleting gitea access tokens. status: %s error : %w", resp.Status, err)
+				return "", fmt.Errorf("deleting gitea access token %q%s: %w", GiteaAdminTokenName, responseStatus(resp), err)
 			}
 			break
 		}
@@ -110,19 +110,47 @@ func GetGiteaToken(ctx context.Context, baseUrl, username, password string) (str
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("deleting gitea access tokens. status: %s error : %w", resp.Status, err)
+		return "", fmt.Errorf("creating gitea access token %q%s: %w", GiteaAdminTokenName, responseStatus(resp), err)
 	}
 
 	return token.Token, nil
 }
 
+// responseStatus renders a Gitea SDK response for an error message.
+//
+// It exists because the SDK returns a NIL *Response together with a non-nil
+// error whenever the request never reached the server -- an unreachable host, a
+// context cancellation, a malformed URL. Reading resp.Status on that path
+// panicked the reconciler with a nil dereference, and it is the EXPECTED path
+// during `adhar up`, where Gitea is polled before it is serving. The panic
+// replaced the real message ("connection refused") with a stack trace.
+func responseStatus(resp *gitea.Response) string {
+	if resp == nil || resp.Response == nil {
+		return ""
+	}
+	return " (status: " + resp.Status + ")"
+}
+
 func GiteaBaseUrl(ctx context.Context) (string, error) {
 	idpConfig, err := idp.GetConfig(ctx)
 	if err != nil {
-		return "", fmt.Errorf("error fetching idp config: %s", err)
+		return "", fmt.Errorf("fetching idp config: %w", err)
 	}
-	if idpConfig.UsePathRouting {
-		return fmt.Sprintf(GiteaURLTempl, idpConfig.Protocol, "", idpConfig.Host, idpConfig.Port, "/gitea"), nil
+	return GiteaBaseUrlFromConfig(idpConfig), nil
+}
+
+// GiteaBaseUrlFromConfig is the pure half of GiteaBaseUrl: the URL a platform
+// spec implies, with no cluster access.
+//
+// It is separate so the routing rule can be tested at all. GiteaBaseUrl reaches
+// through idp.GetConfig to a live API server, so the only "test" it ever had
+// re-implemented this formatting inline and asserted on its own output -- it
+// could not fail, and it would not have noticed either branch changing.
+func GiteaBaseUrlFromConfig(cfg v1alpha1.BuildCustomizationSpec) string {
+	// Path routing puts every service on one hostname under a prefix; otherwise
+	// each gets its own subdomain.
+	if cfg.UsePathRouting {
+		return fmt.Sprintf(GiteaURLTempl, cfg.Protocol, "", cfg.Host, cfg.Port, "/gitea")
 	}
-	return fmt.Sprintf(GiteaURLTempl, idpConfig.Protocol, "gitea.", idpConfig.Host, idpConfig.Port, ""), nil
+	return fmt.Sprintf(GiteaURLTempl, cfg.Protocol, "gitea.", cfg.Host, cfg.Port, "")
 }

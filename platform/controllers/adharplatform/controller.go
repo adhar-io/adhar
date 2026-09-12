@@ -254,6 +254,12 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		argocdInitialAdminPassword, err := r.extractArgocdInitialAdminSecret(ctx)
 		if err != nil {
+			// Logged, not swallowed: a permanent failure here (RBAC, a renamed
+			// Secret) means --static-password silently never applies, and the
+			// reconciler would otherwise loop forever with nothing in the logs
+			// and nothing on status to explain it.
+			logger.Error(err, "reading the argocd initial admin secret; retrying",
+				"requeueAfter", defaultRequeueTime)
 			return ctrl.Result{RequeueAfter: defaultRequeueTime}, nil
 		}
 
@@ -270,6 +276,8 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		giteaAdminPassword, err := r.extractGiteaAdminSecret(ctx)
 		if err != nil {
+			logger.Error(err, "reading the gitea admin secret; retrying",
+				"requeueAfter", defaultRequeueTime)
 			return ctrl.Result{RequeueAfter: defaultRequeueTime}, nil
 		}
 		logger.V(1).Info("Gitea admin secret found ...")
@@ -641,6 +649,15 @@ func (r *AdharPlatformReconciler) giteaAdminCredential(ctx context.Context) (str
 	sec, err := utils.GetSecretByName(ctx, r.Client, utils.GiteaNamespace, utils.GiteaAdminSecret)
 	if err == nil && len(sec.Data["username"]) > 0 && len(sec.Data["password"]) > 0 {
 		return string(sec.Data["username"]), string(sec.Data["password"])
+	}
+	// Falling back to the compiled-in bootstrap credential is correct only
+	// before the Secret exists. After a rotation it authenticates with a stale
+	// password, and every caller then fails somewhere far away -- as
+	// `creating org adhar (status: 401)` or an opaque `git push` failure -- with
+	// nothing naming the real cause. Say it once, here.
+	if err != nil && !k8serrors.IsNotFound(err) {
+		log.FromContext(ctx).Error(err, "reading the gitea admin secret; falling back to the bootstrap credential",
+			"secret", utils.GiteaAdminSecret, "namespace", utils.GiteaNamespace)
 	}
 	return globals.GiteaAdminUser, globals.GiteaAdminPassword
 }
@@ -1236,9 +1253,17 @@ func (r *AdharPlatformReconciler) updateGiteaPassword(ctx context.Context, admin
 		Password:  utils.StaticPassword,
 	}
 
+	// The Gitea SDK returns a nil *Response alongside a non-nil error when the
+	// request never reached the server, which is the normal case here: this runs
+	// during bootstrap while Gitea may still be starting. Reading resp.StatusCode
+	// on that path panicked the reconciler instead of reporting the dial error.
 	resp, err := client.AdminEditUser(utils.GiteaAdminName, opts)
 	if err != nil {
-		return fmt.Errorf("cannot update gitea admin user. status: %d error : %w", resp.StatusCode, err)
+		status := ""
+		if resp != nil && resp.Response != nil {
+			status = fmt.Sprintf(" (status: %d)", resp.StatusCode)
+		}
+		return fmt.Errorf("updating gitea admin user %q%s: %w", utils.GiteaAdminName, status, err)
 	}
 
 	err = utils.PatchPasswordSecret(ctx, r.Client, r.Config, utils.GiteaNamespace, utils.GiteaAdminSecret, utils.GiteaAdminName, utils.StaticPassword)
@@ -1339,15 +1364,27 @@ func (r *AdharPlatformReconciler) updateArgocdPassword(ctx context.Context, admi
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode == 200 {
-			err = utils.PatchPasswordSecret(ctx, r.Client, r.Config, utils.ArgocdNamespace, utils.ArgocdInitialAdminSecretName, utils.ArgocdAdminName, utils.StaticPassword)
-			if err != nil {
-				return fmt.Errorf("patching the argocd initial secret failed : %w", err)
-			}
-			return nil
+		if resp.StatusCode != 200 {
+			// The password was changed in ArgoCD but the new one does not work,
+			// so the Secret must NOT be patched to claim otherwise. Returning
+			// nil here used to log "Argocd admin password change succeeded !"
+			// and leave `adhar get secrets -p argocd` printing a password that
+			// fails to log in, with no error anywhere.
+			verifyBody, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("argocd rejected the new admin password on verification: status %d: %s",
+				resp.StatusCode, strings.TrimSpace(string(verifyBody)))
 		}
+
+		if err := utils.PatchPasswordSecret(ctx, r.Client, r.Config, utils.ArgocdNamespace, utils.ArgocdInitialAdminSecretName, utils.ArgocdAdminName, utils.StaticPassword); err != nil {
+			return fmt.Errorf("patching the argocd initial secret failed : %w", err)
+		}
+		return nil
 	}
-	return nil
+
+	// Anything other than a 200 on the FIRST login means the password was never
+	// changed. Reporting success here made a failed rotation invisible.
+	return fmt.Errorf("argocd session login failed: status %d: %s",
+		resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
 func (r *AdharPlatformReconciler) applyArgoCDAnnotation(ctx context.Context, obj client.Object, argoCDType, annotationKey, annotationValue string) error {

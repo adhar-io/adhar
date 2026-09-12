@@ -68,6 +68,10 @@ const (
 // fresh droplet brings 7 more slots, so another worker is exactly the fix.
 // (An unbound or zone-pinned volume reads as "had volume node affinity
 // conflict" / "didn't find available persistent volumes", which are NOT here.)
+// volumeLimitMarker is the one capacity marker whose remedy is arithmetic: each
+// new worker brings exactly VolumesPerNode more attachment slots.
+const volumeLimitMarker = "exceed max volume count"
+
 var capacityShortageMarkers = []string{
 	"insufficient cpu",
 	"insufficient memory",
@@ -92,7 +96,13 @@ type Snapshot struct {
 	// follow the pod to another node without an orderly detach we do not
 	// control here.
 	RWOClaims map[string]bool
-	Now       time.Time
+	// VolumesPerNode is the CSI attach limit a single worker advertises
+	// (CSINode.spec.drivers[].allocatable.count) — 7 on DigitalOcean. It is how
+	// many pending volume-limited pods one new worker can actually absorb, so
+	// it sizes a scale-up burst. Zero means "unknown": the burst then falls
+	// back to one worker at a time.
+	VolumesPerNode int
+	Now            time.Time
 }
 
 // Utilization is the cluster-wide requested share of worker capacity.
@@ -111,6 +121,15 @@ type Decision struct {
 	Reason string
 	// Workers is the observed count of schedulable workers.
 	Workers int32
+	// ScaleUpBy is how many workers to add when Action is ScaleUp. It is at
+	// least 1 and never takes the cluster past MaxWorkers.
+	//
+	// Adding one worker per tick, behind a cooldown, is far too slow when the
+	// whole catalogue lands at once: the first capacity wall is the CSI attach
+	// limit, and clearing ~50 pending volumes one 7-slot worker at a time costs
+	// half an hour of cooldowns during which pods stay Pending and their
+	// Applications stay Degraded.
+	ScaleUpBy int32
 	// UnderutilizedSince carries the scale-down clock forward: nil resets it.
 	UnderutilizedSince *time.Time
 	Utilization        Utilization
@@ -149,8 +168,14 @@ func Decide(s Snapshot) Decision {
 			return d
 		default:
 			d.Action = ActionScaleUp
-			d.Reason = fmt.Sprintf("%d pod(s) unschedulable for capacity (e.g. %s); adding a worker (%d/%d)",
-				len(pending), pending[0], len(workers)+1, spec.MaxWorkers)
+			d.ScaleUpBy = scaleUpBurst(s, pending, int32(len(workers)), spec.MaxWorkers)
+			if d.ScaleUpBy == 1 {
+				d.Reason = fmt.Sprintf("%d pod(s) unschedulable for capacity (e.g. %s); adding a worker (%d/%d)",
+					len(pending), pending[0], len(workers)+1, spec.MaxWorkers)
+			} else {
+				d.Reason = fmt.Sprintf("%d pod(s) unschedulable for capacity (e.g. %s); adding %d workers (%d/%d)",
+					len(pending), pending[0], d.ScaleUpBy, int32(len(workers))+d.ScaleUpBy, spec.MaxWorkers)
+			}
 			return d
 		}
 	}
@@ -514,4 +539,65 @@ func quantity(list corev1.ResourceList, name corev1.ResourceName) *resource.Quan
 		return &q
 	}
 	return &resource.Quantity{}
+}
+
+// maxScaleUpBurst bounds a single scale-up. Even when a hundred pods are
+// pending, buying more than this at once risks over-shooting on a transient
+// backlog and paying for machines the scale-down then has to retire.
+const maxScaleUpBurst int32 = 4
+
+// scaleUpBurst sizes a scale-up from what the pending pods are actually blocked
+// on.
+//
+// Pods held up by the CSI attach limit are the case worth batching: each new
+// worker brings exactly VolumesPerNode fresh attachment slots, so the number of
+// workers needed is arithmetic rather than guesswork. Everything else (cpu,
+// memory, pod count) stays at one worker per tick, because a single machine
+// usually clears it and the next tick re-measures.
+//
+// The result is always at least 1 and never exceeds the room left under
+// MaxWorkers.
+func scaleUpBurst(s Snapshot, pending []string, workers, maxWorkers int32) int32 {
+	room := maxWorkers - workers
+	if room <= 1 {
+		return 1
+	}
+
+	perNode := int32(s.VolumesPerNode)
+	if perNode <= 0 {
+		// No CSI limit advertised: we cannot say how much one worker absorbs.
+		return 1
+	}
+
+	pendingSet := make(map[string]bool, len(pending))
+	for _, name := range pending {
+		pendingSet[name] = true
+	}
+
+	var volumeBlocked int32
+	for _, p := range s.Pods {
+		if !pendingSet[p.Namespace+"/"+p.Name] {
+			continue
+		}
+		msg, ok := unschedulableMessage(p)
+		if ok && strings.Contains(strings.ToLower(msg), volumeLimitMarker) {
+			volumeBlocked++
+		}
+	}
+	if volumeBlocked == 0 {
+		return 1
+	}
+
+	// Round up: 8 blocked pods against 7 slots per node needs 2 workers.
+	needed := (volumeBlocked + perNode - 1) / perNode
+	if needed < 1 {
+		needed = 1
+	}
+	if needed > maxScaleUpBurst {
+		needed = maxScaleUpBurst
+	}
+	if needed > room {
+		needed = room
+	}
+	return needed
 }

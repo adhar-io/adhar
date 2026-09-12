@@ -106,3 +106,71 @@ subjects:
   - apiGroup: rbac.authorization.k8s.io
     kind: Group
     name: oidc:platform-viewer
+---
+# Platform custom resources for the built-in role tiers.
+#
+# Kubernetes' built-in `view` / `edit` / `admin` ClusterRoles cover the core API
+# groups only. They say nothing about CRDs, so a signed-in developer or viewer
+# is denied the platform's own resources and the Console fails to render:
+#
+#   Couldn't load the marketplace
+#   applicationsets.argoproj.io is forbidden: User "oidc:<user>" cannot list
+#   resource "applicationsets" in API group "argoproj.io"
+#
+# Only the cluster-admin tiers worked, which made every read-only page an
+# admin-only page.
+#
+# Aggregation is the idiomatic fix: labelling a ClusterRole
+# `rbac.authorization.k8s.io/aggregate-to-view: "true"` folds its rules into
+# `view`, and `view`'s rules are in turn aggregated into `edit` and `admin`. One
+# object therefore fixes every tier at once, and stays correct if the tiers are
+# re-bound later.
+#
+# READ-ONLY on purpose. The Console mutates the platform through GitOps (a Gitea
+# commit that ArgoCD reconciles), never by writing these objects directly, so
+# nothing here needs create/update/delete.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-platform-crd-view
+  labels:
+    adhar.io/component: rbac
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+  # ArgoCD: the Console's marketplace, app list and sync status.
+  - apiGroups: [argoproj.io]
+    resources:
+      - applications
+      - applicationsets
+      - appprojects
+      - workflows
+      - workflowtemplates
+      - rollouts
+      - analysisruns
+      - analysistemplates
+    verbs: [get, list, watch]
+  # The platform's own API: what `adhar get status` and the Console header read.
+  - apiGroups: [platform.adhar.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+  # Databases, certificates and policy reports surfaced on the service pages.
+  - apiGroups: [postgresql.cnpg.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+  - apiGroups: [cert-manager.io]
+    resources: [certificates, issuers, clusterissuers]
+    verbs: [get, list, watch]
+  - apiGroups: [wgpolicyk8s.io]
+    resources: [policyreports, clusterpolicyreports]
+    verbs: [get, list, watch]
+  - apiGroups: [kyverno.io]
+    resources: [policies, clusterpolicies]
+    verbs: [get, list, watch]
+  # Routing: the access URL shown on a service card.
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways, httproutes, gatewayclasses]
+    verbs: [get, list, watch]
+  # Pipelines: build history on the service pages.
+  - apiGroups: [tekton.dev]
+    resources: [pipelines, pipelineruns, tasks, taskruns]
+    verbs: [get, list, watch]

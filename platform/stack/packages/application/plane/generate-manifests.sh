@@ -23,3 +23,31 @@ helm template --namespace adhar-system plane plane/plane-ce -f values.yaml --ver
 #   kubectl -n adhar-system rollout restart deploy -l app.kubernetes.io/instance=plane
 sed -i '' -E 's/^([[:space:]]*)timestamp: "[^"]*"$/\1timestamp: "pinned-by-generate-manifests"/' ${INSTALL_YAML} \
   || sed -i -E 's/^([[:space:]]*)timestamp: "[^"]*"$/\1timestamp: "pinned-by-generate-manifests"/' ${INSTALL_YAML}
+
+# Pin the bundled MinIO images to the registry the platform already pulls from.
+#
+# The chart ships `minio/minio:latest` and `minio/mc:latest` from Docker Hub.
+# Both fail on a real cluster: the tags are unauthenticated Docker Hub pulls
+# subject to rate limits, and plane-minio-wl-0 sat in ImagePullBackOff for hours
+# (541 attempts) while the platform's OWN MinIO -- the same software, pulled as
+# quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z -- started first time.
+#
+# Same images, a registry that answers, and a pinned release rather than a
+# floating tag, which is what the supply-chain policy wants anyway.
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import re, sys
+
+path = sys.argv[1]
+src = open(path).read()
+subs = {
+    r'(?<![\w/.-])minio/minio:latest\b': 'quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z',
+    r'(?<![\w/.-])minio/mc:latest\b': 'quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z',
+}
+total = 0
+for pattern, replacement in subs.items():
+    src, n = re.subn(pattern, replacement, src)
+    print(f"  {pattern} -> {replacement} ({n})")
+    total += n
+open(path, 'w').write(src)
+print(f"pinned {total} MinIO image reference(s) to quay.io")
+PYEOF

@@ -58,3 +58,46 @@ for needle in ("airbyte-minio-svc", "minio123"):
     if needle in blob:
         sys.exit(f"ERROR: {needle!r} still referenced in {p}")
 PYEOF_MINIO
+
+# The bootloader runs as a Helm pre-install/pre-upgrade hook with NO delete
+# policy. ArgoCD's default for such a hook is before-hook-creation, so every
+# sync must first DELETE the previous hook Pod and wait for it to go away:
+#
+#   Running  waiting for deletion of hook /Pod/airbyte-airbyte-bootloader
+#
+# Combined with selfHeal re-syncing while other resources are still converging,
+# the sync restarted the multi-minute bootloader over and over and never reached
+# the rest of the chart, leaving Airbyte Degraded indefinitely.
+#
+# HookSucceeded deletes the Pod once it has succeeded instead, so the next sync
+# has nothing to wait for. The bootloader stays a PreSync hook and still runs
+# before the rest of the release.
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import sys, yaml
+
+path = sys.argv[1]
+docs = list(yaml.safe_load_all(open(path)))
+patched = 0
+for d in docs:
+    if not d:
+        continue
+    # ONLY Pods and Jobs: those are the hooks that run to completion and can
+    # therefore "succeed". Applying HookSucceeded to a Role or ServiceAccount
+    # makes ArgoCD wait for a completion that can never happen --
+    #   waiting for completion of hook rbac.../Role/airbyte-admin-role
+    # which stalls the sync just as badly as the problem being fixed.
+    if d.get("kind") not in ("Pod", "Job"):
+        continue
+    ann = (d.get("metadata") or {}).get("annotations") or {}
+    if "helm.sh/hook" not in ann:
+        continue
+    if "helm.sh/hook-delete-policy" in ann or "argocd.argoproj.io/hook-delete-policy" in ann:
+        continue
+    ann["argocd.argoproj.io/hook-delete-policy"] = "HookSucceeded"
+    d["metadata"]["annotations"] = ann
+    patched += 1
+
+with open(path, "w") as fh:
+    yaml.safe_dump_all([d for d in docs if d], fh, default_flow_style=False, sort_keys=False)
+print(f"set hook-delete-policy=HookSucceeded on {patched} hook(s) that declared none")
+PYEOF

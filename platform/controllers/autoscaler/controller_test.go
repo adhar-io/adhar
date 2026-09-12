@@ -19,21 +19,21 @@ import (
 
 // fakeScaler records the cloud-side calls a decision would have made.
 type fakeScaler struct {
-	upCalls    []string
-	downCalls  []string
-	err        error
-	lastGroup  string
-	lastCurren int32
+	upCalls     []string
+	downCalls   []string
+	err         error
+	lastGroup   string
+	lastDesired int32
 }
 
-func (f *fakeScaler) ScaleUp(_ context.Context, spec *clusterSpec, nodeGroup string, current int32) error {
+func (f *fakeScaler) ScaleUp(_ context.Context, spec *clusterSpec, nodeGroup string, desired int32) error {
 	name := ""
 	if spec != nil {
 		name = spec.ClusterName
 	}
 	f.upCalls = append(f.upCalls, name)
 	f.lastGroup = nodeGroup
-	f.lastCurren = current
+	f.lastDesired = desired
 	return f.err
 }
 
@@ -152,8 +152,10 @@ func TestReconcileScalesUpAndRecordsStatus(t *testing.T) {
 	if len(f.upCalls) != 1 || f.upCalls[0] != "dev" {
 		t.Fatalf("expected one scale-up on cluster dev, got %v", f.upCalls)
 	}
-	if f.lastGroup != "workers" || f.lastCurren != 1 {
-		t.Fatalf("expected node group workers at 1 current worker, got %q/%d", f.lastGroup, f.lastCurren)
+	// ScaleUp takes the DESIRED worker count, not the current one: one worker
+	// observed plus a one-node burst for a memory-pressure pending pod.
+	if f.lastGroup != "workers" || f.lastDesired != 2 {
+		t.Fatalf("expected node group workers scaled to 2, got %q/%d", f.lastGroup, f.lastDesired)
 	}
 	st := loadPlatform(t, r).Status.Autoscaling
 	if st == nil || st.LastScaleUp == nil {
@@ -207,5 +209,57 @@ func TestReconcileReportsProviderFailureWithoutFailingTheTick(t *testing.T) {
 	}
 	if !strings.Contains(st.LastReason, globals.ClusterSpecConfigMapName) {
 		t.Fatalf("the reason should name the missing ConfigMap, got %q", st.LastReason)
+	}
+}
+
+// The Pod and Node watches all collapse onto one reconcile key, but the
+// workqueue only de-duplicates an item while it is queued. During bootstrap
+// that produced dozens of full evaluations a second, each listing every pod and
+// node. dueIn puts a floor under that; a pending pod still gets an answer well
+// inside the minutes a droplet takes to join.
+func TestDueInDebouncesEventStorms(t *testing.T) {
+	r := &Reconciler{}
+	base := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
+
+	if wait := r.dueIn(base); wait != 0 {
+		t.Fatalf("first evaluation must run immediately, got wait %s", wait)
+	}
+
+	// A burst arriving straight afterwards is deferred, not evaluated.
+	if wait := r.dueIn(base.Add(time.Second)); wait != minEvaluationInterval-time.Second {
+		t.Fatalf("burst should defer by the remainder, got %s", wait)
+	}
+	if wait := r.dueIn(base.Add(minEvaluationInterval - time.Nanosecond)); wait <= 0 {
+		t.Fatal("an event just inside the window must still be deferred")
+	}
+
+	// Once the window passes, the next event evaluates and re-arms.
+	if wait := r.dueIn(base.Add(minEvaluationInterval)); wait != 0 {
+		t.Fatalf("evaluation must run once the window elapses, got wait %s", wait)
+	}
+	if wait := r.dueIn(base.Add(minEvaluationInterval + time.Second)); wait == 0 {
+		t.Fatal("the window must re-arm after an evaluation")
+	}
+}
+
+// A deferred tick must not be mistaken for "nothing to do": it has to come
+// back, or a cluster that stops emitting pod events would never scale again.
+func TestReconcileRequeuesWhenDebounced(t *testing.T) {
+	r := &Reconciler{}
+	r.applyDefaults()
+	now := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
+	r.Now = func() time.Time { return now }
+
+	// Prime the debounce so the next call is inside the window.
+	if wait := r.dueIn(now); wait != 0 {
+		t.Fatalf("unexpected wait on the priming call: %s", wait)
+	}
+
+	res, err := r.Reconcile(context.Background(), ctrl.Request{})
+	if err != nil {
+		t.Fatalf("a debounced tick must not error: %v", err)
+	}
+	if res.RequeueAfter <= 0 || res.RequeueAfter > minEvaluationInterval {
+		t.Fatalf("debounced tick must requeue within the window, got %s", res.RequeueAfter)
 	}
 }

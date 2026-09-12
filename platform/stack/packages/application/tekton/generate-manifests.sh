@@ -38,3 +38,36 @@ s, n = re.subn(r'(?<![-\w])webhook-certs\b', 'tekton-webhook-certs', s)
 open(p, 'w').write(s)
 print(f"renamed Secret/webhook-certs -> Secret/tekton-webhook-certs ({n} reference(s))")
 PYEOF
+
+# Every package shares adhar-system (ADR-0011), so Kubernetes injects a
+# <NAME>_PORT env var for every Service in the namespace. Tekton's own
+# Service/webhook turns into WEBHOOK_PORT=tcp://10.x.x.x:443, and knative's
+# PortFromEnv parses that as an integer:
+#
+#   panic: ... knative.dev/pkg/webhook.PortFromEnv
+#   github.com/tektoncd/triggers/cmd/webhook/main.go:140
+#
+# The pipelines webhook survives because upstream pins WEBHOOK_PORT explicitly,
+# which overrides the injected value. The TRIGGERS webhook does not, so it
+# crash-looped on every cluster. Turning service links off removes the whole
+# class rather than patching one variable at a time -- Tekton addresses its
+# peers by DNS, never through link variables.
+python3 - ${INSTALL_YAML} <<'PYEOF'
+import sys, yaml
+
+path = sys.argv[1]
+docs = list(yaml.safe_load_all(open(path)))
+patched = []
+for d in docs:
+    if not d or d.get("kind") not in ("Deployment", "StatefulSet"):
+        continue
+    spec = d["spec"]["template"]["spec"]
+    if spec.get("enableServiceLinks") is False:
+        continue
+    spec["enableServiceLinks"] = False
+    patched.append(d["metadata"]["name"])
+
+with open(path, "w") as fh:
+    yaml.safe_dump_all([d for d in docs if d], fh, default_flow_style=False, sort_keys=False)
+print(f"enableServiceLinks=false on {len(patched)} workload(s): {', '.join(patched)}")
+PYEOF

@@ -3,6 +3,7 @@ package adharplatform
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -312,7 +313,16 @@ func (r *AdharPlatformReconciler) applyCloudProviders(ctx context.Context, fsys 
 	pc := "configuration/providers/cloud/" + family + "-providerconfig.yaml"
 	data, err := fs.ReadFile(fsys, pc)
 	if err != nil {
-		return nil // no ProviderConfig shipped for this cloud
+		// Only a MISSING file means "no ProviderConfig shipped for this cloud".
+		// Treating every read error that way hid the exact failure this package
+		// has been bitten by before: a cluster that reports ControlPlaneApplied
+		// while holding zero ProviderConfigs, so nothing can ever be
+		// provisioned, and with no message anywhere to say why.
+		if errors.Is(err, fs.ErrNotExist) {
+			logger.Info("No ProviderConfig shipped for cloud", "family", family, "path", pc)
+			return nil
+		}
+		return fmt.Errorf("reading %s: %w", pc, err)
 	}
 	if err := r.applyManifestStrict(ctx, data, resource, "ProviderConfig:"+family); err != nil {
 		return fmt.Errorf("applying %s ProviderConfig (provider CRDs may not be registered yet): %w", family, err)

@@ -29,9 +29,11 @@ package autoscaler
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,10 +57,26 @@ import (
 // nothing and keeps the cloud API calls negligible.
 const tickInterval = 60 * time.Second
 
+// minEvaluationInterval is the floor between two real evaluations.
+//
+// The Pod and Node watches deliberately collapse onto one reconcile key, but
+// the workqueue only de-duplicates an item while it is QUEUED: once a reconcile
+// starts, the next event enqueues it again immediately. During bootstrap, when
+// hundreds of pods are churning, that produced dozens of evaluations per second
+// -- each one listing every pod and node in the cluster. The decisions were all
+// "None" (the cooldowns in Decide saw to that), so the work was pure load on a
+// single-node control plane, which is the component this platform strains most.
+//
+// A pending pod still gets a prompt answer: 15s is nothing next to the minutes
+// a droplet takes to join.
+const minEvaluationInterval = 15 * time.Second
+
 // scaler performs the cloud-side half of a decision. It exists so the policy
 // and bookkeeping can be tested without a cloud account.
 type scaler interface {
-	ScaleUp(ctx context.Context, spec *clusterSpec, nodeGroup string, currentWorkers int32) error
+	// ScaleUp grows the group to `desired` workers (an absolute count, not a
+	// delta) so a burst and a single step use the same call.
+	ScaleUp(ctx context.Context, spec *clusterSpec, nodeGroup string, desired int32) error
 	ScaleDown(ctx context.Context, spec *clusterSpec, nodeName string) error
 }
 
@@ -81,6 +99,25 @@ type Reconciler struct {
 	Scaler scaler
 	// Now is injectable so cooldown behaviour is testable.
 	Now func() time.Time
+
+	// lastEvaluated debounces the watch-driven reconciles; see
+	// minEvaluationInterval. Guarded by mu because reconciles may overlap.
+	mu            sync.Mutex
+	lastEvaluated time.Time
+}
+
+// dueIn reports how long remains before another evaluation is allowed, and
+// records the evaluation when it is allowed to proceed now.
+func (r *Reconciler) dueIn(now time.Time) time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.lastEvaluated.IsZero() {
+		if wait := minEvaluationInterval - now.Sub(r.lastEvaluated); wait > 0 {
+			return wait
+		}
+	}
+	r.lastEvaluated = now
+	return 0
 }
 
 // +kubebuilder:rbac:groups=platform.adhar.io,resources=adharplatforms,verbs=get;list;watch
@@ -89,6 +126,7 @@ type Reconciler struct {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
+// +kubebuilder:rbac:groups=storage.k8s.io,resources=csinodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -155,6 +193,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 	logger := log.FromContext(ctx)
 	r.applyDefaults()
 
+	// Collapse event storms. Returning the remaining wait keeps the loop alive
+	// without doing (or logging) any work.
+	if wait := r.dueIn(r.Now()); wait > 0 {
+		return ctrl.Result{RequeueAfter: wait}, nil
+	}
+
 	platform, err := r.findPlatform(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -197,7 +241,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		actionErr = r.Scaler.ScaleUp(ctx, snapshot.cluster, spec.NodeGroup, decision.Workers)
+		actionErr = r.Scaler.ScaleUp(ctx, snapshot.cluster, spec.NodeGroup, decision.Workers+decision.ScaleUpBy)
 	case ActionScaleDown:
 		r.event(platform, corev1.EventTypeNormal, "ScalingDown", decision.Reason)
 		if err := r.patchStatus(ctx, platform, func(st *v1alpha1.AutoscalingStatus) {
@@ -271,15 +315,48 @@ func (r *Reconciler) snapshot(ctx context.Context, platform *v1alpha1.AdharPlatf
 
 	return &snapshotWithCluster{
 		Snapshot: Snapshot{
-			Spec:      spec,
-			Status:    status,
-			Nodes:     nodes.Items,
-			Pods:      pods.Items,
-			RWOClaims: rwo,
-			Now:       r.Now(),
+			Spec:           spec,
+			Status:         status,
+			Nodes:          nodes.Items,
+			Pods:           pods.Items,
+			RWOClaims:      rwo,
+			VolumesPerNode: r.volumesPerNode(ctx),
+			Now:            r.Now(),
 		},
 		cluster: cluster,
 	}, nil
+}
+
+// volumesPerNode reports how many block volumes one worker can host, read from
+// what the CSI driver itself advertises (CSINode allocatable count) rather than
+// hardcoded per cloud. On DigitalOcean this is 7, and it is the first capacity
+// wall the full catalogue hits.
+//
+// Returns 0 when nothing advertises a limit — no CSI driver, or a driver with
+// no attach limit — and the decision then scales one worker at a time.
+func (r *Reconciler) volumesPerNode(ctx context.Context) int {
+	list := &storagev1.CSINodeList{}
+	if err := r.List(ctx, list); err != nil {
+		// Not fatal: a missing limit only costs burst sizing, and saying so
+		// once is better than silently scaling one node at a time forever.
+		log.FromContext(ctx).V(1).Info("listing CSINodes for the volume attach limit", "error", err)
+		return 0
+	}
+	// The smallest advertised limit is the safe one: a burst sized on a
+	// roomier driver would over-provision for the node that actually blocks.
+	best := 0
+	for i := range list.Items {
+		for _, d := range list.Items[i].Spec.Drivers {
+			if d.Allocatable == nil || d.Allocatable.Count == nil {
+				continue
+			}
+			c := int(*d.Allocatable.Count)
+			if c > 0 && (best == 0 || c < best) {
+				best = c
+			}
+		}
+	}
+	return best
 }
 
 // readWriteOnceClaims indexes the PVCs whose access mode ties them to one
@@ -343,14 +420,14 @@ func (r *Reconciler) event(platform *v1alpha1.AdharPlatform, eventType, reason, 
 // cluster was created with.
 type providerScaler struct{ r *Reconciler }
 
-func (p *providerScaler) ScaleUp(ctx context.Context, spec *clusterSpec, nodeGroup string, current int32) error {
+func (p *providerScaler) ScaleUp(ctx context.Context, spec *clusterSpec, nodeGroup string, desired int32) error {
 	if spec == nil {
 		return errNoClusterSpec
 	}
 	if nodeGroup == "" {
 		nodeGroup = spec.NodeGroup
 	}
-	return p.r.scaleUp(ctx, spec, nodeGroup, current)
+	return p.r.scaleUp(ctx, spec, nodeGroup, desired)
 }
 
 func (p *providerScaler) ScaleDown(ctx context.Context, spec *clusterSpec, nodeName string) error {

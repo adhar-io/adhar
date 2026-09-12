@@ -27,7 +27,6 @@ data:
     \ responses. This mostly impacts discovery jobs since they have the largest responses.\n\
     limit.blobSize.error:\n  - value: 15728640 # 15MB\n    constraints: {}\nlimit.blobSize.warn:\n\
     \  - value: 10485760 # 10MB\n    constraints: {}\n"
-
 ---
 apiVersion: v1
 kind: Service
@@ -49,7 +48,6 @@ spec:
   selector:
     app.kubernetes.io/name: connector-builder-server
     app.kubernetes.io/instance: airbyte
-
 ---
 apiVersion: v1
 kind: Service
@@ -71,7 +69,6 @@ spec:
   selector:
     app.kubernetes.io/name: server
     app.kubernetes.io/instance: airbyte
-
 ---
 apiVersion: v1
 kind: Service
@@ -92,7 +89,6 @@ spec:
   selector:
     app.kubernetes.io/name: temporal
     app.kubernetes.io/instance: airbyte
-
 ---
 apiVersion: v1
 kind: Service
@@ -114,7 +110,6 @@ spec:
   selector:
     app.kubernetes.io/name: workload-api-server
     app.kubernetes.io/instance: airbyte
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -251,7 +246,6 @@ spec:
       securityContext:
         fsGroup: 1000
       volumes: null
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -440,7 +434,6 @@ spec:
           requests: {}
       securityContext:
         fsGroup: 1000
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -773,7 +766,6 @@ spec:
       securityContext:
         fsGroup: 1000
       volumes: null
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -861,7 +853,6 @@ spec:
           items:
           - key: development.yaml
             path: development.yaml
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1218,7 +1209,6 @@ spec:
       securityContext:
         fsGroup: 1000
       volumes: null
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1463,7 +1453,6 @@ spec:
       securityContext:
         fsGroup: 1000
       volumes: null
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1883,7 +1872,6 @@ spec:
       securityContext:
         fsGroup: 1000
       volumes: null
-
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -1898,7 +1886,6 @@ metadata:
   annotations:
     helm.sh/hook: pre-install
     helm.sh/hook-weight: '-10'
-
 ---
 apiVersion: v1
 kind: Secret
@@ -1917,7 +1904,6 @@ type: Opaque
 stringData:
   DATABASE_USER: airbyte
   DATABASE_PASSWORD: airbyte
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -2014,7 +2000,6 @@ data:
   ENTERPRISE_SOURCE_STUBS_URL: https://connectors.airbyte.com/files/resources/connector_stubs/v1/connector_stubs.json
   CONTROL_PLANE_TOKEN_ENDPOINT: http://airbyte-airbyte-server-svc:8001/api/v1/dataplanes/token
   MANIFEST_SERVER_API_HOST: http://airbyte-airbyte-unused-svc:80
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -2049,7 +2034,6 @@ rules:
   - update
   - patch
   - delete
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -2071,7 +2055,6 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: airbyte-admin
-
 ---
 apiVersion: v1
 kind: Service
@@ -2094,7 +2077,6 @@ spec:
   selector:
     app.kubernetes.io/name: airbyte-db
     app.kubernetes.io/instance: airbyte
-
 ---
 apiVersion: v1
 kind: Pod
@@ -2109,6 +2091,7 @@ metadata:
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: '0'
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
 spec:
   serviceAccountName: airbyte-admin
   restartPolicy: Never
@@ -2257,7 +2240,6 @@ spec:
         type: RuntimeDefault
   securityContext:
     fsGroup: 1000
-
 ---
 apiVersion: v1
 kind: Pod
@@ -2271,6 +2253,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     helm.sh/hook: test
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
 spec:
   containers:
   - name: webapp-test
@@ -2290,7 +2273,6 @@ spec:
         memory: 128Mi
         cpu: 200m
   restartPolicy: Never
-
 ---
 apiVersion: apps/v1
 kind: StatefulSet

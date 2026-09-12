@@ -248,14 +248,17 @@ func (r *Reconciler) ensureClusterSSHKey(ctx context.Context, clusterName string
 // scaleUp adds one worker through the provider, using the same node-group
 // scaling path as `adhar cluster scale` (which prepares the machine and joins
 // it with kubeadm, including the standard node-prep script).
-func (r *Reconciler) scaleUp(ctx context.Context, spec *clusterSpec, nodeGroup string, current int32) error {
+// scaleUp grows the worker group to an absolute desired count. Taking the
+// target rather than a delta lets one call serve both a single step and a
+// multi-node burst, and keeps the arithmetic in the decision where it is tested.
+func (r *Reconciler) scaleUp(ctx context.Context, spec *clusterSpec, nodeGroup string, desired int32) error {
 	prov, err := r.newProvider(ctx, spec)
 	if err != nil {
 		return err
 	}
 	clusterID := resolveClusterID(ctx, prov, spec.ClusterName)
-	log.FromContext(ctx).Info("scaling up worker node group", "cluster", clusterID, "nodeGroup", nodeGroup, "desired", current+1)
-	return prov.ScaleNodeGroup(ctx, clusterID, nodeGroup, int(current)+1)
+	log.FromContext(ctx).Info("scaling up worker node group", "cluster", clusterID, "nodeGroup", nodeGroup, "desired", desired)
+	return prov.ScaleNodeGroup(ctx, clusterID, nodeGroup, int(desired))
 }
 
 // scaleDown drains the chosen worker and then removes the machine behind it.
