@@ -55,6 +55,12 @@ spec:
               value: adhar-system
             - name: TEMPLATE_NAME
               value: kubernetes
+            # Bumped whenever the IDE apps below change. The template's
+            # description carries this marker, which is how the Job decides
+            # between "leave the operator's template alone" and "push a new
+            # version because the platform now ships more IDEs".
+            - name: IDE_REVISION
+              value: adhar-ide-v1
           command: [/bin/sh, -c]
           args:
             - |
@@ -79,22 +85,101 @@ spec:
               fi
               export CODER_SESSION_TOKEN
 
-              # 3. Idempotency: leave an existing template alone.
-              if /opt/coder templates list -o json 2>/dev/null | grep -q "\"name\": *\"${TEMPLATE_NAME}\""; then
-                echo "template ${TEMPLATE_NAME} already exists; nothing to do"
-                exit 0
+              # 3. Idempotency, but revision-aware.
+              #
+              #    The old guard was "template exists -> exit 0", which meant a
+              #    cluster seeded before the IDE apps existed could never gain
+              #    them: the starter ships code-server ONLY, so opening IntelliJ
+              #    answered `404 - Application Not Found`. The description
+              #    carries ${IDE_REVISION}; when it already matches there is
+              #    genuinely nothing to do, and an operator editing the template
+              #    from the UI still wins because pushing a new version never
+              #    touches their running workspaces (those stay on the version
+              #    they were built from until someone updates them).
+              TPL_JSON=$(/opt/coder templates list -o json 2>/dev/null || echo '[]')
+              if echo "${TPL_JSON}" | grep -q "\"name\": *\"${TEMPLATE_NAME}\""; then
+                if echo "${TPL_JSON}" | grep -q "${IDE_REVISION}"; then
+                  echo "template ${TEMPLATE_NAME} is already at ${IDE_REVISION}; nothing to do"
+                  exit 0
+                fi
+                echo "template ${TEMPLATE_NAME} predates ${IDE_REVISION}; pushing a new version with the IDE apps"
               fi
 
-              # 4. Materialise the embedded starter and push it.
+              # 4. Materialise the embedded starter.
               rm -rf /tmp/tpl && mkdir -p /tmp/tpl
               /opt/coder templates init --id kubernetes /tmp/tpl/${TEMPLATE_NAME}
+
+              # 5. Add the desktop IDEs.
+              #
+              #    The starter defines exactly one app — browser code-server —
+              #    so IntelliJ had nothing to resolve to. These two are
+              #    `external`, i.e. deep links handed to the local machine
+              #    rather than proxied through Coder, so they cannot 404 on the
+              #    workspace proxy and need no extra ports on the agent. They
+              #    do require the matching client locally: JetBrains Gateway (or
+              #    Toolbox) for IntelliJ, and the Coder extension for VS Code.
+              #
+              #    `share = "owner"` matches the starter's code-server: a
+              #    workspace's IDEs are reachable by whoever owns it.
+              cat > /tmp/tpl/${TEMPLATE_NAME}/adhar-ide-apps.tf <<'TF'
+              # ─── Added by the Adhar platform: desktop IDE entry points ───
+
+              resource "coder_app" "jetbrains_gateway" {
+                agent_id     = coder_agent.main.id
+                slug         = "jetbrains-gateway"
+                display_name = "IntelliJ IDEA"
+                icon         = "/icon/intellij.svg"
+                external     = true
+                order        = 1
+                share        = "owner"
+
+                # Opens JetBrains Gateway and points it at this workspace. IU =
+                # IntelliJ IDEA Ultimate; Gateway offers to download the backend
+                # on first connect.
+                url = join("", [
+                  "jetbrains-gateway://connect#type=coder",
+                  "&workspace=", data.coder_workspace.me.name,
+                  "&agent=main",
+                  "&owner=", data.coder_workspace_owner.me.name,
+                  "&url=", data.coder_workspace.me.access_url,
+                  "&token=$SESSION_TOKEN",
+                  "&ide_product_code=IU",
+                ])
+              }
+
+              resource "coder_app" "vscode_desktop" {
+                agent_id     = coder_agent.main.id
+                slug         = "vscode-desktop"
+                display_name = "VS Code Desktop"
+                icon         = "/icon/code.svg"
+                external     = true
+                order        = 2
+                share        = "owner"
+
+                url = join("", [
+                  "vscode://coder.coder-remote/open?owner=", data.coder_workspace_owner.me.name,
+                  "&workspace=", data.coder_workspace.me.name,
+                  "&agent=main",
+                  "&url=", data.coder_workspace.me.access_url,
+                  "&token=$SESSION_TOKEN",
+                ])
+              }
+              TF
+              # The heredoc above is indented for readability; strip it so
+              # Terraform sees column-0 HCL.
+              sed -i 's/^              //' /tmp/tpl/${TEMPLATE_NAME}/adhar-ide-apps.tf
+
+              # 6. Push, then stamp the revision so step 3 can recognise it.
               /opt/coder templates push "${TEMPLATE_NAME}" \
                 --directory "/tmp/tpl/${TEMPLATE_NAME}" \
                 --variable "namespace=${WORKSPACE_NAMESPACE}" \
                 --variable "use_kubeconfig=false" \
-                --message "Seeded by the Adhar platform" \
+                --message "Adhar platform ${IDE_REVISION}: code-server + IntelliJ IDEA + VS Code Desktop" \
                 --yes
-              echo "template ${TEMPLATE_NAME} pushed"
+              /opt/coder templates edit "${TEMPLATE_NAME}" \
+                --description "Adhar cloud development environment (${IDE_REVISION})" \
+                --yes || echo "could not stamp the description; the next sync will re-push"
+              echo "template ${TEMPLATE_NAME} pushed at ${IDE_REVISION}"
           resources:
             requests: {cpu: 50m, memory: 128Mi}
             limits: {memory: 512Mi}
