@@ -3,8 +3,8 @@
 A production-quality, self-contained login theme with Adhar branding for
 **Keycloak 26.x** (tested target: 26.7.1). It restyles the sign-in, register,
 reset-password, OTP, and update-profile pages with the Adhar design system — a
-centered card on a branded ink background, the gradient hexagon logo, refined
-inputs, and a gradient primary button.
+centered card on the Adhar Console page surface, the gradient hexagon logo,
+refined inputs, and the console's solid brand primary button.
 
 > All files are **text** (SVG for images — no binary PNG) so the whole theme can
 > be delivered as a Kubernetes `ConfigMap` and runs fully **offline / air-gapped**
@@ -16,7 +16,7 @@ inputs, and a gradient primary button.
 theme/
 └── adhar/
     └── login/
-        ├── theme.properties                 # parent=keycloak, layers our CSS on top
+        ├── theme.properties                 # parent=keycloak.v2, layers our CSS on top
         └── resources/
             ├── css/
             │   └── adhar.css                 # the entire restyle (the heart of the theme)
@@ -29,42 +29,53 @@ Mounted into the pod it becomes `/opt/keycloak/themes/adhar/…`.
 
 ## What it styles
 
-- **Background** — Adhar ink (`#0F172A`) with soft blue/indigo/violet radial
-  glows; a 4px brand-gradient hairline across the top of the page.
+- **Background** — the Adhar Console page surface: `--color-surface-app` plus
+  the console's two radial texture gradients, so the login page and the console
+  are visibly the same product. Overrides the parent theme's low-poly artwork,
+  which is set on `.login-pf body` (the class is on `<html>`, not `<body>`).
 - **Header** — the Adhar logo (`adhar-logo.svg`) + "Open Cloud-Native Foundation"
   tagline, injected **via CSS** (see below) so no template is overridden.
-- **Card** (`.card-pf`) — white surface, 16px radius, soft layered shadow.
-- **Inputs** (`.pf-v5-c-form-control` / native `input`) — 12px radius, brand-blue
-  focus ring, on-brand autofill, invalid state.
-- **Primary button** (`#kc-login`, `.pf-m-primary`) — the Blue→Indigo→Violet
-  gradient with hover/active/focus states.
+- **Card** (`.pf-v5-c-login__main`) — `surface-raised`, 16px radius, `edge-default`
+  border, soft layered shadow. (NOT `.card-pf` — that is Keycloak's old v1 theme
+  and does not exist in Keycloak 26's PatternFly v5 markup.)
+- **Inputs** (`.pf-v5-c-form-control`) — 8px radius, console focus ring, on-brand
+  autofill, invalid state. Keycloak wraps each input in a `<span>` that carries
+  the *same* class, so the **wrapper** draws the field and the inner `input` is
+  flattened to transparent; styling both is what produced the "double box" bug.
+- **Primary button** (`.pf-m-primary`) — the console's solid `brand-600` with
+  hover/active/focus states (the console uses a solid fill, not a gradient).
 - **Secondary / social-provider buttons**, links, "remember me" checkbox,
   form-options row, info/registration area, alerts (danger/warning/success/info),
   per-field validation, locale switcher.
-- **Footer** — "Adhar • Built with ❤️ for developers!" injected via CSS.
+- **Footer** — the registration / "back to sign-in" band, with a single divider.
+  (An earlier revision documented a CSS-injected "Built with ❤️" slogan. It was
+  attached to `.login-pf-page::after`, an element Keycloak 26 does not render,
+  so it never appeared on screen; it has been dropped rather than reinstated,
+  since the console carries no equivalent strapline.)
 - **Responsive** (≤480px) and a **dark-mode** variant via `prefers-color-scheme`.
 
 ## Design tokens
 
 | Token | Value | Use |
 |-------|-------|-----|
-| Brand gradient | `linear-gradient(135deg, #3B82F6 0%, #6366F1 50%, #8B5CF6 100%)` | Signature element: button, top hairline, logo |
-| Brand Blue | `#3B82F6` | Links, focus ring, input focus border |
-| Brand Indigo | `#6366F1` | Gradient midpoint, link hover |
-| Brand Violet | `#8B5CF6` | Gradient end |
-| Ink | `#0F172A` | Page background base |
-| Text strong / body / muted | `#0F172A` / `#334155` / `#64748B` | Titles / labels / captions |
-| Text on dark | `#E2E8F0` / `#94A3B8` | Header + footer text on the ink background |
-| Radii | card 16px · input 12px · button 12px | Rounded, modern feel |
+| Brand 600 / 700 / 800 | `oklch(0.51 0.19 262)` / `oklch(0.44 0.18 262)` / `oklch(0.36 0.15 262)` | Primary button, links, hover/active |
+| Surface app / raised / sunken | `oklch(0.985 0.003 260)` / `oklch(1 0 0)` / `oklch(0.975 0.005 260)` | Page / card / inset |
+| Content / muted / subtle | `oklch(0.21 0.02 260)` / `oklch(0.48 0.015 260)` / `oklch(0.64 0.01 260)` | Titles+labels / captions / placeholders |
+| Edge subtle / default / strong | `oklch(0.95 0.005 260)` / `oklch(0.91 0.008 260)` / `oklch(0.84 0.012 260)` | Dividers / borders / hover+focus borders |
+| Radii | card 16px · input 8px · button 12px | Matches the console's `--radius-*` scale |
 | Font | `'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif` | No web-font fetch; Inter if installed, else system |
 
-All tokens live as CSS custom properties at the top of `adhar.css` and are
-overridden inside the `prefers-color-scheme: dark` block.
+Every value is copied verbatim from `apps/console/app/styles.css` in the
+adhar-console repo, so the two surfaces cannot drift apart by accident. Tokens
+live as `--ad-*` custom properties at the top of `adhar.css` and are overridden
+inside the `prefers-color-scheme: dark` block, mirroring the console's `.dark`
+rules. The console toggles dark mode with a class it cannot share with Keycloak,
+so this theme follows the OS preference instead.
 
 ## How the logo/branding is injected — CSS-only, no FTL override
 
 **We deliberately ship NO `login.ftl` / `template.ftl` override.** The theme sets
-`parent=keycloak`, so it inherits every base template and all form logic
+`parent=keycloak.v2`, so it inherits every base template and all form logic
 (username/password, social providers, errors, "remember me", registration,
 reset-credentials) unchanged — there is zero risk of breaking form rendering.
 
@@ -77,7 +88,7 @@ approach across Keycloak point releases.
 ### `theme.properties`
 
 ```properties
-parent=keycloak
+parent=keycloak.v2
 import=common/keycloak
 styles=css/styles.css css/adhar.css
 ```
@@ -209,7 +220,7 @@ Workflow:
 ## Keycloak 26 compatibility notes / caveats
 
 - The base login theme in Keycloak 24–26 is **keycloak.v2** (PatternFly v5). We
-  inherit it via `parent=keycloak` and its `styles=css/styles.css` bundle. If a
+  inherit it via `parent=keycloak.v2` and its `styles=css/styles.css` bundle. If a
   future patch renames that bundle, update the first entry in `theme.properties`.
 - The current repo `install.yaml` pins **Keycloak 22.0.3**; that older theme uses
   PatternFly v4 (`.pf-c-*`) — which is why the CSS targets **both** `.pf-c-*` and

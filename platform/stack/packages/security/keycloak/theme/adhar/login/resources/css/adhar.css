@@ -1,0 +1,846 @@
+/* =============================================================================
+   Adhar login theme — layered on keycloak.v2 (PatternFly v5), Keycloak 26.x
+
+   This stylesheet is loaded LAST (see theme.properties) so it wins the cascade
+   over patternfly.min.css and the parent theme's styles.css.
+
+   Two things to know before editing:
+
+   1. The markup is PatternFly **v5** — every class is `pf-v5-c-*`. An earlier
+      revision of this file also carried `.pf-c-*` (v4) and `.card-pf` /
+      `.login-pf-page` (PatternFly 3 / Keycloak "v1" theme) selectors. None of
+      those elements exist in Keycloak 26's login pages, so roughly half the
+      rules were dead — which is why the card and page background never picked
+      up any Adhar styling and the pages still looked like stock Keycloak.
+
+   2. Keycloak renders text inputs as a **span wrapper around the input**:
+
+          <span class="pf-v5-c-form-control">
+            <input class="pf-v5-c-form-control" …>   <!-- text inputs -->
+            <input …>                                 <!-- password: no class -->
+          </span>
+
+      Styling `.pf-v5-c-form-control` alone therefore painted a bordered box on
+      the wrapper AND a second one on the input inside it — the "double box"
+      field bug. The rule below is: the **wrapper** draws the field, and any
+      `input` inside it is flattened to transparent. A bare input that is not
+      wrapped still gets the box, so both shapes render identically.
+
+   Colours mirror `apps/console/app/styles.css` exactly (same OKLCH values) so
+   the login page and the console are visibly the same product. The console's
+   own dark mode is a class toggle it cannot share with Keycloak, so this file
+   follows `prefers-color-scheme` instead.
+   ============================================================================ */
+
+/* ----------------------------------------------------------------------------
+   Tokens — mirrored from the console's @theme block
+   ---------------------------------------------------------------------------- */
+:root {
+  /* Brand ramp (identical to the console's --color-brand-*) */
+  --ad-brand-50:  oklch(0.97 0.015 265);
+  --ad-brand-200: oklch(0.89 0.055 264);
+  --ad-brand-300: oklch(0.81 0.09 263);
+  --ad-brand-400: oklch(0.71 0.13 262);
+  --ad-brand-500: oklch(0.58 0.17 262);
+  --ad-brand-600: oklch(0.51 0.19 262);
+  --ad-brand-700: oklch(0.44 0.18 262);
+  --ad-brand-800: oklch(0.36 0.15 262);
+
+  /* Surfaces / content / edges */
+  --ad-surface-app:    oklch(0.985 0.003 260);
+  --ad-surface-sunken: oklch(0.975 0.005 260);
+  --ad-surface-raised: oklch(1 0 0);
+  --ad-content:        oklch(0.21 0.02 260);
+  --ad-content-muted:  oklch(0.48 0.015 260);
+  --ad-content-subtle: oklch(0.64 0.01 260);
+  --ad-edge-subtle:    oklch(0.95 0.005 260);
+  --ad-edge-default:   oklch(0.91 0.008 260);
+  --ad-edge-strong:    oklch(0.84 0.012 260);
+
+  /* Page texture — the console's body::before, verbatim */
+  --ad-texture:
+    radial-gradient(ellipse at top left, oklch(0.97 0.02 265 / 0.5), transparent 55%),
+    radial-gradient(ellipse at bottom right, oklch(0.96 0.025 180 / 0.4), transparent 50%);
+
+  /* Feedback tones */
+  --ad-danger:  oklch(0.55 0.21 20);
+  --ad-danger-bg: oklch(0.97 0.02 20);
+  --ad-warn:    oklch(0.55 0.14 75);
+  --ad-warn-bg: oklch(0.97 0.03 85);
+  --ad-success: oklch(0.52 0.13 155);
+  --ad-success-bg: oklch(0.96 0.03 155);
+  --ad-info:    var(--ad-brand-600);
+  --ad-info-bg: var(--ad-brand-50);
+
+  /* Radii — the console's --radius-* scale */
+  --ad-radius-md: 8px;
+  --ad-radius-lg: 12px;
+  --ad-radius-xl: 16px;
+
+  --ad-font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* Focus ring — matches the console's default input variant
+     (focus-visible:border-slate-400 + ring-slate-900/10). */
+  --ad-ring: 0 0 0 3px oklch(0.21 0.02 260 / 0.10);
+  --ad-ring-brand: 0 0 0 3px oklch(0.58 0.17 262 / 0.35);
+
+  --ad-shadow-sm: 0 1px 2px oklch(0.21 0.02 260 / 0.06);
+  --ad-shadow-card:
+    0 1px 2px oklch(0.21 0.02 260 / 0.05),
+    0 8px 24px oklch(0.21 0.02 260 / 0.07);
+}
+
+/* Dark mode — mirrors the console's `.dark` block. Surfaces, content and edges
+   flip; the brand ramp is deliberately preserved, exactly as the console does. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ad-surface-app:    oklch(0.16 0.005 260);
+    --ad-surface-sunken: oklch(0.13 0.005 260);
+    --ad-surface-raised: oklch(0.21 0.006 260);
+    --ad-content:        oklch(0.96 0.003 260);
+    --ad-content-muted:  oklch(0.78 0.005 260);
+    --ad-content-subtle: oklch(0.6 0.008 260);
+    --ad-edge-subtle:    oklch(0.22 0.005 260);
+    --ad-edge-default:   oklch(0.3 0.008 260);
+    --ad-edge-strong:    oklch(0.42 0.012 260);
+
+    --ad-texture:
+      radial-gradient(ellipse at top left, oklch(0.3 0.05 265 / 0.25), transparent 55%),
+      radial-gradient(ellipse at bottom right, oklch(0.28 0.04 180 / 0.18), transparent 50%);
+
+    --ad-danger-bg:  oklch(0.55 0.21 20 / 0.12);
+    --ad-warn-bg:    oklch(0.55 0.14 75 / 0.12);
+    --ad-success-bg: oklch(0.52 0.13 155 / 0.12);
+    --ad-info-bg:    oklch(0.58 0.17 262 / 0.12);
+
+    --ad-ring: 0 0 0 3px oklch(0.96 0.003 260 / 0.12);
+    --ad-shadow-card:
+      0 1px 2px oklch(0 0 0 / 0.4),
+      0 8px 24px oklch(0 0 0 / 0.35);
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Page background
+   ----------------------------------------------------------------------------
+   The parent theme sets a fixed low-poly artwork with
+
+       .login-pf body { background: var(--keycloak-bg-logo-url) …; }
+
+   Note the selector: `.login-pf` is on <html>, not <body>. The previous rule
+   here was `body.login-pf`, which matches nothing — so the Keycloak artwork
+   was never actually replaced. Both real hooks are covered below.
+   ---------------------------------------------------------------------------- */
+html.login-pf,
+html {
+  height: 100%;
+}
+
+.login-pf body,
+body#keycloak-bg,
+body {
+  min-height: 100%;
+  margin: 0;
+  font-family: var(--ad-font);
+  color: var(--ad-content);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* Kill the inherited artwork outright, then paint the console's surface. */
+  background-image: none;
+  background-color: var(--ad-surface-app);
+}
+
+/* The console's page texture, as its own fixed layer. */
+.login-pf body::before,
+body#keycloak-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: var(--ad-texture);
+}
+
+/* ----------------------------------------------------------------------------
+   Layout — centre the login stack over the texture
+   ---------------------------------------------------------------------------- */
+.pf-v5-c-login {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 40px 16px;
+  background: transparent;
+}
+
+.pf-v5-c-login__container {
+  width: 100%;
+  max-width: 440px;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0 auto;
+  gap: 0;
+}
+
+/* ----------------------------------------------------------------------------
+   Header — Adhar logo + tagline, painted over the realm-name text
+   ---------------------------------------------------------------------------- */
+.pf-v5-c-login__header {
+  margin-bottom: 22px;
+}
+
+#kc-header {
+  position: relative;
+  width: 100%;
+  margin: 0 auto 18px;
+  padding: 0;
+  text-align: center;
+  color: transparent;
+}
+
+#kc-header-wrapper {
+  display: block;
+  width: 260px;
+  height: 68px;
+  max-width: 78vw;
+  margin: 0 auto;
+  padding: 0;
+  /* Hide the realm display-name Keycloak renders here. */
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  text-indent: -9999px;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  background: url('../img/adhar-logo.svg') center center / contain no-repeat;
+}
+
+#kc-header::after {
+  content: 'Open Cloud-Native Foundation';
+  display: block;
+  margin-top: 12px;
+  font-family: var(--ad-font);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ad-content-subtle);
+}
+
+/* ----------------------------------------------------------------------------
+   Card
+   ---------------------------------------------------------------------------- */
+.pf-v5-c-login__main {
+  width: 100%;
+  background: var(--ad-surface-raised);
+  border: 1px solid var(--ad-edge-default);
+  border-radius: var(--ad-radius-xl);
+  box-shadow: var(--ad-shadow-card);
+  overflow: hidden;
+}
+
+/* The parent theme puts a 4px blue slab on top of the card. Replace it with a
+   plain divider — the console has no such device. */
+.pf-v5-c-login__main-header {
+  padding: 26px 28px 0;
+  border-top: 0;
+  background: transparent;
+}
+
+.pf-v5-c-login__main-body {
+  padding: 18px 28px 26px;
+}
+
+.pf-v5-c-login__main-footer {
+  padding: 0 28px 22px;
+}
+
+/* login.ftl emits a second, always-empty `__main-footer` after the real one
+   (and register.ftl does the same). With padding applied it left a band of
+   dead space at the bottom of every card. `:empty` is unreliable here because
+   the element contains whitespace, so match "has no element children". */
+.pf-v5-c-login__main-footer:not(:has(*)),
+.pf-v5-c-login__main-footer-band:not(:has(*)) {
+  display: none;
+  padding: 0;
+  border: 0;
+}
+
+/* Title — matches the console's page-header h1 */
+.pf-v5-c-login__main-header .pf-v5-c-title,
+#kc-page-title {
+  margin: 0;
+  font-family: var(--ad-font);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--ad-content);
+  text-align: left;
+}
+
+.pf-v5-c-login__main-header-desc,
+#kc-username,
+.kc-login-tooltip {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ad-content-muted);
+}
+
+/* ----------------------------------------------------------------------------
+   Form groups + labels
+   ---------------------------------------------------------------------------- */
+.pf-v5-c-form {
+  --pf-v5-c-form--GridGap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pf-v5-c-form__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.pf-v5-c-form__group-label {
+  padding-bottom: 0;
+}
+
+/* The label and its required marker are separate spans. Without an explicit
+   inline box the asterisk wrapped onto its own line under the label text. */
+.pf-v5-c-form__label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0;
+  font-family: var(--ad-font);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--ad-content);
+}
+
+.pf-v5-c-form__label-text {
+  display: inline;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+}
+
+.pf-v5-c-form__label-required {
+  display: inline;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ad-danger);
+}
+
+/* "* Required fields" hint above the register form */
+#kc-registration-required-fields,
+.pf-v5-c-form__helper-text:not(.pf-m-error) {
+  font-size: 12px;
+  color: var(--ad-content-muted);
+}
+
+/* ----------------------------------------------------------------------------
+   Inputs
+   ----------------------------------------------------------------------------
+   The wrapper span draws the field; any input inside it is flattened. A bare
+   input (no wrapper) is matched by the same selector list and keeps the box.
+   ---------------------------------------------------------------------------- */
+span.pf-v5-c-form-control,
+input.pf-v5-c-form-control,
+select.pf-v5-c-form-control,
+textarea.pf-v5-c-form-control,
+.pf-v5-c-form-control {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  font-family: var(--ad-font);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ad-content);
+  background: var(--ad-surface-raised);
+  /* PF paints a 1px "underline" via a background image — remove it. */
+  background-image: none;
+  border: 1px solid var(--ad-edge-default);
+  border-radius: var(--ad-radius-md);
+  box-shadow: var(--ad-shadow-sm);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* Flatten the inner input — this is the fix for the double-box fields. The
+   password input carries no class of its own, so match on the element too. */
+.pf-v5-c-form-control > input,
+.pf-v5-c-form-control > select,
+.pf-v5-c-form-control > textarea {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  background-image: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.pf-v5-c-form-control::after,
+.pf-v5-c-form-control::before {
+  display: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ad-content-subtle);
+  opacity: 1;
+}
+
+span.pf-v5-c-form-control:hover,
+input.pf-v5-c-form-control:hover {
+  border-color: var(--ad-edge-strong);
+}
+
+/* Focus lives on the wrapper, because the real input inside is transparent. */
+span.pf-v5-c-form-control:focus-within,
+input.pf-v5-c-form-control:focus,
+textarea.pf-v5-c-form-control:focus,
+select.pf-v5-c-form-control:focus {
+  border-color: var(--ad-edge-strong);
+  box-shadow: var(--ad-ring);
+}
+
+/* Autofill — keep the field on-brand rather than browser yellow. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--ad-content);
+  box-shadow: 0 0 0 1000px var(--ad-surface-raised) inset;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* ----------------------------------------------------------------------------
+   Input group — password field with the show/hide toggle
+   ----------------------------------------------------------------------------
+   The group reads as ONE field: the wrapper loses its right corners and the
+   toggle button continues the same border.
+   ---------------------------------------------------------------------------- */
+.pf-v5-c-input-group {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  gap: 0;
+}
+
+.pf-v5-c-input-group__item {
+  display: flex;
+  align-items: stretch;
+  background: transparent;
+}
+
+.pf-v5-c-input-group__item.pf-m-fill {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pf-v5-c-input-group__item.pf-m-fill > .pf-v5-c-form-control {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+}
+
+.pf-v5-c-button.pf-m-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  min-height: 38px;
+  padding: 0;
+  color: var(--ad-content-muted);
+  /* Transparent, not `surface-sunken`: in dark mode sunken is *darker* than
+     the field, so a filled button read as a hole punched in the input. */
+  background: transparent;
+  border: 1px solid var(--ad-edge-default);
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: var(--ad-radius-md);
+  border-bottom-right-radius: var(--ad-radius-md);
+  box-shadow: var(--ad-shadow-sm);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.pf-v5-c-button.pf-m-control::before,
+.pf-v5-c-button.pf-m-control::after {
+  display: none;
+}
+
+.pf-v5-c-button.pf-m-control:hover {
+  color: var(--ad-content);
+  background: var(--ad-edge-subtle);
+}
+
+.pf-v5-c-input-group:focus-within .pf-v5-c-button.pf-m-control,
+.pf-v5-c-input-group:focus-within .pf-v5-c-input-group__item.pf-m-fill > .pf-v5-c-form-control {
+  border-color: var(--ad-edge-strong);
+}
+
+/* ----------------------------------------------------------------------------
+   Checkbox ("Remember me")
+   ---------------------------------------------------------------------------- */
+.pf-v5-c-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pf-v5-c-check__input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--ad-brand-600);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pf-v5-c-check__label {
+  font-size: 13px;
+  color: var(--ad-content-muted);
+  cursor: pointer;
+}
+
+/* Options row — "remember me" on the left, "forgot password" on the right */
+#kc-form-options,
+.pf-v5-c-form__group.kc-form-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ----------------------------------------------------------------------------
+   Buttons — the console's `primary` variant (solid brand, not a gradient)
+   ---------------------------------------------------------------------------- */
+.pf-v5-c-button {
+  font-family: var(--ad-font);
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--ad-radius-lg);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.pf-v5-c-button.pf-m-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 20px;
+  color: #fff;
+  background: var(--ad-brand-600);
+  border: 0;
+  box-shadow:
+    var(--ad-shadow-sm),
+    inset 0 0 0 1px oklch(1 0 0 / 0.1);
+  cursor: pointer;
+}
+
+.pf-v5-c-button.pf-m-primary:hover {
+  background: var(--ad-brand-700);
+}
+
+.pf-v5-c-button.pf-m-primary:active {
+  background: var(--ad-brand-800);
+}
+
+.pf-v5-c-button.pf-m-primary:focus-visible {
+  outline: none;
+  box-shadow: var(--ad-ring-brand);
+}
+
+.pf-v5-c-button.pf-m-primary:disabled {
+  background: var(--ad-brand-300);
+  color: oklch(1 0 0 / 0.7);
+  cursor: not-allowed;
+}
+
+.pf-v5-c-button.pf-m-block {
+  width: 100%;
+}
+
+/* Secondary / default — the console's `secondary` variant */
+.pf-v5-c-button.pf-m-secondary,
+.pf-v5-c-button.pf-m-tertiary,
+.pf-v5-c-button.pf-m-default {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 18px;
+  color: var(--ad-content);
+  background: var(--ad-surface-raised);
+  border: 1px solid var(--ad-edge-default);
+  box-shadow: var(--ad-shadow-sm);
+  cursor: pointer;
+}
+
+.pf-v5-c-button.pf-m-secondary:hover,
+.pf-v5-c-button.pf-m-tertiary:hover,
+.pf-v5-c-button.pf-m-default:hover {
+  border-color: var(--ad-edge-strong);
+  background: var(--ad-surface-sunken);
+}
+
+/* ----------------------------------------------------------------------------
+   Links + footer bands
+   ---------------------------------------------------------------------------- */
+a,
+.pf-v5-c-login__main-footer-band-item a,
+.pf-v5-c-button.pf-m-link {
+  color: var(--ad-brand-700);
+  font-weight: 500;
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:hover,
+.pf-v5-c-button.pf-m-link:hover {
+  color: var(--ad-brand-800);
+  text-decoration: underline;
+}
+
+@media (prefers-color-scheme: dark) {
+  a,
+  .pf-v5-c-login__main-footer-band-item a,
+  .pf-v5-c-button.pf-m-link {
+    color: var(--ad-brand-300);
+  }
+
+  a:hover,
+  .pf-v5-c-button.pf-m-link:hover {
+    color: var(--ad-brand-200);
+  }
+}
+
+/* "New user? Register" / "Already have an account?" band.
+   The parent theme gives the first band a large top margin and draws a rule;
+   combined with the card's own padding that produced a doubled divider under
+   the submit button. One divider, on the band only. */
+.pf-v5-c-login__main-footer-band {
+  margin: 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--ad-edge-subtle);
+  font-size: 13px;
+  color: var(--ad-content-muted);
+  text-align: center;
+}
+
+.pf-v5-c-login__main-footer-band:first-child {
+  margin-block-start: 0;
+}
+
+.pf-v5-c-login__main-footer-band + .pf-v5-c-login__main-footer-band {
+  padding-top: 8px;
+  border-top: 0;
+}
+
+.pf-v5-c-login__main-footer-band-item {
+  margin: 0;
+}
+
+/* ----------------------------------------------------------------------------
+   Social / identity providers
+   ---------------------------------------------------------------------------- */
+#kc-social-providers {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ad-edge-subtle);
+}
+
+#kc-social-providers ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pf-v5-c-button.kc-social-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  color: var(--ad-content);
+  background: var(--ad-surface-raised);
+  border: 1px solid var(--ad-edge-default);
+  box-shadow: var(--ad-shadow-sm);
+}
+
+.pf-v5-c-button.kc-social-item:hover {
+  border-color: var(--ad-edge-strong);
+  background: var(--ad-surface-sunken);
+}
+
+/* ----------------------------------------------------------------------------
+   Alerts, field errors, helper text
+   ---------------------------------------------------------------------------- */
+.pf-v5-c-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ad-content);
+  background: var(--ad-surface-sunken);
+  border: 1px solid var(--ad-edge-default);
+  border-radius: var(--ad-radius-md);
+  box-shadow: none;
+}
+
+.pf-v5-c-alert::before {
+  display: none;
+}
+
+.pf-v5-c-alert__icon {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  font-size: 14px;
+}
+
+.pf-v5-c-alert.pf-m-danger {
+  color: var(--ad-danger);
+  background: var(--ad-danger-bg);
+  border-color: color-mix(in oklab, var(--ad-danger) 35%, transparent);
+}
+
+.pf-v5-c-alert.pf-m-warning {
+  color: var(--ad-warn);
+  background: var(--ad-warn-bg);
+  border-color: color-mix(in oklab, var(--ad-warn) 35%, transparent);
+}
+
+.pf-v5-c-alert.pf-m-success {
+  color: var(--ad-success);
+  background: var(--ad-success-bg);
+  border-color: color-mix(in oklab, var(--ad-success) 35%, transparent);
+}
+
+.pf-v5-c-alert.pf-m-info {
+  color: var(--ad-info);
+  background: var(--ad-info-bg);
+  border-color: color-mix(in oklab, var(--ad-info) 35%, transparent);
+}
+
+/* Per-field validation message */
+.pf-v5-c-helper-text__item.pf-m-error,
+.pf-v5-c-helper-text__item-text.pf-m-error,
+.pf-v5-c-form__helper-text.pf-m-error,
+#input-error,
+.kc-feedback-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ad-danger);
+}
+
+/* Invalid field */
+.pf-v5-c-form-control.pf-m-error,
+span.pf-v5-c-form-control:has(input[aria-invalid='true']) {
+  border-color: var(--ad-danger);
+}
+
+.pf-v5-c-form-control.pf-m-error:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ad-danger) 22%, transparent);
+}
+
+/* Keycloak renders empty placeholders under every field — an error container,
+   and on password fields a helper-text wrapper around an empty helper list.
+   Left visible they added phantom rows, so password fields sat further from
+   the next field than the others. Collapse them until they hold something.
+   `:empty` is no use here: the nodes contain whitespace, and the helper-text
+   wrapper holds an (empty) child element. */
+[id^='input-error-container-']:not(:has(*)) {
+  display: none;
+}
+
+/* The helper-text wrapper always contains an (empty) helper-text list, so test
+   for a real *item* instead. Note this must not be written as
+   `:has(> .pf-v5-c-helper-text:not(:has(*)))` — `:has()` cannot be nested
+   inside `:has()`, which makes the selector invalid and silently drops the
+   whole rule. */
+.pf-v5-c-form__helper-text:not(:has(.pf-v5-c-helper-text__item)) {
+  display: none;
+}
+
+/* ----------------------------------------------------------------------------
+   Language picker + misc menus
+   ---------------------------------------------------------------------------- */
+.pf-v5-c-menu,
+.pf-v5-c-menu__content {
+  color: var(--ad-content);
+  background: var(--ad-surface-raised);
+  border: 1px solid var(--ad-edge-default);
+  border-radius: var(--ad-radius-md);
+  box-shadow: var(--ad-shadow-card);
+}
+
+.pf-v5-c-menu__list-item:hover {
+  background: var(--ad-surface-sunken);
+}
+
+/* ----------------------------------------------------------------------------
+   Small screens
+   ---------------------------------------------------------------------------- */
+@media (max-width: 480px) {
+  .pf-v5-c-login {
+    padding: 24px 12px;
+  }
+
+  .pf-v5-c-login__main-header {
+    padding: 22px 20px 0;
+  }
+
+  .pf-v5-c-login__main-body {
+    padding: 16px 20px 22px;
+  }
+
+  .pf-v5-c-login__main-footer {
+    padding: 0 20px 20px;
+  }
+
+  #kc-header-wrapper {
+    width: 220px;
+    height: 58px;
+  }
+}
