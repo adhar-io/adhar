@@ -21,10 +21,24 @@ Adhar is an open Internal Developer Platform: one command provisions a complete,
 |---|---|
 | [Production Guide](PRODUCTION.md) | Running it for real: topology choice, HA sizing, hardening checklist, edge (DNS/TLS/LB), backup & DR runbooks, upgrades |
 | [Production Access](PRODUCTION_ACCESS.md) | You provisioned a cloud platform and need to reach it — URLs, credentials, kubeconfig, DNS |
-| [DigitalOcean, end to end](DIGITALOCEAN_PRODUCTION.md) | You are on DigitalOcean: every field, command, resource and limit, as executed on a live cluster |
-| [Provider Guide](PROVIDER_GUIDE.md) | You are targeting Kind, AWS, Azure, GCP, DigitalOcean, Civo or your own cluster — or adding a provider |
+| [Provider Guide](PROVIDER_GUIDE.md) | Choosing a target, and what is proven where — start here, then open the provider below |
 | [Troubleshooting](TROUBLESHOOTING.md) | You have an error on screen: per-phase failure signatures, confirmation commands, root causes, fixes |
 | [Release Guide](RELEASE_GUIDE.md) | You are cutting a release: versioning and the GoReleaser/GitHub Actions pipeline |
+
+### Providers
+
+One page per target: credentials, a complete configuration, the exact commands,
+and the limits that bite.
+
+| Provider | Status | Page |
+|---|---|---|
+| DigitalOcean | ✅ Live-verified end to end | [DIGITALOCEAN_PROVIDER.md](DIGITALOCEAN_PROVIDER.md) |
+| Kind (local) | ✅ Exercised continuously by CI | [KIND_PROVIDER.md](KIND_PROVIDER.md) |
+| AWS | ⚙️ Render-verified only | [AWS_PROVIDER.md](AWS_PROVIDER.md) |
+| Azure | ⚙️ Render-verified only | [AZURE_PROVIDER.md](AZURE_PROVIDER.md) |
+| GCP | ⚙️ Render-verified only | [GCP_PROVIDER.md](GCP_PROVIDER.md) |
+| Civo | ⚙️ Render-verified only | [CIVO_PROVIDER.md](CIVO_PROVIDER.md) |
+| Your own hosts | ⚙️ Render-verified only | [CUSTOM_PROVIDER.md](CUSTOM_PROVIDER.md) |
 
 ## Understand
 

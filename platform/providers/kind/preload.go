@@ -8,6 +8,8 @@ import (
 
 	"sigs.k8s.io/kind/pkg/cluster/nodes"
 	"sigs.k8s.io/kind/pkg/cluster/nodeutils"
+
+	"adhar-io/adhar/platform/utils"
 )
 
 // criticalPathImages are pulled on the CRITICAL PATH of `adhar up` — the Cilium
@@ -106,15 +108,22 @@ func (c *Cluster) preloadBootstrapImages(ctx context.Context) {
 		"count", len(present), "nodes", len(nodeList))
 }
 
-// hostHasImage reports whether the host Docker daemon already holds the image.
+// hostHasImage reports whether the host's container engine already holds the
+// image. The engine is whichever one hosts the Kind nodes -- Docker, Podman or
+// a nerdctl-family engine -- not Docker unconditionally: on a Podman-only
+// machine every lookup failed, so nothing was ever preloaded and the slow path
+// was taken silently.
 func hostHasImage(ctx context.Context, img string) bool {
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	return exec.CommandContext(cctx, "docker", "image", "inspect", img).Run() == nil
+	return exec.CommandContext(cctx, utils.DetectContainerEngine().Binary, "image", "inspect", img).Run() == nil
 }
 
-// loadImagesToNodes saves the given images from the host Docker daemon to a
-// single temp archive and loads it into each Kind node's containerd.
+// loadImagesToNodes saves the given images from the host's container engine to
+// a single temp archive and loads it into each Kind node's containerd.
+//
+// `save -o <file> img…` is spelled identically by docker, podman and nerdctl,
+// so one code path serves all three.
 func loadImagesToNodes(ctx context.Context, images []string, nodeList []nodes.Node) error {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
@@ -126,9 +135,9 @@ func loadImagesToNodes(ctx context.Context, images []string, nodeList []nodes.No
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 
-	// One `docker save img1 img2 ...` for all present images -> single archive.
+	// One `save img1 img2 ...` for all present images -> single archive.
 	args := append([]string{"save", "-o", tmp.Name()}, images...)
-	if err := exec.CommandContext(cctx, "docker", args...).Run(); err != nil {
+	if err := exec.CommandContext(cctx, utils.DetectContainerEngine().Binary, args...).Run(); err != nil {
 		return err
 	}
 

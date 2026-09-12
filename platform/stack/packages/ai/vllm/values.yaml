@@ -193,13 +193,19 @@ ingress:
   # Written with the local convention; stageStack() rewrites it to
   # vllm.<host><portSuffix> when the stack is seeded into Gitea.
   hostname: vllm.adhar.localtest.me
-  # ⚠️ UNAUTHENTICATED. The route is a debugging / direct-access path — the
-  # production consumer is agentgateway over the cluster-internal Service.
-  # vLLM's own --api-key is one shared static string and upstream warns against
-  # relying on it. Delete this route, or front it with the Keycloak
-  # oauth2-proxy (see application/n8n/manifests/sso.yaml), before enabling vLLM
-  # on an internet-facing platform.
-  authenticated: false
+  # AUTHENTICATED via the Keycloak oauth2-proxy in manifests/sso.yaml, generated
+  # in SSO_BEARER mode because vLLM is an API rather than a web UI: a browser
+  # redirect flow is the wrong shape for curl and for an OpenAI SDK client, so
+  # the proxy also accepts a Keycloak-issued bearer token directly.
+  #
+  #     TOKEN=$(adhar auth token)
+  #     curl -H "Authorization: Bearer $TOKEN" https://vllm.<host>/v1/models
+  #
+  # vLLM's own --api-key stays unused: one shared static string, not revocable
+  # per user, and upstream warns against relying on it.
+  authenticated: true
+  ssoClientId: vllm
+  proxyService: vllm-oauth2-proxy:4180
   # Generation takes minutes for a long completion on CPU; the Gateway default
   # would cut a legitimate stream off mid-response.
   timeout: 600s

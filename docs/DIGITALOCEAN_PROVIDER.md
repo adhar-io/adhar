@@ -1,4 +1,4 @@
-# DigitalOcean — production platform, end to end
+# DigitalOcean provider
 
 **The complete DigitalOcean reference.** Every configuration field, command,
 resource and limit for running Adhar on DigitalOcean, as executed on the
@@ -13,12 +13,76 @@ workers** and autoscaled to **9**. Timings are from that run.
 | Verified result | 76/76 enabled applications Healthy; Phase 1 and Phase 2 roadmap items live-verified |
 | Cost shape | 1 × control plane + 3–10 × `s-8vcpu-16gb`, 1 load balancer, ~55 block volumes |
 
-**Contents** — [0 Prerequisites](#0-prerequisites) ·
-[1 Configuration](#1-configuration-configyaml) ·
+**Contents** — [Quick start](#quick-start) · [0 Prerequisites](#0-prerequisites) ·
+[1 Configuration](#1-configuration-configyaml) · [DOKS mode](#managed-kubernetes-doks-instead-of-droplets) ·
 [2 Create](#2-create-the-platform) · [3 Verify](#3-verify) ·
 [4 Day-2](#4-day-2) · [5 Tear down](#5-tear-down) ·
 [6 Known limits](#6-known-limits-verified-run) ·
 [7 DigitalOcean resources](#7-what-the-platform-creates-in-your-digitalocean-account)
+
+## Quick start
+
+Six steps from nothing to a running platform. Each is explained in the sections
+below; this is the whole path.
+
+**1 — Delegate a DNS zone to DigitalOcean.** Every platform URL is
+`<app>.<your-domain>`, and ACME solves DNS-01 challenges in that zone. Point the
+domain at `ns1.digitalocean.com`, `ns2.digitalocean.com`, `ns3.digitalocean.com`
+at your registrar, then add it under **Networking → Domains**.
+
+**2 — Create an API token** with read/write on droplets, VPCs, firewalls, load
+balancers, block storage, SSH keys and DNS (add Kubernetes only for DOKS or
+Crossplane workload clusters).
+
+```bash
+export DIGITALOCEAN_ACCESS_TOKEN="dop_v1_…"
+```
+
+**3 — Build the CLI.**
+
+```bash
+git clone https://github.com/adhar-io/adhar.git && cd adhar
+make build            # produces ./adhar
+```
+
+**4 — Copy the example configuration and edit three fields.**
+
+```bash
+cp examples/digitalocean-config.yaml config.yaml
+```
+
+Set `globalSettings.defaultHost` to your zone, `globalSettings.email` to your
+ACME address, and `providers.digitalocean.region` to your region. Everything
+else has a working default.
+
+**5 — Check the plan, then provision.**
+
+```bash
+./adhar up -f config.yaml --env dev --dry-run   # resolves config, creates nothing
+./adhar up -f config.yaml --env dev             # ~13 min to a usable platform
+```
+
+`--env` is not optional in practice: without it, **every** environment in the
+file is provisioned.
+
+**6 — Verify.**
+
+```bash
+export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+kubectl get nodes
+./adhar get status
+./adhar get secrets -p argocd
+```
+
+The catalogue keeps converging for another 30–45 minutes after the CLI returns,
+and the autoscaler adds workers while it does. That is expected — see
+[§4.1](#41-autoscaling).
+
+To remove everything:
+
+```bash
+./adhar down -f config.yaml --env dev --purge-orphaned-volumes
+```
 
 ## 0. Prerequisites
 
@@ -87,9 +151,21 @@ providers:
       image: ubuntu-24-04-x64
       tags: [adhar, adhar-mgmt]         # applied to every droplet, on top of the per-cluster tag
 
+# Both keys below are REQUIRED by config validation, and neither installs
+# anything on this path: the foundation ships as embedded manifests, so the
+# chart coordinates are recorded, printed by --dry-run, and otherwise inert.
+# `clusterConfig: []` and an empty `coreServices` are rejected outright.
 environmentTemplates:
   nonprod-defaults:
-    clusterConfig: []
+    clusterConfig:
+      - key: autoScale
+        value: "true"
+    coreServices:
+      cilium:
+        chart:
+          repoURL: https://helm.cilium.io/
+          name: cilium
+          version: 1.15.7
 
 environments:
   dev:
@@ -129,6 +205,58 @@ environments:
 | `clusterConfig.podCIDR` | Pod network for this cluster. Two clusters in a Cilium mesh **must not overlap**. |
 | `clusterConfig.clusterMeshId` | Cilium cluster ID (1–255), unique per meshed cluster. Paired with the cluster name it forms the mesh identity. |
 | `autoscaling.*` | See [§4.1](#41-autoscaling). `minWorkers`/`maxWorkers` bound the range; the three timing knobs have sane defaults. |
+
+### Managed Kubernetes (DOKS) instead of droplets
+
+By default Adhar provisions plain Ubuntu droplets and installs Kubernetes on them
+with kubeadm. One flag switches to DigitalOcean's managed service instead:
+
+```yaml
+providers:
+  digitalocean:
+    type: digitalocean
+    region: blr1
+    primary: true
+    useEnvironment: true
+    useManagedK8s: true          # DOKS instead of kubeadm on droplets
+```
+
+`config.cluster_mode: doks` is the equivalent lower-level spelling; accepted
+values are `compute` (the default, also `droplets` / `self-managed`) and `doks`
+(also `managed`). Anything else is rejected by name rather than silently
+ignored.
+
+**Everything above the cluster is identical.** The same foundation, the same
+GitOps stack, the same packages. What changes is who owns the control plane.
+
+| | Droplets + kubeadm (default) | DOKS (`useManagedK8s: true`) |
+|---|---|---|
+| Control plane | A droplet you pay for and manage | Managed by DigitalOcean, free |
+| Kubernetes version | `globals.DefaultKubernetesVersion`, or your pin | Resolved to a DOKS **version slug** (e.g. `1.33.1-do.3`) |
+| Node scaling | Adhar's node autoscaler adds and drains droplets | DOKS node pools |
+| Upgrades | `adhar upgrade` plus your own kubeadm plan | DigitalOcean's upgrade channel |
+| SSH access to nodes | Yes, Adhar holds the key | No |
+| Token scope needed | droplets, VPC, firewall, LB, volumes, SSH keys, DNS | **plus Kubernetes** |
+
+**Version slugs expire.** DOKS accepts only concrete slugs, and DigitalOcean
+retires them as new patches ship. Adhar asks the API for the available versions
+and picks the closest match to your request, falling back to the provider
+default when nothing matches — so a `kubeVersion` that was valid last month
+resolves rather than failing. Check what exists with:
+
+```bash
+doctl --context default -t "$TOKEN" kubernetes options versions
+```
+
+**Not available on AWS, Azure or GCP.** Those providers reject `useManagedK8s`
+with an explicit error rather than quietly ignoring it: EKS, AKS and GKE
+integration is not offered, and Adhar provisions raw compute there. Civo has the
+same switch, where it selects Civo's managed k3s.
+
+> The verified run used the **default droplet path**. DOKS mode is exercised by
+> the `CompositeCluster` workload-cluster flow ([§4.4](#44-workload-clusters-doks-through-crossplane)),
+> which provisions real DOKS clusters, but a full platform bootstrap **onto**
+> DOKS has not been run end to end.
 
 ### Kubernetes version
 
@@ -193,10 +321,12 @@ adhar get status                                        # per-package health
 adhar get secrets                                       # console/Keycloak/ArgoCD/Gitea credentials
 ```
 
-Log in at `https://console.platform.adhar.io` with the Keycloak `user1`
-(platform admin) credentials from `adhar get secrets`. Every other UI
-(`argocd.`, `gitea.`, `grafana.`, `harbor.`, `nexus.`, …`.platform.adhar.io`)
-uses the same SSO.
+Log in at `https://console.platform.adhar.io` with the seeded platform-admin
+credentials from `adhar get secrets`. **The username is `user1@noreply.com`, not
+`user1`** — the realm sets `registrationEmailAsUsername: true`, so Keycloak uses
+the email as the username; signing in as `user1` fails with the deliberately
+vague "Invalid username or password". Every other UI (`argocd.`, `gitea.`,
+`grafana.`, `harbor.`, `nexus.`, …`.platform.adhar.io`) uses the same SSO.
 
 ### 3.1 Verified day-2 drills (2026-09)
 
@@ -558,9 +688,20 @@ available and is not claimed.
 
 ## 5. Tear down
 
+Either command works, and both go through the same provider lookup:
+
 ```bash
-adhar cluster delete dev --force --file config.yaml --purge-orphaned-volumes
+adhar down -f config.yaml --env dev --purge-orphaned-volumes
+adhar cluster delete dev --force -f config.yaml --purge-orphaned-volumes
 ```
+
+`adhar down` prompts before it destroys anything; add `--force` to skip that.
+Omitting `--env` tears down **every** environment in the file.
+
+**`-f` means `--file` on every command that takes one.** Passing `--file` is what
+makes `adhar down` look at the cloud at all: with no configuration file it only
+ever inspects the local Kind cluster, so on a cloud environment it would delete
+nothing.
 
 Removes, in order: the CCM LoadBalancer(s), every droplet, the block-storage
 volumes tagged `adhar-cluster-dev` (the CSI `--do-tag`), the firewall, the VPC,

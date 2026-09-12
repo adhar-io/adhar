@@ -35,7 +35,7 @@ provenance:
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
 planeAffinity: control-plane
-stability: stable
+stability: beta   # enabled in the production curated set only
 resources:
   storage: "10Gi"
   footprint: small

@@ -22,9 +22,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/config"
-	pfactory "adhar-io/adhar/platform/providers"
-	ptypes "adhar-io/adhar/platform/types"
 )
 
 var deleteCmd = &cobra.Command{
@@ -38,8 +37,12 @@ var deleteCmd = &cobra.Command{
 }
 
 func init() {
-	deleteCmd.Flags().BoolP("force", "f", false, "Force deletion without confirmation")
-	deleteCmd.Flags().String("file", "", "Path to configuration file")
+	// -f is --file, matching `adhar up`, `adhar down` and the other cluster
+	// subcommands. It used to mean --force here alone, so the muscle-memory
+	// `adhar cluster delete dev -f config.yaml` set force and left the config
+	// unread. --force keeps its long form.
+	deleteCmd.Flags().Bool("force", false, "Force deletion without confirmation")
+	deleteCmd.Flags().StringP("file", "f", "", "Path to configuration file")
 	deleteCmd.Flags().Bool("purge-orphaned-volumes", false,
 		"Also delete unattached pvc-* block-storage volumes in the cluster's region that carry no other cluster's tag "+
 			"(volumes left behind by clusters created before per-cluster volume tagging). Only safe when no other Kubernetes cluster uses that region.")
@@ -49,108 +52,38 @@ func init() {
 func deleteCluster(cmd *cobra.Command, name string) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "Deleting cluster: %s\n", name)
 
-	// Load configuration
 	configFile, _ := cmd.Flags().GetString("file")
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
-	purgeVolumes, _ := cmd.Flags().GetBool("purge-orphaned-volumes")
 
-	// Find the cluster across all providers
-	var targetCluster *ptypes.Cluster
-	var targetProvider pfactory.Provider
-	var targetProviderName string
-
-	for providerName, providerCfg := range cfg.Providers {
-		providerMap := providerCfg.ToProviderMap()
-		if purgeVolumes {
-			providerMap["purgeOrphanedVolumes"] = true
-		}
-		p, err := pfactory.DefaultFactory.CreateProvider(providerName, providerMap)
-		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to create provider %s: %v\n", providerName, err)
-			continue
-		}
-
-		// List clusters for this provider
-		clusters, err := p.ListClusters(context.Background())
-		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "Warning: Failed to list clusters for provider %s: %v\n", providerName, err)
-			continue
-		}
-
-		// Find cluster by name
-		for _, cluster := range clusters {
-			if cluster.Name == name {
-				targetCluster = cluster
-				targetProvider = p
-				targetProviderName = providerName
-				break
-			}
-		}
-
-		if targetCluster != nil {
-			break
-		}
+	providerOpts := map[string]interface{}{}
+	if purge, _ := cmd.Flags().GetBool("purge-orphaned-volumes"); purge {
+		providerOpts["purgeOrphanedVolumes"] = true
 	}
 
-	// Also check Kind provider even if not configured (unless already checked)
-	if targetCluster == nil {
-		kindAlreadyChecked := false
-		for providerName := range cfg.Providers {
-			if providerName == "kind" {
-				kindAlreadyChecked = true
-				break
-			}
-		}
-
-		if !kindAlreadyChecked {
-			kindProvider, err := pfactory.DefaultFactory.CreateProvider("kind", map[string]interface{}{
-				"kindPath":    "kind",
-				"kubectlPath": "kubectl",
-			})
-			if err == nil {
-				clusters, err := kindProvider.ListClusters(context.Background())
-				if err == nil {
-					for _, cluster := range clusters {
-						if cluster.Name == name {
-							targetCluster = cluster
-							targetProvider = kindProvider
-							targetProviderName = "kind"
-							break
-						}
-					}
-				}
-			}
-		}
+	// One shared lookup for `adhar down`, `adhar cluster delete` and
+	// `adhar cluster status`, so a cluster name always resolves the same way.
+	// These each had their own copy and they disagreed.
+	ctx := context.Background()
+	found, err := helpers.FindCluster(ctx, cfg, name, providerOpts, func(w string) {
+		fmt.Fprintf(cmd.OutOrStderr(), "Warning: %s\n", w)
+	})
+	if err != nil {
+		return err
 	}
 
-	if targetCluster == nil {
-		return fmt.Errorf("cluster '%s' not found in any configured provider", name)
-	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Found cluster '%s' in provider '%s'\n", name, found.ProviderName)
+	fmt.Fprintf(cmd.OutOrStdout(), "  ID: %s\n", found.Cluster.ID)
+	fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", found.Cluster.Status)
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Found cluster '%s' in provider '%s'\n", name, targetProviderName)
-	fmt.Fprintf(cmd.OutOrStdout(), "  ID: %s\n", targetCluster.ID)
-	fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", targetCluster.Status)
-
-	// Check if cluster is managed by Adhar
-	isAdharManaged := false
-	if targetCluster.Tags != nil {
-		if managedBy, exists := targetCluster.Tags["adhar.io/managed-by"]; exists && managedBy == "adhar" {
-			isAdharManaged = true
-		}
-	}
-
-	if !isAdharManaged {
+	if !found.IsAdharManaged() {
 		fmt.Fprintf(cmd.OutOrStdout(), "⚠️  Warning: This cluster was not created by Adhar (missing adhar.io/managed-by tag)\n")
 		fmt.Fprintf(cmd.OutOrStdout(), "Proceeding with deletion anyway...\n")
 	}
 
-	// Check for force flag
 	force, _ := cmd.Flags().GetBool("force")
-
-	// Confirm deletion unless force flag is used
 	if !force {
 		fmt.Fprintf(cmd.OutOrStdout(), "\n🗑️  This action will permanently delete the cluster and all associated resources.\n")
 		fmt.Fprintf(cmd.OutOrStdout(), "Type 'yes' to confirm deletion: ")
@@ -166,21 +99,15 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "\n🗑️  Force deletion enabled - proceeding without confirmation.\n")
 	}
 
-	// Start deletion process
 	fmt.Fprintf(cmd.OutOrStdout(), "\n🚀 Starting cluster deletion...\n")
 
-	// Set cluster status to deleting if possible
-	ctx := context.Background()
-
-	// Delete the cluster using the provider
-	err = targetProvider.DeleteCluster(ctx, targetCluster.ID)
-	if err != nil {
+	if err := found.Provider.DeleteCluster(ctx, found.Cluster.ID); err != nil {
 		return fmt.Errorf("failed to delete cluster: %w", err)
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "✅ Cluster '%s' deletion initiated successfully!\n", name)
 	fmt.Fprintf(cmd.OutOrStdout(), "\nNote: It may take several minutes for all resources to be fully deleted.\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "You can check the status with: adhar cluster list\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "You can check the status with: adhar cluster list --file %s\n", configFile)
 
 	return nil
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package version
 
 import (
+	"adhar-io/adhar/platform/utils"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -82,12 +83,16 @@ var VersionCmd = &cobra.Command{
 
 // checkDependencies verifies that required tools are installed
 func checkDependencies() {
+	eng := utils.DetectContainerEngine()
 	dependencies := []struct {
 		name    string
 		command string
 		args    []string
 	}{
-		{"Docker", "docker", []string{"--version"}},
+		// The container engine hosting Kind's nodes: Docker, Podman or a
+		// nerdctl-family engine. Reporting "Docker" unconditionally told a
+		// Podman user their setup was broken when it was fine.
+		{eng.Name, eng.Binary, []string{"--version"}},
 		{"Kind", "kind", []string{"--version"}},
 		{"Kubectl", "kubectl", []string{"version", "--client", "--output=yaml"}},
 		{"Helm", "helm", []string{"version", "--short"}},

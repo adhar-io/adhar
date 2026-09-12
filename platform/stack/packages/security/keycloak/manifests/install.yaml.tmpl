@@ -131,8 +131,11 @@ spec:
           name: keycloak-config
         name: keycloak-config
       # items[].path carries the nested theme layout (login/theme.properties,
-      # login/resources/css/adhar.css, login/resources/img/*.svg) from the flat
-      # ConfigMap keys — ConfigMap keys cannot contain '/'.
+      # login/resources/css/adhar.css, login/resources/js/adhar-theme.js,
+      # login/resources/img/*.svg) from the flat ConfigMap keys — ConfigMap keys
+      # cannot contain '/'. Every key the ConfigMap generator emits
+      # (hack/gen-keycloak-theme-configmap.sh) must be listed here, or the file
+      # simply will not exist in the pod.
       - name: theme-adhar
         configMap:
           name: keycloak-theme-adhar
@@ -141,6 +144,8 @@ spec:
             path: login/theme.properties
           - key: adhar.css
             path: login/resources/css/adhar.css
+          - key: adhar-theme.js
+            path: login/resources/js/adhar-theme.js
           - key: adhar-symbol.svg
             path: login/resources/img/adhar-symbol.svg
           - key: adhar-logo.svg

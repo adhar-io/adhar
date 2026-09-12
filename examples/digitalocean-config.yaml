@@ -1,0 +1,94 @@
+# Adhar on DigitalOcean — a complete, working configuration.
+#
+# This is the whole file. Copy it, change `defaultHost`, `email` and `region`,
+# and run:
+#
+#   export DIGITALOCEAN_ACCESS_TOKEN="dop_v1_…"
+#   adhar up -f digitalocean-config.yaml --env dev
+#
+# Everything the platform installs (Cilium, the Gateway, ArgoCD, Gitea,
+# Crossplane and the ~76 stack packages) comes from the repository, not from
+# here. This file only describes the CLUSTER: where it runs, how big it starts,
+# and how far it may grow.
+#
+# See docs/DIGITALOCEAN_PROVIDER.md for the field reference and day-2 guide.
+
+globalSettings:
+  adharContext: adhar-mgmt              # kube-context name prefix and Cilium cluster name
+  defaultHost: platform.adhar.io        # a zone hosted in DigitalOcean DNS; every URL derives from it
+  defaultHttpPort: 80
+  defaultHttpsPort: 443                 # 443 behind a cloud LB, so URLs carry no port
+  enableHAMode: true                    # ArgoCD x2 + redis-ha x3, CNPG 2 instances, PDBs
+  email: admin@platform.adhar.io        # Let's Encrypt (ACME) account
+
+providers:
+  digitalocean:
+    type: digitalocean
+    region: blr1
+    primary: true                       # only the primary cloud's Crossplane providers are installed
+    useEnvironment: true                # read the token from DIGITALOCEAN_ACCESS_TOKEN
+    # useManagedK8s: true               # opt in to DOKS instead of kubeadm on droplets.
+                                        # The control plane becomes DigitalOcean's
+                                        # (free, managed, no SSH) and the token then
+                                        # also needs the Kubernetes scope. Everything
+                                        # above the cluster is unchanged.
+                                        # See docs/DIGITALOCEAN_PROVIDER.md#managed-kubernetes-doks-instead-of-droplets
+    config:
+      reuse_existing_vpc: true          # reuse a VPC with a matching CIDR instead of creating one
+      vpc_cidr: 10.3.0.0/16             # must not overlap a cluster you intend to mesh with
+      droplet_size: s-8vcpu-16gb        # default size for nodes this provider creates
+      image: ubuntu-24-04-x64
+      tags:                             # applied to every droplet, on top of the per-cluster tag
+        - adhar
+        - adhar-mgmt
+
+# Templates exist to share defaults between environments. Both keys below are
+# REQUIRED by config validation even though neither installs anything on this
+# path: the foundation ships as embedded manifests, so the chart coordinates
+# here are recorded, printed by --dry-run, and otherwise inert. Do not spend
+# time tuning them.
+environmentTemplates:
+  nonprod-defaults:
+    clusterConfig:
+      - key: autoScale
+        value: "true"
+    coreServices:
+      cilium:
+        chart:
+          repoURL: https://helm.cilium.io/
+          name: cilium
+          version: 1.15.7
+
+# `adhar up -f <file>` with no --env provisions EVERY environment listed here,
+# so keep this list to environments you actually want. A leftover sample block
+# sized for another cloud will create an orphan droplet and then fail.
+environments:
+  dev:
+    type: non-production
+    provider: digitalocean
+    template: nonprod-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-mgmt               # platform/tag name; the CLUSTER is named after the environment ("dev")
+      - key: nodeSize
+        value: s-8vcpu-16gb             # overrides the provider's droplet_size for this environment
+      - key: nodeCount
+        value: "3"                      # workers at creation; the autoscaler grows from here
+      # - key: kubeVersion
+      #   value: v1.37.0                # pin Kubernetes for this environment
+      # - key: podCIDR
+      #   value: 10.244.0.0/16          # must differ per cluster if you mesh them
+      # - key: clusterMeshId
+      #   value: "1"                    # Cilium cluster ID (1-255), unique per meshed cluster
+    autoscaling:
+      enabled: true
+      minWorkers: 3
+      # The full catalogue needs >= 9 workers: DigitalOcean attaches at most 7
+      # block volumes per droplet, and the platform creates ~55 PersistentVolumes.
+      # That attach limit, not CPU or memory, is what bounds the cluster.
+      maxWorkers: 10
+      # Everything below is optional; these are the defaults.
+      nodeGroup: workers
+      scaleDownUtilizationThreshold: "50%"
+      scaleDownDelay: 10m
+      scaleUpCooldown: 3m

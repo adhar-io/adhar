@@ -77,12 +77,30 @@ depends on `loki-stack` as its log sink; `kargo` depends on `cert-manager` for w
 TLS). Mutually-**exclusive** packages are the inverse concern and are tracked in
 [`CONFLICTS.md`](./CONFLICTS.md), not here.
 
+Every dependency name must resolve — either to a directory under
+`platform/stack/packages/`, or to one of the bootstrap components the AdharPlatform
+controller installs imperatively and which therefore have no package directory:
+`argocd`, `gitea`, `cilium`, `gateway`, `crossplane`. (`kargo` depends on `argocd` for
+exactly this reason.) A package may not depend on itself. Both are enforced, so a
+package renamed or dropped elsewhere in the tree cannot leave a dangling reference
+behind.
+
 ### `planeAffinity`
 
 - **control-plane** — management/GitOps/controller logic (e.g. `kargo`).
-- **data-plane** — per-node agents or workload-tier components (e.g. `alloy` DaemonSet).
-- **any** — operators whose controller is control-plane but whose jobs/agents run
-  wherever workloads land (e.g. `trivy`).
+- **data-plane** — the package *is* a per-node agent (e.g. `falco`, `tetragon`,
+  `beyla`, `alloy`, `fluent-bit`, `pixie`).
+- **any** — a control component with a per-node half: `velero` (server + node-agent),
+  `kube-prometheus` (Prometheus + node-exporter), `kubescape`, `chaos-mesh`
+  (controller + chaos-daemon), `keycloak` (issuer + oidc-loopback-proxy).
+
+**A package that ships a DaemonSet is never `control-plane`.** A DaemonSet places a pod
+on every node, workload nodes included, so the claim is false by construction — it is
+`data-plane` if that agent is the package, `any` if the package also has a control half.
+`hack/validate-packages.sh` checks this against the package's own manifests rather than
+trusting the field, because nothing consumes `planeAffinity` yet and unread metadata
+rots silently: the first scaffolded pass marked `falco`, `tetragon`, `beyla` and `pixie`
+as control-plane services, and nothing noticed.
 
 ---
 
@@ -159,6 +177,36 @@ A `community` package graduates to `beta`/`stable` when a maintainer adopts it, 
 provenance meets the full bar, and it passes review. `stability` is independent of
 `adharCompatibility` — a `stable` package can still be pinned to a narrow version range.
 
+### The tier rates Adhar's packaging, not the upstream project
+
+`cert-manager` is `beta` here. That is not a claim about cert-manager, which is as
+mature as infrastructure gets — it is a claim about how much *Adhar's packaging of it*
+gets exercised: it is enabled in the production profile and not in the local one, so a
+Kind e2e run never touches it. Read the tier as "how much evidence does this repository
+have that its own manifests work", and nothing more.
+
+### How the tier is derived
+
+The bar in the table above — `stable` means *enabled in curated sets* — is read
+literally off the ApplicationSets, because that is the only evidence the repository
+actually has:
+
+| Enabled in | Tier | What has exercised it |
+|---|---|---|
+| `adhar-appset-local.yaml` **and** `adhar-appset-production.yaml` | `stable` | Every `make e2e` run on Kind **and** every cloud bring-up. |
+| exactly one of them | `beta` | One profile only. |
+| neither (wired but off) | `alpha` | Nothing, by default. |
+
+`hack/validate-packages.sh` enforces one direction of this: a package that no curated
+profile enables may not claim `stable`. The other direction is left to maintainers, so a
+package can always be downgraded after a bad experience without having to be disabled
+first.
+
+This replaced a rule that derived the tier from the package's **directory**
+(`core`/`security`/`observability` ⇒ `stable`), which is not evidence of anything and
+contradicted the table it was supposed to implement: `trivy` claimed `stable` while no
+profile enabled it, and `harbor` claimed `beta` while both did.
+
 ---
 
 ## 4. Validation
@@ -183,14 +231,35 @@ afterwards. It derives `name`/`category` from the directory, `version`/`appVersi
 platform capabilities the manifests reference (CNPG, External Secrets, Keycloak, MinIO,
 Kafka, cert-manager), `stability` and `resources.localSafe` from the ApplicationSet
 enabled gates, and `planeAffinity` from the workload profile in
-`adhar-appset-workload.yaml`. Descriptions, licenses and homepages come from a curated
+`adhar-appset-workload.yaml` (or `any`, flagged `# review:`, for any package whose
+manifests declare a DaemonSet — the tree cannot tell a pure node agent from a mixed
+one, but it can tell that neither is control-plane). Descriptions, licenses and homepages come from a curated
 table inside the script (falling back to the package README / manifest header).
 Scaffolded values are a starting point, not a verdict — review them.
 
-The script finds all `adhar-package.yaml` files, validates each against
-`marketplace.schema.json`, and additionally checks that `name`/`category` match the
-directory layout (the name comparison is case-insensitive — one legacy directory,
-`core/Kamaji`, is capitalised while the package name must be a lowercase DNS label).
+
+`resources.localSafe` deserves one clarification, because it is the field most often
+misread: it says whether the package **would run** on a Kind node, not whether the local
+curated core enables it. The core is a footprint *budget* — one node cannot hold 91
+packages — so `kargo`, `fluent-bit` and `trivy` are all `localSafe: true` while sitting
+outside it. The generator seeds the field from the local gate because that is the only
+signal available in the tree; reviewing it is the point.
+
+The script finds all `adhar-package.yaml` files and validates each against
+`marketplace.schema.json`. It also enforces the invariants the schema alone cannot
+express, because they are statements about the tree rather than about one document:
+
+| Invariant | Why it is checked against the tree |
+|---|---|
+| `name` matches the package directory | The filesystem is the source of truth. The comparison is case-insensitive — one legacy directory, `core/Kamaji`, is capitalised while the package name must be a lowercase DNS label. |
+| `category` matches the top-level directory | Same. |
+| `planeAffinity: control-plane` is not contradicted by a DaemonSet in the package's own manifests | A DaemonSet runs on every node; the claim would be false by construction. |
+| every `dependencies[].name` resolves to a package or a bootstrap component | A rename elsewhere in the tree would otherwise leave a dangling reference. |
+| no package depends on itself | |
+
+Manifests a chart pulls at sync time are invisible to these checks, so the DaemonSet
+rule can only under-detect — it never fails a package for a DaemonSet it does not ship.
+
 It exits non-zero on any violation, so it is CI-friendly, and CI runs it on every PR.
 
 Validator resolution:

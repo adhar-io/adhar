@@ -15,7 +15,7 @@ The as-built design is
 (decision record: [ADR-0001](adr/0001-management-cluster-first.md)). Production
 posture is in [PRODUCTION.md](PRODUCTION.md); provider-specific setup in
 [PROVIDER_GUIDE.md](PROVIDER_GUIDE.md); the full DigitalOcean runbook in
-[DIGITALOCEAN_PRODUCTION.md](DIGITALOCEAN_PRODUCTION.md).
+[DIGITALOCEAN_PROVIDER.md](DIGITALOCEAN_PROVIDER.md).
 
 Unless a section says otherwise, examples assume namespace `adhar-system` and
 the local Kind topology (`adhar up` with no `-f`), whose default host
@@ -1113,5 +1113,5 @@ kubectl -n adhar-system scale deploy adhar-controller-manager --replicas=1
 
 **Related**: [User Guide](USER_GUIDE.md) · [Production Guide](PRODUCTION.md) ·
 [Production Access](PRODUCTION_ACCESS.md) · [Provider Guide](PROVIDER_GUIDE.md) ·
-[DigitalOcean runbook](DIGITALOCEAN_PRODUCTION.md) ·
+[DigitalOcean runbook](DIGITALOCEAN_PROVIDER.md) ·
 [design/0001 §9](design/0001-management-cluster-first.md)

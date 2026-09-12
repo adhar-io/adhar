@@ -1,7 +1,11 @@
 # Adhar-branded Keycloak login theme, mounted into the Keycloak pod at
 # /opt/keycloak/themes/adhar via the volume in install.yaml. The realm's
-# loginTheme is set to `adhar` (keycloak-config.yaml). Source of truth for
-# these files is ../theme/adhar/login/ (see theme/README.md).
+# loginTheme is set to `adhar` (keycloak-config.yaml).
+#
+# GENERATED — do not edit by hand.
+#   source:    ../theme/adhar/login/
+#   generator: hack/gen-keycloak-theme-configmap.sh
+# Edit the files under theme/adhar/login/ and re-run the generator.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,11 +24,11 @@ data:
     # (username/password, social providers, errors, "remember me", registration,
     # reset-credentials) is never at risk.
     #
-    # parent MUST be keycloak.v2 (NOT keycloak): the `css/styles.css` webpack
-    # bundle referenced below ships ONLY in keycloak.v2. The classic `keycloak`
-    # theme uses css/login.css instead, so with parent=keycloak the styles line
-    # resolved css/styles.css to a 404 — the login page lost its base styling and
-    # rendered broken (looked like an error after the console SSO redirect).
+    # parent MUST be keycloak.v2 (NOT keycloak): the `css/styles.css` webpack bundle
+    # referenced below ships ONLY in keycloak.v2. With parent=keycloak the styles
+    # line resolves css/styles.css to a 404, the page loses its base styling and
+    # renders broken. This file had drifted to `parent=keycloak` while the deployed
+    # ConfigMap carried the correct value — see manifests/theme-configmap.yaml.
     parent=keycloak.v2
     import=common/keycloak
 
@@ -35,9 +39,18 @@ data:
     # listed LAST so it wins the cascade.
     styles=css/styles.css css/adhar.css
 
+    # Theme resolution — see resources/js/adhar-theme.js for the full reasoning.
+    #
+    # `scripts` OVERRIDES the parent value exactly as `styles` does, but the parent
+    # chain declares NO `scripts` key (keycloak.v2 hardcodes js/passwordVisibility.js
+    # directly in template.ftl, so it is NOT at risk here), which makes this line
+    # additive in practice. template.ftl renders it as a plain
+    # `<script src=... type="text/javascript">` in <head> — parser-blocking, so it
+    # runs before first paint and an explicit light/dark choice never flashes.
+    scripts=js/adhar-theme.js
+
     # Responsive viewport (inherited, re-declared for safety on older bundles).
     meta=viewport==width=device-width,initial-scale=1
-
   adhar.css: |
     /* =============================================================================
        Adhar login theme — layered on keycloak.v2 (PatternFly v5), Keycloak 26.x
@@ -68,9 +81,17 @@ data:
           wrapped still gets the box, so both shapes render identically.
 
        Colours mirror `apps/console/app/styles.css` exactly (same OKLCH values) so
-       the login page and the console are visibly the same product. The console's
-       own dark mode is a class toggle it cannot share with Keycloak, so this file
-       follows `prefers-color-scheme` instead.
+       the login page and the console are visibly the same product.
+
+       3. Light/dark is NOT driven by `prefers-color-scheme` here. It used to be,
+          which is why choosing dark in the Adhar Console left this page white: the
+          console's mode is an explicit user choice, and the OS preference is a
+          different signal. `resources/js/adhar-theme.js` now resolves the mode from
+          an `adhar-theme` cookie shared across `*.<domain>` (falling back to the OS)
+          and stamps `data-adhar-theme` on <html>, keeping Keycloak's own
+          `pf-v5-theme-dark` class in step. The single dark block below reads both,
+          so it is correct with JS, without JS, and for every combination of
+          explicit choice and OS setting — see the comment on that block.
        ============================================================================ */
 
     /* ----------------------------------------------------------------------------
@@ -98,10 +119,16 @@ data:
       --ad-edge-default:   oklch(0.91 0.008 260);
       --ad-edge-strong:    oklch(0.84 0.012 260);
 
-      /* Page texture — the console's body::before, verbatim */
-      --ad-texture:
-        radial-gradient(ellipse at top left, oklch(0.97 0.02 265 / 0.5), transparent 55%),
-        radial-gradient(ellipse at bottom right, oklch(0.96 0.025 180 / 0.4), transparent 50%);
+      /* Page gradient. The console's two faint radials read as "almost white" on a
+         full-bleed sign-in page, where the background is most of what you see, so
+         this is a fuller Adhar mesh: three brand-ramp radials (blue / cyan / violet)
+         over a vertical base wash. Hues 262/200/292 are the brand ramp and its two
+         neighbours, so it stays on-brand rather than becoming a rainbow. */
+      --ad-gradient:
+        radial-gradient(1100px 620px at 12% -12%, oklch(0.88 0.085 262 / 0.62), transparent 62%),
+        radial-gradient(900px 560px at 88% 2%,    oklch(0.90 0.065 200 / 0.50), transparent 64%),
+        radial-gradient(900px 700px at 50% 112%,  oklch(0.89 0.075 292 / 0.42), transparent 62%),
+        linear-gradient(180deg, oklch(0.985 0.004 260) 0%, oklch(0.962 0.010 262) 100%);
 
       /* Feedback tones */
       --ad-danger:  oklch(0.55 0.21 20);
@@ -114,16 +141,24 @@ data:
       --ad-info-bg: var(--ad-brand-50);
 
       /* Radii — the console's --radius-* scale */
+      color-scheme: light;
+
       --ad-radius-md: 8px;
       --ad-radius-lg: 12px;
       --ad-radius-xl: 16px;
 
       --ad-font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
-      /* Focus ring — matches the console's default input variant
-         (focus-visible:border-slate-400 + ring-slate-900/10). */
+      /* Focus. `--ad-ring` is the console's neutral input ring
+         (focus-visible:border-slate-400 + ring-slate-900/10) and is kept for
+         non-essential affordances, but FORM FIELDS use the brand ring: at 10% slate
+         the neutral ring was all but invisible against a white card, which is both
+         the reported complaint and a WCAG 2.4.11 (focus appearance) problem.
+         `--ad-focus-edge` is the matching border colour, so every focusable control
+         — field, checkbox, button, link — highlights identically. */
       --ad-ring: 0 0 0 3px oklch(0.21 0.02 260 / 0.10);
       --ad-ring-brand: 0 0 0 3px oklch(0.58 0.17 262 / 0.35);
+      --ad-focus-edge: var(--ad-brand-500);
 
       --ad-shadow-sm: 0 1px 2px oklch(0.21 0.02 260 / 0.06);
       --ad-shadow-card:
@@ -132,9 +167,25 @@ data:
     }
 
     /* Dark mode — mirrors the console's `.dark` block. Surfaces, content and edges
-       flip; the brand ramp is deliberately preserved, exactly as the console does. */
-    @media (prefers-color-scheme: dark) {
-      :root {
+       flip; the brand ramp is deliberately preserved, exactly as the console does.
+       ----------------------------------------------------------------------------
+       The two selectors below cover every case with ONE copy of the palette, which
+       is why there is no `prefers-color-scheme` block here to drift out of step:
+
+         [data-adhar-theme="dark"]                      explicit dark (cookie/?theme)
+         .pf-v5-theme-dark:not([data-adhar-theme="light"])
+                                                        system mode on a dark OS, and
+                                                        the no-JS case — Keycloak's own
+                                                        darkMode script sets that class
+                                                        from prefers-color-scheme even
+                                                        if adhar-theme.js never runs
+
+       The `:not(…="light")` guard is what makes an explicit LIGHT choice win on a
+       dark OS: adhar-theme.js also removes the PatternFly class in that case, so the
+       inherited component styles cannot stay dark under our light surfaces. */
+    :root[data-adhar-theme="dark"],
+    :root.pf-v5-theme-dark:not([data-adhar-theme="light"]) {
+        color-scheme: dark;
         --ad-surface-app:    oklch(0.16 0.005 260);
         --ad-surface-sunken: oklch(0.13 0.005 260);
         --ad-surface-raised: oklch(0.21 0.006 260);
@@ -145,9 +196,11 @@ data:
         --ad-edge-default:   oklch(0.3 0.008 260);
         --ad-edge-strong:    oklch(0.42 0.012 260);
 
-        --ad-texture:
-          radial-gradient(ellipse at top left, oklch(0.3 0.05 265 / 0.25), transparent 55%),
-          radial-gradient(ellipse at bottom right, oklch(0.28 0.04 180 / 0.18), transparent 50%);
+        --ad-gradient:
+          radial-gradient(1100px 620px at 12% -12%, oklch(0.48 0.150 262 / 0.46), transparent 62%),
+          radial-gradient(900px 560px at 88% 2%,    oklch(0.44 0.110 200 / 0.36), transparent 64%),
+          radial-gradient(900px 700px at 50% 112%,  oklch(0.42 0.130 292 / 0.32), transparent 62%),
+          linear-gradient(180deg, oklch(0.175 0.008 260) 0%, oklch(0.125 0.010 262) 100%);
 
         --ad-danger-bg:  oklch(0.55 0.21 20 / 0.12);
         --ad-warn-bg:    oklch(0.55 0.14 75 / 0.12);
@@ -155,10 +208,12 @@ data:
         --ad-info-bg:    oklch(0.58 0.17 262 / 0.12);
 
         --ad-ring: 0 0 0 3px oklch(0.96 0.003 260 / 0.12);
+        /* brand-500 at 35% disappears into a dark surface; go brighter and stronger. */
+        --ad-ring-brand: 0 0 0 3px oklch(0.71 0.13 262 / 0.48);
+        --ad-focus-edge: var(--ad-brand-400);
         --ad-shadow-card:
           0 1px 2px oklch(0 0 0 / 0.4),
           0 8px 24px oklch(0 0 0 / 0.35);
-      }
     }
 
     /* ----------------------------------------------------------------------------
@@ -187,12 +242,15 @@ data:
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       text-rendering: optimizeLegibility;
-      /* Kill the inherited artwork outright, then paint the console's surface. */
+      /* Kill the inherited artwork outright, then paint the console's surface as the
+         base colour. The gradient itself is the fixed layer below, so it cannot
+         scroll away from a tall page (the register form is taller than the
+         viewport on a laptop). */
       background-image: none;
       background-color: var(--ad-surface-app);
     }
 
-    /* The console's page texture, as its own fixed layer. */
+    /* The Adhar gradient, as its own fixed layer behind the login stack. */
     .login-pf body::before,
     body#keycloak-bg::before {
       content: '';
@@ -200,7 +258,8 @@ data:
       inset: 0;
       pointer-events: none;
       z-index: 0;
-      background: var(--ad-texture);
+      background: var(--ad-gradient);
+      background-attachment: fixed;
     }
 
     /* ----------------------------------------------------------------------------
@@ -217,19 +276,64 @@ data:
       background: transparent;
     }
 
+    /* ----------------------------------------------------------------------------
+       Container — THE card-geometry fix
+       ----------------------------------------------------------------------------
+       PatternFly turns this element into a TWO-COLUMN named grid at >=1200px, i.e.
+       on essentially every desktop:
+
+           @media (min-width: 1200px) {
+             .pf-v5-c-login__container {
+               grid-template-areas: "main header" "main footer" "main .";
+               grid-template-columns: 34rem minmax(auto, 34rem);
+               padding-inline: 6.125rem;          <- 98px EACH side
+             }
+           }
+
+       The previous rule here overrode `grid-template-columns` to a single column but
+       left `grid-template-areas` alone. A 2-column area template with 1 explicit
+       column does not collapse — the browser adds an implicit second column — so
+       `header` (the 260px logo) was placed BESIDE the card instead of above it, and
+       the inherited 196px of inline padding came off the 440px cap as well. The card
+       was squeezed into whatever remained, which is why its width and height looked
+       wrong on a desktop and correct on a phone (below the 1200px breakpoint).
+
+       So: declare the areas as a single-column stack and neutralise the inherited
+       inline padding. `--ad-card-w` carries the cap so individual pages can widen it.
+       ---------------------------------------------------------------------------- */
     .pf-v5-c-login__container {
-      width: 100%;
-      max-width: 440px;
+      display: grid;
+      grid-template-areas:
+        'header'
+        'main'
+        'footer';
       grid-template-columns: minmax(0, 1fr);
-      margin: 0 auto;
+      justify-content: stretch;
+      width: 100%;
+      max-width: var(--ad-card-w, 448px);
+      margin-inline: auto;
+      padding-inline: 0;
       gap: 0;
+      grid-column-gap: 0;
+    }
+
+    /* The register and update-profile forms carry noticeably more fields; at the
+       sign-in width they turn into a long narrow ribbon. */
+    body[data-page-id='login-register'],
+    body[data-page-id='login-update-profile'],
+    body[data-page-id='login-idp-link-email'] {
+      --ad-card-w: 560px;
     }
 
     /* ----------------------------------------------------------------------------
        Header — Adhar logo + tagline, painted over the realm-name text
        ---------------------------------------------------------------------------- */
     .pf-v5-c-login__header {
+      /* `--pf-v5-c-login__header--xl--MarginTop` pushes the logo down on wide
+         screens; the stack below centres itself, so start flush. */
+      margin-block-start: 0;
       margin-bottom: 22px;
+      padding-inline: 0;
     }
 
     #kc-header {
@@ -272,10 +376,75 @@ data:
     }
 
     /* ----------------------------------------------------------------------------
+       Theme toggle
+       ----------------------------------------------------------------------------
+       Injected into #kc-header by resources/js/adhar-theme.js. Fixed to the viewport
+       corner rather than placed in the header flow, so it cannot shift the logo or
+       the tagline, and it stays reachable on the tall register form. #kc-header sets
+       `color: transparent` to hide the realm name, so the colour is re-declared.
+       ---------------------------------------------------------------------------- */
+    .adhar-theme-toggle {
+      position: fixed;
+      top: max(16px, env(safe-area-inset-top));
+      inset-inline-end: max(16px, env(safe-area-inset-right));
+      z-index: 10;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      padding: 0;
+      color: var(--ad-content-muted);
+      background: var(--ad-surface-raised);
+      border: 1px solid var(--ad-edge-default);
+      border-radius: 999px;
+      box-shadow: var(--ad-shadow-sm);
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+      transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
+    }
+
+    .adhar-theme-toggle:hover {
+      color: var(--ad-content);
+      background: var(--ad-surface-app);
+      border-color: var(--ad-edge-strong);
+    }
+
+    .adhar-theme-toggle:focus-visible {
+      outline: none;
+      border-color: var(--ad-brand-500);
+      box-shadow: var(--ad-ring-brand);
+    }
+
+    .adhar-theme-toggle svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.7;
+    }
+
+    /* The moon is a filled glyph; the sun is drawn with strokes. */
+    .adhar-theme-toggle svg path[d^='M20.1'] {
+      fill: currentColor;
+      stroke: none;
+    }
+
+    .adhar-theme-toggle svg circle {
+      fill: currentColor;
+      stroke: none;
+    }
+
+    /* ----------------------------------------------------------------------------
        Card
        ---------------------------------------------------------------------------- */
     .pf-v5-c-login__main {
+      /* PatternFly sets `align-self: start` and a bottom margin on the card; with
+         the single-column stack above, both just introduce stray offsets. */
+      align-self: stretch;
       width: 100%;
+      margin-block-end: 0;
       background: var(--ad-surface-raised);
       border: 1px solid var(--ad-edge-default);
       border-radius: var(--ad-radius-xl);
@@ -465,8 +634,8 @@ data:
     input.pf-v5-c-form-control:focus,
     textarea.pf-v5-c-form-control:focus,
     select.pf-v5-c-form-control:focus {
-      border-color: var(--ad-edge-strong);
-      box-shadow: var(--ad-ring);
+      border-color: var(--ad-focus-edge);
+      box-shadow: var(--ad-ring-brand);
     }
 
     /* Autofill — keep the field on-brand rather than browser yellow. */
@@ -544,9 +713,37 @@ data:
       background: var(--ad-edge-subtle);
     }
 
+    /* Focus on a password field — the bug worth spelling out.
+       ----------------------------------------------------------------------------
+       The password (and password-confirm) field is an input GROUP: a text wrapper
+       that has had its right border and right corners removed, plus the show/hide
+       button continuing the same outline. The generic field rule above puts the ring
+       on that wrapper, so focusing the password box drew a rounded halo around only
+       the LEFT HALF of what reads as one field, cutting through the middle of it and
+       passing behind the button.
+
+       Fix: the group draws the ring, the inner wrapper draws none. The group is the
+       union of both halves, so one ring follows the real outline — which needs a
+       border-radius here too, or the ring would be a sharp rectangle around a
+       rounded field.
+
+       The inner suppression wins on specificity, (0,3,0) against the (0,2,1) of
+       `span.pf-v5-c-form-control:focus-within`, so it does not depend on rule order. */
+    .pf-v5-c-input-group {
+      border-radius: var(--ad-radius-md);
+    }
+
+    .pf-v5-c-input-group:focus-within {
+      box-shadow: var(--ad-ring-brand);
+    }
+
+    .pf-v5-c-input-group .pf-v5-c-form-control:focus-within {
+      box-shadow: none;
+    }
+
     .pf-v5-c-input-group:focus-within .pf-v5-c-button.pf-m-control,
     .pf-v5-c-input-group:focus-within .pf-v5-c-input-group__item.pf-m-fill > .pf-v5-c-form-control {
-      border-color: var(--ad-edge-strong);
+      border-color: var(--ad-focus-edge);
     }
 
     /* ----------------------------------------------------------------------------
@@ -565,6 +762,13 @@ data:
       accent-color: var(--ad-brand-600);
       border-radius: 4px;
       cursor: pointer;
+    }
+
+    /* "Remember me" had no focus style at all, so tabbing through the form lost the
+       caret between the password field and the submit button. */
+    .pf-v5-c-check__input:focus-visible {
+      outline: none;
+      box-shadow: var(--ad-ring-brand);
     }
 
     .pf-v5-c-check__label {
@@ -658,6 +862,19 @@ data:
       background: var(--ad-surface-sunken);
     }
 
+    /* Only the primary button had a focus ring, so every secondary control — "Back
+       to sign in", the identity-provider buttons — took keyboard focus invisibly. */
+    .pf-v5-c-button.pf-m-secondary:focus-visible,
+    .pf-v5-c-button.pf-m-tertiary:focus-visible,
+    .pf-v5-c-button.pf-m-default:focus-visible,
+    .pf-v5-c-button.pf-m-control:focus-visible,
+    a.zocial:focus-visible,
+    #kc-social-providers a:focus-visible {
+      outline: none;
+      border-color: var(--ad-focus-edge);
+      box-shadow: var(--ad-ring-brand);
+    }
+
     /* ----------------------------------------------------------------------------
        Links + footer bands
        ---------------------------------------------------------------------------- */
@@ -676,17 +893,42 @@ data:
       text-decoration: underline;
     }
 
-    @media (prefers-color-scheme: dark) {
-      a,
-      .pf-v5-c-login__main-footer-band-item a,
-      .pf-v5-c-button.pf-m-link {
-        color: var(--ad-brand-300);
-      }
+    /* Inline links get an offset outline rather than a box-shadow ring: a ring on a
+       text run that wraps across two lines draws a lopsided blob, whereas `outline`
+       follows each line box. Underlining too, so focus is not colour-only. */
+    a:focus-visible,
+    .pf-v5-c-button.pf-m-link:focus-visible {
+      outline: 2px solid var(--ad-focus-edge);
+      outline-offset: 2px;
+      border-radius: 4px;
+      text-decoration: underline;
+    }
 
-      a:hover,
-      .pf-v5-c-button.pf-m-link:hover {
-        color: var(--ad-brand-200);
-      }
+    /* The logo is a link on some pages; a ring around a 260px transparent box looks
+       like a stray rectangle, so keep it tight to the artwork. */
+    #kc-header-wrapper a:focus-visible {
+      outline-offset: 0;
+    }
+
+    /* Links lift to a brighter brand step on dark surfaces. This MUST use the same
+       selector pair as the token block above rather than `prefers-color-scheme`:
+       keyed to the OS, an explicit LIGHT choice on a dark-mode machine left
+       brand-300 links on a white card — the one contrast bug that survived the
+       first pass at dark mode. */
+    :root[data-adhar-theme='dark'] a,
+    :root[data-adhar-theme='dark'] .pf-v5-c-login__main-footer-band-item a,
+    :root[data-adhar-theme='dark'] .pf-v5-c-button.pf-m-link,
+    :root.pf-v5-theme-dark:not([data-adhar-theme='light']) a,
+    :root.pf-v5-theme-dark:not([data-adhar-theme='light']) .pf-v5-c-login__main-footer-band-item a,
+    :root.pf-v5-theme-dark:not([data-adhar-theme='light']) .pf-v5-c-button.pf-m-link {
+      color: var(--ad-brand-300);
+    }
+
+    :root[data-adhar-theme='dark'] a:hover,
+    :root[data-adhar-theme='dark'] .pf-v5-c-button.pf-m-link:hover,
+    :root.pf-v5-theme-dark:not([data-adhar-theme='light']) a:hover,
+    :root.pf-v5-theme-dark:not([data-adhar-theme='light']) .pf-v5-c-button.pf-m-link:hover {
+      color: var(--ad-brand-200);
     }
 
     /* "New user? Register" / "Already have an account?" band.
@@ -822,7 +1064,23 @@ data:
     }
 
     .pf-v5-c-form-control.pf-m-error:focus-within {
-      box-shadow: 0 0 0 3px color-mix(in oklab, var(--ad-danger) 22%, transparent);
+      border-color: var(--ad-danger);
+      box-shadow: 0 0 0 3px color-mix(in oklab, var(--ad-danger) 26%, transparent);
+    }
+
+    /* An invalid PASSWORD field is an input group, so the ring is on the group (see
+       the focus note there) — without this it would focus brand-blue while the field
+       is in an error state, which reads as "fixed" when it is not. */
+    .pf-v5-c-input-group:focus-within:has(.pf-m-error),
+    .pf-v5-c-input-group:focus-within:has(input[aria-invalid='true']) {
+      box-shadow: 0 0 0 3px color-mix(in oklab, var(--ad-danger) 26%, transparent);
+    }
+
+    .pf-v5-c-input-group:focus-within:has(.pf-m-error) .pf-v5-c-button.pf-m-control,
+    .pf-v5-c-input-group:focus-within:has(.pf-m-error) .pf-v5-c-form-control,
+    .pf-v5-c-input-group:focus-within:has(input[aria-invalid='true']) .pf-v5-c-button.pf-m-control,
+    .pf-v5-c-input-group:focus-within:has(input[aria-invalid='true']) .pf-v5-c-form-control {
+      border-color: var(--ad-danger);
     }
 
     /* Keycloak renders empty placeholders under every field — an error container,
@@ -884,7 +1142,230 @@ data:
         width: 220px;
         height: 58px;
       }
+
+      .adhar-theme-toggle {
+        top: max(10px, env(safe-area-inset-top));
+        inset-inline-end: max(10px, env(safe-area-inset-right));
+        width: 34px;
+        height: 34px;
+      }
     }
+
+    /* Between the phone breakpoint and the widened register cap, the 560px cards
+       would otherwise overflow a narrow tablet/split window. */
+    @media (max-width: 600px) {
+      body[data-page-id='login-register'],
+      body[data-page-id='login-update-profile'],
+      body[data-page-id='login-idp-link-email'] {
+        --ad-card-w: 100%;
+      }
+    }
+  adhar-theme.js: |
+    /* =============================================================================
+       Adhar login theme — theme resolution (light / dark / follow-the-OS)
+
+       WHY THIS FILE EXISTS
+       --------------------
+       Keycloak 26 ships its own dark-mode support: keycloak.v2's theme.properties
+       sets `darkMode=true` + `kcDarkModeClass=pf-v5-theme-dark`, and template.ftl
+       inlines a script that adds/removes that class from <html> according to
+       `prefers-color-scheme`. Our stylesheet used to key off the same media query.
+
+       Both therefore follow the OPERATING SYSTEM. Neither follows the Adhar
+       Console, whose light/dark mode is an explicit user choice. Pick dark in the
+       console on a light-mode laptop and the login page stayed white — the bug this
+       file fixes.
+
+       HOW THE PREFERENCE IS SHARED
+       ----------------------------
+       The console runs on console.<domain> and Keycloak on keycloak.<domain>.
+       Different origins, so localStorage is NOT shared. A cookie scoped to the
+       PARENT domain is, so the preference travels in an `adhar-theme` cookie
+       (`light` | `dark` | `system`) set on `.<domain>` — readable by both.
+       `?theme=` on the URL is also honoured (and persisted), which lets the console
+       hand the choice over explicitly on redirect to login.
+
+       WHY A CLASSIC SCRIPT, NOT A MODULE
+       ----------------------------------
+       theme.properties `scripts=` renders `<script src=… type="text/javascript">`
+       in <head>, which is parser-blocking and runs BEFORE first paint — so an
+       explicit choice never flashes the wrong colours. Keycloak's own dark-mode
+       script is `type="module"` and therefore deferred: it runs AFTER this one and
+       would clobber the choice, and it re-applies on every OS change. The observer
+       at the bottom pins our decision back without overriding any template.
+       ============================================================================= */
+    (function () {
+      "use strict";
+
+      var DARK_CLASS = "pf-v5-theme-dark";
+      var COOKIE = "adhar-theme";
+      var MODES = { light: 1, dark: 1, system: 1 };
+      var root = document.documentElement;
+
+      function readCookie(name) {
+        var parts = ("; " + document.cookie).split("; " + name + "=");
+        if (parts.length !== 2) return null;
+        try {
+          return decodeURIComponent(parts.pop().split(";").shift());
+        } catch (e) {
+          return null;
+        }
+      }
+
+      /* The cookie must be visible to sibling subdomains, so it is set one label up
+         (keycloak.platform.adhar.io -> .platform.adhar.io). Returning null means
+         "host-only", which is correct for a bare host or an IP — there are no
+         siblings to share with, and a domain attribute would be rejected anyway. */
+      function cookieDomain() {
+        var host = location.hostname;
+        if (/^[0-9.]+$/.test(host) || host.indexOf(":") !== -1) return null;
+        var labels = host.split(".");
+        if (labels.length < 3) return null;
+        return "." + labels.slice(1).join(".");
+      }
+
+      function writeCookie(name, value) {
+        var domain = cookieDomain();
+        document.cookie =
+          name + "=" + encodeURIComponent(value) +
+          ";path=/;max-age=31536000;samesite=lax" +
+          (location.protocol === "https:" ? ";secure" : "") +
+          (domain ? ";domain=" + domain : "");
+      }
+
+      function resolveMode() {
+        var query = null;
+        try {
+          query = new URLSearchParams(location.search).get("theme");
+        } catch (e) {
+          /* Very old browser: fall through to the cookie. */
+        }
+        if (query && MODES[query]) {
+          writeCookie(COOKIE, query);
+          return query;
+        }
+        var stored = readCookie(COOKIE);
+        return stored && MODES[stored] ? stored : "system";
+      }
+
+      function systemPrefersDark() {
+        return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      }
+
+      var mode = resolveMode();
+      var observer = null;
+
+      /* `data-adhar-theme` is what the stylesheet keys off:
+           - "dark"   forces the dark tokens
+           - "light"  suppresses the prefers-color-scheme dark block
+           - "system" leaves the media query in charge
+         The PatternFly class is kept in step so the inherited component styles and
+         our tokens never disagree — a light choice on a dark OS would otherwise
+         leave PatternFly dark underneath our light surfaces. */
+      function apply() {
+        root.setAttribute("data-adhar-theme", mode);
+
+        if (observer) {
+          observer.disconnect();
+          observer = null;
+        }
+
+        if (mode === "system") {
+          /* Hand the class back to Keycloak's own listener. Set it once here too,
+             because that listener may not have run yet. */
+          root.classList.toggle(DARK_CLASS, systemPrefersDark());
+          return;
+        }
+
+        var wantDark = mode === "dark";
+        root.classList.toggle(DARK_CLASS, wantDark);
+
+        /* Keycloak's deferred module re-applies the OS preference, so re-assert. */
+        if (window.MutationObserver) {
+          observer = new MutationObserver(function () {
+            if (root.classList.contains(DARK_CLASS) !== wantDark) {
+              root.classList.toggle(DARK_CLASS, wantDark);
+            }
+          });
+          observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+        }
+      }
+
+      apply();
+
+      /* ---------------------------------------------------------------------------
+         Toggle control
+         ---------------------------------------------------------------------------
+         Without a control the shared cookie can only ever be set by the console, so
+         the fix would be untestable from the login page itself. The button writes
+         the SAME cookie the console reads, so the two surfaces round-trip.
+         Rendered from script rather than an FTL override, keeping the theme's
+         "no templates overridden" property intact.
+         ------------------------------------------------------------------------- */
+      var SUN =
+        '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+        '<circle cx="12" cy="12" r="4.2"/>' +
+        '<g stroke-linecap="round"><path d="M12 2.6v2.4M12 19v2.4M2.6 12h2.4M19 12h2.4' +
+        'M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7"/></g></svg>';
+      var MOON =
+        '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+        '<path d="M20.1 14.6A8.4 8.4 0 1 1 9.4 3.9a6.9 6.9 0 0 0 10.7 10.7z"/></svg>';
+
+      function effectiveDark() {
+        if (mode === "dark") return true;
+        if (mode === "light") return false;
+        return systemPrefersDark();
+      }
+
+      function label() {
+        return effectiveDark() ? "Switch to light theme" : "Switch to dark theme";
+      }
+
+      function mountToggle() {
+        var header = document.getElementById("kc-header");
+        if (!header || document.getElementById("adhar-theme-toggle")) return;
+
+        var button = document.createElement("button");
+        button.id = "adhar-theme-toggle";
+        button.type = "button";
+        button.className = "adhar-theme-toggle";
+        button.setAttribute("aria-label", label());
+        button.setAttribute("title", label());
+        button.innerHTML = effectiveDark() ? SUN : MOON;
+
+        button.addEventListener("click", function () {
+          mode = effectiveDark() ? "light" : "dark";
+          writeCookie(COOKIE, mode);
+          apply();
+          button.innerHTML = effectiveDark() ? SUN : MOON;
+          button.setAttribute("aria-label", label());
+          button.setAttribute("title", label());
+        });
+
+        header.appendChild(button);
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", mountToggle);
+      } else {
+        mountToggle();
+      }
+
+      /* In system mode the icon must track the OS as it changes. */
+      if (window.matchMedia) {
+        var mq = window.matchMedia("(prefers-color-scheme: dark)");
+        var onChange = function () {
+          if (mode !== "system") return;
+          var button = document.getElementById("adhar-theme-toggle");
+          if (!button) return;
+          button.innerHTML = effectiveDark() ? SUN : MOON;
+          button.setAttribute("aria-label", label());
+          button.setAttribute("title", label());
+        };
+        if (mq.addEventListener) mq.addEventListener("change", onChange);
+        else if (mq.addListener) mq.addListener(onChange);
+      }
+    })();
   adhar-symbol.svg: |
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="110 40 260 260" width="260" height="260" role="img" aria-label="Adhar symbol">
       <defs>
@@ -901,7 +1382,6 @@ data:
       </g>
       <path d="M 240,102 L 281,219 L 240,192 L 199,219 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"/>
     </svg>
-
   adhar-logo.svg: |
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 150" width="560" height="150" role="img" aria-label="Adhar">
       <defs>
@@ -928,4 +1408,3 @@ data:
       <!-- ADHAR wordmark (Inter 800; falls back to system-ui if Inter absent) -->
       <text x="172" y="104" font-family="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="86" font-weight="800" letter-spacing="-2" fill="url(#adharWordmarkBrand)">ADHAR</text>
     </svg>
-

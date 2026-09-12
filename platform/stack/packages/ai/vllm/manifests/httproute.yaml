@@ -4,22 +4,33 @@
 #     https://vllm.adhar.localtest.me:8443/v1/models
 #     https://vllm.adhar.localtest.me:8443/v1/chat/completions
 #
-# THIS ROUTE IS A DEBUGGING / DIRECT-ACCESS PATH, NOT THE PRIMARY ONE.
+# THIS ROUTE IS A DIRECT-ACCESS PATH, NOT THE PRIMARY ONE.
 # The intended production consumer is `ai/agentgateway`, which fronts vLLM as
 # one of its LLM backends over the cluster-internal address
 #     http://vllm.adhar-system.svc.cluster.local:8000/v1
-# and is where auth, per-team routing, rate limiting and token accounting
+# and is where per-team routing, rate limiting, guardrails and token accounting
 # belong. ai/adhar-ai reaches the same endpoint with provider=openai-compatible.
-# Keep both: the direct route is how you curl the engine when the gateway in
-# front of it is the thing you are debugging, and how a developer on a laptop
-# talks to the local CPU profile without standing up the whole AI stack.
+# Keep both: this route is how you curl the engine when the gateway in front of
+# it is the thing you are debugging, and how a developer talks to the local CPU
+# profile without standing up the whole AI stack. What it is NOT, any more, is
+# unauthenticated — see below.
 #
-# ⚠️ THERE IS NO AUTHENTICATION ON THIS ROUTE. vLLM's own `--api-key` is a
-# single shared static string and upstream explicitly warns not to rely on it.
-# On a local Kind cluster the Gateway is only reachable from the host, which is
-# fine. Before enabling vLLM on an internet-facing platform, either drop this
-# file and route through agentgateway, or put the Keycloak oauth2-proxy in front
-# of it the way application/n8n's sso.yaml does.
+# THIS ROUTE IS AUTHENTICATED. It no longer reaches vLLM directly: the backend
+# is the Keycloak oauth2-proxy in manifests/sso.yaml, which forwards to
+# http://vllm.adhar-system.svc.cluster.local:8000 only after the caller proves
+# an identity in the `adhar` realm. It is generated in SSO_BEARER mode
+# (`SSO_BEARER=1 hack/gen-sso.sh ... vllm vllm 8000`), which matters here
+# because vLLM is an API, not a web UI: a browser redirect flow is the wrong
+# shape for `curl` and for an OpenAI SDK client, so the proxy also accepts a
+# Keycloak-issued bearer access token directly.
+#
+#     TOKEN=$(adhar auth token)
+#     curl -H "Authorization: Bearer $TOKEN" \
+#          https://vllm.adhar.localtest.me:8443/v1/models
+#
+# vLLM's own `--api-key` is deliberately NOT used: it is a single shared static
+# string that upstream warns against relying on, it cannot be revoked per user,
+# and it would put a credential in a place the platform does not rotate.
 #
 # The hostname is written with the local convention (vllm.adhar.localtest.me);
 # stageStack() rewrites it to vllm.<host><portSuffix> for every other topology
@@ -38,6 +49,9 @@ metadata:
     # healthy, and an HTTPRoute whose backend Service has no endpoints yet is
     # Degraded — at an earlier wave that deadlocks the first sync (the same
     # ordering bug documented in application/n8n/manifests/httproute.yaml).
+    # Wave 6: after BOTH the engine (wave 5) and the oauth2-proxy this route now
+    # points at (also wave 5). An HTTPRoute whose backend Service has no
+    # endpoints yet is Degraded, which deadlocks the first sync.
     argocd.argoproj.io/sync-wave: "6"
 spec:
   parentRefs:
@@ -51,8 +65,10 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: vllm
-          port: 8000
+        # The oauth2-proxy, NOT the engine. It forwards to vllm:8000 once the
+        # caller is authenticated (manifests/sso.yaml).
+        - name: vllm-oauth2-proxy
+          port: 4180
       timeouts:
         # Generation is slow — minutes for a long completion on CPU. The Gateway
         # API default request timeout would cut a legitimate long response off

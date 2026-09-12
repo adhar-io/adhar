@@ -26,7 +26,7 @@ provenance:
   scanned: true
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
-planeAffinity: control-plane
+planeAffinity: data-plane   # vizier-pem DaemonSet collects on every workload node
 stability: alpha
 resources:
   localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml

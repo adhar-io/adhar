@@ -98,9 +98,18 @@ data:
         "type": "password",
         "value": "${USER1_PASSWORD}"
     }
+  # NOTE the username is the EMAIL, and must stay that way.
+  #
+  # The realm is created with `registrationEmailAsUsername: true`, and Keycloak
+  # then OVERWRITES whatever username is submitted with the email address. This
+  # file used to say `"username": "user1"`, which the server silently discarded —
+  # the account that actually existed was `user1@noreply.com`. Anyone reading this
+  # config (or `adhar get secrets`) concluded they could sign in as `user1`, got
+  # `user_not_found`, and saw the deliberately vague "Invalid username or
+  # password". Spelling out the real value costs nothing and removes the trap.
   user-user1.json: |
     {
-        "username": "user1",
+        "username": "user1@noreply.com",
         "email": "user1@noreply.com",
         "firstName": "user",
         "lastName": "one",
@@ -111,9 +120,10 @@ data:
         ],
         "enabled": true
     }
+  # Username is the email — see the note on user-user1.json above.
   user-user2.json: |
     {
-        "username": "user2",
+        "username": "user2@noreply.com",
         "email": "user2@noreply.com",
         "firstName": "user",
         "lastName": "two",
@@ -779,7 +789,7 @@ data:
     # sslRequired=NONE on every sync, so admin login keeps working.
     kc -X PUT --data '{"sslRequired":"NONE"}' "${KEYCLOAK_URL}/admin/realms/master"
 
-    # Same for the adhar realm (user1/user2 + app SSO). No-op 404 on the very
+    # Same for the adhar realm (user1@/user2@ + app SSO). No-op 404 on the very
     # first run before the realm exists (it is then created with
     # sslRequired=NONE from realm-payload.json below); on later runs it fixes
     # a pre-existing realm created as sslRequired=external. Also (re)applies

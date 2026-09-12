@@ -26,7 +26,7 @@ provenance:
   scanned: true
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
-planeAffinity: control-plane
+planeAffinity: any   # operator is control-plane; contour-envoy and the functions run on workload nodes
 stability: alpha
 resources:
   localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml

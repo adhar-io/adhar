@@ -93,6 +93,7 @@ adhar up                     # create or converge the platform (local Kind by de
 adhar up -f config.yaml      # cloud / production, from a config file
 adhar upgrade                # converge foundation, diff and re-push the stack
 adhar down                   # tear down the local platform
+adhar down -f config.yaml --env dev   # tear down a CLOUD environment
 ```
 
 ### Inspection

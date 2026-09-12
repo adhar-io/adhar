@@ -36,9 +36,10 @@ Adhar provisions Kubernetes **v1.37.0** by default. Override it with `adhar up -
 curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install.sh | bash
 
 # or Homebrew
-brew tap adhar-io/tap
-brew trust adhar-io/tap    # newer Homebrew versions gate third-party taps
-brew install adhar
+brew install adhar-io/tap/adhar
+# equivalently: brew tap adhar-io/tap && brew install adhar
+# only if you have HOMEBREW_REQUIRE_TAP_TRUST set, trust the tap once first:
+#   brew trust --tap adhar-io/tap
 
 # or download an archive from https://github.com/adhar-io/adhar/releases
 
@@ -175,6 +176,8 @@ Credentials, regions, node pools and per-cloud caveats: [Provider Guide](PROVIDE
 
 ```bash
 adhar down              # remove the local Kind node and Adhar state
+                        # (a cloud environment needs its config:
+                        #  adhar down -f config.yaml --env dev)
 adhar up --recreate     # or: destroy and rebuild in one step
 ```
 

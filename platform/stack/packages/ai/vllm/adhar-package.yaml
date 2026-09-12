@@ -25,12 +25,17 @@ dependencies:
   - name: kube-prometheus
     category: observability
     optional: true
-  # external-secrets projects the optional HF_TOKEN for gated model repos.
-  # Optional: both default models are ungated and the Deployments mark the
-  # secret reference `optional: true`, so a missing Secret never blocks start.
+  # external-secrets projects the optional HF_TOKEN for gated model repos AND the
+  # oauth2-proxy's client/cookie secrets. NOT optional any more: manifests/
+  # sso.yaml's ExternalSecret is what gates the public route, and without ESO the
+  # proxy never starts, so the route has no backend rather than an open one.
   - name: external-secrets
     category: security
-    optional: true
+  # keycloak issues the `vllm` client the oauth2-proxy in manifests/sso.yaml
+  # authenticates against, and in SSO_BEARER mode also mints the access tokens
+  # an API caller presents. Without it the route cannot authenticate anyone.
+  - name: keycloak
+    category: security
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
   # Deliberately no upstreamChart: the vllm-stack production-stack chart is
@@ -59,11 +64,14 @@ resources:
   localSafe: false
   notes: >-
     Three ApplicationSet elements from one package directory: `vllm`
-    (ai/vllm/manifests — PVC, Service, HTTPRoute, ServiceMonitor, dashboard,
-    HF-token ExternalSecret), `vllm-cpu` (ai/vllm/manifests/cpu) and `vllm-gpu`
-    (ai/vllm/manifests/gpu). Enable `vllm` plus exactly ONE profile: both
-    Deployments are named `vllm` and share one Service. The GPU profile needs a
-    GPU node pool with the NVIDIA device plugin advertising nvidia.com/gpu.
+    (ai/vllm/manifests — PVC, Service, HTTPRoute, oauth2-proxy SSO,
+    ServiceMonitor, dashboard, HF-token ExternalSecret), `vllm-cpu`
+    (ai/vllm/manifests/cpu) and `vllm-gpu` (ai/vllm/manifests/gpu). Enable
+    `vllm` plus exactly ONE profile: both Deployments are named `vllm` and share
+    one Service. The GPU profile needs a GPU node pool with the NVIDIA device
+    plugin advertising nvidia.com/gpu. The public route is Keycloak-authenticated
+    (SSO_BEARER mode, so an API client may present a bearer token rather than
+    complete a browser redirect).
 keywords:
   - ai
   - llm

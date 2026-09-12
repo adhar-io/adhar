@@ -35,6 +35,23 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// Seeded Keycloak test users, as they are ACTUALLY addressable at the login page.
+//
+// The `adhar` realm is created with `registrationEmailAsUsername: true` (see
+// security/keycloak/manifests/keycloak-config.yaml — it keeps every identity
+// addressable by email). With that setting Keycloak OVERWRITES the submitted
+// username with the email when the account is created, so the provisioning
+// payload `{"username":"user1","email":"user1@noreply.com"}` produces an account
+// whose username is `user1@noreply.com`.
+//
+// This command used to print `user1`, which cannot authenticate: Keycloak answers
+// `user_not_found` and the login page shows the deliberately vague "Invalid
+// username or password". Print what actually works.
+const (
+	keycloakSeedUser1 = "user1@noreply.com"
+	keycloakSeedUser2 = "user2@noreply.com"
+)
+
 // secretsCmd represents the secrets command
 var secretsCmd = &cobra.Command{
 	Use:   "secrets",
@@ -356,8 +373,8 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 		if strings.Contains(secret.Name, "keycloak-config") {
 			pw := string(secret.Data["USER_PASSWORD"])
 			return []SecretEntry{
-				{Icon: "👤", Service: "Keycloak user1 (admin)", Username: "user1", Password: pw},
-				{Icon: "👤", Service: "Keycloak user2 (developer)", Username: "user2", Password: pw},
+				{Icon: "👤", Service: "Keycloak user1 (admin)", Username: keycloakSeedUser1, Password: pw},
+				{Icon: "👤", Service: "Keycloak user2 (developer)", Username: keycloakSeedUser2, Password: pw},
 			}
 		}
 	case "keycloak":
@@ -370,10 +387,10 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 				Username: "adhar-admin", Password: string(secret.Data["KEYCLOAK_ADMIN_PASSWORD"]),
 			}, SecretEntry{
 				Icon: "👤", Service: "Keycloak user1 (admin)",
-				Username: "user1", Password: pw,
+				Username: keycloakSeedUser1, Password: pw,
 			}, SecretEntry{
 				Icon: "👤", Service: "Keycloak user2 (developer)",
-				Username: "user2", Password: pw,
+				Username: keycloakSeedUser2, Password: pw,
 			})
 		}
 		if strings.Contains(secret.Name, "keycloak-clients") {

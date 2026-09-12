@@ -51,6 +51,13 @@ paths have run against real hardware.
 | **`custom` (bring your own hosts)** | ⚙️ Render-verified | Same kubeadm flow over SSH against machines you own |
 | **Kind (local)** | ✅ Exercised continuously | `make e2e` runs a full `adhar up` → verify → `adhar down` cycle |
 
+**Per-provider setup pages** — credentials, a complete configuration, the exact
+commands and the limits that bite:
+[DigitalOcean](DIGITALOCEAN_PROVIDER.md) (the verified reference) ·
+[Kind](KIND_PROVIDER.md) · [AWS](AWS_PROVIDER.md) · [Azure](AZURE_PROVIDER.md) ·
+[GCP](GCP_PROVIDER.md) · [Civo](CIVO_PROVIDER.md) ·
+[Your own hosts](CUSTOM_PROVIDER.md)
+
 Phase 3 (preview environments, the ML golden path, the AI stack) is built but
 awaits a live run; scorecards and the package marketplace contracts are
 live-verified.
@@ -289,7 +296,7 @@ volumes behind its PersistentVolumes (the CSI driver tags them
 `--purge-orphaned-volumes` to sweep pre-tagging `pvc-*` leftovers.
 
 The complete verified run (exact config, commands, timings, verification,
-teardown) is in [DIGITALOCEAN_PRODUCTION.md](DIGITALOCEAN_PRODUCTION.md).
+teardown) is in [DIGITALOCEAN_PROVIDER.md](DIGITALOCEAN_PROVIDER.md).
 
 ### AWS (EC2 compute)
 
@@ -436,5 +443,5 @@ than partial behaviour.
 **Related**: [Getting Started](GETTING_STARTED.md) ·
 [Production Guide](PRODUCTION.md) · [Production Access](PRODUCTION_ACCESS.md) ·
 [Troubleshooting](TROUBLESHOOTING.md) ·
-[DigitalOcean runbook](DIGITALOCEAN_PRODUCTION.md) ·
+[DigitalOcean runbook](DIGITALOCEAN_PROVIDER.md) ·
 [Customization §10](CUSTOMIZATION.md#10-add-a-provider)

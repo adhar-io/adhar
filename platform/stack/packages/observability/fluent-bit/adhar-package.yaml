@@ -30,7 +30,7 @@ provenance:
   scanner: trivy
   sbom: sbom/fluent-bit.spdx.json
 planeAffinity: data-plane      # runs as a per-node DaemonSet collecting node/pod logs
-stability: stable
+stability: alpha   # enabled in no curated set
 resources:
   cpu: 50m
   memory: 64Mi

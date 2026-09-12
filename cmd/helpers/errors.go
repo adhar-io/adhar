@@ -17,6 +17,7 @@ limitations under the License.
 package helpers
 
 import (
+	"adhar-io/adhar/platform/utils"
 	"fmt"
 	"os"
 	"strings"
@@ -110,8 +111,14 @@ func inferHint(err error) string {
 		strings.Contains(msg, "no configuration has been provided"),
 		strings.Contains(msg, "unable to load"):
 		return "No reachable cluster found. Start one with: adhar up"
-	case strings.Contains(msg, "docker"):
-		return "Make sure Docker is installed and running, then retry."
+	case strings.Contains(msg, "docker"), strings.Contains(msg, "podman"),
+		strings.Contains(msg, "container engine"):
+		eng := utils.DetectContainerEngine()
+		if eng.Available {
+			return fmt.Sprintf("%s is running. If this persists, check that it can create containers.", eng.Name)
+		}
+		return fmt.Sprintf("Start a container engine (%s), then retry.",
+			strings.Join(utils.EngineNames(), ", "))
 	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
 		return "Check your credentials and permissions for this cluster."
 	default:

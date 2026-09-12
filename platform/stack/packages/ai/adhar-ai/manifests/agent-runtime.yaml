@@ -26,12 +26,21 @@ data:
   config.yaml: |
     # -------------------------------------------------------------------------
     # Staged autonomy. Global default is deliberately conservative: `suggest`.
-    #   read-only        : investigate + answer; no write tools offered at all
-    #   suggest          : write tools allowed, but every write yields a PR and
-    #                       pauses for a human merge (assistant-equivalent)
-    #   approve-to-apply : write yields a PR; CI may auto-merge under policy
-    #   scoped           : narrow, policy-gated auto-merge of PRs on allowlisted
-    #                       paths — still a Git PR, never a direct mutation
+    # Each rung differs from the one below in a way you can observe:
+    #   read-only        : write tools are not offered at all, and are refused if
+    #                       called anyway
+    #   suggest          : write tools allowed; the FIRST pull request ends the run,
+    #                       so a human reads one proposal rather than a chain
+    #   approve-to-apply : the run CONTINUES after a pull request, so the agent can
+    #                       verify its own proposal; a human still merges every one
+    #   scoped           : runs unattended, and is therefore confined to the
+    #                       NARROWER writePolicy.scoped allow-list below — which is
+    #                       EMPTY by default, so this rung permits no write at all
+    #                       until an operator enumerates what it may touch
+    #
+    # Authority only ever NARROWS. This file sets a ceiling; an operator policy may
+    # be stricter; a /chat request may ask for less; and an unauthenticated caller is
+    # pinned to read-only regardless. Nothing widens it.
     # -------------------------------------------------------------------------
     autonomy:
       default: suggest
@@ -46,6 +55,16 @@ data:
       allowedPathPrefixes:
         - "packages/"
         - "environments/"
+      # The NARROWER list that `scoped` autonomy runs under. Left empty on purpose:
+      # `scoped` opens pull requests unattended, so inheriting the broad list above
+      # would be a silent widening. Until these are enumerated, `scoped` refuses
+      # every write and says which field to set. Example:
+      #   scoped:
+      #     allowedRepos: [environments]
+      #     allowedPathPrefixes: ["environments/dev/"]
+      scoped:
+        allowedRepos: []
+        allowedPathPrefixes: []
     # Event-driven operators. Autonomy is per-operator, never above `suggest`
     # here — bump deliberately as trust is calibrated (ADR-0024 consequences).
     operators:
@@ -77,8 +96,12 @@ data:
     # RAG grounding store (pgvector on CNPG — see pgvector-rag.yaml).
     rag:
       enabled: true
-      database: adhar-ai-rag
       table: kb_chunk
+    # Findings survive a restart in this table, on the same database as the RAG
+    # index. With no database configured they stay in memory only, and /healthz
+    # says so rather than pretending they are durable.
+    findings:
+      table: finding
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -138,6 +161,32 @@ spec:
               value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
             - name: OIDC_CLIENT_ID
               value: "adhar-ai"
+            # Signing keys are fetched from the IN-CLUSTER Keycloak Service while
+            # the issuer above stays the PUBLIC realm URL, because `iss` must
+            # match the token byte-for-byte. The split means key retrieval does
+            # not depend on the platform's own ingress, so /chat authenticates on
+            # a fresh cluster before DNS and TLS have settled, and a Keycloak key
+            # rotation never waits on the edge. Same split ADR-0025 specifies for
+            # agentgateway.
+            - name: ADHAR_AI_OIDC_JWKS_URL
+              value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/certs"
+            # Keycloak groups allowed to drive a WRITE (a Gitea pull request).
+            # Mirrors the agentgateway authorization table in ADR-0025:
+            # platform-developer investigates, platform-admin may propose.
+            - name: ADHAR_AI_WRITE_GROUPS
+              value: "platform-admin"
+            # Shared bearer for the machine callers that hold no OIDC client:
+            # Alertmanager (http_config.authorization.credentials) and ArgoCD
+            # notifications. Accepted ONLY on /operators/{name}/event, never on
+            # /chat. Optional: with no token those callers are still answered and
+            # triaged, but pinned to read-only, so an unauthenticated POST cannot
+            # open a pull request.
+            - name: ADHAR_AI_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: adhar-ai-webhook
+                  key: WEBHOOK_TOKEN
+                  optional: true
             # RAG connection (pgvector on CNPG). Credentials from the CNPG-issued
             # app secret (see pgvector-rag.yaml).
             - name: RAG_DB_HOST

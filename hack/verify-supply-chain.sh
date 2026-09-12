@@ -40,6 +40,8 @@
 #   HARBOR_PASS     Harbor password                  (default: read from the harbor-push Secret)
 #   SIGNED_SRC      upstream image copied as :signed (default: registry.k8s.io/pause:3.9)
 #   UNSIGNED_SRC    upstream image copied as :unsigned (default: registry.k8s.io/pause:3.10)
+#   CRANE           path to a crane binary, if not on PATH
+#   DRILL_PROJECT   Harbor project for the drill  (default: adhar-drill)
 #   KEEP=1          leave the scratch namespace/policy in place for inspection
 #
 set -euo pipefail
@@ -48,7 +50,17 @@ CONTEXT="${KUBE_CONTEXT:-kind-adhar}"
 KUBECTL=(kubectl --context "${CONTEXT}")
 NS="adhar-supplychain-drill"
 POLICY="adhar-supplychain-drill"
-REPO_PATH="library/adhar-supplychain-drill"
+# A DEDICATED Harbor project, not `library`. The platform's own
+# `verify-supply-chain-images` ClusterPolicy (application/supply-chain) Enforces
+# signature verification against the PLATFORM's cosign key for
+# `harbor.*/library/*` — the images its supply chain builds. A drill image
+# pushed under `library/` is matched by that policy and rejected, because it is
+# signed with this drill's throwaway key and not the platform's. That made step
+# 6 fail on a perfectly good signature and blamed the drill's own policy.
+# Its own project keeps the drill genuinely independent of platform policy,
+# which is what this script claims to be.
+DRILL_PROJECT="${DRILL_PROJECT:-adhar-drill}"
+REPO_PATH="${DRILL_PROJECT}/adhar-supplychain-drill"
 SIGNED_SRC="${SIGNED_SRC:-registry.k8s.io/pause:3.9}"
 UNSIGNED_SRC="${UNSIGNED_SRC:-registry.k8s.io/pause:3.10}"
 PLATFORM_NS="adhar-system"
@@ -75,11 +87,15 @@ cleanup() {
     # Best effort: drop the drill repository from Harbor so repeated runs do not
     # accumulate artifacts. Harbor serves a self-signed cert locally (-k).
     if [[ -n "${HARBOR_HOST:-}" && -n "${HARBOR_USER:-}" ]]; then
-      if curl -sk -u "${HARBOR_USER}:${HARBOR_PASS:-}" -X DELETE \
-           "https://${HARBOR_HOST}/api/v2.0/projects/library/repositories/adhar-supplychain-drill" \
-           -o /dev/null -w '' 2>/dev/null; then
-        info "removed Harbor repository ${REPO_PATH} (best effort)"
-      fi
+      curl -sk -u "${HARBOR_USER}:${HARBOR_PASS:-}" -X DELETE \
+        "https://${HARBOR_HOST}/api/v2.0/projects/${DRILL_PROJECT}/repositories/adhar-supplychain-drill" \
+        -o /dev/null 2>/dev/null || true
+      # The project only exists for the drill, so remove it too — Harbor refuses
+      # while it still holds repositories, hence the order.
+      curl -sk -u "${HARBOR_USER}:${HARBOR_PASS:-}" -X DELETE \
+        "https://${HARBOR_HOST}/api/v2.0/projects/${DRILL_PROJECT}" \
+        -o /dev/null 2>/dev/null || true
+      info "removed Harbor repository ${REPO_PATH} and project ${DRILL_PROJECT} (best effort)"
     fi
   fi
   [[ -n "${TMP}" ]] && rm -rf "${TMP}"
@@ -113,12 +129,16 @@ info "kyverno-admission-controller: ${READY_KYVERNO} ready replica(s)"
 "${KUBECTL[@]}" get svc -n "${PLATFORM_NS}" harbor-core >/dev/null 2>&1 \
   || die "Harbor is not installed (no svc/harbor-core in ${PLATFORM_NS}) — the drill needs the platform registry"
 
-# Registry host. Default to the platform edge name Harbor publishes itself at
+# Registry host. `sed -E`, not a BRE with `\?`: BSD sed (macOS, where this drill
+# is usually run) reads `\?` as a literal '?', so the scheme survived the strip
+# and every URL below became https://https://harbor…/ — which fails as an
+# unreachable-registry error that points nowhere near the actual cause.
+# Default to the platform edge name Harbor publishes itself at
 # (EXT_ENDPOINT), which the Gateway also serves on an in-cluster :8443 listener
 # — so the SAME reference string works from this laptop and from Kyverno.
 if [[ -z "${HARBOR_HOST:-}" ]]; then
   HARBOR_HOST="$("${KUBECTL[@]}" get cm -n "${PLATFORM_NS}" harbor-core \
-    -o jsonpath='{.data.EXT_ENDPOINT}' 2>/dev/null | sed -e 's#^https\?://##' -e 's#/$##')"
+    -o jsonpath='{.data.EXT_ENDPOINT}' 2>/dev/null | sed -E -e 's#^https?://##' -e 's#/$##')"
 fi
 [[ -n "${HARBOR_HOST}" ]] || die "could not determine the Harbor host — set HARBOR_HOST=harbor.<domain>:<port>"
 info "harbor: ${HARBOR_HOST}"
@@ -166,13 +186,58 @@ info "keypair written to ${TMP} (discarded on exit)"
 #    would also satisfy :unsigned and the drill would prove nothing.
 # ---------------------------------------------------------------------------
 step "2/6  Copy two tiny public images into Harbor"
-# --allow-insecure-registry: Harbor terminates TLS with the per-cluster `adhar`
-# CA, which this laptop does not trust.
-cosign copy -f --allow-insecure-registry "${SIGNED_SRC}"   "${IMG}:signed" >/dev/null 2>&1 \
-  || die "failed to copy ${SIGNED_SRC} -> ${IMG}:signed"
+# Harbor terminates TLS with the per-cluster `adhar` CA, which this laptop does
+# not trust, so every copier below is told to accept the certificate.
+#
+# Why this is not just `cosign copy`: cosign v2.4.2 validates `--only` even when
+# the flag was never passed, so `cosign copy` fails outright with
+# "invalid value for --only:" — the subcommand is unusable in that release.
+# Pinning the drill to one copier makes it hostage to whichever cosign the
+# machine happens to have, so try the tools in order of suitability and say
+# plainly which one ran. crane is preferred: it is a single static binary, it is
+# the reference implementation of registry-to-registry copy, and it needs no
+# daemon.
+# Create the drill's project. Idempotent: Harbor answers 409 when it exists,
+# which is success for our purposes.
+PROJ_CODE="$(curl -sk -u "${HARBOR_USER}:${HARBOR_PASS}" -X POST \
+  -H 'Content-Type: application/json' \
+  -d "{\"project_name\":\"${DRILL_PROJECT}\",\"public\":true}" \
+  -o /dev/null -w '%{http_code}' "https://${HARBOR_HOST}/api/v2.0/projects" 2>/dev/null || echo 000)"
+case "${PROJ_CODE}" in
+  201) info "created Harbor project ${DRILL_PROJECT}" ;;
+  409) info "Harbor project ${DRILL_PROJECT} already exists" ;;
+  *)   die "could not create Harbor project ${DRILL_PROJECT} (HTTP ${PROJ_CODE})" ;;
+esac
+
+COPIER=""
+for cand in "${CRANE:-crane}" skopeo; do
+  command -v "${cand}" >/dev/null 2>&1 && { COPIER="${cand}"; break; }
+done
+if [[ -z "${COPIER}" ]] && cosign copy --help >/dev/null 2>&1 \
+     && ! cosign copy 2>&1 | grep -q 'invalid value for --only'; then
+  COPIER="cosign"
+fi
+[[ -n "${COPIER}" ]] || die "no usable image copier found. Install one:
+    go install github.com/google/go-containerregistry/cmd/crane@latest   # preferred
+    brew install skopeo
+  (cosign copy would do, but cosign $(cosign version 2>/dev/null | awk '/GitVersion/{print $2}' | head -1) rejects its own default --only)"
+
+copy_image() {  # $1=src  $2=dst
+  case "${COPIER}" in
+    cosign) cosign copy -f --allow-insecure-registry "$1" "$2" ;;
+    skopeo) skopeo copy --dest-tls-verify=false --src-tls-verify=true \
+              --dest-authfile "${DOCKER_CONFIG}/config.json" \
+              "docker://$1" "docker://$2" ;;
+    *)      "${COPIER}" copy --insecure "$1" "$2" ;;
+  esac
+}
+info "copier: ${COPIER}"
+
+copy_image "${SIGNED_SRC}"   "${IMG}:signed"   >/dev/null 2>&1 \
+  || die "failed to copy ${SIGNED_SRC} -> ${IMG}:signed (copier: ${COPIER})"
 info "${SIGNED_SRC} -> ${IMG}:signed"
-cosign copy -f --allow-insecure-registry "${UNSIGNED_SRC}" "${IMG}:unsigned" >/dev/null 2>&1 \
-  || die "failed to copy ${UNSIGNED_SRC} -> ${IMG}:unsigned"
+copy_image "${UNSIGNED_SRC}" "${IMG}:unsigned" >/dev/null 2>&1 \
+  || die "failed to copy ${UNSIGNED_SRC} -> ${IMG}:unsigned (copier: ${COPIER})"
 info "${UNSIGNED_SRC} -> ${IMG}:unsigned"
 
 DIG_SIGNED="$(cosign triangulate --allow-insecure-registry --type digest "${IMG}:signed" 2>/dev/null || true)"
@@ -261,12 +326,20 @@ ${PUBKEY_INDENTED}
 EOF
 info "clusterpolicy/${POLICY} applied"
 
+# Readiness moved: current Kyverno reports it as a standard `Ready` condition and
+# no longer sets the older top-level `.status.ready` boolean. Reading only the
+# old field made this drill fail on a policy that was in fact Ready — a false
+# negative that looks exactly like a broken policy. Accept either, newest first.
 for _ in $(seq 1 30); do
+  READY="$("${KUBECTL[@]}" get clusterpolicy "${POLICY}" \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+  [[ "${READY}" == "True" ]] && break
   READY="$("${KUBECTL[@]}" get clusterpolicy "${POLICY}" -o jsonpath='{.status.ready}' 2>/dev/null || true)"
   [[ "${READY}" == "true" ]] && break
   sleep 2
 done
-[[ "${READY:-}" == "true" ]] || die "clusterpolicy/${POLICY} never became ready: $("${KUBECTL[@]}" get clusterpolicy "${POLICY}" -o jsonpath='{.status}' 2>/dev/null)"
+[[ "${READY:-}" == "True" || "${READY:-}" == "true" ]] \
+  || die "clusterpolicy/${POLICY} never became ready: $("${KUBECTL[@]}" get clusterpolicy "${POLICY}" -o jsonpath='{.status}' 2>/dev/null)"
 info "clusterpolicy/${POLICY} is ready"
 
 pod_manifest() { # $1 = pod name, $2 = image

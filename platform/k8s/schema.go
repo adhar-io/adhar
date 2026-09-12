@@ -12,6 +12,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -30,6 +31,12 @@ func GetScheme() *runtime.Scheme {
 		networkingv1.AddToScheme,
 		policyv1.AddToScheme,
 		rbacv1.AddToScheme,
+		// storage/v1 carries CSINode, which the node autoscaler reads to learn
+		// the per-node volume attach limit (7 on DigitalOcean). Without it the
+		// List fails with "no kind is registered for the type v1.CSINodeList",
+		// the limit reads as unknown, and multi-node scale-up bursts silently
+		// degrade to one worker per cooldown.
+		storagev1.AddToScheme,
 		argov1alpha1.AddToScheme,
 		v1alpha1.AddToScheme,
 	)

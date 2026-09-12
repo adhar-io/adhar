@@ -31,7 +31,7 @@ provenance:
   scanned: true
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
-planeAffinity: control-plane
+planeAffinity: any   # controller is control-plane; chaos-daemon must run beside the workloads it faults
 stability: beta
 resources:
   localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml

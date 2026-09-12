@@ -124,7 +124,7 @@
       }
     },
     "dependencies": {
-      "description": "Other Adhar packages that MUST be enabled for this package to function. Each entry references a package by name (and optionally its category and a version constraint). Conflicts are tracked separately in CONFLICTS.md.",
+      "description": "Other Adhar packages that MUST be enabled for this package to function. Each entry references a package by name (and optionally its category and a version constraint). Every name MUST resolve to a directory under platform/stack/packages/ or to a bootstrap component the AdharPlatform controller always installs (argocd, gitea, cilium, gateway, crossplane); hack/validate-packages.sh enforces this. Conflicts are tracked separately in CONFLICTS.md.",
       "type": "array",
       "items": {
         "type": "object",
@@ -213,7 +213,7 @@
       ]
     },
     "planeAffinity": {
-      "description": "Where the package is intended to run: 'control-plane' (management/GitOps/control logic), 'data-plane' (workload nodes, per-node agents), or 'any'.",
+      "description": "Where the package is intended to run: 'control-plane' (management/GitOps/control logic), 'data-plane' (workload nodes, per-node agents), or 'any' (control components plus a per-node half). A package that ships a DaemonSet places a pod on every node, workload nodes included, so it can never be 'control-plane'; hack/validate-packages.sh rejects that combination.",
       "type": "string",
       "enum": ["control-plane", "data-plane", "any"]
     },
@@ -245,7 +245,7 @@
           "enum": ["minimal", "small", "medium", "large", "xlarge"]
         },
         "localSafe": {
-          "description": "Whether the package is safe to enable on a local Kind cluster (mirrors the appset enabled-gating intent).",
+          "description": "Whether the package WOULD run on a local Kind node if enabled — a footprint/safety judgement, not a statement about whether adhar-appset-local.yaml enables it. The curated local core is a budget (one node cannot hold the full catalogue), so a small package can be localSafe: true and still be left out of it; kargo, fluent-bit and trivy are exactly that case. Scaffolded from local enablement as a starting point, then reviewed.",
           "type": "boolean"
         },
         "notes": {

@@ -58,22 +58,93 @@ Adhar delivers battle-tested architectural patterns with 50+ production-grade se
 
 ### Prerequisites
 
-Before getting started, ensure you have:
+The local provider runs Kubernetes in containers, so it needs a **container
+engine**. Any one of these works — Adhar detects which is present and uses it
+for everything: creating the cluster, preloading images and tearing it down.
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| **Docker** | v20.10+ | Container runtime |
+| **A container engine** — one of:<br>[Docker](https://docs.docker.com/get-docker/) · [Podman](https://podman.io/docs/installation) · [nerdctl](https://github.com/containerd/nerdctl) · [Finch](https://runfinch.com/) | Docker v20.10+<br>Podman v4+ | Hosts the local Kubernetes nodes |
 | **kubectl** | v1.24+ | Kubernetes CLI |
 | **RAM** | 8GB min, 16GB+ recommended | Platform resources |
 | **Storage** | 20GB+ free | Images and data |
 | **CPU** | 4+ cores | Processing power |
 
+Adhar follows Kind's own rule for picking an engine: `KIND_EXPERIMENTAL_PROVIDER`
+if set, otherwise the first one installed and responding, in the order above.
+
+```bash
+adhar version                                  # shows the engine actually in use
+export KIND_EXPERIMENTAL_PROVIDER=podman       # force a specific engine
+```
+
+**Podman notes.** Run `podman machine start` first on macOS and Windows. Rootless
+Podman works; the Kind node containers need the usual rootless setup
+(`/etc/subuid` and `/etc/subgid` entries for your user, and cgroups v2). If port
+8443 is unavailable to a rootless user, pass `adhar up --port 9443`.
+
+Cloud targets need no container engine at all — they provision real machines.
+See the [provider pages](docs/README.md#providers).
+
+
+### Install the CLI
+
+**Homebrew (macOS and Linux)** — from the `adhar-io/homebrew-tap` tap:
+
+```bash
+brew install adhar-io/tap/adhar
+```
+
+That is shorthand for tapping first, which you can also do explicitly:
+
+```bash
+brew tap adhar-io/tap          # adds github.com/adhar-io/homebrew-tap
+brew install adhar
+```
+
+If your Homebrew is configured to gate third-party taps — that is, you have
+`HOMEBREW_REQUIRE_TAP_TRUST` set — trust the tap once before installing:
+
+```bash
+brew trust --tap adhar-io/tap
+```
+
+Then verify, upgrade, or remove it:
+
+```bash
+adhar version                  # also reports the container engine in use
+brew upgrade adhar
+brew uninstall adhar           # and: brew untap adhar-io/tap
+```
+
+The formula is published by the release pipeline (GoReleaser) and installs the
+prebuilt release archive for your platform — macOS on Apple silicon or Intel, and
+Linux on amd64 or arm64. Because it installs a *released* binary, `brew` tracks
+tagged releases only; for unreleased `main`, build from source below. Windows is
+published as an archive on the [releases page](https://github.com/adhar-io/adhar/releases)
+rather than through Homebrew.
+
+**Install script** — the same released archives, without Homebrew:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install.sh | bash
+```
+
+**From source** — needs Go 1.26+, and gives you exactly the working tree:
+
+```bash
+git clone https://github.com/adhar-io/adhar.git
+cd adhar
+make build                     # builds ./adhar with version metadata
+```
+
+> Homebrew and the install script put `adhar` on your `PATH`; a source build
+> leaves it in the repo root, so the commands below become `./adhar up`.
 
 ### Local Development (Under 5 Minutes)
 
 ```bash
-#1. Install Adhar CLI
-curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install.sh | bash
+#1. Install the CLI (see above — e.g. brew install adhar-io/tap/adhar)
 
 #2. Create local cluster with core platform services
 adhar up
@@ -91,39 +162,65 @@ adhar help
 adhar down
 ```
 
-### Production Environment
+### Cloud Environment
+
+The example below uses DigitalOcean, the provider verified end to end. The steps
+are identical for the others — only the credentials and the `providers:` block
+change. Pick your target from the [provider pages](docs/README.md#providers).
+
+**1. Delegate a DNS zone to your cloud's DNS.** Every platform URL is
+`<app>.<your-domain>`, and ACME solves DNS-01 challenges there.
+
+**2. Export a token** with read/write on compute, networking, load balancers,
+block storage, SSH keys and DNS.
 
 ```bash
-#1. Install Adhar CLI
-curl -fsSL https://raw.githubusercontent.com/adhar-io/adhar/main/scripts/install.sh | bash
-
-#2. Create configuration file (see Configuration Examples below)
-cat > adhar-config.yaml <<EOF
-clusterName: adhar-prod
-provider: AWS_EKS  # Supports: AWS_EKS, GCP_GKE, AZURE_AKS, DIGITALOCEAN_DOKS, CIVO_K3S
-region: us-east-1
-enableHAMode: true
-
-nodePools:
-  - name: system
-    instanceType: t3.large
-    count: 3
-    minCount: 3
-    maxCount: 5
-EOF
-
-#3. Adhar platform production setup
-adhar up -f adhar-config.yaml
-
-#4. Verify deployment status
-adhar get status
-
-#5. Access the platform, Adhar Console
-open https://cloud.adhar.io
-
-#6. Get credentials for Adhar Console, ArgoCD, Gitea, Keycloak etc.
-adhar get secrets -p argocd
+export DIGITALOCEAN_ACCESS_TOKEN="dop_v1_…"
 ```
+
+**3. Build the CLI and copy the example configuration.**
+
+```bash
+git clone https://github.com/adhar-io/adhar.git && cd adhar
+make build
+cp examples/digitalocean-config.yaml config.yaml
+```
+
+Edit three fields: `globalSettings.defaultHost` (your zone),
+`globalSettings.email` (ACME address) and `providers.digitalocean.region`.
+
+**4. Check the plan, then provision.**
+
+```bash
+./adhar up -f config.yaml --env dev --dry-run   # resolves config, creates nothing
+./adhar up -f config.yaml --env dev             # ~13 min to a usable platform
+```
+
+`--env` matters: without it, **every** environment in the file is provisioned.
+
+**5. Verify and get in.**
+
+```bash
+export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+kubectl get nodes
+./adhar get status
+./adhar get secrets -p argocd
+```
+
+The catalogue keeps converging for another 30–45 minutes after the CLI returns,
+and the autoscaler adds workers while it does.
+
+**6. Remove everything.**
+
+```bash
+./adhar down -f config.yaml --env dev --purge-orphaned-volumes
+```
+
+> `adhar down` without `--file` only tears down a local Kind cluster. A cloud
+> environment needs its configuration file, or nothing is deleted.
+
+Full reference, including day-2 operations and the limits that actually bite:
+[DigitalOcean provider](docs/DIGITALOCEAN_PROVIDER.md).
 
 ---
 
@@ -247,7 +344,8 @@ adhar get secrets -p argocd
 | [Getting Started Guide](docs/GETTING_STARTED.md) | Quick start and installation walkthrough |
 | [User Guide](docs/USER_GUIDE.md) | Platform capabilities, configuration, and CLI reference |
 | [Architecture Overview](docs/ARCHITECTURE.md) | System design, components, and technical details |
-| [Provider Guide](docs/PROVIDER_GUIDE.md) | Multi-cloud provider implementation guide |
+| [Provider Guide](docs/PROVIDER_GUIDE.md) | Choosing a target and what is proven where |
+| [DigitalOcean](docs/DIGITALOCEAN_PROVIDER.md) · [Kind](docs/KIND_PROVIDER.md) · [AWS](docs/AWS_PROVIDER.md) · [Azure](docs/AZURE_PROVIDER.md) · [GCP](docs/GCP_PROVIDER.md) · [Civo](docs/CIVO_PROVIDER.md) · [Own hosts](docs/CUSTOM_PROVIDER.md) | One page per provider: credentials, full config, exact commands, limits |
 | [Production Guide](docs/PRODUCTION.md) | HA, hardening, backup/DR, upgrades, and day-2 operations |
 | [Customization Guide](docs/CUSTOMIZATION.md) | Every supported extension point, from package toggles to new providers |
 | [Roadmap](docs/ROADMAP.md) | Phased path to the full multi-cluster platform vision |

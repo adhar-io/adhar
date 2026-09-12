@@ -216,4 +216,4 @@ and both look like a broken cluster
 
 **Related**: [Production Guide](PRODUCTION.md) ·
 [Provider Guide](PROVIDER_GUIDE.md) · [Troubleshooting](TROUBLESHOOTING.md) ·
-[DigitalOcean runbook](DIGITALOCEAN_PRODUCTION.md)
+[DigitalOcean runbook](DIGITALOCEAN_PROVIDER.md)

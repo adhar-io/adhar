@@ -25,12 +25,16 @@
 #                               -> keycloak, minio.adhar-system -> minio,
 #                               kafka.strimzi.io / adhar-kafka -> kafka-operator,
 #                               cert-manager.io/ -> cert-manager
-#   * stability ............... disabled in BOTH appsets -> alpha (experimental);
-#                               otherwise core/security/observability -> stable,
-#                               everything else -> beta
+#   * stability ............... curated-set enablement, the bar MARKETPLACE.md
+#                               §3 states: enabled in BOTH appsets -> stable,
+#                               in one -> beta, in neither -> alpha
 #   * planeAffinity ........... control-plane, except the thin workload profile
-#                               in adhar-appset-workload.yaml, which gets `any`
-#   * resources.localSafe ..... enabled in adhar-appset-local.yaml
+#                               in adhar-appset-workload.yaml, which gets `any`,
+#                               and any package shipping a DaemonSet (never
+#                               control-plane; flagged for a maintainer pass)
+#   * resources.localSafe ..... seeded from adhar-appset-local.yaml (a
+#                               starting point for a footprint judgement,
+#                               not a mirror of the curated core)
 #
 # Descriptions, licenses and homepages come from the curated table below —
 # honest one-liners beat a scraped HTTPRoute comment. Packages missing from the
@@ -453,9 +457,6 @@ VERSION_VARS = ["CHART_VERSION", "APP_VERSION", "OPERATOR_VERSION", "KPACK_VERSI
                 "PIPELINE_VERSION", "KFP_VERSION", "VERSION"]
 SEMVER = re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$")
 
-STABLE_CATEGORIES = {"core", "security", "observability"}
-
-
 def is_package(path):
     return (os.path.isdir(os.path.join(path, "manifests"))
             or os.path.exists(os.path.join(path, "values.yaml"))
@@ -511,6 +512,27 @@ def load_appsets():
             if len(parts) >= 2:
                 any_plane.add("/".join(parts[:2]))
     return enabled, any_plane
+
+
+_DAEMONSET_RE = re.compile(r"^\s*kind:\s*DaemonSet\s*$", re.MULTILINE)
+
+
+def ships_daemonset(pdir):
+    """True if the package's own manifests declare a DaemonSet.
+
+    Charts pulled at sync time are invisible, so this can only under-detect.
+    """
+    for root, _, names in os.walk(pdir):
+        for name in names:
+            if name == "adhar-package.yaml" or not name.endswith((".yaml", ".yml", ".tmpl")):
+                continue
+            try:
+                with open(os.path.join(root, name), errors="replace") as fh:
+                    if _DAEMONSET_RE.search(fh.read()):
+                        return True
+            except OSError:
+                continue
+    return False
 
 
 def read_gen_script(pdir):
@@ -640,17 +662,36 @@ def render(category, name, pdir, enabled, any_plane):
     homepage = curated.get("homepage")
     keywords = (curated.get("keywords") or f"{category} {name.replace('-', ' ')}").split()
 
+    # Stability follows the bar MARKETPLACE.md §3 already states — `stable` means
+    # "enabled in curated sets" — so it is derived from which curated sets
+    # actually enable the package, not from which directory it happens to live
+    # in. The directory was the previous rule, and it produced contradictions:
+    # `trivy` claimed stable while no profile enabled it, and `harbor` claimed
+    # beta while both did.
     local_enabled, prod_enabled = enabled.get(key, ("false", "false"))
-    if local_enabled != "true" and prod_enabled != "true":
-        # Wired but off in every profile: not yet exercised by any curated set.
-        # The schema's closest tier to "experimental" is alpha.
-        stability = "alpha"
-    elif category in STABLE_CATEGORIES:
+    local_on, prod_on = local_enabled == "true", prod_enabled == "true"
+    if local_on and prod_on:
+        # Exercised by both the Kind e2e run and every cloud run.
         stability = "stable"
-    else:
+    elif local_on or prod_on:
+        # Exercised on one profile only.
         stability = "beta"
+    else:
+        # Wired but off everywhere: never exercised by default. The schema's
+        # closest tier to "experimental" is alpha.
+        stability = "alpha"
 
-    plane = "any" if key in any_plane else "control-plane"
+    # A package that ships a DaemonSet puts a pod on every node, workload nodes
+    # included, so it is never purely control-plane. The tree cannot tell a pure
+    # node agent (data-plane) from a control component with a node-agent half
+    # (any), so scaffold the safe one and flag it for a maintainer — but never
+    # emit control-plane, which is what validate-packages.sh now rejects.
+    if key in any_plane:
+        plane = "any"
+    elif ships_daemonset(pdir):
+        plane = "any                # review: 'data-plane' if this package IS the node agent"
+    else:
+        plane = "control-plane"
 
     notes = []
     if key in VENDORED:
@@ -710,7 +751,11 @@ def render(category, name, pdir, enabled, any_plane):
     add(f"planeAffinity: {plane}")
     add(f"stability: {stability}")
     add("resources:")
-    add(f"  localSafe: {'true' if local_enabled == 'true' else 'false'}   # mirrors the enabled gate in adhar-appset-local.yaml")
+    # Seeded from the local gate because that is the only signal the tree has;
+    # it is a footprint/safety judgement, though, not a mirror of the curated
+    # core, so a reviewer may well set it true for a small package the local
+    # budget leaves out (kargo, fluent-bit, trivy all are).
+    add(f"  localSafe: {'true' if local_enabled == 'true' else 'false'}   # scaffolded from adhar-appset-local.yaml; review")
     add("keywords:")
     for kw in keywords:
         add(f"  - {kw}")

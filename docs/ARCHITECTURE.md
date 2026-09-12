@@ -290,7 +290,7 @@ The same architecture deploys at three sizes. This is a spectrum, not separate p
 | **T2 — Single-cluster production** | One cloud cluster runs platform and workloads. Manager runs in-cluster; HA mode gives 3 control-plane nodes, ≥ 2 replicas for ArgoCD/Gitea/Gateway, PDBs, topology spread; Gitea/Keycloak/Harbor back onto CNPG PostgreSQL; cert-manager + external-dns automate the edge; Velero backs up state | ✅ **Verified on DigitalOcean** ([Roadmap](ROADMAP.md) Phase 1) |
 | **T3 — Management + workload clusters** | Control plane governs a fleet of data planes | ✅ **Live-verified** ([Roadmap](ROADMAP.md) Phase 2) |
 
-**Node autoscaling is live-verified in both directions**: a cluster created with 3 workers and `maxWorkers: 10` grew to 9 while the catalogue synced, then removed a node when idle (`cluster idle for 1h40m46s (cpu=21% memory=27%)`) — with both guards observed, the cooldown between moves and the refusal to drain a node holding a ReadWriteOnce volume. Note that on DigitalOcean the binding capacity constraint is the **7 block-volumes-per-droplet attach limit**, not CPU or memory, so `exceed max volume count` is a scale-up signal the autoscaler acts on ([DigitalOcean reference](DIGITALOCEAN_PRODUCTION.md)).
+**Node autoscaling is live-verified in both directions**: a cluster created with 3 workers and `maxWorkers: 10` grew to 9 while the catalogue synced, then removed a node when idle (`cluster idle for 1h40m46s (cpu=21% memory=27%)`) — with both guards observed, the cooldown between moves and the refusal to drain a node holding a ReadWriteOnce volume. Note that on DigitalOcean the binding capacity constraint is the **7 block-volumes-per-droplet attach limit**, not CPU or memory, so `exceed max volume count` is a scale-up signal the autoscaler acts on ([DigitalOcean reference](DIGITALOCEAN_PROVIDER.md)).
 
 ### T3 in detail
 
@@ -321,7 +321,7 @@ flowchart LR
 
 What was proven end-to-end: a `CompositeCluster` XR provisioned a real DOKS cluster (~11 minutes), auto-registered it with ArgoCD (`cluster-wl-blr1`, labels `adhar.io/cluster|dataplane|dataplane-mode`), the thin workload profile landed 5/5 Healthy on it, and teardown left no paid resources.
 
-Full HA sizing, backup/DR procedures and hardening live in the [Production Guide](PRODUCTION.md); the DigitalOcean specifics in [DIGITALOCEAN_PRODUCTION.md](DIGITALOCEAN_PRODUCTION.md).
+Full HA sizing, backup/DR procedures and hardening live in the [Production Guide](PRODUCTION.md); the DigitalOcean specifics in [DIGITALOCEAN_PROVIDER.md](DIGITALOCEAN_PROVIDER.md).
 
 ## 9. Extensibility & Customization Model
 

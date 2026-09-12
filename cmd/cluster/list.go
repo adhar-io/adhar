@@ -37,7 +37,7 @@ var listCmd = &cobra.Command{
 }
 
 func init() {
-	listCmd.Flags().String("file", "", "Path to configuration file")
+	listCmd.Flags().StringP("file", "f", "", "Path to configuration file")
 }
 
 // listClusters lists all clusters

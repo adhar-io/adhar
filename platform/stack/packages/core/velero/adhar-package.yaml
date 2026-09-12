@@ -28,8 +28,8 @@ provenance:
   scanned: true
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
-planeAffinity: control-plane
-stability: stable
+planeAffinity: any   # server is control-plane; the node-agent DaemonSet must run where the PVs are
+stability: beta   # enabled in the production curated set only
 resources:
   localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
 keywords:

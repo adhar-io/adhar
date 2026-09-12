@@ -55,7 +55,7 @@ provenance:
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
 planeAffinity: control-plane
-stability: beta
+stability: stable
 resources:
   cpu: "100m"        # Studio 100m + the single CNPG instance it stores state in
   memory: "512Mi"    # 256Mi request / 512Mi limit for Studio, ~256Mi for libredb-db
