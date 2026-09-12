@@ -1,9 +1,20 @@
 # Adhar AI — Keycloak OIDC client registration (ADR-0024 §7, ADR-0008/0013).
 #
 # So that every agent action carries an identity: users authenticate through
-# Keycloak's `adhar-ai` client; the runtime/MCP servers validate that token
-# (OIDC_ISSUER_URL/OIDC_CLIENT_ID in the Deployments) and, for reads, exchange
-# it for a short-lived RBAC-scoped Kubernetes token (agent <= user's grants).
+# Keycloak's `adhar-ai` client. THIS CLIENT STAYS after ADR-0025 — what changed
+# is WHO checks its tokens:
+#
+#   * ai.<host> (completions) and mcp.<host> (federated tools) are validated ONCE
+#     by ai/agentgateway, whose CEL authorization reads the `groups` claim the
+#     mapper below emits (read tools -> platform-developer, PR-opening tools ->
+#     platform-admin). The seven MCP Deployments no longer set OIDC_ISSUER_URL /
+#     OIDC_CLIENT_ID at all.
+#   * agent.<host> (the runtime's own /chat and webhooks) is not behind that data
+#     plane, so the runtime still validates for itself — it keeps both env vars.
+#
+# For reads, the token is exchanged for a short-lived RBAC-scoped Kubernetes
+# token (agent <= user's grants); agentgateway sets preserveToken: true so the
+# original bearer token survives the hop and that exchange still works.
 #
 # Pattern mirrors the keycloak-config package: a ConfigMap carries the client
 # JSON payload, and a Sync-hook Job registers/reconciles it against the realm
@@ -27,7 +38,7 @@ data:
       "protocol": "openid-connect",
       "clientId": "adhar-ai",
       "name": "Adhar AI",
-      "description": "Adhar AI OIDC client: gates the agent runtime /chat + outward /mcp/sse surface; tokens carry groups for RBAC-scoped reads and identity on PR authorship",
+      "description": "Adhar AI OIDC client: gates the agent runtime /chat and, through ai/agentgateway, the ai.<host> completions and mcp.<host> federated-tool endpoints; tokens carry groups for gateway authorization, RBAC-scoped reads and PR authorship",
       "publicClient": false,
       "authorizationServicesEnabled": false,
       "serviceAccountsEnabled": true,
@@ -38,17 +49,19 @@ data:
       "attributes": {
         "oauth2.device.authorization.grant.enabled": true,
         "oidc.ciba.grant.enabled": false,
-        "post.logout.redirect.uris": "https://ai.adhar.localtest.me:8443/*##https://mcp.adhar.localtest.me:8443/*"
+        "post.logout.redirect.uris": "https://agent.adhar.localtest.me:8443/*##https://ai.adhar.localtest.me:8443/*##https://mcp.adhar.localtest.me:8443/*"
       },
       "alwaysDisplayInConsole": false,
-      "rootUrl": "https://ai.adhar.localtest.me:8443",
+      "rootUrl": "https://agent.adhar.localtest.me:8443",
       "baseUrl": "/",
       "redirectUris": [
+        "https://agent.adhar.localtest.me:8443/*",
         "https://ai.adhar.localtest.me:8443/*",
         "https://mcp.adhar.localtest.me:8443/*",
         "http://localhost:8080/*"
       ],
       "webOrigins": [
+        "https://agent.adhar.localtest.me:8443",
         "https://ai.adhar.localtest.me:8443",
         "https://mcp.adhar.localtest.me:8443"
       ],

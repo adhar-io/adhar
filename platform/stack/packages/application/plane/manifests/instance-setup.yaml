@@ -1,12 +1,32 @@
 # First-run instance setup for Plane, done for you.
 #
-# Plane Community Edition has no OIDC login (that is a commercial feature); the
-# platform fronts the whole app with Keycloak through oauth2-proxy (sso.yaml)
-# and Plane's own sign-in is email + password. Until an instance admin has
-# completed the "god-mode" setup, Plane's sign-in page shows "No authentication
-# methods available" — so this Job completes it: it creates the instance admin
-# with a generated password (surfaced by `adhar get secrets -p plane`), marks
-# the instance set up and enables password login + sign-up. Idempotent.
+# Plane Community Edition v1.4.1 has NO generic OIDC and NO SAML provider — the
+# only auth providers shipped in the image are
+#   plane/authentication/provider/credentials/{email,magic_code}.py
+#   plane/authentication/provider/oauth/{gitea,github,gitlab,google}.py
+# (`grep -ril oidc /code` and `grep -ril saml /code` in
+# artifacts.plane.so/makeplane/plane-backend:v1.4.1 both return nothing).
+# So Keycloak reaches Plane two ways, both wired here and in sso.yaml:
+#
+#  1. ENFORCED EDGE SSO — every request to plane.<host> passes through the
+#     Keycloak oauth2-proxy in sso.yaml first. Nobody sees Plane at all without
+#     a valid Keycloak session.
+#  2. FEDERATED LOGIN INSIDE PLANE — Plane's Gitea OAuth provider pointed at the
+#     platform's own Gitea, which itself authenticates against Keycloak (Gitea
+#     auth source `keycloak`, see the Gitea bootstrap). That gives Plane a real
+#     "Continue with Gitea" button backed by Keycloak identities, using a
+#     provider this edition genuinely implements. Best-effort: if Gitea or its
+#     credentials are not available the Job logs it and carries on.
+#
+# Plus the instance admin itself: until an instance admin has completed the
+# "god-mode" setup, Plane's sign-in page shows "No authentication methods
+# available" — so this Job completes it. It creates the instance admin with a
+# generated password (surfaced by `adhar get secrets -p plane`), marks the
+# instance set up, and enables password login + sign-up. Idempotent and
+# re-runnable, and it VERIFIES the result through the same API the web app
+# reads (/api/instances/) before exiting: if the instance is not set up, or no
+# authentication method is enabled, the Job exits non-zero and ArgoCD retries.
+# A Job that exits 0 having enabled nothing is exactly the bug this guards.
 #
 # It also makes the Define phase of the console work without a human first
 # clicking through Plane: it creates the platform workspace (slug `adhar`, the
@@ -74,6 +94,7 @@ spec:
     template:
       metadata:
         labels:
+          # `adhar get secrets -p plane` prints anything carrying these.
           adhar.io/cli-secret: 'true'
           adhar.io/package-name: plane
       engineVersion: v2
@@ -124,23 +145,48 @@ spec:
               value: adhar
             - name: WORKSPACE_NAME
               value: Adhar
-            # In-cluster API base handed to the console with the key.
+            # In-cluster API base handed to the console with the key, and the
+            # one this Job re-reads /api/instances/ from to verify itself.
             - name: PLANE_API_URL
               value: http://plane-api.adhar-system.svc.cluster.local:8000
             - name: TOKEN_SECRET_NAME
               value: plane-api-token
             - name: NAMESPACE
               valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            # Keycloak-federated login inside Plane (see the header): Plane's
+            # Gitea OAuth provider pointed at the platform Gitea, whose own
+            # login is the Keycloak auth source. The controller rewrites
+            # adhar.localtest.me:8443 to the real domain when seeding.
+            - name: GITEA_PUBLIC_URL
+              value: https://gitea.adhar.localtest.me:8443
+            # Optional: absent on installs where Gitea is not present, in which
+            # case the bridge is skipped and edge SSO + password login remain.
+            - name: GITEA_ADMIN_USER
+              valueFrom: {secretKeyRef: {name: gitea-credential, key: username, optional: true}}
+            - name: GITEA_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: gitea-credential, key: password, optional: true}}
+            - name: GITEA_ADMIN_TOKEN
+              valueFrom: {secretKeyRef: {name: gitea-credential, key: token, optional: true}}
           command: [sh, -c]
           args:
             - |
               set -e
               cd /code
               python manage.py shell <<'PY'
-              import base64, json, os, ssl, urllib.request, uuid
-              from django.contrib.auth.hashers import make_password
+              import base64, json, os, ssl, sys, time, urllib.error, urllib.parse, urllib.request, uuid
               from plane.db.models import APIToken, User, Workspace, WorkspaceMember
               from plane.license.models import Instance, InstanceAdmin, InstanceConfiguration
+              from plane.license.utils.encryption import decrypt_data, encrypt_data
+
+              failures = []
+
+              def cfg(key, value, category, encrypted=False):
+                  InstanceConfiguration.objects.update_or_create(
+                      key=key,
+                      defaults={"value": encrypt_data(value) if encrypted else value,
+                                "category": category, "is_encrypted": encrypted})
+
+              # ── 1. instance admin + credential login ─────────────────────────
               email = os.environ["ADMIN_EMAIL"].strip().lower()
               password = os.environ["ADMIN_PASSWORD"]
               user, created = User.objects.get_or_create(email=email, defaults={
@@ -149,59 +195,195 @@ spec:
               user.set_password(password)
               user.is_password_autoset = False
               user.is_active = True
+              user.is_email_verified = True
               user.save()
-              instance = Instance.objects.first()
+
+              # The Instance row is created by the api-migrate Job. Wait for it
+              # rather than dying immediately — this Job is a PostSync hook and a
+              # crash here used to burn a backoff slot for nothing.
+              instance = None
+              for attempt in range(60):
+                  instance = Instance.objects.first()
+                  if instance is not None:
+                      break
+                  print(f"waiting for the Instance row (api-migrate) … {attempt + 1}/60", flush=True)
+                  time.sleep(5)
               if instance is None:
-                  raise SystemExit("instance not registered yet (api migrate job not finished) — retrying")
+                  raise SystemExit("FATAL: no Instance row after 5 minutes — is plane-api-migrate stuck?")
+
               instance.is_setup_done = True
               instance.save()
               InstanceAdmin.objects.get_or_create(instance=instance, user=user, defaults={"role": 20})
-              for key, value in {"ENABLE_SIGNUP": "1", "ENABLE_EMAIL_PASSWORD": "1", "ENABLE_MAGIC_LINK_LOGIN": "0"}.items():
-                  InstanceConfiguration.objects.update_or_create(key=key, defaults={"value": value, "category": "AUTHENTICATION"})
-              print(f"instance setup done; admin {'created' if created else 'updated'}: {email}")
+              cfg("ENABLE_SIGNUP", "1", "AUTHENTICATION")
+              cfg("ENABLE_EMAIL_PASSWORD", "1", "AUTHENTICATION")
+              cfg("ENABLE_MAGIC_LINK_LOGIN", "0", "AUTHENTICATION")
+              print(f"instance setup done; admin {'created' if created else 'updated'}: {email}", flush=True)
 
-              # ── platform workspace + console API key ─────────────────────────
+              # ── 2. Keycloak-federated login via the platform Gitea ───────────
+              # Plane CE v1.4.1 ships no OIDC provider; its Gitea OAuth provider
+              # talks to a Gitea whose own sign-in is the Keycloak auth source,
+              # so this is a real Keycloak login inside Plane. Best effort.
+              def gitea_bridge():
+                  host = (os.environ.get("GITEA_PUBLIC_URL") or "").rstrip("/")
+                  token = (os.environ.get("GITEA_ADMIN_TOKEN") or "").strip()
+                  gu = (os.environ.get("GITEA_ADMIN_USER") or "").strip()
+                  gp = os.environ.get("GITEA_ADMIN_PASSWORD") or ""
+                  if not host or not (token or (gu and gp)):
+                      return "skipped (no Gitea host or credentials)"
+                  web = (os.environ.get("WEB_URL") or "").rstrip("/")
+                  if not web:
+                      return "skipped (WEB_URL unset — cannot build a redirect URI)"
+                  redirect = f"{web}/auth/gitea/callback/"
+                  api = f"{host}/api/v1/user/applications/oauth2"
+                  auth = {"Authorization": f"token {token}"} if token else {
+                      "Authorization": "Basic " + base64.b64encode(f"{gu}:{gp}".encode()).decode()}
+
+                  def call(method, url, payload=None):
+                      body = json.dumps(payload).encode() if payload is not None else None
+                      req = urllib.request.Request(url, method=method, data=body, headers={
+                          **auth, "Content-Type": "application/json", "Accept": "application/json"})
+                      with urllib.request.urlopen(req, timeout=20) as r:
+                          raw = r.read().decode()
+                          return json.loads(raw) if raw.strip() else {}
+
+                  def secret_accepted(client_id, client_secret):
+                      # Gitea checks the client secret before the code, so a
+                      # deliberately bogus code tells us whether the secret we
+                      # stored is still the one Gitea holds:
+                      #   wrong secret -> "invalid client secret"
+                      #   right secret -> "client is not authorized" (bad code)
+                      data = urllib.parse.urlencode({
+                          "grant_type": "authorization_code", "code": "adhar-secret-probe",
+                          "client_id": client_id, "client_secret": client_secret,
+                          "redirect_uri": redirect}).encode()
+                      probe = urllib.request.Request(
+                          f"{host}/login/oauth/access_token", data=data, headers={
+                              "Accept": "application/json",
+                              "Content-Type": "application/x-www-form-urlencoded"})
+                      try:
+                          urllib.request.urlopen(probe, timeout=20).read()
+                          return True
+                      except urllib.error.HTTPError as err:
+                          return "invalid client secret" not in err.read().decode()
+                      except Exception:  # noqa: BLE001 — a network blip is not proof of a bad secret
+                          return True
+
+                  apps = call("GET", api) or []
+                  existing = next((a for a in apps if a.get("name") == "plane"), None)
+                  stored = {c.key: c for c in InstanceConfiguration.objects.filter(
+                      key__in=["GITEA_CLIENT_ID", "GITEA_CLIENT_SECRET"])}
+                  stored_id = (stored.get("GITEA_CLIENT_ID").value if stored.get("GITEA_CLIENT_ID") else "")
+                  stored_secret = decrypt_data(stored["GITEA_CLIENT_SECRET"].value) \
+                      if stored.get("GITEA_CLIENT_SECRET") and stored["GITEA_CLIENT_SECRET"].value else ""
+                  reusable = bool(
+                      existing and stored_secret and stored_id == existing.get("client_id")
+                      and sorted(existing.get("redirect_uris") or []) == [redirect]
+                      and secret_accepted(stored_id, stored_secret))
+                  if reusable:
+                      app = existing
+                      note = "reused existing Gitea OAuth app"
+                  else:
+                      # NEVER PATCH here: Gitea regenerates and returns a NEW
+                      # client secret on every PATCH of an OAuth2 application, so
+                      # "just refreshing the redirect URI" silently invalidates
+                      # the secret Plane holds and every Gitea login then dies
+                      # with GITEA_OAUTH_PROVIDER_ERROR (5123). Delete + create
+                      # instead, and store the secret creation hands back — it is
+                      # the only time Gitea ever discloses it (a list shows
+                      # "client_secret": "").
+                      if existing:
+                          call("DELETE", f"{api}/{existing['id']}")
+                      app = call("POST", api, {
+                          "name": "plane", "redirect_uris": [redirect], "confidential_client": True})
+                      cfg("GITEA_CLIENT_SECRET", app["client_secret"], "GITEA", encrypted=True)
+                      note = ("re-created Gitea OAuth app (previous one was stale)"
+                              if existing else "created Gitea OAuth app")
+                  cfg("GITEA_CLIENT_ID", app["client_id"], "GITEA")
+                  cfg("GITEA_HOST", host, "GITEA")
+                  cfg("IS_GITEA_ENABLED", "1", "GITEA")
+                  cfg("ENABLE_GITEA_SYNC", "1", "GITEA")
+                  return f"{note} (client_id {app['client_id']}, redirect {redirect})"
+
+              try:
+                  print(f"gitea bridge: {gitea_bridge()}", flush=True)
+              except Exception as exc:  # noqa: BLE001 — never fail the run on the optional path
+                  detail = exc.read().decode()[:300] if isinstance(exc, urllib.error.HTTPError) else exc
+                  print(f"gitea bridge: FAILED ({type(exc).__name__}: {detail}) — "
+                        "edge SSO + password login still apply", flush=True)
+
+              # ── 3. platform workspace + console API key ──────────────────────
               slug = os.environ["WORKSPACE_SLUG"]
               ws, ws_created = Workspace.objects.get_or_create(slug=slug, defaults={
                   "name": os.environ.get("WORKSPACE_NAME") or slug, "owner": user})
               WorkspaceMember.objects.get_or_create(workspace=ws, member=user, defaults={"role": 20, "is_active": True})
-              print(f"workspace {slug} {'created' if ws_created else 'present'}")
+              print(f"workspace {slug} {'created' if ws_created else 'present'}", flush=True)
               label = "adhar-console"
               token = APIToken.objects.filter(user=user, label=label, is_active=True, workspace__isnull=True).order_by("created_at").first()
               if token is None:
                   token = APIToken.objects.create(user=user, label=label,
                       description="Server-side key the Adhar Console uses for the Define phase (generated by plane-instance-setup).",
                       user_type=0, is_active=True)
-                  print("console API key minted")
+                  print("console API key minted", flush=True)
               else:
-                  print("console API key present")
+                  print("console API key present", flush=True)
 
-              # ── hand it to the console through a Secret (kube API, in-cluster SA) ──
+              # ── 4. hand it to the console through a Secret (kube API, in-cluster SA) ──
               ns = os.environ["NAMESPACE"]
               name = os.environ["TOKEN_SECRET_NAME"]
               sa = "/var/run/secrets/kubernetes.io/serviceaccount"
               bearer = open(f"{sa}/token").read().strip()
               ctx = ssl.create_default_context(cafile=f"{sa}/ca.crt")
-              host = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-              port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
-              base = f"https://{host}:{port}/api/v1/namespaces/{ns}/secrets"
+              khost = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+              kport = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+              base = f"https://{khost}:{kport}/api/v1/namespaces/{ns}/secrets"
               b64 = lambda s: base64.b64encode(s.encode()).decode()
               body = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
                       "metadata": {"name": name, "namespace": ns,
                                    "labels": {"app.kubernetes.io/part-of": "plane", "adhar.io/package-name": "plane"}},
                       "data": {"PLANE_URL": b64(os.environ["PLANE_API_URL"]), "PLANE_TOKEN": b64(token.token), "PLANE_WORKSPACE": b64(slug)}}
-              def call(method, url, payload, ctype="application/json"):
+              def kube(method, url, payload, ctype="application/json"):
                   req = urllib.request.Request(url, method=method, data=json.dumps(payload).encode(),
                       headers={"Authorization": f"Bearer {bearer}", "Content-Type": ctype, "Accept": "application/json"})
                   with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
                       return r.status
               try:
-                  st = call("POST", base, body)
+                  st = kube("POST", base, body)
               except urllib.error.HTTPError as e:
                   if e.code != 409:
                       raise
-                  st = call("PATCH", f"{base}/{name}", body, "application/merge-patch+json")
-              print(f"secret {ns}/{name} written (http {st})")
+                  st = kube("PATCH", f"{base}/{name}", body, "application/merge-patch+json")
+              print(f"secret {ns}/{name} written (http {st})", flush=True)
+
+              # ── 5. VERIFY through the API the web app actually reads ─────────
+              # The sign-in screen renders "No authentication methods available"
+              # purely from this payload. Exiting 0 without asserting it is what
+              # let a broken instance ship, so assert it here and fail loudly.
+              methods = ["is_email_password_enabled", "is_magic_login_enabled", "is_google_enabled",
+                         "is_github_enabled", "is_gitlab_enabled", "is_gitea_enabled"]
+              payload = None
+              for attempt in range(12):
+                  try:
+                      with urllib.request.urlopen(
+                              os.environ["PLANE_API_URL"].rstrip("/") + "/api/instances/", timeout=15) as r:
+                          payload = json.loads(r.read().decode())
+                      break
+                  except Exception as exc:  # noqa: BLE001
+                      print(f"verify: /api/instances/ not answering yet ({exc}) … {attempt + 1}/12", flush=True)
+                      time.sleep(5)
+              if payload is None:
+                  raise SystemExit("FATAL: could not read /api/instances/ to verify the setup")
+              conf = payload.get("config") or {}
+              enabled = [m for m in methods if conf.get(m)]
+              print("verify: " + json.dumps({"is_setup_done": (payload.get("instance") or {}).get("is_setup_done"),
+                                             "enabled_methods": enabled}), flush=True)
+              if not (payload.get("instance") or {}).get("is_setup_done"):
+                  failures.append("instance.is_setup_done is still false")
+              if not enabled:
+                  failures.append("no authentication method is enabled — the sign-in page would show "
+                                  "'No authentication methods available'")
+              if failures:
+                  raise SystemExit("FATAL: " + "; ".join(failures))
+              print(f"OK: Plane is set up with auth methods {enabled}", flush=True)
               PY
           resources:
             requests: {cpu: 50m, memory: 256Mi}

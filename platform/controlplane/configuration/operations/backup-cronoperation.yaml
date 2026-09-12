@@ -2,7 +2,10 @@
 # Daily platform backup (day-2 Operation).
 #
 # Runs every day at 02:00 and emits a Velero Backup (velero.io/v1) that captures
-# the adhar-system and crossplane-system namespaces. The Operation pipeline uses
+# the adhar-system namespace — Crossplane runs there like every other platform
+# component (ADR-0011), so there is no crossplane-system namespace to back up.
+# Including a namespace that does not exist made Velero report PartiallyFailed.
+# The Operation pipeline uses
 # function-python's operate() entrypoint: resources placed in
 # rsp.desired.resources are server-side applied by Crossplane (force apply, no
 # owner references), and rsp.output records the run for history/observability.
@@ -66,7 +69,6 @@ spec:
                       "spec": {
                           "includedNamespaces": [
                               "adhar-system",
-                              "crossplane-system",
                           ],
                           "ttl": "168h0m0s",
                           "snapshotVolumes": True,
@@ -77,6 +79,5 @@ spec:
                   rsp.output["backupName"] = name
                   rsp.output["scheduledAt"] = stamp
                   rsp.output["message"] = (
-                      f"Requested Velero Backup {name} for adhar-system,"
-                      " crossplane-system"
+                      f"Requested Velero Backup {name} for adhar-system"
                   )

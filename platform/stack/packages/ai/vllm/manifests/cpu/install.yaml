@@ -1,0 +1,248 @@
+# vLLM — CPU inference profile (default for local/Kind and any cluster with no
+# GPU nodes). Deployment + Service; the model cache PVC, HTTPRoute,
+# ServiceMonitor, dashboard and HF_TOKEN ExternalSecret are the profile-agnostic
+# surface in ../ (appset element "vllm").
+#
+# WHY A HAND-WRITTEN MANIFEST SET AND NOT THE UPSTREAM HELM CHART
+# ---------------------------------------------------------------
+# vLLM's official chart is the production-stack `vllm-stack` chart
+# (helm repo add vllm https://vllm-project.github.io/production-stack), latest
+# 0.1.12 at time of writing. Its defaults are GPU-only and non-negotiable
+# without a values rewrite:
+#     servingEngineSpec.modelSpec[].runtimeClassName: "nvidia"
+#     servingEngineSpec.modelSpec[].requestGPU: 1
+#     servingEngineSpec.runtimeClassName: "nvidia"
+# It also pulls in its own router (vllm-router), Redis and a LMCache sidecar —
+# a second routing layer in front of the platform Gateway, and a second cache in
+# front of the platform Valkey, both of which Adhar already provides (ADR-0011:
+# never bundle a capability the platform already has). Adhar's default droplets
+# and the Kind node are CPU-only, so a GPU-defaulted chart would have shipped a
+# package that cannot start anywhere we actually run. Two small Deployments we
+# own are more honest than a chart we would have to fight.
+#
+# IMAGE (verified to exist on Docker Hub, 2026-09-12)
+#   vllm/vllm-openai-cpu:v0.29.0  — the OFFICIAL vLLM CPU build, multi-arch
+#   (amd64 + arm64 in one manifest list), 1.84 GB compressed on x86_64 /
+#   0.88 GB on arm64. It is a separate repository from the GPU image
+#   (vllm/vllm-openai) because the CPU wheels are built from Dockerfile.cpu
+#   with a different torch backend; the GPU image will NOT run without
+#   nvidia.com/gpu. Tag is pinned, never :latest (ADR-0019 / the platform's
+#   disallow-latest-tag policy).
+#
+# ENTRYPOINT
+#   The image's ENTRYPOINT is ["vllm", "serve"], so `args` below are the
+#   positional model plus `vllm serve` flags — do not repeat "serve".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: adhar-ai
+    app.kubernetes.io/component: inference
+    adhar.io/component: ai
+    adhar.io/plane: control
+    # The ServiceMonitor selects on the Service, not the pod; this label pair is
+    # what ../httproute.yaml and ../service.yaml resolve to.
+    adhar.io/vllm-profile: cpu
+  annotations:
+    # After the model-cache PVC (wave 0) so the volume exists before the pod is
+    # scheduled; before the ServiceMonitor (wave 10).
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  replicas: 1
+  # One ReadWriteOnce model-cache volume: a RollingUpdate can never schedule the
+  # replacement pod while the old one holds the volume (the same trap documented
+  # in data/minio/values.yaml). Recreate is the only update strategy that
+  # converges here.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm
+        app.kubernetes.io/part-of: adhar-ai
+        app.kubernetes.io/component: inference
+        adhar.io/component: ai
+        adhar.io/plane: control
+    spec:
+      # ADR-0011: adhar-system injects a <SVC>_PORT env var for every Service in
+      # the namespace. vLLM reads VLLM_* and HF_* from the environment and argparse
+      # is unforgiving about unexpected values, so the service-link firehose is
+      # switched off exactly as the other env-reading platform components do.
+      enableServiceLinks: false
+      securityContext:
+        # The upstream image runs as root and keeps its venv, its compiled
+        # kernels and (by default) its HuggingFace cache under /root. We move the
+        # cache to the PVC (HF_HOME) and run as an unprivileged uid; fsGroup
+        # makes the dynamically provisioned volume group-writable for it.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai-cpu:v0.29.0
+          imagePullPolicy: IfNotPresent
+          args:
+            # Positional model id. Qwen2.5-0.5B-Instruct is ~1.0 GB of weights
+            # (988 MB model.safetensors on the HF hub) — small enough to download
+            # and hold in RAM on a single Kind node, real enough that /v1/chat
+            # returns sensible text. It is the development default, NOT a
+            # production model: see ../gpu/install.yaml for the 7-8B profile.
+            - "Qwen/Qwen2.5-0.5B-Instruct"
+            # Stable client-facing name, so switching the underlying checkpoint
+            # does not break every caller's `model:` field.
+            - "--served-model-name"
+            - "qwen2.5-0.5b-instruct"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            # Qwen2.5 advertises 32k context. On CPU the KV cache is plain RAM
+            # and vLLM refuses to start if max-model-len does not fit in
+            # VLLM_CPU_KVCACHE_SPACE, so the window is clipped to something that
+            # fits the 2 GiB arena below (measured: 4096 tokens/request leaves
+            # ~42x concurrency headroom). Raise both together, never one alone.
+            - "--max-model-len"
+            - "4096"
+            # The CPU backend supports bfloat16 and float32; float16 is not
+            # generally available on CPU. bfloat16 halves the weight footprint
+            # versus float32 at no accuracy cost worth caring about here.
+            - "--dtype"
+            - "bfloat16"
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # KV-cache arena, in GiB of ordinary system memory. CPU-build-only
+            # knob (vllm/envs.py: VLLM_CPU_KVCACHE_SPACE); it has no effect on
+            # the GPU image, which sizes the cache from --gpu-memory-utilization.
+            #
+            # THIS IS ALLOCATED INSIDE THE CONTAINER MEMORY LIMIT and it is the
+            # easiest way to OOM-kill this pod. Measured on this exact image and
+            # model: ~4.4 GiB resident for weights + torch runtime + warmup
+            # BEFORE the arena is carved out. 4 GiB of arena on top of that was
+            # OOMKilled (exit 137) at the "create kv cache" step under the 8Gi
+            # limit; 2 GiB fits with headroom. Qwen2.5-0.5B uses grouped-query
+            # attention with 2 KV heads, so the cache costs ~12 KiB/token —
+            # 2 GiB is ~175k tokens, ~42 concurrent requests at the 4096 window
+            # below, far more than a dev endpoint needs. Raise it only together
+            # with the memory limit.
+            - name: VLLM_CPU_KVCACHE_SPACE
+              value: "2"
+            # "auto" (the upstream default) pins OpenMP threads to the cores
+            # vLLM can SEE, which is the node's core count — not the container's
+            # CPU quota. Observed on an 11-core Kind node with a 4-CPU limit:
+            #   OpenMP thread binding info: VLLM_CPU_OMP_THREADS_BIND='auto'
+            #   local_rank=0, core ids=[0,1,2,3,4,5,6,7,8,9]  reserved_cpus=[10]
+            # i.e. 10 threads pinned to 10 cores inside a 4-core quota, which the
+            # CFS scheduler then throttles hard. "nobind" leaves placement to the
+            # kernel (which does respect the cgroup) and lets OMP_NUM_THREADS set
+            # the count.
+            - name: VLLM_CPU_OMP_THREADS_BIND
+              value: "nobind"
+            # …and the count comes from the container's own CPU limit via the
+            # downward API, so it tracks `resources.limits.cpu` automatically
+            # instead of being a second number to keep in sync by hand.
+            - name: OMP_NUM_THREADS
+              valueFrom:
+                resourceFieldRef:
+                  containerName: vllm
+                  resource: limits.cpu
+            # Model weights live on the PVC, so a restart re-reads them from disk
+            # instead of re-downloading ~1 GB from HuggingFace. HF_HOME is the
+            # single variable that moves the whole hub cache (models, tokenizers,
+            # locks) — setting only HF_HUB_CACHE leaves the lock dir on the
+            # read-only-root container filesystem.
+            - name: HF_HOME
+              value: /data/hf
+            - name: HOME
+              value: /data
+            # Optional: only needed for GATED repos (Llama, Gemma, …). The
+            # ExternalSecret in ../hf-token.yaml always materialises the Secret,
+            # with an empty value when the backing store has no entry, so this
+            # reference never blocks the pod from starting. Ungated models
+            # (Qwen, Mistral, Phi) download fine with an empty token.
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vllm-hf-token
+                  key: HF_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: "2"
+              memory: 6Gi
+            limits:
+              # Decode throughput on CPU scales with cores up to the point OpenMP
+              # coordination dominates; 4 is a sane ceiling for a 0.5B model.
+              cpu: "4"
+              # ~0.9 GiB weights + ~3.5 GiB torch runtime/compile scratch
+              # + 2 GiB KV arena (VLLM_CPU_KVCACHE_SPACE above). Measured
+              # steady state after serving a request: 6.77 GiB of this 8 GiB —
+              # tight, but the arena is pre-allocated so it does not grow with
+              # traffic. 8Gi is the floor, not a generous ceiling.
+              # If you raise the arena, raise this by the same amount — the
+              # failure mode is a silent exit-137 OOMKill during startup, right
+              # after the "init engine (profile, create kv cache, warmup model)"
+              # log line.
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # NOT read-only: torch inductor/OpenMP write compile artefacts into
+            # the image's own site-packages tree at first start. /tmp and the
+            # cache are volumes; the rest of the rootfs is left writable so the
+            # first-run kernel compile does not crash the container.
+            readOnlyRootFilesystem: false
+          # Loading and warming a model takes minutes on CPU. A startupProbe with
+          # a long failureThreshold keeps the liveness probe from killing the pod
+          # mid-load, which is the classic way an LLM Deployment crash-loops
+          # forever without ever finishing its first start.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            failureThreshold: 80      # up to 20 minutes to download + load
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            # vLLM/torch use POSIX shared memory between the API process and the
+            # engine core process. The default 64 MB /dev/shm is a documented
+            # source of "Bus error" crashes at load time.
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: vllm-model-cache
+        - name: tmp
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

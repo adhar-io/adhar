@@ -39,7 +39,11 @@ spec:
             backupRetentionDays = params.backupRetentionDays or 7
             enableEncryption = params.enableEncryption or True
             publiclyAccessible = params.publiclyAccessible or False
-            deletionPolicy = params.deletionPolicy or "Delete"
+            # Namespaced (.m) managed resources have NO spec.deletionPolicy — it is not
+            # in their schema and the apply fails with "field not declared in schema".
+            # Retention is expressed by withholding Delete from managementPolicies.
+            _retainOnDelete = (params.deletionPolicy or "Delete") in ["Orphan", "Retain"]
+            managementPolicies = ["Observe", "Create", "Update", "LateInitialize"] if _retainOnDelete else ["*"]
 
             # Network configuration
             networkConfig = params.networkConfig or {}
@@ -80,7 +84,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 },
                 {
@@ -111,7 +115,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 },
                 {
@@ -140,7 +144,7 @@ spec:
                             name: secretName
                             namespace: secretNamespace
                         }
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 }
             ]
@@ -164,7 +168,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 }]
 
@@ -188,7 +192,7 @@ spec:
                             }
                             providerConfigRef.name: providerConfigName
                             providerConfigRef.kind: "ClusterProviderConfig"
-                            deletionPolicy: deletionPolicy
+                            managementPolicies: managementPolicies
                         }
                     }]
 

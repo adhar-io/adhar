@@ -79,26 +79,123 @@ spec:
     - {name: image, type: string}
     - {name: subdirectory, type: string, default: ""}
     - {name: builder, type: string, default: "paketobuildpacks/builder-jammy-base:latest"}
+    # Second tag pushed alongside :latest, so every build is addressable by the
+    # exact commit it came from. Per-PR preview environments (ADR-0017) deploy
+    # <image>:<PR head sha>, which only exists because of this. Defaults to
+    # "latest" so a bare PipelineRun behaves exactly as before.
+    - {name: extra-tag, type: string, default: "latest"}
   workspaces:
     - {name: source}
   steps:
+    # The CNB lifecycle runs as the builder image's `cnb` user, but the workspace
+    # PVC arrives owned by whoever cloned into it, so the first thing npm/maven
+    # does — creating node_modules or target/ — failed with
+    # "EACCES: permission denied, mkdir '/workspace/source/node_modules'"
+    # (exit 243). Every buildpack build on the platform failed this way.
+    #
+    # The ids are 1001:1000, not 1000:1000: paketo's jammy builders set
+    # CNB_USER_ID=1001 / CNB_GROUP_ID=1000, and the lifecycle re-execs itself as
+    # that pair. Forcing runAsUser 1000 instead produced
+    # "failed to exec as user 1001:1000: operation not permitted", because a
+    # non-root process cannot switch to another uid.
+    - name: prepare
+      image: docker.io/library/bash:5.2
+      securityContext: {runAsUser: 0}
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        chown -R 1001:1000 "$(workspaces.source.path)"
+        echo "workspace handed to 1001:1000 for the CNB lifecycle"
+
+        # project.toml is a CNB *platform* descriptor: `pack` reads its
+        # [[build.env]] table and hands the values to the lifecycle. This task
+        # invokes /cnb/lifecycle/creator directly, which never reads it, so every
+        # BP_* setting an app declared was silently dropped. The visible symptom
+        # for a static SPA was an image with no process type:
+        #   ERROR: failed to launch: determine start command: when there is no
+        #   default process a command is required
+        # because BP_WEB_SERVER=nginx never reached the web-servers buildpack.
+        #
+        # The lifecycle DOES read one file per variable from <platform>/env, so
+        # translate the descriptor into that directory. Keep the parser dumb: one
+        # [[build.env]] block with a name and a value line, which is the shape
+        # every template emits.
+        APPDIR="$(workspaces.source.path)/$(params.subdirectory)"
+        PROJ="${APPDIR%/}/project.toml"
+        mkdir -p /platform/env
+        if [ -f "$PROJ" ]; then
+          echo "translating $PROJ into /platform/env"
+          name=""
+          while IFS= read -r line || [ -n "$line" ]; do
+            # strip leading whitespace so indented tables parse too
+            line="${line#"${line%%[![:space:]]*}"}"
+            case "$line" in
+              '[[build.env]]'*)
+                name=""
+                ;;
+              name*=*)
+                name=$(printf '%s' "$line" | sed -E 's/^name[[:space:]]*=[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/')
+                ;;
+              value*=*)
+                if [ -n "$name" ]; then
+                  value=$(printf '%s' "$line" | sed -E 's/^value[[:space:]]*=[[:space:]]*"?(.*[^"])"?[[:space:]]*$/\1/')
+                  printf '%s' "$value" > "/platform/env/$name"
+                  echo "  $name=$value"
+                  name=""
+                fi
+                ;;
+            esac
+          done < "$PROJ"
+        else
+          echo "no project.toml at $PROJ — building with buildpack defaults"
+        fi
+        # The lifecycle runs as 1001:1000 and only reads these files.
+        chown -R 1001:1000 /platform
+      volumeMounts:
+        # Must be mounted HERE too, not only on the build step: Tekton scopes
+        # volumeMounts per step, so without this the files were written to this
+        # container's own filesystem, the build step saw an empty emptyDir, and
+        # the detector never saw BP_WEB_SERVER -- the nodejs order group won over
+        # web-servers and the image came out with no process type.
+        - {name: cnb-platform, mountPath: /platform}
     - name: build
       image: $(params.builder)
+      securityContext: {runAsUser: 1001}
       env:
         - {name: CNB_PLATFORM_API, value: "0.12"}
         - {name: DOCKER_CONFIG, value: /harbor-creds}
+        # Trust Harbor's internal CA (mounted below) alongside the system store.
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/harbor-ca"}
       command: ["/cnb/lifecycle/creator"]
       args:
         - "-app=$(workspaces.source.path)/$(params.subdirectory)"
-        - "-insecure-registry=harbor-core.adhar-system.svc.cluster.local"
+        # Where the prepare step wrote project.toml's [[build.env]] entries.
+        - "-platform=/platform"
+        # Both tags name one manifest digest, so a cosign signature made against
+        # either verifies for the other.
+        - "-tag=$(params.image):$(params.extra-tag)"
         - "$(params.image):latest"
       volumeMounts:
         - {name: harbor-dockercfg, mountPath: /harbor-creds}
+        - {name: harbor-ca, mountPath: /etc/harbor-ca, readOnly: true}
+        - {name: cnb-platform, mountPath: /platform}
   volumes:
+    # Shared between prepare (writes) and build (reads): the CNB platform dir.
+    - name: cnb-platform
+      emptyDir: {}
     - name: harbor-dockercfg
       secret:
         secretName: harbor-dockercfg
         items: [{key: .dockerconfigjson, path: config.json}]
+    # Harbor's in-cluster registry serves HTTPS with its OWN internal CA
+    # (`harbor-core-internal-tls`, O=adhar.io, CA:TRUE) — NOT the public
+    # `adhar-cert` leaf that 05-ca-trust.yaml distributes as `adhar-ca-bundle`.
+    # The Go-based lifecycle reads every file under SSL_CERT_DIR, so mounting
+    # the CA here is what lets it push to Harbor without skipping verification.
+    - name: harbor-ca
+      secret:
+        secretName: harbor-core-internal-tls
+        items: [{key: ca.crt, path: harbor-ca.crt}]
 ---
 # Kaniko build from a Dockerfile → push to Harbor (the case buildpacks/kpack skip).
 apiVersion: tekton.dev/v1
@@ -112,6 +209,8 @@ spec:
     - {name: image, type: string}
     - {name: subdirectory, type: string, default: ""}
     - {name: dockerfile, type: string, default: Dockerfile}
+    # See buildpacks-build: a commit-addressable second tag, for previews.
+    - {name: extra-tag, type: string, default: "latest"}
   workspaces:
     - {name: source}
   results:
@@ -123,6 +222,7 @@ spec:
         - "--context=$(workspaces.source.path)/$(params.subdirectory)"
         - "--dockerfile=$(params.dockerfile)"
         - "--destination=$(params.image):latest"
+        - "--destination=$(params.image):$(params.extra-tag)"
         - "--insecure"
         - "--skip-tls-verify"
         - "--digest-file=$(results.digest.path)"
@@ -146,18 +246,46 @@ metadata:
 spec:
   params:
     - {name: image, type: string}
+    # Which tag to resolve to a digest and sign. Signing is by digest, so signing
+    # :latest or :<commit sha> of the same build yields the same signature.
+    - {name: tag, type: string, default: "latest"}
   steps:
     - name: sign
       image: ghcr.io/sigstore/cosign/cosign:v2.4.1
       env:
         - {name: COSIGN_PASSWORD, value: adhar}
         - {name: COSIGN_YES, value: "true"}
+        # Harbor speaks HTTPS with its own internal CA — see buildpacks-build.
+        # `--allow-http-registry` used to be passed here, which forced cosign to
+        # talk plaintext to a TLS-only registry; trusting the CA is the fix.
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/harbor-ca"}
+        # cosign does not just READ the image: it PUSHES the signature back as
+        # a `<digest>.sig` tag in the same repository, so it needs the Harbor
+        # push credential exactly as the build step does. Without it the step
+        # failed with
+        #   UNAUTHORIZED: unauthorized to access repository: library/<app>,
+        #   action: push
+        # Listing harbor-push under the ServiceAccount is not enough -- that
+        # secret is kubernetes.io/basic-auth and carries no tekton.dev/docker-*
+        # annotation, so Tekton's credential initialiser writes no docker config.
+        - {name: DOCKER_CONFIG, value: /harbor-creds}
       args:
         - sign
         - --key=k8s://adhar-system/cosign-key
         - --tlog-upload=false
-        - --allow-http-registry=true
-        - "$(params.image):latest"
+        - "$(params.image):$(params.tag)"
+      volumeMounts:
+        - {name: harbor-dockercfg, mountPath: /harbor-creds}
+        - {name: harbor-ca, mountPath: /etc/harbor-ca, readOnly: true}
+  volumes:
+    - name: harbor-dockercfg
+      secret:
+        secretName: harbor-dockercfg
+        items: [{key: .dockerconfigjson, path: config.json}]
+    - name: harbor-ca
+      secret:
+        secretName: harbor-core-internal-tls
+        items: [{key: ca.crt, path: harbor-ca.crt}]
 ---
 # Pipeline: source → buildpacks build+push → cosign sign → trivy scan.
 apiVersion: tekton.dev/v1

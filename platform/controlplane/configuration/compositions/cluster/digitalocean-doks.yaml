@@ -59,16 +59,21 @@ spec:
             {{- $do := dig "digitalocean" (dict) $providerSettings -}}
             {{- $network := dig "networkConfig" (dict) $params -}}
             {{- $providerConfig := dig "spec" "providerConfigRef" "name" "default" $xr -}}
-            {{- $deletionPolicy := default "Delete" $params.deletionPolicy -}}
+            {{- /* Namespaced (v2) MRs have no spec.deletionPolicy — the field was
+                   removed from the .m schemas; the equivalent is managementPolicies
+                   without Delete. Applying deletionPolicy makes the composed
+                   resource fail schema validation outright ("field not declared in
+                   schema"), so map Orphan onto managementPolicies instead. */ -}}
+            {{- $orphan := eq (default "Delete" $params.deletionPolicy) "Orphan" -}}
             {{- /* The MR's connection secret is always written into the XR's own
                    namespace (namespaced MRs cannot target another namespace);
                    the kubeconfig is republished to spec.writeConnectionSecretToRef
                    in the next step. */ -}}
             {{- $connSecret := printf "%s-doks-connection" $name -}}
-            {{- /* DOKS needs a full version slug ("1.33.1-do.3"); there is no
+            {{- /* DOKS needs a full version slug ("1.36.3-do.4"); there is no
                    "latest" alias in the API. This fallback WILL go stale — set
                    spec.parameters.version from `doctl kubernetes options versions`. */ -}}
-            {{- $defaultVersion := "1.33.1-do.3" -}}
+            {{- $defaultVersion := "1.36.3-do.4" -}}
             {{- $version := default $defaultVersion (coalesce $params.version (get $cp "kubernetesVersion")) -}}
             {{- $ha := $cp.highAvailability -}}
             {{- if hasKey $do "ha" }}{{ $ha = $do.ha }}{{ end -}}
@@ -169,7 +174,9 @@ spec:
               providerConfigRef:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
-              deletionPolicy: {{ $deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- range $index, $pool := $pools }}
             {{- if gt $index 0 }}
             ---
@@ -217,7 +224,9 @@ spec:
               providerConfigRef:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
-              deletionPolicy: {{ $deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- end }}
             {{- end }}
 

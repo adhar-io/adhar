@@ -1,11 +1,16 @@
 # Internal-TLS certificate bootstrap for Harbor's `internalTLS` (see values.yaml).
 #
 # Harbor runs with internalTLS certSource=secret, so every component
-# (core/jobservice/registry/portal) mounts a pre-created Secret holding its TLS
-# cert + the trust CA. This Sync-phase hook mints those four Secrets from the
-# platform CA `adhar-cert` (the same self-signed `adhar` root the kind node
-# already trusts at /etc/adhar/pki/tls.crt and the console mounts) — so the whole
-# pull/push path is HTTPS with ONE known trust root, no skip_verify anywhere.
+# (core/jobservice/registry/portal/trivy) mounts a pre-created Secret holding its TLS
+# cert + the trust CA. This Sync-phase hook mints those five Secrets from a CA it
+# owns, `harbor-internal-ca`, creating that CA on first run — so the whole
+# internal path is HTTPS with ONE known trust root and no skip_verify anywhere.
+#
+# It must NOT sign with `adhar-cert`. That is the platform EDGE certificate: on a
+# cluster with real TLS it is a Let's Encrypt leaf, not a CA, so everything it
+# "signed" was rejected by its peers ("remote error: tls: bad certificate") and
+# Harbor's scanner metadata endpoint returned 500. Holding our own CA also means
+# the private key is still available when a new component is added later.
 #
 # Why the platform CA and not Harbor's own `auto` generator: Harbor's auto certs
 # only carry SANs `harbor-core`/localhost, but the node dials the core Service by
@@ -35,7 +40,14 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [secrets]
-    verbs: [get, list, create]
+    # delete/update as well as create: a component certificate signed by a CA we
+    # no longer hold has to be replaced, not skipped.
+    verbs: [get, list, create, update, patch, delete]
+  - apiGroups: [apps]
+    # Harbor reads its certificate once at start-up, so a re-mint only takes
+    # effect after the workload restarts.
+    resources: [deployments, statefulsets]
+    verbs: [get, list, patch, update]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -68,7 +80,12 @@ spec:
           image: alpine/k8s:1.31.1
           env:
             - {name: NS, value: adhar-system}
-            - {name: CA_SECRET, value: adhar-cert}
+            # A CA this Job OWNS. It must not be `adhar-cert`: on a cluster with
+            # real edge TLS that secret holds a Let's Encrypt LEAF, not a CA, and
+            # signing with it produces certificates no peer will accept
+            # ("remote error: tls: bad certificate", and Harbor's scanner
+            # metadata endpoint then 500s). Created here on first run.
+            - {name: CA_SECRET, value: harbor-internal-ca}
             # Must match the clusterIP pinned onto the harbor-core Service by
             # generate-manifests.sh, so the core cert is valid for the address
             # the kind node dials.
@@ -81,14 +98,44 @@ spec:
               # (alpine-based, apk available) so cert minting works.
               command -v openssl >/dev/null 2>&1 || apk add --no-cache openssl >/dev/null 2>&1
               work=$(mktemp -d); cd "$work"
-              # Pull the platform CA (cert + key) to sign the component certs.
-              kubectl get secret "$CA_SECRET" -n "$NS" -o jsonpath='{.data.tls\.crt}' | base64 -d > ca.crt
-              kubectl get secret "$CA_SECRET" -n "$NS" -o jsonpath='{.data.tls\.key}' | base64 -d > ca.key
 
+              # --- the CA -------------------------------------------------------
+              # Owned by this Job so every component certificate shares one trust
+              # root whose PRIVATE KEY we still have. The previous version signed
+              # with `adhar-cert`; on a cluster with real edge TLS that is a
+              # Let's Encrypt leaf, so nothing it signed could be verified and any
+              # component added later (the Trivy adapter) was rejected by its peers.
+              if kubectl get secret "$CA_SECRET" -n "$NS" >/dev/null 2>&1; then
+                kubectl get secret "$CA_SECRET" -n "$NS" -o jsonpath='{.data.tls\.crt}' | base64 -d > ca.crt
+                kubectl get secret "$CA_SECRET" -n "$NS" -o jsonpath='{.data.tls\.key}' | base64 -d > ca.key
+                echo "using existing CA $CA_SECRET"
+              else
+                openssl req -x509 -newkey rsa:4096 -nodes -keyout ca.key -out ca.crt -days 3650 -sha256 \
+                  -subj "/O=adhar.io/CN=harbor-internal-ca" \
+                  -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
+                kubectl create secret generic "$CA_SECRET" -n "$NS" \
+                  --from-file=tls.crt=ca.crt --from-file=tls.key=ca.key
+                echo "created CA $CA_SECRET"
+              fi
+              CA_FP=$(openssl x509 -in ca.crt -noout -fingerprint -sha256)
+
+              # --- component certificates --------------------------------------
+              RESTART=""
               mint() {  # $1=component  $2=SAN string
                 local comp="$1" sans="$2" sec="harbor-${1}-internal-tls"
                 if kubectl get secret "$sec" -n "$NS" >/dev/null 2>&1; then
-                  echo "$sec already present — skipping"; return 0
+                  # Keep it ONLY if it was signed by the CA we hold. A secret left
+                  # over from a different (or lost) root has to be replaced, or the
+                  # components disagree about who to trust and every internal TLS
+                  # handshake fails.
+                  local have
+                  have=$(kubectl get secret "$sec" -n "$NS" -o jsonpath='{.data.ca\.crt}' \
+                          | base64 -d 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null || true)
+                  if [ "$have" = "$CA_FP" ]; then
+                    echo "$sec already signed by the current CA — keeping"; return 0
+                  fi
+                  echo "$sec was signed by a different CA — replacing"
+                  kubectl delete secret "$sec" -n "$NS"
                 fi
                 printf 'subjectAltName=%s\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth,clientAuth\n' "$sans" > "$comp.ext"
                 openssl req -new -newkey rsa:2048 -nodes -keyout "$comp.key" -subj "/CN=harbor-$comp" -out "$comp.csr"
@@ -96,6 +143,7 @@ spec:
                 kubectl create secret generic "$sec" -n "$NS" \
                   --from-file=ca.crt=ca.crt --from-file=tls.crt="$comp.crt" --from-file=tls.key="$comp.key"
                 echo "created $sec"
+                RESTART="$RESTART $comp"
               }
 
               base='DNS:harbor-%s,DNS:harbor-%s.adhar-system,DNS:harbor-%s.adhar-system.svc,DNS:harbor-%s.adhar-system.svc.cluster.local,DNS:localhost,IP:127.0.0.1'
@@ -103,4 +151,23 @@ spec:
               mint jobservice "$(printf "$base" jobservice jobservice jobservice jobservice)"
               mint registry "$(printf "$base" registry registry registry registry)"
               mint portal "$(printf "$base" portal portal portal portal)"
+              # The Trivy adapter is an internalTLS component as well; with
+              # certSource: secret the chart mounts harbor-trivy-internal-tls and
+              # the StatefulSet will not start without it.
+              mint trivy "$(printf "$base" trivy trivy trivy trivy)"
+
+              # Harbor loads its certificate once, at start-up, so anything whose
+              # secret was just (re)written has to be rolled. Nothing is restarted
+              # when every certificate already matched, which is the steady state.
+              if [ -n "$RESTART" ]; then
+                for comp in $RESTART; do
+                  case "$comp" in
+                    trivy) kubectl -n "$NS" rollout restart statefulset/harbor-trivy 2>/dev/null || true ;;
+                    *)     kubectl -n "$NS" rollout restart deployment/harbor-$comp 2>/dev/null || true ;;
+                  esac
+                done
+                echo "restarted:$RESTART"
+              else
+                echo "all component certificates already current — nothing restarted"
+              fi
               echo "harbor internal-tls secrets ready"

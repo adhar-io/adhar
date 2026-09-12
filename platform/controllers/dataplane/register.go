@@ -95,6 +95,25 @@ func (r *DataPlaneReconciler) ensureArgoRegistration(ctx context.Context, dp *v1
 
 // deleteArgoRegistration removes the ArgoCD cluster Secret during finalize.
 // Tolerant of an already-deleted secret.
+// stopPlacingApps takes the plane out of the workload ApplicationSet's
+// generator by dropping the labels it selects on, while leaving the cluster
+// secret itself in place so ArgoCD can still reach the plane to delete what it
+// put there. Without this the ApplicationSet recreates every Application as
+// fast as finalize deletes it, and the DataPlane never finishes deleting.
+func (r *DataPlaneReconciler) stopPlacingApps(ctx context.Context, dp *v1alpha1.DataPlane) error {
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, types.NamespacedName{Name: argoClusterSecretName(dp), Namespace: controlPlaneNamespace}, secret); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if secret.Labels[clusterLabelKey] == "" && secret.Labels[dataPlaneLabelKey] == "" {
+		return nil
+	}
+	patched := secret.DeepCopy()
+	delete(patched.Labels, clusterLabelKey)
+	delete(patched.Labels, dataPlaneLabelKey)
+	return r.Patch(ctx, patched, client.MergeFrom(secret))
+}
+
 func (r *DataPlaneReconciler) deleteArgoRegistration(ctx context.Context, dp *v1alpha1.DataPlane) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: argoClusterSecretName(dp), Namespace: controlPlaneNamespace},

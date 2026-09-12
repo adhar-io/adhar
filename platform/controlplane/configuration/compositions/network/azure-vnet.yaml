@@ -30,7 +30,11 @@ spec:
             region = params.region or "eastus"
             subnets = params.subnets or []
             tags = params.tags or {}
-            deletionPolicy = params.deletionPolicy or "Delete"
+            # Namespaced (.m) managed resources have NO spec.deletionPolicy — it is not
+            # in their schema and the apply fails with "field not declared in schema".
+            # Retention is expressed by withholding Delete from managementPolicies.
+            _retainOnDelete = (params.deletionPolicy or "Delete") in ["Orphan", "Retain"]
+            managementPolicies = ["Observe", "Create", "Update", "LateInitialize"] if _retainOnDelete else ["*"]
 
             resourceGroupName = params.resourceGroupName or "${metadata.name}-rg"
 
@@ -51,7 +55,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 },
                 {
@@ -74,7 +78,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 }
             ]
@@ -103,7 +107,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 }]
 

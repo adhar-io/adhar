@@ -125,9 +125,9 @@ spec:
             - --client-id=baserow
             - --redirect-url=https://baserow.adhar.localtest.me:8443/oauth2/callback
             - --upstream=http://baserow-frontend.adhar-system.svc.cluster.local:3000
-            - --upstream=http://baserow-wsgi.adhar-system.svc.cluster.local:8000/api
-            - --upstream=http://baserow-wsgi.adhar-system.svc.cluster.local:8000/ws
-            - --upstream=http://baserow-wsgi.adhar-system.svc.cluster.local:8000/media
+            - --upstream=http://baserow-wsgi.adhar-system.svc.cluster.local:8000/api/
+            - --upstream=http://baserow-wsgi.adhar-system.svc.cluster.local:8000/ws/
+            - --upstream=http://baserow-wsgi.adhar-system.svc.cluster.local:8000/media/
             - --email-domain=*
             - --scope=openid profile email groups
             - --cookie-secure=true

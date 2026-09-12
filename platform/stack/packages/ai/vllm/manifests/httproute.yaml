@@ -1,0 +1,62 @@
+# vLLM's OpenAI-compatible API through the Cilium Gateway (adhar-gateway), TLS
+# terminated at the Gateway with the platform cert.
+#
+#     https://vllm.adhar.localtest.me:8443/v1/models
+#     https://vllm.adhar.localtest.me:8443/v1/chat/completions
+#
+# THIS ROUTE IS A DEBUGGING / DIRECT-ACCESS PATH, NOT THE PRIMARY ONE.
+# The intended production consumer is `ai/agentgateway`, which fronts vLLM as
+# one of its LLM backends over the cluster-internal address
+#     http://vllm.adhar-system.svc.cluster.local:8000/v1
+# and is where auth, per-team routing, rate limiting and token accounting
+# belong. ai/adhar-ai reaches the same endpoint with provider=openai-compatible.
+# Keep both: the direct route is how you curl the engine when the gateway in
+# front of it is the thing you are debugging, and how a developer on a laptop
+# talks to the local CPU profile without standing up the whole AI stack.
+#
+# ⚠️ THERE IS NO AUTHENTICATION ON THIS ROUTE. vLLM's own `--api-key` is a
+# single shared static string and upstream explicitly warns not to rely on it.
+# On a local Kind cluster the Gateway is only reachable from the host, which is
+# fine. Before enabling vLLM on an internet-facing platform, either drop this
+# file and route through agentgateway, or put the Keycloak oauth2-proxy in front
+# of it the way application/n8n's sso.yaml does.
+#
+# The hostname is written with the local convention (vllm.adhar.localtest.me);
+# stageStack() rewrites it to vllm.<host><portSuffix> for every other topology
+# when the stack is seeded into Gitea, so nothing here is really hardcoded.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vllm
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+  annotations:
+    # After the Deployment (wave 5): ArgoCD holds a wave until its resources are
+    # healthy, and an HTTPRoute whose backend Service has no endpoints yet is
+    # Degraded — at an earlier wave that deadlocks the first sync (the same
+    # ordering bug documented in application/n8n/manifests/httproute.yaml).
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - vllm.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: vllm
+          port: 8000
+      timeouts:
+        # Generation is slow — minutes for a long completion on CPU. The Gateway
+        # API default request timeout would cut a legitimate long response off
+        # mid-stream, which surfaces to clients as a truncated SSE stream rather
+        # than an error, so it is worth setting explicitly.
+        request: 600s
+        backendRequest: 600s

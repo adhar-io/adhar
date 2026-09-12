@@ -1,0 +1,42 @@
+# Adhar marketplace contract for the opencost package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: opencost
+category: observability
+version: "2.5.30"
+description: OpenCost cost monitoring that attributes cluster spend per namespace, workload and label.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://opencost.io
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: opencost/opencost
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: stable
+resources:
+  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - cost
+  - finops
+  - showback
+  - opencost

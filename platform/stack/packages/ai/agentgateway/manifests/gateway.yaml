@@ -1,0 +1,106 @@
+# agentgateway — the internal AI data plane Gateway (ADR-0025).
+#
+# ---------------------------------------------------------------------------
+# WHY A SECOND GATEWAY, AND WHY IT DOES NOT TERMINATE TLS
+# ---------------------------------------------------------------------------
+# The platform has exactly ONE edge: the Cilium Gateway `adhar-gateway`
+# (GatewayClass `adhar`, controller io.cilium/gateway-controller) on nodePort
+# 30080/30443, holding the `adhar-cert` wildcard for *.adhar.localtest.me. Every
+# package reaches users through it. agentgateway does NOT replace that edge and
+# does NOT get its own nodePort/LoadBalancer, because:
+#
+#   * one edge = one TLS story. The platform mints and rotates a single wildcard
+#     cert; a second internet-facing listener would need its own cert, its own
+#     host-port mapping in the kind config, and its own DNS/ACME wiring on cloud
+#     (foundation domain templating). None of that is worth duplicating.
+#   * GatewayClass `agentgateway` is a DIFFERENT class with a DIFFERENT
+#     controllerName (agentgateway.dev/agentgateway). It does not collide with,
+#     shadow, or take over `adhar` — both are installed and both are Accepted.
+#     Keep both: Cilium is the L4/L7 edge, agentgateway is the AI-protocol-aware
+#     L7 hop behind it.
+#   * agentgateway is where LLM/MCP/A2A semantics live (token accounting, prompt
+#     guards, MCP tool-level authorization). Those need a protocol-aware proxy
+#     that Cilium's Envoy is not. So the request path is:
+#
+#        client ──TLS──> adhar-gateway (Cilium, :30443, wildcard cert)
+#                          │  hostname ai.<host> / mcp.<host>  (httproute.yaml)
+#                          ▼
+#                        adhar-ai-gateway proxy Service :8080  (this file, ClusterIP)
+#                          │  AgentgatewayBackend / AgentgatewayPolicy
+#                          ▼
+#                        Anthropic · OpenAI · in-cluster vLLM · 7 MCP servers
+#
+# The listener below is plain HTTP on a ClusterIP: it is only ever reached from
+# inside the cluster, by the Cilium edge or by in-cluster agents. Cluster-internal
+# confidentiality is Cilium's job (WireGuard/mTLS at the CNI), not a second cert.
+---
+# Proxy sizing/shape for the data-plane pods the agentgateway controller
+# provisions for the Gateway below. Without this, the controller provisions the
+# Service with the class default; pinning ClusterIP here is what keeps the AI
+# data plane off the node's edge and makes the Cilium HTTPRoute the only way in.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+metadata:
+  name: adhar-ai-gateway
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-gateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    # Wave 1: after the controller (wave 0 from install.yaml) so the CRD is
+    # established and the controller is watching, before the Gateway lands.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  service:
+    spec:
+      # Internal only — see the header. A LoadBalancer here would sit Pending
+      # forever on kind and would be a second public edge on cloud.
+      type: ClusterIP
+  logging:
+    level: info
+    # Structured logs so the platform's Alloy → Loki pipeline parses the AI
+    # access log (model, tokens, tool name) as fields instead of a blob.
+    format: json
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      # No CPU limit on purpose (throttling a proxy shows up as tail latency);
+      # a memory limit is kept so a runaway body buffer cannot evict neighbours
+      # on the single-node local cluster.
+      memory: 1Gi
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: adhar-ai-gateway
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-gateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  # NOT `adhar`. This is agentgateway's own class, created and reconciled by the
+  # agentgateway controller; `adhar` remains Cilium's and is untouched.
+  gatewayClassName: agentgateway
+  infrastructure:
+    parametersRef:
+      group: agentgateway.dev
+      kind: AgentgatewayParameters
+      name: adhar-ai-gateway
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 8080
+      allowedRoutes:
+        namespaces:
+          # Routes for this gateway live in adhar-system alongside it (ADR-0011).
+          # Widen to Selector when tenant namespaces start publishing their own
+          # AI routes.
+          from: Same

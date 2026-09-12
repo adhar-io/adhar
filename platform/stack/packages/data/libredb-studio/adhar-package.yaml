@@ -1,0 +1,72 @@
+# Adhar marketplace contract for the libredb-studio package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: libredb-studio
+category: data
+version: "0.1.63"          # upstream chart version (oci://ghcr.io/libredb/charts/libredb-studio)
+appVersion: "0.15.0"       # ghcr.io/libredb/libredb-studio:0.15.0
+description: LibreDB Studio browser SQL IDE over every platform database, with native Keycloak OIDC and pre-provisioned connections.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: MIT
+homepage: https://libredb.org
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: external-secrets
+    category: security
+  - name: cnpg
+    category: data
+  - name: keycloak
+    category: security
+  # Each of these owns one of the pre-provisioned connections; none is needed
+  # for Studio to run — a connection whose package is absent is skipped.
+  - name: valkey
+    category: data
+    optional: true
+  - name: redis
+    category: data
+    optional: true
+  - name: opensearch
+    category: data
+    optional: true
+  - name: trino
+    category: data
+    optional: true
+  - name: metabase
+    category: data
+    optional: true
+  - name: open-metadata
+    category: data
+    optional: true
+  - name: posthog
+    category: application
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: oci://ghcr.io/libredb/charts/libredb-studio
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  cpu: "100m"        # Studio 100m + the single CNPG instance it stores state in
+  memory: "512Mi"    # 256Mi request / 512Mi limit for Studio, ~256Mi for libredb-db
+  storage: "5Gi"     # the libredb-db CNPG volume; the pod itself is stateless (emptyDir)
+  footprint: small
+  localSafe: true    # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - sql
+  - ide
+  - database
+  - postgresql
+  - clickhouse
+  - opensearch
+  - trino

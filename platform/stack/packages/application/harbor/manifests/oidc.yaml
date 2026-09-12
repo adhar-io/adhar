@@ -84,6 +84,13 @@ spec:
         - name: config
           configMap:
             name: harbor-oidc-config
+        # harbor-core serves HTTPS ONLY (Service port 443 -> 8443) because
+        # internalTLS is on. This CA is what lets curl verify it.
+        - name: harbor-ca
+          secret:
+            secretName: harbor-core-internal-tls
+            optional: true
+            items: [{key: ca.crt, path: harbor-ca.crt}]
       containers:
         - name: configure
           image: docker.io/library/ubuntu:22.04
@@ -97,6 +104,9 @@ spec:
             - name: config
               mountPath: /var/config
               readOnly: true
+            - name: harbor-ca
+              mountPath: /var/harbor-ca
+              readOnly: true
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -109,11 +119,19 @@ spec:
                 exit 1
               fi
               ADMIN_PW="$(cat /var/harbor/HARBOR_ADMIN_PASSWORD 2>/dev/null || echo Harbor12345)"
-              HARBOR="http://harbor-core.adhar-system.svc.cluster.local"
+              # HTTPS, not HTTP: with internalTLS enabled the harbor-core Service
+              # publishes only port 443 -> container 8443. The old http:// URL
+              # could never connect, so this Job retried for hours and, being a
+              # Sync hook, held the whole Harbor Application in a permanently
+              # "waiting for completion of hook" sync that replayed its start
+              # revision and reverted every pushed change.
+              HARBOR="https://harbor-core.adhar-system.svc.cluster.local"
+              CACERT="/var/harbor-ca/harbor-ca.crt"
+              [ -s "$CACERT" ] || { echo "harbor-core-internal-tls CA not present yet — retrying"; exit 1; }
 
               echo "waiting for Harbor API"
               i=0
-              until curl -sf -u "admin:${ADMIN_PW}" "${HARBOR}/api/v2.0/systeminfo" >/dev/null 2>&1; do
+              until curl -sf --cacert "$CACERT" -u "admin:${ADMIN_PW}" "${HARBOR}/api/v2.0/systeminfo" >/dev/null 2>&1; do
                 i=$((i + 1)); [ "${i}" -ge 60 ] && { echo "Harbor API not ready"; exit 1; }
                 sleep 5
               done
@@ -121,6 +139,6 @@ spec:
               export HARBOR_CLIENT_SECRET="${CLIENT_SECRET}"
               envsubst < /var/config/oidc-config.json > /tmp/oidc.json
               echo "applying Harbor OIDC configuration"
-              curl -sf -u "admin:${ADMIN_PW}" -X PUT -H "Content-Type: application/json" \
+              curl -sf --cacert "$CACERT" -u "admin:${ADMIN_PW}" -X PUT -H "Content-Type: application/json" \
                 --data @/tmp/oidc.json "${HARBOR}/api/v2.0/configurations"
               echo "Harbor OIDC configured"

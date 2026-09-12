@@ -80,8 +80,18 @@ data:
           "userinfo.token.claim": "true"
         }
     }
+  # registrationAllowed: the console's "Create a new account" sends a visitor to
+  # Keycloak's hosted sign-up (…/protocol/openid-connect/registrations). Without
+  # this the realm answers 400 and there is no way for a new person to obtain an
+  # account, so onboarding could never create an organization — an org needs an
+  # owner. Set it to false for an invite-only platform; the console detects the
+  # refusal and says an administrator must create the account instead of
+  # offering a dead end.
+  #
+  # registrationEmailAsUsername keeps identities addressable: onboarding emails
+  # the workspace contact, and Gitea/Argo CD map users by email.
   realm-payload.json: |
-    {"realm":"adhar","enabled":true,"sslRequired":"NONE","loginTheme":"adhar"}
+    {"realm":"adhar","enabled":true,"sslRequired":"NONE","loginTheme":"adhar","registrationAllowed":true,"registrationEmailAsUsername":true,"resetPasswordAllowed":true,"verifyEmail":false}
   user-password.json: |
     {
         "temporary": false,
@@ -774,7 +784,21 @@ data:
     # sslRequired=NONE from realm-payload.json below); on later runs it fixes
     # a pre-existing realm created as sslRequired=external. Also (re)applies
     # the Adhar-branded login theme so it survives realm re-imports.
-    kc -X PUT --data '{"sslRequired":"NONE","loginTheme":"adhar"}' "${REALM_URL}"
+    #
+    # registrationAllowed belongs HERE, not only in realm-payload.json: that
+    # payload is POSTed exclusively when the realm does not yet exist, so a
+    # setting added to it never reaches an already-provisioned cluster. The
+    # console's "Create a new account" sends people to Keycloak's hosted
+    # sign-up (…/protocol/openid-connect/registrations); with registration off
+    # that endpoint answers 400 and the console correctly falls back to telling
+    # them to ask an administrator. Reconciling it on every run is what makes
+    # self sign-up actually work on an existing install.
+    #
+    # registrationEmailAsUsername keeps the identity addressable — onboarding
+    # emails the workspace contact, and Gitea/Argo CD map users by email.
+    # resetPasswordAllowed is the other half of self-service: an account nobody
+    # can recover is not self-service.
+    kc -X PUT --data '{"sslRequired":"NONE","loginTheme":"adhar","registrationAllowed":true,"registrationEmailAsUsername":true,"resetPasswordAllowed":true,"verifyEmail":false}' "${REALM_URL}"
 
     # A realm can exist half-provisioned: an earlier run that died mid-way
     # created the realm but none of the clients. Treating bare existence as
@@ -820,6 +844,31 @@ data:
       kc -X PUT --data @/tmp/user-password-to-be-applied.json "${REALM_URL}/users/${USER1ID}/reset-password"
       kc -X PUT --data @/tmp/user-password-to-be-applied.json "${REALM_URL}/users/${USER2ID}/reset-password"
       set +e
+    fi
+
+    # Default group for self-registered users.
+    #
+    # Enabling registrationAllowed is only half of self sign-up: Keycloak puts a
+    # self-registered user in NO group, and every RBAC binding on this platform
+    # keys on group membership (oidc:platform-viewer -> view, and so on). Without
+    # a default the new account signs in successfully and then sees nothing,
+    # which looks like a broken product rather than a permissions model.
+    #
+    # platform-viewer deliberately: read-only is the only safe thing to hand
+    # someone who just created their own account. They gain real rights on their
+    # OWN namespace when onboarding provisions their organization, which binds
+    # their org group to the namespaced `admin` role — scoped to their tenant,
+    # not the cluster.
+    #
+    # Idempotent: PUT on default-groups is a no-op when already set. Runs on
+    # every reconcile so it reaches realms that already existed.
+    VIEWER_GID=$(kc "${REALM_URL}/groups" | jq -r '.[] | select(.name=="platform-viewer") | .id')
+    if [ -n "${VIEWER_GID}" ] && [ "${VIEWER_GID}" != "null" ]; then
+      kc -X PUT "${REALM_URL}/default-groups/${VIEWER_GID}" >/dev/null 2>&1 \
+        && echo "default group for new sign-ups: platform-viewer" \
+        || echo "warning: could not set the default group; self-registered users will have no access"
+    else
+      echo "warning: platform-viewer group not found; skipping default-group setup"
     fi
 
     # Clients + keycloak-clients: the same data-driven pass on a fresh AND an

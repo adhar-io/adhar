@@ -30,6 +30,41 @@ rules:
   - list
   - watch
 ---
+# Interactive session transport for Cloud Shell and the pod terminal.
+#
+# Deliberately a separate, narrow role rather than verbs bolted onto read-all,
+# so opening a shell in a container can be reviewed and revoked on its own.
+#
+# Why the ServiceAccount needs this at all: a WebSocket cannot carry
+# `Impersonate-*` headers, so the exec socket is opened with the console's own
+# SA token. Authorization is still the user's — the BFF first asks the
+# apiserver, as that user, whether they may `create pods/exec` in the namespace
+# and refuses otherwise (apps/console/app/server/k8s/exec.ts), and the audit
+# record names the real user. Only the transport credential differs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: console-exec
+rules:
+- apiGroups: ['']
+  resources:
+  - pods/exec
+  - pods/attach
+  verbs: ['create', 'get']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: console-exec
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: console-exec
+subjects:
+- kind: ServiceAccount
+  name: console
+  namespace: adhar-system
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -321,6 +356,13 @@ spec:
           valueFrom:
             secretKeyRef: { name: harbor-core, key: HARBOR_ADMIN_PASSWORD, optional: true }
         - { name: NEXUS_URL, value: 'http://nexus.adhar-system.svc.cluster.local:8081' }
+        # Nexus REST needs Basic auth for anything past /status.
+        - name: NEXUS_USERNAME
+          valueFrom:
+            secretKeyRef: { name: nexus-credentials, key: username, optional: true }
+        - name: NEXUS_PASSWORD
+          valueFrom:
+            secretKeyRef: { name: nexus-credentials, key: password, optional: true }
         - { name: KAFKA_UI_URL, value: 'http://kafka-ui.adhar-system.svc.cluster.local:80' }
         - { name: TOOLJET_URL, value: 'http://tooljet.adhar-system.svc.cluster.local:80' }
         - { name: PENPOT_URL, value: 'http://penpot.adhar-system.svc.cluster.local:8080' }
@@ -337,6 +379,34 @@ spec:
         - { name: HUBBLE_URL, value: 'http://hubble-ui.adhar-system.svc.cluster.local:80' }
         # JupyterHub — the Zero-to-JupyterHub proxy-public service fronts the hub UI.
         - { name: JUPYTERHUB_URL, value: 'http://proxy-public.adhar-system.svc.cluster.local:80' }
+        # ── tools that were resolving to their PUBLIC hostname ──────────────
+        # Without an explicit URL the console derives `https://<tool>.<domain>`,
+        # which is fronted by that tool's oauth2-proxy: an unauthenticated API
+        # call gets a 302 to Keycloak, never JSON, and the page reports the tool
+        # as unreachable even though it is running. Each of these points at the
+        # in-cluster Service so the BFF talks to the tool directly.
+        - { name: METABASE_URL, value: 'http://metabase.adhar-system.svc.cluster.local:80' }
+        # Metabase authenticates with a session id in X-Metabase-Session, minted
+        # from these admin credentials (set METABASE_API_KEY instead to use a
+        # durable API key).
+        - name: METABASE_USERNAME
+          valueFrom:
+            secretKeyRef: { name: metabase-admin-credentials, key: username, optional: true }
+        - name: METABASE_PASSWORD
+          valueFrom:
+            secretKeyRef: { name: metabase-admin-credentials, key: password, optional: true }
+        # OpenCost's allocation API is unauthenticated; 9003 is its API port
+        # (9090 is the bundled Prometheus, 8081 metrics).
+        - { name: OPENCOST_URL, value: 'http://opencost.adhar-system.svc.cluster.local:9003' }
+        - { name: KARGO_URL, value: 'http://kargo-api.adhar-system.svc.cluster.local:80' }
+        - { name: CODER_URL, value: 'http://coder.adhar-system.svc.cluster.local:80' }
+        - { name: AIRBYTE_URL, value: 'http://airbyte-airbyte-server-svc.adhar-system.svc.cluster.local:8001' }
+        # Falcosidekick exposes the Falco event API (2801); 2810 is metrics.
+        - { name: FALCO_URL, value: 'http://falco-falcosidekick.adhar-system.svc.cluster.local:2801' }
+        # PostHog: the web/events Deployments are not part of the current
+        # install (their Services have no endpoints), so this is deliberately
+        # left unset — pointing it at a Service with no backends would turn an
+        # honest "not installed" into a confusing timeout.
         # Trivy is Harbor's built-in scanner — the registry already falls back to
         # HARBOR_URL, so setting HARBOR_URL above enables the Trivy tile too.
         # AUTH_CLIENT_SECRET + AUTH_COOKIE_SECRET come from here (templated by

@@ -72,14 +72,18 @@ cd dbt && dbt build --profiles-dir profiles
 merges to `main` run `adhar-release`, which opens a promotion PR against the
 environments repo. Add `ci/test.sh` to customize the checks.
 
-## ML variant (Kubeflow / MLflow)
+## ML variant
 
-The same paved road extends to ML: keep this Dagster orchestration, swap the
-`staging` transform for a feature/training step, and register models in
-**MLflow** (`data/mlflow`) with training runs on **Kubeflow** pipelines. The
-Iceberg tables become the feature source; inference serving is exposed through
-the same Gateway API route pattern used here. Track Roadmap Phase 4 "ML
-workflow" for the first-class ML golden path.
+The ML paved road is its own golden path now — scaffold **Golden Path - ML
+Service** (`adhar-templates/ml`): a Kubeflow Pipelines v2 training pipeline whose
+model artifact lands in the platform object store, plus a hardened FastAPI model
+server behind the same Gateway API route pattern used here. The Iceberg tables
+this pipeline writes are the natural feature source for it: point the ML
+pipeline's `load_data` component at `${{values.targetTable}}`.
+
+Note that the platform ships **no MLflow package** today, so the ML golden path
+uses the KFP artifact store (platform MinIO) as the model registry; the ML
+skeleton's README documents the one-file change if you deploy MLflow.
 
 ### adhar
 

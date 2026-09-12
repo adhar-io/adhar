@@ -8,13 +8,28 @@
 # Control-plane only (ADR-0023). Data planes get no AI components.
 plane: control-plane
 
-# Provider-agnostic LLM gateway. The ONE secret (Vault: secret/adhar-ai/llm)
-# drives everything; leave it unset and the platform runs unaffected/unkeyed.
+# LLM access. THE GATEWAY IS EXTERNAL TO THIS PACKAGE (ADR-0025): the bespoke
+# adhar-ai-llm-gateway Deployment is gone and the AI data plane is now
+# ai/agentgateway, which this package's components call at
+#
+#   http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1
+#
+# Requests are OpenAI-shaped and pick a provider BY MODEL NAME (`claude-*` ->
+# Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI, `local/*` -> the in-cluster vLLM), so
+# `provider` is no longer a server-side switch — it is only the default model
+# this package's callers name when a caller does not choose one.
+#
+# The ONE secret (Vault: secret/adhar-ai/llm) still drives credentials; leave it
+# unset and the platform runs unaffected/unkeyed. Token/rate BUDGETS moved with
+# the gateway: they are the `conditional` local rate limits in
+# ai/agentgateway/manifests/guardrails.yaml, keyed on the caller's Keycloak
+# group. The numbers below are recorded here only as the values that were
+# carried over, and changing them here changes nothing.
 llm:
-  provider: claude            # claude | openai | azure | openai-compatible | ollama
-  model: claude-opus-4-5-20251101   # latest Claude by default
-  endpoint: ""                # for azure | openai-compatible | ollama
-  budgets:
+  gateway: external           # ai/agentgateway (ADR-0025); this package ships none
+  gatewayUrl: http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1
+  defaultModel: claude-opus-4-5-20251101   # latest Claude by default
+  budgets:                    # enforced in ai/agentgateway, not here
     perUserDailyTokens: 2000000
     perOpMaxToolCalls: 40
     perOpMaxTokens: 400000
@@ -47,15 +62,18 @@ rag:
   database: adhar_ai_rag
   storageSize: 5Gi
 
-# Outward surface (Gateway + OIDC).
+# Outward surface (Gateway + OIDC). This package publishes ONE hostname: the
+# agent runtime. `ai.<host>` (completions) and `mcp.<host>` (federated tools)
+# belong to ai/agentgateway now — see manifests/httproute.yaml for why the
+# runtime moved off them.
 ingress:
   hostnames:
-    - ai.adhar.localtest.me
-    - mcp.adhar.localtest.me
-  oidcClientId: adhar-ai
+    - agent.adhar.localtest.me
+  oidcClientId: adhar-ai      # kept: the gateway's authz rules read its `groups` claim
 
 # Adhar-owned images track :latest with imagePullPolicy: Always.
+# No `gateway` image: ADR-0025 retired adhar-ai-llm-gateway (whose image was
+# never built) in favour of the upstream agentgateway proxy.
 images:
-  gateway: ghcr.io/adhar-io/adhar-ai-gateway:latest
   runtime: ghcr.io/adhar-io/adhar-ai-runtime:latest
   mcpPrefix: ghcr.io/adhar-io/adhar-ai-mcp-   # + <domain>:latest

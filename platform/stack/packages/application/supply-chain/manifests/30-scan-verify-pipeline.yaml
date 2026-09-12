@@ -23,7 +23,10 @@ spec:
     - name: scan
       image: aquasec/trivy:0.58.0
       env:
-        - {name: TRIVY_NON_SSL, value: "true"}
+        # Harbor serves HTTPS with its own internal CA. TRIVY_NON_SSL=true used
+        # to be set here, which forced plaintext against a TLS-only registry and
+        # failed every scan; point Go's trust store at the CA instead.
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/harbor-ca"}
         - {name: TRIVY_USERNAME, value: "admin"}
         - {name: TRIVY_PASSWORD, value: "Harbor12345"}
       script: |
@@ -33,6 +36,13 @@ spec:
         trivy image --scanners vuln --severity "$(params.severity)" \
           --exit-code 1 --no-progress --timeout 10m "$(params.image)"
         echo "No $(params.severity) vulnerabilities — gate passed."
+      volumeMounts:
+        - {name: harbor-ca, mountPath: /etc/harbor-ca, readOnly: true}
+  volumes:
+    - name: harbor-ca
+      secret:
+        secretName: harbor-core-internal-tls
+        items: [{key: ca.crt, path: harbor-ca.crt}]
 ---
 apiVersion: tekton.dev/v1
 kind: Task
@@ -49,12 +59,20 @@ spec:
       env:
         - {name: COSIGN_PASSWORD, value: adhar}
         - {name: COSIGN_REPOSITORY, value: "harbor-core.adhar-system.svc.cluster.local/library/sample-app"}
+        # Same HTTPS-with-private-CA story as cosign-sign / trivy-scan.
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/harbor-ca"}
       args:
         - verify
         - --key=k8s://adhar-system/cosign-key
         - --insecure-ignore-tlog=true
-        - --allow-http-registry=true
         - "$(params.image)"
+      volumeMounts:
+        - {name: harbor-ca, mountPath: /etc/harbor-ca, readOnly: true}
+  volumes:
+    - name: harbor-ca
+      secret:
+        secretName: harbor-core-internal-tls
+        items: [{key: ca.crt, path: harbor-ca.crt}]
 ---
 apiVersion: tekton.dev/v1
 kind: Pipeline

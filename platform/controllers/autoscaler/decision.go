@@ -57,14 +57,24 @@ const (
 
 // capacityShortageMarkers are the scheduler messages that mean "no node has
 // room" — the only unschedulable reason a new, identical worker can fix. A
-// pending pod blocked by taints, affinity or a missing volume is deliberately
-// not a scale-up trigger: buying a node would not schedule it.
+// pending pod blocked by taints or by affinity no current worker satisfies is
+// deliberately not a scale-up trigger: buying a node would not schedule it.
+//
+// "exceed max volume count" belongs here even though it names a volume. It is
+// the CSI attach-limit predicate: the node is out of block-device slots, not
+// the volume out of zones. On DigitalOcean that limit is 7 volumes per droplet
+// and it is the FIRST capacity wall the platform hits — a full catalogue runs
+// out of attachment slots long before it runs out of CPU or memory, and a
+// fresh droplet brings 7 more slots, so another worker is exactly the fix.
+// (An unbound or zone-pinned volume reads as "had volume node affinity
+// conflict" / "didn't find available persistent volumes", which are NOT here.)
 var capacityShortageMarkers = []string{
 	"insufficient cpu",
 	"insufficient memory",
 	"insufficient pods",
 	"too many pods",
 	"insufficient ephemeral-storage",
+	"exceed max volume count",
 }
 
 // Snapshot is everything a decision is made from. It is a plain value so the

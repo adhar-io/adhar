@@ -1,0 +1,244 @@
+# LibreDB Studio values for Adhar — a browser SQL IDE over every database the
+# platform runs. Every key below is a deliberate deviation from the upstream
+# chart defaults (charts/libredb-studio 0.1.63); anything not named here keeps
+# the chart default, notably ingress.enabled=false (routing is the Cilium
+# Gateway API HTTPRoute in manifests/httproute.yaml — never an nginx Ingress),
+# replicaCount=1, the ClusterIP Service on port 80 -> container 3000, the
+# /api/db/health probes, and the 100m/256Mi request with a 512Mi limit.
+
+image:
+  # Pin the image the chart would otherwise take from .Chart.AppVersion, so a
+  # re-render of these manifests cannot silently move the running version.
+  tag: "0.15.0"
+
+# Keycloak SSO, natively: LibreDB Studio speaks OIDC itself in the MIT build
+# (docs/OIDC.md — Authorization Code + PKCE, then its own JWT session), so
+# there is no oauth2-proxy front here (hack/gen-sso.sh is the fallback for apps
+# that cannot do this). The client `libredb-studio` is provisioned by the
+# keycloak package from manifests/keycloak-client.yaml.
+authProvider: "oidc"
+
+config:
+  oidcIssuer: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+  # The adhar realm puts group membership in a flat `groups` claim
+  # (oidc-group-membership-mapper, full.path=false — see the keycloak package's
+  # keycloak-config.yaml), so the role claim is `groups`, not Keycloak's
+  # default nested `realm_access.roles`.
+  oidcRoleClaim: "groups"
+  # Studio only knows two roles, admin and user. Platform operators map to
+  # admin (they get the audit log, the fleet health view and the admin-only
+  # connections); every other realm user signs in as `user`.
+  oidcAdminRoles: "admin,platform-admin,platform-engineer"
+  # Strict: no zero-config bootstrap. Without it the app generates a local
+  # admin password on first start and prints it to the pod log — a password
+  # login beside the SSO one that nobody asked for. Strict needs a JWT_SECRET,
+  # which secrets.existingSecret carries; ADMIN_PASSWORD is not required under
+  # authProvider=oidc (the chart makes that env ref optional there).
+  authBootstrap: "off"
+  # Server-side storage in the platform's own PostgreSQL instead of the
+  # default browser localStorage: connections, tabs and query history then
+  # belong to the Keycloak identity rather than to one browser profile, and
+  # managed connection credentials are resolved server-side. The database is
+  # the CNPG cluster libredb-db (manifests/platform-postgres.yaml); the URL
+  # arrives as STORAGE_POSTGRES_URL from the Secret below.
+  storageProvider: "postgres"
+
+secrets:
+  # Everything sensitive comes from one ESO-built Secret
+  # (manifests/keycloak-client.yaml): jwt-secret (generated once), the Keycloak
+  # client id/secret, and storage-postgres-url assembled from the CNPG
+  # credentials. With existingSecret set the chart renders no Secret of its own
+  # and reads these key names from `secrets.existingSecretKeys` (defaults).
+  existingSecret: "libredb-studio-secrets"
+
+# Pre-provisioned connections to every database the platform runs, so a fresh
+# `adhar up` opens on the platform's own data with nothing to configure.
+# Credentials are NEVER written here: `${VAR}` resolves from the pod
+# environment, which extraEnvFrom below fills from per-datasource Secrets that
+# External Secrets mirrors from the secret each operator already created
+# (manifests/datasources.yaml). A connection whose `${VAR}` is undefined —
+# because that package is not enabled in this environment — is skipped by
+# Studio, and the rest keep working (docs/SEED_CONNECTIONS.md).
+seedConnections:
+  enabled: true
+  config:
+    version: "1"
+    defaults:
+      # Read-only in the UI: nobody can edit or delete a platform connection,
+      # and its credentials are never sent to the browser — the server
+      # resolves them per query, so a rotated password follows automatically.
+      managed: true
+    connections:
+      # --- PostgreSQL, every cluster the CloudNativePG operator runs ---------
+      - id: "platform-pg-gitea"
+        name: "Gitea (platform Git)"
+        type: postgres
+        host: "gitea-db-rw.adhar-system.svc.cluster.local"
+        port: 5432
+        database: "gitea"
+        user: "${PG_GITEA_USER}"
+        password: "${PG_GITEA_PASSWORD}"
+        group: "Platform PostgreSQL"
+        # admin-only: these three are the platform's own systems of record
+        # (repositories, identities, console state). A `user` session sees the
+        # application databases below, not these.
+        roles: ["admin"]
+      - id: "platform-pg-keycloak"
+        name: "Keycloak (identity)"
+        type: postgres
+        host: "keycloak-db-rw.adhar-system.svc.cluster.local"
+        port: 5432
+        database: "keycloak"
+        user: "${PG_KEYCLOAK_USER}"
+        password: "${PG_KEYCLOAK_PASSWORD}"
+        group: "Platform PostgreSQL"
+        roles: ["admin"]
+      - id: "platform-pg-console"
+        name: "Adhar Console"
+        type: postgres
+        host: "console-db-rw.adhar-system.svc.cluster.local"
+        port: 5432
+        database: "console"
+        user: "${PG_CONSOLE_USER}"
+        password: "${PG_CONSOLE_PASSWORD}"
+        group: "Platform PostgreSQL"
+        roles: ["admin"]
+      - id: "platform-pg-libredb"
+        name: "LibreDB Studio (own storage)"
+        type: postgres
+        host: "libredb-db-rw.adhar-system.svc.cluster.local"
+        port: 5432
+        database: "libredb"
+        user: "${PG_LIBREDB_USER}"
+        password: "${PG_LIBREDB_PASSWORD}"
+        group: "Platform PostgreSQL"
+        roles: ["admin"]
+      - id: "platform-pg-posthog"
+        name: "PostHog (product analytics)"
+        type: postgres
+        host: "posthog-db-rw.adhar-system.svc.cluster.local"
+        port: 5432
+        database: "posthog"
+        user: "${PG_POSTHOG_USER}"
+        password: "${PG_POSTHOG_PASSWORD}"
+        group: "Platform PostgreSQL"
+        roles: ["*"]
+      - id: "platform-pg-metabase"
+        name: "Metabase (BI metadata)"
+        type: postgres
+        host: "metabase-db-rw.adhar-system.svc.cluster.local"
+        port: 5432
+        database: "metabase"
+        user: "${PG_METABASE_USER}"
+        password: "${PG_METABASE_PASSWORD}"
+        group: "Platform PostgreSQL"
+        roles: ["*"]
+      - id: "platform-pg-openmetadata"
+        name: "OpenMetadata (catalog)"
+        type: postgres
+        host: "openmetadata-db-rw.adhar-system.svc.cluster.local"
+        port: 5432
+        database: "openmetadata_db"
+        user: "${PG_OPENMETADATA_USER}"
+        password: "${PG_OPENMETADATA_PASSWORD}"
+        group: "Platform PostgreSQL"
+        roles: ["*"]
+      - id: "platform-pg-adhar-ai"
+        name: "Adhar AI RAG (pgvector)"
+        type: postgres
+        host: "adhar-ai-rag-rw.adhar-system.svc.cluster.local"
+        port: 5432
+        database: "adhar_ai_rag"
+        user: "${PG_ADHAR_AI_USER}"
+        password: "${PG_ADHAR_AI_PASSWORD}"
+        group: "Platform PostgreSQL"
+        roles: ["*"]
+      # --- Caches -----------------------------------------------------------
+      # No `${VAR}` on these two: neither server has a credential to mirror, so
+      # there is nothing for External Secrets to carry and nothing to skip on.
+      # They are listed unconditionally and simply fail to connect when the
+      # package is not enabled in this environment.
+      - id: "platform-valkey-cache"
+        name: "Adhar Cache (Valkey)"
+        # There is no `valkey` type id — the redis provider is what a Valkey
+        # connection uses (docs/providers/redis.md).
+        type: redis
+        host: "adhar-cache.adhar-system.svc.cluster.local"
+        port: 6379
+        group: "Platform cache"
+        roles: ["*"]
+      - id: "platform-redis"
+        name: "Redis (standalone)"
+        type: redis
+        host: "redis.adhar-system.svc.cluster.local"
+        port: 6379
+        group: "Platform cache"
+        roles: ["*"]
+      # --- Search -----------------------------------------------------------
+      - id: "platform-opensearch"
+        name: "OpenSearch"
+        type: opensearch
+        host: "opensearch-cluster-master.adhar-system.svc.cluster.local"
+        # 9200 serves HTTPS when the security plugin is on, which it is in the
+        # opensearch package (demo config + OPENSEARCH_INITIAL_ADMIN_PASSWORD).
+        port: 9200
+        user: "admin"
+        password: "${OPENSEARCH_PASSWORD}"
+        ssl:
+          mode: require
+          # The demo security config ships a self-signed node certificate.
+          rejectUnauthorized: false
+        group: "Platform search"
+        roles: ["*"]
+      # --- Analytics --------------------------------------------------------
+      - id: "platform-clickhouse"
+        name: "ClickHouse (PostHog)"
+        type: clickhouse
+        host: "clickhouse-posthog.adhar-system.svc.cluster.local"
+        # The provider is HTTP-only and never speaks the native 9000 port.
+        port: 8123
+        database: "posthog"
+        user: "${CLICKHOUSE_USER}"
+        password: "${CLICKHOUSE_PASSWORD}"
+        group: "Platform analytics"
+        roles: ["*"]
+      # --- Query engine -----------------------------------------------------
+      - id: "platform-trino"
+        name: "Trino"
+        type: trino
+        host: "trino.adhar-system.svc.cluster.local"
+        # The client protocol and the web UI share 8080.
+        port: 8080
+        # The CATALOG, not a database; `schema` is the session schema for
+        # unqualified names. tpch/tpcds are the catalogs the trino package
+        # configures; a fully qualified name still reaches any other catalog.
+        database: "tpch"
+        schema: "tiny"
+        # An identity, not a credential: the platform Trino runs with
+        # authentication off, and a password over plain HTTP is refused by the
+        # coordinator even then.
+        user: "adhar"
+        group: "Platform query"
+        roles: ["*"]
+
+# Credentials for the seed connections above. Every entry is optional: a
+# Secret that does not exist (its package is not enabled here, or its
+# ExternalSecret has not synced yet) leaves the pod starting normally and only
+# that connection skipped.
+extraEnvFrom:
+  - secretRef: {name: libredb-ds-gitea, optional: true}
+  - secretRef: {name: libredb-ds-keycloak, optional: true}
+  - secretRef: {name: libredb-ds-console, optional: true}
+  - secretRef: {name: libredb-ds-libredb, optional: true}
+  - secretRef: {name: libredb-ds-posthog, optional: true}
+  - secretRef: {name: libredb-ds-metabase, optional: true}
+  - secretRef: {name: libredb-ds-openmetadata, optional: true}
+  - secretRef: {name: libredb-ds-adhar-ai, optional: true}
+  # OpenSearch and ClickHouse are the two platform datasources whose password
+  # exists only as a literal env value in the package that runs them (the
+  # opensearch chart's OPENSEARCH_INITIAL_ADMIN_PASSWORD, PostHog's
+  # CLICKHOUSE_PASSWORD) — there is no Secret for External Secrets to mirror,
+  # and copying a password into a platform manifest is not an option. An
+  # operator creates this Secret once (README, "OpenSearch and ClickHouse");
+  # until then those two connections are simply not listed.
+  - secretRef: {name: libredb-datasource-extras, optional: true}

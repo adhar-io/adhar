@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"adhar-io/adhar/globals"
+	"adhar-io/adhar/platform/types"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -58,9 +59,21 @@ const (
 	KubeadmCloudInitMarker = "/var/lib/adhar/cloud-init-done"
 
 	// KubeadmPodCIDR matches the pod network the platform's Cilium install
-	// expects (same value the Kind flow uses).
+	// expects (same value the Kind flow uses). It is only the default: a
+	// cluster meant to join a Cilium Cluster Mesh must be initialised with a
+	// Pod CIDR that does not overlap any of its peers, so the environment's
+	// `podCIDR` clusterConfig entry wins when it is set.
 	KubeadmPodCIDR = "10.244.0.0/16"
 )
+
+// PodCIDROrDefault returns the Pod CIDR a cluster spec asks for, or the
+// platform default when it says nothing.
+func PodCIDROrDefault(spec *types.ClusterSpec) string {
+	if spec != nil && spec.Networking.PodCIDR != "" {
+		return spec.Networking.PodCIDR
+	}
+	return KubeadmPodCIDR
+}
 
 // K8sMinorFromVersion derives the pkgs.k8s.io minor stream ("1.34") from a
 // requested version ("", "1.34", "1.34.2", "v1.34.2").
@@ -319,14 +332,17 @@ func WaitForNodePrep(ctx context.Context, signer ssh.Signer, user, ip string, de
 // skipped when the node is already initialized) and returns the worker join
 // command. kube-proxy is skipped: the platform bootstrap installs Cilium with
 // kubeProxyReplacement.
-func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP string) (string, error) {
+func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR string) (string, error) {
+	if podCIDR == "" {
+		podCIDR = KubeadmPodCIDR
+	}
 	initCmd := fmt.Sprintf(
 		"test -f /etc/kubernetes/admin.conf || kubeadm init "+
 			"--pod-network-cidr=%s "+
 			"--skip-phases=addon/kube-proxy "+
 			"--control-plane-endpoint=%s "+
 			"--apiserver-cert-extra-sans=%s,%s",
-		KubeadmPodCIDR, publicIP, publicIP, privateIP)
+		podCIDR, publicIP, publicIP, privateIP)
 	if out, err := SSHRun(signer, user, publicIP, initCmd, 15*time.Minute); err != nil {
 		return "", fmt.Errorf("kubeadm init failed: %w (output: %s)", err, LastLines(out, 15))
 	}

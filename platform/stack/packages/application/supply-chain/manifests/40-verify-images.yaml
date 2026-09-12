@@ -44,7 +44,16 @@ spec:
               namespaces: [adhar-system]
       verifyImages:
         - imageReferences:
+            # The name the Tekton pipelines push to (in-cluster Service DNS).
             - "harbor-core.adhar-system.svc.cluster.local/library/*"
+            # The name workloads PULL by. A node kubelet resolves through the
+            # host resolver, which cannot see *.svc.cluster.local, so every pod
+            # referencing the in-cluster name sat in ImagePullBackOff with "no
+            # such host". Workload manifests use the platform-edge Harbor name
+            # instead; both point at the same repository, so one signature
+            # satisfies either. The trailing wildcard covers the local ":8443"
+            # form and the port-less form behind a 443 LoadBalancer.
+            - "harbor.*/library/*"
           mutateDigest: true
           verifyDigest: true
           required: true

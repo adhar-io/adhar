@@ -1,70 +1,90 @@
-# Platform library releases — ONE PipelineRun PER LIBRARY, run on every
-# adhar-libraries sync (PostSync, after the git mirrors and the CI webhook
-# registration).
+# Platform library releases — ONE PipelineRun PER LIBRARY, per run, created by a
+# PostSync hook Job (after the git mirrors and the CI webhook registration).
 #
 # adhar-kit and adhar-ui are separate repositories with their own code, build
 # tooling and registries, so each has its own Pipeline (maven-release.yaml /
 # npm-release.yaml) with its own stages — clone, build, test, (lint,) scan,
 # publish — and its own run below. Nothing couples one library's outcome to the
-# other's.
+# other's: the Job creates both and does not gate one on the other.
 #
-# Both publish through the single in-cluster Nexus, and running two builds at
-# once on a small node has starved it before, so the runs are staggered with
-# hook waves: ArgoCD waits for the wave-2 run to finish (its PipelineRun health
-# check reports Progressing until Succeeded/Failed) before creating wave 3.
-# Per-repository push builds use the same Pipelines via the CI EventListener
-# (triggers.yaml).
+# WHY A JOB AND NOT TWO STATIC PipelineRuns
+# -----------------------------------------
+# This file used to ship two PipelineRun manifests with FIXED names
+# (`release-adhar-kit`, `release-adhar-ui`) plus
+# `hook-delete-policy: BeforeHookCreation`. That is unworkable for a CI object:
+#   * a PipelineRun is immutable, so re-running meant colliding with the object
+#     already there — ArgoCD had to DELETE the previous run before creating the
+#     next one, so at most ONE run per library ever existed;
+#   * every re-sync therefore destroyed the previous run's logs, status and
+#     TaskRuns — including failed ones, which are the runs you actually need;
+#   * and a run that was still going got deleted out from under itself.
+# `generateName` is the right answer for "every run is a new instance", but a
+# PipelineRun committed as a static manifest in a GitOps package CANNOT use it:
+# ArgoCD needs a stable name to track and prune the resource it owns.
+#
+# So the package ships no static PipelineRun at all. Runs are created
+# imperatively — here at install time by this Job, and thereafter by the CI
+# EventListener's TriggerTemplates (triggers.yaml), which already use
+# `generateName: release-adhar-{ui,kit}-`. Both paths produce distinct,
+# immutable objects with their own logs and status, and nothing deletes the
+# previous one. Retention is a separate, explicit policy — see the
+# `tekton-pipelinerun-pruner` CronJob in the `tekton` package.
 ---
-apiVersion: tekton.dev/v1
-kind: PipelineRun
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: release-adhar-kit
+  name: bootstrap-library-releases
   namespace: adhar-system
   annotations:
     argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: '2'
 spec:
-  pipelineRef:
-    name: release-adhar-kit
-  params:
-    - {name: revision, value: main}
-  taskRunTemplate:
-    serviceAccountName: adhar-libraries
-  timeouts:
-    pipeline: 2h0m0s
-  workspaces:
-    - name: shared
-      volumeClaimTemplate:
-        spec:
-          accessModes: [ReadWriteOnce]
-          resources:
-            requests:
-              storage: 4Gi
----
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  name: release-adhar-ui
-  namespace: adhar-system
-  annotations:
-    argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: '3'
-spec:
-  pipelineRef:
-    name: release-adhar-ui
-  params:
-    - {name: revision, value: main}
-  taskRunTemplate:
-    serviceAccountName: adhar-libraries
-  timeouts:
-    pipeline: 2h0m0s
-  workspaces:
-    - name: shared
-      volumeClaimTemplate:
-        spec:
-          accessModes: [ReadWriteOnce]
-          resources:
-            requests:
-              storage: 4Gi
+  backoffLimit: 3
+  template:
+    spec:
+      # adhar-ci already carries the tekton-triggers-eventlistener Role, which
+      # grants create on pipelineruns — the same permission the EventListener
+      # uses to create these very runs from a push.
+      serviceAccountName: adhar-ci
+      restartPolicy: Never
+      containers:
+        - name: create-runs
+          image: alpine/k8s:1.31.1
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              for lib in adhar-kit adhar-ui; do
+                # generateName => a fresh, distinct object every single sync.
+                # No delete, no collision, no lost history.
+                kubectl create -f - <<EOF
+              apiVersion: tekton.dev/v1
+              kind: PipelineRun
+              metadata:
+                generateName: release-${lib}-
+                namespace: adhar-system
+                labels:
+                  adhar.io/library: ${lib}
+                  adhar.io/trigger: bootstrap
+                  tekton.dev/pipeline: release-${lib}
+              spec:
+                pipelineRef:
+                  name: release-${lib}
+                params:
+                  - {name: revision, value: main}
+                taskRunTemplate:
+                  serviceAccountName: adhar-libraries
+                timeouts:
+                  pipeline: 2h0m0s
+                workspaces:
+                  - name: shared
+                    volumeClaimTemplate:
+                      spec:
+                        accessModes: [ReadWriteOnce]
+                        resources:
+                          requests:
+                            storage: 4Gi
+              EOF
+              done
+              echo "created one release PipelineRun per library (generateName)"

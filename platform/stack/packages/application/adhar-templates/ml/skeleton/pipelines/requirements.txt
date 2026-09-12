@@ -1,0 +1,11 @@
+# Golden-path ML training runtime. `kfp` is only needed to COMPILE and SUBMIT the
+# pipeline; each component installs its own dependencies inside its own step
+# container (packages_to_install in pipeline.py), which is what keeps the
+# pipeline image small and the steps reproducible.
+kfp==2.11.0
+kfp-kubernetes==1.4.0
+# Handy for running the training code outside KFP (see README "Run it locally").
+scikit-learn==1.5.2
+pandas==2.2.3
+joblib==1.4.2
+pyarrow>=17.0.0

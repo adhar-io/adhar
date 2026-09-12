@@ -1,0 +1,158 @@
+# PipelineRun retention.
+#
+# WHY THIS EXISTS
+# ---------------
+# Tekton is installed here from the vendored upstream release YAML
+# (generate-manifests.sh: pipeline v0.65.0 / triggers v0.30.0 / dashboard
+# v0.52.0), NOT from the Tekton Operator. `TektonConfig.spec.pruner` — the
+# usual place to set `keep` / `keep-since` — is an `operator.tekton.dev` API,
+# so it does not exist on this platform. Plain Tekton Pipelines ships no GC of
+# its own: a PipelineRun lives until something deletes it.
+#
+# That left the platform with the worst of both worlds. Runs created by the CI
+# EventListeners (`generateName`) accumulated forever together with their
+# TaskRuns, pods and per-run workspace PVCs; while runs that ArgoCD owned as
+# fixed-name hooks were deleted on every single sync by
+# `hook-delete-policy: BeforeHookCreation`, so at most one ever survived and
+# every failure was erased before anyone could read it. Those fixed-name hook
+# PipelineRuns are gone now (see adhar-libraries/manifests/release.yaml); this
+# CronJob supplies the deliberate retention policy that replaces both.
+#
+# POLICY — a completed PipelineRun is deleted only if ALL of these are true:
+#   * it is finished (Succeeded=True or Succeeded=False). Running and pending
+#     runs are NEVER touched;
+#   * it is older than KEEP_DAYS (7) — nothing from the last week is pruned;
+#   * it is not among the newest KEEP_PER_PIPELINE (20) runs of its pipeline,
+#     counting successes and failures alike;
+#   * it is not among the newest KEEP_FAILED_PER_PIPELINE (10) FAILED runs of
+#     its pipeline. Failed runs are the whole point of keeping history, so they
+#     survive even when a burst of green runs would otherwise push them out of
+#     the 20-run window.
+# Runs are grouped by the `tekton.dev/pipeline` label, falling back to
+# `spec.pipelineRef.name`, so each pipeline gets its own independent budget and
+# a noisy pipeline cannot evict a quiet one's history.
+#
+# Deleting a PipelineRun cascades to its TaskRuns, their pods and the PVCs
+# created from its `volumeClaimTemplate` workspaces (owner references), which
+# is what actually reclaims disk.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-pipelinerun-pruner
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-pipelinerun-pruner
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+rules:
+  - apiGroups: ["tekton.dev"]
+    resources: [pipelineruns]
+    verbs: [get, list, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-pipelinerun-pruner
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: tekton-pipelinerun-pruner}
+subjects: [{kind: ServiceAccount, name: tekton-pipelinerun-pruner, namespace: adhar-system}]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tekton-pipelinerun-pruner
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "5"}
+spec:
+  # Hourly is often enough to bound growth and rare enough to stay invisible.
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        spec:
+          serviceAccountName: tekton-pipelinerun-pruner
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: prune
+              image: alpine/k8s:1.31.1
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 10m, memory: 64Mi}
+                limits: {memory: 256Mi}
+              env:
+                - {name: KEEP_PER_PIPELINE, value: "20"}
+                - {name: KEEP_FAILED_PER_PIPELINE, value: "10"}
+                - {name: KEEP_DAYS, value: "7"}
+                - {name: NAMESPACE, value: adhar-system}
+              command: [bash, -c]
+              args:
+                - |
+                  set -euo pipefail
+                  echo "pruning PipelineRuns in $NAMESPACE: keep newest $KEEP_PER_PIPELINE per pipeline," \
+                       "newest $KEEP_FAILED_PER_PIPELINE failed per pipeline, and everything < ${KEEP_DAYS}d old"
+
+                  kubectl get pipelineruns -n "$NAMESPACE" -o json \
+                    | jq -r --argjson keep "$KEEP_PER_PIPELINE" \
+                           --argjson keepFailed "$KEEP_FAILED_PER_PIPELINE" \
+                           --argjson days "$KEEP_DAYS" '
+                      def cond: (.status.conditions // []) | map(select(.type == "Succeeded")) | first;
+                      def finished: (cond | .status? // "Unknown") as $s | ($s == "True" or $s == "False");
+                      def failed: (cond | .status? // "Unknown") == "False";
+                      def ts: (.status.completionTime // .metadata.creationTimestamp | fromdateiso8601);
+                      def pipeline:
+                        .metadata.labels["tekton.dev/pipeline"]
+                        // .spec.pipelineRef.name
+                        // "unlabelled";
+
+                      (now - ($days * 86400)) as $cutoff
+                      | [ .items[] | select(finished) ]
+                      | group_by(pipeline)
+                      | map(
+                          sort_by(ts) | reverse
+                          | . as $runs
+                          | ([ $runs[] | select(failed) ] | .[0:$keepFailed] | map(.metadata.name)) as $keptFailed
+                          | ($runs[$keep:] // [])
+                          | map(select(ts < $cutoff))
+                          | map(select((.metadata.name | IN($keptFailed[])) | not))
+                        )
+                      | flatten
+                      | .[].metadata.name
+                    ' > /tmp/doomed
+
+                  COUNT=$(wc -l < /tmp/doomed | tr -d " ")
+                  if [ "$COUNT" = "0" ]; then
+                    echo "nothing to prune"
+                    exit 0
+                  fi
+                  echo "deleting $COUNT PipelineRun(s):"
+                  cat /tmp/doomed
+                  # One at a time so a single racing deletion cannot fail the job.
+                  while read -r name; do
+                    [ -n "$name" ] || continue
+                    kubectl delete pipelinerun -n "$NAMESPACE" "$name" --ignore-not-found --wait=false
+                  done < /tmp/doomed
+                  echo "pruned $COUNT PipelineRun(s)"
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: tmp
+              emptyDir: {}

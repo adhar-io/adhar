@@ -23,6 +23,37 @@ secrets:
 imagePullSecrets:
   - name: harbor-push
 ---
+# The cosign-sign Task signs with `--key=k8s://adhar-system/cosign-key`, which
+# makes cosign READ that Secret through the API server as the TaskRun's identity.
+# Listing the secret under the ServiceAccount above does not grant that read, so
+# every sign step failed with
+#   secrets "cosign-key" is forbidden: User
+#   "system:serviceaccount:adhar-system:adhar-pipeline" cannot get resource "secrets"
+# The grant is narrowed to this one Secret name — the pipeline identity still
+# cannot enumerate or read any other Secret in the namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-pipeline-cosign-key
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [cosign-key]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-pipeline-cosign-key
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: adhar-pipeline-cosign-key}
+subjects: [{kind: ServiceAccount, name: adhar-pipeline, namespace: adhar-system}]
+---
 # Harbor registry push credential (kpack reads the `kpack.io/docker` annotation to
 # match this secret to the registry host it is pushing to).
 apiVersion: v1

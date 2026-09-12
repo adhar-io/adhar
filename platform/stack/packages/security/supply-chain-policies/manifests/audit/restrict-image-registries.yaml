@@ -1,0 +1,73 @@
+# ADR-0019 supply-chain admission — registry allowlist (AUDIT stage).
+#
+# Workload images should come from the platform registry (Harbor — scans on
+# push, proxy-caches upstreams) or an explicitly trusted registry. The match is
+# on the NORMALISED registry Kyverno parses out of each image reference
+# (`images.containers.*.registry`), so a bare `nginx:1.27` is correctly seen as
+# `docker.io` instead of failing every prefix comparison — which is what the
+# earlier string-prefix form did, and why it could never have been enforced.
+#
+# Tighten this list before moving to Enforce: `docker.io`, `ghcr.io` and
+# `quay.io` are broad enough that the rule verifies very little. The intended
+# end state is Harbor (including its proxy-cache projects) plus `cgr.dev`.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+  annotations:
+    policies.kyverno.io/title: Restrict Image Registries (Audit)
+    policies.kyverno.io/category: Supply Chain (ADR-0019)
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Workload images must come from the platform registry or a trusted
+      registry. AUDIT stage: everything else is reported, not blocked.
+spec:
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: allowed-registries
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - adhar-system
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - local-path-storage
+                - crossplane-system
+                - kpack-system
+                - cert-manager
+                - cosign-system
+          - resources:
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/plane: control
+      validate:
+        failureAction: Audit
+        message: "Image registry is not in the platform allowlist (Harbor / trusted registries)."
+        deny:
+          conditions:
+            any:
+              - key: "{{ images.containers.*.registry }}"
+                operator: AnyNotIn
+                value: &allowed
+                  - "harbor-core.adhar-system.svc.cluster.local"
+                  - "harbor.adhar.localtest.me"
+                  - "harbor.adhar.localtest.me:8443"
+                  - "cgr.dev"
+                  - "registry.k8s.io"
+                  - "gcr.io"
+                  - "ghcr.io"
+                  - "quay.io"
+                  - "docker.io"
+                  - "index.docker.io"
+                  - "public.ecr.aws"
+              - key: "{{ images.initContainers.*.registry }}"
+                operator: AnyNotIn
+                value: *allowed

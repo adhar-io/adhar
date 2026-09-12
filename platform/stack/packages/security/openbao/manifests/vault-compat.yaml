@@ -1,0 +1,52 @@
+# Vault name-compatibility shim.
+#
+# OpenBao replaces HashiCorp Vault as the platform secrets backend, but several
+# consumers address the backend by its Kubernetes Service DNS name rather than
+# through the ClusterSecretStore:
+#
+#   * core/adhar-console/manifests/install.yaml — env VAULT_URL
+#       http://vault.adhar-system.svc.cluster.local:8200 (console Secrets page)
+#   * security/credential-rotation/manifests/rotate-job.yaml — break-glass write
+#       to http://vault.<ns>.svc.cluster.local:8200
+#
+# Rather than fork those manifests per backend (they are shared by every
+# profile, and either backend may be the enabled one), openbao publishes a
+# Service literally named `vault` that selects the OpenBao server pods. The
+# endpoint is API-identical, so those consumers keep working untouched with
+# whichever backend is enabled.
+#
+# This Service is also why openbao and vault are MUTUALLY EXCLUSIVE: the vault
+# chart renders its own `Service/vault` into adhar-system, and two ArgoCD
+# Applications owning the same object fight forever (ADR-0011, CONFLICTS.md).
+# Exactly one secrets backend may be enabled.
+#
+# Selector and ports mirror the chart's `openbao` Service verbatim
+# (publishNotReadyAddresses so a sealed server is still addressable, which is
+# what lets the bootstrap Job reach it).
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: openbao
+    app.kubernetes.io/component: vault-compat
+    # NOT app.kubernetes.io/name: vault — the ServiceMonitor selects on that
+    # label and must not pick this alias up as a second scrape target.
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+      appProtocol: HTTP
+    - name: https-internal
+      port: 8201
+      targetPort: 8201
+  selector:
+    app.kubernetes.io/instance: openbao
+    app.kubernetes.io/name: openbao
+    component: server

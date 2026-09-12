@@ -36,6 +36,11 @@ buckets:
   - name: penpot
   # Loki chunks/index (observability/loki-stack uses the S3 backend).
   - name: loki
+  # Airbyte's object store -- logs, connection state, workload output and
+  # activity payloads, all prefixed inside this one bucket. The Airbyte chart
+  # bundles its own MinIO (pinned to a tag that no longer exists); data/airbyte
+  # strips it and points STORAGE_TYPE=MINIO at this instance instead.
+  - name: airbyte
 
 # Ingress is disabled: the MinIO console is now exposed via a Gateway API
 # HTTPRoute (manifests/httproute.yaml) attached to the Cilium adhar-gateway,

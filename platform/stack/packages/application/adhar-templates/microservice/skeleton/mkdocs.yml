@@ -1,5 +1,6 @@
 site_name: 'Golden Path - Go Microservice'
 nav:
   - Home: index.md
+  - Monitoring: monitoring.md
 plugins:
   - techdocs-core

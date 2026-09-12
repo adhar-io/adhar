@@ -30,11 +30,22 @@ packages:
     namespace: "adhar-system"
     category: "security"
     manifestPath: "security/trivy/manifests"
+  # SECRETS BACKEND -- EXACTLY ONE OF vault / openbao MAY BE ENABLED.
+  # Both claim ClusterSecretStore/vault and Service/vault in the shared
+  # adhar-system namespace (ADR-0011, CONFLICTS.md). Both are disabled locally:
+  # a single Kind node does not need a secrets backend.
   - name: "vault"
     enabled: "false"
     namespace: "adhar-system"
     category: "security"
     manifestPath: "security/vault/manifests"
+  # OpenBao -- the Linux Foundation fork of Vault (MPL-2.0). Production uses
+  # this one; disabled locally, like vault, and for the same reason.
+  - name: "openbao"
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "security"
+    manifestPath: "security/openbao/manifests"
   - name: "cosign"
     enabled: "true"
     namespace: "adhar-system"
@@ -45,6 +56,30 @@ packages:
     namespace: "adhar-system"
     category: "ai"
     manifestPath: "ai/adhar-ai/manifests"
+  - name: "agentgateway"
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "ai"
+    manifestPath: "ai/agentgateway/manifests"
+  # Self-hosted vLLM inference — three elements from one package directory
+  # (shared surface + one Deployment per profile). Enable "vllm" plus EXACTLY
+  # ONE of vllm-cpu / vllm-gpu; all three are off by default because vLLM is
+  # heavy and nothing in the platform depends on it. Mirrors adhar-appset-local.yaml.
+  - name: "vllm"
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "ai"
+    manifestPath: "ai/vllm/manifests"
+  - name: "vllm-cpu"
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "ai"
+    manifestPath: "ai/vllm/manifests/cpu"
+  - name: "vllm-gpu"
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "ai"
+    manifestPath: "ai/vllm/manifests/gpu"
   - name: "scorecards"
     enabled: "false"
     namespace: "adhar-system"
@@ -95,6 +130,17 @@ packages:
     namespace: "adhar-system"
     category: "data"
     manifestPath: "data/metabase/manifests"
+  # LibreDB Studio — browser SQL IDE over every platform database
+  # (CNPG clusters, Valkey/Redis, OpenSearch, ClickHouse, Trino), with
+  # native Keycloak OIDC. Enabled locally: one 256Mi pod plus the single
+  # CNPG instance holding its own state, and it is the only UI a developer
+  # has onto the platform's databases. Connections whose package is not
+  # enabled here are skipped, not broken.
+  - name: "libredb-studio"
+    enabled: "true"
+    namespace: "adhar-system"
+    category: "data"
+    manifestPath: "data/libredb-studio/manifests"
   - name: "lakefs"
     enabled: "false"
     namespace: "adhar-system"
@@ -265,6 +311,25 @@ packages:
     namespace: "adhar-system"
     category: "security"
     manifestPath: "security/policy-reporter/manifests"
+  # ADR-0019 supply-chain admission pack, shipped in two stages. The
+  # AUDIT pack is always on: its findings land in ClusterPolicyReports
+  # and predict exactly what Enforce would block. The ENFORCE pack is
+  # the documented knob — flip it to "true" here AND in the matching
+  # adhar-appset-*.yaml (a parity test enforces the match) to make unsigned /
+  # :latest / untrusted-registry workloads fail admission. Leave the
+  # audit pack enabled; the two coexist (policy names differ by an
+  # `-enforce` suffix). See the package README for the staging recipe
+  # and hack/verify-supply-chain.sh for the drill that proves it works.
+  - name: "supply-chain-policies"
+    enabled: "true"
+    namespace: "adhar-system"
+    category: "security"
+    manifestPath: "security/supply-chain-policies/manifests/audit"
+  - name: "supply-chain-policies-enforce"
+    enabled: "false"
+    namespace: "adhar-system"
+    category: "security"
+    manifestPath: "security/supply-chain-policies/manifests/enforce"
   - name: "policy-packs"
     enabled: "false"
     namespace: "adhar-system"
@@ -315,6 +380,16 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/supply-chain/manifests"
+  # Ephemeral per-PR preview environments (ADR-0017): an ApplicationSet with the
+  # Gitea pull-request generator, plus the Kyverno ResourceQuota/LimitRange
+  # guardrails for preview namespaces. Costs nothing until a repo ships
+  # preview/kustomization.yaml and a PR is labelled `preview`, so it is on
+  # everywhere.
+  - name: "preview-environments"
+    enabled: "true"
+    namespace: "adhar-system"
+    category: "application"
+    manifestPath: "application/preview-environments/manifests"
   - name: "adhar-libraries"
     enabled: "true"
     namespace: "adhar-system"

@@ -36,7 +36,12 @@ spec:
             {{- $loggingTypes := default (list) (get $aws "loggingTypes") -}}
             {{- $securityGroups := default (list) (get $aws "securityGroupIds") -}}
             {{- $kmsKeyArn := default "" (get $aws "kmsKeyArn") -}}
-            {{- $deletionPolicy := default "Delete" $params.deletionPolicy -}}
+            {{- /* Namespaced (v2) MRs have no spec.deletionPolicy — the field was
+                   removed from the .m schemas; the equivalent is managementPolicies
+                   without Delete. Setting deletionPolicy fails schema validation
+                   ("field not declared in schema"), so map Orphan onto
+                   managementPolicies instead. */ -}}
+            {{- $orphan := eq (default "Delete" $params.deletionPolicy) "Orphan" -}}
             {{- $clusterRoleArn := index $iam "clusterRoleARN" -}}
             {{- $nodeRoleArn := index $iam "nodeRoleARN" -}}
             {{- if not $clusterRoleArn }}
@@ -72,7 +77,9 @@ spec:
               providerConfigRef:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
-              deletionPolicy: {{ $deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- end }}
             {{- if not $nodeRoleArn }}
             ---
@@ -109,7 +116,9 @@ spec:
               providerConfigRef:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
-              deletionPolicy: {{ $deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- end }}
             ---
             apiVersion: eks.aws.m.upbound.io/v1beta1
@@ -172,7 +181,9 @@ spec:
               providerConfigRef:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
-              deletionPolicy: {{ $deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- range $index, $pool := $params.nodePools }}
             ---
             apiVersion: eks.aws.m.upbound.io/v1beta1
@@ -250,7 +261,9 @@ spec:
               providerConfigRef:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
-              deletionPolicy: {{ $deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- end }}
     # ArgoCD auto-registration (roadmap P2.1): once the EKS control plane
     # reports its endpoint and CA, publish an ArgoCD cluster Secret in

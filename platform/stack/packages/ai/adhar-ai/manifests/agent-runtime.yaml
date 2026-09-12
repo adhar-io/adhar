@@ -123,8 +123,17 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            # The platform AI data plane (ai/agentgateway, ADR-0025) — NOT the
+            # retired adhar-ai-llm-gateway. /v1 is part of the base URL and the
+            # loop POSTs an OpenAI-shaped body that NAMES A MODEL; the gateway
+            # routes on that name (`claude-*` -> Anthropic, `gpt-*` -> OpenAI,
+            # `local/*` -> the in-cluster vLLM) and holds the key server-side.
             - name: LLM_GATEWAY_URL
-              value: "http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080"
+              value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
+            # The runtime KEEPS its OIDC settings: it publishes its own hostname
+            # (httproute.yaml) so /chat is reached directly, not through the AI
+            # gateway, and it exchanges the caller's token for a short-lived
+            # RBAC-scoped Kubernetes token so reads run as the user.
             - name: OIDC_ISSUER_URL
               value: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
             - name: OIDC_CLIENT_ID

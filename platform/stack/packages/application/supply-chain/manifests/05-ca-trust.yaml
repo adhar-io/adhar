@@ -29,10 +29,15 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [secrets]
-    verbs: [get]
+    verbs: [get, list]
   - apiGroups: [""]
     resources: [configmaps]
     verbs: [get, create, update, patch]
+  # The kpack controller builds its CA pool once at start-up, so refreshing the
+  # ConfigMap is not enough -- the Deployment has to be restarted.
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, patch, update]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -67,15 +72,58 @@ spec:
           args:
             - |
               set -euo pipefail
-              kubectl get secret adhar-cert -n adhar-system -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/ca.crt
-              # kpack controller (`adhar-ca`, mounted by the kpack-controller
-              # Deployment) and kpack build pods (`adhar-ca-bundle`, injected by
-              # the Kyverno mutate below) — both in adhar-system (ADR-0011).
-              kubectl create configmap adhar-ca -n adhar-system --from-file=ca.crt=/tmp/ca.crt \
-                --dry-run=client -o yaml | kubectl apply -f -
+              # TWO different certificates are involved, and using the wrong one
+              # is what broke every kpack build:
+              #
+              #   harbor-core-internal-tls (ca.crt) — the CA that signs the
+              #     certificate harbor-core presents on the CLUSTER network. This
+              #     is the one kpack and the build lifecycle must trust. Without
+              #     it the ClusterBuilder never resolves:
+              #       Get "https://harbor-core.adhar-system.svc.cluster.local/v2/":
+              #       tls: failed to verify certificate: x509: certificate signed
+              #       by unknown authority
+              #     and the supply-chain sync then hangs forever on
+              #     "waiting for healthy state of kpack.io/ClusterBuilder".
+              #
+              #   adhar-cert (tls.crt) — the platform EDGE certificate for
+              #     *.<host>. It is a leaf, not a CA, so it can verify nothing;
+              #     it used to be the only thing in this bundle.
+              #
+              # Both go in, harbor's CA first. Concatenated PEM is a valid bundle.
+              for i in $(seq 1 60); do
+                kubectl get secret harbor-core-internal-tls -n adhar-system >/dev/null 2>&1 && break
+                echo "waiting for harbor-core-internal-tls ($i/60)"; sleep 5
+              done
+              kubectl get secret harbor-core-internal-tls -n adhar-system \
+                -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+              if kubectl get secret adhar-cert -n adhar-system >/dev/null 2>&1; then
+                kubectl get secret adhar-cert -n adhar-system \
+                  -o jsonpath='{.data.tls\.crt}' | base64 -d >> /tmp/ca.crt
+              fi
+              # Three destinations, because kpack is the ONE package that does not
+              # live in adhar-system (ADR-0011: kpack and cosign both hardcode
+              # Secret/webhook-certs, and two knative webhooks cannot share it):
+              #
+              #   kpack-system/adhar-ca   — mounted by the kpack-controller
+              #     Deployment at /etc/adhar-ca with `optional: true`, which is why
+              #     a missing ConfigMap produced no error at all: the mount was
+              #     simply empty, SSL_CERT_DIR found nothing, and every registry
+              #     call failed to verify Harbor.
+              #   adhar-system/adhar-ca        — anything in the platform namespace
+              #     that mounts the same name.
+              #   adhar-system/adhar-ca-bundle — injected into kpack BUILD pods by
+              #     the Kyverno mutate below (builds run in adhar-system).
+              for ns in kpack-system adhar-system; do
+                kubectl get namespace "$ns" >/dev/null 2>&1 || continue
+                kubectl create configmap adhar-ca -n "$ns" --from-file=ca.crt=/tmp/ca.crt \
+                  --dry-run=client -o yaml | kubectl apply -f -
+              done
               kubectl create configmap adhar-ca-bundle -n adhar-system --from-file=ca.crt=/tmp/ca.crt \
                 --dry-run=client -o yaml | kubectl apply -f -
-              echo "adhar CA distributed to adhar-system/adhar-ca and adhar-system/adhar-ca-bundle"
+              # Pick up the refreshed bundle: the controller reads it once at boot.
+              kubectl -n kpack-system rollout restart deployment/kpack-controller 2>/dev/null \
+                || echo "kpack-controller not installed yet; it will read the bundle at start-up"
+              echo "CA bundle distributed to adhar-system/adhar-ca and adhar-system/adhar-ca-bundle"
 ---
 # Inject the adhar CA into every kpack build pod. kpack builds run in adhar-system
 # (excluded from most policies) — this mutate is scoped tightly to pods carrying

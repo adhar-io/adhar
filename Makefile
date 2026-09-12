@@ -105,8 +105,16 @@ e2e: build ## Run the e2e tests. Creates (and destroys) a local Kind cluster nam
 	}
 	go test -v -p 1 -timeout 120m --tags=e2e ./tests/e2e/...
 
+.PHONY: validate-packages
+validate-packages: ## Validate every package marketplace contract (platform/stack/packages/*/*/adhar-package.yaml).
+	./hack/validate-packages.sh
+
+.PHONY: gen-package-contracts
+gen-package-contracts: ## Scaffold adhar-package.yaml for packages that do not have one yet (never overwrites).
+	./hack/gen-package-contracts.sh
+
 .PHONY: lint
-lint: golangci-lint ## Run golangci-lint linter
+lint: golangci-lint validate-packages ## Run golangci-lint linter and the package-contract validator
 	$(GOLANGCI_LINT) run
 
 .PHONY: lint-fix
@@ -266,8 +274,10 @@ release: ## Create and push a release tag (e.g. make release v0.2.2); CI (GoRele
 	echo "  https://github.com/adhar-io/adhar/actions/workflows/release.yaml"
 
 .PHONY: release-snapshot
+# sbom is skipped so a local snapshot does not require syft; signing is skipped
+# by GoReleaser itself in snapshot mode (keyless signing needs CI's OIDC token).
 release-snapshot: goreleaser ## Build a local snapshot release with GoReleaser (nothing is tagged or published)
-	@$(GORELEASER) release --snapshot --clean --skip=docker
+	@$(GORELEASER) release --snapshot --clean --skip=docker,sbom
 	@echo "Snapshot artifacts are in dist/"
 
 ##@ Deployment

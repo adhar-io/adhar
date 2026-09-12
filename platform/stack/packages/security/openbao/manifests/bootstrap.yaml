@@ -1,0 +1,338 @@
+# OPENBAO BOOTSTRAP (auto-init / unseal / configure)
+#
+# Applied AFTER the OpenBao server StatefulSet (chart objects have no sync-wave =
+# wave 0; the RBAC/config below run at wave "1", the Job at wave "2"). The Job is
+# fully idempotent and safe to re-run: every step checks current state before
+# mutating, and it NEVER re-initialises an already-initialised server.
+#
+# What it does:
+#   1. Waits for openbao-0 (svc "openbao") to answer `bao status`.
+#   2. Initializes OpenBao (1 key share / threshold 1) ONLY if it reports
+#      initialized=false, and stores the init JSON (unseal key + root token) in
+#      the K8s Secret "openbao-keys" (adhar-system).
+#   3. Unseals using the stored key (skips if already unsealed).
+#   4. Logs in with the root token and idempotently configures:
+#        - KV v2 secrets engine at path "secret/"
+#        - kubernetes auth method (mount "kubernetes/") using the in-cluster
+#          SA token / CA / API host (OpenBao's own pod SA acts as token reviewer
+#          via its system:auth-delegator binding)
+#        - policy "external-secrets" (read on secret/data/* + secret/metadata/*)
+#        - kubernetes auth role "external-secrets" bound to the external-secrets
+#          controller ServiceAccount (external-secrets / adhar-system)
+#        - OIDC auth (Keycloak) + group->policy mappings, best effort
+#
+# The root token and the unseal key are only ever moved between the OpenBao API
+# and the Kubernetes Secret; they are never echoed, and every command that could
+# surface them sends output to /dev/null. `set -x` is never enabled.
+#
+# !!! CLOUD / PRODUCTION WARNING !!!
+# This Job stores the unseal key and root token in a plain K8s Secret, which is
+# fine for local/dev and for a self-contained platform, but a KMS auto-unseal is
+# strictly better where one is available: configure a `seal "awskms" {}` /
+# `seal "azurekeyvault" {}` / `seal "gcpckms" {}` stanza in values.yaml and drop
+# the init/unseal steps here (or restrict the Job to the configure step).
+# See openbao/README.md.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-bootstrap
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openbao-bootstrap
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openbao-bootstrap
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openbao-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: openbao-bootstrap
+    namespace: adhar-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-bootstrap
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+
+    # OpenBao honours BAO_* first and falls back to VAULT_*; use the native names.
+    BAO_ADDR="http://openbao.adhar-system.svc.cluster.local:8200"
+    export BAO_ADDR
+    KEYS_SECRET="openbao-keys"
+    NAMESPACE="adhar-system"
+
+    # External-secrets controller identity (must match its install.yaml).
+    ES_SA="external-secrets"
+    ES_NS="adhar-system"
+
+    log() { echo "[openbao-bootstrap] $*"; }
+
+    # ---------------------------------------------------------------------
+    # 0. The openbao image has the `bao` CLI but no kubectl, so fetch a static
+    #    kubectl once (busybox wget supports HTTPS). kubectl picks up the
+    #    in-cluster SA token + CA automatically.
+    # ---------------------------------------------------------------------
+    if ! command -v kubectl >/dev/null 2>&1; then
+      log "downloading kubectl"
+      KVER="$(wget -q -O - https://dl.k8s.io/release/stable.txt)"
+      ARCH="$(uname -m)"
+      case "${ARCH}" in
+        x86_64) ARCH="amd64" ;;
+        aarch64) ARCH="arm64" ;;
+      esac
+      wget -q -O /tmp/kubectl "https://dl.k8s.io/release/${KVER}/bin/linux/${ARCH}/kubectl"
+      chmod +x /tmp/kubectl
+      PATH="/tmp:${PATH}"
+      export PATH
+    fi
+    KUBE="kubectl -n ${NAMESPACE}"
+
+    # ---------------------------------------------------------------------
+    # 1. Wait for OpenBao to respond. `bao status` exits 0 (unsealed),
+    #    2 (sealed) or 1 (no response yet) once the API is reachable.
+    # ---------------------------------------------------------------------
+    log "waiting for OpenBao API at ${BAO_ADDR}"
+    i=0
+    while true; do
+      # Capture the exit code directly — `$?` after an if-block is the block's
+      # status, not the condition's.
+      rc=0
+      bao status >/dev/null 2>&1 || rc=$?
+      if [ "${rc}" = "0" ] || [ "${rc}" = "2" ]; then break; fi
+      i=$((i + 1))
+      if [ "${i}" -ge 60 ]; then
+        log "timed out waiting for OpenBao API"
+        exit 1
+      fi
+      sleep 5
+    done
+    log "OpenBao API is reachable"
+
+    # ---------------------------------------------------------------------
+    # 2. Initialize ONLY if not already initialized; persist init JSON to the
+    #    K8s Secret. Re-initialising would destroy every stored secret, so the
+    #    guard is deliberately the first thing checked and tolerant of JSON
+    #    whitespace.
+    # ---------------------------------------------------------------------
+    if bao status -format=json | grep -q '"initialized"[[:space:]]*:[[:space:]]*true'; then
+      log "OpenBao already initialized"
+    else
+      log "initializing OpenBao"
+      INIT_JSON="$(bao operator init -key-shares=1 -key-threshold=1 -format=json)"
+      log "storing init keys in Secret ${KEYS_SECRET}"
+      ${KUBE} create secret generic "${KEYS_SECRET}" \
+        --from-literal=init.json="${INIT_JSON}" \
+        --dry-run=client -o yaml | ${KUBE} apply -f - >/dev/null
+    fi
+
+    # ---------------------------------------------------------------------
+    # 3. Unseal using the stored key (skip if already unsealed).
+    # ---------------------------------------------------------------------
+    if bao status -format=json | grep -q '"sealed"[[:space:]]*:[[:space:]]*false'; then
+      log "OpenBao already unsealed"
+    else
+      log "reading unseal key from Secret ${KEYS_SECRET}"
+      INIT_JSON="$(${KUBE} get secret "${KEYS_SECRET}" -o jsonpath='{.data.init\.json}' | base64 -d)"
+      # `operator init -format=json` pretty-prints across lines; flatten first.
+      UNSEAL_KEY="$(echo "${INIT_JSON}" | tr -d '\n' | sed -n 's/.*"unseal_keys_b64":[[:space:]]*\[[[:space:]]*"\([^"]*\)".*/\1/p')"
+      if [ -z "${UNSEAL_KEY}" ]; then
+        log "could not parse unseal key from ${KEYS_SECRET}"
+        exit 1
+      fi
+      log "unsealing OpenBao"
+      bao operator unseal "${UNSEAL_KEY}" >/dev/null
+    fi
+
+    # ---------------------------------------------------------------------
+    # 4. Login with root token, then configure (all idempotent). The token is
+    #    only ever assigned to BAO_TOKEN — never printed.
+    # ---------------------------------------------------------------------
+    INIT_JSON="$(${KUBE} get secret "${KEYS_SECRET}" -o jsonpath='{.data.init\.json}' | base64 -d)"
+    ROOT_TOKEN="$(echo "${INIT_JSON}" | tr -d '\n' | sed -n 's/.*"root_token":[[:space:]]*"\([^"]*\)".*/\1/p')"
+    if [ -z "${ROOT_TOKEN}" ]; then
+      log "could not parse root token from ${KEYS_SECRET}"
+      exit 1
+    fi
+    BAO_TOKEN="${ROOT_TOKEN}"
+    export BAO_TOKEN
+
+    # KV v2 at secret/ (ignore if already enabled).
+    if bao secrets list -format=json | grep -q '"secret/"'; then
+      log "KV v2 already enabled at secret/"
+    else
+      log "enabling KV v2 at secret/"
+      bao secrets enable -path=secret -version=2 kv || true
+    fi
+
+    # kubernetes auth method (ignore if already enabled).
+    if bao auth list -format=json | grep -q '"kubernetes/"'; then
+      log "kubernetes auth already enabled"
+    else
+      log "enabling kubernetes auth"
+      bao auth enable kubernetes || true
+    fi
+
+    # Configure kubernetes auth from the in-cluster environment. Leaving
+    # token_reviewer_jwt unset makes OpenBao use its own pod SA (which carries
+    # the system:auth-delegator binding) to review login JWTs.
+    log "configuring kubernetes auth"
+    KUBE_CA="$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)"
+    bao write auth/kubernetes/config \
+      kubernetes_host="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}" \
+      kubernetes_ca_cert="${KUBE_CA}" >/dev/null
+
+    # Policy for external-secrets (read-only on KV v2 data + metadata).
+    # Built with printf (not a heredoc) so leading indentation inside this
+    # YAML block scalar can never break the terminator.
+    log "writing policy external-secrets"
+    printf '%s\n' \
+      'path "secret/data/*" {' \
+      '  capabilities = ["read"]' \
+      '}' \
+      'path "secret/metadata/*" {' \
+      '  capabilities = ["read"]' \
+      '}' > /tmp/external-secrets.hcl
+    bao policy write external-secrets /tmp/external-secrets.hcl
+
+    # Kubernetes auth role bound to the external-secrets controller SA.
+    log "creating kubernetes auth role external-secrets"
+    bao write auth/kubernetes/role/external-secrets \
+      bound_service_account_names="${ES_SA}" \
+      bound_service_account_namespaces="${ES_NS}" \
+      policies="external-secrets" \
+      ttl="1h" >/dev/null
+
+    # ---------------------------------------------------------------------
+    # 5. OIDC auth method (Keycloak) — enables "Sign in with OIDC" in the
+    #    OpenBao UI. Best-effort: it needs the `openbao` Keycloak client secret
+    #    (openbao-oidc Secret) and the platform CA (openbao-ca Secret), both
+    #    delivered by the ExternalSecrets in oidc.yaml once Keycloak is up. If
+    #    they are not ready yet, skip — this Job re-runs on every sync (Sync
+    #    hook) and will configure OIDC on a later pass. All writes are idempotent.
+    # ---------------------------------------------------------------------
+    OIDC_SECRET="$(${KUBE} get secret openbao-oidc -o jsonpath='{.data.OPENBAO_CLIENT_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    OIDC_CA="$(${KUBE} get secret openbao-ca -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    if [ -n "${OIDC_SECRET}" ] && [ -n "${OIDC_CA}" ]; then
+      log "configuring OIDC auth method (Keycloak)"
+      if ! bao auth list -format=json | grep -q '"oidc/"'; then
+        bao auth enable oidc || true
+      fi
+      bao write auth/oidc/config \
+        oidc_discovery_url="https://keycloak.adhar.localtest.me:8443/realms/adhar" \
+        oidc_client_id="openbao" \
+        oidc_client_secret="${OIDC_SECRET}" \
+        oidc_discovery_ca_pem="${OIDC_CA}" \
+        default_role="default" >/dev/null || log "oidc config write failed (will retry next sync)"
+      bao write auth/oidc/role/default \
+        bound_audiences="openbao" \
+        allowed_redirect_uris="https://openbao.adhar.localtest.me:8443/ui/vault/auth/oidc/oidc/callback,https://openbao.adhar.localtest.me:8443/v1/auth/oidc/oidc/callback" \
+        user_claim="sub" \
+        oidc_scopes="openid,profile,email,groups" \
+        groups_claim="groups" \
+        token_policies="default" \
+        ttl="1h" >/dev/null || log "oidc role write failed (will retry next sync)"
+
+      # Map Keycloak groups -> OpenBao policies so an OIDC login is actually
+      # USEFUL. Without this a signed-in user only gets the `default` policy
+      # (grants nothing). OpenBao matches the ID token's `groups` claim
+      # (groups_claim above) against EXTERNAL identity groups by alias name;
+      # each carries a policy. Mirrors the k8s RBAC the keycloak package ships.
+      # Policies are piped via printf (NOT a heredoc) so the HCL stays inside
+      # this YAML block scalar.
+      log "mapping Keycloak groups to OpenBao policies"
+      printf 'path "*" { capabilities = ["create","read","update","delete","list","patch","sudo"] }\n' \
+        | bao policy write platform-admin - >/dev/null 2>&1 || true
+      printf 'path "secret/*" { capabilities = ["create","read","update","delete","list","patch"] }\npath "sys/mounts" { capabilities = ["read","list"] }\npath "auth/token/lookup-self" { capabilities = ["read"] }\n' \
+        | bao policy write platform-developer - >/dev/null 2>&1 || true
+      printf 'path "secret/*" { capabilities = ["read","list"] }\npath "sys/mounts" { capabilities = ["read","list"] }\n' \
+        | bao policy write platform-viewer - >/dev/null 2>&1 || true
+      OIDC_ACCESSOR="$(bao auth list 2>/dev/null | awk '/^oidc\//{print $3; exit}')"
+      for g in platform-admin platform-developer platform-viewer; do
+        bao write identity/group name="$g" type="external" policies="$g" >/dev/null 2>&1 || true
+        GID="$(bao read -field=id identity/group/name/$g 2>/dev/null)"
+        if [ -n "$GID" ] && [ -n "$OIDC_ACCESSOR" ]; then
+          bao write identity/group-alias name="$g" mount_accessor="$OIDC_ACCESSOR" canonical_id="$GID" >/dev/null 2>&1 \
+            || log "group-alias $g already present (ok)"
+        fi
+      done
+    else
+      log "OIDC prerequisites not ready (openbao-oidc / openbao-ca); skipping for now"
+    fi
+
+    log "bootstrap complete"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openbao-bootstrap
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # Re-run on every sync so config drift is reconciled idempotently.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openbao
+        app.kubernetes.io/component: bootstrap
+    spec:
+      serviceAccountName: openbao-bootstrap
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          # Pinned to the chart's appVersion (openbao/openbao 0.29.4 -> v2.6.2)
+          # so the CLI and the server always speak the same API.
+          image: quay.io/openbao/openbao:2.6.2
+          command: ["/bin/sh", "/scripts/bootstrap.sh"]
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: openbao-bootstrap
+            defaultMode: 0755

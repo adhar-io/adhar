@@ -1,0 +1,43 @@
+# Adhar marketplace contract for the keycloak package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: keycloak
+category: security
+version: "26.7.1"
+appVersion: "26.7.1"
+description: Keycloak identity provider — the platform's OIDC issuer, realm, groups and per-application clients for SSO.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://www.keycloak.org
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: cnpg
+    category: data
+  - name: external-secrets
+    category: security
+  - name: minio
+    category: data
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: stable
+resources:
+  localSafe: true   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - identity
+  - oidc
+  - sso
+  - keycloak

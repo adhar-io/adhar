@@ -1,0 +1,242 @@
+# Credentials for the seed connections in values.yaml.
+#
+# One ExternalSecret per platform database, never a shared one: a single
+# ExternalSecret fails as a whole when ONE of its sources is missing, which on
+# a cluster that does not run posthog/metabase/open-metadata/adhar-ai would
+# leave every connection without credentials. Split per datasource, a missing
+# package costs exactly its own connection — Studio skips a connection whose
+# `${VAR}` is undefined and lists the rest (docs/SEED_CONNECTIONS.md).
+#
+# Every password is mirrored from the Secret the owning operator already
+# created; none is written here. CNPG uses the Secret named in
+# bootstrap.initdb.secret as the application account, so that — not a
+# `<cluster>-app` Secret — is the source for every cluster except adhar-ai-rag,
+# which has no bootstrap secret and therefore gets the CNPG-generated
+# `adhar-ai-rag-app`. The `gitea` ClusterSecretStore is the platform's
+# kubernetes-provider store over adhar-system (the same one penpot reads MinIO
+# credentials through); the name is historical, the scope is the namespace.
+#
+# argocd.argoproj.io/ignore-healthcheck: whether the owning package is enabled
+# is an environment choice (local enables a curated core), so a datasource
+# mirror that cannot sync must not make THIS application Degraded. The
+# ExternalSecret keeps retrying every 5m and the connection appears the moment
+# the package is turned on.
+---
+# gitea-db, created by the bootstrap phase (controllers/.../cnpg/gitea-db.yaml) — always present
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: libredb-ds-gitea
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/ignore-healthcheck: "true"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: libredb-ds-gitea
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        PG_GITEA_USER: '{{ .username }}'
+        PG_GITEA_PASSWORD: '{{ .password }}'
+  data:
+    - secretKey: username
+      remoteRef: {key: gitea-db-credentials, property: username}
+    - secretKey: password
+      remoteRef: {key: gitea-db-credentials, property: password}
+---
+# keycloak-db; the keycloak package's own config Secret doubles as the CNPG application account
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: libredb-ds-keycloak
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/ignore-healthcheck: "true"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: libredb-ds-keycloak
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        PG_KEYCLOAK_USER: '{{ .username }}'
+        PG_KEYCLOAK_PASSWORD: '{{ .password }}'
+  data:
+    - secretKey: username
+      remoteRef: {key: keycloak-config, property: username}
+    - secretKey: password
+      remoteRef: {key: keycloak-config, property: password}
+---
+# console-db, owned by core/adhar-console
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: libredb-ds-console
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/ignore-healthcheck: "true"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: libredb-ds-console
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        PG_CONSOLE_USER: '{{ .username }}'
+        PG_CONSOLE_PASSWORD: '{{ .password }}'
+  data:
+    - secretKey: username
+      remoteRef: {key: console-env-vars, property: username}
+    - secretKey: password
+      remoteRef: {key: console-env-vars, property: password}
+---
+# libredb-db, this package's own store (platform-postgres.yaml)
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: libredb-ds-libredb
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/ignore-healthcheck: "true"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: libredb-ds-libredb
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        PG_LIBREDB_USER: '{{ .username }}'
+        PG_LIBREDB_PASSWORD: '{{ .password }}'
+  data:
+    - secretKey: username
+      remoteRef: {key: libredb-db-credentials, property: username}
+    - secretKey: password
+      remoteRef: {key: libredb-db-credentials, property: password}
+---
+# posthog-db, owned by application/posthog
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: libredb-ds-posthog
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/ignore-healthcheck: "true"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: libredb-ds-posthog
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        PG_POSTHOG_USER: '{{ .username }}'
+        PG_POSTHOG_PASSWORD: '{{ .password }}'
+  data:
+    - secretKey: username
+      remoteRef: {key: posthog-db-credentials, property: username}
+    - secretKey: password
+      remoteRef: {key: posthog-db-credentials, property: password}
+---
+# metabase-db, owned by data/metabase
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: libredb-ds-metabase
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/ignore-healthcheck: "true"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: libredb-ds-metabase
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        PG_METABASE_USER: '{{ .username }}'
+        PG_METABASE_PASSWORD: '{{ .password }}'
+  data:
+    - secretKey: username
+      remoteRef: {key: metabase-db-credentials, property: username}
+    - secretKey: password
+      remoteRef: {key: metabase-db-credentials, property: password}
+---
+# openmetadata-db, owned by data/open-metadata
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: libredb-ds-openmetadata
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/ignore-healthcheck: "true"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: libredb-ds-openmetadata
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        PG_OPENMETADATA_USER: '{{ .username }}'
+        PG_OPENMETADATA_PASSWORD: '{{ .password }}'
+  data:
+    - secretKey: username
+      remoteRef: {key: openmetadata-db-credentials, property: username}
+    - secretKey: password
+      remoteRef: {key: openmetadata-db-credentials, property: password}
+---
+# adhar-ai-rag (pgvector) is deliberately NOT wired here.
+#
+# `ai/adhar-ai` is opt-in and disabled by default, so its CNPG cluster — and
+# therefore the `adhar-ai-rag-app` Secret this would read — does not exist on a
+# default install. External Secrets fails an ExternalSecret whose remote key is
+# absent ("could not get secret data from provider"), and ArgoCD then retries
+# the whole Application forever: observed on the live DigitalOcean cluster as
+# `Retrying attempt #14` while the app itself sat Healthy, because
+# `ignore-healthcheck` hides the failure from the health check but not from the
+# sync. A datasource must never be able to put the package into a permanent
+# retry loop over something that is switched off.
+#
+# To add it after enabling `ai/adhar-ai`, copy the pattern of any Postgres
+# block above (the README has the one-command recipe) — the seed document
+# already tolerates a connection whose env vars are unset.

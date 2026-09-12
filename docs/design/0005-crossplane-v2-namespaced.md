@@ -24,8 +24,8 @@ platform/controlplane/
 ├── embed.go                               # //go:embed all:configuration → ConfigurationFS
 ├── configuration/
 │   ├── crossplane.yaml                    # Configuration package meta + dependsOn (NOT applied at runtime)
-│   ├── xrd/*.xrd.yaml                      # 23 XRDs — the platform API surface
-│   ├── compositions/<domain>/*.yaml       # 34 Compositions — one per provider/impl
+│   ├── xrd/*.xrd.yaml                      # 25 XRDs — the platform API surface
+│   ├── compositions/<domain>/*.yaml       # 47 Compositions — one per provider/impl
 │   ├── functions/functions.yaml           # 5 composition/operation functions
 │   ├── providers/                         # provider packages + ClusterProviderConfigs + cred templates
 │   └── operations/*.yaml                  # day-2 CronOperation/WatchOperation
@@ -56,7 +56,7 @@ spec:
           ...
 ```
 
-Schema conventions enforced across all 23 XRDs ([CONVENTIONS §1](../../platform/controlplane/CONVENTIONS.md)):
+Schema conventions enforced across all 25 XRDs ([CONVENTIONS §1](../../platform/controlplane/CONVENTIONS.md)):
 
 - **No `spec.crossplane`** in the schema — Crossplane injects that reserved stanza
   (`compositionRef`, `compositionSelector`, `compositionRevisionRef`, `compositionUpdatePolicy`) into
@@ -113,7 +113,7 @@ Azure SQL on Azure, or a Kubernetes-native database locally.
 |---|---|---|
 | `function-kcl` (`function-kcl:v0.12.1`) | **primary generator** in nearly every Composition | KCL program reads `option("params").oxr`, computes MRs/native objects |
 | `function-go-templating` (`function-go-templating:v0.12.1`) | 8 Compositions — all six `cluster/*`, `gitops/argocd-project`, `apps/argocd-application` | Go-template `GoTemplate`/`Inline` rendering |
-| `function-auto-ready` (`function-auto-ready:v0.6.5`) | last step in 18 of 34 Compositions | derives XR `Ready` from composed-resource readiness |
+| `function-auto-ready` (`function-auto-ready:v0.6.5`) | last step in 18 of 47 Compositions | derives XR `Ready` from composed-resource readiness |
 | `function-python` (`function-python:v0.4.0`) | day-2 Operations only (§5) | `operate(req, rsp)` entrypoint |
 | `function-patch-and-transform` (`function-patch-and-transform:v0.10.7`) | **installed but currently unreferenced** | available for declarative P&T (see Drift) |
 
@@ -298,7 +298,7 @@ the five functions) are the package constraints the registry resolves.
 | `platform/controlplane/CONVENTIONS.md` | authoritative v2 rules (scope, `.m` groups, ProviderConfig names, function names) |
 | `platform/controlplane/embed.go` | `//go:embed all:configuration` → `ConfigurationFS` |
 | `platform/controlplane/configuration/crossplane.yaml` | Configuration package meta + `dependsOn` (build-time only) |
-| `platform/controlplane/configuration/xrd/*.xrd.yaml` | 23 XRDs (`apiextensions/v2`, `Namespaced`) |
+| `platform/controlplane/configuration/xrd/*.xrd.yaml` | 25 XRDs (`apiextensions/v2`, `Namespaced`) |
 | `platform/controlplane/configuration/compositions/<domain>/*.yaml` | 34 Pipeline Compositions (v1) |
 | `platform/controlplane/configuration/functions/functions.yaml` | 5 `pkg.crossplane.io/v1` Functions |
 | `platform/controlplane/configuration/providers/{provider-packages,config/*,cloud/*}.yaml` | Provider packages + `ClusterProviderConfig`s + cred templates |
@@ -326,6 +326,6 @@ the five functions) are the package constraints the registry resolves.
 - **Operations count** — CLAUDE.md/CONTROL_PLANE.md say "3 Operations"; there are **4 files** defining
   5 Operation objects (`reconstructability-drill.yaml` holds both a CronOperation and a WatchOperation),
   adding a reconstructability drill beyond backup/secret-rotation/drift-watch.
-- **`function-auto-ready` is not universal** — used in 18/34 Compositions; the other 16 (database,
+- **`function-auto-ready` is not universal** — used in 18/47 Compositions; the other 16 (database,
   env, and other KCL-status compositions) compute XR readiness themselves in KCL and omit it, which
   CONVENTIONS §2 explicitly permits.

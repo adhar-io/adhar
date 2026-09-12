@@ -11,9 +11,10 @@
 #   - ArgoCD admin password is bcrypt-hashed into argocd-secret;
 #     argocd-initial-admin-secret is updated so `adhar get secrets -p argocd`
 #     stays truthful
-#   - Both new values are written to Vault (KV v2, secret/adhar/
-#     bootstrap-credentials) when the vault package is installed; the
-#     Kubernetes Secrets remain the in-cluster copy either way
+#   - Both new values are written to the platform secrets backend (KV v2,
+#     secret/adhar/bootstrap-credentials) when one is installed -- openbao in
+#     production, or vault; the two are API-identical and mutually exclusive
+#     (CONFLICTS.md). The Kubernetes Secrets remain the in-cluster copy either way
 #
 # Enablement is the gate (ADR-0004): this package ships disabled locally
 # (default credentials are documented for development) and enabled in the
@@ -149,21 +150,32 @@ spec:
               echo "argocd admin password rotated"
 
               # ------------------------------------------------------------
-              # 5. Break-glass copy to Vault (best effort: the Kubernetes
-              #    Secrets above remain authoritative in-cluster).
+              # 5. Break-glass copy to the secrets backend (best effort: the
+              #    Kubernetes Secrets above remain authoritative in-cluster).
+              #
+              #    Exactly one backend is ever enabled (CONFLICTS.md): openbao
+              #    (production) or vault. They are API-identical, so the only
+              #    difference is which Secret holds the init JSON -- openbao's
+              #    bootstrap writes `openbao-keys`, vault's writes `vault-keys`.
+              #    The service name is `vault` either way (the openbao package
+              #    republishes it, security/openbao/manifests/vault-compat.yaml).
               # ------------------------------------------------------------
-              if [ "$(kget vault-keys)" = "200" ]; then
+              KEYS_SECRET=""
+              for cand in openbao-keys vault-keys; do
+                if [ "$(kget "${cand}")" = "200" ]; then KEYS_SECRET="${cand}"; break; fi
+              done
+              if [ -n "${KEYS_SECRET}" ]; then
                 VAULT_TOKEN=$(jq -r '.data["init.json"]' /tmp/kget.json | base64 -d | jq -r '.root_token')
                 VAULT_ADDR=http://vault.${NS}.svc.cluster.local:8200
                 if curl -sS --fail-with-body -X POST "${VAULT_ADDR}/v1/secret/data/adhar/bootstrap-credentials" \
                   -H "X-Vault-Token: ${VAULT_TOKEN}" \
                   -d "{\"data\": {\"gitea_admin\": \"${GITEA_NEW}\", \"argocd_admin\": \"${ARGOCD_NEW}\", \"rotated_at\": \"${NOW}\"}}" >/dev/null; then
-                  echo "break-glass credentials written to Vault (secret/adhar/bootstrap-credentials)"
+                  echo "break-glass credentials written to the secrets backend (${KEYS_SECRET}, secret/adhar/bootstrap-credentials)"
                 else
-                  echo "WARNING: could not write break-glass credentials to Vault; in-cluster Secrets remain the only copy"
+                  echo "WARNING: could not write break-glass credentials to the secrets backend; in-cluster Secrets remain the only copy"
                 fi
               else
-                echo "vault-keys secret not found; skipping Vault break-glass copy"
+                echo "neither openbao-keys nor vault-keys found; skipping break-glass copy"
               fi
 
               # ------------------------------------------------------------

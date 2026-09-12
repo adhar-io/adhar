@@ -1,0 +1,99 @@
+# agentgateway — OTel traces to the platform Tempo (ADR-0025).
+#
+# Every LLM call and every MCP tool call becomes a span in the platform's own
+# tracing backend, correlated with the traces the rest of the platform already
+# emits. This is the piece that makes "why did that agent action take 40 seconds
+# and cost $0.18" answerable: the span carries the model, the provider, the token
+# counts and the realized cost as attributes, so a slow Anthropic call and a slow
+# MCP tool are distinguishable in one trace view.
+#
+# Backend: `tempo.adhar-system.svc.cluster.local:4317` — the OTLP/gRPC receiver
+# on the platform's Tempo Service (observability/tempo). A `backendRef` (not a
+# URL) is used so the proxy gets real endpoint health from the Service rather
+# than resolving a name per request; Tempo is a hard dependency of this package's
+# observability story and is always present when it is, so there is no fail-soft
+# concern like the optional vLLM backend in llm-routes.yaml.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-tracing
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    # Gateway-scoped: LLM routes, MCP routes and anything added later all trace,
+    # with no per-route opt-in to forget.
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: adhar-ai-gateway
+  frontend:
+    tracing:
+      protocol: GRPC
+      backendRef:
+        group: ""
+        kind: Service
+        name: tempo
+        namespace: adhar-system
+        port: 4317
+      # Sample everything. AI traffic is low-volume and high-value — a platform
+      # does not make thousands of LLM calls per second, and the one call worth
+      # debugging is the one that was dropped by a 1% sampler. Lower this only if
+      # Tempo's ingester starts shedding; on a busy production control plane
+      # "10.0" (percent) is a reasonable first step.
+      randomSampling: "100.0"
+      # Honour an inbound sampling decision, so a trace that starts in the
+      # Console or in `adhar ai` keeps its identity through the gateway instead
+      # of being re-sampled independently.
+      clientSampling: "100.0"
+      resources:
+        # Resource attributes identify the emitting proxy in Tempo's service
+        # graph. `env.*` are populated by the proxy from the downward API.
+        - name: service.name
+          expression: '"agentgateway"'
+        - name: k8s.pod.name
+          expression: "env.podName"
+        - name: k8s.namespace.name
+          expression: "env.namespace"
+      attributes:
+        add:
+          # ---- LLM attributes, named per the OTel GenAI semantic conventions so
+          # Tempo/Grafana's GenAI views and the platform dashboard agree on
+          # field names. `default(...)` throughout: these CEL variables only
+          # exist on an `ai` backend, and referencing an absent variable is an
+          # evaluation error that would drop the span on MCP traffic.
+          - name: gen_ai.request.model
+            expression: 'default(llm.requestModel, "")'
+          - name: gen_ai.response.model
+            expression: 'default(llm.responseModel, "")'
+          - name: gen_ai.system
+            expression: 'default(llm.provider, "")'
+          - name: gen_ai.usage.input_tokens
+            expression: 'default(llm.inputTokens, 0)'
+          - name: gen_ai.usage.output_tokens
+            expression: 'default(llm.outputTokens, 0)'
+          - name: gen_ai.usage.total_tokens
+            expression: 'default(llm.totalTokens, 0)'
+          # Realized USD cost from agentgateway's model cost catalog. Unset when
+          # the model could not be priced (self-hosted vLLM always is 0/unset,
+          # which is correct — it costs no API spend).
+          - name: gen_ai.usage.cost_usd
+            expression: 'default(llm.cost.total, 0.0)'
+          # ---- MCP attributes: which tool, on which federated target.
+          - name: mcp.method
+            expression: 'default(mcp.methodName, "")'
+          - name: mcp.tool.name
+            expression: 'default(mcp.tool.name, "")'
+          - name: mcp.tool.target
+            expression: 'default(mcp.tool.target, "")'
+          # ---- Identity. The SUBJECT only: never the raw token (jwt.rawToken is
+          # redacted by default and must stay that way), and never claims that
+          # could carry PII into a trace store with a different retention policy
+          # than the platform's audit log.
+          - name: enduser.id
+            expression: 'default(jwt.sub, "")'

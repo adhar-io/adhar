@@ -145,6 +145,59 @@ spec:
                   usePathRouting:
                     type: boolean
                 type: object
+              clusterMesh:
+                description: |-
+                  ClusterMesh carries this cluster's Cilium Cluster Mesh identity and,
+                  optionally, the clustermesh-apiserver that lets peers connect to it.
+                  Every cluster in a mesh needs a unique (name, id) pair and a
+                  non-overlapping Pod CIDR; the CA is shared because the platform ships
+                  one `cilium-ca` in its embedded install manifest. Nil means the
+                  defaults baked into that manifest (adhar-mgmt / 1) with no apiserver.
+                properties:
+                  apiServer:
+                    description: |-
+                      APIServer deploys the clustermesh-apiserver on this cluster so peers
+                      can read its state. Without it a cluster can join a mesh one-way at
+                      best; `cilium clustermesh connect` needs one on both sides.
+                    properties:
+                      enabled:
+                        description: Enabled applies resources/cilium/clustermesh.yaml
+                          on this cluster.
+                        type: boolean
+                      nodePort:
+                        description: |-
+                          NodePort pins the port when ServiceType is NodePort, so firewall rules
+                          and the peers' host aliases stay stable across re-creates.
+                        format: int32
+                        maximum: 32767
+                        minimum: 30000
+                        type: integer
+                      serviceType:
+                        description: |-
+                          ServiceType exposes the apiserver to peers. ClusterIP is unreachable
+                          from another cluster, so a real fleet uses NodePort (cheapest — the
+                          peer dials a node IP) or LoadBalancer.
+                        enum:
+                        - ClusterIP
+                        - NodePort
+                        - LoadBalancer
+                        type: string
+                    type: object
+                  id:
+                    description: |-
+                      ID is the Cilium cluster ID, unique across the mesh. 1 is the
+                      management cluster; data planes take 2-255.
+                    format: int32
+                    maximum: 255
+                    minimum: 1
+                    type: integer
+                  name:
+                    description: |-
+                      Name is the Cilium cluster name. Must be unique across the mesh and a
+                      valid DNS label — it becomes `<name>.mesh.cilium.io` in the peers'
+                      host aliases. Defaults to "adhar-mgmt".
+                    type: string
+                type: object
               packageConfigs:
                 properties:
                   argoPackageConfigs:

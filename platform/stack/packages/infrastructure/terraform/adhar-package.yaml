@@ -1,0 +1,37 @@
+# Adhar marketplace contract for the terraform package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: terraform
+category: infrastructure
+version: "v0.15.1"
+description: tf-controller (Flux IaC) running Terraform/OpenTofu plans as Kubernetes resources, with the Flux source controller.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://flux-iac.github.io/tofu-controller
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies: []
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: terraform/tf-controller
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - terraform
+  - opentofu
+  - iac
+  - flux

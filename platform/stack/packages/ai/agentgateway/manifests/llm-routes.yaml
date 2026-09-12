@@ -1,0 +1,269 @@
+# agentgateway — one OpenAI-compatible LLM endpoint for the whole platform
+# (ADR-0025). Replaces the bespoke `adhar-ai-llm-gateway` Deployment.
+#
+# ---------------------------------------------------------------------------
+# THE CONTRACT
+# ---------------------------------------------------------------------------
+# Every caller — the adhar-ai runtime, the seven MCP servers, the Console chat,
+# `adhar ai`, any tenant workload — speaks ONE dialect (OpenAI chat completions)
+# to ONE URL:
+#
+#     https://ai.adhar.localtest.me:8443/v1/chat/completions
+#
+# and picks its model by NAME in the request body. No caller ever learns a
+# provider, an endpoint, or an API key:
+#
+#     "model": "claude-opus-4-5-20251101"   -> Anthropic  (hosted)
+#     "model": "gpt-4o"                     -> OpenAI     (hosted)
+#     "model": "local/<served-model>"       -> in-cluster vLLM (self-hosted, free)
+#
+# ---------------------------------------------------------------------------
+# HOW MODEL-NAME ROUTING WORKS WITHOUT AN EXPERIMENTAL API
+# ---------------------------------------------------------------------------
+# agentgateway ships an AgentgatewayModel CRD that does this natively, but it is
+# gated behind `agentgatewayModels.enabled` and marked experimental upstream
+# (see values.yaml). So this file uses only stable primitives:
+#
+#   1. a PreRouting AgentgatewayPolicy lifts `.model` out of the JSON request
+#      body into an `x-model` request header. PreRouting is the only phase that
+#      runs BEFORE the route match, which is what makes body content usable as a
+#      routing input at all;
+#   2. ordinary Gateway API HTTPRoute rules match `x-model` with
+#      `type: RegularExpression` and pick a backend.
+#
+# Gateway API sorts rules by match specificity, not by document order, and all
+# three rules below are equally specific (one path prefix + one header regex), so
+# the regexes are written to be mutually exclusive. The last rule has no header
+# match at all and is therefore strictly less specific — it is the fallback.
+#
+# ---------------------------------------------------------------------------
+# CREDENTIALS
+# ---------------------------------------------------------------------------
+# Keys come from the EXISTING `adhar-ai-llm` Secret (projected from Vault by
+# ai/adhar-ai/manifests/llm-secret-external.yaml). agentgateway reads the key
+# server-side and injects it upstream; it is never returned to a caller and never
+# enters a model context — the same guarantee the old gateway made, now enforced
+# by the data plane instead of by application code.
+#
+#   * Anthropic uses `API_KEY`, the single-provider key that Secret already
+#     carries today (the platform default is PROVIDER=claude).
+#   * OpenAI uses `OPENAI_API_KEY`, which that Secret does NOT carry yet. Until
+#     ai/adhar-ai adds it (see ADR-0025 "Required changes in ai/adhar-ai"), the
+#     OpenAI backend reports an unresolved-credential condition and ONLY the
+#     gpt-* route 5xxs — Anthropic, vLLM and all MCP traffic are unaffected.
+#   * vLLM needs no credential at all.
+---
+# ------------------------------- Anthropic ---------------------------------
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: llm-anthropic
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: llm-anthropic
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    # Wave 2: after the Gateway (wave 1). A backend with no gateway to attach to
+    # is inert, not broken, but keeping the order explicit makes a first-boot
+    # sync deterministic.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  ai:
+    provider:
+      anthropic:
+        # NO `model:` on purpose. When the provider pins a model, agentgateway
+        # overrides whatever the caller asked for. Leaving it unset makes the
+        # backend a pass-through: the caller's `model` reaches Anthropic
+        # verbatim, so a new Claude release is usable the day it ships with no
+        # manifest change. The route regex below is what guarantees only
+        # `claude-*` names arrive here.
+        {}
+  policies:
+    auth:
+      secretRef:
+        name: adhar-ai-llm
+        # Default is the `Authorization` key; adhar-ai's Secret calls it API_KEY.
+        key: API_KEY
+---
+# -------------------------------- OpenAI -----------------------------------
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: llm-openai
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: llm-openai
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  ai:
+    provider:
+      openai:
+        # Pass-through, same reasoning as Anthropic above.
+        {}
+  policies:
+    auth:
+      secretRef:
+        name: adhar-ai-llm
+        key: OPENAI_API_KEY
+---
+# ------------------------- Self-hosted vLLM (local) -------------------------
+#
+# OPTIONAL / FAIL-SOFT BY CONSTRUCTION.
+#
+# The `ai/vllm` package is built separately and may not be installed. This
+# backend addresses it by DNS NAME (`host`/`port`), not by `backendRef` to a
+# Service object. That distinction is the whole fail-soft mechanism:
+#
+#   * a `backendRef` to a missing Service is a dangling object reference —
+#     agentgateway marks the backend ResolvedRefs=False, and ArgoCD reports this
+#     Application Degraded, which would hold the whole AI data plane hostage to
+#     an unrelated package;
+#   * a `host` is resolved by the proxy at REQUEST time. With vLLM absent, the
+#     config is perfectly valid, the gateway is Programmed, Anthropic/OpenAI/MCP
+#     all serve normally, and only a request that explicitly asks for a
+#     `local/*` model gets a 503.
+#
+# vLLM serves the OpenAI wire format at /v1/chat/completions, which is exactly
+# what the `openai` provider emits, so no format translation is configured.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: llm-vllm
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: llm-vllm
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+    # Marks the backend as depending on a package that may not be installed.
+    adhar.io/optional-dependency: vllm
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  ai:
+    provider:
+      openai: {}
+      # Service published by the ai/vllm package (built concurrently).
+      # http://vllm.adhar-system.svc.cluster.local:8000/v1
+      host: vllm.adhar-system.svc.cluster.local
+      port: 8000
+  policies:
+    # No `auth`: a self-hosted vLLM in the same namespace needs no API key. If
+    # ai/vllm later enables `--api-key`, add a secretRef here pointing at the
+    # Secret that package publishes.
+    http:
+      # Local models on CPU are slow. The default request timeout is far too
+      # short for a kind-hosted vLLM; 10 minutes keeps a long generation alive.
+      requestTimeout: 600s
+---
+# ------------------- Model extraction (body -> routing header) --------------
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: llm-model-extract
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    # Targets the GATEWAY, not a route: PreRouting policies must attach to a
+    # Gateway or Listener (the route has not been chosen yet when they run).
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: adhar-ai-gateway
+  traffic:
+    phase: PreRouting
+    transformation:
+      request:
+        set:
+          # CEL over the parsed JSON body. Requests with no body, or a body with
+          # no `model`, get an empty header and fall through to the last
+          # (unconditional) HTTPRoute rule.
+          - name: "x-model"
+            value: 'json(request.body).model'
+---
+# ----------------------------- The unified route ----------------------------
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: agentgateway-llm
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway-llm
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  parentRefs:
+    - name: adhar-ai-gateway
+      namespace: adhar-system
+  rules:
+    # --- Anthropic: claude-* -------------------------------------------------
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+          headers:
+            - type: RegularExpression
+              name: x-model
+              value: "^(claude-|anthropic/).*"
+      backendRefs:
+        - name: llm-anthropic
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+    # --- OpenAI: gpt-*, o1/o3/o4-*, chatgpt-* --------------------------------
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+          headers:
+            - type: RegularExpression
+              name: x-model
+              value: "^(gpt-|o[1-9]-|o[1-9]$|chatgpt-|openai/).*"
+      backendRefs:
+        - name: llm-openai
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+    # --- Self-hosted vLLM: local/* -------------------------------------------
+    # An explicit `local/` prefix, not a catch-all, so "which model am I paying
+    # for" is answerable from the request alone. Callers that want the free
+    # in-cluster model must say so.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+          headers:
+            - type: RegularExpression
+              name: x-model
+              value: "^(local/|vllm/).*"
+      backendRefs:
+        - name: llm-vllm
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+    # --- Fallback ------------------------------------------------------------
+    # No header match => strictly less specific than the three rules above, so
+    # Gateway API only reaches it when none of them matched (unknown model name,
+    # empty body, /v1/models, /v1/embeddings, ...). Anthropic is the platform
+    # default provider (ai/adhar-ai values.yaml: provider=claude), so an
+    # unqualified request lands there rather than 404-ing.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: llm-anthropic
+          group: agentgateway.dev
+          kind: AgentgatewayBackend

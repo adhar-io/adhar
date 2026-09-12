@@ -1,0 +1,37 @@
+# Adhar marketplace contract for the mysql-operator package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: mysql-operator
+category: data
+version: "2.3.0"
+description: Oracle MySQL Operator for running InnoDB clusters and routers on Kubernetes.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: GPL-2.0
+homepage: https://github.com/mysql/mysql-operator
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies: []
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: mysql-operator/mysql-operator
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - mysql
+  - database
+  - operator
+  - innodb

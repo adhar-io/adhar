@@ -15,7 +15,7 @@
 #   2  tooling missing (no validator available)
 #
 # Validators, in order of preference:
-#   1. python3 with the `jsonschema` module (pip install jsonschema)
+#   1. python3 with the `jsonschema` module (pip3 install --user jsonschema pyyaml)
 #   2. `check-jsonschema` CLI (pipx install check-jsonschema) as a fallback
 #
 set -euo pipefail
@@ -84,7 +84,12 @@ for path in sys.argv[1:]:
     parts = rel.split(os.sep)
     if len(parts) >= 3 and isinstance(doc, dict):
         dir_category, dir_name = parts[0], parts[1]
-        if doc.get("name") != dir_name:
+        # Package names are lowercase DNS labels (schema `pattern`), while one
+        # legacy directory is capitalised (core/Kamaji -> package `kamaji`, the
+        # name the ApplicationSets already use). Compare case-insensitively so the
+        # filesystem stays the source of truth without forcing an invalid
+        # uppercase `name` into the contract.
+        if (doc.get("name") or "").lower() != dir_name.lower():
             errors.append(type("E", (), {
                 "message": f"name '{doc.get('name')}' does not match directory '{dir_name}'",
                 "path": ["name"]})())
@@ -124,6 +129,6 @@ fi
 
 echo "ERROR: no JSON Schema validator available." >&2
 echo "Install one of:" >&2
-echo "  pip install jsonschema pyyaml        # preferred" >&2
+echo "  pip3 install --user jsonschema pyyaml   # preferred" >&2
 echo "  pipx install check-jsonschema        # fallback" >&2
 exit 2

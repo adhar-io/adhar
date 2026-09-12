@@ -43,30 +43,115 @@ data:
     G_C=$(readcfg grade_c 70)
     G_D=$(readcfg grade_d 60)
 
-    # Collect a resource cluster-wide as JSON; degrade gracefully if the CRD or
-    # resource type is not installed (empty item list instead of an error).
-    get_json() { kubectl get "$1" -A -o json 2>/dev/null || echo '{"items":[]}'; }
+    # Collect a resource cluster-wide, then immediately PROJECT it down to the
+    # handful of fields the scoring program reads and INDEX it by the keys the
+    # program looks up. Both steps were forced by running this on a real
+    # cluster:
+    #   * a payload must never travel as a command-line argument — the combined
+    #     JSON is megabytes and `jq --argjson` dies with "Argument list too
+    #     long" (ARG_MAX), so everything moves through files and --slurpfile;
+    #   * the raw objects are mostly managedFields and last-applied
+    #     annotations, and the scoring program used to re-scan every workload
+    #     for every service (O(services x workloads)), which blew past the
+    #     job's activeDeadlineSeconds. Projecting first and looking up by key
+    #     makes the per-service work O(1).
+    fetch() {  # fetch <resource> <name>
+      kubectl get "$1" -A -o json 2>/dev/null >"$WORKDIR/$2.raw" || true
+      [ -s "$WORKDIR/$2.raw" ] || echo '{"items":[]}' >"$WORKDIR/$2.raw"
+    }
+    project() {  # project <name> <jq program>
+      jq -c "$2" "$WORKDIR/$1.raw" >"$WORKDIR/$1.json" || echo '{}' >"$WORKDIR/$1.json"
+      rm -f "$WORKDIR/$1.raw"
+    }
 
     echo "adhar-scorecard: collecting signals..."
-    APPS=$(get_json applications.argoproj.io)
-    WORKLOADS=$(kubectl get deployments,statefulsets -A -o json 2>/dev/null || echo '{"items":[]}')
-    REPORTS=$(get_json policyreports.wgpolicyk8s.io)
-    ROUTES=$(get_json httproutes.gateway.networking.k8s.io)
-    SCHEDULES=$(get_json schedules.velero.io)
-    CNPG=$(get_json clusters.postgresql.cnpg.io)
+    fetch applications.argoproj.io apps
+    # DaemonSets count: several platform components (alloy, the eBPF agents)
+    # ship only as DaemonSets and were ungradable while this listed just
+    # Deployments and StatefulSets.
+    kubectl get deployments,statefulsets,daemonsets -A -o json 2>/dev/null >"$WORKDIR/workloads.raw" || true
+    [ -s "$WORKDIR/workloads.raw" ] || echo '{"items":[]}' >"$WORKDIR/workloads.raw"
+    fetch policyreports.wgpolicyk8s.io reports
+    fetch httproutes.gateway.networking.k8s.io routes
+    fetch schedules.velero.io schedules
+    fetch clusters.postgresql.cnpg.io cnpg
+
+    echo "adhar-scorecard: indexing signals..."
+    # `.status.resources` is ArgoCD's own inventory of what each Application
+    # manages. It is the only precise attribution available: every platform
+    # package now installs into the SAME namespace (ADR-0011), so a
+    # namespace-keyed signal is identical for all of them and says nothing
+    # about an individual service.
+    project apps '{items: [ (.items // [])[] | (.status.resources // []) as $rs | {
+        name: .metadata.name,
+        ns:   (.spec.destination.namespace // .metadata.namespace // "default"),
+        health: (.status.health.status // "Unknown"),
+        sync:   (.status.sync.status // "Unknown"),
+        own: {
+          total:  ($rs | length),
+          wl:     [ $rs[] | select(.kind == "Deployment" or .kind == "StatefulSet" or .kind == "DaemonSet")
+                    | "\(.namespace // "")/\(.kind)/\(.name)" ],
+          routes: ([ $rs[] | select(.kind == "HTTPRoute") ] | length),
+          cnpg:   [ $rs[] | select(.kind == "Cluster" and ((.group // "") == "postgresql.cnpg.io"))
+                    | "\(.namespace // "")/\(.name)" ] } } ]}'
+    project workloads '[ (.items // [])[] | {
+        kind: .kind,
+        ns:   .metadata.namespace,
+        name: .metadata.name,
+        inst: (.metadata.labels["app.kubernetes.io/instance"] // null),
+        containers: [ (.spec.template.spec.containers // [])[] | {
+            image: .image,
+            probes: ((.readinessProbe != null) and (.livenessProbe != null)),
+            res:    ((.resources.requests != null) and (.resources.limits != null)) } ] } ]
+      | { byKey:      (map({key: "\(.ns)/\(.kind)/\(.name)", value: .}) | from_entries),
+          byInstance: (group_by(.inst) | map(select(.[0].inst != null) | {key: .[0].inst, value: .}) | from_entries),
+          byNs:       (group_by(.ns)   | map({key: .[0].ns, value: .}) | from_entries) }'
+    project reports '{
+        byKey: ( reduce (.items // [])[] as $r ({};
+          "\($r.scope.namespace // $r.metadata.namespace // "")/\($r.scope.kind // "")/\($r.scope.name // "")" as $k
+          | .[$k] = { pass: ((.[$k].pass // 0) + ($r.summary.pass // 0)),
+                      fail: ((.[$k].fail // 0) + ($r.summary.fail // 0)) } ) ),
+        byNs: ( reduce (.items // [])[] as $r ({};
+          ($r.metadata.namespace // "_cluster") as $ns
+          | .[$ns] = { pass: ((.[$ns].pass // 0) + ($r.summary.pass // 0)),
+                       fail: ((.[$ns].fail // 0) + ($r.summary.fail // 0)) } ) ) }'
+    project routes '{ nsSet: ( reduce (.items // [])[] as $r ({}; .[$r.metadata.namespace] = true) ) }'
+    project cnpg '{
+        byKey: ( reduce (.items // [])[] as $c ({};
+          .["\($c.metadata.namespace)/\($c.metadata.name)"] = { backup: ($c.spec.backup != null) } ) ),
+        byNs: ( reduce (.items // [])[] as $c ({};
+          ($c.metadata.namespace) as $ns
+          | .[$ns] = { count:  ((.[$ns].count // 0) + 1),
+                       backup: ((.[$ns].backup // false) or ($c.spec.backup != null)) } ) ) }'
+    project schedules '{
+        all:   ([ (.items // [])[] | select((((.spec.template.includedNamespaces // []) | index("*"))) != null) ] | length > 0),
+        nsSet: ( reduce (.items // [])[] as $s ({};
+                   reduce (($s.spec.template.includedNamespaces // [])[]) as $n (.; .[$n] = true) ) ) }'
 
     echo "adhar-scorecard: computing scores..."
+    # --slurpfile binds an ARRAY of the file's documents; each file holds one
+    # document, hence the `[0]` unwrap below.
     jq -n \
-      --argjson apps "$APPS" \
-      --argjson workloads "$WORKLOADS" \
-      --argjson reports "$REPORTS" \
-      --argjson routes "$ROUTES" \
-      --argjson schedules "$SCHEDULES" \
-      --argjson cnpg "$CNPG" \
+      --slurpfile appsf "$WORKDIR/apps.json" \
+      --slurpfile workloadsf "$WORKDIR/workloads.json" \
+      --slurpfile reportsf "$WORKDIR/reports.json" \
+      --slurpfile routesf "$WORKDIR/routes.json" \
+      --slurpfile schedulesf "$WORKDIR/schedules.json" \
+      --slurpfile cnpgf "$WORKDIR/cnpg.json" \
       --argjson wrel "$W_REL" --argjson wsec "$W_SEC" \
       --argjson wobs "$W_OBS" --argjson wops "$W_OPS" \
       --argjson ga "$G_A" --argjson gb "$G_B" --argjson gc "$G_C" --argjson gd "$G_D" \
       --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+      # ---- inputs (projected + indexed above; unwrapped from --slurpfile) ---
+      ($appsf[0]) as $apps
+      | ($workloadsf[0]) as $wlIdx
+      | ($reportsf[0].byKey) as $polByKey
+      | ($reportsf[0].byNs) as $polByNs
+      | ($routesf[0].nsSet) as $routeNs
+      | ($cnpgf[0].byKey) as $cnpgByKey
+      | ($cnpgf[0].byNs) as $cnpgByNs
+      | ($schedulesf[0]) as $sched
+      |
       # ---- helpers ----------------------------------------------------------
       def imgbad($img):
         ($img | type == "string")
@@ -78,54 +163,56 @@ data:
         elif $s >= $gd then "D"
         else "F" end;
 
-      # Kyverno pass/fail aggregated by namespace.
-      ( reduce ($reports.items // [])[] as $r ({};
-          ($r.metadata.namespace // "_cluster") as $ns
-          | .[$ns] = {
-              pass: ((.[$ns].pass // 0) + ($r.summary.pass // 0)),
-              fail: ((.[$ns].fail // 0) + ($r.summary.fail // 0))
-            }
-        )
-      ) as $polByNs |
-
       [ ($apps.items // [])[] |
         . as $app |
-        ($app.metadata.name) as $name |
-        ($app.spec.destination.namespace // $app.metadata.namespace // "default") as $ns |
-        ($app.status.health.status // "Unknown") as $health |
-        ($app.status.sync.status // "Unknown") as $sync |
+        ($app.name) as $name |
+        ($app.ns) as $ns |
+        ($app.health) as $health |
+        ($app.sync) as $sync |
 
-        # Prefer workloads carrying ArgoCD instance label; else namespace match.
-        ([ ($workloads.items // [])[]
-           | select(.metadata.labels["app.kubernetes.io/instance"] == $name) ]) as $wlInst |
-        (if ($wlInst | length) > 0 then $wlInst
-         else [ ($workloads.items // [])[] | select(.metadata.namespace == $ns) ] end) as $wl |
-        ([ $wl[] | (.spec.template.spec.containers // [])[] ]) as $cs |
+        # What this Application actually owns, per ArgoCD. When ArgoCD knows the
+        # inventory that IS the answer: an Application that owns no workload
+        # (an ApplicationSet, a policy bundle, a set of Tekton tasks) has no
+        # containers to grade, and its container signals must drop out as
+        # not-applicable rather than borrow other workloads from the namespace.
+        # The instance label and the destination namespace are fallbacks only
+        # for an Application that has never synced.
+        (($app.own.total // 0) > 0) as $hasOwn |
+        (if $hasOwn
+         then [ ($app.own.wl // [])[] | $wlIdx.byKey[.] // empty ]
+         else ($wlIdx.byInstance[$name] // $wlIdx.byNs[$ns] // []) end) as $wl |
+        ([ $wl[] | (.containers // [])[] ]) as $cs |
         (($cs | length) > 0) as $hasC |
 
         # reliability
         ($health == "Healthy") as $healthy |
-        ($hasC and (all($cs[]; (.readinessProbe != null) and (.livenessProbe != null)))) as $probesOk |
-        ($hasC and (all($cs[]; (.resources.requests != null) and (.resources.limits != null)))) as $resOk |
+        ($hasC and (all($cs[]; .probes))) as $probesOk |
+        ($hasC and (all($cs[]; .res))) as $resOk |
 
         # security
         ($hasC and (all($cs[]; (imgbad(.image)) | not))) as $imgOk |
-        ($polByNs[$ns] // {pass:0, fail:0}) as $pol |
+        # Kyverno reports are scoped to individual workloads, so they can be
+        # attributed exactly; the namespace aggregate is only for the
+        # never-synced fallback above.
+        (if $hasOwn
+         then { pass: ([ ($app.own.wl // [])[] | ($polByKey[.].pass // 0) ] | add // 0),
+                fail: ([ ($app.own.wl // [])[] | ($polByKey[.].fail // 0) ] | add // 0) }
+         else ($polByNs[$ns] // {pass:0, fail:0}) end) as $pol |
         (($pol.pass + $pol.fail) > 0) as $hasPol |
         (if $hasPol then ($pol.pass / ($pol.pass + $pol.fail)) else 0 end) as $passRate |
 
         # observability
         ($sync == "Synced") as $synced |
-        ([ ($routes.items // [])[] | select(.metadata.namespace == $ns) ] | length > 0) as $exposed |
+        (if $hasOwn then (($app.own.routes // 0) > 0) else ($routeNs[$ns] // false) end) as $exposed |
 
         # operations
         (any($wl[]?; .kind == "StatefulSet")) as $hasSts |
-        ([ ($cnpg.items // [])[] | select(.metadata.namespace == $ns) ]) as $cnpgHere |
+        ([ ($app.own.cnpg // [])[] | $cnpgByKey[.] // empty ]) as $cnpgOwn |
+        (if $hasOwn then $cnpgOwn
+         else (($cnpgByNs[$ns] // {count: 0, backup: false})
+               | if .count > 0 then [{backup: .backup}] else [] end) end) as $cnpgHere |
         ($hasSts or (($cnpgHere | length) > 0)) as $stateful |
-        ( ([ ($schedules.items // [])[]
-             | select(((.spec.template.includedNamespaces // [])
-                       | (index($ns) != null or index("*") != null))) ] | length > 0)
-          or (any($cnpgHere[]?; .spec.backup != null)) ) as $backupOk |
+        ( ($sched.all or ($sched.nsSet[$ns] // false)) or (any($cnpgHere[]?; .backup)) ) as $backupOk |
 
         # signal ledger
         [
@@ -265,7 +352,9 @@ spec:
                   cpu: 25m
                   memory: 64Mi
                 limits:
-                  cpu: 250m
+                  # jq crunches the projected API payloads; 250m made the job
+                  # miss its deadline on a full platform.
+                  cpu: "1"
                   memory: 256Mi
               volumeMounts:
                 - name: script

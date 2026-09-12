@@ -1,0 +1,113 @@
+# Vulnerability scanner wiring.
+#
+# Enabling `trivy` in values.yaml gets the adapter deployed and makes Harbor core
+# register it (core reads WITH_TRIVY / TRIVY_ADAPTER_URL and self-registers at
+# start-up). Registration alone leaves the scanner dormant: nothing is scanned
+# until someone presses "Scan" in the UI, so every artifact keeps showing no scan
+# data, which reads as "no vulnerabilities" when it actually means "never
+# scanned".
+#
+# This Job turns that into a standing guarantee: the Trivy scanner is the project
+# default and every push to `library` is scanned automatically. It sets no
+# blocking policy -- `prevent_vul` stays off, so a finding never stops a
+# deployment on its own. The build pipelines keep their own trivy gate, which is
+# what decides whether an image is allowed to ship; this covers everything that
+# is already sitting in the registry, including images pushed by hand.
+#
+# Idempotent, and re-run on every sync so the setting is reconciled rather than
+# applied once.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-scanner-config
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # After the OIDC job (45), so the two never race on the configuration API.
+    argocd.argoproj.io/sync-wave: "46"
+spec:
+  backoffLimit: 30
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: harbor-scanner-config
+    spec:
+      restartPolicy: OnFailure
+      volumes:
+        - name: admin
+          secret:
+            secretName: harbor-core
+            optional: true
+        # harbor-core serves HTTPS only (Service port 443 -> 8443) because
+        # internalTLS is on; this CA is what lets curl verify it.
+        - name: harbor-ca
+          secret:
+            secretName: harbor-core-internal-tls
+            optional: true
+            items: [{key: ca.crt, path: harbor-ca.crt}]
+      containers:
+        - name: configure
+          image: alpine/k8s:1.31.1
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - name: admin
+              mountPath: /var/harbor
+              readOnly: true
+            - name: harbor-ca
+              mountPath: /var/harbor-ca
+              readOnly: true
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              ADMIN_PW="$(cat /var/harbor/HARBOR_ADMIN_PASSWORD 2>/dev/null || echo Harbor12345)"
+              HARBOR="https://harbor-core.adhar-system.svc.cluster.local/api/v2.0"
+              CACERT="/var/harbor-ca/harbor-ca.crt"
+              [ -s "$CACERT" ] || { echo "harbor-core-internal-tls CA not present yet — retrying"; exit 1; }
+              CURL=(curl -sf --cacert "$CACERT" -u "admin:${ADMIN_PW}")
+
+              echo "waiting for the Harbor API"
+              i=0
+              until "${CURL[@]}" "$HARBOR/systeminfo" >/dev/null 2>&1; do
+                i=$((i + 1)); [ "$i" -ge 60 ] && { echo "Harbor API not ready"; exit 1; }
+                sleep 5
+              done
+
+              # The adapter is registered by core itself; wait for it rather than
+              # creating a second registration that would compete with it.
+              echo "waiting for a registered scanner"
+              i=0
+              until [ -n "$("${CURL[@]}" "$HARBOR/scanners" | jq -r '.[0].uuid // empty')" ]; do
+                i=$((i + 1)); [ "$i" -ge 60 ] && { echo "no scanner registered; is trivy.enabled set?"; exit 1; }
+                sleep 5
+              done
+              UUID="$("${CURL[@]}" "$HARBOR/scanners" | jq -r '[.[] | select(.name=="Trivy")][0].uuid // .[0].uuid')"
+              NAME="$("${CURL[@]}" "$HARBOR/scanners/$UUID" | jq -r '.name')"
+              echo "scanner: $NAME ($UUID)"
+
+              # Fail loudly if the adapter cannot actually answer. A registered
+              # but unreachable scanner reports every artifact as unscanned.
+              if ! "${CURL[@]}" "$HARBOR/scanners/$UUID/metadata" >/dev/null 2>&1; then
+                echo "scanner $NAME is registered but its metadata endpoint is failing;"
+                echo "check the harbor-trivy pod and its internal TLS certificate"
+                exit 1
+              fi
+
+              "${CURL[@]}" -X PATCH -H 'content-type: application/json' \
+                -d '{"is_default":true}' "$HARBOR/scanners/$UUID" >/dev/null || true
+              echo "$NAME set as the default scanner"
+
+              # Scan on push, for every project that exists.
+              for proj in $("${CURL[@]}" "$HARBOR/projects?page_size=100" | jq -r '.[].name'); do
+                "${CURL[@]}" -X PUT -H 'content-type: application/json' \
+                  -d '{"metadata":{"auto_scan":"true"}}' \
+                  "$HARBOR/projects/$proj" >/dev/null \
+                  && echo "  auto-scan on push enabled for project $proj" \
+                  || echo "  could not set auto-scan for project $proj (continuing)"
+              done
+              echo "harbor scanner configuration done"

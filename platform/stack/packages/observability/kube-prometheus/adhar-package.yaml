@@ -1,0 +1,44 @@
+# Adhar marketplace contract for the kube-prometheus package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: kube-prometheus
+category: observability
+version: "89.2.2"
+description: 'kube-prometheus-stack: Prometheus Operator, Prometheus, Alertmanager and Grafana with the platform''s dashboards.'
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://github.com/prometheus-community/helm-charts
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+    optional: true
+  - name: cert-manager
+    category: security
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: prometheus-community/kube-prometheus-stack
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: stable
+resources:
+  localSafe: true   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - metrics
+  - prometheus
+  - grafana
+  - alerting

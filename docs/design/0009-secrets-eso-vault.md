@@ -6,6 +6,36 @@ plane, the HashiCorp Vault source of truth, the `ClusterSecretStore` fabric that
 and in-cluster reflection, the `ExternalSecret` pointer contract that GitOps manifests carry, the
 sync-wave ordering that makes the whole chain converge, and the rotation/enforcement story.
 
+> **Amendment (2026-09) — the production backend is now OpenBao, not Vault.**
+> [OpenBao](https://openbao.org) is the Linux Foundation / OpenSSF fork of HashiCorp Vault, released
+> under **MPL-2.0** instead of Vault's BUSL-1.1. It is packaged at
+> [`platform/stack/packages/security/openbao/`](../../platform/stack/packages/security/openbao/)
+> (chart `openbao/openbao` 0.29.4, app `v2.6.2`) and is `enabled: "true"` in
+> `adhar-appset-production.yaml`; the `vault` package is still wired there but `enabled: "false"`.
+> **Exactly one secrets backend may be enabled** — both claim `ClusterSecretStore/vault` and
+> `Service/vault` in the shared namespace ([CONFLICTS.md](../../platform/stack/packages/CONFLICTS.md)).
+>
+> Everything this document describes about the *sync plane* is unchanged, because OpenBao is
+> wire-compatible with Vault's HTTP API:
+>
+> - the ESO provider is still `vault:`, and the `ClusterSecretStore` is still **named `vault`** (§4)
+>   — no `ExternalSecret` in the repo changed;
+> - the backend still answers on `vault.adhar-system.svc.cluster.local:8200` (the openbao package
+>   republishes that Service name for consumers that address it by DNS, such as `adhar-console`'s
+>   `VAULT_URL` and `credential-rotation`);
+> - the KV v2 mount (`secret/`), the `kubernetes` auth mount and the `external-secrets` role/policy
+>   are identical, as is the wave 0→1→2→3 ordering of §6;
+> - Prometheus metrics keep the `vault_*` namespace, so the `dashboard-vault` Grafana board is
+>   unchanged.
+>
+> What *did* change: the CLI is `bao` (not `vault`), the data path is `/openbao/data`, the init
+> material Secret is `openbao-keys` (not `vault-keys` — `credential-rotation` now checks both), the
+> Keycloak client is `openbao` (its own labelled `adhar.io/keycloak-client` ConfigMap rather than a
+> hardcoded entry in `keycloak-config.yaml`), and the UI host is `openbao.<host>`. Switching backends
+> is **not** a data migration: OpenBao starts on empty `file` storage. Note also that §0 below
+> describes vault as enabled in the *local* curated core; as of the same change both backends ship
+> **disabled locally** — a single Kind node does not need one.
+
 ## 0. Context recap
 
 GitOps makes Git the only write path ([ADR-0001](../adr/0001-management-cluster-first.md)), but

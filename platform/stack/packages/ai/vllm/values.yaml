@@ -1,0 +1,235 @@
+# vLLM — package values (ai/vllm).
+#
+# This package ships PLAIN MANIFESTS, not a Helm chart, so this file is the
+# documented knob surface rather than chart input: every value below names the
+# exact file and field that carries it. Change the manifest, commit, let ArgoCD
+# reconcile — editing this file alone changes nothing (the same convention
+# ai/adhar-ai/values.yaml follows).
+#
+# ---------------------------------------------------------------------------
+# WHY NOT THE UPSTREAM HELM CHART
+# ---------------------------------------------------------------------------
+# vLLM's official chart is production-stack `vllm-stack`
+# (helm repo add vllm https://vllm-project.github.io/production-stack), 0.1.12
+# at the time of writing. Three reasons it is the wrong fit here:
+#
+#  1. GPU-first defaults. Its modelSpec ships requestGPU: 1,
+#     requestGPUType: "nvidia.com/mig-4g.71gb" and runtimeClassName: "nvidia".
+#     Adhar's default droplets and the Kind node have no GPUs, so the chart's
+#     out-of-the-box render is a Deployment that cannot schedule anywhere the
+#     platform actually runs. (CPU use is technically reachable — requestGPU: 0
+#     drops the resource — but it is not an upstream-tested path, and its
+#     default vllmConfig.v0: "1" pins the V0 engine, whose metric names were
+#     removed in V1.)
+#  2. It bundles capabilities the platform already provides: its own router in
+#     front of the engines and its own Redis for the cache — a second routing
+#     layer beside the Cilium Gateway and a second cache beside data/valkey.
+#     ADR-0011's first rule for package authors is "never bundle a capability
+#     the platform already provides".
+#  3. What we actually need is one Deployment, one Service and a PVC. Two
+#     hand-written profiles we own are more honest, and far easier to keep
+#     correct, than a chart we would have to fight with a values override for
+#     every one of those points.
+#
+# ---------------------------------------------------------------------------
+# PROFILES — mutually exclusive, both disabled by default
+# ---------------------------------------------------------------------------
+# The package is wired into the ApplicationSets as THREE elements because the
+# GPU/CPU difference cannot be expressed in a plain manifest directory:
+#
+#   vllm       -> ai/vllm/manifests        shared surface: PVC, Service,
+#                                          HTTPRoute, ServiceMonitor, dashboard,
+#                                          HF-token ExternalSecret
+#   vllm-cpu   -> ai/vllm/manifests/cpu    the CPU-profile Deployment
+#   vllm-gpu   -> ai/vllm/manifests/gpu    the GPU-profile Deployment
+#
+# Enable `vllm` plus EXACTLY ONE of `vllm-cpu` / `vllm-gpu` — both Deployments
+# are named `vllm` and are selected by the same Service, so enabling both makes
+# two ArgoCD Applications fight over one object. ArgoCD does not recurse into
+# subdirectories, so the `vllm` element does not pick up cpu/ or gpu/.
+# (Precedent: security/supply-chain-policies ships audit/ and enforce/ the same
+# way, from one package directory with one contract.)
+#
+# ALL THREE SHIP DISABLED in every profile (local, production, gitops). vLLM is
+# heavy and optional: nothing else in the platform requires it, and enabling it
+# by default would put a multi-GB image pull and a multi-GB resident model on
+# every cluster that runs `adhar up`.
+
+# ---------------------------------------------------------------------------
+# Which profile, and what it serves
+# ---------------------------------------------------------------------------
+profile:
+  # cpu | gpu — chosen by which ApplicationSet element you enable, not by this
+  # field. cpu is the default for local/Kind and for any cluster with no GPU
+  # node pool; gpu is the default once GPU nodes exist.
+  active: cpu
+
+cpu:
+  # manifests/cpu/install.yaml
+  #
+  # The OFFICIAL vLLM CPU image. It is a DIFFERENT Docker Hub repository from
+  # the GPU image (vllm/vllm-openai) — the CPU wheels are a separate build with
+  # a different torch backend, and the GPU image simply will not start without
+  # an nvidia.com/gpu device. Verified to exist on 2026-09-12: multi-arch
+  # manifest list covering linux/amd64 (1.84 GB) and linux/arm64 (0.88 GB), so
+  # the same tag works on Apple-silicon Kind and on x86 cloud nodes.
+  # Pinned — never :latest (ADR-0019, disallow-latest-tag).
+  image: vllm/vllm-openai-cpu:v0.29.0
+  # ~1.0 GB of bf16 weights (988 MB model.safetensors). Small enough to
+  # download and hold in RAM on one Kind node, capable enough that
+  # /v1/chat/completions returns coherent text. It is a DEVELOPMENT model —
+  # do not put production traffic on it.
+  model: Qwen/Qwen2.5-0.5B-Instruct
+  # Stable client-facing name so swapping the checkpoint underneath does not
+  # break every caller's `model:` field.
+  servedModelName: qwen2.5-0.5b-instruct
+  # Clipped from the model's advertised 32768. On CPU the KV cache is ordinary
+  # RAM, and vLLM refuses to start if the window does not fit in
+  # kvCacheSpaceGiB — raise the two together or not at all.
+  maxModelLen: 4096
+  # CPU-build-only env var VLLM_CPU_KVCACHE_SPACE (GiB), allocated INSIDE the
+  # container memory limit — the easiest way to OOM-kill this pod. Qwen2.5-0.5B
+  # uses grouped-query attention with 2 KV heads, so the cache costs
+  # ~12 KiB/token: 2 GiB is ~175k tokens, ~42 concurrent requests at the 4096
+  # window. It is sized for concurrency, not context length.
+  #
+  # Measured, not guessed: this image+model holds ~4.4 GiB for weights + torch
+  # runtime + warmup BEFORE the arena is carved out. 4 GiB of arena on top was
+  # OOMKilled (exit 137) at the "create kv cache" step under the 8Gi limit;
+  # 2 GiB fits. Raise this only together with resources.limits.memory.
+  kvCacheSpaceGiB: 2
+  # float16 is unstable on torch CPU (vLLM's own CPU FAQ says so, and AMD Zen
+  # does not support it at all); bfloat16 halves the weight footprint versus
+  # float32 at no accuracy cost that matters here.
+  dtype: bfloat16
+  # VLLM_CPU_OMP_THREADS_BIND. Upstream's "auto" pins OpenMP threads to the
+  # cores vLLM can SEE — the node's core count, not the container's CPU quota
+  # (observed: 10 threads pinned across an 11-core Kind node inside a 4-CPU
+  # limit, which CFS then throttles). "nobind" leaves placement to the kernel,
+  # which does respect the cgroup.
+  ompThreadsBind: nobind
+  # OMP_NUM_THREADS comes from the container's own limits.cpu through the
+  # downward API, so it tracks resources.limits.cpu instead of being a second
+  # number to keep in sync by hand.
+  ompNumThreads: from-limits.cpu
+  resources:
+    # 2 cores is enough to load and serve a 0.5B model at a usable rate on a
+    # shared Kind node; 4 is the ceiling past which OpenMP coordination costs
+    # more than the extra cores return for a model this small.
+    requests: {cpu: "2", memory: 6Gi}
+    limits:   {cpu: "4", memory: 8Gi}
+
+gpu:
+  # manifests/gpu/install.yaml
+  #
+  # The official CUDA build, ~10 GB. Same pin discipline.
+  image: vllm/vllm-openai:v0.29.0
+  # UNGATED and Apache-2.0 on the HuggingFace hub, 15.2 GB of bf16 weights in
+  # four shards — so the default GPU profile needs no HF token and no
+  # click-through licence. Llama-3.1-8B-Instruct and Mistral-7B-Instruct-v0.3
+  # are drop-in swaps, but both are gated: set hfToken below.
+  model: Qwen/Qwen2.5-7B-Instruct
+  servedModelName: qwen2.5-7b-instruct
+  # The model's full advertised window. Drop it if vLLM's startup log says the
+  # KV cache will not fit at gpuMemoryUtilization.
+  maxModelLen: 32768
+  dtype: bfloat16
+  # Shard the model across N GPUs in one pod. MUST equal the nvidia.com/gpu
+  # count below — vLLM asserts on a mismatch and refuses to start. 1 GPU with
+  # >=24 GB (A10G / L4 / A100) holds a 7-8B bf16 model with a useful cache.
+  tensorParallelSize: 1
+  # Fraction of each GPU's memory vLLM may claim for weights + KV cache. 0.90
+  # rather than upstream's 0.92 leaves headroom for the CUDA context and
+  # allocator fragmentation, the most common source of a mid-run CUDA OOM.
+  gpuMemoryUtilization: 0.90
+  # Scheduling: the device plugin (or GPU Operator) must advertise
+  # nvidia.com/gpu, and GPU pools are conventionally tainted so ordinary
+  # workloads stay off them.
+  nodeSelector: {nvidia.com/gpu.present: "true"}
+  tolerations: [{key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}]
+  resources:
+    # Extended resources must be identical in requests and limits — Kubernetes
+    # rejects a GPU request that differs from its limit. Memory here is HOST
+    # RAM (weights are staged through it on load), not VRAM.
+    requests: {cpu: "4", memory: 16Gi, nvidia.com/gpu: "1"}
+    limits:   {cpu: "8", memory: 32Gi, nvidia.com/gpu: "1"}
+
+# ---------------------------------------------------------------------------
+# Storage — manifests/model-cache.yaml
+# ---------------------------------------------------------------------------
+storage:
+  # 20Gi holds one 7-8B bf16 checkpoint (~15.2 GB) plus tokenizer/config and a
+  # little room for a partial second download during a model switch. A 70B bf16
+  # model is ~140 GB — resize before pointing the profile at one. Cloud
+  # StorageClasses support online expansion; Kind's local-path does not.
+  size: 20Gi
+  # No storageClassName: bind to the cluster's DEFAULT class (local-path on
+  # Kind, do-block-storage / gp3 / pd-balanced on the clouds). Same reasoning as
+  # data/minio — a pinned hostPath PV is Kind-only and is not writable by the
+  # pod's uid, while a dynamically provisioned volume honours fsGroup.
+  accessMode: ReadWriteOnce
+  # HF_HOME. Moves the WHOLE HuggingFace cache (weights, tokenizers, blob
+  # locks) onto the volume — setting only HF_HUB_CACHE leaves the lock
+  # directory on the container filesystem and a restart still re-downloads.
+  hfHome: /data/hf
+
+# ---------------------------------------------------------------------------
+# The in-cluster contract — manifests/service.yaml. DO NOT RENAME.
+# ---------------------------------------------------------------------------
+service:
+  # ai/agentgateway fronts vLLM as one of its LLM backends at exactly
+  # http://vllm.adhar-system.svc.cluster.local:8000/v1, and ai/adhar-ai's
+  # llm-secret-external.yaml documents the same URL for
+  # provider=openai-compatible. Both profiles' pods carry
+  # app.kubernetes.io/name: vllm so this one Service follows whichever is on.
+  name: vllm
+  port: 8000
+  internalBaseURL: http://vllm.adhar-system.svc.cluster.local:8000/v1
+
+# ---------------------------------------------------------------------------
+# Exposure — manifests/httproute.yaml
+# ---------------------------------------------------------------------------
+ingress:
+  # Written with the local convention; stageStack() rewrites it to
+  # vllm.<host><portSuffix> when the stack is seeded into Gitea.
+  hostname: vllm.adhar.localtest.me
+  # ⚠️ UNAUTHENTICATED. The route is a debugging / direct-access path — the
+  # production consumer is agentgateway over the cluster-internal Service.
+  # vLLM's own --api-key is one shared static string and upstream warns against
+  # relying on it. Delete this route, or front it with the Keycloak
+  # oauth2-proxy (see application/n8n/manifests/sso.yaml), before enabling vLLM
+  # on an internet-facing platform.
+  authenticated: false
+  # Generation takes minutes for a long completion on CPU; the Gateway default
+  # would cut a legitimate stream off mid-response.
+  timeout: 600s
+
+# ---------------------------------------------------------------------------
+# Secrets — manifests/hf-token.yaml
+# ---------------------------------------------------------------------------
+hfToken:
+  # Only needed for GATED repos (Llama, Gemma, …). Both default models are
+  # ungated, so this is empty and unused out of the box. Git carries a pointer,
+  # never the value (ADR-0009):
+  #     vault kv put secret/vllm/hf HF_TOKEN="hf_..."
+  # ESO templates a default "" so a missing entry still materialises the
+  # Secret and the pod starts rather than the sync looking broken.
+  vaultKey: vllm/hf
+  secretName: vllm-hf-token
+
+# ---------------------------------------------------------------------------
+# Observability — manifests/servicemonitor.yaml + manifests/dashboard.yaml
+# ---------------------------------------------------------------------------
+observability:
+  # vLLM serves Prometheus metrics on the SAME port as the API. No separate
+  # listener, no bearer token.
+  metricsPath: /metrics
+  metricsPort: 8000
+  scrapeInterval: 30s
+  # Grafana folder "Platform", uid adhar-vllm. Every query uses a metric
+  # verified present in v0.29.0; the V0 names (vllm:gpu_cache_usage_perc,
+  # vllm:cpu_cache_usage_perc, vllm:num_requests_swapped,
+  # vllm:avg_generation_throughput_toks_per_s) were REMOVED in the V1 engine and
+  # appear nowhere. No GPU-utilisation panel: that needs the NVIDIA DCGM
+  # exporter, which the platform does not ship.
+  dashboardUID: adhar-vllm

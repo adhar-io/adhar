@@ -22,6 +22,12 @@ spec:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $params := $xr.spec.parameters -}}
+            {{- /* Namespaced (v2) MRs have no spec.deletionPolicy — the field was
+                   removed from the .m schemas; the equivalent is managementPolicies
+                   without Delete. Setting deletionPolicy fails schema validation
+                   ("field not declared in schema"), so map Orphan onto
+                   managementPolicies instead. */ -}}
+            {{- $orphan := eq (default "Delete" $params.deletionPolicy) "Orphan" -}}
             {{- $providerSettings := default (dict) $params.providerSettings -}}
             {{- $gcp := default (dict) (get $providerSettings "gcp") -}}
             {{- $network := default (dict) $params.networkConfig -}}
@@ -85,7 +91,9 @@ spec:
               providerConfigRef:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
-              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- range $index, $pool := $params.nodePools }}
             ---
             apiVersion: container.gcp.m.upbound.io/v1beta1
@@ -151,7 +159,9 @@ spec:
               providerConfigRef:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
-              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- end }}
     # ArgoCD auto-registration (roadmap P2.1): publish an ArgoCD cluster
     # Secret once GKE reports its endpoint and CA. Auth uses ArgoCD's

@@ -1,0 +1,56 @@
+# Prometheus ServiceMonitor for the scaffolded static frontend `${{values.name}}`.
+#
+# Hand-written rather than chart-generated: a scaffolded repo owns plain YAML in
+# manifests/ (ArgoCD directory-recurse, no Helm, no kustomization.yaml), so the
+# only way a golden-path app arrives observable is for the skeleton to ship this
+# object itself.
+#
+# It selects the app's own Service (manifests/service.yaml) inside the app's own
+# namespace (manifests/namespace.yaml, named after the app) and scrapes the
+# `http` port — the nginx HTTP port — at /metrics.
+#
+# `jobLabel: app.kubernetes.io/name` makes the Prometheus `job` label equal
+# `${{values.name}}`, which is exactly what manifests/dashboard.yaml queries on.
+# Prometheus' serviceMonitorSelector is empty ({}) in this platform, so this is
+# picked up as-is with no extra label, and the Grafana sidecar runs with
+# searchNamespace: ALL, so the companion dashboard is found here too.
+#
+# HEADS UP: the placeholder image the Deployment ships with
+# (nginx-unprivileged) does NOT serve /metrics, so this target stays DOWN
+# until you expose metrics yourself. That is deliberate — the object is here
+# from day one so that turning your frontend observable is a one-line nginx
+# change, not a new file and a new ArgoCD sync. Either enable nginx's
+# `stub_status` behind a small nginx-prometheus-exporter sidecar, or (for an
+# SSR/Node frontend) serve `http_requests_total` and
+# `http_request_duration_seconds` from the app on the `http` port. See
+# docs/monitoring.md.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  # Wave 10: the repo's first-boot ordering rule for every monitoring object —
+  # the Prometheus Operator CRDs may not exist yet on a fresh cluster.
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  name: ${{values.name}}
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    app.kubernetes.io/managed-by: adhar
+    app.kubernetes.io/part-of: adhar-observability
+    adhar.io/owner: ${{values.owner}}
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - ${{values.name}}
+  selector:
+    matchLabels:
+      entity-id: ${{values.name}}
+      app.kubernetes.io/name: ${{values.name}}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

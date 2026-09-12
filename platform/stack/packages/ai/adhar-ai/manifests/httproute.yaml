@@ -1,15 +1,56 @@
-# Adhar AI — outward HTTP surface through the Cilium Gateway (ADR-0024 §8).
+# Adhar AI — the agent runtime's outward surface (ADR-0024 §8, narrowed by
+# ADR-0025).
 #
-# Two hostnames, both on adhar-gateway:
-#   ai.adhar.localtest.me   -> the runtime: /healthz, /chat, and the /mcp/sse
-#                              MCP transport that EXTERNAL agents (Claude Code,
-#                              IDE assistants, ChatOps) connect to over OIDC.
-#   mcp.adhar.localtest.me   -> same runtime front door, distinct hostname for
-#                              MCP clients that want a dedicated endpoint.
+# ---------------------------------------------------------------------------
+# WHY THIS ROUTE MOVED OFF ai.<host> AND mcp.<host>
+# ---------------------------------------------------------------------------
+# It used to claim BOTH of those hostnames for `adhar-ai-runtime`. ai/agentgateway
+# now claims exactly the same two on the same Gateway (`adhar-gateway`), because
+# they are the platform's AI *protocol* endpoints and agentgateway is the thing
+# that speaks those protocols:
 #
-# OIDC is enforced by the runtime/MCP servers (Keycloak `adhar-ai` client —
-# oidc-client.yaml), so every agent action carries an identity. Pattern mirrors
-# application/kargo/manifests/httproute.yaml.
+#   ai.<host>/v1/chat/completions   -> agentgateway -> Anthropic / OpenAI / vLLM
+#   mcp.<host>/mcp                  -> agentgateway -> the seven MCP servers,
+#                                      federated, JWT-validated, authorized per
+#                                      tool
+#
+# Two HTTPRoutes claiming one hostname on one Gateway is not a configuration —
+# Gateway API resolves the overlap by creation timestamp, so which one serves a
+# request depends on which Application happened to sync first. So the runtime
+# gives both hostnames up.
+#
+# ---------------------------------------------------------------------------
+# THE CHOICE: ITS OWN HOSTNAME, NOT A PATH UNDER ANOTHER ONE
+# ---------------------------------------------------------------------------
+#   agent.adhar.localtest.me  ->  adhar-ai-runtime:8080
+#
+# ADR-0025 offered two shapes — a path under a hostname the runtime owns (e.g.
+# `adhar.<host>/ai/*`) or a hostname of its own. A hostname is chosen because:
+#
+#   * the runtime serves at the ROOT of its own namespace (/healthz, /config,
+#     /chat, /findings, /operators/{name}/event). Hanging that off a path prefix
+#     needs a URLRewrite to strip the prefix on every request, and any absolute
+#     path the app ever emits then points outside the prefix. A hostname needs
+#     no rewrite and no application change.
+#   * `<app>.<host>` is the convention every other package follows
+#     (console.<host>, vllm.<host>, keycloak.<host>) and the `*.<host>` wildcard
+#     cert on adhar-gateway already covers it — no new certificate, no new DNS
+#     record, no new host port.
+#   * it keeps the three AI surfaces nameable and separately governable:
+#     `ai.` is completions, `mcp.` is tools, `agent.` is the reasoning loop.
+#
+# The literal `adhar.localtest.me` is the platform's seed-time host convention:
+# the controller rewrites it to the real domain (and port suffix) when the stack
+# is seeded into Gitea. Never hardcode another domain.
+#
+# ---------------------------------------------------------------------------
+# IDENTITY
+# ---------------------------------------------------------------------------
+# This hostname does NOT pass through agentgateway, so the runtime is the one
+# AI surface that still authenticates for itself, against the Keycloak `adhar-ai`
+# client (oidc-client.yaml) whose `groups` mapper the gateway's CEL rules also
+# read. The MCP servers behind it no longer validate anything themselves — the
+# gateway does that for the federated endpoint (ADR-0025 item 6).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -24,8 +65,7 @@ spec:
     - name: adhar-gateway
       namespace: adhar-system
   hostnames:
-    - ai.adhar.localtest.me
-    - mcp.adhar.localtest.me
+    - agent.adhar.localtest.me
   rules:
     - matches:
         - path:

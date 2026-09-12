@@ -1,0 +1,134 @@
+# ADR-0019 supply-chain admission — signature verification (ENFORCE stage).
+#
+# ENFORCE STAGE. This directory is the second half of the ADR-0019 staged
+# rollout and is wired DISABLED by default (`supply-chain-policies-enforce` in
+# the ApplicationSets). Enable it only after the Audit stage reports clean for
+# the namespaces it covers, and after `hack/verify-supply-chain.sh` passes on
+# the target cluster. Policy names carry an `-enforce` suffix so this pack can
+# run ALONGSIDE the Audit pack without the two fighting over the same objects.
+#
+# WHAT THE PLATFORM ACTUALLY SIGNS WITH
+# -------------------------------------
+# The Tekton `cosign-sign` Task (application/supply-chain/manifests/60-build-pipelines.yaml)
+# runs:
+#
+#     cosign sign --key=k8s://adhar-system/cosign-key \
+#                 --tlog-upload=false --allow-http-registry=true <image>:<tag>
+#
+# so platform builds are signed with a KEY, not keylessly, and the signature is
+# NOT recorded in a transparency log. The keypair is durable and platform-owned:
+# the `cosign-keygen` Sync-hook Job in application/supply-chain/manifests/00-foundation.yaml
+# runs `cosign generate-key-pair` ONCE and stores cosign.key / cosign.pub /
+# cosign.password in Secret `cosign-key` (adhar-system); re-syncs are no-ops, so
+# the key survives for the life of the cluster. Kyverno runs in adhar-system and
+# its admission-controller Role already grants `get secrets` there, so the
+# `keys.secret` attestor below reads that exact public half — no copy to keep in
+# sync, no ephemeral key.
+#
+# Because the pipeline passes --tlog-upload=false there is no Rekor entry to
+# look up: `rekor.ignoreTlog: true` is REQUIRED here. (The policy that shipped
+# before this file pointed at https://rekor.sigstore.dev, which made every
+# platform-built image fail verification — it only ever "passed" because the
+# policy was Audit.)
+#
+# The second attestor entry is the KEYLESS identity used for the platform's own
+# releases: .goreleaser.yaml `docker_signs` runs `cosign sign --yes` inside the
+# `release` GitHub Actions workflow with `id-token: write`, so ghcr.io/adhar-io/*
+# images carry a Fulcio certificate issued to that workflow. `count: 1` makes
+# the two entries alternatives (any one satisfies the rule).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-signatures-enforce
+  annotations:
+    policies.kyverno.io/title: Verify Image Signatures (Enforce)
+    policies.kyverno.io/category: Supply Chain (ADR-0019)
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Images built by the platform pipelines (pushed to the in-cluster Harbor)
+      or released by the Adhar project (ghcr.io/adhar-io) must carry a valid
+      cosign signature — from the platform signing key (Secret cosign-key) or
+      from the project's GitHub Actions keyless identity. ENFORCE stage: failures
+      appear in PolicyReports, nothing is blocked. The identical rule with
+      failureAction Audit ships in ../audit.
+spec:
+  background: false
+  webhookTimeoutSeconds: 15
+  # Fail OPEN. A restarting Kyverno on a single node must never wedge the
+  # apiserver (ADR-0012 webhook hygiene).
+  failurePolicy: Ignore
+  rules:
+    - name: verify-platform-built-images
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      # NEVER gate the platform's own control loop. Two independent guards, so
+      # a namespace that loses the plane label is still covered by name:
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - adhar-system
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - local-path-storage
+                - crossplane-system
+                - kpack-system
+                - cert-manager
+                - cosign-system
+          - resources:
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/plane: control
+      verifyImages:
+        # ENFORCE stage: an unsigned or wrongly-signed match is REJECTED at
+        # admission. Differs from ../audit only in this field and in
+        # mutateDigest/verifyDigest.
+        - failureAction: Enforce
+          imageReferences:
+            # In-cluster registry name used by the Tekton pipelines and by the
+            # workload manifests they write back.
+            - "harbor-core.adhar-system.svc.cluster.local/library/*"
+            # The platform-edge Harbor name, with or without a URL port
+            # (":8443" locally, none behind a 443 LoadBalancer) — the trailing
+            # wildcard covers both.
+            - "harbor.{{ .Host }}*/library/*"
+            # The Adhar project's own release images.
+            - "ghcr.io/adhar-io/*"
+          imageRegistryCredentials:
+            # Harbor serves the in-cluster registry over TLS signed by the
+            # per-cluster `adhar` CA, which Kyverno does not trust; the library
+            # project is anonymous-pull, so no credential is needed.
+            allowInsecureRegistry: true
+          attestors:
+            - count: 1   # any ONE of the entries below satisfies the rule
+              entries:
+                # (a) The platform signing key — what the Tekton cosign-sign
+                #     Task actually uses. No tlog: --tlog-upload=false.
+                - keys:
+                    secret:
+                      name: cosign-key
+                      namespace: adhar-system
+                    rekor:
+                      ignoreTlog: true
+                    ctlog:
+                      ignoreSCT: true
+                # (b) Cosign keyless, GitHub Actions — the identity
+                #     .goreleaser.yaml `docker_signs` produces for
+                #     ghcr.io/adhar-io/* release images.
+                - keyless:
+                    issuer: "https://token.actions.githubusercontent.com"
+                    subjectRegExp: "^https://github\\.com/adhar-io/adhar/\\.github/workflows/release\\.yaml@refs/tags/.*$"
+                    rekor:
+                      url: "https://rekor.sigstore.dev"
+          # Report unsigned images (rather than silently passing them) so the
+          # Audit stage is an honest preview of Enforce.
+          required: true
+          # Enforcing, so digest pinning is allowed: the admitted tag is
+          # rewritten to the digest that was actually verified, and the digest
+          # is re-checked — what runs is exactly what was signed.
+          mutateDigest: true
+          verifyDigest: true

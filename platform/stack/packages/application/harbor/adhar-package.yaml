@@ -1,0 +1,43 @@
+# Adhar marketplace contract for the harbor package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: harbor
+category: application
+version: "1.19.2"
+description: Harbor OCI registry with vulnerability scanning and replication; internal TLS is minted from the platform CA.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://goharbor.io
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: harbor/harbor
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  localSafe: true   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - registry
+  - oci
+  - images
+  - scanning
+  - supply-chain

@@ -1,0 +1,422 @@
+# LIBREDB STUDIO INSTALL RESOURCES
+# This file is auto-generated with 'platform/stack/packages/data/libredb-studio/generate-manifests.sh'
+---
+# Source: libredb-studio/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: libredb-studio
+  labels:
+    helm.sh/chart: libredb-studio-0.1.63
+    app.kubernetes.io/name: libredb-studio
+    app.kubernetes.io/instance: libredb-studio
+    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: false
+---
+# Source: libredb-studio/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: libredb-studio-config
+  labels:
+    helm.sh/chart: libredb-studio-0.1.63
+    app.kubernetes.io/name: libredb-studio
+    app.kubernetes.io/instance: libredb-studio
+    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  # Empty is the sentinel meaning "nobody chose": the image's entrypoint then
+  # resolves the bind address itself and prefers a verified dual-stack "::".
+  # The key is written explicitly rather than omitted so that whatever HOSTNAME
+  # the runtime injects (a pod name, a container id) can never reach the server.
+  HOSTNAME: ""
+  NEXT_TELEMETRY_DISABLED: "1"
+  NODE_OPTIONS: "--max-old-space-size=384"
+  NEXT_PUBLIC_AUTH_PROVIDER: "oidc"
+  LOG_LEVEL: "info"
+  AUTH_BOOTSTRAP: "off"
+  STORAGE_PROVIDER: "postgres"
+  OIDC_ISSUER: "https://keycloak.adhar.localtest.me:8443/realms/adhar"
+  OIDC_SCOPE: "openid profile email"
+  OIDC_ROLE_CLAIM: "groups"
+  OIDC_ADMIN_ROLES: "admin,platform-admin,platform-engineer"
+---
+# Source: libredb-studio/templates/seed-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: libredb-studio-seed-connections
+  labels:
+    helm.sh/chart: libredb-studio-0.1.63
+    app.kubernetes.io/name: libredb-studio
+    app.kubernetes.io/instance: libredb-studio
+    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  seed-connections.yaml: |
+    connections:
+    - database: gitea
+      group: Platform PostgreSQL
+      host: gitea-db-rw.adhar-system.svc.cluster.local
+      id: platform-pg-gitea
+      name: Gitea (platform Git)
+      password: ${PG_GITEA_PASSWORD}
+      port: 5432
+      roles:
+      - admin
+      type: postgres
+      user: ${PG_GITEA_USER}
+    - database: keycloak
+      group: Platform PostgreSQL
+      host: keycloak-db-rw.adhar-system.svc.cluster.local
+      id: platform-pg-keycloak
+      name: Keycloak (identity)
+      password: ${PG_KEYCLOAK_PASSWORD}
+      port: 5432
+      roles:
+      - admin
+      type: postgres
+      user: ${PG_KEYCLOAK_USER}
+    - database: console
+      group: Platform PostgreSQL
+      host: console-db-rw.adhar-system.svc.cluster.local
+      id: platform-pg-console
+      name: Adhar Console
+      password: ${PG_CONSOLE_PASSWORD}
+      port: 5432
+      roles:
+      - admin
+      type: postgres
+      user: ${PG_CONSOLE_USER}
+    - database: libredb
+      group: Platform PostgreSQL
+      host: libredb-db-rw.adhar-system.svc.cluster.local
+      id: platform-pg-libredb
+      name: LibreDB Studio (own storage)
+      password: ${PG_LIBREDB_PASSWORD}
+      port: 5432
+      roles:
+      - admin
+      type: postgres
+      user: ${PG_LIBREDB_USER}
+    - database: posthog
+      group: Platform PostgreSQL
+      host: posthog-db-rw.adhar-system.svc.cluster.local
+      id: platform-pg-posthog
+      name: PostHog (product analytics)
+      password: ${PG_POSTHOG_PASSWORD}
+      port: 5432
+      roles:
+      - '*'
+      type: postgres
+      user: ${PG_POSTHOG_USER}
+    - database: metabase
+      group: Platform PostgreSQL
+      host: metabase-db-rw.adhar-system.svc.cluster.local
+      id: platform-pg-metabase
+      name: Metabase (BI metadata)
+      password: ${PG_METABASE_PASSWORD}
+      port: 5432
+      roles:
+      - '*'
+      type: postgres
+      user: ${PG_METABASE_USER}
+    - database: openmetadata_db
+      group: Platform PostgreSQL
+      host: openmetadata-db-rw.adhar-system.svc.cluster.local
+      id: platform-pg-openmetadata
+      name: OpenMetadata (catalog)
+      password: ${PG_OPENMETADATA_PASSWORD}
+      port: 5432
+      roles:
+      - '*'
+      type: postgres
+      user: ${PG_OPENMETADATA_USER}
+    - database: adhar_ai_rag
+      group: Platform PostgreSQL
+      host: adhar-ai-rag-rw.adhar-system.svc.cluster.local
+      id: platform-pg-adhar-ai
+      name: Adhar AI RAG (pgvector)
+      password: ${PG_ADHAR_AI_PASSWORD}
+      port: 5432
+      roles:
+      - '*'
+      type: postgres
+      user: ${PG_ADHAR_AI_USER}
+    - group: Platform cache
+      host: adhar-cache.adhar-system.svc.cluster.local
+      id: platform-valkey-cache
+      name: Adhar Cache (Valkey)
+      port: 6379
+      roles:
+      - '*'
+      type: redis
+    - group: Platform cache
+      host: redis.adhar-system.svc.cluster.local
+      id: platform-redis
+      name: Redis (standalone)
+      port: 6379
+      roles:
+      - '*'
+      type: redis
+    - group: Platform search
+      host: opensearch-cluster-master.adhar-system.svc.cluster.local
+      id: platform-opensearch
+      name: OpenSearch
+      password: ${OPENSEARCH_PASSWORD}
+      port: 9200
+      roles:
+      - '*'
+      ssl:
+        mode: require
+        rejectUnauthorized: false
+      type: opensearch
+      user: admin
+    - database: posthog
+      group: Platform analytics
+      host: clickhouse-posthog.adhar-system.svc.cluster.local
+      id: platform-clickhouse
+      name: ClickHouse (PostHog)
+      password: ${CLICKHOUSE_PASSWORD}
+      port: 8123
+      roles:
+      - '*'
+      type: clickhouse
+      user: ${CLICKHOUSE_USER}
+    - database: tpch
+      group: Platform query
+      host: trino.adhar-system.svc.cluster.local
+      id: platform-trino
+      name: Trino
+      port: 8080
+      roles:
+      - '*'
+      schema: tiny
+      type: trino
+      user: adhar
+    defaults:
+      managed: true
+    version: "1"
+---
+# Source: libredb-studio/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: libredb-studio
+  labels:
+    helm.sh/chart: libredb-studio-0.1.63
+    app.kubernetes.io/name: libredb-studio
+    app.kubernetes.io/instance: libredb-studio
+    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: libredb-studio
+    app.kubernetes.io/instance: libredb-studio
+---
+# Source: libredb-studio/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: libredb-studio
+  labels:
+    helm.sh/chart: libredb-studio-0.1.63
+    app.kubernetes.io/name: libredb-studio
+    app.kubernetes.io/instance: libredb-studio
+    app.kubernetes.io/version: "0.15.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: libredb-studio
+      app.kubernetes.io/instance: libredb-studio
+  template:
+    metadata:
+      annotations:
+        checksum/config: f1b2216b6a62dccd84251ed81f6787a3327e04862832aee1a2281f3ac7a9e605
+        checksum/secret: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+      labels:
+        helm.sh/chart: libredb-studio-0.1.63
+        app.kubernetes.io/name: libredb-studio
+        app.kubernetes.io/instance: libredb-studio
+        app.kubernetes.io/version: "0.15.0"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: libredb-studio
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: libredb-studio
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          image: ghcr.io/libredb/libredb-studio:0.15.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: libredb-studio-config
+            - secretRef:
+                name: libredb-ds-gitea
+                optional: true
+            - secretRef:
+                name: libredb-ds-keycloak
+                optional: true
+            - secretRef:
+                name: libredb-ds-console
+                optional: true
+            - secretRef:
+                name: libredb-ds-libredb
+                optional: true
+            - secretRef:
+                name: libredb-ds-posthog
+                optional: true
+            - secretRef:
+                name: libredb-ds-metabase
+                optional: true
+            - secretRef:
+                name: libredb-ds-openmetadata
+                optional: true
+            - secretRef:
+                name: libredb-ds-adhar-ai
+                optional: true
+            - secretRef:
+                name: libredb-datasource-extras
+                optional: true
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: jwt-secret
+            - name: ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: admin-email
+                  optional: true
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: admin-password
+                  optional: true
+            - name: USER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: user-email
+                  optional: true
+            - name: USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: user-password
+                  optional: true
+            - name: ADMIN_TOTP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: admin-totp-secret
+                  optional: true
+            - name: USER_TOTP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: user-totp-secret
+                  optional: true
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: llm-api-key
+                  optional: true
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: oidc-client-id
+                  optional: true
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: oidc-client-secret
+                  optional: true
+            - name: STORAGE_POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: libredb-studio-secrets
+                  key: storage-postgres-url
+                  optional: true
+            - name: SEED_CONFIG_PATH
+              value: "/app/config/seed-connections.yaml"
+            - name: SEED_CACHE_TTL_MS
+              value: "60000"
+            - name: WORKFLOW_LOCAL_DATA_DIR
+              value: /app/data/workflow
+          startupProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /api/db/health
+              port: http
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /api/db/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/db/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: next-cache
+              mountPath: /app/.next/cache
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /app/data
+            - name: seed-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: next-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        - name: seed-config
+          configMap:
+            name: libredb-studio-seed-connections

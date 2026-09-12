@@ -30,7 +30,19 @@ spec:
               until clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" -q "SELECT 1" >/dev/null 2>&1; do
                 echo "waiting for clickhouse-posthog"; sleep 5
               done
+              # A bare "SYSTEM FLUSH LOGS" only touches tables that already have
+              # buffered rows, so it never creates system.crash_log -- that table
+              # only ever receives data when the server crashes. Naming the table
+              # explicitly makes ClickHouse materialise it with its own canonical
+              # schema, which is what PostHog's migration needs. Verified on
+              # ClickHouse 26.6.2.158, where the generic form left the table absent
+              # and the migration failed with
+              #   Unknown table expression identifier 'system.crash_log'
               clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" -q "SYSTEM FLUSH LOGS"
+              for tbl in crash_log session_log query_thread_log part_log trace_log; do
+                clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" \
+                  -q "SYSTEM FLUSH LOGS $tbl" || echo "  $tbl not configured on this server; skipping"
+              done
               clickhouse-client --host clickhouse-posthog --user admin --password "$CLICKHOUSE_PASSWORD" -q "SELECT name FROM system.tables WHERE database='system' AND name IN ('crash_log','session_log','query_thread_log')"
           env:
             - name: CLICKHOUSE_PASSWORD

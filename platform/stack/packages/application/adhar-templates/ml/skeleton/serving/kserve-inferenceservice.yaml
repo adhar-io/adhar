@@ -1,0 +1,35 @@
+# OPTIONAL — not synced by ArgoCD (only `manifests/` is).
+#
+# The skeleton serves the model from a plain hardened Deployment
+# (manifests/deployment.yaml), because the platform ships no KServe package
+# today: `manifests/` must be deployable on a stock Adhar cluster, and a
+# manifest whose CRD is absent would leave the app permanently OutOfSync.
+#
+# If you install KServe, this is the drop-in replacement: move this file into
+# `manifests/`, delete deployment.yaml/service.yaml, and point the HTTPRoute
+# backendRef at the `${{values.name}}-predictor` Service KServe creates.
+# Autoscaling-to-zero and canary traffic split then come from KServe rather than
+# from the Deployment.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: ${{values.name | dump}}
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+spec:
+  predictor:
+    minReplicas: 1
+    serviceAccountName: ${{values.name | dump}}
+    sklearn:
+      # The KFP run's Output[Model] URI, in the platform object store.
+      storageUri: "s3://mlpipeline/${{values.modelName}}/latest"
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 2Gi

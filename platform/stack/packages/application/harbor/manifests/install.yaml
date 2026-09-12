@@ -21,8 +21,8 @@ type: Opaque
 data:
   secretKey: "bm90LWEtc2VjdXJlLWtleQ=="
   secret: "bU42T25nbnJEZzR3ZDBBYw=="
-  tls.key: "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb2dJQkFBS0NBUUVBb240cXdUTVFvZElxSUFjOXZCWmRGbTBXNDNiUkFWOXJEYkwzOXluQ1EyUnNSa3B5CjB0enpKUmNRdThjNUg2Ujd4VmVCUnpRaURoaWNGWU1Ydm83K1Vtbm5nN0EvZXZndjRzaHJJRE16YkErUERydk0KZ096c0xzcS9qcUdadWRrMTNRbFJFT1ZVSUE4TjdKeFNLZzdOR1JTWFl2anpMUHZQR1FoSTRtRStoLzMyeFo1eQp0dEdhR0JOZnJETW93cHM2aEhseXhqS1pXbkF4NzhmWitOZFJIWXFaSHZpdDhsZE5zZGVITENKNGJ5Q2QvTFRrCkxtU0lucWxoMmg2UDNyZXhRVTRYYWFzTGFHV1VtdmFxSExuSitCUG5WMjh0Z1M4S3BTMlk4SlA5c21BcjBaMFYKZWdvTHlSaG83aTVsaTI0S3V0bkJxaU5HczhyTE1Ec1VsZStMa3dJREFRQUJBb0lCQUU5ek9SeDJCMi9YL3RqaQpNWUZCdmdvMUZMZnJaSTR6UlhqUlJRVUkyZjl4bnE5UHY0enlrOEJTNHMrdHZYU0hUQzFWZDlTRTNSSGZYcEgyCkl5bjlhTVNMRzdQNy9VMzNCQkx5dzg1ZXVvbmZvYWNtay91RjNJV1VoTTBNbnNtTU54WDRkRGE2cXNOeUdQRFUKRGlpYVRCWXpSMElSVDNWek9mT1haV3VxK0pRdEJVSUlueW0wV0lHQzA1dEh3NlZLUmN0cW82OWdXNXB6MnN0ZwpVNkNFclVxT1lpQjVERW1ENFRKTVhxWWhBaFBPbHdkTWFTb3dodStneTREcW5sRjlRb1ZtNHBEZW5yOU5DWUdSCjdEandPaFg4c1hGbTM5eStuZ3dxcXM1RGdaR3FxZFd5ZHBmTUhFekpMMVhTQjFQUzRKemhJKy9HWm9JZ2dONGEKaGpGbXFPRUNnWUVBd2N2ZlNnQmRqeFU3cWUvL3F5U2t3cW9ZZ3JRQ01KTGwwaURYYTNabGhaR0FhbEFhU0wzego2YitlSUZnWVQrL0w0YU96cVEyc1FlZm1lUWQyb2pvTHFRbUJYY0F5VUljWmowVU5wNllKSHhxRlJndTdvbThEClRtaHg0a1hkekJrV3FOL2NIT0t6SC9DSDBvaXFNWXNpcEJHVFVtSnlHSUFzVlFPRTIvNzl1NjBDZ1lFQTFxWWEKU2NUR0JreDVoc1plUWFpM2RVaDJ2UzVQWWdPbmVld3ZuZVRGV0lMbkowNjdSUUVoSDdQZGpXbEcrQXVsRFBVdAp0Y2xPZGZHWU9SMWlYYlpZMmJOYzBMeDUyZjFyaGVmc0IvZ2J5cjFyU296YmNqNkJqQVozVmZYYWw5RWN6eGUvClJtc0czdDFZcWRWeWxnODdlOEVSZ2tsZCt3a29RNkdjcDJIRFREOENnWUFKbVQxdi91Q2phNXZPNlBJeTJkZkgKUklGK1I4Z3IrN3FpVTdvWHVuK0F4Qm9tS2QyRGFOVWg2TG0rUkY2LzV0S2tWR1ZicEMrNSsvQndZaXhBRUx2dgpIV2RvNjFJU3B2NWZHRDU2NVVCaVovL2Qza3JtMnJUQk4yOGNrL1ZPWEpmQXVZVy9jSU1LdS9FZVBtS2ZuWktUCnFjTXdPMndIUnFIcmZBY2lsbGllNlFLQmdHelFJWTE1OGtVcEtZWTRNM29ubEhFaFBnaGpYSnk4YTM4MFMyTkkKb1A1Z3hkdTRYdGo1WEpoY3J4akw0TTFINGZEeXJheDFFNUJZM0NsQUN5aWtrdUF4dkFDWk8xQlYxdGM0SGdCZwpOMzZNamNKcUs2ajdwT0tlT0lyY0ttZEIrOC9FSXhRSWw2QU5KN0JZNDFETkFnT1hlVS9KNzVtZUo4bzVPRmZtCkNJSXpBb0dBUmtMbWh0RTNZd3RmUStMZFdLT2phUW8wTzZNL0Q3Zzl2Z2ZPVHZyYnNUL1NyNGFxUGhVd0ZrN2YKaFhwdDVnS0pjS09zNDlLbEk3WUR0WUxvelM0TTd6L2Jtczljck5RVWVvNzRhSVV0SHdQakVCZk5WU3g1NnNNdwprTUxFNUl1ZlJTbVB0UWJUMVpiVWZTR2JaaWtpRjdKcGVFS2ExZGVLMnpIK0ErWTJMaFk9Ci0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg=="
-  tls.crt: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIekNDQWdlZ0F3SUJBZ0lRWnpFMGEyM1JuaHg4bU5VSlZEQWVPVEFOQmdrcWhraUc5dzBCQVFzRkFEQWEKTVJnd0ZnWURWUVFERXc5b1lYSmliM0l0ZEc5clpXNHRZMkV3SGhjTk1qWXdPVEE1TVRZeU1UQTVXaGNOTWpjdwpPVEE1TVRZeU1UQTVXakFhTVJnd0ZnWURWUVFERXc5b1lYSmliM0l0ZEc5clpXNHRZMkV3Z2dFaU1BMEdDU3FHClNJYjNEUUVCQVFVQUE0SUJEd0F3Z2dFS0FvSUJBUUNpZmlyQk14Q2gwaW9nQnoyOEZsMFdiUmJqZHRFQlgyc04Kc3ZmM0tjSkRaR3hHU25MUzNQTWxGeEM3eHprZnBIdkZWNEZITkNJT0dKd1ZneGUranY1U2FlZURzRDk2K0MvaQp5R3NnTXpOc0Q0OE91OHlBN093dXlyK09vWm01MlRYZENWRVE1VlFnRHczc25GSXFEczBaRkpkaStQTXMrODhaCkNFamlZVDZIL2ZiRm5uSzIwWm9ZRTErc015akNtenFFZVhMR01wbGFjREh2eDluNDExRWRpcGtlK0szeVYwMngKMTRjc0luaHZJSjM4dE9RdVpJaWVxV0hhSG8vZXQ3RkJUaGRwcXd0b1paU2E5cW9jdWNuNEUrZFhieTJCTHdxbApMWmp3ay8yeVlDdlJuUlY2Q2d2SkdHanVMbVdMYmdxNjJjR3FJMGF6eXNzd094U1Y3NHVUQWdNQkFBR2pZVEJmCk1BNEdBMVVkRHdFQi93UUVBd0lDcERBZEJnTlZIU1VFRmpBVUJnZ3JCZ0VGQlFjREFRWUlLd1lCQlFVSEF3SXcKRHdZRFZSMFRBUUgvQkFVd0F3RUIvekFkQmdOVkhRNEVGZ1FVSFJhVHJlTmZZSDJnSGRRUUVEZHEwMDk4VnMwdwpEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBQUtxa0FuK0hDOFdPdnErTytFWUhrOEMybDdxaVdGMHpCVDhGUEVuCnE0QzdIeVpObGtKZFVRWjFrRVNmQWdaUTNtazJnODZKS0pFeUJEaVZYVjhETTN3cUw3M2tLR0J3cStuRUlHWlUKUkRwck9URTFzZ3BVbjFRbDczOEh5VVdLdXRrWTlVRkdZWVFlVkt1TlJSWmVQOGx2ak5MdUZqcVRzczBmQW5iSgpWWXlnblJ5R0I1U1VkWU1Lck8rQjNXdTdPSHQrRmdLdktiOHlUNVNxQzVYc3NleHpSNTVhS3JoNFRDUW8zRDI5ClBieVZqdXJUNDRWY0FORjI2YmQxa1dEUktqcFFYMVJnWHRZMHRNZkd4MVN0TXdhQWUzTVVlOERrUlpXOGRHdmUKbkxUbElYVDZIMVZEMjBSaldjUHh6UDVLRVN6cEFRNlVCTmcxWDFJMHRFditqbGs9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K"
+  tls.key: "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcGdJQkFBS0NBUUVBeE0wSEdXRXdOTWNvU1FrYlZHanZlazRDbTBaZFk4VmIvUk1NS3lIT1c3NUxZSVI4CmNPdmdNWXErMzZJS0lEWFFJRWVNcWZtUmQ4ODZ3V2RTeHphckNPaGcwQUVET2dkeEU5K1M3cGo0QVFhMFYrNksKdDBvQzZWVytuYkwyQzBlVUgraTFOa1VpRVVXUHVyUDUweWpUS2tyL3JmSVM5V2NENVpXY1AzQ3A0akxNMUhOeApUaEZTY2ZyQThHcUU1TVAwNnZSUldKNTBEdDhpR2RldGdkT2RnQzJUZGRmTVFOVU9yUWdPSTY0VHo4UE8vRkN2CnN2L21zVVJZUS9XZU91MXM0NmFYajlRNjRGL01WcFYvWjZ3TVZtR1FTc0tyMEhzS0g1NlR0b1EyanlPekZidzUKUjE2WDhBaE5wTVpsTFZpSHZhUUlNY1dlV2JEb3phMTcyN2txS1FJREFRQUJBb0lCQVFDMTZsLzVrZUVocUVjUQozQjRyTktUSmhYcmJWWHZXVWdUcU5zVTB5WmNiTHhnMks4RnNFRjI0N2V2cWhMcWZjNTdqZDhBTER1cnN1TjR6CkVQTnZ1cFQzTXZicXowVFFTemkzaWg4ajlycXBHQzEwYXNoSERWOExtWHNPQXZOMUVjRldqYUdVZk9zMDAvdzgKTlVsbGE0Tm13TlQvVVprOHh2RFBOREN1WTlKbGg3Z2hDWmRBcmlPUTRYTzkrUXhXa3RHRzNNTk1RUHBiRDBIOQpZeW04UXRERG1oS01tVVhtbDJNOFI5V3AybkhpdWxIMUJkajh0Zno2TncrS2pHb2llZGFYK0w2TFloNnplQkkrCkZlOHdFMmp5QW4ybTdxSXg0TDlpRFNmcXB1amd2N29yUDB4L0JGT3BsdWQrTVZmN0g4eXI5Ti8zVUY4bmpYL1oKbTRXV3EyNlJBb0dCQU81VEJqQXV5cVZaYzNTd0Q2Y09ka3g4c0VhWWV6WGhnMlQyaVQwenRoUWthMExzLzZ6NQo3NU9FWXhhM3hKVW5vcEg2SWxmWmkzZlNHaHEvYXdZU0ttK0dwWDN0NUNmQU4wZTR0Sk8vKzBzOVY1bkNqeGlTClpYNlNFSElsMi85VE9RcmR6RVkvZW9ldjBFUXltc1pXVm9Jalk4YlNjWnF3S3lDS1JqakVuN21MQW9HQkFOTmwKblJialljVmoxQWs3ZThSM2g4RUk1M1FqVzlMeFUvbk5ENkUrRnJoZmhEaEVYcTIwVnZIc0t4NlludXNydUkydwp5dWplWU1SNEVtSGpBNUYwRElnRFhucmt1RVNwa2ZRUldCVkwwNzFmZ3RLajhFTDNlOUpNVnhHZ1I5b3FoVWFmCmxQb2UwenZBZEFGUGxUQm9xZzdpS3ZsM0R4YlpCSndxbStLbDE5bWJBb0dCQU9aUzlMTVNOYVJ4ZTZSMUZ0dUQKblk2MEhvUkxqeC8yajA2KytNbGVOWVRuNFlXdm1EVXE0MyswdlRMU2JUa2RNZjlVTjJhaGh5bElzeFBRbFBVcwpEemp6YnZMeU9zSzBBSGpmS0IxMnQ3enlUcnY2RE9OWmNKOVBPSGVvNFNHejQzZjkvUktTL0s4dm1kNmU3WGZyCkx2WGNqK3d4cTdzc3NMRmxFUktCN0QrYkFvR0JBTVlJZ1BxNkZCTm9DM0NDcXRWSDdJS25KcndqaTVlMnY2WloKdFhTbHgzNzg2ODRTTG1lbmMzTzZmRUp6VXh5WG5wSU50bWdrT3A2U3BSWFNKcnVSN1ZOVlpLTFh0TStOMHM3RAptTEtLa0ZidExJN0xTUDVTL1VucWZmNWpHaXlFZk1uR0lUZVd2T2RTeU5tWmhmY05kWkh2eWJaZEZHT2c5YktlCkw5NUk0a1pWQW9HQkFJNlhndVhoOG53Mm94S3FEcDliYUd1VFVlaHQwTnZlS0s2VFB5REZrbTZZN0tNNCs3bGYKdVpSQkpJVkQrS2l1V0ZITzhTYi9wMXBxelhEN1l0TklucDA3bVJCcTZxK3ZIWEVRQnpPdEgza1JXQ1JKemo4TQp0ZDVySnpjak0va1grY01kbmNLaXFtVTZONVZneGgvdVl0ZTZ4REY0TFZ6Y1hjSG1lNGdzNXF2QQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo="
+  tls.crt: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURIekNDQWdlZ0F3SUJBZ0lRVnc5L1FZdksvTml5RkpESlM0OFpvREFOQmdrcWhraUc5dzBCQVFzRkFEQWEKTVJnd0ZnWURWUVFERXc5b1lYSmliM0l0ZEc5clpXNHRZMkV3SGhjTk1qWXdPVEV5TVRFeU1ETTJXaGNOTWpjdwpPVEV5TVRFeU1ETTJXakFhTVJnd0ZnWURWUVFERXc5b1lYSmliM0l0ZEc5clpXNHRZMkV3Z2dFaU1BMEdDU3FHClNJYjNEUUVCQVFVQUE0SUJEd0F3Z2dFS0FvSUJBUURFelFjWllUQTB4eWhKQ1J0VWFPOTZUZ0tiUmwxanhWdjkKRXd3ckljNWJ2a3RnaEh4dzYrQXhpcjdmb2dvZ05kQWdSNHlwK1pGM3p6ckJaMUxITnFzSTZHRFFBUU02QjNFVAozNUx1bVBnQkJyUlg3b3EzU2dMcFZiNmRzdllMUjVRZjZMVTJSU0lSUlkrNnMvblRLTk1xU3YrdDhoTDFad1BsCmxady9jS25pTXN6VWMzRk9FVkp4K3NEd2FvVGt3L1RxOUZGWW5uUU8zeUlaMTYyQjA1MkFMWk4xMTh4QTFRNnQKQ0E0anJoUFB3ODc4VUsreS8rYXhSRmhEOVo0NjdXempwcGVQMURyZ1g4eFdsWDluckF4V1laQkt3cXZRZXdvZgpucE8yaERhUEk3TVZ2RGxIWHBmd0NFMmt4bVV0V0llOXBBZ3h4WjVac09qTnJYdmJ1U29wQWdNQkFBR2pZVEJmCk1BNEdBMVVkRHdFQi93UUVBd0lDcERBZEJnTlZIU1VFRmpBVUJnZ3JCZ0VGQlFjREFRWUlLd1lCQlFVSEF3SXcKRHdZRFZSMFRBUUgvQkFVd0F3RUIvekFkQmdOVkhRNEVGZ1FVQldwOHBUVE9hZjN0cFIyenBBczRmaEhCL3dRdwpEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBRmFZWFovdW1zWmx1aWdSaHd0T0hmTjdkbmRyQnBNM3hkQVVkbm5YCmpwVHpMNnA1VEwycmdOZy8rNG1KSFJJdERHcGZJcWVBemcwenpxUFdRdVc3cG8vUXAxTS81VGh1SWRIZDlWUTIKQTN5K25PTlp5STFVMWE0MjRkZmoyK1YwNFkvRjMwaERZcFh4bG1GdnJ2QjBDZkVzYUo0dTJ1RUNocWF2cktTTwoyeXl1RnlFQThnZGozZ3BJcFNCdEQzNzRQSkplaW9NbXhJSGVkWE1tNG5QQ2owU2h3d1MwWG84YWtON05oWEM0CndBRGk3WEcyMWo1RTFWVDdnQjRaYkN6eVo2dXpoZzdvZGt1NERzYnlVRGNLQ2FxdUsycytSMlFJQVAzQnNCUW8Kd2M0eEN3Um5ZQzBxOGtNdnFYclZNMW5SY05FUnN5OUcvZnI3cldoSFptS3ovcjQ9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K"
   HARBOR_ADMIN_PASSWORD: "SGFyYm9yMTIzNDU="
   POSTGRESQL_PASSWORD: "Y2hhbmdlaXQ="
   REGISTRY_CREDENTIAL_PASSWORD: "aGFyYm9yX3JlZ2lzdHJ5X3Bhc3N3b3Jk"
@@ -150,6 +150,27 @@ metadata:
 type: Opaque
 data:
 ---
+# Source: harbor/templates/trivy/trivy-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harbor-trivy
+  namespace: "adhar-system"
+  labels:
+    heritage: Helm
+    release: harbor
+    chart: harbor
+    app: "harbor"
+    app.kubernetes.io/instance: harbor
+    app.kubernetes.io/name: harbor
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: harbor
+    app.kubernetes.io/version: "2.15.2"
+type: Opaque
+data:
+  redisURL: cmVkaXM6Ly9oYXJib3ItcmVkaXM6NjM3OS81P2lkbGVfdGltZW91dF9zZWNvbmRzPTMw
+  gitHubToken: ""
+---
 # Source: harbor/templates/core/core-cm.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -189,7 +210,7 @@ data:
   REGISTRY_URL: "https://harbor-registry:5443"
   TOKEN_SERVICE_URL: "https://harbor-core:443/service/token"
   CORE_LOCAL_URL: "https://127.0.0.1:8443"
-  WITH_TRIVY: "false"
+  WITH_TRIVY: "true"
   TRIVY_ADAPTER_URL: "https://harbor-trivy:8443"
   REGISTRY_STORAGE_PROVIDER_NAME: "filesystem"
   LOG_LEVEL: "info"
@@ -694,7 +715,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 2Gi
+      storage: 100Gi
 ---
 # Source: harbor/templates/core/core-svc.yaml
 apiVersion: v1
@@ -908,6 +929,32 @@ spec:
     app: "harbor"
     component: registry
 ---
+# Source: harbor/templates/trivy/trivy-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: "harbor-trivy"
+  namespace: "adhar-system"
+  labels:
+    heritage: Helm
+    release: harbor
+    chart: harbor
+    app: "harbor"
+    app.kubernetes.io/instance: harbor
+    app.kubernetes.io/name: harbor
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: harbor
+    app.kubernetes.io/version: "2.15.2"
+spec:
+  ports:
+    - name: https-trivy
+      protocol: TCP
+      port: 8443
+  selector:
+    release: harbor
+    app: "harbor"
+    component: trivy
+---
 # Source: harbor/templates/core/core-dpl.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -949,8 +996,8 @@ spec:
         component: core
         app.kubernetes.io/component: core
       annotations:
-        checksum/configmap: f93d6d568e17db0ad36202041b8b11144d3a666fbb3cad6d1fa2269b4c130063
-        checksum/secret: b6193fc98b31a1402ea319e319dcf01f79b40b49388b225444a05a9274af3461
+        checksum/configmap: fda90d4aecd08cbce5ec880210434f6d66e36dc8fcf8c032b6d58f9006369c49
+        checksum/secret: 1c2ad6e251990ffef6ba901ebbe286d21ef379e5e5eae75673d6fd2ff731d497
         checksum/secret-jobservice: 080755150cc9d33c16a61cf1c7962de5cca303f96a61c6100f047bba27cead23
     spec:
       securityContext:
@@ -1211,7 +1258,7 @@ spec:
         checksum/configmap: dade1f578a7352bb07677163b7aac3cd87611381a6e8294d0178c8f60a8435b3
         checksum/configmap-env: c9d2cc2efa0305302f6798a53c0afd2d81308f47872db6c57eb8ed8c4ee838c5
         checksum/secret: 080755150cc9d33c16a61cf1c7962de5cca303f96a61c6100f047bba27cead23
-        checksum/secret-core: 7d60add276097f5cb119188b48ae0e648738b20b3dc7ada5c237b89ed1f6c285
+        checksum/secret-core: 88b1fd5aa8e5e2df96910f74f3fcdc1e0f23b1fc54e222e3536c0a394e08be5d
     spec:
       securityContext:
         runAsUser: 10000
@@ -1526,7 +1573,7 @@ spec:
         checksum/configmap: 59e18927d3595f9a28b7325f5ae54c155919ec64531df00b08bf08dbccd9e219
         checksum/secret: 44093572722ae628e75aba61353edbe83a2efc1f1b7be6e96b9b63646b83887d
         checksum/secret-jobservice: 080755150cc9d33c16a61cf1c7962de5cca303f96a61c6100f047bba27cead23
-        checksum/secret-core: 806a2c3692e10740ea3affae5bc0103c416604ad5bef8ea67b4dbceea3499958
+        checksum/secret-core: 6daa4bf88acef750449bbc84916e8c0e26034c9b37ab6273b075512593ce9b05
     spec:
       securityContext:
         runAsUser: 10000
@@ -1917,3 +1964,186 @@ spec:
       resources:
         requests:
           storage: "1Gi"
+---
+# Source: harbor/templates/trivy/trivy-sts.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: harbor-trivy
+  namespace: "adhar-system"
+  labels:
+    heritage: Helm
+    release: harbor
+    chart: harbor
+    app: "harbor"
+    app.kubernetes.io/instance: harbor
+    app.kubernetes.io/name: harbor
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: harbor
+    app.kubernetes.io/version: "2.15.2"
+    component: trivy
+    app.kubernetes.io/component: trivy
+spec:
+  replicas: 1
+  serviceName: harbor-trivy
+  selector:
+    matchLabels:
+      release: harbor
+      app: "harbor"
+      component: trivy
+  template:
+    metadata:
+      labels:
+        heritage: Helm
+        release: harbor
+        chart: harbor
+        app: "harbor"
+        app.kubernetes.io/instance: harbor
+        app.kubernetes.io/name: harbor
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: harbor
+        app.kubernetes.io/version: "2.15.2"
+        component: trivy
+        app.kubernetes.io/component: trivy
+      annotations:
+        checksum/secret: 930510ccb4b0d1cee9172dff6c2978013670d1e911d90d6d9ab0b8546a9bf401
+    spec:
+      securityContext:
+        runAsUser: 10000
+        fsGroup: 10000
+      automountServiceAccountToken: false
+      containers:
+        - name: trivy
+          image: docker.io/goharbor/trivy-adapter-photon:v2.15.2
+          imagePullPolicy: IfNotPresent
+          securityContext: 
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: HTTP_PROXY
+              value: ""
+            - name: HTTPS_PROXY
+              value: ""
+            - name: NO_PROXY
+              value: "harbor-core,harbor-jobservice,harbor-database,harbor-registry,harbor-portal,harbor-trivy,harbor-exporter,127.0.0.1,localhost,.local,.internal"
+            - name: "SCANNER_LOG_LEVEL"
+              value: "info"
+            - name: "SCANNER_TRIVY_CACHE_DIR"
+              value: "/home/scanner/.cache/trivy"
+            - name: "SCANNER_TRIVY_REPORTS_DIR"
+              value: "/home/scanner/.cache/reports"
+            - name: "SCANNER_TRIVY_DEBUG_MODE"
+              value: "false"
+            - name: "SCANNER_TRIVY_VULN_TYPE"
+              value: "os,library"
+            - name: "SCANNER_TRIVY_TIMEOUT"
+              value: "30m0s"
+            - name: "SCANNER_TRIVY_GITHUB_TOKEN"
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-trivy
+                  key: gitHubToken
+            - name: "SCANNER_TRIVY_SEVERITY"
+              value: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
+            - name: "SCANNER_TRIVY_IGNORE_UNFIXED"
+              value: "false"
+            - name: "SCANNER_TRIVY_SKIP_UPDATE"
+              value: "false"
+            - name: "SCANNER_TRIVY_SKIP_JAVA_DB_UPDATE"
+              value: "false"
+            - name: "SCANNER_TRIVY_DB_REPOSITORY"
+              value: "mirror.gcr.io/aquasec/trivy-db,ghcr.io/aquasecurity/trivy-db"
+            - name: "SCANNER_TRIVY_JAVA_DB_REPOSITORY"
+              value: "mirror.gcr.io/aquasec/trivy-java-db,ghcr.io/aquasecurity/trivy-java-db"
+            - name: "SCANNER_TRIVY_OFFLINE_SCAN"
+              value: "false"
+            - name: "SCANNER_TRIVY_SECURITY_CHECKS"
+              value: "vuln"
+            - name: "SCANNER_TRIVY_INSECURE"
+              value: "false"
+            - name: SCANNER_API_SERVER_ADDR
+              value: ":8443"
+            - name: INTERNAL_TLS_ENABLED
+              value: "true"
+            - name: SCANNER_API_SERVER_TLS_KEY
+              value: /etc/harbor/ssl/trivy/tls.key
+            - name: SCANNER_API_SERVER_TLS_CERTIFICATE
+              value: /etc/harbor/ssl/trivy/tls.crt
+            - name: "SCANNER_REDIS_URL"
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-trivy
+                  key: redisURL
+            - name: "SCANNER_STORE_REDIS_URL"
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-trivy
+                  key: redisURL
+            - name: "SCANNER_JOB_QUEUE_REDIS_URL"
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-trivy
+                  key: redisURL
+          ports:
+            - name: api-server
+              containerPort: 8443
+          volumeMounts:
+          - name: data
+            mountPath: /home/scanner/.cache
+            subPath: 
+            readOnly: false
+          - name: trivy-internal-certs
+            mountPath: /etc/harbor/ssl/trivy
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /probe/healthy
+              port: api-server
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 10
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /probe/ready
+              port: api-server
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+            successThreshold: 1
+          resources:
+            limits:
+              cpu: 1
+              memory: 2Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+      volumes:
+      - name: trivy-internal-certs
+        secret:
+          secretName: harbor-trivy-internal-tls
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: data
+      labels:
+        heritage: Helm
+        release: harbor
+        chart: harbor
+        app: "harbor"
+      annotations:
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: "20Gi"

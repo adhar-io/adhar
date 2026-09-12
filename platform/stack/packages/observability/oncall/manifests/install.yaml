@@ -85,7 +85,7 @@ type: Opaque
 data:
   
   admin-user: "YWRtaW4="
-  admin-password: "b1RNRHo2NTZnUU93eTRGSXRFb1BWOWNWQXkwSWlYVVdRRVlSRExKWg=="
+  admin-password: "OGkxRDV0YXprOERTeFlFTXdwWkd0ZDFHdHBkZ3ZrOGIxNHNvVmZlNA=="
   ldap-toml: ""
 ---
 # Source: oncall/charts/mariadb/templates/secrets.yaml
@@ -101,7 +101,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 data:
-  mariadb-root-password: "YVJYV09RR2dKUA=="
+  mariadb-root-password: "Z1hkVVZXQ0U5Ng=="
 ---
 # Source: oncall/charts/rabbitmq/templates/config-secret.yaml
 apiVersion: v1
@@ -132,9 +132,9 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 data:
-  rabbitmq-password: "ZmJmZXN4UU5BR0haemRnVA=="
+  rabbitmq-password: "ZDJzRndhSTZYRFUyU2tGdw=="
   
-  rabbitmq-erlang-cookie: "bDZMZTRpN0IwNGp2bkhqdWQ0ZFhrNnhnOTNMZ1pwdjg="
+  rabbitmq-erlang-cookie: "QmVMdmVSdDdTUWs0WUF0UnlLOFVwWUhkbG90em5ObjM="
 ---
 # Source: oncall/charts/redis/templates/secret.yaml
 apiVersion: v1
@@ -149,7 +149,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 data:
-  redis-password: "REZuaGUxN3ozbQ=="
+  redis-password: "R1NLTFBVRzJMVA=="
 ---
 # Source: oncall/templates/secrets.yaml
 apiVersion: v1
@@ -164,8 +164,8 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 data:
-  SECRET_KEY: "UWRCTFJiS0ZBeUR2WGhwbjlqckowaHIzTWx1N0x1dk9DYnZ0TnpvZw=="
-  MIRAGE_SECRET_KEY: "OGhqNm5KZm04TnZZbXZ5djFjaWVHTjhNTnJmM1dudzI4V2NVQTBDdg=="
+  SECRET_KEY: "aVZMMDRBdGFhcGI4ek91RExKOTlyYUljU2pRbWNYTUNqblBnRXd3Sw=="
+  MIRAGE_SECRET_KEY: "cm1IUzhtY3JNZ1NtOENZbTZZa2J1TVhKQUVaamJZYUVnU1lJTFl0dQ=="
 ---
 # Source: oncall/charts/grafana/templates/configmap.yaml
 apiVersion: v1
@@ -853,7 +853,7 @@ spec:
       annotations:
         checksum/config: 193a47d294f53997ace3ddf2a14e702787085d68c1e0a704c06ed4ca0d742bad
         checksum/sc-dashboard-provider-config: e70bf6a851099d385178a76de9757bb0bef8299da6d8443602590e44f05fdf24
-        checksum/secret: a3e73e5ac472119a0fdfdffb305ff3307f13e178d15e54509fbb52cd5c99f73a
+        checksum/secret: da35df2386321830fee7bc412bbb2caecd5cdfb3b42d71e89ce2d3d6bcbd1876
         kubectl.kubernetes.io/default-container: grafana
     spec:
       
@@ -1522,7 +1522,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: mariadb
-          image: docker.io/bitnami/mariadb:10.11.4-debian-11-r0
+          image: docker.io/bitnamilegacy/mariadb:10.11.4-debian-11-r0
           imagePullPolicy: "IfNotPresent"
           securityContext:
             allowPrivilegeEscalation: false
@@ -1635,7 +1635,7 @@ spec:
         app.kubernetes.io/managed-by: Helm
       annotations:
         checksum/config: 1cbd5f8f79f4fa02c8513e3e54cbeba2d12d9346787cca6aeba8851655e530b1
-        checksum/secret: 24b0d6e58b0e5f144140a47a311c46b9abb109528c4058fb6212dbcb97049412
+        checksum/secret: 0beb802f3cff4433312d95f193c69215ba276594deea489a78af442912920c92
     spec:
       
       serviceAccountName: oncall-rabbitmq
@@ -1659,7 +1659,7 @@ spec:
       initContainers:
       containers:
         - name: rabbitmq
-          image: docker.io/bitnami/rabbitmq:3.12.0-debian-11-r0
+          image: docker.io/bitnamilegacy/rabbitmq:3.12.0-debian-11-r0
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsNonRoot: true
@@ -1827,7 +1827,7 @@ spec:
         checksum/configmap: 163575b342312f4dabd47e07dccac1e9a600980aba69fb959e3750ded3b9d583
         checksum/health: 4a85dafb97a3f1ce6eca82a67c43adf78dccaeb3aec8adde5fe2e8d0955c3d0e
         checksum/scripts: 9cae7a6dcc748cd84453fba2d3fa5d76ab44e661ef8b99e433ca5bd8dc641381
-        checksum/secret: f78cda540cc3236bf6dfc7abed8fe2ce682fef753ecc1cecfb31a23180198eb4
+        checksum/secret: dea5884855ee7cb2b72d86fffacd888b7b78d14ff474188b71e4f9530a9c5167
     spec:
       
       securityContext:
@@ -1851,7 +1851,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: redis
-          image: docker.io/bitnami/redis:6.2.7-debian-11-r11
+          image: docker.io/bitnamilegacy/redis:6.2.7-debian-11-r11
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsUser: 1001
@@ -1984,7 +1984,7 @@ spec:
         checksum/configmap: 163575b342312f4dabd47e07dccac1e9a600980aba69fb959e3750ded3b9d583
         checksum/health: 4a85dafb97a3f1ce6eca82a67c43adf78dccaeb3aec8adde5fe2e8d0955c3d0e
         checksum/scripts: 9cae7a6dcc748cd84453fba2d3fa5d76ab44e661ef8b99e433ca5bd8dc641381
-        checksum/secret: 98543e485f18b3e6bba7262758da52f783ae7c897d452217d21ba7b58aaaf9ec
+        checksum/secret: 8cd047346f1bdd595b626514621bf434710d630b0d688516515e27d0c92f9a58
     spec:
       
       securityContext:
@@ -2008,7 +2008,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: redis
-          image: docker.io/bitnami/redis:6.2.7-debian-11-r11
+          image: docker.io/bitnamilegacy/redis:6.2.7-debian-11-r11
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsUser: 1001
@@ -2122,7 +2122,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: oncall-engine-migrate-2026-09-10-00-19-27
+  name: oncall-engine-migrate-2026-09-12-07-04-21
   labels:
     helm.sh/chart: oncall-1.16.5
     app.kubernetes.io/name: oncall
@@ -2135,7 +2135,7 @@ spec:
   ttlSecondsAfterFinished: 20
   template:
     metadata:
-      name: oncall-engine-migrate-2026-09-10-00-19-27
+      name: oncall-engine-migrate-2026-09-12-07-04-21
       labels:
         app.kubernetes.io/name: oncall
         app.kubernetes.io/instance: oncall

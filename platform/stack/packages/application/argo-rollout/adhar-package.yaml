@@ -1,0 +1,42 @@
+# Adhar marketplace contract for the argo-rollout package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: argo-rollout
+category: application
+version: "2.43.0"
+description: Argo Rollouts progressive-delivery controller (blue-green and canary) with its dashboard gated by Keycloak.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://argo-rollouts.readthedocs.io
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: argo/argo-rollouts
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  localSafe: true   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - progressive-delivery
+  - canary
+  - blue-green
+  - argo

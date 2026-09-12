@@ -1,0 +1,113 @@
+# Keycloak client for LibreDB Studio's native OIDC login (no oauth2-proxy
+# front: the MIT build speaks OIDC itself — Authorization Code with PKCE,
+# followed by its own JWT session, docs/OIDC.md — so hack/gen-sso.sh is not
+# used here). Provisioned by the keycloak package's client reconciler, which
+# picks up any ConfigMap in adhar-system labelled adhar.io/keycloak-client=true
+# and exports the confidential client's secret into the `keycloak-clients`
+# Secret as <CLIENTID upper, '-'->'_'>_CLIENT_ID / _CLIENT_SECRET — here
+# LIBREDB_STUDIO_CLIENT_ID / LIBREDB_STUDIO_CLIENT_SECRET.
+#
+# Negative waves: the Deployment's JWT_SECRET env ref is NOT optional (strict
+# auth bootstrap, values.yaml), so libredb-studio-secrets must exist before the
+# chart's wave-0 resources.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: libredb-studio-keycloak-client
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: libredb-studio-keycloak-client
+    app.kubernetes.io/part-of: libredb-studio
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
+data:
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "libredb-studio",
+      "name": "LibreDB Studio",
+      "description": "LibreDB Studio native OIDC login (SQL IDE over the platform databases)",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "post.logout.redirect.uris": "https://libredb.adhar.localtest.me:8443/login"
+      },
+      "redirectUris": ["https://libredb.adhar.localtest.me:8443/api/auth/oidc/callback"],
+      "webOrigins": ["https://libredb.adhar.localtest.me:8443"]
+    }
+---
+# The one Secret the chart reads (values.yaml secrets.existingSecret), built
+# from three sources that no manifest may carry in clear:
+#   * jwt-secret        — generated here, once (sessions survive a restart;
+#                         the zero-config alternative mints a new key per pod)
+#   * oidc-client-*     — the client Keycloak just provisioned, read through
+#                         the `keycloak` ClusterSecretStore like every other
+#                         SSO app in the platform
+#   * storage-postgres-url — assembled from the CNPG credentials in
+#                         libredb-db-credentials (platform-postgres.yaml), so
+#                         the database password is never written down twice
+#
+# refreshPolicy CreatedOnce + 5m: retry until the Keycloak realm job has
+# written keycloak-clients, then freeze — a rotating jwt-secret would
+# invalidate every live session on each refresh, and the Postgres password is
+# generated once by design.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: libredb-studio-secrets
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshPolicy: CreatedOnce
+  refreshInterval: 5m
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: libredb-studio-secrets
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        jwt-secret: '{{ .JWT_SECRET }}'
+        oidc-client-id: '{{ .oidcClientId }}'
+        oidc-client-secret: '{{ .oidcClientSecret }}'
+        storage-postgres-url: 'postgresql://libredb:{{ .dbPassword }}@libredb-db-rw.adhar-system.svc.cluster.local:5432/libredb'
+  data:
+    - secretKey: oidcClientId
+      remoteRef: {key: keycloak-clients, property: LIBREDB_STUDIO_CLIENT_ID}
+    - secretKey: oidcClientSecret
+      remoteRef: {key: keycloak-clients, property: LIBREDB_STUDIO_CLIENT_SECRET}
+    - secretKey: dbPassword
+      remoteRef: {key: libredb-db-credentials, property: password}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: libredb-studio-jwt
+      rewrite:
+        - transform:
+            template: 'JWT_SECRET'
+---
+# JWT signing key. 48 characters, well over the 32 the app requires; no symbols
+# so nothing here needs escaping wherever it is carried.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: libredb-studio-jwt
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
+spec:
+  length: 48
+  digits: 8
+  symbols: 0
+  noUpper: false
+  allowRepeat: true

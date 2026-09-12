@@ -1,0 +1,43 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  annotations:
+    # Wave 10: monitoring CRs land after the Prometheus Operator CRDs are
+    # registered, so a first boot on a fresh cluster does not fail this sync.
+    argocd.argoproj.io/sync-wave: "10"
+  name: openbao
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: openbao
+spec:
+  # Prometheus serviceMonitorSelector is empty ({}) so no release label is
+  # required. Match only the non-headless `openbao` Service (exclude the
+  # headless `openbao-internal`, which carries the openbao-internal="true"
+  # label, and `openbao-ui`, whose name label is "openbao-ui") to avoid
+  # duplicate scrape targets.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+      app.kubernetes.io/instance: openbao
+    matchExpressions:
+      - key: openbao-internal
+        operator: DoesNotExist
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  endpoints:
+    # OpenBao serves Prometheus metrics on the API port 8200 (named "http" on
+    # the openbao Service) at /v1/sys/metrics — the same endpoint and the same
+    # vault_* metric names as upstream Vault, so the existing Grafana dashboard
+    # (observability/kube-prometheus/manifests/dashboard-vault.yaml) keeps
+    # working. tls_disable=1 on the listener, so http.
+    # unauthenticated_metrics_access="true" (set in the listener telemetry
+    # stanza in values.yaml) lets Prometheus scrape without a token.
+    - port: http
+      path: /v1/sys/metrics
+      scheme: http
+      interval: 30s
+      params:
+        format:
+          - prometheus

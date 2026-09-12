@@ -36,13 +36,24 @@ var listCmd = &cobra.Command{
 	},
 }
 
+func init() {
+	listCmd.Flags().String("file", "", "Path to configuration file")
+}
+
 // listClusters lists all clusters
 func listClusters(cmd *cobra.Command) error {
-	// Load configuration
-	cfg, err := config.LoadConfig("")
+	// Load configuration. Without --file this reads the default config, which
+	// on most machines defines no cloud provider at all — and the loop below
+	// then queries nothing and cheerfully reports "No clusters found", which
+	// reads like "your clusters are gone". `adhar cluster delete` and `scale`
+	// already take --file; list must too, or it cannot see the clusters they
+	// operate on.
+	configFile, _ := cmd.Flags().GetString("file")
+	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	providerErrors := 0
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Listing clusters across all providers...\n\n")
 
@@ -58,6 +69,7 @@ func listClusters(cmd *cobra.Command) error {
 
 		clusters, err := p.ListClusters(context.Background())
 		if err != nil {
+			providerErrors++
 			fmt.Fprintf(cmd.OutOrStdout(), "Warning: Failed to list clusters for provider %s: %v\n", providerName, err)
 			continue
 		}
@@ -88,7 +100,16 @@ func listClusters(cmd *cobra.Command) error {
 	}
 
 	if len(allClusters) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "No clusters found.\n")
+		// Distinguish "nothing is running" from "nobody was asked" and from
+		// "the cloud refused us" — they call for completely different actions.
+		switch {
+		case providerErrors > 0:
+			fmt.Fprintf(cmd.OutOrStdout(), "No clusters listed: every configured provider returned an error (see the warnings above).\n")
+		case len(cfg.Providers) == 0:
+			fmt.Fprintf(cmd.OutOrStdout(), "No clusters found. No cloud provider is configured — pass --file <config.yaml> to query one.\n")
+		default:
+			fmt.Fprintf(cmd.OutOrStdout(), "No clusters found.\n")
+		}
 		return nil
 	}
 

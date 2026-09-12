@@ -1,0 +1,50 @@
+# Airbyte uses the platform's MinIO, not its own.
+#
+# Platform principle (ADR-0011, see also data/kubeflow/manifests/platform-minio.yaml):
+# applications consume platform-provisioned capabilities -- object storage,
+# Kafka, PostgreSQL, cache, search -- rather than bundling a second copy.
+#
+# The Airbyte chart ships a private single-node MinIO (StatefulSet
+# airbyte-minio, Service airbyte-minio-svc, a 500Mi volumeClaimTemplate and an
+# `mc` post-install bucket Pod) pinned to minio/minio:RELEASE.2023-11-20T22-40-07Z,
+# a tag that is no longer pullable -- airbyte-minio-0 sat in ImagePullBackOff
+# and, being a pre-install hook, blocked the whole ArgoCD sync
+# ("waiting for completion of hook apps/StatefulSet/airbyte-minio").
+# generate-manifests.sh strips those objects; values.yaml redirects
+# global.storage.minio.endpoint at the platform MinIO and points
+# global.storage.secretName at the Secret below.
+#
+# Airbyte keeps STORAGE_TYPE=MINIO: that mode is plain S3 with path-style
+# access, which the platform MinIO serves. The `airbyte` bucket is provisioned
+# by the minio package (data/minio/values.yaml `buckets:`), replacing the
+# bucket the stripped `mc` hook used to create.
+#
+# Credentials are mirrored from the platform MinIO root credentials by External
+# Secrets (the `gitea` ClusterSecretStore is the platform's Kubernetes-provider
+# store over adhar-system), never copied literally -- a one-shot copy captures
+# the bootstrap placeholders and breaks the moment the minio package rotates
+# them. The key names are the ones the chart's storage helper expects
+# (MINIO_ACCESS_KEY_ID / MINIO_SECRET_ACCESS_KEY), so no template patching is
+# needed: every component reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY out of
+# this Secret. Negative sync wave: the Deployments mount it at startup.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: airbyte-platform-minio
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: airbyte-platform-minio
+    creationPolicy: Owner
+  data:
+    - secretKey: MINIO_ACCESS_KEY_ID
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: MINIO_SECRET_ACCESS_KEY
+      remoteRef: {key: root-creds, property: rootPassword}

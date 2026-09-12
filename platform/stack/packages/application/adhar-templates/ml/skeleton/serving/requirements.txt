@@ -1,0 +1,8 @@
+# Model-server runtime. Buildpacks (the paved-road app-ci pipeline) detect this
+# file and build the image; the Dockerfile beside it is the kaniko fallback.
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+scikit-learn==1.5.2
+joblib==1.4.2
+boto3==1.35.80

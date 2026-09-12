@@ -1,6 +1,44 @@
-# Airbyte instance-admin credentials (consumed by the chart via
-# global.auth.instanceAdmin.secretName). Generated once by External Secrets;
-# surfaced by `adhar get secrets -p airbyte`.
+# Airbyte credential material.
+#
+# Airbyte splits its credentials over two Secrets:
+#   * airbyte-config-secrets -- the instance-admin login the chart consumes via
+#     global.auth.instanceAdmin, and what `adhar get secrets -p airbyte` prints.
+#   * airbyte-auth-secrets   -- the runtime auth material every component reads:
+#     the JWT signing key, the instance-admin OAuth client and the *dataplane*
+#     client credentials the workload-launcher authenticates with.
+#
+# airbyte-auth-secrets is not ours alone. The airbyte-bootloader (a PreSync
+# hook) registers the default dataplane and its service account in Airbyte's
+# database and writes the resulting `dataplane-client-id` /
+# `dataplane-client-secret` into this Secret (K8sSecretHelper.createOrUpdateSecret);
+# on every later run it re-reads them and verifies them against the service
+# account rows, re-registering only when they do not match. Those two values are
+# therefore only meaningful if they equal the database rows -- a locally
+# generated random string can never be one, so they must NOT be templated here.
+#
+# Hence `creationPolicy: Merge`: ESO maintains exactly the four keys it owns and
+# leaves the bootloader's two dataplane keys untouched. Under the previous
+# `Owner` policy ESO adopted the Secret and deleted `dataplane-client-id` /
+# `dataplane-client-secret` the moment the bootloader wrote them, which parked
+# airbyte-workload-launcher in CreateContainerConfigError ("couldn't find key
+# dataplane-client-id in Secret adhar-system/airbyte-auth-secrets"); the same
+# drift invalidated ESO's data hash and re-ran the Password generators, rotating
+# instance-admin-password out of sync with airbyte-config-secrets so the UI
+# login no longer matched `adhar get secrets`.
+#
+# For that second reason the four ESO-owned keys are no longer generated inline
+# either: they are generated once into stable source Secrets
+# (airbyte-config-secrets, airbyte-auth-material) and only *mirrored* here
+# through the `gitea` ClusterSecretStore (the platform's Kubernetes-provider
+# store over adhar-system), so a re-sync is a no-op instead of a rotation.
+#
+# Keys read out of airbyte-auth-secrets by the rendered chart:
+#   jwt-signature-secret          -- server, worker, cron, workload-api-server
+#   instance-admin-password       -- server
+#   instance-admin-client-id      -- server
+#   instance-admin-client-secret  -- server
+#   dataplane-client-id           -- workload-launcher   (bootloader-owned)
+#   dataplane-client-secret       -- workload-launcher   (bootloader-owned)
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
 metadata:
@@ -14,12 +52,13 @@ spec:
   noUpper: false
   allowRepeat: true
 ---
+# The instance-admin login (chart: global.auth.instanceAdmin.secretName).
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: airbyte-config-secrets
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
 spec:
   refreshInterval: '0'
   target:
@@ -45,15 +84,12 @@ spec:
         - transform:
             template: 'PASSWORD'
 ---
-# Runtime auth material the chart references but does not create
-# (airbyte-auth-secrets): JWT signing secret and the instance-admin's
-# OAuth client + password. Generated alongside the admin credentials.
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
 metadata:
   name: airbyte-auth
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
 spec:
   length: 40
   digits: 8
@@ -61,21 +97,24 @@ spec:
   noUpper: false
   allowRepeat: true
 ---
+# Stable source of the runtime auth material. Nothing but ESO ever writes to
+# this Secret, so its data hash never drifts and the Password generators below
+# run exactly once -- which is what keeps the mirror in airbyte-auth-secrets
+# idempotent.
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: airbyte-auth-secrets
+  name: airbyte-auth-material
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
 spec:
   refreshInterval: '0'
   target:
-    name: airbyte-auth-secrets
+    name: airbyte-auth-material
     template:
       engineVersion: v2
       data:
         jwt-signature-secret: '{{ .JWT }}'
-        instance-admin-password: '{{ .ADMIN }}'
         instance-admin-client-id: '{{ .CLIENT_ID }}'
         instance-admin-client-secret: '{{ .CLIENT_SECRET }}'
   dataFrom:
@@ -87,14 +126,6 @@ spec:
       rewrite:
         - transform:
             template: 'JWT'
-    - sourceRef:
-        generatorRef:
-          apiVersion: generators.external-secrets.io/v1alpha1
-          kind: Password
-          name: airbyte-admin
-      rewrite:
-        - transform:
-            template: 'ADMIN'
     - sourceRef:
         generatorRef:
           apiVersion: generators.external-secrets.io/v1alpha1
@@ -111,3 +142,34 @@ spec:
       rewrite:
         - transform:
             template: 'CLIENT_SECRET'
+---
+# The Secret the chart actually binds. `Merge` -> ESO patches in only these four
+# keys and never removes or rewrites the bootloader's dataplane-client-id /
+# dataplane-client-secret. It needs the Secret to exist; the bootloader PreSync
+# hook creates it before the Sync phase, and the 1m refresh retries until then
+# (safe here because every value is read from a stable Secret, not regenerated).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: airbyte-auth-secrets
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: airbyte-auth-secrets
+    creationPolicy: Merge
+  data:
+    - secretKey: jwt-signature-secret
+      remoteRef: {key: airbyte-auth-material, property: jwt-signature-secret}
+    - secretKey: instance-admin-client-id
+      remoteRef: {key: airbyte-auth-material, property: instance-admin-client-id}
+    - secretKey: instance-admin-client-secret
+      remoteRef: {key: airbyte-auth-material, property: instance-admin-client-secret}
+    - secretKey: instance-admin-password
+      remoteRef: {key: airbyte-config-secrets, property: instance-admin-password}

@@ -1,0 +1,208 @@
+# agentgateway — prompt/response guardrails and spend budgets (ADR-0025).
+#
+# ---------------------------------------------------------------------------
+# POSTURE: PERMISSIVE BY DEFAULT, AND SAID OUT LOUD
+# ---------------------------------------------------------------------------
+# Every control here is deliberately set to its non-blocking or generous
+# setting, for the same reason the Kyverno guardrail in ai/adhar-ai ships as
+# Audit: a platform that starts by breaking people's requests gets turned off.
+# The defaults make the behaviour VISIBLE first (metrics, masked values, logs);
+# each block says exactly what to change to make it ENFORCING. Tighten in this
+# order once you have a week of `agentgateway_guardrail_checks_total` data:
+#
+#   1. secrets:   Mask  -> Reject      (nobody should be pasting a key anyway)
+#   2. PII:       Audit -> Mask        (masking rarely breaks a platform prompt)
+#   3. budgets:   raise/lower per the real p95 in the Grafana dashboard
+#
+# The guards attach to the LLM HTTPRoute, not the Gateway, because prompt guards
+# are an `ai` backend policy: they only mean anything on a route whose backend
+# speaks a model protocol. MCP tool traffic is governed by authorization
+# (security.yaml) instead.
+---
+# ----------------------- Request guard: secrets & PII -----------------------
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-guard-request
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: agentgateway-llm
+  backend:
+    ai:
+      promptGuard:
+        request:
+          # --- (1) Credentials leaving the cluster in a prompt ---------------
+          # MASK, not Audit: this is the one case where the permissive choice is
+          # still the protective one. The request succeeds with the secret
+          # replaced by `<masked>`, so a developer who pastes a kubeconfig into
+          # the Console chat gets an answer AND the key never reaches Anthropic
+          # or OpenAI. Nothing breaks, and nothing leaks.
+          #
+          # TO TIGHTEN: action: Reject (+ the `response` block below is then
+          # returned to the caller with statusCode 422 instead of being an
+          # advisory note). Reject is the right end state — a prompt containing a
+          # live credential is a security event, not a formatting problem.
+          #
+          # Patterns are the platform's actual credential shapes: AWS access key
+          # ids, OpenAI/Anthropic-style `sk-` keys, JWTs, PEM private keys,
+          # Authorization headers, DB connection strings (CNPG/Valkey/MinIO all
+          # hand these out), and `key = value` secret assignments.
+          - regex:
+              action: Mask
+              matches:
+                - "\\bAKIA[0-9A-Z]{16}\\b"
+                - "\\bsk-[a-zA-Z0-9_-]{20,}\\b"
+                - "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b"
+                - "-----BEGIN\\s+(RSA\\s+|EC\\s+|DSA\\s+|OPENSSH\\s+)?PRIVATE KEY-----"
+                - "(?i)(bearer|authorization)[:\\s]+[A-Za-z0-9\\-._~+/]{20,}=*"
+                - "(?i)(mongodb|postgres|postgresql|mysql|redis|valkey|amqp|s3)://[^\\s\"'<>]{10,}"
+                - "(?i)(password|passwd|pwd|secret|token|api[_-]?key)\\s*[=:]\\s*[\"']?[^\\s\"']{8,}"
+            response:
+              message: "Credentials were redacted from this prompt before it left the cluster. Do not paste API keys, tokens, kubeconfigs or connection strings into AI prompts."
+          # --- (2) Obvious PII ----------------------------------------------
+          # AUDIT — the genuinely permissive setting: the prompt is untouched and
+          # the match is only counted (agentgateway_guardrail_checks_total) and
+          # logged. Deliberate, because platform prompts legitimately contain
+          # emails and phone numbers (git authors, alert routing, on-call
+          # rotations, Keycloak users), and masking those would silently corrupt
+          # the question being asked.
+          #
+          # TO TIGHTEN: action: Mask once the dashboard shows how often these
+          # actually fire. Reject is almost certainly wrong for `Email` on a
+          # platform whose prompts are full of commit authors; if you need
+          # rejection, split this into two entries and reject only
+          # CreditCard + Ssn.
+          - regex:
+              action: Audit
+              builtins:
+                - CreditCard
+                - Ssn
+                - Email
+                - PhoneNumber
+                - CaSin
+---
+# ---------------------- Response guard: leak-back -----------------------
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-guard-response
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: agentgateway-llm
+  backend:
+    ai:
+      promptGuard:
+        response:
+          # The model can echo a secret back — either one the user pasted, or one
+          # it read out of a tool result (an MCP `cluster` read can legitimately
+          # return a Secret's metadata). Masking on the way OUT is what stops a
+          # credential landing in a chat transcript, a Gitea PR body, or a Loki
+          # log line.
+          #
+          # CAVEAT worth knowing: `Mask` is NOT applied to STREAMED responses —
+          # matched content in a stream passes through unmodified. The Console
+          # chat streams. Treat this as defence in depth for the non-streaming
+          # callers (the MCP servers, `adhar ai` batch runs), not as a complete
+          # control, and keep the request-side guard above as the primary one.
+          - regex:
+              action: Mask
+              matches:
+                - "\\bAKIA[0-9A-Z]{16}\\b"
+                - "\\bsk-[a-zA-Z0-9_-]{20,}\\b"
+                - "-----BEGIN\\s+(RSA\\s+|EC\\s+|DSA\\s+|OPENSSH\\s+)?PRIVATE KEY-----"
+                - "(?i)(password|passwd|secret|token|api[_-]?key)\\s*[=:]\\s*[\"']?[^\\s\"']{8,}"
+            response:
+              message: "Credentials were redacted from the model response."
+          # PII on the way out: Audit for the same reason as the request side.
+          # TO TIGHTEN: action: Mask.
+          - regex:
+              action: Audit
+              builtins:
+                - CreditCard
+                - Ssn
+---
+# ------------------------- Budgets: rate and tokens -------------------------
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-budget
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: agentgateway-llm
+  traffic:
+    rateLimit:
+      # PER-CONSUMER-CLASS, enforced locally in the proxy. `conditional` entries
+      # are evaluated in order and the first matching CEL condition supplies the
+      # limit, so the caller's Keycloak group picks their budget with no external
+      # dependency.
+      #
+      # WHY NOT TRUE PER-IDENTITY BUDGETS: a per-user quota needs
+      # `rateLimit.global` with descriptors keyed on `jwt.sub`, which requires an
+      # external rate-limit service (an Envoy RLS) that the platform does not run
+      # today. That is the upgrade path, and it is the only way to get a limit
+      # that holds across proxy replicas; the limits below are per proxy
+      # instance, so they multiply by replica count. With the single-replica
+      # AgentgatewayParameters in gateway.yaml they are exact.
+      #
+      # The numbers mirror ai/adhar-ai values.yaml (rateLimitRequestsPerMinute:
+      # 60, perUserDailyTokens: 2_000_000) so replacing the old gateway does not
+      # silently change anyone's budget. Both are generous on purpose — see the
+      # header. Watch the 429 rate in the dashboard before lowering them.
+      conditional:
+        # Admins: headroom for incident work, where an agent may burn a large
+        # context repeatedly while triaging.
+        - condition: >-
+            ["platform-admin", "/platform-admin"]
+            .exists(g, g in default(jwt.groups, []))
+          policy:
+            local:
+              - unit: Minutes
+                requests: 120
+                # Short bursts are normal for a tool-calling agent (one user
+                # question fans out into several completions), so allow a burst
+                # well above the steady rate rather than 429-ing mid-conversation.
+                burst: 60
+              - unit: Hours
+                # 2M tokens/day spread evenly is ~85k/hour; 250k/hour lets a
+                # focused session spend a third of the daily budget in an hour
+                # and still leaves the day covered.
+                tokens: 250000
+        # Everyone else who got past authorization (platform-developer).
+        - condition: "true"
+          policy:
+            local:
+              - unit: Minutes
+                requests: 60
+                burst: 30
+              - unit: Hours
+                tokens: 100000

@@ -18,7 +18,11 @@ platform/stack/packages/<category>/<name>/
 ```
 
 It is validated against [`marketplace.schema.json`](./marketplace.schema.json) (JSON
-Schema draft-07) by [`hack/validate-packages.sh`](../../../hack/validate-packages.sh).
+Schema draft-07) by [`hack/validate-packages.sh`](../../../hack/validate-packages.sh),
+which runs on every pull request (the `package-contracts` job in
+[`.github/workflows/pr.yaml`](../../../.github/workflows/pr.yaml)) and as part of
+`make lint`. **Every package in the catalog carries one today** — a package
+directory without a contract fails CI.
 
 > Related docs: [`CONFLICTS.md`](./CONFLICTS.md) tracks shared-namespace collisions
 > (a separate concern from this contract). Provenance follows
@@ -115,8 +119,30 @@ The three pillars every submission is measured against:
 > review will reject outright.
 
 First-party packages (`maintainer.firstParty: true`) set `sourceRepo` to
-`https://github.com/adhar-io/adhar`, are signed keyless + Trivy-scanned + SBOM'd by the
-Adhar release pipeline, and carry an `sbom/<name>.spdx.json` path.
+`https://github.com/adhar-io/adhar` and inherit the Adhar release pipeline's provenance.
+That pipeline ([`.goreleaser.yaml`](../../../.goreleaser.yaml)) emits, per release:
+
+* an **SPDX SBOM per release archive** (`sboms:`, catalogued by syft);
+* **Cosign keyless signatures** (`signs:`) over `checksums.txt` — which covers every
+  archive — and over each SBOM, as `<artifact>.sig` + `<artifact>.pem`;
+* **Cosign keyless signatures** (`docker_signs:`) over the pushed images and multi-arch
+  manifests, recorded in Rekor.
+
+The certificates are Fulcio short-lived certs bound to the release workflow's GitHub
+OIDC identity (`id-token: write`), so there is no signing key to leak. Contracts
+therefore point `provenance.sbom` at the release assets rather than a per-package file.
+Verify a release:
+
+```bash
+cosign verify-blob checksums.txt \
+  --signature checksums.txt.sig --certificate checksums.txt.pem \
+  --certificate-identity-regexp 'https://github.com/adhar-io/adhar/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+cosign verify ghcr.io/adhar-io/adhar:<version> \
+  --certificate-identity-regexp 'https://github.com/adhar-io/adhar/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 ---
 
@@ -140,12 +166,32 @@ provenance meets the full bar, and it passes review. `stability` is independent 
 Validate every contract in the tree:
 
 ```bash
-hack/validate-packages.sh
+hack/validate-packages.sh     # or: make validate-packages
 ```
+
+Scaffold the contract for a package that does not have one yet:
+
+```bash
+hack/gen-package-contracts.sh            # or: make gen-package-contracts
+hack/gen-package-contracts.sh --dry-run  # list what would be created
+```
+
+The generator is **idempotent — it never overwrites an existing contract**, it only
+creates missing ones, so it is safe to re-run and safe to hand-edit the result
+afterwards. It derives `name`/`category` from the directory, `version`/`appVersion` and
+`provenance.upstreamChart` from `generate-manifests.sh`, `dependencies` from the
+platform capabilities the manifests reference (CNPG, External Secrets, Keycloak, MinIO,
+Kafka, cert-manager), `stability` and `resources.localSafe` from the ApplicationSet
+enabled gates, and `planeAffinity` from the workload profile in
+`adhar-appset-workload.yaml`. Descriptions, licenses and homepages come from a curated
+table inside the script (falling back to the package README / manifest header).
+Scaffolded values are a starting point, not a verdict — review them.
 
 The script finds all `adhar-package.yaml` files, validates each against
 `marketplace.schema.json`, and additionally checks that `name`/`category` match the
-directory layout. It exits non-zero on any violation, so it is CI-friendly.
+directory layout (the name comparison is case-insensitive — one legacy directory,
+`core/Kamaji`, is capitalised while the package name must be a lowercase DNS label).
+It exits non-zero on any violation, so it is CI-friendly, and CI runs it on every PR.
 
 Validator resolution:
 
@@ -160,6 +206,7 @@ Example run:
 OK    application/kargo/adhar-package.yaml
 OK    observability/alloy/adhar-package.yaml
 OK    security/trivy/adhar-package.yaml
+...
 
 All package contracts are valid.
 ```
@@ -174,9 +221,11 @@ All package contracts are valid.
    `adhar-system`). Follow the conventions of existing packages in the category.
 2. **Check for conflicts.** Run the collision scan in
    [`CONFLICTS.md`](./CONFLICTS.md) and resolve any shared-namespace clashes.
-3. **Write `adhar-package.yaml`.** Fill in the contract. Set `maintainer.firstParty:
+3. **Write `adhar-package.yaml`.** Scaffold it with
+   `hack/gen-package-contracts.sh` and then fill it in. Set `maintainer.firstParty:
    false`, `stability: community`, and record provenance **honestly** — if it is not yet
-   signed/scanned, say so.
+   signed/scanned, say so. (The generator's defaults describe a *first-party* package;
+   a community submission must correct `maintainer`, `stability` and `provenance`.)
 4. **Validate locally.** `hack/validate-packages.sh` must pass.
 5. **Wire it (disabled).** Add the package to the ApplicationSet with `enabled: "false"`
    so it ships wired-but-off (the enabled-gating model, ADR-0004). Curated core enablement
@@ -191,8 +240,10 @@ All package contracts are valid.
 
 ## Reference example
 
-See the three worked examples that ship today:
+Every package directory ships a contract, so any of them is a reference. The
+hand-written ones are the fullest:
 
 - [`application/kargo/adhar-package.yaml`](./application/kargo/adhar-package.yaml) — control-plane, `stable`.
 - [`security/trivy/adhar-package.yaml`](./security/trivy/adhar-package.yaml) — `any` plane, `stable`.
 - [`observability/alloy/adhar-package.yaml`](./observability/alloy/adhar-package.yaml) — data-plane, `stable`.
+- [`observability/fluent-bit/adhar-package.yaml`](./observability/fluent-bit/adhar-package.yaml) — data-plane, an opt-in alternative to `alloy`.

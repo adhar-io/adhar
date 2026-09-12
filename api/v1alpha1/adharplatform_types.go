@@ -79,7 +79,72 @@ type AdharPlatformSpec struct {
 	// platform/controllers/autoscaler). Nil or disabled = fixed worker count.
 	// +optional
 	Autoscaling *AutoscalingSpec `json:"autoscaling,omitempty"`
+
+	// ClusterMesh carries this cluster's Cilium Cluster Mesh identity and,
+	// optionally, the clustermesh-apiserver that lets peers connect to it.
+	// Every cluster in a mesh needs a unique (name, id) pair and a
+	// non-overlapping Pod CIDR; the CA is shared because the platform ships
+	// one `cilium-ca` in its embedded install manifest. Nil means the
+	// defaults baked into that manifest (adhar-mgmt / 1) with no apiserver.
+	// +optional
+	ClusterMesh *ClusterMeshSpec `json:"clusterMesh,omitempty"`
 }
+
+// ClusterMeshSpec is this cluster's identity inside a Cilium Cluster Mesh.
+type ClusterMeshSpec struct {
+	// Name is the Cilium cluster name. Must be unique across the mesh and a
+	// valid DNS label — it becomes `<name>.mesh.cilium.io` in the peers'
+	// host aliases. Defaults to "adhar-mgmt".
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// ID is the Cilium cluster ID, unique across the mesh. 1 is the
+	// management cluster; data planes take 2-255.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=255
+	// +optional
+	ID int32 `json:"id,omitempty"`
+
+	// APIServer deploys the clustermesh-apiserver on this cluster so peers
+	// can read its state. Without it a cluster can join a mesh one-way at
+	// best; `cilium clustermesh connect` needs one on both sides.
+	// +optional
+	APIServer *ClusterMeshAPIServerSpec `json:"apiServer,omitempty"`
+}
+
+// ClusterMeshAPIServerSpec controls the clustermesh-apiserver deployment.
+type ClusterMeshAPIServerSpec struct {
+	// Enabled applies resources/cilium/clustermesh.yaml on this cluster.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// ServiceType exposes the apiserver to peers. ClusterIP is unreachable
+	// from another cluster, so a real fleet uses NodePort (cheapest — the
+	// peer dials a node IP) or LoadBalancer.
+	// +kubebuilder:validation:Enum=ClusterIP;NodePort;LoadBalancer
+	// +optional
+	ServiceType string `json:"serviceType,omitempty"`
+
+	// NodePort pins the port when ServiceType is NodePort, so firewall rules
+	// and the peers' host aliases stay stable across re-creates.
+	// +kubebuilder:validation:Minimum=30000
+	// +kubebuilder:validation:Maximum=32767
+	// +optional
+	NodePort int32 `json:"nodePort,omitempty"`
+}
+
+// Cluster-mesh defaults, applied when the spec leaves them unset.
+const (
+	// DefaultClusterMeshName is the management cluster's mesh identity, the
+	// value baked into the embedded Cilium install manifest.
+	DefaultClusterMeshName = "adhar-mgmt"
+	// DefaultClusterMeshID is the management cluster's Cilium cluster ID.
+	DefaultClusterMeshID int32 = 1
+	// DefaultClusterMeshNodePort is the pinned NodePort for a
+	// NodePort-exposed clustermesh-apiserver (etcd's 2379 is not in the
+	// NodePort range, so the mesh needs its own reserved number).
+	DefaultClusterMeshNodePort int32 = 32379
+)
 
 // Autoscaling defaults. They are expressed as constants (not only kubebuilder
 // markers) because the reconciler must behave identically for a CR that was

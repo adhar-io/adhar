@@ -73,6 +73,7 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 	if err != nil {
 		return fmt.Errorf("failed to resolve environment configuration: %w", err)
 	}
+	applyKubeVersionOverride(envConfig)
 
 	// If dry run, show what would be provisioned
 	if dryRun {
@@ -132,6 +133,30 @@ func loadConfigFromFile(configPath string) (*config.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// applyKubeVersionOverride lets `adhar up --kube-version` decide the Kubernetes
+// version for every provider, not just Kind. Precedence, highest first:
+//
+//  1. an explicitly passed --kube-version,
+//  2. the environment's own `kubeVersion` / `version` clusterConfig entry,
+//  3. globals.DefaultKubernetesVersion (applied in buildClusterSpec).
+//
+// The flag carries the platform default as its *default value*, so only an
+// explicit `Changed` may override what the environment configured — otherwise
+// every cluster would silently be pinned to the CLI's compiled-in version.
+func applyKubeVersionOverride(envConfig *config.ResolvedEnvironmentConfig) {
+	if envConfig == nil || !kubeVersionExplicit {
+		return
+	}
+	for i, kv := range envConfig.ResolvedClusterConfig {
+		if kv.Key == "kubeVersion" || kv.Key == "version" {
+			envConfig.ResolvedClusterConfig[i].Value = kubeVersion
+			return
+		}
+	}
+	envConfig.ResolvedClusterConfig = append(envConfig.ResolvedClusterConfig,
+		config.KeyValueConfig{Key: "kubeVersion", Value: kubeVersion})
 }
 
 // resolveEnvironmentConfig resolves a specific environment configuration
@@ -195,6 +220,7 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 			fmt.Printf("  ❌ Failed to resolve configuration for %s: %v\n", envName, err)
 			continue
 		}
+		applyKubeVersionOverride(envConfig)
 
 		provisionOpts := pfactory.ProvisionOptions{
 			DryRun:   dryRun,

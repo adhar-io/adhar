@@ -1,0 +1,167 @@
+# Ephemeral preview environments, one per pull request (ADR-0017).
+#
+# ─────────────────────────────── how it works ───────────────────────────────
+#
+#   matrix
+#     ├─ scmProvider(gitea, org `adhar`)  → every repo that ships `preview/kustomization.yaml`
+#     └─ pullRequest(gitea, that repo)    → every OPEN PR on it labelled `preview`
+#
+#   ⇒ Application `<repo>-pr-<number>`
+#        source     http://gitea-http…/adhar/<repo> @ the PR head SHA, path `preview/`
+#        kustomize  namespace → preview-<repo>-<number>
+#                   image     → harbor…/library/<repo>:<head sha>
+#                   patch     → HTTPRoute hostname <repo>-pr-<number>.adhar.localtest.me
+#        destination namespace preview-<repo>-<number> (created, labelled, pruned)
+#
+# Opting a repo in is one file: `preview/kustomization.yaml`, a Kustomize overlay
+# over the repo's own manifests (`../manifests` for Backstage golden paths,
+# `../deploy` for Console-scaffolded ones — the overlay is what reconciles the two
+# layouts, which is why it, and not a fixed path, is the opt-in marker). The
+# golden-path skeletons ship it. Opting a single PR in is one label: `preview`.
+#
+# ─────────────────────────── image tag = PR head SHA ────────────────────────
+# The supply-chain `app-ci` pipeline pushes every build under two tags — `:latest`
+# and `:<commit sha>` — and its `pull_request` trigger builds the head of any PR
+# labelled `preview`. The kustomize image override below therefore resolves to an
+# image that exists, and a preview never silently shows `:latest` from main.
+# The overlay pins the container to `harbor-core…/library/<repo>:latest`; this
+# override (matched on that image NAME) swaps only the tag.
+#
+# ───────────────────────────────── lifecycle ────────────────────────────────
+# Closing or merging the PR removes it from the generator's result set; the
+# ApplicationSet controller then DELETES the Application, and the
+# `resources-finalizer.argoproj.io` finalizer cascades that into a prune of every
+# resource it owned — including the Namespace, which the overlay declares as a
+# managed resource precisely so it is pruned (a namespace created only by
+# `CreateNamespace=true` is unmanaged and would be left behind). Dropping the
+# `preview` label has the same effect.
+#
+# So there is deliberately NO reaper CronJob: closed-PR teardown is automatic.
+# What is *not* covered is an abandoned but still-open PR, which keeps its preview
+# for as long as it stays open — that is a capacity question the ResourceQuota in
+# 10-preview-guardrails.yaml bounds, and a stale-PR CronOperation (ADR-0005) is the
+# place to reap it if a fleet ever needs one.
+#
+# ──────────────────────────────────── SSO ───────────────────────────────────
+# Previews are NOT put behind the platform oauth2-proxy. Every other package's
+# `sso.yaml` needs a Keycloak client per hostname (hack/gen-sso.sh), and preview
+# hostnames are born and destroyed with pull requests — a per-PR OIDC client would
+# have to be provisioned and reaped by something, which is exactly the preview
+# operator ADR-0017 rejected. Previews are reachable only on the platform Gateway
+# (locally: localhost:8443; in cloud: whatever fronts the Gateway, typically a
+# private LB or a VPN), so they are unauthenticated-but-internal. Do not put
+# anything at a preview URL you would not put on the internal network, and give
+# previews synthetic data only (ADR-0017, "data is disposable and synthetic").
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: preview-environments
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: preview-environments
+    app.kubernetes.io/part-of: adhar-platform
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  # Deleting a generated Application must delete its resources — the whole point
+  # of a preview is that closing the PR reclaims the capacity.
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  generators:
+    - matrix:
+        generators:
+          # 1. Which repositories participate. `pathsExist` is evaluated on the
+          #    repo's default branch, so a PR that ADDS preview/ does not preview
+          #    itself — the first preview for a repo starts after that merges.
+          - scmProvider:
+              gitea:
+                owner: adhar
+                api: http://gitea-http.adhar-system.svc.cluster.local:3000
+                allBranches: false
+                tokenRef:
+                  secretName: gitea-credential
+                  key: token
+              filters:
+                - pathsExist: ["preview/kustomization.yaml"]
+          # 2. Which pull requests on those repositories. `{{ .repository }}` comes
+          #    from the generator above (matrix interpolates the first generator's
+          #    parameters into the second).
+          - pullRequest:
+              # Poll interval bounds "push → preview updated" latency (ADR-0017).
+              requeueAfterSeconds: 60
+              gitea:
+                owner: adhar
+                repo: "{{ .repository }}"
+                api: http://gitea-http.adhar-system.svc.cluster.local:3000
+                tokenRef:
+                  secretName: gitea-credential
+                  key: token
+                # Opt-in per PR. Remove the label → the preview is torn down.
+                labels:
+                  - preview
+  template:
+    metadata:
+      name: "{{ .repository }}-pr-{{ .number }}"
+      labels:
+        adhar.io/preview: "true"
+        adhar.io/preview-repo: "{{ .repository }}"
+        adhar.io/preview-pr: "{{ .number }}"
+      annotations:
+        adhar.io/preview-url: "https://{{ .repository }}-pr-{{ .number }}.adhar.localtest.me:8443"
+        adhar.io/preview-head-sha: "{{ .head_sha }}"
+      finalizers:
+        - resources-finalizer.argoproj.io
+    spec:
+      project: default
+      source:
+        # In-cluster URL (org repos are readable by the platform token); avoids
+        # external TLS and per-repo credentials.
+        repoURL: "http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/{{ .repository }}"
+        # The PR head, not the branch name: every push moves the SHA, ArgoCD
+        # re-syncs, and the preview always matches what CI built.
+        targetRevision: "{{ .head_sha }}"
+        path: preview
+        kustomize:
+          # Rewrites metadata.namespace on every namespaced resource AND
+          # metadata.name on the Namespace the overlay declares.
+          namespace: "preview-{{ .repository }}-{{ .number }}"
+          images:
+            - "harbor-core.adhar-system.svc.cluster.local/library/{{ .repository }}:{{ .head_sha }}"
+          patches:
+            # One preview, one hostname. The literal domain below is rewritten to
+            # the cluster's real host when the stack is seeded into Gitea
+            # (stageStack), the same way every other package's httproute.yaml is.
+            - target:
+                group: gateway.networking.k8s.io
+                kind: HTTPRoute
+              patch: |-
+                - op: replace
+                  path: /spec/hostnames
+                  value:
+                    - "{{ .repository }}-pr-{{ .number }}.adhar.localtest.me"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "preview-{{ .repository }}-{{ .number }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        # Belt and braces: the overlay also declares the Namespace (so it is
+        # pruned on teardown), but CreateNamespace removes the first-sync race
+        # where a namespaced resource is applied before its namespace exists.
+        managedNamespaceMetadata:
+          labels:
+            adhar.io/plane: preview
+            adhar.io/preview: "true"
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

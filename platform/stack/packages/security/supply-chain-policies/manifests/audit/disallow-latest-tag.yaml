@@ -1,0 +1,74 @@
+# ADR-0019 supply-chain admission — reproducible image tags (AUDIT stage).
+#
+# Mutable tags make deployments unreproducible and rollbacks meaningless. The
+# platform's own `app-ci` pipeline pushes BOTH `:latest` and `:<commit sha>` for
+# every build precisely so workloads can reference the immutable one.
+#
+# The platform namespaces are excluded: several foundation components are
+# deliberately tracked at `:latest` (adhar-console is pinned to the rolling
+# image on purpose), and gating the platform's own control loop is an
+# ADR-0012-class cluster-wide risk.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow :latest Tag (Audit)
+    policies.kyverno.io/category: Supply Chain (ADR-0019)
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Workload images must carry an explicit, immutable tag. AUDIT stage:
+      `:latest` and untagged images are reported, not blocked.
+spec:
+  background: true
+  failurePolicy: Ignore
+  rules:
+    - name: require-image-tag
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - adhar-system
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - local-path-storage
+                - crossplane-system
+                - kpack-system
+                - cert-manager
+                - cosign-system
+          - resources:
+              namespaceSelector:
+                matchLabels:
+                  adhar.io/plane: control
+      validate:
+        failureAction: Audit
+        message: "An explicit image tag is required (':latest' or untagged images are not reproducible). The platform build pipeline publishes every image as <repo>:<commit sha> — use that."
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image }}"
+                    operator: Equals
+                    value: "*:latest"
+                  - key: "{{ contains(element.image, ':') }}"
+                    operator: Equals
+                    value: false
+          # initContainers are part of the workload too; a `foreach` over an
+          # absent list is a no-op, so this is safe for Pods that have none.
+          - list: "request.object.spec.initContainers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image }}"
+                    operator: Equals
+                    value: "*:latest"
+                  - key: "{{ contains(element.image, ':') }}"
+                    operator: Equals
+                    value: false

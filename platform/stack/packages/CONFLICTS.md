@@ -25,9 +25,11 @@ overwrite each other's content on every sync.
 | `Secret/webhook-certs` | cosign, tekton | RESOLVED — tekton reads the name from `WEBHOOK_SECRET_NAME`, so its generator renames it to `tekton-webhook-certs`. |
 | `ConfigMap/config-logging`, `config-observability` | knative, open-function, **tekton** | knative/open-function are disabled. kpack's copies are renamed `buildpack-config-*` (and its `CONFIG_*_NAME` env vars repointed) by its generator. |
 | `ConfigMap/config-defaults`, `config-tracing`, `config-registry-cert`, `feature-flags`, `pipelines-info` | open-function, **tekton** | open-function vendors Knative's and Tekton's copies. Disabled. |
+| `Service/webhook` → `WEBHOOK_PORT` env | **cosign** (policy-controller) vs. any pod that parses env with a strict decoder | RESOLVED per-consumer — Kubernetes injects `WEBHOOK_PORT=tcp://<ip>:443` for every pod in the namespace, and chaos-mesh's dashboard reads `WEBHOOK_PORT` as an integer, so it crash-looped with `converting 'tcp://10.107.33.255:443' to type int`. cosign hardcodes the Service name in its binary, so the consumer opts out: `enableServiceLinks: false` on the chaos-mesh workloads (applied in its generate-manifests.sh). Any future package that decodes env strictly needs the same. |
 | dapr/keda objects (`Deployment/dapr-operator`, `Service/keda-operator`, …) | open-function, **dapr**, **keda** | open-function vendors whole sub-stacks the platform already runs. Disabled. |
 | `Deployment/workflow-controller`, `ConfigMap/workflow-controller-configmap`, `ServiceAccount/argo`, `argoproj.io` CRDs | kubeflow, **argo-workflows** | RESOLVED — kubeflow's generator strips its bundled Argo Workflows control plane and runs on the shared controller. |
 | `ServiceAccount/minio-sa` | mimir, **minio** | mimir bundles its own MinIO. |
+| `ClusterSecretStore/vault`, `Service/vault` | **openbao**, vault | MUTUALLY EXCLUSIVE — exactly one secrets backend may be enabled. Production enables `openbao`; `vault` is disabled. See below. |
 | `DaemonSet/node-agent` | kubescape, velero | Both enabled — pre-existing. |
 | `ConfigMap/adhar-dashboard-external-dns`, `adhar-dashboard-opensearch` | kube-prometheus, external-dns / opensearch | Same dashboard shipped twice; cosmetic. |
 
@@ -48,6 +50,35 @@ rename left kpack's webhook crash-looping with `secret "webhook-certs" not
 found`). So buildpack keeps `kpack-system` and cosign lives in `adhar-system`;
 Tekton pins `WEBHOOK_PORT` explicitly, so cosign's `Service/webhook` service
 link in adhar-system is harmless.
+
+### vault ↔ openbao (unresolved by design: enable exactly one)
+
+[OpenBao](https://openbao.org) is the Linux Foundation / OpenSSF fork of
+HashiCorp Vault, released under MPL-2.0 rather than Vault's BUSL-1.1. It is
+wire-compatible with Vault's HTTP API, and the platform deliberately keeps every
+downstream name identical so consumers never have to know which backend is
+running:
+
+| Name | Owned by | Why it is shared |
+|---|---|---|
+| `ClusterSecretStore/vault` | both packages | Consumers reference the store **by name** (`ai/adhar-ai/manifests/llm-secret-external.yaml`, `ai/vllm/manifests/hf-token.yaml`). Renaming it would silently wedge each of their ExternalSecrets in `SecretSyncedError`. The External Secrets provider is `vault:` either way. |
+| `Service/vault` | vault (from its chart) / openbao (`manifests/vault-compat.yaml`) | Consumers address the backend by DNS name: `core/adhar-console` (`VAULT_URL`) and `security/credential-rotation` (break-glass write). |
+| `vault_*` Prometheus metrics | both | OpenBao keeps Vault's metric namespace, so `observability/kube-prometheus/manifests/dashboard-vault.yaml` works for either. |
+| `MutatingWebhookConfiguration/*-agent-injector-cfg` | both (distinct names) | Two agent injectors in one namespace would both mutate pods; only one belongs. |
+
+Because both packages define `ClusterSecretStore/vault` and `Service/vault`,
+enabling both makes two ArgoCD Applications claim the same objects: they flap
+between OutOfSync and Synced and overwrite each other every sync, and the store
+alternates between pointing at `vault` and at `openbao`. **Enable exactly one.**
+
+- `adhar-appset-production.yaml` / `environments/production/config.yaml`:
+  `openbao` enabled, `vault` disabled.
+- `adhar-appset-local.yaml` / `environments/local/config.yaml`: both disabled
+  (a single Kind node does not need a secrets backend).
+
+Switching backends is not a data migration: OpenBao starts on empty `file`
+storage under `/openbao/data`. Export from Vault and re-import before flipping
+the flags — see `security/openbao/README.md`.
 
 ## 2. Service-link environment variable collisions
 

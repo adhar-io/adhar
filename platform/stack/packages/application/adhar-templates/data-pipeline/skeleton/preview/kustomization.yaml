@@ -1,0 +1,54 @@
+# Preview overlay (ADR-0017) — the file that opts this repository into
+# ephemeral per-pull-request preview environments.
+#
+# The platform's `preview-environments` package runs ONE ApplicationSet whose
+# Gitea pull-request generator finds every repo in the `adhar` org that ships
+# this file, and every open PR on it labelled `preview`. For each match it
+# creates an ArgoCD Application that syncs `preview/` at the PR head SHA, and
+# supplies from the outside everything that varies per pull request:
+#
+#   namespace   preview-<repo>-<pr>        (kustomize `namespace:`)
+#   image tag   the PR head commit SHA     (kustomize `images:`, matched on the
+#                                           image NAME pinned below)
+#   hostname    <repo>-pr-<pr>.<domain>    (a JSON patch on the HTTPRoute)
+#
+# Closing the PR (or removing the label) deletes the Application and prunes the
+# namespace. Nothing in CI creates or destroys environments.
+#
+# So this file holds only what does NOT vary per PR. `../manifests` stays the
+# single source of truth; add preview-only overrides (fixture data, feature
+# flags, a smaller replica count) as further patches below.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../manifests
+patches:
+  # Run the image the paved-road pipeline built for this PR, not the base
+  # placeholder. The image NAME must match what the preview ApplicationSet
+  # overrides (harbor…/library/<repo>, and the repo name is the component name);
+  # the `latest` tag here is a stand-in it replaces with the PR head SHA.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ${{values.name}}
+      spec:
+        replicas: 1
+        template:
+          spec:
+            containers:
+              - name: dagster-webserver
+                image: harbor-core.adhar-system.svc.cluster.local/library/${{values.name}}:latest
+  # Mark the namespace as an ephemeral preview. The platform's Kyverno policy
+  # (preview-namespace-guardrails) keys its ResourceQuota + LimitRange off
+  # `adhar.io/preview`, and `adhar.io/plane: preview` keeps the ADR-0023
+  # placement audit green for a namespace that is neither control nor data plane.
+  - target:
+      kind: Namespace
+    patch: |-
+      - op: add
+        path: /metadata/labels/adhar.io~1plane
+        value: preview
+      - op: add
+        path: /metadata/labels/adhar.io~1preview
+        value: "true"

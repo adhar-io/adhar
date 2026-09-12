@@ -10,11 +10,25 @@
 #                     (<app>.adhar.localtest.me), e.g. trino
 #   upstream-service  Service (in adhar-system) the current HTTPRoute points at
 #   upstream-port     its port
-#   extra args        appended verbatim to the oauth2-proxy container args, e.g.
-#                     more upstreams for multi-backend routes:
+#   extra args        appended to the oauth2-proxy container args, e.g. more
+#                     upstreams for multi-backend routes:
 #                       --upstream=http://oncall-grafana.adhar-system.svc.cluster.local:80/grafana
-#                     (oauth2-proxy routes by longest upstream path first and
-#                     forwards the request path unchanged).
+#
+#                     IMPORTANT -- oauth2-proxy mount-path semantics (v7,
+#                     pkg/upstream/proxy.go registerHandler): a mount path that
+#                     ends in '/' is registered with mux PathPrefix and matches
+#                     everything below it; a mount path WITHOUT a trailing slash
+#                     is registered with mux Path and matches that ONE path
+#                     exactly. So '--upstream=http://svc:8000/api' does not serve
+#                     /api/instances/ -- that request falls through to the '/'
+#                     catch-all (the app's web UI), which silently breaks every
+#                     API call behind the proxy. This script therefore appends a
+#                     trailing slash to every non-root upstream path; requests to
+#                     the bare path are 301'd to the slashed form by
+#                     oauth2-proxy's trailing-slash handler. Upstreams are sorted
+#                     by longest path internally, so the order here is cosmetic;
+#                     the request path is forwarded unchanged (the upstream URL's
+#                     own path is cleared).
 #
 # Environment knobs:
 #   SSO_BEARER=1      machine-facing endpoint (ingestion APIs such as loki /
@@ -114,8 +128,20 @@ if [[ "${BEARER}" == "1" ]]; then
 # with ${PREFIX}_CLIENT_SECRET from keycloak-clients) pass straight through."
 fi
 
+# Normalise upstream mount paths: oauth2-proxy only prefix-matches a path that
+# ends in '/' (see the header note). A non-root upstream without one is an exact
+# match and everything below it silently lands on the '/' catch-all.
 EXTRA_YAML=""
 for a in "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"; do
+  if [[ "${a}" == --upstream=* ]]; then
+    u="${a#--upstream=}"
+    # path = whatever follows scheme://host[:port]
+    rest="${u#*://}"
+    path="/${rest#*/}"
+    if [[ "${rest}" == */* && "${path}" != "/" && "${path}" != */ ]]; then
+      a="--upstream=${u}/"
+    fi
+  fi
   EXTRA_YAML+=$'\n'"            - ${a}"
 done
 

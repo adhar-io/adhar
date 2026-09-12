@@ -41,11 +41,32 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/trivy/manifests"
+          # SECRETS BACKEND -- EXACTLY ONE OF vault / openbao MAY BE ENABLED.
+          # Both packages claim ClusterSecretStore/vault and Service/vault in the
+          # shared adhar-system namespace, so two enabled Applications would
+          # fight over the same objects forever (ADR-0011, CONFLICTS.md).
+          #
+          # vault is DISABLED: production now runs OpenBao instead. OpenBao is
+          # the Linux Foundation / OpenSSF fork of Vault under MPL-2.0, whereas
+          # HashiCorp Vault is BUSL-1.1 -- a source-available licence that does
+          # not fit a 100% open-source platform. OpenBao is wire-compatible, so
+          # nothing downstream changed: the ESO ClusterSecretStore keeps the
+          # name `vault`, the provider stays `vault:`, the `vault` Service name
+          # is republished by the openbao package, and the vault_* Prometheus
+          # metrics (and the dashboard-vault Grafana board) are unchanged.
+          # Re-enable vault ONLY after disabling openbao below.
           - name: "vault"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/vault/manifests"
+          # openbao is the enabled production secrets backend (see above).
+          # Mutually exclusive with vault; enabling both breaks both.
+          - name: "openbao"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "security"
+            manifestPath: "security/openbao/manifests"
           # cosign installs into the shared adhar-system namespace (ADR-0011).
           # policy-controller hardcodes Service/webhook and Secret/webhook-certs
           # in its binary, so neither can be renamed: tekton was moved off the
@@ -70,6 +91,51 @@ spec:
             category: "ai"
             plane: "control"
             manifestPath: "ai/adhar-ai/manifests"
+          # AI data plane (ADR-0025) — agentgateway: ONE governed endpoint for LLM
+          # completions + federated MCP tools, with Keycloak JWT, group-based
+          # authorization, prompt guardrails, token budgets and OTel traces.
+          # Replaces adhar-ai's bespoke adhar-ai-llm-gateway. Enabled exactly
+          # where adhar-ai is enabled and no wider — AI is opt-in.
+          - name: "agentgateway"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/agentgateway/manifests"
+          # Self-hosted, OpenAI-compatible LLM inference (vLLM). THREE elements
+          # from one package directory: "vllm" is the shared surface (model-cache
+          # PVC, Service, HTTPRoute, ServiceMonitor, Grafana dashboard, optional
+          # HF-token ExternalSecret); "vllm-cpu" and "vllm-gpu" each carry one
+          # Deployment. Enable "vllm" plus EXACTLY ONE profile -- both
+          # Deployments are named `vllm` and share one Service, so enabling both
+          # makes two Applications fight over the same object.
+          #
+          # ALL THREE OFF BY DEFAULT: vLLM is heavy and entirely optional. Turning
+          # it on is a capacity decision, not a default -- the GPU profile needs a
+          # GPU node pool with the NVIDIA device plugin advertising nvidia.com/gpu
+          # (Adhar's default droplets are CPU-only), ~15 GB of model weights on the
+          # PVC, and 4 CPU / 16Gi of host RAM per replica. Nothing in the platform
+          # depends on it; ai/agentgateway and ai/adhar-ai fall back to a hosted
+          # model until it is enabled. On a cloud cluster WITHOUT GPU nodes,
+          # "vllm-cpu" is still a valid (slow) choice for small models.
+          - name: "vllm"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/vllm/manifests"
+          - name: "vllm-cpu"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/vllm/manifests/cpu"
+          - name: "vllm-gpu"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "ai"
+            plane: "control"
+            manifestPath: "ai/vllm/manifests/gpu"
           # Per-service production-readiness score cards (roadmap Phase 3), surfaced
           # in the Console. Read-only scorer CronJob → adhar-scorecards ConfigMap.
           - name: "scorecards"
@@ -130,6 +196,11 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/metabase/manifests"
+          - name: "libredb-studio"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "data"
+            manifestPath: "data/libredb-studio/manifests"
           - name: "lakefs"
             enabled: "true"
             namespace: "adhar-system"
@@ -293,6 +364,25 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/policy-reporter/manifests"
+          # ADR-0019 supply-chain admission pack, shipped in two stages. The
+          # AUDIT pack is always on: its findings land in ClusterPolicyReports
+          # and predict exactly what Enforce would block. The ENFORCE pack is
+          # the documented knob — flip it to "true" (here AND in
+          # platform/stack/environments/<env>/config.yaml) to make unsigned /
+          # :latest / untrusted-registry workloads fail admission. Leave the
+          # audit pack enabled; the two coexist (policy names differ by an
+          # `-enforce` suffix). See the package README for the staging recipe
+          # and hack/verify-supply-chain.sh for the drill that proves it works.
+          - name: "supply-chain-policies"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "security"
+            manifestPath: "security/supply-chain-policies/manifests/audit"
+          - name: "supply-chain-policies-enforce"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "security"
+            manifestPath: "security/supply-chain-policies/manifests/enforce"
           # Opt-in compliance profiles (CIS / SOC2-oriented), Audit mode.
           - name: "policy-packs"
             enabled: "false"
@@ -376,6 +466,16 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/supply-chain/manifests"
+          # Ephemeral per-PR preview environments (ADR-0017): an ApplicationSet with the
+          # Gitea pull-request generator, plus the Kyverno ResourceQuota/LimitRange
+          # guardrails for preview namespaces. Costs nothing until a repo ships
+          # preview/kustomization.yaml and a PR is labelled `preview`, so it is on
+          # everywhere.
+          - name: "preview-environments"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/preview-environments/manifests"
           - name: "adhar-libraries"
             enabled: "true"
             namespace: "adhar-system"

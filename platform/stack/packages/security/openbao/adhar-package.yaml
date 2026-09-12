@@ -1,0 +1,48 @@
+# Adhar marketplace contract for the openbao package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+#
+# MUTUALLY EXCLUSIVE with the `vault` package: both claim
+# ClusterSecretStore/vault and Service/vault in the shared adhar-system
+# namespace. Exactly one secrets backend may be enabled (CONFLICTS.md).
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: openbao
+category: security
+version: "0.29.4"
+appVersion: "v2.6.2"
+description: OpenBao — the Linux Foundation fork of HashiCorp Vault (MPL-2.0); the platform's secret backend, consumed by External Secrets so workloads see native Secrets.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: MPL-2.0
+homepage: https://openbao.org
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: openbao/openbao
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: stable
+resources:
+  storage: "10Gi"
+  footprint: small
+  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - secrets
+  - openbao
+  - vault
+  - kms
+  - encryption

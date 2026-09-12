@@ -1,0 +1,55 @@
+# Optional HuggingFace token for GATED model repositories.
+#
+# The default models of both profiles are ungated and Apache-2.0
+# (Qwen/Qwen2.5-0.5B-Instruct on CPU, Qwen/Qwen2.5-7B-Instruct on GPU), so this
+# Secret is EMPTY and unused out of the box. Point a profile at a gated repo
+# (meta-llama/Llama-3.1-8B-Instruct, google/gemma-2-9b-it, …) and the download
+# 401s without a token that has accepted that repo's licence.
+#
+# Git carries a pointer, never the value (ADR-0009): the token is read from the
+# platform's secrets backend through the `vault` ClusterSecretStore (OpenBao
+# in production, HashiCorp Vault otherwise), exactly as ai/adhar-ai's
+# llm-secret-external.yaml reads the LLM key.
+#
+#   vault kv put secret/vllm/hf HF_TOKEN="hf_..."
+#
+# The `template` block with a `default ""` is the important part: if the store has
+# no vllm/hf entry, ESO still materialises the Secret with an empty value, so
+# the Deployment's secretKeyRef resolves and the pod starts (ungated models do
+# not care about an empty token). Without it, a missing entry would leave
+# the Secret absent and the sync would look broken for a feature nobody enabled.
+# The Deployments additionally mark the reference `optional: true` so even a
+# torn-down external-secrets cannot block vLLM from starting.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: vllm-hf-token
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+  annotations:
+    # Ahead of the Deployments (wave 5) so the Secret exists when they start.
+    argocd.argoproj.io/sync-wave: "0"
+    # The ExternalSecret CRD comes from the external-secrets package; on a fresh
+    # cluster this manifest can be dry-run before that CRD is registered.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault
+    kind: ClusterSecretStore
+  target:
+    name: vllm-hf-token
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        HF_TOKEN: '{{ .hfToken | default "" }}'
+  data:
+    - secretKey: hfToken
+      remoteRef:
+        key: vllm/hf
+        property: HF_TOKEN
+        conversionStrategy: Default

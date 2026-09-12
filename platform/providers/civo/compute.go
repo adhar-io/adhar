@@ -284,7 +284,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		return nil, fmt.Errorf("control-plane node not ready: %w", err)
 	}
 
-	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, master.PublicIP, master.PrivateIP)
+	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, master.PublicIP, master.PrivateIP, provider.PodCIDROrDefault(spec))
 	if err != nil {
 		return nil, err
 	}

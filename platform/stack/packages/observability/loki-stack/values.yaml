@@ -62,12 +62,18 @@ singleBinary:
   persistence:
     enabled: true
     size: 10Gi
+  # Sized for the ingestion limits set above, not for the chart's defaults.
+  # One process runs every Loki target (-target=all) and now buffers chunks in
+  # memory until they flush to MinIO, so 32 MB/s of accepted ingest does not fit
+  # in the 1 GiB the chart ships: on the verified cluster loki-0 was OOMKilled
+  # (exit 137) 18 times in five hours. Raise the ingestion limits and this
+  # together, never one without the other.
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
+      cpu: 200m
       memory: 1Gi
+    limits:
+      memory: 4Gi
 
 # Zero out the scalable-mode targets; SingleBinary carries everything.
 backend:

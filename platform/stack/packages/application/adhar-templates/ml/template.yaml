@@ -1,0 +1,92 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  description: >-
+    Golden path: a machine-learning service on the platform — a Kubeflow
+    Pipelines (KFP v2) training pipeline that trains a scikit-learn model and
+    publishes it to the platform artifact store, and a hardened FastAPI model
+    server behind the Gateway API. Ships a runnable `kfp` pipeline, a serving
+    container, on-platform manifests (Deployment/Service/HTTPRoute/ConfigMap +
+    a retraining CronJob), a preview overlay for per-PR environments
+    (ADR-0017), and the control-plane app descriptor (.adhar/app.yaml).
+  name: ml
+  title: Golden Path - ML Service
+spec:
+  owner: guests
+  type: service
+  parameters:
+    - title: Configuration Options
+      required:
+        - name
+        - modelName
+      properties:
+        name:
+          type: string
+          description: name of this ML service (repo, namespace and image name)
+        owner:
+          type: string
+          description: owning team recorded in the adhar.io/owner label
+          default: guests
+        description:
+          type: string
+          description: what this model does
+          default: KFP training pipeline + FastAPI model server paved road
+        modelName:
+          type: string
+          description: >-
+            logical model name — the artifact prefix in the platform object
+            store and the value served as `model_name`
+          default: example-classifier
+        framework:
+          type: string
+          description: training framework the pipeline uses
+          default: scikit-learn
+          enum:
+            - scikit-learn
+            - xgboost
+            - pytorch
+        trainingSchedule:
+          type: string
+          description: cron schedule for the retraining job (UTC)
+          default: "0 3 * * 0"
+
+  steps:
+    - id: template
+      name: Generating component
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{parameters.name}}
+          owner: ${{parameters.owner}}
+          description: ${{parameters.description}}
+          modelName: ${{parameters.modelName}}
+          framework: ${{parameters.framework}}
+          trainingSchedule: ${{parameters.trainingSchedule}}
+
+    - id: publish
+      name: Publishing to a gitea git repository
+      action: publish:gitea
+      input:
+        description: Golden-path ML service
+        # Hard coded value for this demo purposes only.
+        repoUrl: gitea.adhar.localtest.me:8443?repo=${{parameters.name}}
+        defaultBranch: main
+    # NOTE: unlike the older templates there is no `adhar:create-argocd-app`
+    # step here. This skeleton ships `.adhar/app.yaml` — a CompositeApplication
+    # — and the platform's `adhar-services` ApplicationSet adopts any org repo
+    # carrying that descriptor, so the control plane creates the ArgoCD
+    # Application itself. Creating one here as well would leave two Applications
+    # managing the same resources.
+    - id: register
+      name: Register
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: 'catalog-info.yaml'
+
+  output:
+    links:
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}

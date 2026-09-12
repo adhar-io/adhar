@@ -1,0 +1,33 @@
+# LibreDB Studio routed through the Cilium Gateway (adhar-gateway). TLS
+# terminates at the Gateway (adhar-cert), replacing the chart's Ingress (left
+# disabled in values.yaml — never an nginx Ingress). Served on its own host,
+# libredb.<host>, because the app speaks OIDC itself and its callback
+# (/api/auth/oidc/callback) is a root-relative path.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: libredb-studio
+  namespace: adhar-system
+  annotations:
+    # After the Service (wave 0, from the chart): ArgoCD holds a wave until its
+    # resources are healthy, and an HTTPRoute whose backend Service does not
+    # exist yet is Degraded (ResolvedRefs=False).
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/name: libredb-studio
+    app.kubernetes.io/instance: libredb-studio
+    app.kubernetes.io/part-of: libredb-studio
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - libredb.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: libredb-studio
+          port: 80

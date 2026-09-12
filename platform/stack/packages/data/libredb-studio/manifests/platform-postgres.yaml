@@ -1,0 +1,123 @@
+# LibreDB Studio's own server-side storage, provisioned from the platform CNPG
+# operator (same pattern as data/metabase/manifests/platform-postgres.yaml).
+#
+# Studio defaults to keeping connections, tabs and query history in the
+# browser's localStorage. That is per-browser, per-device state, which is the
+# wrong shape once logins come from Keycloak — and it is also the mode in which
+# the server cannot resolve a managed connection's credentials for the user.
+# values.yaml therefore sets STORAGE_PROVIDER=postgres, and this is that
+# PostgreSQL: the platform's own, never a bundled one (ADR-0011 rule: never
+# bundle a capability the platform already provides — the chart's Bitnami
+# postgresql subchart stays disabled).
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: libredb-db
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-6"}
+spec:
+  length: 28
+  digits: 5
+  # No symbols: the password is interpolated into the STORAGE_POSTGRES_URL that
+  # keycloak-client.yaml assembles, and a '/' or '@' there would be read as URL
+  # structure rather than as password.
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: libredb-db-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-6"}
+spec:
+  # '0' = generate once and never rotate: the password is baked into the role
+  # at first initialisation, so a refresh would desynchronise Secret and
+  # database.
+  refreshInterval: '0'
+  target:
+    name: libredb-db-credentials
+    template:
+      # CNPG requires basic-auth with `username` + `password`, and `username`
+      # MUST equal bootstrap.initdb.owner below.
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: libredb-studio
+      engineVersion: v2
+      data:
+        username: libredb
+        password: '{{ .PASSWORD }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: libredb-db
+      rewrite:
+        - transform:
+            template: 'PASSWORD'
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: libredb-db
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: libredb-db
+    adhar.io/component: libredb-studio
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+    # See console-db: CNPG Clusters overflow client-side apply's last-applied
+    # annotation; pin ServerSideApply so ArgoCD uses SSA/force-conflicts
+    # instead of the invalid replace(--force) + --server-side combination.
+    argocd.argoproj.io/sync-options: ServerSideApply=true,SkipDryRunOnMissingResource=true
+spec:
+  instances: 1
+  # Expose the instance exporter to kube-prometheus: CNPG creates a PodMonitor
+  # (skipped gracefully while the monitoring CRDs are absent) so the Platform and
+  # CloudNativePG dashboards show this cluster. Without it no cnpg_* series exist.
+  monitoring:
+    enablePodMonitor: true
+  storage:
+    # Studio stores one JSON document per user (connections, tabs, history) —
+    # kilobytes, not gigabytes. 5Gi is the platform floor, set because 1Gi
+    # filled with retained WAL the moment archiving to MinIO hiccuped.
+    size: 5Gi
+  enableSuperuserAccess: false
+  bootstrap:
+    initdb:
+      database: libredb
+      owner: libredb
+      secret:
+        name: libredb-db-credentials
+  backup:
+    retentionPolicy: 7d  # a week of PITR; 30d of WAL for every platform DB filled the shared MinIO
+    barmanObjectStore:
+      destinationPath: s3://adhar-backups/cnpg/libredb-db
+      endpointURL: http://minio.adhar-system.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId:
+          name: root-creds
+          key: rootUser
+        secretAccessKey:
+          name: root-creds
+          key: rootPassword
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: libredb-db-daily
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: libredb-db
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  schedule: "0 45 1 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: libredb-db

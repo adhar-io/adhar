@@ -1,0 +1,430 @@
+# Grafana dashboard for the scaffolded static frontend `${{values.name}}` — the RED method
+# (Rate, Errors, Duration) over the standard Prometheus HTTP series.
+#
+# Hand-written for the same reason as servicemonitor.yaml: a scaffolded repo is
+# plain YAML under manifests/ (ArgoCD directory-recurse), so the skeleton has to
+# ship the dashboard itself for a golden-path app to arrive observable.
+#
+# Discovered by the Grafana sidecar through `grafana_dashboard: "1"`
+# (searchNamespace: ALL, so it is found in the app's own namespace) and filed
+# under the "Application" folder — app-runtime dashboards live there, the
+# platform's own components live under "Platform".
+#
+# Every series it queries is fed by manifests/servicemonitor.yaml, whose
+# `jobLabel: app.kubernetes.io/name` makes `job="${{values.name}}"`:
+#
+#   http_requests_total                      (status)
+#   http_request_duration_seconds_bucket     (le)
+#
+# These are the conventional names emitted by promhttp, prometheus_client,
+# prom-client and the OpenTelemetry Prometheus exporter alike, so the dashboard
+# keeps working across a rewrite of the service.
+#
+# Counters are not pre-initialized, and the placeholder image this skeleton
+# ships does not emit them at all — panels stay empty until you expose
+# metrics on the `http` port. See docs/monitoring.md.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-dashboard-${{values.name}}
+  namespace: ${{values.name | dump}}
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: adhar-observability
+    app.kubernetes.io/name: ${{values.name}}
+    entity-id: ${{values.name}}
+  annotations:
+    grafana_folder: "Application"
+    # Wave 10: the repo's first-boot ordering rule for every monitoring object.
+    argocd.argoproj.io/sync-wave: "10"
+data:
+  ${{values.name}}.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "schemaVersion": 39,
+      "title": "${{values.name}} \u2014 RED",
+      "uid": "adhar-app-${{values.name}}",
+      "tags": [
+        "adhar",
+        "application",
+        "golden-path",
+        "${{values.name}}"
+      ],
+      "timezone": "browser",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "refresh": "30s",
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "type": "textbox",
+            "label": "Namespace",
+            "description": "Namespace the app runs in \u2014 defaults to the app name, which is what manifests/namespace.yaml creates.",
+            "query": "${{values.name}}",
+            "current": {
+              "text": "${{values.name}}",
+              "value": "${{values.name}}"
+            },
+            "options": [
+              {
+                "text": "${{values.name}}",
+                "value": "${{values.name}}",
+                "selected": true
+              }
+            ],
+            "hide": 0,
+            "skipUrlSync": false
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "RED \u2014 rate, errors, duration",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Request rate",
+          "description": "Requests per second served by this app, all routes and all status codes.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "decimals": 2,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "none",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(http_requests_total{namespace=\"$namespace\",job=\"${{values.name}}\"}[5m]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "rps"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Error ratio (5xx)",
+          "description": "Share of responses with a 5xx status over the last 5 minutes. Red above 5%.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "decimals": 2,
+              "min": 0,
+              "max": 1,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.01
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.05
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(http_requests_total{namespace=\"$namespace\",job=\"${{values.name}}\",status=~\"5..\"}[5m]))\n  /\nsum(rate(http_requests_total{namespace=\"$namespace\",job=\"${{values.name}}\"}[5m]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "error ratio"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Request rate by status",
+          "description": "sum by (status) \u2014 the same counter split by response status, so a 5xx spike is visible next to the traffic that caused it.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "decimals": 2,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": false,
+                "axisPlacement": "auto",
+                "axisSoftMin": 0,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (status) (rate(http_requests_total{namespace=\"$namespace\",job=\"${{values.name}}\"}[5m]))",
+              "range": true,
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Request duration (p50 / p95 / p99)",
+          "description": "Quantiles computed from the http_request_duration_seconds histogram. Empty until the app has served its first request.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 6
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 3,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "spanNulls": false,
+                "axisPlacement": "auto",
+                "axisSoftMin": 0,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\",job=\"${{values.name}}\"}[5m])))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "p50"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\",job=\"${{values.name}}\"}[5m])))",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "p95"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\",job=\"${{values.name}}\"}[5m])))",
+              "range": true,
+              "refId": "C",
+              "legendFormat": "p99"
+            }
+          ]
+        }
+      ]
+    }

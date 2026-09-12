@@ -1,0 +1,6 @@
+site_name: 'Golden Path - ML Service'
+nav:
+  - Home: index.md
+  - Monitoring: monitoring.md
+plugins:
+  - techdocs-core

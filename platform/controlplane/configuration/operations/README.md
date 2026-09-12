@@ -16,8 +16,7 @@ composition functions; here they run [`function-python`](../functions/functions.
 
 ### `backup-cronoperation.yaml` — `adhar-daily-backup`
 A `CronOperation` on `schedule: "0 2 * * *"` (daily, 02:00). Its pipeline emits a
-**Velero `Backup` (`velero.io/v1`)** for the `adhar-system` and
-`crossplane-system` namespaces (168h TTL). `concurrencyPolicy: Forbid` prevents
+**Velero `Backup` (`velero.io/v1`)** for the `adhar-system` namespace (168h TTL). `concurrencyPolicy: Forbid` prevents
 overlapping runs; `successfulHistoryLimit: 5` / `failedHistoryLimit: 3` cap the
 retained `Operation` objects.
 

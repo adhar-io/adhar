@@ -17,6 +17,7 @@ limitations under the License.
 package provider
 
 import (
+	"adhar-io/adhar/globals"
 	"context"
 	"fmt"
 	"strconv"
@@ -430,6 +431,12 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 	spec := &types.ClusterSpec{
 		Provider: envConfig.ResolvedProvider,
 		Region:   envConfig.ResolvedRegion,
+		// The platform default, overridden below by the environment's
+		// `kubeVersion`/`version` clusterConfig entry (which `adhar up
+		// --kube-version` rewrites when the flag is given explicitly). Leaving
+		// it empty pushed the decision down into each provider, so the same
+		// config produced different Kubernetes versions per cloud.
+		Version: globals.DefaultKubernetesVersion,
 		ObjectMeta: types.ObjectMeta{
 			Name: envConfig.Name,
 		},
@@ -490,6 +497,11 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 			// nodeSize (DO/generic) and machineType (GKE) are the config.yaml
 			// spellings; nodeInstanceType/instanceType are internal aliases.
 			spec.NodeGroups[0].InstanceType = kv.Value
+		case "podCIDR", "podCidr", "podNetworkCIDR":
+			// A cluster that will join a Cilium Cluster Mesh must not share a
+			// Pod CIDR with its peers, so the environment can move off the
+			// platform default (10.244.0.0/16).
+			spec.Networking.PodCIDR = kv.Value
 		case "diskSize":
 			// Note: DiskSize not available in current NodeGroupSpec
 			// This could be added to the spec if needed in the future

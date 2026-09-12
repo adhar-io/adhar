@@ -120,7 +120,21 @@ func (p *Provider) ensureComputeVPC(ctx context.Context, clusterName string) (st
 // ensureComputeFirewall creates the cluster firewall targeting the cluster tag:
 // SSH + Kubernetes API + NodePort range from anywhere, everything between
 // cluster members, all egress.
-func (p *Provider) ensureComputeFirewall(ctx context.Context, clusterName string) (string, error) {
+// computeVPCCIDR returns a VPC's IP range, or "" when it cannot be read. The
+// firewall falls back to tag-only rules in that case.
+func (p *Provider) computeVPCCIDR(ctx context.Context, vpcUUID string) string {
+	if vpcUUID == "" {
+		return ""
+	}
+	vpc, _, err := p.client.VPCs.Get(ctx, vpcUUID)
+	if err != nil || vpc == nil {
+		log.Printf("Warning: could not read VPC %s to build firewall rules: %v", vpcUUID, err)
+		return ""
+	}
+	return vpc.IPRange
+}
+
+func (p *Provider) ensureComputeFirewall(ctx context.Context, clusterName, vpcCIDR string) (string, error) {
 	fwName := fmt.Sprintf("adhar-%s-fw", clusterName)
 	tag := computeClusterTag(clusterName)
 
@@ -132,11 +146,13 @@ func (p *Provider) ensureComputeFirewall(ctx context.Context, clusterName string
 		return "", fmt.Errorf("failed to create cluster tag %s: %w", tag, err)
 	}
 
+	existingID := ""
 	fws, _, err := p.client.Firewalls.List(ctx, &godo.ListOptions{PerPage: 200})
 	if err == nil {
 		for _, fw := range fws {
 			if fw.Name == fwName {
-				return fw.ID, nil
+				existingID = fw.ID
+				break
 			}
 		}
 	}
@@ -169,6 +185,35 @@ func (p *Provider) ensureComputeFirewall(ctx context.Context, clusterName string
 			{Protocol: "udp", PortRange: "1-65535", Destinations: &godo.Destinations{Addresses: []string{"0.0.0.0/0", "::/0"}}},
 			{Protocol: "icmp", Destinations: &godo.Destinations{Addresses: []string{"0.0.0.0/0", "::/0"}}},
 		},
+	}
+
+	// Peers sharing the VPC. Adhar normally gives every cluster its own VPC,
+	// in which case this is the tag rule said a second way. It matters when an
+	// operator deliberately places two Adhar clusters in one VPC to join them
+	// in a Cilium Cluster Mesh: the tag-scoped rules above stop at the cluster
+	// boundary, so without this the peers can reach each other's NodePorts
+	// (open to the world) but not each other's VXLAN tunnel (8472/udp) — the
+	// clustermesh control plane connects and every cross-cluster packet is
+	// dropped.
+	if vpcCIDR != "" {
+		vpcSrc := &godo.Sources{Addresses: []string{vpcCIDR}}
+		req.InboundRules = append(req.InboundRules,
+			godo.InboundRule{Protocol: "tcp", PortRange: "1-65535", Sources: vpcSrc},
+			godo.InboundRule{Protocol: "udp", PortRange: "1-65535", Sources: vpcSrc},
+			godo.InboundRule{Protocol: "icmp", Sources: vpcSrc},
+		)
+	}
+
+	// Converge an existing firewall instead of leaving it on whatever rule set
+	// it was created with: rules added by a later release (the VPC peer rules
+	// above) have to reach clusters that already exist.
+	if existingID != "" {
+		fw, _, err := p.client.Firewalls.Update(ctx, existingID, req)
+		if err != nil {
+			log.Printf("Warning: could not update firewall %s: %v", fwName, err)
+			return existingID, nil
+		}
+		return fw.ID, nil
 	}
 
 	fw, _, err := p.client.Firewalls.Create(ctx, req)
@@ -238,7 +283,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	if err != nil {
 		return nil, err
 	}
-	if _, err := p.ensureComputeFirewall(ctx, name); err != nil {
+	if _, err := p.ensureComputeFirewall(ctx, name, p.computeVPCCIDR(ctx, vpcUUID)); err != nil {
 		return nil, err
 	}
 
@@ -319,7 +364,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	if err := enableExternalCloudProvider(signer, masterIP, masterPrivateIP); err != nil {
 		return nil, fmt.Errorf("failed to enable external cloud provider on master: %w", err)
 	}
-	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, masterIP, masterPrivateIP)
+	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, masterIP, masterPrivateIP, provider.PodCIDROrDefault(spec))
 	if err != nil {
 		return nil, err
 	}
@@ -513,6 +558,18 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterName string)
 	tag := computeClusterTag(name)
 	log.Printf("Deleting self-managed cluster %q (droplets tagged %s)", name, tag)
 
+	// Remember which droplets belong to this cluster BEFORE they are deleted:
+	// it is the only reliable way to recognise the load balancers the cloud
+	// controller created for it (see deleteComputeLoadBalancers).
+	clusterDroplets := map[int]bool{}
+	if existing, err := p.computeClusterDroplets(ctx, name); err == nil {
+		for i := range existing {
+			clusterDroplets[existing[i].ID] = true
+		}
+	} else {
+		log.Printf("Warning: could not enumerate droplets of cluster %s before deletion: %v", name, err)
+	}
+
 	if _, err := p.client.Droplets.DeleteByTag(ctx, tag); err != nil {
 		return fmt.Errorf("failed to delete droplets for cluster %s: %w", name, err)
 	}
@@ -539,7 +596,7 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterName string)
 	// volumes behind PersistentVolumes (DO CSI, tagged with the cluster tag by
 	// installDOCloudIntegration). Left behind they keep billing and block the
 	// VPC deletion below.
-	p.deleteComputeLoadBalancers(ctx, name)
+	p.deleteComputeLoadBalancers(ctx, name, clusterDroplets)
 	p.deleteComputeVolumes(ctx, tag)
 
 	// Firewall
@@ -573,11 +630,13 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterName string)
 		}
 	}
 
-	// Cluster tags (droplet deletion does not remove them)
-	for _, t := range []string{tag, computeMasterTag, computeWorkerTag} {
-		if _, err := p.client.Tags.Delete(ctx, t); err != nil {
-			log.Printf("Note: tag %s not deleted (may be shared with other clusters): %v", t, err)
-		}
+	// Only the per-cluster tag. The role tags are shared by every Adhar
+	// cluster in the account, and deleting a DigitalOcean tag strips it from
+	// all of them — which silently breaks the surviving clusters, because
+	// `adhar cluster scale`, the upgrade path and the node autoscaler all find
+	// the control plane by adhar-role-master.
+	if _, err := p.client.Tags.Delete(ctx, tag); err != nil {
+		log.Printf("Note: tag %s not deleted: %v", tag, err)
 	}
 
 	// Registered SSH key
@@ -605,17 +664,18 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterName string)
 // type=LoadBalancer — the platform Gateway — and nothing deletes them once the
 // cluster's droplets are gone) and waits for them to disappear so the VPC can
 // be deleted afterwards.
-func (p *Provider) deleteComputeLoadBalancers(ctx context.Context, name string) {
-	vpcName := fmt.Sprintf("adhar-%s-vpc", name)
-	var vpcID string
-	if vpcs, _, err := p.client.VPCs.List(ctx, &godo.ListOptions{PerPage: 200}); err == nil {
-		for _, v := range vpcs {
-			if v.Name == vpcName {
-				vpcID = v.ID
-			}
-		}
-	}
-	if vpcID == "" {
+// deleteComputeLoadBalancers removes the load balancers DigitalOcean's cloud
+// controller created for this cluster (the platform Gateway's, typically).
+//
+// They are matched by their backend droplets, not by VPC. Matching on a
+// per-cluster VPC was wrong twice over: it missed every load balancer when the
+// cluster was placed in an existing VPC (`providers.digitalocean.config.vpc_uuid`
+// — which is exactly what a Cluster Mesh needs), silently leaving a billing
+// load balancer behind, and in that same shared-VPC case a VPC match would have
+// swept up a *sibling* cluster's load balancer. A load balancer is this
+// cluster's when every droplet behind it is.
+func (p *Provider) deleteComputeLoadBalancers(ctx context.Context, name string, clusterDroplets map[int]bool) {
+	if len(clusterDroplets) == 0 {
 		return
 	}
 	lbs, _, err := p.client.LoadBalancers.List(ctx, &godo.ListOptions{PerPage: 200})
@@ -625,7 +685,7 @@ func (p *Provider) deleteComputeLoadBalancers(ctx context.Context, name string) 
 	}
 	var deleted []string
 	for _, lb := range lbs {
-		if lb.VPCUUID != vpcID {
+		if !ownedByCluster(lb.DropletIDs, clusterDroplets) {
 			continue
 		}
 		if _, err := p.client.LoadBalancers.Delete(ctx, lb.ID); err != nil {
@@ -802,7 +862,16 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 		if err != nil {
 			return err
 		}
-		userData := provider.KubeadmNodePrepScript(provider.KubeadmDefaultK8sMinor)
+		// A worker added later must run the SAME Kubernetes minor as the
+		// cluster it joins. Using the CLI's compiled-in default would add a
+		// v1.37 node to a v1.36 cluster — a version skew kubeadm rejects — and
+		// this path is what both `adhar cluster scale` and the node autoscaler
+		// drive, so ask the control plane what it actually runs.
+		k8sMinor := provider.KubeadmDefaultK8sMinor
+		if out, verr := provider.SSHRun(signer, computeSSHUser, masterIP, "kubeadm version -o short", time.Minute); verr == nil {
+			k8sMinor = provider.K8sMinorFromVersion(strings.TrimSpace(out))
+		}
+		userData := provider.KubeadmNodePrepScript(k8sMinor)
 		joinCmd, err := provider.SSHRun(signer, computeSSHUser, masterIP, "kubeadm token create --print-join-command", 2*time.Minute)
 		if err != nil {
 			return fmt.Errorf("failed to create join token: %w", err)
@@ -974,4 +1043,19 @@ func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUI
 	}
 	log.Printf("DigitalOcean cloud integration installed (CCM %s, CSI %s)", "v0.1.62", "v4.14.0")
 	return nil
+}
+
+// ownedByCluster reports whether every droplet in ids belongs to the cluster —
+// and that there is at least one, so an already-drained load balancer is not
+// claimed by whichever cluster happens to be deleted first.
+func ownedByCluster(ids []int, clusterDroplets map[int]bool) bool {
+	if len(ids) == 0 {
+		return false
+	}
+	for _, id := range ids {
+		if !clusterDroplets[id] {
+			return false
+		}
+	}
+	return true
 }

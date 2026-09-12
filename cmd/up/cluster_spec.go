@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,7 +126,15 @@ func ensureClusterSpecConfigMap(
 			clusterConfigValue(envConfig, "nodeSize", "nodeInstanceType", "instanceType", "machineType"),
 			providerConfigValue(envConfig, "droplet_size", "vm_size", "machine_type", "instance_type"),
 		),
-		"kubernetesVersion": clusterConfigValue(envConfig, "kubeVersion", "version"),
+		// Same precedence the provisioner used: the environment's pin (which
+		// an explicit `adhar up --kube-version` has already rewritten), else
+		// the platform default. It must never be empty — the autoscaler preps
+		// a joining node with this version, and an empty one would silently
+		// fall back to whatever the controller image was compiled with.
+		"kubernetesVersion": firstNonEmpty(
+			clusterConfigValue(envConfig, "kubeVersion", "version"),
+			globals.DefaultKubernetesVersion,
+		),
 	}
 	if envConfig != nil {
 		data["region"] = envConfig.ResolvedRegion
@@ -244,4 +253,45 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// clusterMeshSpecFromConfig reads the environment's Cilium Cluster Mesh
+// identity out of `environments[].clusterConfig`. The mesh name defaults to
+// the environment's cluster name (so `dev`/adhar-mgmt keeps the identity baked
+// into the embedded Cilium manifest and a second environment automatically
+// gets its own), and the cluster ID defaults to 1 — the value a single,
+// unmeshed platform has always run with. A cluster that others must connect
+// TO also needs `clusterMeshApiServer: "true"`, which deploys
+// clustermesh-apiserver and exposes it (NodePort by default: a LoadBalancer
+// per cluster is real money, and the peer only needs one reachable address).
+func clusterMeshSpecFromConfig(envConfig *config.ResolvedEnvironmentConfig) *v1alpha1.ClusterMeshSpec {
+	if envConfig == nil {
+		return nil
+	}
+	name := clusterConfigValue(envConfig, "clusterMeshName", "meshName")
+	if name == "" {
+		name = clusterConfigValue(envConfig, "name", "clusterName")
+	}
+	idStr := clusterConfigValue(envConfig, "clusterMeshId", "clusterMeshID", "clusterId", "clusterID")
+	apiServer := clusterConfigValue(envConfig, "clusterMeshApiServer", "clusterMeshAPIServer")
+
+	spec := &v1alpha1.ClusterMeshSpec{Name: name}
+	if id, err := strconv.Atoi(idStr); err == nil && id >= 1 && id <= 255 {
+		spec.ID = int32(id)
+	}
+	if enabled, err := strconv.ParseBool(apiServer); err == nil && enabled {
+		svcType := clusterConfigValue(envConfig, "clusterMeshServiceType")
+		if svcType == "" {
+			svcType = "NodePort"
+		}
+		api := &v1alpha1.ClusterMeshAPIServerSpec{Enabled: true, ServiceType: svcType}
+		if port, err := strconv.Atoi(clusterConfigValue(envConfig, "clusterMeshNodePort")); err == nil && port > 0 {
+			api.NodePort = int32(port)
+		}
+		spec.APIServer = api
+	}
+	if spec.Name == "" && spec.ID == 0 && spec.APIServer == nil {
+		return nil
+	}
+	return spec
 }

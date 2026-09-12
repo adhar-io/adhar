@@ -1,0 +1,108 @@
+# Keycloak SSO for the OpenBao UI.
+#
+# Three pieces:
+#   1. `openbao-keycloak-client` — a ConfigMap labelled adhar.io/keycloak-client=true
+#      carrying a `client.json`. The keycloak package's client reconciler (see
+#      security/keycloak/manifests/keycloak-config.yaml, configure.sh) picks up
+#      every such ConfigMap in adhar-system, creates/reconciles the client in the
+#      `adhar` realm, gives it the `groups` default client scope, and — for
+#      confidential clients — exports its secret into the keycloak-clients Secret
+#      as OPENBAO_CLIENT_ID / OPENBAO_CLIENT_SECRET (PREFIX = clientId
+#      upper-cased, '-' -> '_').
+#      NOTE: the vault package declares its own `vault` client inside
+#      keycloak-config.yaml; openbao declares its own here, so the two never
+#      collide even though only one of them is ever enabled.
+#   2. `openbao-oidc` — republishes OPENBAO_CLIENT_SECRET as a local Secret.
+#   3. `openbao-ca` — the self-signed platform CA, needed because OpenBao has no
+#      TLS-skip for OIDC discovery.
+# Both land as local Secrets in adhar-system so the openbao-bootstrap Job can
+# read them with its existing namespace-scoped RBAC (no cross-namespace grants).
+#
+# Host convention: https://openbao.adhar.localtest.me:8443 is rewritten to the
+# real domain by the platform controller when seeding cloud clusters.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-keycloak-client
+  namespace: adhar-system
+  labels:
+    # Picked up by the keycloak package's client reconciler.
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: openbao-keycloak-client
+    app.kubernetes.io/part-of: openbao
+  # Wave 0: a ConfigMap is healthy instantly and blocks nothing; the earlier it
+  # exists, the sooner the reconciler exports the client secret.
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  # Keep "description" under 255 chars (Keycloak varchar; longer fails with 500).
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "openbao",
+      "name": "OpenBao Client",
+      "description": "Used for OpenBao UI OIDC login (confidential client)",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "post.logout.redirect.uris": "https://openbao.adhar.localtest.me:8443/*"
+      },
+      "redirectUris": [
+        "https://openbao.adhar.localtest.me:8443/ui/vault/auth/oidc/oidc/callback",
+        "https://openbao.adhar.localtest.me:8443/v1/auth/oidc/oidc/callback",
+        "http://localhost:8250/oidc/callback"
+      ],
+      "webOrigins": ["https://openbao.adhar.localtest.me:8443"]
+    }
+---
+# The Keycloak `openbao` client secret, from keycloak-clients (written by the
+# client reconciler). Wave 40 so it applies after the realm/client pass.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: openbao-oidc
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+spec:
+  # 1h, not "0": sync-once is a single attempt with no retry, so any ES created
+  # before the Keycloak client reconciler has written keycloak-clients wedges as
+  # SecretSyncedError forever.
+  refreshInterval: 1h
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: openbao-oidc
+  data:
+    - secretKey: OPENBAO_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: OPENBAO_CLIENT_SECRET
+---
+# The self-signed platform CA (adhar-cert.tls.crt from adhar-system). OpenBao has
+# no TLS-skip for OIDC, so it needs this as oidc_discovery_ca_pem to talk to
+# Keycloak over the Gateway's self-signed cert. The `gitea` ClusterSecretStore
+# already reads the adhar-system namespace (remoteNamespace: adhar-system).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: openbao-ca
+  namespace: adhar-system
+spec:
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: openbao-ca
+  data:
+    - secretKey: tls.crt
+      remoteRef:
+        key: adhar-cert
+        property: tls.crt

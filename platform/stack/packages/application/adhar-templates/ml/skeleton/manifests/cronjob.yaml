@@ -1,0 +1,78 @@
+# Scheduled retraining. The CronJob does NOT train in-cluster itself — it submits
+# the compiled KFP pipeline to the platform's Kubeflow Pipelines API, so the run
+# is tracked, its artifacts land in the platform object store, and its steps get
+# KFP's retries and caching. The Job is just the trigger.
+#
+# Requires `pipelines/pipeline.yaml` (compiled by `python pipelines/pipeline.py`)
+# to be present in the image the paved-road pipeline builds.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ${{values.name}}-train
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+spec:
+  schedule: ${{values.trainingSchedule | dump}}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            entity-id: ${{values.name}}
+            app.kubernetes.io/name: ${{values.name}}
+            adhar.io/owner: ${{values.owner}}
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: submit
+              # Placeholder until the paved-road pipeline promotes an image with
+              # pipelines/pipeline.yaml baked in: a stock python image installs
+              # the kfp client at run time and submits. Replace with your
+              # registry image — the command below stays the same.
+              image: docker.io/library/python:3.12-slim
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  pip install --no-cache-dir --quiet --target /tmp/site kfp==2.11.0
+                  PYTHONPATH=/tmp/site python - <<'PY'
+                  import os
+                  from kfp.client import Client
+                  client = Client(host=os.environ["KFP_ENDPOINT"])
+                  run = client.create_run_from_pipeline_package(
+                      "pipelines/pipeline.yaml",
+                      experiment_name=os.environ["KFP_EXPERIMENT"],
+                      run_name=f"{os.environ['MODEL_NAME']}-scheduled",
+                  )
+                  print("submitted KFP run", run.run_id)
+                  PY
+              envFrom:
+                - configMapRef:
+                    name: ${{values.name}}-model
+              env:
+                # pip and the kfp client both want a writable HOME.
+                - name: HOME
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi

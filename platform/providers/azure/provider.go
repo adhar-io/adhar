@@ -682,7 +682,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, master.PublicIP, 15*time.Minute); err != nil {
 		return nil, fmt.Errorf("control-plane node not ready: %w", err)
 	}
-	joinCmd, err := provider.KubeadmInitMaster(signer, azureSSHUser, master.PublicIP, master.PrivateIP)
+	joinCmd, err := provider.KubeadmInitMaster(signer, azureSSHUser, master.PublicIP, master.PrivateIP, provider.PodCIDROrDefault(spec))
 	if err != nil {
 		return nil, err
 	}

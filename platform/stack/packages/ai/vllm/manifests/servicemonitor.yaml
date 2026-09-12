@@ -1,0 +1,55 @@
+# Scrapes vLLM's Prometheus metrics.
+#
+# ENDPOINT: vLLM serves /metrics on the SAME port as the OpenAI API (8000) —
+# there is no separate metrics listener and no bearer token. Verified live:
+#   $ curl -s http://vllm.adhar-system:8000/metrics | head
+#   # HELP vllm:num_requests_running Number of requests in model execution batches.
+#
+# SELECTOR: targets the `vllm` Service, which carries monitoring: "true" (the
+# same discriminator data/minio uses). kube-prometheus runs with an empty
+# serviceMonitorSelector, so this is picked up cluster-wide with no release
+# label, and the resulting `job` label is the Service name, "vllm" — which is
+# what dashboard.yaml's $job template variable is regex-scoped to.
+#
+# METRIC NAMES (v0.29.0, vllm/v1/metrics/loggers.py — all labelled
+# model_name + engine):
+#   Gauges     vllm:num_requests_running, vllm:num_requests_waiting,
+#              vllm:kv_cache_usage_perc
+#   Counters   vllm:prompt_tokens_total, vllm:generation_tokens_total,
+#              vllm:request_success_total{finished_reason},
+#              vllm:prefix_cache_queries_total, vllm:prefix_cache_hits_total,
+#              vllm:num_preemptions_total
+#   Histograms vllm:time_to_first_token_seconds,
+#              vllm:inter_token_latency_seconds,
+#              vllm:e2e_request_latency_seconds,
+#              vllm:request_queue_time_seconds, …
+# ⚠️ The V0-engine names are GONE in the V1 engine and must not be used:
+# vllm:gpu_cache_usage_perc (→ vllm:kv_cache_usage_perc),
+# vllm:cpu_cache_usage_perc, vllm:num_requests_swapped,
+# vllm:avg_generation_throughput_toks_per_s (→ derive with rate()).
+#
+# 30s interval: the metrics are cheap (a few hundred series for one model) and
+# TTFT/ITL histograms only move when there is traffic.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vllm
+  namespace: adhar-system
+  labels:
+    adhar.io/component: observability
+    app.kubernetes.io/part-of: adhar-ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm
+      monitoring: "true"
+  endpoints:
+    - port: http
+      scheme: http
+      path: /metrics
+      interval: 30s

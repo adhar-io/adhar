@@ -1,0 +1,46 @@
+# Adhar marketplace contract for the adhar-console package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: adhar-console
+category: core
+version: "0.1.0"
+appVersion: latest
+description: 'Adhar Console — the Backstage-based developer portal: software catalog, golden-path scaffolding, ArgoCD and policy views, cloud shell.'
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://github.com/adhar-io/adhar-console
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: cnpg
+    category: data
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+    optional: true
+  - name: minio
+    category: data
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: stable
+resources:
+  localSafe: true   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - portal
+  - backstage
+  - catalog
+  - developer-experience

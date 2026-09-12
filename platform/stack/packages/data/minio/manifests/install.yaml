@@ -132,6 +132,7 @@ data:
     createBucket mlpipeline "none" false false false
     createBucket penpot "none" false false false
     createBucket loki "none" false false false
+    createBucket airbyte "none" false false false
     
   add-user: |-
     #!/bin/sh
@@ -497,7 +498,7 @@ spec:
         release: minio
       annotations:
         checksum/secrets: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
-        checksum/config: b0a3480c2ca588bff9f5775a86b7ccba97eaee3dc0c5f7d023739968ceabd49d
+        checksum/config: 63215b43c9e34112705ae749ce641bfe839004c276a90d23229d62154277761b
     spec:
       securityContext:
         

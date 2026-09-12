@@ -1,16 +1,35 @@
-# Preview environments per pull request (ADR-0017) — copy per application
-# repository that opts in, replace <app> with the repo name, and commit it to
-# the environments repo (or apply it directly). One preview namespace per open
-# PR labeled `preview`; closing the PR prunes everything.
+# Per-pull-request preview environments (ADR-0017).
 #
-# Lifecycle is fully declarative: ArgoCD's Pull Request generator polls Gitea
-# for open PRs — CI never creates or deletes environments (it only builds the
-# image and posts the preview URL). Guardrails (quotas, policies) come from
-# the platform's Kyverno pack; put a ResourceQuota in your app manifests to
-# cap each preview.
+# ─────────────────────────────────────────────────────────────────────────────
+# YOU PROBABLY DO NOT NEED THIS FILE ANY MORE.
+#
+# Preview environments are now a first-class platform package:
+#
+#     platform/stack/packages/application/preview-environments/
+#
+# enabled by default in the local, production and gitops ApplicationSets. It runs
+# ONE ApplicationSet for the whole `adhar` org: a matrix of the Gitea scmProvider
+# generator (every repo that ships `preview/kustomization.yaml`) × the Gitea
+# pullRequest generator (every open PR labelled `preview`). Opting a repository in
+# is a single file in that repository — no per-repo ApplicationSet to copy, and the
+# golden-path skeletons (microservice / frontend / data-pipeline / ml) already
+# ship it:
+#
+#     preview/kustomization.yaml     # overlay over ../manifests (or ../deploy)
+#
+# Then label a PR `preview` and the URL is
+# https://<repo>-pr-<number>.<your platform domain>. See User Guide §4.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# What is BELOW is the per-repository escape hatch: a single-repo preview
+# ApplicationSet, for when one repository needs preview mechanics the shared
+# package does not give it — a different path or base, an ephemeral CNPG database
+# per preview, a non-default ArgoCD project, a different label. Replace <app> with
+# the repository name and commit it to the `environments` repo (or apply it
+# directly). Prefer adding preview/kustomization.yaml to the repo instead.
 #
 # The token secret must carry the Gitea API token under the `token` key; the
-# platform's gitea-credential secret already does (adhar-system).
+# platform's gitea-credential secret in adhar-system already does.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -20,41 +39,65 @@ spec:
   goTemplate: true
   goTemplateOptions:
     - missingkey=error
+  syncPolicy:
+    # Closing the PR must reclaim the capacity.
+    preserveResourcesOnDeletion: false
   generators:
     - pullRequest:
         requeueAfterSeconds: 60
         gitea:
-          owner: gitea_admin
+          owner: adhar
           repo: <app>
           api: http://gitea-http.adhar-system.svc.cluster.local:3000
           tokenRef:
             secretName: gitea-credential
             key: token
-        # Previews are opt-in per PR: add the `preview` label on the PR.
-        labels:
-          - preview
+          # Previews are opt-in per PR: add the `preview` label on the PR.
+          labels:
+            - preview
   template:
     metadata:
-      name: "preview-<app>-pr-{{ .number }}"
+      name: "<app>-pr-{{ .number }}"
       labels:
         adhar.io/preview: "true"
-        adhar.io/preview-app: "<app>"
+        adhar.io/preview-repo: "<app>"
       finalizers:
         - resources-finalizer.argoproj.io
     spec:
       project: default
       source:
-        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/gitea_admin/<app>
+        repoURL: http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/<app>
         # Deploy the PR head so every push updates the preview.
         targetRevision: "{{ .head_sha }}"
-        path: manifests
+        path: preview
+        kustomize:
+          namespace: "preview-<app>-{{ .number }}"
+          # The app-ci pipeline tags every build with its commit SHA as well as
+          # :latest, so this resolves to the image built for THIS pull request.
+          images:
+            - "harbor-core.adhar-system.svc.cluster.local/library/<app>:{{ .head_sha }}"
+          patches:
+            - target:
+                group: gateway.networking.k8s.io
+                kind: HTTPRoute
+              patch: |-
+                - op: replace
+                  path: /spec/hostnames
+                  value:
+                    - "<app>-pr-{{ .number }}.adhar.localtest.me"
       destination:
         server: https://kubernetes.default.svc
-        namespace: "preview-<app>-pr-{{ .number }}"
+        namespace: "preview-<app>-{{ .number }}"
       syncPolicy:
         automated:
           prune: true
           selfHeal: true
+        managedNamespaceMetadata:
+          labels:
+            adhar.io/plane: preview
+            # The platform's Kyverno policy stamps a ResourceQuota + LimitRange
+            # onto any namespace carrying this label.
+            adhar.io/preview: "true"
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true

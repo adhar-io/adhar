@@ -19,9 +19,35 @@ global:
       emailSecretKey: instance-admin-email
       passwordSecretKey: instance-admin-password
 
+  # Object storage: the platform MinIO, never the MinIO subchart the chart bundles
+  # (ADR-0011 -- applications consume platform-provisioned capabilities). The
+  # bundled StatefulSet/Service/bucket-Pod are stripped in generate-manifests.sh
+  # (chart 1.9.3 has no `minio.enabled` toggle -- the objects are gated on
+  # `global.storage.type == "minio"`, and turning that off would switch Airbyte to
+  # the S3 provider). STORAGE_TYPE stays MINIO: that mode is S3 with path-style
+  # access and works against the platform MinIO unchanged.
+  #
+  # Postgres is still the chart's bundled airbyte-db for now; move it to a CNPG
+  # Cluster the way application/posthog does when that work is scheduled.
+  storage:
+    type: minio
+    # Credentials come from their own Secret, mirrored off the platform MinIO
+    # root credentials by ESO (manifests/platform-minio.yaml), instead of the
+    # chart's literal minio/minio123 in airbyte-airbyte-secrets.
+    secretName: airbyte-platform-minio
+    # One bucket for every Airbyte prefix; provisioned by data/minio/values.yaml.
+    bucket:
+      log: airbyte
+      state: airbyte
+      workloadOutput: airbyte
+      activityPayload: airbyte
+      auditLogging: airbyte
+    minio:
+      # Overrides the chart default "http://airbyte-minio-svc:9000"
+      # (templates/_helpers.tpl -> airbyte.storage.minio.endpoint), which is the
+      # only reference to the stripped subchart Service.
+      endpoint: http://minio.adhar-system.svc.cluster.local:9000
+
 webapp:
   ingress:
     enabled: false
-
-# Keep the embedded MinIO/Postgres the chart ships for a self-contained local
-# install; point these at the platform MinIO + cnpg Postgres for production.

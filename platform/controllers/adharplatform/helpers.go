@@ -25,6 +25,22 @@ func (r *AdharPlatformReconciler) applyManifest(ctx context.Context, manifestByt
 	return r.applyManifestOwned(ctx, manifestBytes, resource, manifestName, true)
 }
 
+// applyManifestStrict is applyManifest without the "CRD not installed yet"
+// escape hatch: a NoMatch error is returned instead of logged-and-skipped, so
+// the caller retries until the CRD exists.
+//
+// This matters for anything applied exactly once per platform lifetime. The
+// Crossplane ProviderConfigs are the case that bit us live: their CRDs are
+// registered by the provider *packages*, which install asynchronously, so on a
+// fresh cluster the first apply hits NoMatch. Under applyManifest that was
+// swallowed, applyControlPlaneConfiguration returned nil, and
+// Status.Crossplane.ControlPlaneApplied flipped to true — permanently gating the
+// retry. Result: a platform with every XRD/Composition/Provider installed and
+// *zero* ProviderConfigs, so every managed resource fails to reconcile.
+func (r *AdharPlatformReconciler) applyManifestStrict(ctx context.Context, manifestBytes []byte, resource *v1alpha1.AdharPlatform, manifestName string) error {
+	return r.applyManifestFull(ctx, manifestBytes, resource, manifestName, true, true)
+}
+
 // applyManifestNoOwner applies a YAML manifest WITHOUT any owner reference to the
 // AdharPlatform CR. Use this for GitOps handoff resources — the ArgoCD
 // ApplicationSet and its repo auth — whose lifecycle must be independent of the
@@ -41,6 +57,12 @@ func (r *AdharPlatformReconciler) applyManifestNoOwner(ctx context.Context, mani
 // true it sets a controller owner reference to the AdharPlatform CR on
 // same-namespace namespaced objects.
 func (r *AdharPlatformReconciler) applyManifestOwned(ctx context.Context, manifestBytes []byte, resource *v1alpha1.AdharPlatform, manifestName string, setOwnerRef bool) error {
+	return r.applyManifestFull(ctx, manifestBytes, resource, manifestName, setOwnerRef, false)
+}
+
+// applyManifestFull is the shared implementation. requireCRDs makes a missing
+// CRD (NoMatch) a hard error rather than a skip-with-warning.
+func (r *AdharPlatformReconciler) applyManifestFull(ctx context.Context, manifestBytes []byte, resource *v1alpha1.AdharPlatform, manifestName string, setOwnerRef, requireCRDs bool) error {
 	logger := log.FromContext(ctx)
 
 	decoder := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifestBytes), 100)
@@ -118,7 +140,7 @@ func (r *AdharPlatformReconciler) applyManifestOwned(ctx context.Context, manife
 			// Crossplane/GitOps stay blocked). These monitoring CRs are also
 			// shipped by the kube-prometheus package, which ArgoCD applies once
 			// the CRDs exist — so skip-with-warning here is safe and idempotent.
-			if meta.IsNoMatchError(err) {
+			if meta.IsNoMatchError(err) && !requireCRDs {
 				logger.Info("Skipping resource whose CRD is not installed yet during bootstrap; GitOps will reconcile it later",
 					"kind", groupVersionKind.Kind, "name", obj.GetName(), "manifest", manifestName)
 				continue

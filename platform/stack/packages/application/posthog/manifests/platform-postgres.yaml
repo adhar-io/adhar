@@ -108,3 +108,26 @@ spec:
   backupOwnerReference: self
   cluster:
     name: posthog-db
+---
+# PostHog split its person tables into a SEPARATE database. posthog/persons_db.py
+# reads PERSONS_DB_WRITER_URL and, with nothing set, falls back to host "db" --
+# which is why `apply_persons_migrations` failed the whole migrate Job with
+#   psycopg.OperationalError: [Errno -2] Name or service not known
+# The chart has no value for it, so the database is declared here and the URL is
+# injected through values.yaml `env`. The name `posthog_persons` is the one the
+# application expects.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: posthog-persons-db
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: posthog-db
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  name: posthog_persons
+  owner: posthog
+  cluster:
+    name: posthog-db

@@ -3025,7 +3025,7 @@ metadata:
     "helm.sh/chart": "posthog-30.46.0"
 type: Opaque
 data:
-  posthog-secret: "eGliSWllYVF2Y3NZTjBnWThoWlFCMXRRaWdMVVBna0prVG42b1RObQ=="
+  posthog-secret: "RDJRUGFvQlRia3lvTkpmd1Q1cENyM3pRWGdpSEFJeUNnaGkydGdpYQ=="
   smtp-password: ""
 ---
 # Source: posthog/charts/redis/templates/configmap.yaml
@@ -3942,7 +3942,7 @@ metadata:
     "app.kubernetes.io/managed-by": "Helm"
     "helm.sh/chart": "posthog-30.46.0"
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
   - port: 8000
     targetPort: 8000
@@ -3993,7 +3993,7 @@ metadata:
     "meta.helm.sh/release-name": "posthog"
     "meta.helm.sh/release-namespace": "adhar-system"
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
   - port: 8000
     targetPort: 8000
@@ -4167,7 +4167,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 81cd72602a340c824422f1aa172720c78162dbe3b564c61dc462652b5e2aac14
+        checksum/secrets.yaml: 6130e8d5cf8604b518bde66a56e658dba97a8468ac0de3d0398f4dec394e4ed6
       labels:
         app: posthog
         release: "posthog"
@@ -4233,7 +4233,7 @@ spec:
         - name: SITE_URL
           value: "http://127.0.0.1:8000"
         - name: DEPLOYMENT
-          value: helm_local_ha
+          value: hobby
         - name: CAPTURE_INTERNAL_METRICS
           value: "false"
         - name: HELM_INSTALL_INFO
@@ -4295,12 +4295,17 @@ spec:
           value: 
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
-        - name: SOCIAL_AUTH_GOOGLE_OAUTH2_KEY
-          value: null
-        - name: SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET
-          value: null
-        - name: SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS
-          value: posthog.com
+        - name: ADHAR_PERSONS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: postgresql-password
+              name: posthog-db-credentials
+        - name: PERSONS_DB_WRITER_URL
+          value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONS_DB_READER_URL
+          value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: WEB_CONCURRENCY
+          value: "2"
         lifecycle:
             preStop:
                 exec:
@@ -4339,14 +4344,18 @@ spec:
             path: /_readyz?role=events
             port: 8000
             scheme: HTTP
-          failureThreshold: 6
+          failureThreshold: 60
           initialDelaySeconds: 0
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 5
         resources:
         
-            {}
+            limits:
+              memory: 4Gi
+            requests:
+              cpu: 200m
+              memory: 1536Mi
         
       initContainers:        
         - name: wait-for-service-dependencies
@@ -4422,7 +4431,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 31c8541a42002e04b300890f0109fc1731b85900e41103f2a7fd4af2f60e911a
+        checksum/secrets.yaml: 53b80d77a52dcd8e87a751fc173f367c5fba80e7e3735e2b979026cde4ae71bf
 
         
 
@@ -4516,315 +4525,6 @@ spec:
                 "sleep 30 && kill -INT 1 && sleep 31"
               ]
 ---
-# Source: posthog/templates/plugins-deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: posthog-plugins
-  labels:
-    
-    "app.kubernetes.io/name": "posthog"
-    "app.kubernetes.io/instance": "posthog"
-    "app.kubernetes.io/managed-by": "Helm"
-    "helm.sh/chart": "posthog-30.46.0"
-  annotations:
-    
-    "meta.helm.sh/release-name": "posthog"
-    "meta.helm.sh/release-namespace": "adhar-system"
-spec:
-  selector:
-    matchLabels:
-        app: posthog
-        release: "posthog"
-        role: plugins
-  replicas: 1
-
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-
-  template:
-    metadata:
-      annotations:
-        checksum/secrets.yaml: 736e4056a67370d02e795ab34c77bfdb209f5c5615654e550d116ea8f3f31553
-      labels:
-        app: posthog
-        release: "posthog"
-        role: plugins
-    spec:
-      serviceAccountName: posthog
-      
-
-      # I do not know for sure if the old one has been used anywhere, so do both :(      
-
-      containers:
-      - name: posthog-plugins
-        image: "posthog/posthog:latest"
-        imagePullPolicy: Always
-        command:
-          - ./bin/plugin-server
-          - --no-restart-loop
-        ports:
-        # Expose the port on which the healtchheck endpoint listens
-        - containerPort: 6738
-        env:
-        
-
-        
-
-        - name: SENTRY_DSN
-          value: 
-
-        # Kafka env variables
-        
-        
-        # NOTE: This is deprecated and KAFKA_HOSTS should be used instead but whilst the chart is still available we need to keep this for backwards compatibility
-        - name: KAFKA_URL
-          value: "kafka://adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
-        
-        # Used by PostHog/plugin-server. Expected format: comma-separated list of "host:port"
-        - name: KAFKA_HOSTS
-          value: "adhar-kafka-kafka-bootstrap.adhar-system.svc.cluster.local:9092"
-        
-        # Used by PostHog/plugin-server when running a recordings workload. Expected format: comma-separated list of "host:port"
-        - name: SESSION_RECORDING_KAFKA_HOSTS
-          value: ""
-
-        # Object Storage env variables
-        
-        
-        
-
-        # Redis env variables
-        
-        
-        - name: POSTHOG_REDIS_HOST
-          value: posthog-posthog-redis-master
-        
-        - name: POSTHOG_REDIS_PORT
-          value: "6379"
-
-        # Session Recording Redis env variables
-        
-        - name: POSTHOG_SESSION_RECORDING_REDIS_HOST
-          value: posthog-posthog-redis-master
-        
-        - name: POSTHOG_SESSION_RECORDING_REDIS_PORT
-          value: "6379"
-
-        # statsd env variables
-                
-        - name: SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              name: posthog
-              key: posthog-secret
-        - name: SITE_URL
-          value: "http://127.0.0.1:8000"
-        - name: DEPLOYMENT
-          value: helm_local_ha
-        - name: CAPTURE_INTERNAL_METRICS
-          value: "false"
-        - name: HELM_INSTALL_INFO
-          value: "{\"chart_version\":\"30.46.0\",\"cloud\":\"local\",\"deployment_type\":\"helm\",\"hostname\":null,\"ingress_type\":\"\",\"kube_version\":\"v1.28.0\",\"operation\":\"install\",\"release_name\":\"posthog\",\"release_revision\":1}"
-        - name: LOGGING_FORMATTER_NAME
-          value: json
-        
-        - name: POSTHOG_POSTGRES_HOST
-          value: posthog-pgbouncer
-        - name: POSTHOG_POSTGRES_PORT
-          value: "6543"
-        - name: POSTHOG_DB_USER
-          value: "posthog"
-        - name: POSTHOG_DB_NAME
-          value: "posthog"
-        - name: POSTHOG_DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: "posthog-db-credentials"
-              key: "postgresql-password"
-        - name: USING_PGBOUNCER
-          value: 'true'
-        
-        - name: CLICKHOUSE_HOST
-          value: clickhouse-posthog
-        - name: CLICKHOUSE_CLUSTER
-          value: "posthog"
-        - name: CLICKHOUSE_DATABASE
-          value: "posthog"
-        - name: CLICKHOUSE_USER
-          value: "admin"
-        - name: CLICKHOUSE_PASSWORD
-          value: "a1f31e03-c88e-4ca6-a2df-ad49183d15d9"
-        - name: CLICKHOUSE_SECURE
-          value: "false"
-        - name: CLICKHOUSE_VERIFY
-          value: "false"
-        - name: CLICKHOUSE_MIGRATIONS_CLUSTER
-          value: posthog
-        livenessProbe:
-          exec:
-            command:
-              # Just check that we can at least exec to the container
-              - "true"
-          failureThreshold: 3
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          successThreshold: 1
-          timeoutSeconds: 2
-        readinessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /_health
-            port: 6738
-            scheme: HTTP
-          initialDelaySeconds: 50
-          periodSeconds: 30
-          successThreshold: 1
-          timeoutSeconds: 5
-        resources:
-            {}
-      initContainers:        
-        - name: wait-for-service-dependencies
-          image: busybox:1.34
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: CLICKHOUSE_HOST
-              value: clickhouse-posthog
-            - name: CLICKHOUSE_CLUSTER
-              value: "posthog"
-            - name: CLICKHOUSE_DATABASE
-              value: "posthog"
-            - name: CLICKHOUSE_USER
-              value: "admin"
-            - name: CLICKHOUSE_PASSWORD
-              value: "a1f31e03-c88e-4ca6-a2df-ad49183d15d9"
-            - name: CLICKHOUSE_SECURE
-              value: "false"
-            - name: CLICKHOUSE_VERIFY
-              value: "false"
-          command:
-            - /bin/sh
-            - -c
-            - >
-                
-                until (
-                    NODES_COUNT=$(wget -qO- \
-                        "http://$CLICKHOUSE_USER:$CLICKHOUSE_PASSWORD@clickhouse-posthog.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local:8123" \
-                        --post-data "SELECT count() FROM clusterAllReplicas('posthog', system, one)"
-                    )
-                    test ! -z $NODES_COUNT && test $NODES_COUNT -eq 1
-                );
-                do
-                    echo "waiting for all ClickHouse nodes to be available"; sleep 1;
-                done
-                
-        
-                until (nc -vz "posthog-pgbouncer" 6543);
-                do
-                    echo "waiting for PgBouncer"; sleep 1;
-                done
-        
-                
-        
-                
-                until (nc -vz "posthog-posthog-redis-master.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local" "6379");
-                do
-                    echo "waiting for Redis"; sleep 1;
-                done
-                
-        
-                        
-        - name: wait-for-migrations
-          image: "posthog/posthog:latest"
-          imagePullPolicy: IfNotPresent
-          command:
-            - /bin/sh
-            - -c
-            - >
-                until (python manage.py migrate --check);
-                do
-                    echo "Waiting for PostgreSQL database migrations to be completed"; sleep 1;
-                done
-        
-                until (python manage.py migrate_clickhouse --check);
-                do
-                    echo "Waiting for ClickHouse database migrations to be completed";
-                    sleep 1;
-                done
-          env:
-        
-          # PostgreSQL configuration
-          
-          - name: POSTHOG_POSTGRES_HOST
-            value: posthog-pgbouncer
-          - name: POSTHOG_POSTGRES_PORT
-            value: "6543"
-          - name: POSTHOG_DB_USER
-            value: "posthog"
-          - name: POSTHOG_DB_NAME
-            value: "posthog"
-          - name: POSTHOG_DB_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: "posthog-db-credentials"
-                key: "postgresql-password"
-          - name: USING_PGBOUNCER
-            value: 'true'
-          
-        
-          # Redis env variables  
-          
-          - name: POSTHOG_REDIS_HOST
-            value: posthog-posthog-redis-master
-          
-          - name: POSTHOG_REDIS_PORT
-            value: "6379"
-        
-          # ClickHouse env variables
-          - name: CLICKHOUSE_HOST
-            value: clickhouse-posthog
-          - name: CLICKHOUSE_CLUSTER
-            value: "posthog"
-          - name: CLICKHOUSE_DATABASE
-            value: "posthog"
-          - name: CLICKHOUSE_USER
-            value: "admin"
-          - name: CLICKHOUSE_PASSWORD
-            value: "a1f31e03-c88e-4ca6-a2df-ad49183d15d9"
-          - name: CLICKHOUSE_SECURE
-            value: "false"
-          - name: CLICKHOUSE_VERIFY
-            value: "false"
-        
-          # PostHog app settings
-          
-          - name: SECRET_KEY
-            valueFrom:
-              secretKeyRef:
-                name: posthog
-                key: posthog-secret
-          - name: SITE_URL
-            value: "http://127.0.0.1:8000"
-          - name: DEPLOYMENT
-            value: helm_local_ha
-          - name: CAPTURE_INTERNAL_METRICS
-            value: "false"
-          - name: HELM_INSTALL_INFO
-            value: "{\"chart_version\":\"30.46.0\",\"cloud\":\"local\",\"deployment_type\":\"helm\",\"hostname\":null,\"ingress_type\":\"\",\"kube_version\":\"v1.28.0\",\"operation\":\"install\",\"release_name\":\"posthog\",\"release_revision\":1}"
-          - name: LOGGING_FORMATTER_NAME
-            value: json
-          
-          - name: SENTRY_DSN
-            value: 
-        
-          # Global ENV variables
-          
-          - name: CLICKHOUSE_MIGRATIONS_CLUSTER
-            value: posthog
----
 # Source: posthog/templates/web-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -4857,7 +4557,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 46ab6112240764a04974904f16674521bc26df5b72d33988fc76ecf1efd215d8
+        checksum/secrets.yaml: 2fad722077353c53ba374dc308abb5bee30843f9cded2cd9da0bd821600d39c3
       labels:
         app: posthog
         release: "posthog"
@@ -4931,7 +4631,7 @@ spec:
         - name: SITE_URL
           value: "http://127.0.0.1:8000"
         - name: DEPLOYMENT
-          value: helm_local_ha
+          value: hobby
         - name: CAPTURE_INTERNAL_METRICS
           value: "false"
         - name: HELM_INSTALL_INFO
@@ -5007,12 +4707,17 @@ spec:
           value: 
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
-        - name: SOCIAL_AUTH_GOOGLE_OAUTH2_KEY
-          value: null
-        - name: SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET
-          value: null
-        - name: SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS
-          value: posthog.com
+        - name: ADHAR_PERSONS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: postgresql-password
+              name: posthog-db-credentials
+        - name: PERSONS_DB_WRITER_URL
+          value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONS_DB_READER_URL
+          value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: WEB_CONCURRENCY
+          value: "2"
         lifecycle:
             preStop:
                 exec:
@@ -5051,13 +4756,17 @@ spec:
             path: /_readyz
             port: 8000
             scheme: HTTP
-          failureThreshold: 6
+          failureThreshold: 60
           initialDelaySeconds: 0
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 5
         resources:
-            {}
+            limits:
+              memory: 6Gi
+            requests:
+              cpu: 250m
+              memory: 2Gi
       initContainers:        
         - name: wait-for-service-dependencies
           image: busybox:1.34
@@ -5181,7 +4890,7 @@ spec:
           - name: SITE_URL
             value: "http://127.0.0.1:8000"
           - name: DEPLOYMENT
-            value: helm_local_ha
+            value: hobby
           - name: CAPTURE_INTERNAL_METRICS
             value: "false"
           - name: HELM_INSTALL_INFO
@@ -5196,6 +4905,15 @@ spec:
           
           - name: CLICKHOUSE_MIGRATIONS_CLUSTER
             value: posthog
+          - name: ADHAR_PERSONS_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: postgresql-password
+                name: posthog-db-credentials
+          - name: PERSONS_DB_WRITER_URL
+            value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
+          - name: PERSONS_DB_READER_URL
+            value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
 ---
 # Source: posthog/templates/worker-deployment.yaml
 apiVersion: apps/v1
@@ -5229,7 +4947,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 28f24552086203f08d16a5c11f13d4a339ac539827d6a5bcbd537bf313057ed2
+        checksum/secrets.yaml: 5b8e54cfa0cfcb4ce67f05267819f92d6d644e972126ce4a81524506cd4efc57
       labels:
         app: posthog
         release: "posthog"
@@ -5293,7 +5011,7 @@ spec:
         - name: SITE_URL
           value: "http://127.0.0.1:8000"
         - name: DEPLOYMENT
-          value: helm_local_ha
+          value: hobby
         - name: CAPTURE_INTERNAL_METRICS
           value: "false"
         - name: HELM_INSTALL_INFO
@@ -5353,6 +5071,15 @@ spec:
           value: 
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
+        - name: ADHAR_PERSONS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: postgresql-password
+              name: posthog-db-credentials
+        - name: PERSONS_DB_WRITER_URL
+          value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONS_DB_READER_URL
+          value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
         resources:
             {}
       initContainers:        
@@ -5478,7 +5205,7 @@ spec:
           - name: SITE_URL
             value: "http://127.0.0.1:8000"
           - name: DEPLOYMENT
-            value: helm_local_ha
+            value: hobby
           - name: CAPTURE_INTERNAL_METRICS
             value: "false"
           - name: HELM_INSTALL_INFO
@@ -5493,6 +5220,15 @@ spec:
           
           - name: CLICKHOUSE_MIGRATIONS_CLUSTER
             value: posthog
+          - name: ADHAR_PERSONS_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: postgresql-password
+                name: posthog-db-credentials
+          - name: PERSONS_DB_WRITER_URL
+            value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
+          - name: PERSONS_DB_READER_URL
+            value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
 ---
 # Source: posthog/charts/redis/templates/master/application.yaml
 apiVersion: apps/v1
@@ -5652,7 +5388,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-migrate-2026-09-11-08-53-37
+  name: posthog-migrate-2026-09-12-17-29-35
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -5666,9 +5402,9 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-migrate-2026-09-11-08-53-37
+      name: posthog-migrate-2026-09-12-17-29-35
       annotations:
-        checksum/secrets.yaml: 8fb9b73a8c56e599551cb708d52dd56022a89fb766b3694f391c8c8b503bbfc1
+        checksum/secrets.yaml: b0175b8375a5d06b358a9748b4a7f2f8c1a90420c2d2ef1ce184927e75d17e11
       labels:
         app: posthog
         release: "posthog"
@@ -5718,6 +5454,15 @@ spec:
           value: "6379"
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
           value: posthog
+        - name: ADHAR_PERSONS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: postgresql-password
+              name: posthog-db-credentials
+        - name: PERSONS_DB_WRITER_URL
+          value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
+        - name: PERSONS_DB_READER_URL
+          value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
         # PostHog app settings        
         - name: SECRET_KEY
           valueFrom:
@@ -5727,7 +5472,7 @@ spec:
         - name: SITE_URL
           value: "http://127.0.0.1:8000"
         - name: DEPLOYMENT
-          value: helm_local_ha
+          value: hobby
         - name: CAPTURE_INTERNAL_METRICS
           value: "false"
         - name: HELM_INSTALL_INFO
@@ -6057,7 +5802,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-grafana-annotation-job-post-2026-09-11-08-53-37
+  name: posthog-grafana-annotation-job-post-2026-09-12-17-29-35
   labels:
     
     "app.kubernetes.io/name": "posthog"
@@ -6073,7 +5818,7 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-grafana-annotation-job-post-2026-09-11-08-53-37
+      name: posthog-grafana-annotation-job-post-2026-09-12-17-29-35
     spec:
       restartPolicy: Never
 

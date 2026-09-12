@@ -325,3 +325,41 @@ func TestCordonedAndControlPlaneNodesAreNotWorkers(t *testing.T) {
 		t.Fatalf("expected 1 schedulable worker, got %d", d.Workers)
 	}
 }
+
+// TestScaleUpOnVolumeAttachLimit pins the DigitalOcean reality that drove this
+// marker: the platform runs out of per-droplet block-device slots (7 on DO)
+// before it runs out of CPU or memory, and the scheduler reports that in a
+// message that mentions volumes. Another worker brings more slots, so this
+// must scale up — while a genuinely unschedulable volume (zone affinity) must
+// not, because another identical droplet would not help.
+func TestScaleUpOnVolumeAttachLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message string
+		wantUp  bool
+	}{
+		{
+			name: "attach limit is capacity",
+			message: "0/4 nodes are available: 1 node(s) had untolerated taint(s), " +
+				"3 node(s) exceed max volume count. preemption: 0/4 nodes are available.",
+			wantUp: true,
+		},
+		{
+			name:    "zone affinity is not capacity",
+			message: "0/4 nodes are available: 4 node(s) had volume node affinity conflict.",
+			wantUp:  false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := Decide(Snapshot{
+				Spec:  enabledSpec(),
+				Nodes: []corev1.Node{controlPlane(), worker("w1")},
+				Pods:  []corev1.Pod{pending("db-0", tc.message)},
+				Now:   testNow,
+			})
+			if got := d.Action == ActionScaleUp; got != tc.wantUp {
+				t.Fatalf("message %q: action=%s wantScaleUp=%v (%s)", tc.message, d.Action, tc.wantUp, d.Reason)
+			}
+		})
+	}
+}

@@ -1,0 +1,93 @@
+# agentgateway — Prometheus scrape configuration (ADR-0025).
+#
+# ---------------------------------------------------------------------------
+# WHY TWO OBJECTS, AND WHY NOT THE CHART'S OWN
+# ---------------------------------------------------------------------------
+# agentgateway is two processes with two metrics endpoints, and the interesting
+# ones are NOT on the Service:
+#
+#   * CONTROL PLANE — the `agentgateway` controller, metrics on the Service at
+#     port `metrics` (9092). xDS push health, config sync, build info. Scraped by
+#     the ServiceMonitor below.
+#   * DATA PLANE — the proxy pods the controller provisions per Gateway, metrics
+#     on the POD at port 15020. This is where every metric that matters lives:
+#     agentgateway_requests_total, agentgateway_gen_ai_client_token_usage,
+#     agentgateway_mcp_requests_total, agentgateway_guardrail_checks_total. The
+#     provisioned Service does NOT publish a metrics port, so a ServiceMonitor
+#     cannot reach them — hence the PodMonitor.
+#
+# The chart can emit both of these plus a dashboard (monitoring.enabled=true).
+# They are hand-written here instead because the chart renders them at sync-wave
+# 0: on a FIRST boot the monitoring.coreos.com CRDs may not be established yet
+# and the whole Application fails its dry run. The repo's ordering rule puts
+# every monitoring CR at sync-wave 10, which is what both objects below carry.
+# (See values.yaml `monitoring.enabled: false` for the matching note.)
+#
+# Prometheus' serviceMonitorSelector/podMonitorSelector are empty ({}) in
+# observability/kube-prometheus, so both are picked up as-is with no release
+# label to add.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: agentgateway
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/instance: agentgateway
+    app.kubernetes.io/managed-by: adhar
+    adhar.io/component: ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      # The chart's own selector labels on the controller Service.
+      app.kubernetes.io/name: agentgateway
+      app.kubernetes.io/instance: agentgateway
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 20s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: agentgateway-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway-proxy
+    app.kubernetes.io/instance: agentgateway
+    app.kubernetes.io/managed-by: adhar
+    adhar.io/component: ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    # Selects every proxy pod of OUR GatewayClass, by the standard Gateway API
+    # label the controller stamps on provisioned pods. Written as an expression
+    # rather than matchLabels on the Gateway NAME so a second agentgateway
+    # Gateway (a tenant-facing one, say) is scraped automatically. It cannot
+    # match Cilium's proxies: those carry gateway-class-name=adhar.
+    matchExpressions:
+      - key: gateway.networking.k8s.io/gateway-class-name
+        operator: In
+        values:
+          - agentgateway
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      # 15s, faster than the controller: these are the token/cost counters the
+      # dashboard's rate() panels and any spend alerting read. Counter and
+      # histogram series only appear after the first request of each kind, so a
+      # freshly installed gateway legitimately exposes only build_info and the
+      # process gauges until traffic arrives.
+      interval: 15s
+      scrapeTimeout: 10s

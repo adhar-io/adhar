@@ -1,7 +1,5 @@
 package globals
 
-import "fmt"
-
 const (
 	ProjectName string = "adhar"
 
@@ -82,7 +80,3 @@ var (
 	GitCommit string = "unknown" // Default git commit, set at build time
 	BuildDate string = "unknown" // Default build date, set at build time
 )
-
-func GetProjectNamespace(name string) string {
-	return fmt.Sprintf("%s-%s", ProjectName, name)
-}

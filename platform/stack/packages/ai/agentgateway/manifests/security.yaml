@@ -1,0 +1,164 @@
+# agentgateway — identity and authorization for the AI data plane (ADR-0025).
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE EXISTS
+# ---------------------------------------------------------------------------
+# ADR-0024 put identity on agent actions by having each of the seven MCP servers
+# validate an OIDC token itself. That is seven implementations of the same
+# security control, in application code, with no single place to audit. Moving it
+# here makes it ONE control, in the data plane, in front of every LLM call and
+# every tool call — and it is enforced before a request ever reaches a workload.
+#
+# Two policies, because an AgentgatewayPolicy carries exactly one authorization
+# rule and rules from separate policies MERGE (any matching Allow rule admits the
+# request). The composition is deliberately simple:
+#
+#   platform-developer  ->  LLM completions + READ tools
+#   platform-admin      ->  everything, including the PR-opening tools
+#   anyone else         ->  nothing (an Allow-only rule set denies by default)
+#
+# Group names come from the platform realm (security/keycloak: `platform-admin`,
+# `platform-developer`, `platform-viewer` — keycloak-config.yaml) and are the same
+# groups that drive Gitea teams and Kubernetes RBAC, so AI authority and cluster
+# authority cannot drift apart. `platform-viewer` is intentionally NOT granted:
+# an LLM call spends real money, which is more than a viewer should be able to do.
+---
+# ----------------------------- JWT authentication ---------------------------
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-jwt
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    # Attached to the Gateway, so it covers BOTH the LLM route and the MCP route
+    # and any route added later. Security that must be re-attached per route is
+    # security that eventually is not attached.
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: adhar-ai-gateway
+  traffic:
+    jwtAuthentication:
+      # Strict: no token, no service. `Permissive` (validate when present, allow
+      # when absent) is the knob to loosen with while bringing a new client
+      # online; `Optional` disables enforcement entirely. Do not ship either.
+      mode: Strict
+      providers:
+        - issuer: https://keycloak.adhar.localtest.me:8443/realms/adhar
+          # The ISSUER is the public URL because that is the `iss` claim Keycloak
+          # stamps into tokens, and the claim must match byte-for-byte. The JWKS
+          # FETCH, though, goes to the in-cluster Service — it must work before
+          # DNS, the wildcard cert, and the Cilium edge have settled, and on a
+          # fresh cluster none of those are ready when the first token arrives.
+          # Fetching keys over the cluster network also means key rotation never
+          # depends on the platform's own ingress being healthy.
+          #
+          # The literal `adhar.localtest.me:8443` above is the platform's
+          # seed-time host convention: the controller rewrites it to the real
+          # domain (and drops the port behind a 443 LB) when the stack is seeded
+          # into Gitea. Never hardcode another domain or port here.
+          jwks:
+            remote:
+              backendRef:
+                group: ""
+                kind: Service
+                name: keycloak
+                namespace: adhar-system
+                port: 8080
+              jwksPath: /realms/adhar/protocol/openid-connect/certs
+              # Long enough to survive a Keycloak restart, short enough that a
+              # rotated signing key is picked up without an operator.
+              cacheDuration: 5m
+      # Do NOT strip the token: the MCP servers and the adhar-ai runtime still
+      # exchange the caller's token for a short-lived RBAC-scoped Kubernetes
+      # token so reads run as the USER, never as the agent (ADR-0024 §7). That
+      # exchange needs the original bearer token to arrive intact.
+      preserveToken: true
+---
+# ------------------- Authorization rule 1: read tier ------------------------
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-authz-read
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: adhar-ai-gateway
+  traffic:
+    authorization:
+      # Allow, not Deny. Upstream's own guidance: a Deny rule whose expression
+      # ERRORS fails open, so a typo silently disables the control. With an
+      # Allow-only rule set the default is deny, and an erroring expression
+      # simply fails to match — it can lock people out, but it cannot let
+      # anyone in.
+      action: Allow
+      policy:
+        # matchExpressions are ANDed: both must hold.
+        matchExpressions:
+          # (1) caller is a developer or an admin.
+          # `default(jwt.groups, [])` because referencing an absent CEL variable
+          # is an evaluation ERROR, and a token issued before the groups mapper
+          # was attached would otherwise blow up rather than be denied cleanly.
+          # Both the bare and the path-prefixed form are accepted: the adhar-ai
+          # client's group mapper sets full.path=false (`platform-admin`), while
+          # Keycloak default-group assignment writes `/platform-admin`.
+          - >-
+            ["platform-developer", "platform-admin", "/platform-developer", "/platform-admin"]
+            .exists(g, g in default(jwt.groups, []))
+          # (2) this is NOT a call to one of the PR-opening MCP targets.
+          # `mcp.tool.target` is only populated on an MCP tools/call, and it is
+          # the target name AFTER multiplexing resolution — i.e. exactly the
+          # `targets[].name` values in mcp-federation.yaml. On an LLM request, on
+          # `initialize`, and on `tools/list` it is absent, so the default of ""
+          # makes those fall through as allowed.
+          - >-
+            !(default(mcp.tool.target, "") in ["gitops", "provision", "security", "catalog"])
+---
+# ------------------ Authorization rule 2: write tier ------------------------
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-authz-write
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: adhar-ai-gateway
+  traffic:
+    authorization:
+      action: Allow
+      policy:
+        matchExpressions:
+          # Admins are a superset: this single unconditional rule readmits
+          # everything rule 1 excluded (the gitops / provision / security /
+          # catalog targets, whose tools open Gitea PRs against the platform
+          # repos). Opening a PR is not a cluster mutation — ADR-0024 grants no
+          # kubectl_apply tool anywhere — but it is a privileged act against the
+          # repos that ArgoCD reconciles, so it stays with platform-admin.
+          - >-
+            ["platform-admin", "/platform-admin"]
+            .exists(g, g in default(jwt.groups, []))

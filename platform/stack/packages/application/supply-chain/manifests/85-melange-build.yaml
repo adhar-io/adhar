@@ -1,0 +1,73 @@
+# melange: build a signed Wolfi apk from source, with provenance.
+#
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE ENABLING: melange needs a privileged pod on this platform.
+# ---------------------------------------------------------------------------
+# melange v0.59.5 offers three build runners -- "bubblewrap", "docker" and
+# "qemu". In a Tekton pod:
+#   * docker     -- no daemon exists (and giving CI a daemon is the thing the
+#                   rest of this package exists to avoid),
+#   * qemu       -- needs /dev/kvm,
+#   * bubblewrap -- the default, and the only viable one. It was measured on
+#                   this cluster and fails unprivileged:
+#                     bwrap: Failed to make / slave: Permission denied
+#                   It still fails with CAP_SYS_ADMIN added, and still fails
+#                   with seccomp set to Unconfined. It needs the full
+#                   privileged: true below, because it has to remount / with
+#                   private propagation inside its own mount namespace.
+#
+# So this Task is deliberately NOT referenced by chainguard-image-release or
+# any other pipeline in this package: turning it on is a conscious decision to
+# run a privileged pod, which is exactly the kind of thing ADR-0012 says must
+# not be switched on silently. The trade-off is real either way:
+#
+#   * enable it  -- you get melange's from-source provenance and signed apks,
+#                   at the cost of one privileged pod in adhar-system,
+#   * leave it   -- apko-publish (80-…) still gives you declarative,
+#                   SBOM-by-construction images built only from *upstream*
+#                   signed Wolfi apks, with no privileged pod anywhere.
+#
+# Most teams need only the second. Reach for melange when you must compile
+# your own package into the image rather than consume one Wolfi already ships.
+#
+# Usage: melange.yaml in the repo, then feed the resulting packages/ directory
+# to apko via --repository-append/--package-append.
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: melange-build
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: config, type: string, default: "melange.yaml"}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: arch, type: string, default: "x86_64"}
+    # Namespace recorded in the SBOM's package URLs (purl), e.g. wolfi.
+    - {name: namespace, type: string, default: "adhar"}
+  workspaces:
+    - {name: source}
+  steps:
+    # Generate a throwaway signing key per build, then build the apk with it.
+    # melange signs the apk index so apko can verify it on the way in.
+    - name: keygen
+      image: cgr.dev/chainguard/melange:latest
+      workingDir: $(workspaces.source.path)/$(params.subdirectory)
+      args: [keygen, melange.rsa]
+    - name: build
+      image: cgr.dev/chainguard/melange:latest
+      workingDir: $(workspaces.source.path)/$(params.subdirectory)
+      securityContext:
+        # Required by the bubblewrap runner -- see the header comment.
+        privileged: true
+      args:
+        - build
+        - $(params.config)
+        - --arch=$(params.arch)
+        - --signing-key=melange.rsa
+        - --namespace=$(params.namespace)
+        - --out-dir=$(workspaces.source.path)/packages
+      computeResources:
+        requests: {cpu: 500m, memory: 1Gi}
+        limits: {cpu: "2", memory: 4Gi}

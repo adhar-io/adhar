@@ -1,0 +1,48 @@
+# Adhar marketplace contract for the posthog package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: posthog
+category: application
+version: "30.46.0"
+description: PostHog product analytics, backed by ClickHouse with ClickHouse Keeper and the platform's Strimzi Kafka.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: MIT
+homepage: https://posthog.com
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: cnpg
+    category: data
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+    optional: true
+  - name: minio
+    category: data
+  - name: kafka-operator
+    category: data
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: posthog/posthog
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - analytics
+  - product
+  - events
+  - clickhouse

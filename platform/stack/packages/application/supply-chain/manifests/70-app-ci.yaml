@@ -12,6 +12,16 @@
 # image. That is how a git push reaches the cluster — build automatic, deploy
 # through GitOps.
 #
+# Every build is pushed under TWO tags — `:latest` and `:<commit sha>` — so an
+# image is addressable by the exact commit it came from.
+#
+# The same EventListener also handles PULL REQUESTS labelled `preview`: it builds
+# the PR head branch, tags the image with the PR head SHA, scans and signs it, and
+# skips the GitOps writeback (a PR must not move main). That is the build half of
+# per-PR preview environments (ADR-0017); the deploy half is the
+# `preview-environments` package, whose ApplicationSet deploys
+# `<image>:<PR head sha>` into `preview-<repo>-<pr>`.
+#
 # Platform repos (adhar-ui/kit, packages, environments, templates, adhar-templates)
 # are excluded here — adhar-ui/kit have their own release pipelines (adhar-ci EL),
 # and the GitOps repos are not application source.
@@ -54,13 +64,32 @@ spec:
         # URL-encode the '!' in the password so basic-auth in the URL parses.
         PASS_ENC=$(echo "$GIT_PASS" | sed 's/!/%21/g')
         URL="http://${GIT_USER}:${PASS_ENC}@gitea-http.adhar-system.svc.cluster.local:3000/adhar/${REPO}.git"
+        REGISTRY="harbor-core.adhar-system.svc.cluster.local/library"
         cd /tmp
         rm -rf work && git clone --depth 1 "$URL" work
         cd work
-        DEP="manifests/deployment.yaml"
-        if [ ! -f "$DEP" ]; then echo "no $DEP — nothing to roll"; exit 0; fi
-        # Bump the build-revision annotation so ArgoCD rolls the Deployment.
-        sed -i "s|adhar.io/build-revision:.*|adhar.io/build-revision: \"${REV}\"|" "$DEP"
+        # Find the workload manifest wherever this repo keeps it. The golden-path
+        # skeletons use manifests/deployment.yaml, but the Backstage scaffolder
+        # templates emit deploy/rollout.yaml — this task used to hardcode the
+        # former, so every scaffolded app silently skipped its own writeback and
+        # the "build → deploy" half of the paved road never happened.
+        TARGETS=$(grep -rl "${REGISTRY}/${REPO}" deploy manifests 2>/dev/null || true)
+        if [ -z "$TARGETS" ]; then
+          echo "no manifest under deploy/ or manifests/ references ${REGISTRY}/${REPO} — nothing to roll"
+          exit 0
+        fi
+        for f in $TARGETS; do
+          # Pin the image to the COMMIT TAG, not :latest. The pipeline pushed
+          # <image>:<sha> alongside <image>:latest, and cosign signed that exact
+          # artifact — so deploying by sha is what makes the signature policy
+          # (verify-supply-chain-images, Enforce) and `disallow-latest-tag`
+          # actually satisfiable, and guarantees the cluster runs the build that
+          # just passed scan+sign rather than whatever :latest drifted to.
+          sed -i "s|\(${REGISTRY}/${REPO}\):[A-Za-z0-9._-]*|\1:${REV}|g" "$f"
+          # Keep the annotation in sync where a skeleton declares one.
+          sed -i "s|adhar.io/build-revision:.*|adhar.io/build-revision: \"${REV}\"|" "$f"
+          echo "pinned $f to ${REGISTRY}/${REPO}:${REV}"
+        done
         if git diff --quiet; then echo "no change (already at ${REV})"; exit 0; fi
         git config user.name  "adhar-ci"
         git config user.email "adhar-ci@adhar.localtest.me"
@@ -78,7 +107,16 @@ metadata:
 spec:
   params:
     - {name: repo-name, type: string}
+    # The commit being built. Also the image tag, so every build is addressable
+    # by its commit — which is what per-PR previews deploy (ADR-0017).
     - {name: revision, type: string, default: main}
+    # The git ref to check out. For a push this is main (the pushed commit is
+    # already its tip); for a pull request it is the PR's head BRANCH, because
+    # `git clone --depth 1 -b` takes a ref, not a SHA.
+    - {name: git-ref, type: string, default: main}
+    # PR builds must not write back to main — the preview deploys the image
+    # directly at its head SHA, and promotion only happens on merge.
+    - {name: writeback, type: string, default: "true"}
   workspaces:
     - {name: shared}
   tasks:
@@ -86,24 +124,32 @@ spec:
       taskRef: {name: git-clone}
       params:
         - {name: url, value: "http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/$(params.repo-name)"}
-        - {name: revision, value: main}
+        - {name: revision, value: "$(params.git-ref)"}
       workspaces: [{name: output, workspace: shared}]
     - name: build
       runAfter: [clone]
       taskRef: {name: buildpacks-build}
       params:
         - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
+        # Pushes <image>:latest AND <image>:<revision>.
+        - {name: extra-tag, value: "$(params.revision)"}
       workspaces: [{name: source, workspace: shared}]
+    # Scan and sign the exact artifact just built, not whatever :latest happens
+    # to be — on a PR build, :latest is still main's image.
     - name: scan
       runAfter: [build]
       taskRef: {name: trivy-scan}
-      params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):latest"}]
+      params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}]
     - name: sign
       runAfter: [scan]
       taskRef: {name: cosign-sign}
-      params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}]
+      params:
+        - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
+        - {name: tag, value: "$(params.revision)"}
     - name: deploy
       runAfter: [sign]
+      when:
+        - {input: "$(params.writeback)", operator: in, values: ["true"]}
       taskRef: {name: gitops-writeback}
       params:
         - {name: repo-name, value: "$(params.repo-name)"}
@@ -134,7 +180,66 @@ spec:
         taskRunTemplate: {serviceAccountName: adhar-pipeline}
         params:
           - {name: repo-name, value: $(tt.params.repo-name)}
+          # body.after — the pushed commit. Built, tagged, scanned, signed and
+          # written back under this SHA.
           - {name: revision, value: $(tt.params.revision)}
+        workspaces:
+          - name: shared
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources: {requests: {storage: 2Gi}}
+---
+# Pull-request builds: the same app-ci Pipeline, checking out the PR head branch,
+# tagging the image with the PR head SHA, and NOT writing back to main. This is
+# what makes per-PR preview environments (ADR-0017) deploy real code: the preview
+# ApplicationSet pins <image>:<head sha>, which exists only because this ran.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: gitea-pull-request
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - name: repo-name
+      value: $(body.repository.name)
+    # The PR head commit — the image tag the preview Application resolves.
+    - name: revision
+      value: $(body.pull_request.head.sha)
+    # The PR head branch — what git can actually shallow-clone.
+    - name: git-ref
+      value: $(body.pull_request.head.ref)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: run-app-pr-ci
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: repo-name}
+    - {name: revision}
+    - {name: git-ref}
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: app-pr-ci-$(tt.params.repo-name)-
+        namespace: adhar-system
+        labels:
+          adhar.io/app: $(tt.params.repo-name)
+          adhar.io/preview: "true"
+          tekton.dev/pipeline: app-ci
+      spec:
+        pipelineRef: {name: app-ci}
+        taskRunTemplate: {serviceAccountName: adhar-pipeline}
+        params:
+          - {name: repo-name, value: $(tt.params.repo-name)}
+          - {name: revision, value: $(tt.params.revision)}
+          - {name: git-ref, value: $(tt.params.git-ref)}
+          - {name: writeback, value: "false"}
         workspaces:
           - name: shared
             volumeClaimTemplate:
@@ -195,3 +300,76 @@ spec:
       bindings:
         - {ref: gitea-push}
       template: {ref: run-app-ci}
+    # Preview builds. Only PRs that opted in with the `preview` label are built,
+    # matching the label the preview ApplicationSet filters on — so labelling a PR
+    # both builds its image and materialises its environment. `label_updated`
+    # covers adding the label to a PR that was already open.
+    #
+    # Limitation: the head branch must live in the same repository (Gitea org PRs
+    # normally do). A fork PR's branch is not clonable from the base repo, so its
+    # build fails at clone and it gets no preview.
+    - name: pr-preview-build
+      interceptors:
+        - ref: {name: cel}
+          params:
+            - name: filter
+              value: >-
+                has(body.pull_request) &&
+                body.action in ['opened','synchronized','reopened','label_updated'] &&
+                !(body.repository.name in ['adhar-ui','adhar-kit','packages','environments','templates','adhar-templates']) &&
+                body.pull_request.labels.exists(l, l.name == 'preview')
+      bindings:
+        - {ref: gitea-pull-request}
+      template: {ref: run-app-pr-ci}
+---
+# Register the Gitea org webhook → app-ci EventListener (idempotent).
+#
+# Without this the EventListener above is never called: the adhar-libraries
+# package registers an org hook, but it points at the *adhar-ci* EventListener
+# (library releases) and subscribes to `push` only. This second org hook points
+# at el-app-ci and subscribes to `push` AND `pull_request`, which is what makes
+# both halves of the paved road fire — a push builds and promotes, and labelling
+# a pull request `preview` builds its head so the preview ApplicationSet
+# (ADR-0017) has an image to deploy.
+#
+# Gitea allows multiple org hooks; the CEL filters in each EventListener decide
+# which events it acts on, so the two hooks do not interfere.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: register-app-ci-webhook
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      serviceAccountName: app-ci
+      restartPolicy: Never
+      containers:
+        - name: register
+          image: curlimages/curl:8.10.1
+          env:
+            - {name: GITEA_USER, valueFrom: {secretKeyRef: {name: gitea-credential, key: username}}}
+            - {name: GITEA_PASS, valueFrom: {secretKeyRef: {name: gitea-credential, key: password}}}
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              GITEA=http://gitea-http.adhar-system.svc.cluster.local:3000
+              EL=http://el-app-ci.adhar-system.svc.cluster.local:8080
+              # A GET on / is rejected as a non-event request, so probe /live.
+              for i in $(seq 1 30); do
+                curl -sf -o /dev/null "$EL/live" && break || true
+                echo "waiting for EventListener…"; sleep 5
+              done
+              if curl -s -u "$GITEA_USER:$GITEA_PASS" "$GITEA/api/v1/orgs/adhar/hooks" | grep -q "el-app-ci"; then
+                echo "app-ci org webhook already registered"; exit 0
+              fi
+              echo "registering Gitea org webhook → app-ci EventListener"
+              curl -sf -u "$GITEA_USER:$GITEA_PASS" -X POST "$GITEA/api/v1/orgs/adhar/hooks" \
+                -H 'Content-Type: application/json' \
+                -d "{\"type\":\"gitea\",\"active\":true,\"events\":[\"push\",\"pull_request\"],\"config\":{\"url\":\"$EL\",\"content_type\":\"json\"}}"
+              echo "registered"

@@ -1,0 +1,261 @@
+# Chainguard supply-chain tasks: declarative image assembly + SBOM attestation.
+#
+# ADR-0019 makes Chainguard/Wolfi the base-image standard and requires every
+# artifact to be signed and carry an SBOM attestation. 60-build-pipelines.yaml
+# already covers "build a container from source" (buildpacks/kaniko) and signs
+# the result. What was missing is the declarative half of ADR-0019 §1 and the
+# attestation half of §2/§5:
+#
+#   * apko-publish        — assemble an OCI image from a YAML config, no
+#                           Dockerfile, no build sandbox. Every byte in the
+#                           image comes from a signed Wolfi apk, so apko emits
+#                           an accurate SPDX SBOM *by construction* rather than
+#                           by scanning a finished image and guessing.
+#   * cosign-attest-sbom  — attach that SBOM to the image as a signed in-toto
+#                           attestation, with the same platform key the
+#                           Kyverno verifyImages policies already trust.
+#   * cosign-verify       — verify signature AND attestation, so a pipeline
+#                           proves what security/supply-chain-policies will
+#                           later enforce at admission.
+#
+# Registry note: Harbor is in-cluster HTTPS with the per-cluster `adhar` CA, so
+# these tasks mount the adhar-ca-bundle ConfigMap and extend SSL_CERT_DIR the
+# same way the kpack mutate policy in 05-ca-trust.yaml does. That keeps TLS
+# verification ON — no --insecure flag — which is the point of a supply-chain
+# task. apko has no insecure-registry escape hatch anyway.
+#
+# Run the pipeline (a shared workspace PVC is created per run):
+#   kubectl create -n adhar-system -f - <<'EOF'
+#   apiVersion: tekton.dev/v1
+#   kind: PipelineRun
+#   metadata: {generateName: cg-}
+#   spec:
+#     pipelineRef: {name: chainguard-image-release}
+#     taskRunTemplate: {serviceAccountName: adhar-pipeline}
+#     params:
+#       - {name: git-url, value: https://gitea-argocd.adhar-system.svc.cluster.local:3000/adhar/adhar-kit.git}
+#       - {name: image, value: harbor-core.adhar-system.svc.cluster.local/library/adhar-kit-runtime}
+#     workspaces:
+#       - name: shared
+#         volumeClaimTemplate:
+#           spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 2Gi}}}
+#   EOF
+---
+# Assemble and publish an OCI image from an apko config. No Dockerfile, no
+# privileged build sandbox: apko resolves apks, builds layers and pushes.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: apko-publish
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: config, type: string, default: "apko.yaml"}
+    - {name: image, type: string}
+    - {name: tag, type: string, default: "latest"}
+    - {name: subdirectory, type: string, default: ""}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: image-ref, description: "published image reference, by digest"}
+    - {name: digest, description: "the published image digest"}
+  volumes:
+    - name: harbor-dockercfg
+      secret:
+        secretName: harbor-dockercfg
+        items: [{key: .dockerconfigjson, path: config.json}]
+    - name: adhar-ca
+      configMap: {name: adhar-ca-bundle}
+  steps:
+    # The apko image is a Chainguard "no shell" image, so this step is a bare
+    # argv invocation - there is no /bin/sh in it to run a script with.
+    - name: publish
+      image: cgr.dev/chainguard/apko:latest
+      workingDir: $(workspaces.source.path)/$(params.subdirectory)
+      env:
+        - {name: DOCKER_CONFIG, value: /harbor-creds}
+        # Trust the platform CA *in addition to* the public roots: apko pulls
+        # apks from packages.wolfi.dev over public TLS and pushes to Harbor
+        # over the adhar CA, so both trust stores have to stay in play.
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/adhar-ca"}
+      args:
+        - publish
+        - $(params.config)
+        - "$(params.image):$(params.tag)"
+        - --sbom-path=$(workspaces.source.path)/sbom
+        - --image-refs=$(workspaces.source.path)/apko-refs.txt
+      computeResources:
+        requests: {cpu: 500m, memory: 1Gi}
+        limits: {cpu: "2", memory: 4Gi}
+      volumeMounts:
+        - {name: harbor-dockercfg, mountPath: /harbor-creds}
+        - {name: adhar-ca, mountPath: /etc/adhar-ca}
+    # apko cannot write Tekton results itself, so a shell-bearing Wolfi image
+    # turns the --image-refs file into task results for downstream tasks.
+    - name: record
+      image: cgr.dev/chainguard/wolfi-base:latest
+      script: |
+        #!/bin/sh
+        set -e
+        ref="$(head -n1 "$(workspaces.source.path)/apko-refs.txt")"
+        echo "published: ${ref}"
+        printf '%s' "${ref}"        > "$(results.image-ref.path)"
+        printf '%s' "${ref#*@}"     > "$(results.digest.path)"
+        ls -la "$(workspaces.source.path)/sbom"
+---
+# Attach the apko SBOM to the published image as a signed in-toto attestation.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: cosign-attest-sbom
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    # Always attest by digest: a tag can move, an attestation must not.
+    - {name: image-ref, type: string}
+    - {name: sbom, type: string, default: "sbom/sbom-x86_64.spdx.json"}
+    - {name: type, type: string, default: "spdxjson"}
+  workspaces:
+    - {name: source}
+  volumes:
+    - name: harbor-dockercfg
+      secret:
+        secretName: harbor-dockercfg
+        items: [{key: .dockerconfigjson, path: config.json}]
+    - name: adhar-ca
+      configMap: {name: adhar-ca-bundle}
+  steps:
+    - name: attest
+      image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+      workingDir: $(workspaces.source.path)
+      env:
+        # The platform cosign key is password-protected with the literal
+        # "adhar" (see the cosign-keygen hook in 00-foundation.yaml).
+        - {name: COSIGN_PASSWORD, value: adhar}
+        - {name: COSIGN_YES, value: "true"}
+        - {name: DOCKER_CONFIG, value: /harbor-creds}
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/adhar-ca"}
+      args:
+        - attest
+        - --key=k8s://adhar-system/cosign-key
+        # No public Rekor in-cluster (ADR-0019): the signature is the key, not
+        # a transparency-log entry. The verify side ignores the tlog to match.
+        - --tlog-upload=false
+        - --type=$(params.type)
+        - --predicate=$(params.sbom)
+        - $(params.image-ref)
+      volumeMounts:
+        - {name: harbor-dockercfg, mountPath: /harbor-creds}
+        - {name: adhar-ca, mountPath: /etc/adhar-ca}
+---
+# Prove, in the pipeline, exactly what Kyverno will check at admission:
+# a valid key-based signature, plus the SBOM attestation.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: cosign-verify-attested
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: image-ref, type: string}
+    - {name: type, type: string, default: "spdxjson"}
+  volumes:
+    - name: harbor-dockercfg
+      secret:
+        secretName: harbor-dockercfg
+        items: [{key: .dockerconfigjson, path: config.json}]
+    - name: adhar-ca
+      configMap: {name: adhar-ca-bundle}
+  steps:
+    - name: verify
+      image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+      env:
+        - {name: COSIGN_PASSWORD, value: adhar}
+        - {name: DOCKER_CONFIG, value: /harbor-creds}
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/adhar-ca"}
+      # The cosign image has no shell, so both checks run as separate argv
+      # invocations via two steps rather than one script.
+      args:
+        - verify
+        - --key=k8s://adhar-system/cosign-key
+        - --insecure-ignore-tlog=true
+        - $(params.image-ref)
+      volumeMounts:
+        - {name: harbor-dockercfg, mountPath: /harbor-creds}
+        - {name: adhar-ca, mountPath: /etc/adhar-ca}
+    - name: verify-attestation
+      image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+      env:
+        - {name: COSIGN_PASSWORD, value: adhar}
+        - {name: DOCKER_CONFIG, value: /harbor-creds}
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/adhar-ca"}
+      args:
+        - verify-attestation
+        - --key=k8s://adhar-system/cosign-key
+        - --insecure-ignore-tlog=true
+        - --type=$(params.type)
+        - $(params.image-ref)
+      volumeMounts:
+        - {name: harbor-dockercfg, mountPath: /harbor-creds}
+        - {name: adhar-ca, mountPath: /etc/adhar-ca}
+---
+# Pipeline: source -> apko assemble+push -> trivy scan -> cosign sign -> SBOM
+# attest -> verify. Scan runs BEFORE signing, matching the rule the rest of the
+# package follows: only a clean image earns a signature.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: chainguard-image-release
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string, default: main}
+    - {name: subdirectory, type: string, default: ""}
+    - {name: config, type: string, default: "apko.yaml"}
+    - {name: image, type: string}
+    - {name: tag, type: string, default: "latest"}
+  workspaces:
+    - {name: shared}
+  results:
+    - {name: image-ref, value: "$(tasks.assemble.results.image-ref)"}
+    - {name: digest, value: "$(tasks.assemble.results.digest)"}
+  tasks:
+    - name: clone
+      taskRef: {name: git-clone}
+      params:
+        - {name: url, value: "$(params.git-url)"}
+        - {name: revision, value: "$(params.revision)"}
+      workspaces: [{name: output, workspace: shared}]
+    - name: assemble
+      runAfter: [clone]
+      taskRef: {name: apko-publish}
+      params:
+        - {name: config, value: "$(params.config)"}
+        - {name: image, value: "$(params.image)"}
+        - {name: tag, value: "$(params.tag)"}
+        - {name: subdirectory, value: "$(params.subdirectory)"}
+      workspaces: [{name: source, workspace: shared}]
+    - name: scan
+      runAfter: [assemble]
+      taskRef: {name: trivy-scan}
+      params: [{name: image, value: "$(tasks.assemble.results.image-ref)"}]
+    - name: sign
+      runAfter: [scan]
+      taskRef: {name: cosign-sign}
+      params:
+        - {name: image, value: "$(params.image)"}
+        - {name: tag, value: "$(params.tag)"}
+    - name: attest
+      runAfter: [sign]
+      taskRef: {name: cosign-attest-sbom}
+      params: [{name: image-ref, value: "$(tasks.assemble.results.image-ref)"}]
+      workspaces: [{name: source, workspace: shared}]
+    - name: verify
+      runAfter: [attest]
+      taskRef: {name: cosign-verify-attested}
+      params: [{name: image-ref, value: "$(tasks.assemble.results.image-ref)"}]

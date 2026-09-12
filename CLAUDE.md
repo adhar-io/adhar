@@ -16,7 +16,7 @@ Become the definitive open foundation for cloud-native platform engineering. A s
 
 ### Value Proposition
 
-- **Standardization as enablement, not constraint** — battle-tested patterns with 50+ services pre-configured
+- **Standardization as enablement, not constraint** — battle-tested patterns with 91 packages pre-configured
 - **Self-service with guardrails** — instant provisioning within security/compliance boundaries
 - **GitOps-native** — declarative infrastructure and application management via Git + ArgoCD
 - **Multi-cloud freedom** — consistent experience across 6 cloud providers + local Kind
@@ -34,7 +34,7 @@ Adhar uses a two-phase deployment model:
 
 1. Create Kind cluster with Cilium CNI disabled (Adhar manages CNI), ports 8080/8443 mapped
 2. Install CRDs (AdharPlatform, GitRepository, CustomPackage)
-3. Start controller-runtime manager with 3 controllers
+3. Start controller-runtime manager with 5 controllers
 4. Setup CoreDNS (custom rewrite rules for `*.adhar.localtest.me`)
 5. Generate self-signed TLS certificate
 6. Create `AdharPlatform` CR in `adhar-system` namespace
@@ -47,7 +47,7 @@ Adhar uses a two-phase deployment model:
 9. Create the `adhar` Gitea org (teams `Owners`/`developers`/`viewers`, mapped from Keycloak groups via the auth source's `--group-team-map`) and the `environments` and `packages` repos under it (via API with `auto_init: true`); constants in `globals/project.go` (`GiteaPlatformOrg`, `GitOpsRepo*`)
 10. Populate repos: `kubectl cp` from `platform/stack/{packages,environments}` → Gitea pod → git push
 11. Apply ArgoCD auth (repo secrets + dedicated `gitea-argocd` service)
-12. Apply `adhar-appset-local.yaml` (ApplicationSet wiring 85 packages; a `selector` on `enabled: "true"` deploys a curated local-safe core (31), the rest are wired but disabled)
+12. Apply `adhar-appset-local.yaml` (ApplicationSet wiring 94 elements over 91 packages; a `selector` on `enabled: "true"` deploys a curated local-safe core (32), the rest are wired but disabled)
 13. ArgoCD syncs all applications from Gitea repos
 14. Controller detects platform is deployed → graceful shutdown → success message
 
@@ -74,12 +74,14 @@ All CRDs are in API group `platform.adhar.io/v1alpha1`:
 
 CRD types defined in `api/v1alpha1/`, generated with controller-gen, embedded YAML in `platform/controllers/resources/`.
 
-### Three Kubernetes Controllers
+### Five Kubernetes Controllers
 
 Located in `platform/controllers/`:
 - **AdharPlatform Controller** (`adharplatform/`) - Reconciles platform components with individual reconcilers per service (argocd.go, cilium.go, gitea.go, gateway.go, crossplane.go). Installs in deterministic order: Gateway API CRDs → Cilium → Gateway → ArgoCD → Gitea
 - **GitRepository Controller** (`gitrepository/`) - Reconciles git repos across multiple providers
 - **CustomPackage Controller** (`custompackage/`) - Manages ArgoCD app deployment via Gitea
+- **DataPlane Controller** (`dataplane/`) - Registers and manages workload clusters (`mode: vcluster | adopt | composite`), mirrors their kubeconfig, wires the observability hub, joins the Cilium mesh, and rolls the fleet up onto `AdharPlatform.status.fleet`
+- **Node Autoscaler** (`autoscaler/`) - Moves the worker count between `minWorkers` and `maxWorkers` on self-managed clusters; the upstream cluster-autoscaler has no provider for kubeadm-on-raw-compute. Adds a node when pods are Pending for capacity (including DigitalOcean's `exceed max volume count`), drains and removes the emptiest node when the cluster stays idle
 
 ### Provider Abstraction
 
@@ -134,9 +136,9 @@ adhar/
 │   │   └── kind/                  # Local Kind cluster (cluster.go, config.go, coredns.go, tls.go)
 │   ├── config/                    # Multi-layered config (global, provider, template, environment)
 │   ├── stack/                     # GitOps content pushed to Gitea repos
-│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (85 wired, enabled-gated; curated core for local; adhar-appset-production.yaml: 85 wired / 76 enabled)
+│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (94 elements / 91 packages, enabled-gated; 32 enabled locally; adhar-appset-production.yaml: 76 enabled)
 │   │   ├── argocd-auth.yaml         # ArgoCD repo secrets + gitea-argocd service
-│   │   ├── packages/                # 96 package directories (security/, data/, observability/, etc.)
+│   │   ├── packages/                # 91 packages, each with an adhar-package.yaml contract (ai/, application/, core/, data/, infrastructure/, observability/, security/)
 │   │   └── environments/            # Environment configs (local, dev, staging, prod)
 │   ├── k8s/                       # Kubernetes client, schema, provisioning, deserialization
 │   ├── utils/                     # ArgoCD, Gitea, Git, URL, filesystem utilities
@@ -240,7 +242,7 @@ Validated against `config.schema.json` (JSON Schema draft-07).
 - Server-Side Apply with `ForceOwnership` for all manifest application
 - 20+ linters enabled via golangci-lint
 
-## Integrated Services (50+)
+## Integrated Services (91 packages)
 
 ### Core (Bootstrap Phase - Embedded Manifests)
 Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
@@ -248,24 +250,31 @@ Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
 ### Crossplane Control Plane (Crossplane v2, namespaced model)
 
 - Built on **Crossplane v2.3.1** core. XRDs use `apiextensions.crossplane.io/v2` with `scope: Namespaced` (no claims); Compositions stay `apiextensions.crossplane.io/v1`, Pipeline mode. Managed resources use namespaced `.m` API groups (`*.aws.m.upbound.io`, `kubernetes.m.crossplane.io`, `helm.m.crossplane.io`) and reference shared `ClusterProviderConfig`s. See `platform/controlplane/CONVENTIONS.md`.
-- **23 XRDs** in `platform/controlplane/configuration/xrd/` — CompositeCluster, CompositeApplication, CompositeDatabase, CompositeNetwork, CompositeLogging, CompositeEnvironment, CompositePlatformConfig, etc.
-- **34 Compositions** in `platform/controlplane/configuration/compositions/` — multi-cloud (AWS/Azure/GCP via Upbound v2) + Kubernetes-native (provider-kubernetes/helm).
+- **25 XRDs** in `platform/controlplane/configuration/xrd/` — CompositeCluster, CompositeApplication, CompositeDatabase, CompositeNetwork, CompositeLogging, CompositeEnvironment, CompositePlatformConfig, etc.
+- **47 Compositions** in `platform/controlplane/configuration/compositions/` — multi-cloud (AWS/Azure/GCP via Upbound v2) + Kubernetes-native (provider-kubernetes/helm).
 - **5 Functions** — function-kcl, function-go-templating, function-patch-and-transform, function-auto-ready, function-python.
-- **3 Operations** in `configuration/operations/` — CronOperation (daily backup, weekly secret rotation) + WatchOperation (ConfigMap drift); requires core `--enable-operations`.
+- **4 Operations** in `configuration/operations/` — CronOperation (daily backup, weekly secret rotation) + WatchOperation (ConfigMap drift); requires core `--enable-operations`.
 - **ProviderConfigs** — shared `ClusterProviderConfig` per cloud family (AWS/Azure/GCP), plus provider-kubernetes & provider-helm (`ClusterProviderConfig`); DigitalOcean/Civo remain legacy `ProviderConfig`.
 - **Package .xpkg** built via `crossplane xpkg build` (`make build-control-plane`) into the gitignored `platform/controlplane/dist/adhar-control-plane-<version>.xpkg`, versioned from the latest git tag (Makefile `VERSION`) and uploaded as a release asset by GoReleaser; the controller applies the embedded `configuration/` tree directly, so the file is not tracked in git.
 - Install order: Crossplane core → wait for ready → XRDs → Compositions → Functions → ProviderConfigs → Operations
 
-### GitOps Phase (85 packages wired via ApplicationSet; curated core enabled for local, rest toggleable; production set enables 76)
-**Security**: cert-manager, external-secrets, kyverno, kyverno-policies, keycloak
-**Data**: cnpg, jupyterhub, minio, redis, spark-operator
-**Observability**: metrics-server, kube-prometheus, loki, alloy, tempo, mimir, opencost, oncall, headlamp
-**Application**: argo-workflows, harbor, kargo, k6, dapr, keda
+### GitOps Phase (91 packages / 94 ApplicationSet elements; 76 enabled in production, 32 in the local curated core)
+Categories (count): **ai** (3) · **application** (31) · **core** (7) · **data** (23) · **infrastructure** (2) · **observability** (16) · **security** (16).
+
+**ai**: adhar-ai (agent runtime; images from the separate `adhar-io/adhar-ai` repo), agentgateway (the AI data plane — LLM routing by model name, federated MCP, JWT/CEL/guardrails/budgets), vllm (self-hosted inference). All opt-in, disabled by default.
+**Security**: cert-manager, external-secrets, keycloak, kyverno, kyverno-policies, **openbao** (production secrets backend; `vault` is disabled but the ESO store keeps that name), cosign, supply-chain-policies (audit + enforce variants), trivy, falco, tetragon, kubescape, policy-packs, policy-reporter, credential-rotation, vault
+**Data**: cnpg, minio, valkey, redis, opensearch, kafka-operator, rabbitmq, **libredb-studio** (browser SQL IDE over every platform database, Keycloak SSO), airbyte, metabase, trino, lakefs, kubeflow, jupyterhub, dagster, prefect, spark-operator, open-metadata, mongodb, mysql-operator, kafka-ui, rustfs
+**Observability**: metrics-server, kube-prometheus, loki-stack, alloy, tempo, mimir, opencost, oncall, headlamp, hubble, beyla, faro, fluent-bit, pixie, pyroscope, victoria-metrics
+**Application**: argo-workflows, argo-events, argo-rollout, harbor, kargo, tekton, supply-chain, **preview-environments** (PR-labelled ephemeral environments), adhar-templates (four golden paths: microservice, frontend, data-pipeline, ml), scorecards, coder, n8n, penpot, plane, posthog, nexus, keda, dapr, k6, chaos-mesh, buildpack (the one package outside `adhar-system` — see ADR-0011), external-dns, knative, open-function, baserow, tooljet, adhar-libraries
 **Infrastructure**: crossplane, terraform
-**Core**: adhar-console, velero
+**Core**: adhar-console, velero, vcluster, sveltos, open-cluster-management, Kamaji
 
 ## Important Implementation Notes
 
+- **One namespace**: every package installs into `adhar-system` (ADR-0011). The single exception is `buildpack`, which keeps `kpack-system` because kpack and cosign both hardcode `Secret/webhook-certs` in their binaries. Kargo `Project` namespaces (`adhar-environments`) and data-plane vclusters (`dp-<name>`) are the only other platform-created namespaces. Sharing one namespace means Kubernetes injects a `<NAME>_PORT` env var per Service — cosign's `Service/webhook` becomes `WEBHOOK_PORT=tcp://…`, which crashes pods that decode env strictly, so those set `enableServiceLinks: false` (see `platform/stack/packages/CONFLICTS.md`)
+- **Kubernetes version precedence**: explicit `adhar up --kube-version` (every provider, not just Kind) → the environment's `kubeVersion`/`version` → `globals.DefaultKubernetesVersion` (v1.37.0). A node added later by `adhar cluster scale` or the node autoscaler takes its version from the running control plane, so a scaled cluster cannot skew
+- **A wave-stuck ArgoCD sync replays the revision it started with.** While an Application sits at `waiting for healthy state of <resource>`, pushing a fix to Gitea changes nothing and `kubectl` edits are reverted. `operation: null` does not clear it — terminate via the API (`DELETE /api/v1/applications/<app>/operation` with a `content-type: application/json` header), then hard-refresh
+- **Every package needs an `adhar-package.yaml`** marketplace contract; `hack/validate-packages.sh` enforces it and CI fails a PR that adds a package without one. `hack/gen-package-contracts.sh` generates missing ones
 - Core packages install in deterministic order: Gateway API CRDs → Cilium → Cilium Gateway → ArgoCD → Gitea
 - The Cilium Gateway must be Programmed before HTTPRoutes resolve; the controller pins the generated Service node ports (30080/30443) so Kind host port-mapping works
 - The `StackDir` field on `AdharPlatformReconciler` holds the absolute path to `platform/stack/`

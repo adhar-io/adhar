@@ -17,3 +17,23 @@ cert-manager:
 grafana:
   deploymentStrategy:
     type: Recreate
+
+# Bitnami pruned the "-debian-11-rNN" builds this chart's bundled subcharts pin,
+# so mariadb, rabbitmq and redis all failed with ImagePullBackOff on a fresh
+# cluster (oncall-mariadb-0 backed off 1067 times over four hours before this).
+# The SAME images are still published in the archived `bitnamilegacy` repository
+# under the identical tags — verified present — so only the repository moves;
+# the image content, and therefore the subchart configuration, is unchanged.
+#
+# The better long-term fix is to drop these subcharts and point OnCall at the
+# platform's own RabbitMQ and Valkey (the rule in every other package), which is
+# a larger change than repinning a registry and is tracked separately.
+mariadb:
+  image:
+    repository: bitnamilegacy/mariadb
+rabbitmq:
+  image:
+    repository: bitnamilegacy/rabbitmq
+redis:
+  image:
+    repository: bitnamilegacy/redis

@@ -14,10 +14,6 @@ ingress:
 ingress-nginx:
   enabled: false
 
-web:
-  service:
-    type: ClusterIP
-
 # Bitnami pruned the "-debian-10-rNN" builds that this chart's bundled
 # subcharts pin (kafka 2.8.1-debian-10-r99, zookeeper 3.7.0-debian-10-r70,
 # postgresql 11.7.0-debian-10-r9, redis 6.2.7-debian-10-r0), so every one of
@@ -174,6 +170,36 @@ clickhouse:
 env:
   - name: CLICKHOUSE_MIGRATIONS_CLUSTER
     value: posthog
+  # NOTE: DEPLOYMENT is NOT set here. The chart already emits it
+  # (`helm_local_ha`) into every pod spec, so adding a second entry produced
+  # `duplicate entries for key [name="DEPLOYMENT"]` and server-side apply
+  # rejected every web/events/worker Deployment — PostHog had no web pods at all.
+  # generate-manifests.sh rewrites the chart's single entry to `hobby` instead.
+  #
+  # KEEP EVERY ENTRY IN THIS ONE `env:` LIST. A second top-level `env:` further
+  # down silently replaced this block, which would have taken
+  # CLICKHOUSE_MIGRATIONS_CLUSTER with it.
+  #
+  # PostHog moved its person tables into a separate database and reads that
+  # connection URL only from PERSONS_DB_WRITER_URL / PERSONS_DB_READER_URL. The
+  # chart has no value for either, so with nothing set posthog/persons_db.py
+  # falls back to host "db" and the migrate Job died on
+  # `apply_persons_migrations` with
+  #   psycopg.OperationalError: [Errno -2] Name or service not known
+  # The password is read from the CNPG-managed Secret and spliced in with
+  # Kubernetes' $(VAR) expansion, which resolves against an env var declared
+  # EARLIER in the same container -- the only way to build a URL without copying
+  # the password into git. The database itself is declared in
+  # manifests/platform-postgres.yaml.
+  - name: ADHAR_PERSONS_DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: posthog-db-credentials
+        key: postgresql-password
+  - name: PERSONS_DB_WRITER_URL
+    value: "postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons"
+  - name: PERSONS_DB_READER_URL
+    value: "postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons"
 
 # PostgreSQL comes from the platform CNPG operator (manifests/platform-postgres.yaml):
 # the chart's bundled PostgreSQL is 11.7 and PostHog requires 14+.
@@ -186,3 +212,70 @@ externalPostgresql:
   postgresqlUsername: posthog
   existingSecret: posthog-db-credentials
   existingSecretPasswordKey: postgresql-password
+
+# Resource requests for the app tiers. The chart ships none, so on a busy node
+# posthog-web was OOM-killed (exit 137) with no request to schedule against, and
+# a Django+gunicorn worker set needs ~2 GiB to load. Requests also give the node
+# autoscaler something to reason about.
+# The web Service type lives under the chart's TOP-LEVEL `service:` key, not
+# under `web.service` -- web-service.yaml reads `.Values.service.type`. The old
+# `web.service.type` was ignored and PostHog kept a NodePort.
+service:
+  type: ClusterIP
+
+# NOTE: keep exactly ONE `web:` key in this file. A second top-level `web:`
+# block silently replaces the first one.
+web:
+  # The chart allows 6 x 10s = 60 seconds for start-up. posthog/posthog:latest
+  # boots Django with the full PostHog app set and does not bind port 8000 in
+  # anything like that time, so the kubelet killed the container over and over:
+  #   Startup probe failed: ... dial tcp 10.244.9.60:8000: connect: connection
+  #   refused / Container posthog-web failed startup probe, will be restarted
+  # and each restart paid the same slow start again. 60 x 10s gives it ten
+  # minutes. The liveness and readiness probes are untouched, so a process that
+  # genuinely wedges after start-up is still caught.
+  # events-deployment.yaml reads web.startupProbe too, so this covers both.
+  startupProbe:
+    failureThreshold: 60
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 5
+  # posthog/posthog:latest loads the whole PostHog app set into every gunicorn
+  # worker. At the chart default the tier was OOM-killed (exit 137) over and over
+  # and never answered /_readyz. Two workers with a 6Gi ceiling starts reliably;
+  # raise WEB_CONCURRENCY, and the limit with it, to serve more traffic.
+  env:
+    - name: WEB_CONCURRENCY
+      value: "2"
+  resources:
+    requests: {cpu: 250m, memory: 2Gi}
+    limits: {memory: 6Gi}
+events:
+  # Same shape as web: Django+gunicorn, one full app set per worker. A 1536Mi
+  # limit OOM-killed it nine times in a row, and 3Gi still did.
+  env:
+    - name: WEB_CONCURRENCY
+      value: "2"
+  resources:
+    requests: {cpu: 200m, memory: 1536Mi}
+    limits: {memory: 4Gi}
+# The plugin server is DISABLED: posthog/posthog:latest no longer ships
+# ./bin/plugin-server (the chart's command for it), so the Deployment could only
+# ever CrashLoop with "no such file or directory". Ingestion still works — the
+# events tier consumes Kafka — but app transformations/destinations are off until
+# the chart and the image agree on an entrypoint again.
+plugins:
+  enabled: false
+
+# PostHog moved its person tables into a separate database and reads the
+# connection URL only from PERSONS_DB_WRITER_URL / PERSONS_DB_READER_URL. The
+# chart has no value for either, so with nothing set posthog/persons_db.py falls
+# back to host "db" and the migrate Job died on `apply_persons_migrations` with
+#   psycopg.OperationalError: [Errno -2] Name or service not known
+# `env` is appended verbatim to EVERY PostHog pod spec, so this reaches the
+# migrate Job, web, events and the workers alike. The password is read from the
+# CNPG-managed Secret and spliced in with Kubernetes' $(VAR) expansion, which
+# resolves against an env var declared EARLIER in the same container -- that is
+# the only way to build a URL without copying the password into git.
+# The database itself is declared in manifests/platform-postgres.yaml.

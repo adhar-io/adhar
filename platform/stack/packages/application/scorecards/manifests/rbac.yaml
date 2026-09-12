@@ -31,7 +31,10 @@ rules:
     verbs: ["get", "list", "watch"]
   # Workload specs: probes, resource requests/limits, container images.
   - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets"]
+    # DaemonSets included: several platform components (alloy, the eBPF agents)
+    # ship only as DaemonSets, and the scorer collects them so they can be graded
+    # at all. Omitting them here makes the collection silently return nothing.
+    resources: ["deployments", "statefulsets", "daemonsets"]
     verbs: ["get", "list", "watch"]
   # Exposure signal (Gateway API).
   - apiGroups: ["gateway.networking.k8s.io"]

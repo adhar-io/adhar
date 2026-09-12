@@ -13,6 +13,11 @@ metadata:
     app.kubernetes.io/name: penpot-keycloak-client
     app.kubernetes.io/part-of: penpot
   annotations: {argocd.argoproj.io/sync-wave: "-3"}
+# Two callback paths on purpose. Penpot 2.17 redirects to
+# `/api/auth/oidc/callback`; older builds used `/api/auth/oauth/oidc/callback`.
+# Registering only the `oauth` form made Keycloak reject every SSO attempt with
+# "Invalid parameter: redirect_uri" — the login page rendered fine, the OpenID
+# button just dead-ended. Both are listed so the client works either way.
 data:
   client.json: |
     {
@@ -27,7 +32,10 @@ data:
       "directAccessGrantsEnabled": false,
       "standardFlowEnabled": true,
       "frontchannelLogout": true,
-      "redirectUris": ["https://penpot.adhar.localtest.me:8443/api/auth/oauth/oidc/callback"],
+      "redirectUris": [
+        "https://penpot.adhar.localtest.me:8443/api/auth/oidc/callback",
+        "https://penpot.adhar.localtest.me:8443/api/auth/oauth/oidc/callback"
+      ],
       "webOrigins": ["https://penpot.adhar.localtest.me:8443"]
     }
 ---

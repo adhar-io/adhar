@@ -1,0 +1,30 @@
+# Where the model comes from and where training runs (ADR-0024 / kubeflow package).
+#
+# The platform operates ONE object store (MinIO) and ONE Kubeflow Pipelines
+# install; this ConfigMap is how the service addresses them, so nothing is
+# hard-coded in the image and each environment can point elsewhere.
+#
+# MODEL_URI is intentionally empty in the scaffold: the server starts in stub
+# mode, reports ready, and its per-PR preview is green before the first training
+# run exists. Set it to the `Output[Model]` URI a KFP run produced (the run's
+# artifact page shows it) to serve a real model.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{values.name}}-model
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+data:
+  MODEL_NAME: ${{values.modelName | dump}}
+  MODEL_VERSION: "0.1.0"
+  MODEL_URI: ""
+  # Platform MinIO — also the Kubeflow Pipelines artifact store, which is what
+  # makes a KFP Output[Model] directly loadable here.
+  S3_ENDPOINT: "http://minio.adhar-system.svc.cluster.local:9000"
+  # Kubeflow Pipelines API (the kubeflow package, adhar-system).
+  KFP_ENDPOINT: "http://ml-pipeline.adhar-system.svc.cluster.local:8888"
+  KFP_EXPERIMENT: ${{values.modelName | dump}}
+  TRAINING_FRAMEWORK: ${{values.framework | dump}}

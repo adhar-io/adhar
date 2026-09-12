@@ -132,13 +132,18 @@ func (r *AdharPlatformReconciler) applyControlPlaneConfiguration(ctx context.Con
 	// a runtime resource and is intentionally NOT applied here.
 	for _, step := range []struct {
 		dir, label string
+		// requireCRDs: do not accept "CRD not registered yet" as success.
+		// The kubernetes/helm ClusterProviderConfigs are the whole reason this
+		// loop retries — treating a NoMatch as applied silently produced a
+		// live platform with providers installed and no ProviderConfig at all.
+		requireCRDs bool
 	}{
-		{"configuration/functions", "Functions"},
-		{"configuration/providers", "Provider packages"},
-		{"configuration/providers/config", "ProviderConfigs"},
-		{"configuration/operations", "Operations"},
+		{"configuration/functions", "Functions", false},
+		{"configuration/providers", "Provider packages", false},
+		{"configuration/providers/config", "ProviderConfigs", true},
+		{"configuration/operations", "Operations", false},
 	} {
-		if err := r.applyEmbeddedManifests(ctx, fsys, step.dir, resource, step.label, false, false); err != nil {
+		if err := r.applyEmbeddedManifestsStrict(ctx, fsys, step.dir, resource, step.label, false, false, step.requireCRDs); err != nil {
 			logger.Info("Deferred control-plane step (provider/CRDs may not be ready yet); will retry", "step", step.label, "error", err)
 			return err
 		}
@@ -155,8 +160,15 @@ func (r *AdharPlatformReconciler) applyControlPlaneConfiguration(ctx context.Con
 		// nothing. Additional clouds are opted in by applying their
 		// provider-packages entries and ProviderConfig from
 		// platform/controlplane/configuration/providers/cloud (see README).
+		// Fatal, not best-effort: without its ClusterProviderConfig the cloud
+		// provider cannot reconcile a single managed resource, so a platform
+		// that recorded ControlPlaneApplied without one is broken in a way
+		// nothing else surfaces. The reconcile retries (ControlPlaneApplied
+		// stays false); the GitOps ApplicationSet is applied earlier in the
+		// reconcile, so applications are never held up by this.
 		if err := r.applyCloudProviders(ctx, fsys, resource); err != nil {
-			logger.Info("Cloud provider configuration deferred", "error", err)
+			logger.Info("Cloud provider configuration incomplete; will retry", "error", err)
+			return fmt.Errorf("applying cloud provider configuration: %w", err)
 		}
 	} else {
 		logger.V(1).Info("Skipping cloud Crossplane providers on local platform", "provider", resource.Spec.Provider)
@@ -173,6 +185,14 @@ func (r *AdharPlatformReconciler) applyControlPlaneConfiguration(ctx context.Con
 // cloud providers, which can't apply on a cluster without the cloud provider
 // CRDs); otherwise the first failure is returned so the reconcile retries.
 func (r *AdharPlatformReconciler) applyEmbeddedManifests(ctx context.Context, fsys fs.FS, dir string, resource *v1alpha1.AdharPlatform, label string, recursive, bestEffort bool) error {
+	return r.applyEmbeddedManifestsStrict(ctx, fsys, dir, resource, label, recursive, bestEffort, false)
+}
+
+// applyEmbeddedManifestsStrict is applyEmbeddedManifests with control over the
+// "CRD not registered yet" escape hatch. With requireCRDs set, a NoMatch is a
+// hard error so the reconcile retries instead of recording a step as applied
+// when nothing was actually created (see applyManifestStrict).
+func (r *AdharPlatformReconciler) applyEmbeddedManifestsStrict(ctx context.Context, fsys fs.FS, dir string, resource *v1alpha1.AdharPlatform, label string, recursive, bestEffort, requireCRDs bool) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Applying Crossplane " + label + "...")
 
@@ -205,7 +225,11 @@ func (r *AdharPlatformReconciler) applyEmbeddedManifests(ctx context.Context, fs
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", f, err)
 		}
-		if err := r.applyManifest(ctx, data, resource, label+":"+path.Base(f)); err != nil {
+		applyFn := r.applyManifest
+		if requireCRDs {
+			applyFn = r.applyManifestStrict
+		}
+		if err := applyFn(ctx, data, resource, label+":"+path.Base(f)); err != nil {
 			if bestEffort {
 				logger.Info("Skipping manifest (best-effort)", "file", f, "error", err)
 				continue
@@ -290,8 +314,8 @@ func (r *AdharPlatformReconciler) applyCloudProviders(ctx context.Context, fsys 
 	if err != nil {
 		return nil // no ProviderConfig shipped for this cloud
 	}
-	if err := r.applyManifest(ctx, data, resource, "ProviderConfig:"+family); err != nil {
-		logger.Info("Cloud ProviderConfig deferred (provider CRDs not ready yet)", "family", family, "error", err.Error())
+	if err := r.applyManifestStrict(ctx, data, resource, "ProviderConfig:"+family); err != nil {
+		return fmt.Errorf("applying %s ProviderConfig (provider CRDs may not be registered yet): %w", family, err)
 	}
 	return nil
 }

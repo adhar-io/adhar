@@ -1,0 +1,46 @@
+# Adhar marketplace contract for the metabase package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: metabase
+category: data
+version: "0.51.10"
+appVersion: "v0.51.10"
+description: Metabase BI and dashboards over the platform's databases, with Keycloak SSO and a CNPG-backed application database.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: AGPL-3.0
+homepage: https://www.metabase.com
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: cnpg
+    category: data
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+    optional: true
+  - name: minio
+    category: data
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - bi
+  - dashboards
+  - analytics
+  - sql

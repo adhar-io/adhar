@@ -1,0 +1,41 @@
+# Model-weight cache for vLLM. Without it every pod restart re-downloads the
+# checkpoint from HuggingFace: ~1 GB for the local 0.5B development model, ~15 GB
+# for a 7-8B production model — which on a rolling node replacement means a
+# multi-minute (or, with a cold registry and a big model, multi-tens-of-minutes)
+# outage and a lot of egress.
+#
+# HF_HOME points at /data/hf inside this volume, so the whole HuggingFace hub
+# cache (weights, tokenizer, blob locks) lands here and a restart is a disk read.
+#
+# No storageClassName and no volumeName: the claim binds to whatever the
+# cluster's DEFAULT StorageClass provisions (local-path on Kind,
+# do-block-storage / gp3 / pd-balanced on the clouds). Same reasoning as
+# data/minio/values.yaml — a pinned hostPath PV is Kind-only and is not writable
+# by the pod's uid, while a dynamically provisioned volume honours fsGroup.
+#
+# Sizing: 20Gi holds one 7-8B bf16 checkpoint (~15 GB) with room for the
+# tokenizer/config and a partial second download during a model switch. Raise it
+# before serving anything larger (a 70B bf16 checkpoint is ~140 GB); cloud
+# StorageClasses allow online expansion, local-path does not.
+#
+# ReadWriteOnce: one replica, one node. Scaling vLLM out means several
+# single-replica Deployments behind the Gateway (or the upstream production-stack
+# router), not replicas on a shared RWX volume.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-model-cache
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+  annotations:
+    # Wave 0: ahead of either profile's Deployment (wave 5).
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

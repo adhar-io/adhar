@@ -203,6 +203,13 @@ func (r *DataPlaneReconciler) rollUpFleet(ctx context.Context) {
 func (r *DataPlaneReconciler) finalize(ctx context.Context, dp *v1alpha1.DataPlane) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	// Stop the workload ApplicationSet from regenerating what the next step
+	// deletes, first: its generator selects the plane's own cluster labels.
+	if err := r.stopPlacingApps(ctx, dp); err != nil {
+		logger.Error(err, "unlabelling the plane's ArgoCD cluster secret during finalize")
+		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+	}
+
 	// Retire the plane's Applications while ArgoCD can still reach the
 	// cluster: once the cluster secret is gone their resources-finalizer can
 	// never complete and every app hangs in Terminating.
@@ -212,6 +219,15 @@ func (r *DataPlaneReconciler) finalize(ctx context.Context, dp *v1alpha1.DataPla
 	} else if pending > 0 {
 		logger.Info("waiting for the plane's Applications to finish deleting", "pending", pending)
 		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
+	}
+
+	// Leave the Cluster Mesh clean: a control plane that keeps a retired peer
+	// in its clustermesh Secrets has KVStoreMesh retrying a dead endpoint
+	// forever, and `cilium clustermesh status` never goes green again.
+	if dp.Spec.Mesh.Enabled {
+		if err := r.removeMeshPeering(ctx, dp); err != nil {
+			logger.Error(err, "removing the plane from the cluster mesh during finalize")
+		}
 	}
 
 	// Deregister ArgoCD cluster secret (best-effort; ignore if already gone).

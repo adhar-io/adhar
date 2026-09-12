@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{values.name | dump}}
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+    adhar.io/owner: ${{values.owner}}
+  annotations:
+    # Stamped by the paved-road pipeline's GitOps writeback with the built commit.
+    adhar.io/build-revision: "unset"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${{values.name}}
+  template:
+    metadata:
+      labels:
+        entity-id: ${{values.name}}
+        app.kubernetes.io/name: ${{values.name}}
+        adhar.io/owner: ${{values.owner}}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          # Placeholder until the paved-road pipeline (.adhar/app.yaml, Tekton
+          # app-ci) builds serving/ and promotes your image: podinfo serves the
+          # same contract as the scaffolded server (/healthz, /readyz on :8080).
+          # Replace with your registry image on first release.
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          command: ["./podinfo", "--port=8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: ${{values.name}}-model
+          env:
+            # Platform MinIO root credentials, mirrored into this namespace by
+            # External Secrets. Only needed once MODEL_URI is set; the stub-mode
+            # server never touches the store.
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ${{values.name}}-object-store
+                  key: accesskey
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${{values.name}}-object-store
+                  key: secretkey
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # Inference is the cheap half; training runs in the CronJob/KFP,
+              # not here. Raise (and add nvidia.com/gpu) only if you serve a
+              # model that needs it.
+              cpu: "1"
+              memory: 1Gi

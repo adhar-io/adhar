@@ -22,3 +22,35 @@ jobs:
             exit 1
           fi
           make test
+
+  # Every package under platform/stack/packages/<category>/<name>/ must carry a
+  # marketplace contract (adhar-package.yaml) that satisfies
+  # platform/stack/packages/marketplace.schema.json — see MARKETPLACE.md.
+  package-contracts:
+    name: Validate package contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install JSON Schema validator
+        run: python3 -m pip install --upgrade jsonschema pyyaml
+
+      - name: Validate marketplace contracts
+        run: ./hack/validate-packages.sh
+
+      # A new package must ship its contract in the same PR: the generator
+      # creates only missing ones, so a dirty tree here means one was forgotten.
+      - name: Every package has a contract
+        run: |
+          ./hack/gen-package-contracts.sh
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "::error::A package is missing its adhar-package.yaml contract."
+            echo "Run hack/gen-package-contracts.sh, review and commit the scaffolded file(s):"
+            git status --porcelain
+            exit 1
+          fi

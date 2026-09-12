@@ -57,6 +57,11 @@ internalTLS:
     secretName: "harbor-registry-internal-tls"
   portal:
     secretName: "harbor-portal-internal-tls"
+  # The Trivy adapter is a first-class internalTLS component too. With
+  # certSource: secret the chart mounts a PRE-CREATED secret of this name, so
+  # manifests/10-internal-tls-certs.yaml mints it alongside the other four.
+  trivy:
+    secretName: "harbor-trivy-internal-tls"
 
 # Pin the shared internal secrets to stable values so re-rendering the chart never
 # rotates them (an accidental rotation on a live cluster would churn every Harbor
@@ -76,11 +81,34 @@ database:
 redis:
   type: "internal"
 
-# --- Lightweight profile for a single Kind node ---------------------------------
-# Trivy (vulnerability scanner) is the heaviest optional component (extra pod +
-# large PVC + DB pulls) -- disabled locally. Enable on real clusters for scanning.
+# --- Vulnerability scanner ------------------------------------------------------
+# Harbor registers a scanner ONLY when this is enabled: core reads WITH_TRIVY and
+# TRIVY_ADAPTER_URL from the chart's ConfigMap and self-registers the adapter at
+# start-up. With it off, GET /api/v2.0/scanners returns an empty list and every
+# artifact shows no scan data at all -- which reads as "no vulnerabilities" but
+# actually means "never scanned". There is no way to add a scanner from the UI
+# without an adapter to point at.
+#
+# It is the heaviest optional Harbor component (its own pod plus a PVC for the
+# vulnerability and Java databases), so keep an eye on it in constrained local
+# clusters; the platform build pipelines run their own trivy scan as a gate, and
+# this one covers everything already sitting in the registry.
 trivy:
-  enabled: false
+  enabled: true
+  # The DBs are pulled from a mirror first, which avoids Docker Hub rate limits.
+  # Leaving skipUpdate false means the adapter refreshes them on its own.
+  skipUpdate: false
+  skipJavaDBUpdate: false
+  # Large JVM images take well over the 5m default to unpack and scan, and a
+  # timeout is reported as a failed scan with no findings.
+  timeout: "30m0s"
+  # Report everything; Harbor's own project policies decide what blocks a pull.
+  severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
+  vulnType: "os,library"
+  ignoreUnfixed: false
+  resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits: {memory: 2Gi}
 
 # Metrics/exporter enabled so kube-prometheus scrapes Harbor and the Grafana
 # Harbor dashboard (gnetId 14075) gets data. The exporter component exposes
@@ -112,16 +140,33 @@ registry:
     password: "harbor_registry_password"
     htpasswdString: "harbor_registry_user:$2a$10$aumpBZC6v8Tc/xq6QNv6SOykGu96yoi3voDB1eBWgR2UQu8ApViIu"
 
-# Small ephemeral-ish volumes sized for local demos (Kind's local-path provisioner
-# supplies the default StorageClass). Bump these substantially on real clusters.
+# Volume sizes. The registry holds every image the platform's own build pipelines
+# push, so 2Gi is not a "small demo" size, it is a broken one: it filled up and
+# every buildpack export then failed with
+#   failed to export: ... POST /v2/library/<app>/blobs/uploads/: UNKNOWN:
+#   unknown error; map[... Enclosed:map[Err:28 Op:mkdir ...]]
+# where Err:28 is ENOSPC. A single JVM application image is over 300 MB, so give
+# the registry room for a realistic number of them plus their layer history.
+# The other three stay small: they hold job logs, the Harbor metadata database
+# and a Redis cache, none of which grow with image count.
 persistence:
   enabled: true
   persistentVolumeClaim:
     registry:
-      size: 2Gi
+      size: 100Gi
     jobservice:
       jobLog:
         size: 1Gi
+    # Holds the trivy vulnerability DB, the Java DB and unpacked layers while a
+    # scan runs. The Java DB alone is hundreds of MB.
+    trivy:
+      size: 20Gi
+    # Harbor's own metadata database, NOT image storage; it stays small.
+    # Do not raise this on a running cluster: harbor-database is a StatefulSet and
+    # spec.volumeClaimTemplates is immutable, so a changed size makes every sync
+    # fail with `StatefulSet.apps "harbor-database" is invalid`. Resize the PVC
+    # itself and recreate the StatefulSet with --cascade=orphan if it is ever
+    # genuinely needed.
     database:
       size: 1Gi
     redis:

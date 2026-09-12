@@ -1,0 +1,142 @@
+# agentgateway — platform values (ADR-0025).
+#
+# Chart:  oci://cr.agentgateway.dev/charts/agentgateway  v1.5.0
+# CRDs:   oci://cr.agentgateway.dev/charts/agentgateway-crds  v1.5.0
+# Images: cr.agentgateway.dev/controller:v1.5.0  (control plane)
+#         cr.agentgateway.dev/agentgateway:v1.5.0 (data plane / proxy pods)
+#
+# Every key below is a DELIBERATE deviation from the chart defaults; anything
+# not listed here keeps the upstream default on purpose. Regenerate
+# manifests/install.yaml with ./generate-manifests.sh after editing.
+
+# --- Namespace ---------------------------------------------------------------
+# Not a chart value: the chart's own docs install into `agentgateway-system`.
+# ADR-0011 puts every platform package in `adhar-system`, so generate-manifests.sh
+# renders with `--namespace adhar-system`. The chart has no hardcoded namespace
+# references, so this is purely a render-time flag.
+
+# --- Labels ------------------------------------------------------------------
+# DEVIATION (default: {}). Stamp the platform's component/plane labels on every
+# object the chart creates so `adhar.io/component=ai` selects the whole AI data
+# plane and ADR-0023 plane-affinity selectors work, matching ai/adhar-ai.
+commonLabels:
+  adhar.io/component: ai
+  adhar.io/plane: control
+
+# DEVIATION (default: {}). Same labels on the controller pods, so NetworkPolicy
+# and Cilium identity selectors can target them without matching the Deployment.
+podLabels:
+  adhar.io/component: ai
+  adhar.io/plane: control
+
+# --- Controller (control plane) ---------------------------------------------
+controller:
+  # Chart default is 1. Kept at 1: the controller is a stateless xDS server and
+  # a second replica buys nothing on a single-node local cluster. Production HA
+  # is an environment overlay, not a package default.
+  replicaCount: 1
+
+  # DEVIATION (default: ""). Pin the controller image tag to the chart's
+  # appVersion instead of letting it float with the chart's `.Chart.AppVersion`
+  # fallback. An explicit tag is what the repo's "never a floating tag" rule
+  # requires and what the marketplace contract's appVersion records.
+  image:
+    tag: v1.5.0
+    # DEVIATION (default: IfNotPresent is inherited from image.pullPolicy).
+    # Stated explicitly because the tag is immutable — no reason to re-pull.
+    pullPolicy: IfNotPresent
+
+  # Chart default. Listed so the metrics port is visible next to the
+  # ServiceMonitor in manifests/servicemonitor.yaml, which scrapes port 9092.
+  service:
+    type: ClusterIP
+    ports:
+      agwGrpc: 9978
+      health: 9093
+      metrics: 9092
+
+# --- Data plane (provisioned proxy pods) -------------------------------------
+proxy:
+  image:
+    # DEVIATION (default: ""). Same pinning rule as the controller: the proxy
+    # pods the controller provisions for each Gateway run this exact tag.
+    tag: v1.5.0
+
+# --- Registry ----------------------------------------------------------------
+image:
+  # Chart default. Restated so an air-gapped install has one obvious place to
+  # repoint both the controller and the proxy at a mirror (e.g. the platform's
+  # own Harbor) without hunting through the rendered manifests.
+  registry: cr.agentgateway.dev
+  pullPolicy: IfNotPresent
+
+# --- GatewayClass ------------------------------------------------------------
+# DELIBERATELY LEFT AT THE DEFAULTS (both ""), which resolve to:
+#   gatewayClassName: agentgateway
+#   controllerName:   agentgateway.dev/agentgateway
+# These do NOT collide with the platform's Cilium edge, which owns GatewayClass
+# `adhar` / controller `io.cilium/gateway-controller`. The two classes coexist:
+# Cilium is the single TLS-terminating edge on nodePort 30080/30443, agentgateway
+# is an internal L7 AI data plane behind it (see manifests/httproute.yaml).
+# Note the GatewayClass object is NOT rendered by the chart — the controller
+# creates and reconciles it at runtime from AGW_AGENTGATEWAY_CLASS_NAME — so
+# there is no GatewayClass in install.yaml to rename or drop.
+gatewayClassName: ""
+controllerName: ""
+
+# --- Monitoring --------------------------------------------------------------
+monitoring:
+  # DEVIATION: the chart CAN emit a ServiceMonitor, a proxy PodMonitor and a
+  # Grafana dashboard ConfigMap (monitoring.enabled=true). Left OFF on purpose:
+  # the chart renders them at sync-wave 0, and on a first boot the
+  # monitoring.coreos.com CRDs may not exist yet — the repo's ordering rule puts
+  # every monitoring CR at sync-wave 10. manifests/servicemonitor.yaml and
+  # manifests/dashboard.yaml ship the same three objects at wave 10, and the
+  # dashboard is rewritten for the platform's AI panels (tokens per
+  # model/provider, guardrail hits, MCP tool calls) rather than the chart's
+  # generic proxy dashboard.
+  enabled: false
+
+# --- Experimental APIs -------------------------------------------------------
+agentgatewayModels:
+  # DELIBERATELY OFF (chart default). The AgentgatewayModel API is marked
+  # experimental upstream. The unified model-name routing in
+  # manifests/llm-routes.yaml is built from the STABLE primitives instead
+  # (a PreRouting transformation that lifts `.model` out of the JSON body into
+  # an `x-model` header, plus ordinary HTTPRoute header matches), so the
+  # platform does not depend on an experimental CRD.
+  enabled: false
+
+inferenceExtension:
+  # DELIBERATELY OFF (chart default). Gateway API Inference Extension
+  # (InferencePool) targets GPU-backed model serving fleets. The local kind
+  # cluster has no GPU and the ai/vllm package fronts a single Service; revisit
+  # when vLLM runs as a multi-replica GPU pool.
+  enabled: false
+
+istio:
+  # DELIBERATELY OFF (chart default). The platform's data path is Cilium, not
+  # an Istio mesh.
+  autoEnabled: false
+
+# --- Discovery ---------------------------------------------------------------
+# DELIBERATELY EMPTY (chart default): the controller watches all namespaces.
+# Every platform object lives in adhar-system (ADR-0011), but tenant application
+# namespaces will hold their own AgentgatewayBackend/HTTPRoute objects as the
+# AI data plane opens up to workloads, and narrowing discovery now would have to
+# be undone then.
+discoveryNamespaceSelectors: []
+
+rbac:
+  # DELIBERATELY EMPTY (chart default = cluster-wide write to Gateway-owned
+  # objects). Restricting to ["adhar-system"] would block the tenant-namespace
+  # Gateways described above.
+  gatewayNamespaces: []
+
+# --- Resources ---------------------------------------------------------------
+resources:
+  requests:
+    # Chart default. Adequate for a single-Gateway control plane; the data plane
+    # proxy pods are sized separately by AgentgatewayParameters if needed.
+    cpu: 100m
+    memory: 128Mi

@@ -31,3 +31,22 @@ helm template --namespace adhar-system flux-source fluxcd-community/flux2 --vers
   --set policies.create=false \
   --set rbac.create=true \
   --set-string crds.annotations."argocd\.argoproj\.io/sync-wave"="-1" >>${INSTALL_YAML}
+
+# Version skew between the two charts above: tf-controller still renders its
+# optional "primitive modules" OCIRepository at source.toolkit.fluxcd.io/v1beta2,
+# while flux2 2.19's source-controller CRDs serve only v1. ArgoCD cannot apply it
+# ("no matches for kind OCIRepository in version …/v1beta2") and retries the whole
+# Application forever — seen live as `Retrying attempt #41`. The spec fields
+# (interval, ref.tag, url) are unchanged between the two versions, so pin the
+# object to the version the CRDs actually serve.
+python3 - "${INSTALL_YAML}" <<'PYEOF'
+import re, sys
+path = sys.argv[1]
+src = open(path).read()
+# Only rewrite real objects, never the CRD schemas' own `apiVersion:` strings,
+# which appear indented inside the OpenAPI definitions.
+out, n = re.subn(r'(?m)^apiVersion: source\.toolkit\.fluxcd\.io/v1beta2$',
+                 'apiVersion: source.toolkit.fluxcd.io/v1', src)
+open(path, 'w').write(out)
+print(f"repinned {n} source.toolkit.fluxcd.io object(s) from v1beta2 to v1")
+PYEOF

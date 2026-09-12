@@ -146,7 +146,7 @@ bootstrapPlatformOnCluster ── GetKubeconfig ──▶ create AdharPlatform C
                                                      │
                                             ┌────────┴─────────┐
                                     ApplicationSet stack   Crossplane control plane
-                                    (69 packages)          (23 XRDs / 34 Compositions)
+                                    (91 packages)          (25 XRDs / 47 Compositions)
                                                      │
                               Developer applies CompositeCluster / CompositeDatabase …
                                     (declarative, drift-corrected — ADR-0005)

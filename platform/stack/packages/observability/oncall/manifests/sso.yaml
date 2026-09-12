@@ -125,7 +125,7 @@ spec:
             - --client-id=oncall
             - --redirect-url=https://oncall.adhar.localtest.me:8443/oauth2/callback
             - --upstream=http://oncall-engine.adhar-system.svc.cluster.local:8080
-            - --upstream=http://oncall-grafana.adhar-system.svc.cluster.local:80/grafana
+            - --upstream=http://oncall-grafana.adhar-system.svc.cluster.local:80/grafana/
             - --email-domain=*
             - --scope=openid profile email groups
             - --cookie-secure=true

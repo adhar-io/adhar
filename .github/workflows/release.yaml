@@ -16,6 +16,7 @@ on:
 permissions:
   contents: write # create tags, releases and upload assets
   packages: write # push container images to GHCR
+  id-token: write # Cosign keyless signing: mint the OIDC token Fulcio binds to
 
 jobs:
   release:
@@ -96,6 +97,16 @@ jobs:
           repositories: |
             homebrew-tap
 
+      # Supply-chain provenance (ADR-0019, .goreleaser.yaml `sboms`/`signs`/
+      # `docker_signs`): syft catalogues an SPDX SBOM per archive, cosign signs
+      # the checksums, the SBOMs and the images keyless — Fulcio short-lived
+      # certs bound to this run's OIDC identity, logged in Rekor. No keys.
+      - name: Install Syft (SBOM generation)
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Install Cosign (keyless signing)
+        uses: sigstore/cosign-installer@v3
+
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -113,6 +124,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TOKEN: ${{ steps.generate-token.outputs.token || '' }}
           GORELEASER_CURRENT_TAG: ${{ env.RELEASE_TAG }}
+          # Keyless is the default in cosign v2; the flag keeps v1-era tooling
+          # on the same path.
+          COSIGN_EXPERIMENTAL: '1'
 
       # Failures land in the public run summary AND on the ci-debug branch so
       # they are diagnosable without Actions log access.

@@ -1,5 +1,6 @@
 site_name: 'Golden Path - Data Pipeline'
 nav:
   - Home: index.md
+  - Monitoring: monitoring.md
 plugins:
   - techdocs-core

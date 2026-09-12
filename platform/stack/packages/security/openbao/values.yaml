@@ -1,0 +1,101 @@
+# OpenBao Helm chart values (chart openbao/openbao).
+#
+# OpenBao is the Linux Foundation / OpenSSF fork of HashiCorp Vault (MPL-2.0).
+# It keeps Vault's HTTP API, so External Secrets still talks to it through the
+# `vault:` provider and the platform's ClusterSecretStore keeps the name
+# `vault` — see manifests/openbao-clustersecretstore.yaml.
+#
+# Single-node standalone server. The UI is exposed through the Cilium Gateway
+# API (HTTPRoute), not an nginx Ingress.
+#
+# Every setting below that differs from the chart defaults carries a comment
+# explaining why; settings kept at their default are marked as such.
+
+global:
+  # Chart default. Master switch for all sub-components.
+  enabled: true
+
+injector:
+  # DEVIATION (explicit, same effective value): the chart default is "-", which
+  # resolves to global.enabled (true). Pinned explicitly so the agent-injector
+  # webhook is a deliberate choice rather than an inherited one — it mirrors the
+  # vault package this replaces. NOTE: the injector installs a
+  # MutatingWebhookConfiguration; vault's and openbao's would fight over
+  # admission ordering in the shared adhar-system namespace, which is one of the
+  # reasons the two packages are mutually exclusive (CONFLICTS.md).
+  enabled: true
+
+server:
+  standalone:
+    # DEVIATION (explicit, same effective value): chart default is "-" →
+    # global.enabled. Pinned so the single-node file-storage topology is explicit.
+    enabled: true
+    # DEVIATION: custom HCL. The chart default ships the telemetry stanzas
+    # commented out. We enable Prometheus telemetry and allow unauthenticated
+    # access to /v1/sys/metrics so the Prometheus Operator can scrape without a
+    # token (see manifests/servicemonitor.yaml). Otherwise identical to the
+    # chart default standalone config (ui, tcp listener on 8200/8201,
+    # file storage at /openbao/data).
+    config: |
+      ui = true
+
+      listener "tcp" {
+        tls_disable = 1
+        address = "[::]:8200"
+        cluster_address = "[::]:8201"
+        # Allow Prometheus to scrape /v1/sys/metrics without a token.
+        telemetry {
+          unauthenticated_metrics_access = "true"
+        }
+      }
+
+      storage "file" {
+        path = "/openbao/data"
+      }
+
+      telemetry {
+        prometheus_retention_time = "24h"
+        disable_hostname = true
+      }
+
+      disable_mlock = true
+  dataStorage:
+    # Chart defaults (enabled, 10Gi, /openbao/data, default StorageClass).
+    # Left at the default: this package is enabled in the production profile,
+    # where 10Gi of KV storage is the sane floor.
+    enabled: true
+  # DEVIATION: readiness via the HTTP health endpoint instead of the chart's
+  # default `bao status` exec probe. `bao status` exits non-zero while the
+  # server is sealed, so the pod never becomes Ready; ArgoCD's sync-wave
+  # ordering then never advances past the wave-0 StatefulSet to the wave-2
+  # bootstrap Job that initialises/unseals it — a deadlock. sealedcode=204 and
+  # uninitcode=204 make those states return 2xx so the pod is Ready and the Job
+  # can run. Same fix as the vault package.
+  readinessProbe:
+    enabled: true
+    path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
+  # Chart default (false). Kept explicit: routing is handled by
+  # manifests/httproute.yaml (Gateway API), never an nginx Ingress.
+  ingress:
+    enabled: false
+  # Chart default (true): binds system:auth-delegator to the server
+  # ServiceAccount so OpenBao can act as the TokenReview'er for its own
+  # kubernetes auth method. The bootstrap Job relies on this (it leaves
+  # token_reviewer_jwt unset).
+  authDelegator:
+    enabled: true
+
+ui:
+  # DEVIATION: chart default is false. The platform exposes the OpenBao UI via
+  # the Gateway HTTPRoute, which needs a stable ClusterIP Service to target.
+  enabled: true
+  # Chart default. Never a LoadBalancer — the Cilium Gateway is the only ingress.
+  serviceType: ClusterIP
+
+serverTelemetry:
+  serviceMonitor:
+    # Chart default (false). The platform ships its own ServiceMonitor at
+    # sync-wave 10 (manifests/servicemonitor.yaml) so the monitoring CRs land
+    # after the Prometheus Operator CRDs on a first boot; letting the chart
+    # render one at wave 0 would fail the first sync on a fresh cluster.
+    enabled: false

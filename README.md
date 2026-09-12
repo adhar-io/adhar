@@ -217,7 +217,7 @@ adhar get secrets -p argocd
 </details>
 
 <details>
-<summary><b>Data & Analytics (14)</b></summary>
+<summary><b>Data & Analytics (15)</b></summary>
 
 - **PostHog** - Product analytics & feature flags
 - **Metabase** - Business intelligence dashboard
@@ -232,6 +232,7 @@ adhar get secrets -p argocd
 - **MLflow** - ML lifecycle management platform
 - **Flink** - Stream processing engine
 - **OpenSearch** - Search & analytics engine
+- **LibreDB Studio** - Browser SQL IDE over every platform database
 - **Milvus** - Vector database for AI applications
 
 </details>

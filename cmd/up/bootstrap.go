@@ -320,6 +320,11 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		}
 	}
 
+	// Cilium Cluster Mesh identity (environments[].clusterConfig): every
+	// cluster in a mesh needs a unique name/ID pair, and the peer needs a
+	// reachable clustermesh-apiserver.
+	clusterMesh := clusterMeshSpecFromConfig(envConfig)
+
 	platform := v1alpha1.AdharPlatform{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      platformName,
@@ -334,6 +339,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		platform.Spec = v1alpha1.AdharPlatformSpec{
 			Provider:           providerNameToEnvironmentProvider(providerName),
 			Autoscaling:        autoscaling,
+			ClusterMesh:        clusterMesh,
 			BuildCustomization: templateData,
 			PackageConfigs: v1alpha1.PackageConfigsSpec{
 				Argo:                     v1alpha1.ArgoPackageConfigSpec{Enabled: true},

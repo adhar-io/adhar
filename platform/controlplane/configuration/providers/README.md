@@ -149,7 +149,7 @@ providers/
 
 1. **Least Privilege**: Grant only necessary permissions to service accounts/credentials
 2. **Secret Rotation**: Regularly rotate credentials and update secrets
-3. **Namespace Isolation**: Keep all provider secrets in `crossplane-system` namespace
+3. **Namespace**: every provider Secret lives in `adhar-system` — the platform has a single namespace (ADR-0011) and never creates `crossplane-system`.
 4. **Secret Naming**: Use consistent naming: `<provider>-credentials`
 5. **Documentation**: Document which service account/credentials are used for each environment
 6. **Backup**: Securely backup credential information

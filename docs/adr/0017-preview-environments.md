@@ -1,6 +1,6 @@
 # ADR-0017: Ephemeral preview environments per pull request
 
-**Status**: Accepted (namespace-scoped previews first; vcluster-backed previews follow ADR-0016 Composition wiring) · **Date**: 2026-07
+**Status**: Accepted — **implemented** (2026-09) for namespace-scoped previews: the `application/preview-environments` package ships the org-wide pull-request ApplicationSet and the Kyverno quota/limit guardrails, the supply-chain `app-ci` pipeline builds and tags PR heads by commit SHA, and the golden-path skeletons ship the `preview/` overlay. vcluster-backed previews still follow ADR-0016 Composition wiring. A live open-PR-to-URL run is the remaining verification. · **Date**: 2026-07 (implemented 2026-09)
 
 ## Context
 
@@ -30,3 +30,35 @@ Preview environments are driven by an **ApplicationSet with the Pull Request gen
 - ⚠️ Preview capacity is real capacity: N open PRs × quota must fit the target cluster; on the local profile previews contend with the platform itself (ADR-0012), so local previews default to 1–2 concurrent
 - ⚠️ The PR generator polls or needs forge webhooks — poll interval bounds "push → preview updated" latency; webhook config is per-forge setup documented in the User Guide
 - ⚠️ Secrets for previews must flow through ESO like everything else (ADR-0009) — teams must resist the shortcut of committing "harmless" preview credentials, which is exactly how real credentials end up in Git
+
+## Implementation notes (2026-09)
+
+Where the shipped package differs from the sketch above, and why:
+
+- **One ApplicationSet for the org, not one per repo.** A matrix generator pairs the Gitea
+  `scmProvider` generator (every repo carrying `preview/kustomization.yaml`) with the Gitea
+  `pullRequest` generator (every open PR on it labelled `preview`). Opting a repository in is
+  therefore a file in that repository, not a platform change — which keeps the Git-only write
+  path intact for teams that do not own the `environments` repo.
+- **Names are `<repo>-pr-<number>`; namespaces are `preview-<repo>-<number>`.** The sketch's
+  `preview-pr-<number>` is not unique across repositories once more than one app opts in.
+- **The overlay reconciles the two manifest layouts.** Backstage-scaffolded repos keep manifests
+  in `manifests/`, Console-scaffolded ones in `deploy/`; `preview/kustomization.yaml` names its
+  own base, so the platform does not have to guess a path.
+- **The PR head SHA is the image tag.** `app-ci` now pushes every build under `:latest` *and*
+  `:<commit sha>` and builds the head of any PR labelled `preview` (without the GitOps writeback,
+  which must stay a main-branch action). The preview Application overrides the kustomize image tag
+  with `head_sha`, so a preview can never silently serve main's image.
+- **No TTL reaper for closed PRs.** Teardown is the generator's: the PR leaves the result set, the
+  ApplicationSet controller deletes the Application, and `resources-finalizer.argoproj.io` prunes
+  its resources — including the Namespace, which the overlay declares as a managed resource
+  precisely so it is pruned. A CronOperation remains the right place to reap *abandoned but open*
+  PRs if a fleet ever needs it.
+- **Previews are unauthenticated-but-internal.** Fronting them with the platform oauth2-proxy
+  needs a Keycloak client per hostname (`hack/gen-sso.sh`), and preview hostnames are created and
+  destroyed with pull requests — provisioning and reaping those clients is exactly the
+  preview-specific controller this ADR rejected. Previews are reachable only on the platform
+  Gateway and carry synthetic data only.
+- **`adhar.io/plane: preview`** is a third value of the ADR-0023 placement label; the
+  `require-namespace-plane-label` policy was widened to `control | data | preview` so ephemeral
+  namespaces do not show as governance violations.

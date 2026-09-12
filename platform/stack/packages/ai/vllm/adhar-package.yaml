@@ -1,0 +1,73 @@
+# Adhar marketplace contract for the vllm package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: vllm
+category: ai
+# Tracks the upstream vLLM release the manifests pin (vllm/vllm-openai-cpu and
+# vllm/vllm-openai are both tagged v0.29.0), since this package renders no chart.
+version: "0.29.0"
+appVersion: v0.29.0
+description: Self-hosted, OpenAI-compatible LLM inference with vLLM — a GPU profile for real serving and a CPU profile for local development.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://docs.vllm.ai
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  # kube-prometheus owns the ServiceMonitor CRD and the Grafana sidecar that
+  # loads manifests/dashboard.yaml. Optional: without it the engine serves
+  # fine, the two observability manifests simply have nothing to register with.
+  - name: kube-prometheus
+    category: observability
+    optional: true
+  # external-secrets projects the optional HF_TOKEN for gated model repos.
+  # Optional: both default models are ungated and the Deployments mark the
+  # secret reference `optional: true`, so a missing Secret never blocks start.
+  - name: external-secrets
+    category: security
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  # Deliberately no upstreamChart: the vllm-stack production-stack chart is
+  # GPU-defaulted and bundles its own router + Redis, so this package ships
+  # hand-written manifests instead (see values.yaml for the full rationale).
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: alpha
+resources:
+  # CPU profile figures (the GPU profile requests 4 CPU / 16Gi RAM plus one
+  # nvidia.com/gpu and ~15.2 GB of weights).
+  cpu: "2"
+  memory: 6Gi
+  storage: 20Gi
+  footprint: large
+  # FALSE, and deliberately so — it mirrors the enabled gate, which is "false"
+  # in every profile. The CPU profile is *designed* to run on Kind, but it is
+  # not safe to have ON by default there: a ~1.8 GB image pull, ~1 GB of model
+  # weights and a 6Gi memory request on top of the ~30-app local core is more
+  # than a single Kind node has spare. Free the headroom first (disable a few
+  # heavy packages), then enable `vllm` + `vllm-cpu`.
+  localSafe: false
+  notes: >-
+    Three ApplicationSet elements from one package directory: `vllm`
+    (ai/vllm/manifests — PVC, Service, HTTPRoute, ServiceMonitor, dashboard,
+    HF-token ExternalSecret), `vllm-cpu` (ai/vllm/manifests/cpu) and `vllm-gpu`
+    (ai/vllm/manifests/gpu). Enable `vllm` plus exactly ONE profile: both
+    Deployments are named `vllm` and share one Service. The GPU profile needs a
+    GPU node pool with the NVIDIA device plugin advertising nvidia.com/gpu.
+keywords:
+  - ai
+  - llm
+  - inference
+  - vllm
+  - openai-compatible
+  - gpu

@@ -10221,7 +10221,7 @@ spec:
       terminationGracePeriodSeconds: 10
 ---
 # Source: tf-controller/templates/packages.yaml
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
   name: aws-package

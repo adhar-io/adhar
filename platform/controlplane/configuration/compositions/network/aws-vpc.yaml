@@ -47,7 +47,11 @@ spec:
             enableFlowLogs = flowLogs.enabled or False
 
             tags = params.tags or {}
-            deletionPolicy = params.deletionPolicy or "Delete"
+            # Namespaced (.m) managed resources have NO spec.deletionPolicy — it is not
+            # in their schema and the apply fails with "field not declared in schema".
+            # Retention is expressed by withholding Delete from managementPolicies.
+            _retainOnDelete = (params.deletionPolicy or "Delete") in ["Orphan", "Retain"]
+            managementPolicies = ["Observe", "Create", "Update", "LateInitialize"] if _retainOnDelete else ["*"]
 
             secretName = conn.name or "${metadata.name}-network"
             secretNamespace = conn.namespace or "adhar-system"
@@ -72,7 +76,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 }
             ]
@@ -98,7 +102,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 }]
 
@@ -137,7 +141,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 }]
                 
@@ -172,7 +176,7 @@ spec:
                                 }
                                 providerConfigRef.name: providerConfigName
                                 providerConfigRef.kind: "ClusterProviderConfig"
-                                deletionPolicy: deletionPolicy
+                                managementPolicies: managementPolicies
                             }
                         },
                         {
@@ -202,7 +206,7 @@ spec:
                                 }
                                 providerConfigRef.name: providerConfigName
                                 providerConfigRef.kind: "ClusterProviderConfig"
-                                deletionPolicy: deletionPolicy
+                                managementPolicies: managementPolicies
                             }
                         }
                     ]
@@ -228,7 +232,7 @@ spec:
                                     }
                                     providerConfigRef.name: providerConfigName
                                     providerConfigRef.kind: "ClusterProviderConfig"
-                                    deletionPolicy: deletionPolicy
+                                    managementPolicies: managementPolicies
                                 }
                             },
                             {
@@ -257,7 +261,7 @@ spec:
                                     }
                                     providerConfigRef.name: providerConfigName
                                     providerConfigRef.kind: "ClusterProviderConfig"
-                                    deletionPolicy: deletionPolicy
+                                    managementPolicies: managementPolicies
                                 }
                             }
                         ]
@@ -287,7 +291,7 @@ spec:
                             }
                             providerConfigRef.name: providerConfigName
                             providerConfigRef.kind: "ClusterProviderConfig"
-                            deletionPolicy: deletionPolicy
+                            managementPolicies: managementPolicies
                         }
                     },
                     {
@@ -312,7 +316,7 @@ spec:
                             }
                             providerConfigRef.name: providerConfigName
                             providerConfigRef.kind: "ClusterProviderConfig"
-                            deletionPolicy: deletionPolicy
+                            managementPolicies: managementPolicies
                         }
                     }
                 ]
@@ -343,7 +347,7 @@ spec:
                             }
                             providerConfigRef.name: providerConfigName
                             providerConfigRef.kind: "ClusterProviderConfig"
-                            deletionPolicy: deletionPolicy
+                            managementPolicies: managementPolicies
                         }
                     }]
 
@@ -369,7 +373,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 }, {
                     apiVersion: "ec2.aws.m.upbound.io/v1beta1"
@@ -393,7 +397,7 @@ spec:
                         }
                         providerConfigRef.name: providerConfigName
                         providerConfigRef.kind: "ClusterProviderConfig"
-                        deletionPolicy: deletionPolicy
+                        managementPolicies: managementPolicies
                     }
                 }]
                 
@@ -423,7 +427,7 @@ spec:
                             }
                             providerConfigRef.name: providerConfigName
                             providerConfigRef.kind: "ClusterProviderConfig"
-                            deletionPolicy: deletionPolicy
+                            managementPolicies: managementPolicies
                         }
                     }]
 

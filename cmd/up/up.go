@@ -41,7 +41,7 @@ import (
 const (
 	recreateClusterUsage           = "🗑️ Delete existing cluster before creating new one"
 	devPasswordUsage               = "🔑 Set password 'developer' for admin users (ArgoCD & Gitea)"
-	kubeVersionUsage               = "🐳 Kubernetes version for Kind cluster (e.g., v1.36.1)"
+	kubeVersionUsage               = "🐳 Kubernetes version to provision (any provider, e.g. v1.37.0); defaults to the platform version"
 	extraPortsMappingUsage         = "🔌 Extra ports to expose (e.g., '22:32222,9090:39090')"
 	registryConfigUsage            = "📦 Container registry config paths (uses first existing one)"
 	kindConfigPathUsage            = "⚙️ Custom Kind configuration file path or URL"
@@ -63,6 +63,7 @@ var (
 	recreateCluster           bool
 	devPassword               bool
 	kubeVersion               string
+	kubeVersionExplicit       bool
 	extraPortsMapping         string
 	kindConfigPath            string
 	extraPackages             []string
@@ -201,6 +202,12 @@ func create(cmd *cobra.Command, args []string) error {
 	// Create a new context with cancel function to support graceful shutdown
 	ctx, ctxCancel := context.WithCancel(cmd.Context())
 	defer ctxCancel()
+
+	// Record whether the operator actually typed --kube-version. The flag's
+	// default is the platform version, so its value alone cannot distinguish
+	// "not given" from "given as the default", and only an explicit value may
+	// override what an environment pins in its clusterConfig.
+	kubeVersionExplicit = cmd.Flags().Changed("kube-version")
 
 	// The banner is already printed once by the root command's PersistentPreRun
 	// (printHeader) — do not repeat it here. Production mode shows a compact

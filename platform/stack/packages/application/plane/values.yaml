@@ -6,3 +6,17 @@
 # self-contained.
 ingress:
   enabled: false
+  # Even with the Ingress disabled the chart uses appHost to render the app's
+  # public origin into plane-app-vars: WEB_URL and CORS_ALLOWED_ORIGINS -- and
+  # Plane's Django settings derive CSRF_TRUSTED_ORIGINS from
+  # CORS_ALLOWED_ORIGINS (plane/settings/common.py). Left at the chart default
+  # (plane.example.com) every sign-in POST from the real host is rejected as a
+  # CSRF failure. Host convention: the controller rewrites
+  # adhar.localtest.me:8443 to the real domain when seeding cloud clusters, so
+  # never hardcode another domain or port here.
+  appHost: "plane.adhar.localtest.me:8443"
+ssl:
+  # TLS terminates at the Cilium Gateway, in front of Plane; this only tells the
+  # chart to render WEB_URL/CORS with an https:// scheme. No cert is managed
+  # here and no `tls:` block is emitted (ingress.enabled is false anyway).
+  externalTermination: true

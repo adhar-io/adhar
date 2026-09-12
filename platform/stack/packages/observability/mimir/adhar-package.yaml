@@ -1,0 +1,44 @@
+# Adhar marketplace contract for the mimir package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: mimir
+category: observability
+version: "6.2.0"
+description: Grafana Mimir long-term metrics storage (MinIO-backed) and the remote-write endpoint for spoke clusters.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: AGPL-3.0
+homepage: https://grafana.com/oss/mimir/
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  - name: external-secrets
+    category: security
+  - name: keycloak
+    category: security
+    optional: true
+  - name: minio
+    category: data
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: grafana/mimir-distributed
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: stable
+resources:
+  localSafe: true   # mirrors the enabled gate in adhar-appset-local.yaml
+keywords:
+  - metrics
+  - long-term-storage
+  - prometheus
+  - mimir

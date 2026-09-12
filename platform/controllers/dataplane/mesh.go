@@ -38,25 +38,33 @@ import (
 var ciliumCLIImage = "quay.io/cilium/cilium-cli:v0.18.6"
 
 const (
+	// ciliumCLIBinary is the only executable in the distroless cilium-cli image.
+	ciliumCLIBinary    = "/usr/local/bin/cilium"
 	meshServiceAccount = "clustermesh-connect"
 	meshContextMgmt    = "mgmt"
 	meshKubeconfigPath = "/kube/config"
 )
 
-// ensureMesh joins the data plane to the Cilium Cluster Mesh by running
-// `cilium clustermesh connect` as a Job on the control plane with a kubeconfig
-// that carries both sides (context "mgmt" = in-cluster ServiceAccount, context
-// "<dp>" = the plane's kubeconfig). MeshJoined is reported True only once the
-// Job has succeeded — a failed Job surfaces as an error with the Job's own
-// failure — so the condition is a statement about the mesh, not about the
-// Job object existing.
+// ensureMesh joins the data plane to the Cilium Cluster Mesh and then proves it
+// joined. The join writes each cluster's coordinates into the other's
+// clustermesh Secrets; the proof is a Job running `cilium clustermesh status
+// --wait` against both sides through a two-context kubeconfig (context "mgmt" =
+// in-cluster ServiceAccount, context "<dp>" = the plane's kubeconfig).
+// MeshJoined is reported True only once that Job has succeeded — a failed Job
+// surfaces as an error carrying the Job's own failure — so the condition is a
+// statement about the mesh, not about a command having been issued.
 //
-// Prerequisites the Job checks for and reports (it does not paper over them):
-// both clusters must run Cilium with distinct cluster IDs sharing the same CA,
-// and each must have its clustermesh-apiserver exposed (the management cluster
-// ships one in resources/cilium/clustermesh.yaml). A vcluster plane shares the
-// host's CNI and has no mesh of its own; mesh.enabled is meaningless there.
-func (r *DataPlaneReconciler) ensureMesh(ctx context.Context, dp *v1alpha1.DataPlane, _ client.Client) (bool, error) {
+// Prerequisites, which it reports rather than papers over: both clusters must
+// run Cilium with distinct cluster names/IDs sharing the same CA, and each must
+// expose its clustermesh-apiserver (spec.clusterMesh.apiServer on the
+// AdharPlatform). A vcluster plane shares the host's CNI and has no mesh of its
+// own; mesh.enabled is meaningless there.
+func (r *DataPlaneReconciler) ensureMesh(ctx context.Context, dp *v1alpha1.DataPlane, plane client.Client) (bool, error) {
+	// The join itself is declarative — see ensureMeshPeering for why the cilium
+	// CLI cannot do it on a manifest-installed Cilium.
+	if err := r.ensureMeshPeering(ctx, dp, plane); err != nil {
+		return false, err
+	}
 	if err := r.ensureMeshRBAC(ctx, dp); err != nil {
 		return false, err
 	}
@@ -74,7 +82,7 @@ func (r *DataPlaneReconciler) ensureMesh(ctx context.Context, dp *v1alpha1.DataP
 				return true, nil
 			}
 			if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue {
-				return false, fmt.Errorf("clustermesh connect failed: %s (inspect job/%s)", c.Message, jobName)
+				return false, fmt.Errorf("cluster mesh did not converge: %s (inspect job/%s)", c.Message, jobName)
 			}
 		}
 		return false, nil // still running
@@ -83,10 +91,25 @@ func (r *DataPlaneReconciler) ensureMesh(ctx context.Context, dp *v1alpha1.DataP
 	}
 
 	backoff := int32(3)
-	script := fmt.Sprintf(`set -eu
-cilium clustermesh status --context %[1]s || { echo "management cluster has no clustermesh-apiserver: apply resources/cilium/clustermesh.yaml first"; exit 1; }
-cilium clustermesh connect --context %[1]s --destination-context %[2]s
-cilium clustermesh status --context %[1]s --wait --wait-duration 5m`, meshContextMgmt, dp.Name)
+	// The cilium CLI image is distroless — it holds /usr/local/bin/cilium and
+	// nothing else, no shell — so the steps cannot be a `sh -c` script. They run
+	// as sequential initContainers instead, which gives the same semantics for
+	// free: each step must exit 0 before the next starts, and any failure fails
+	// the Job. The CLI also defaults to the upstream chart's namespace
+	// (kube-system) while Adhar runs Cilium in adhar-system, so every invocation
+	// has to say so or it reports "cilium is not installed".
+	kubeMount := []corev1.VolumeMount{{Name: "kubeconfig", MountPath: "/kube", ReadOnly: true}}
+	kubeEnv := []corev1.EnvVar{{Name: "KUBECONFIG", Value: meshKubeconfigPath}}
+	step := func(name string, args ...string) corev1.Container {
+		return corev1.Container{
+			Name:         name,
+			Image:        ciliumCLIImage,
+			Command:      append([]string{ciliumCLIBinary}, args...),
+			Env:          kubeEnv,
+			VolumeMounts: kubeMount,
+		}
+	}
+	ns := controlPlaneNamespace
 	job := &batchv1.Job{
 		TypeMeta: metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -106,15 +129,19 @@ cilium clustermesh status --context %[1]s --wait --wait-duration 5m`, meshContex
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyNever,
 					ServiceAccountName: meshServiceAccount,
-					Containers: []corev1.Container{{
-						Name:    "clustermesh-connect",
-						Image:   ciliumCLIImage,
-						Command: []string{"sh", "-c", script},
-						Env:     []corev1.EnvVar{{Name: "KUBECONFIG", Value: meshKubeconfigPath}},
-						VolumeMounts: []corev1.VolumeMount{{
-							Name: "kubeconfig", MountPath: "/kube", ReadOnly: true,
-						}},
-					}},
+					InitContainers: []corev1.Container{
+						// A mesh is only joined when BOTH sides say so, so the
+						// data plane is waited on first and the control plane
+						// decides the Job.
+						step("verify-data-plane",
+							"clustermesh", "status", "-n", ns, "--context", dp.Name,
+							"--wait", "--wait-duration", "5m"),
+					},
+					Containers: []corev1.Container{
+						step("verify-control-plane",
+							"clustermesh", "status", "-n", ns, "--context", meshContextMgmt,
+							"--wait", "--wait-duration", "5m"),
+					},
 					Volumes: []corev1.Volume{{
 						Name: "kubeconfig",
 						VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{

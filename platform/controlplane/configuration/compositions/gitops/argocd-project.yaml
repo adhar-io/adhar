@@ -159,7 +159,9 @@ spec:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
               {{- end }}
-              deletionPolicy: Delete
+              # No deletionPolicy here: this is a namespaced kubernetes.m.crossplane.io
+              # Object, whose schema has no such field (the apply would fail). Delete
+              # on removal is the default managementPolicies behaviour anyway.
             {{- end }}
             ---
             # Publish the project roll-up on the XR status. XR-level connection

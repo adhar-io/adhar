@@ -1,0 +1,139 @@
+# agentgateway — the two public hostnames, published through the PLATFORM edge
+# (ADR-0025).
+#
+# ---------------------------------------------------------------------------
+# DECISION: agentgateway SITS BEHIND THE CILIUM GATEWAY. IT DOES NOT TERMINATE.
+# ---------------------------------------------------------------------------
+# agentgateway is perfectly capable of being the edge — it implements Gateway API
+# and its upstream docs put a LoadBalancer in front of it. The platform does not
+# use it that way, for four concrete reasons:
+#
+#  1. ONE TLS STORY. `adhar-gateway` holds `adhar-cert`, a wildcard for
+#     *.adhar.localtest.me minted and rotated by the platform (cert-manager on
+#     cloud, self-signed locally). A second terminating edge needs its own cert,
+#     its own ACME/DNS wiring per cloud, and its own renewal failure mode. Two
+#     ways to get TLS wrong instead of one.
+#  2. ONE HOST PORT. Local kind maps exactly two host ports (8080/8443) to the
+#     Cilium Gateway's nodePorts 30080/30443. A second edge would need a third
+#     mapping baked into kind.yaml.tmpl and a matching LB on six clouds.
+#  3. ONE PLACE TO LOOK. Every other package in the platform publishes through
+#     `adhar-gateway` on `<app>.<host>`. An AI endpoint that arrived on a
+#     different IP and a different port would be the one exception an operator
+#     has to remember.
+#  4. NO CAPABILITY IS LOST. agentgateway's value is protocol awareness — token
+#     accounting, prompt guards, MCP multiplexing, tool-level authorization —
+#     and every one of those works identically one hop behind Cilium. TLS
+#     termination is the one thing it does that Cilium already does.
+#
+# So: Cilium owns the edge and the certificate; agentgateway owns AI semantics.
+# TLS terminates at `adhar-gateway`, and the hop to the agentgateway proxy is
+# plaintext inside the cluster, where Cilium (WireGuard/mTLS at the CNI) is the
+# confidentiality boundary — the same trust model every other package uses.
+#
+# ---------------------------------------------------------------------------
+# THE URLS A USER ACTUALLY HITS
+# ---------------------------------------------------------------------------
+#   LLM  https://ai.adhar.localtest.me:8443/v1/chat/completions
+#   LLM  https://ai.adhar.localtest.me:8443/v1/models
+#   MCP  https://mcp.adhar.localtest.me:8443/mcp
+#   MCP  https://mcp.adhar.localtest.me:8443/        (rewritten to /mcp)
+#
+# Both literals are the platform's seed-time host convention: the controller
+# rewrites `adhar.localtest.me:8443` to the real domain and port suffix when the
+# stack is seeded into Gitea (stageStack). Never hardcode another domain.
+#
+# NOTE — these are the SAME two hostnames ai/adhar-ai currently publishes in its
+# own httproute.yaml, pointed at `adhar-ai-runtime`. Two HTTPRoutes claiming one
+# hostname on one Gateway is a conflict the Gateway resolves by creation
+# timestamp, which is not a configuration. ai/adhar-ai's route must be reduced to
+# the runtime's own paths — see ADR-0025 "Required changes in ai/adhar-ai". That
+# rewiring is owned by a separate change; until it lands, expect one of the two
+# routes to report a RouteConflict condition.
+#
+# Backend: `adhar-ai-gateway` is the ClusterIP Service the agentgateway
+# controller provisions for the Gateway of the same name (gateway.yaml), on the
+# listener's port 8080.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: agentgateway-ai
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway-ai
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    # Wave 3: AFTER the Gateway (wave 1) and its backends/policies (wave 2).
+    # ArgoCD holds a wave until its resources are healthy, and an HTTPRoute whose
+    # backend Service does not exist yet is Degraded (ResolvedRefs=False) — at an
+    # earlier wave that deadlocks a first-boot sync. The proxy Service only
+    # exists once the agentgateway controller has reconciled the Gateway.
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - ai.adhar.localtest.me
+  rules:
+    # Everything on this host goes to the AI data plane with the path intact:
+    # /v1/chat/completions, /v1/models, /v1/embeddings. agentgateway's own
+    # HTTPRoute (llm-routes.yaml) does the model-based fan-out from there.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: adhar-ai-gateway
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  # NOTE the -edge suffix: the INTERNAL MCP route on the agentgateway
+  # Gateway is already called `agentgateway-mcp` (mcp-federation.yaml).
+  # Two HTTPRoutes of the same name in adhar-system would be one object
+  # fighting itself through ArgoCD sync (ADR-0011 object-name collisions).
+  name: agentgateway-mcp-edge
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: agentgateway-mcp-edge
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - mcp.adhar.localtest.me
+  rules:
+    # The canonical MCP URL. Forwarded unchanged; the internal route in
+    # mcp-federation.yaml matches the same /mcp prefix.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        - name: adhar-ai-gateway
+          port: 8080
+    # Convenience: a dedicated MCP hostname should work when a client is handed
+    # just `https://mcp.<host>/`. Less specific than the rule above, so Gateway
+    # API only reaches it when the path is not already /mcp — no /mcp/mcp.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /mcp
+      backendRefs:
+        - name: adhar-ai-gateway
+          port: 8080

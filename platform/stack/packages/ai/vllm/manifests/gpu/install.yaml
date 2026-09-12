@@ -1,0 +1,208 @@
+# vLLM — GPU inference profile (the cloud default, once the cluster has GPU
+# nodes). Deployment + Service; the model cache PVC, HTTPRoute, ServiceMonitor,
+# dashboard and HF_TOKEN ExternalSecret are the profile-agnostic surface in ../
+# (appset element "vllm").
+#
+# MUTUALLY EXCLUSIVE WITH ../cpu/install.yaml: both Deployments are named `vllm`
+# and both are selected by the same Service. Enable exactly one of the
+# `vllm-cpu` / `vllm-gpu` ApplicationSet elements — never both.
+#
+# WHY THIS PROFILE IS NOT THE ONLY PROFILE
+# ----------------------------------------
+# The upstream production-stack `vllm-stack` chart defaults to requestGPU: 1 and
+# runtimeClassName: "nvidia", and Adhar's default droplets (and the Kind node)
+# have no GPUs at all. Shipping only a GPU manifest would mean shipping a
+# package that cannot start on the platform's own default topology. So vLLM is
+# packaged as two honest profiles instead: this one for real serving, ../cpu for
+# development and for any cluster without GPU nodes. See ../cpu/install.yaml for
+# the full rationale on not using the chart.
+#
+# PREREQUISITES (this profile will stay Pending without them)
+#   1. A node pool with NVIDIA GPUs. On Adhar's CompositeCluster XR that is a
+#      GPU node group; on a managed cluster it is a GPU-instance pool.
+#   2. The NVIDIA device plugin (or the GPU Operator) advertising the
+#      `nvidia.com/gpu` extended resource on those nodes. Kubernetes cannot
+#      schedule against a resource nobody advertises.
+#   3. Nodes labelled and, conventionally, tainted so ordinary workloads stay
+#      off the expensive hardware — the nodeSelector/toleration below assume the
+#      de-facto standard `nvidia.com/gpu.present=true` label (set by NFD/GPU
+#      Operator) and a `nvidia.com/gpu` taint. Adjust to your pool's labels.
+#
+# IMAGE (verified to exist on Docker Hub, 2026-09-12)
+#   vllm/vllm-openai:v0.29.0 — the official CUDA build (~10 GB). Pinned, never
+#   :latest (ADR-0019 / disallow-latest-tag).
+#
+# ENTRYPOINT is ["vllm", "serve"], so `args` are the positional model plus flags.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: adhar-ai
+    app.kubernetes.io/component: inference
+    adhar.io/component: ai
+    adhar.io/plane: control
+    adhar.io/vllm-profile: gpu
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  replicas: 1
+  # One ReadWriteOnce model-cache volume — RollingUpdate can never place the new
+  # pod while the old one holds it. (Same trap as data/minio.)
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm
+        app.kubernetes.io/part-of: adhar-ai
+        app.kubernetes.io/component: inference
+        adhar.io/component: ai
+        adhar.io/plane: control
+    spec:
+      # ADR-0011: no <SVC>_PORT env firehose into an argparse-driven process.
+      enableServiceLinks: false
+      # Only schedule where the device plugin actually advertises GPUs.
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      # GPU pools are normally tainted so CPU workloads do not squat on them.
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        # The CUDA image ships a `vllm` account at uid 2000 / gid 0. Running as
+        # that uid (rather than root) keeps the pod inside the platform's
+        # baseline PodSecurity posture while leaving the image's own paths
+        # readable. fsGroup makes the provisioned model-cache volume writable.
+        runAsNonRoot: true
+        runAsUser: 2000
+        runAsGroup: 0
+        fsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.29.0
+          imagePullPolicy: IfNotPresent
+          args:
+            # Qwen2.5-7B-Instruct: a real instruct model that is UNGATED and
+            # Apache-2.0 on the HuggingFace hub (15.2 GB of bf16 weights across
+            # four shards), so the default profile needs no HF_TOKEN and carries
+            # no click-through licence. Swap for Llama-3.1-8B-Instruct or
+            # Mistral-7B-Instruct-v0.3 if you prefer — both are GATED, which is
+            # exactly what ../hf-token.yaml exists for.
+            - "Qwen/Qwen2.5-7B-Instruct"
+            - "--served-model-name"
+            - "qwen2.5-7b-instruct"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            # Shard the model across N GPUs in the pod. Keep it EQUAL to the
+            # nvidia.com/gpu count in `resources` below — vLLM asserts on a
+            # mismatch and refuses to start. 1 GPU with >=24 GB (A10G/L4/A100)
+            # holds a 7-8B bf16 model plus a useful KV cache; raise both to 2
+            # for a 70B-class model on 2x80 GB.
+            - "--tensor-parallel-size"
+            - "1"
+            # 32k is the model's advertised window. Reduce it if the KV cache
+            # will not fit at the utilisation below (vLLM tells you the exact
+            # numbers in its startup log).
+            - "--max-model-len"
+            - "32768"
+            - "--dtype"
+            - "bfloat16"
+            # Fraction of each GPU's memory vLLM may claim for weights + KV
+            # cache. 0.90 leaves headroom for the CUDA context and fragmentation;
+            # the upstream default (0.92) is fine on a dedicated card but is a
+            # frequent OOM source on a card shared with anything else.
+            - "--gpu-memory-utilization"
+            - "0.90"
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # Weights on the PVC so a pod reschedule does not re-download 15 GB.
+            - name: HF_HOME
+              value: /data/hf
+            - name: HOME
+              value: /data
+            # Only needed for GATED repos; ../hf-token.yaml always materialises
+            # the Secret (empty when unset), and `optional: true` means a missing
+            # Secret never blocks the pod.
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vllm-hf-token
+                  key: HF_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+              # Extended resources MUST appear identically in requests and
+              # limits — Kubernetes rejects a GPU request that differs from its
+              # limit. Keep in step with --tensor-parallel-size above.
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              # Host RAM, not VRAM: the weights are staged through host memory
+              # on load and the tokenizer/scheduler live there permanently.
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # Not read-only: torch/CUDA compile caches are written into the
+            # image tree on first start.
+            readOnlyRootFilesystem: false
+          # A 15 GB cold download plus CUDA graph capture takes many minutes.
+          # The startupProbe holds the liveness probe off until the first load
+          # completes, which is what stops an LLM Deployment from crash-looping
+          # forever without ever finishing a start.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            failureThreshold: 120     # up to 30 minutes for a cold model pull
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            # NCCL and the engine-core IPC need more than the default 64 MB
+            # /dev/shm; tensor parallelism in particular fails with a bare
+            # "Bus error" without this.
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: vllm-model-cache
+        - name: tmp
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi

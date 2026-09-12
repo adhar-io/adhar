@@ -142,7 +142,7 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	_, err := r.ReconcileProjectNamespace(ctx, req, &localBuild)
+	_, err := r.ReconcilePlatformNamespace(ctx, req, &localBuild)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -175,6 +175,16 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			r.recordFailure("CorePackageInstallFailed", err)
 			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 		}
+	}
+
+	// The clustermesh-apiserver is opt-in and is typically switched on long
+	// after the foundation is installed — the block above only runs while
+	// ArgoCD/Gateway/Gitea are still missing, so reconciling it there would
+	// mean a platform can never join a mesh without being rebuilt.
+	if err := r.reconcileClusterMeshAPIServer(ctx, &localBuild); err != nil {
+		logger.Error(err, "failed reconciling clustermesh-apiserver")
+		r.recordFailure("ClusterMeshAPIServerFailed", err)
+		return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 	}
 
 	// Apply the platform stack (GitOps repo seeding + ArgoCD auth + the
@@ -989,12 +999,20 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 	}
 }
 
-func (r *AdharPlatformReconciler) ReconcileProjectNamespace(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
+// ReconcilePlatformNamespace labels the platform namespace as the control
+// plane. It reconciles `adhar-system` itself — the one namespace every platform
+// package installs into (ADR-0011) — rather than a per-CR `adhar-<name>`
+// namespace, which nothing ever deployed into and which only showed up in
+// `kubectl get ns` as a confusing empty entry. The label is what the
+// `require-namespace-plane-label` policy audits and what ADR-0023's
+// plane-isolation policy keys off, so it must be set before ArgoCD exists to
+// stamp it through the ApplicationSet's managedNamespaceMetadata.
+func (r *AdharPlatformReconciler) ReconcilePlatformNamespace(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	nsResource := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: globals.GetProjectNamespace(resource.Name),
+			Name: globals.AdharSystemNamespace,
 		},
 	}
 

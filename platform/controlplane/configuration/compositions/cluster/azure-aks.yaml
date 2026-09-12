@@ -22,6 +22,12 @@ spec:
           template: |
             {{- $xr := .observed.composite.resource -}}
             {{- $params := $xr.spec.parameters -}}
+            {{- /* Namespaced (v2) MRs have no spec.deletionPolicy — the field was
+                   removed from the .m schemas; the equivalent is managementPolicies
+                   without Delete. Setting deletionPolicy fails schema validation
+                   ("field not declared in schema"), so map Orphan onto
+                   managementPolicies instead. */ -}}
+            {{- $orphan := eq (default "Delete" $params.deletionPolicy) "Orphan" -}}
             {{- $providerSettings := default (dict) $params.providerSettings -}}
             {{- $azure := default (dict) (get $providerSettings "azure") -}}
             {{- $cp := default (dict) $params.controlPlane -}}
@@ -198,7 +204,9 @@ spec:
               writeConnectionSecretToRef:
                 name: {{ quote $secretName }}
                 namespace: {{ quote $secretNamespace }}
-              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- range $index, $pool := $params.nodePools }}
             {{- if gt $index 0 }}
             ---
@@ -250,7 +258,9 @@ spec:
               providerConfigRef:
                 name: {{ quote $providerConfig }}
                 kind: ClusterProviderConfig
-              deletionPolicy: {{ default "Delete" $params.deletionPolicy }}
+              {{- if $orphan }}
+              managementPolicies: ["Observe", "Create", "Update", "LateInitialize"]
+              {{- end }}
             {{- end }}
             {{- end }}
     # ArgoCD auto-registration (roadmap P2.1): parse the kubeconfig from the

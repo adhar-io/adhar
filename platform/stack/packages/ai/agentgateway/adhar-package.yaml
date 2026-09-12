@@ -1,0 +1,69 @@
+# Adhar marketplace contract for the agentgateway package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: agentgateway
+category: ai
+version: "1.5.0"
+appVersion: v1.5.0
+description: 'AI data plane (ADR-0025): one governed endpoint for LLM completions, federated MCP tools and A2A, with JWT/RBAC, prompt guardrails, token budgets and OTel traces.'
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://agentgateway.dev
+adharCompatibility:
+  minVersion: "0.1.0"
+  notes: >-
+    Replaces the bespoke adhar-ai-llm-gateway Deployment shipped by ai/adhar-ai.
+    Enable together with adhar-ai; on its own the gateway has no MCP targets to
+    federate and no LLM credential to use. Requires the Gateway API CRDs the
+    platform foundation already installs. Brings its own GatewayClass
+    (`agentgateway`, controller agentgateway.dev/agentgateway) which coexists
+    with the Cilium edge class `adhar`.
+dependencies:
+  - name: adhar-ai
+    category: ai
+  - name: keycloak
+    category: security
+  - name: external-secrets
+    category: security
+  - name: kube-prometheus
+    category: observability
+    optional: true
+  - name: tempo
+    category: observability
+    optional: true
+  - name: vllm
+    category: ai
+    optional: true
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: oci://cr.agentgateway.dev/charts/agentgateway
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: alpha
+resources:
+  cpu: "200m"
+  memory: "256Mi"
+  storage: "0"
+  footprint: small
+  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml (AI is opt-in)
+  notes: >-
+    Controller 100m/128Mi plus one data-plane proxy pod per Gateway at
+    100m/128Mi. No GPU and no persistent storage: model serving lives in ai/vllm,
+    not here.
+keywords:
+  - ai
+  - llm
+  - mcp
+  - a2a
+  - gateway
+  - guardrails
+  - governance
