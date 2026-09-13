@@ -808,7 +808,26 @@ data:
     # emails the workspace contact, and Gitea/Argo CD map users by email.
     # resetPasswordAllowed is the other half of self-service: an account nobody
     # can recover is not self-service.
-    kc -X PUT --data '{"sslRequired":"NONE","loginTheme":"adhar","registrationAllowed":true,"registrationEmailAsUsername":true,"resetPasswordAllowed":true,"verifyEmail":false}' "${REALM_URL}"
+    # Session lifespans. Keycloak's defaults are a 30-minute SSO *idle* timeout
+    # and a 5-minute access token, which is wrong for a platform whose whole
+    # premise is one sign-in across many apps:
+    #
+    #   Every app (Coder, Grafana, Harbor, Argo CD …) hangs its refresh token
+    #   off the shared SSO session. Once that session idles out, every one of
+    #   those refresh tokens is dead at the same moment — Keycloak answers the
+    #   refresh with `invalid_grant / "Token is not active"`, and apps that do
+    #   not redirect back through the browser surface it raw. Coder reports
+    #   exactly that: "Could not refresh expired OpenID Connect token."
+    #
+    #   Thirty minutes is shorter than a coffee break, so leaving any app open
+    #   and coming back broke it — while the console, which refreshes on its
+    #   own cadence, still looked signed in.
+    #
+    # 8h idle keeps a working day alive; the 10h max lifespan still forces a
+    # genuine re-authentication daily. 30m access tokens cut refresh chatter
+    # without meaningfully widening the window on a stolen token, since logout
+    # and disable take effect at the session, not the token.
+    kc -X PUT --data '{"sslRequired":"NONE","loginTheme":"adhar","registrationAllowed":true,"registrationEmailAsUsername":true,"resetPasswordAllowed":true,"verifyEmail":false,"ssoSessionIdleTimeout":28800,"ssoSessionMaxLifespan":36000,"accessTokenLifespan":1800,"clientSessionIdleTimeout":28800,"clientSessionMaxLifespan":36000}' "${REALM_URL}"
 
     # A realm can exist half-provisioned: an earlier run that died mid-way
     # created the realm but none of the clients. Treating bare existence as
