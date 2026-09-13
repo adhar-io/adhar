@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"strings"
 	"testing"
 
 	"adhar-io/adhar/platform/config"
@@ -66,28 +67,52 @@ func TestBuildClusterSpecOIDCOptIn(t *testing.T) {
 			n, spec.ControlPlane.APIServer.ExtraArgs)
 	}
 
-	// Opted in.
-	spec, err = buildClusterSpec(base([]config.KeyValueConfig{{Key: "oidcAuth", Value: "true"}}))
-	if err != nil {
-		t.Fatalf("buildClusterSpec: %v", err)
+	// Asking for it at creation time must FAIL LOUDLY, not silently no-op and not
+	// brick the cluster. Setting --oidc-issuer-url during `kubeadm init` points
+	// the apiserver at a Keycloak that does not exist yet; on a real DigitalOcean
+	// build the apiserver never started and provisioning died at
+	// `kubeadm token create`. Removing the flags recovered it in seconds.
+	_, err = buildClusterSpec(base([]config.KeyValueConfig{{Key: "oidcAuth", Value: "true"}}))
+	if err == nil {
+		t.Fatal("oidcAuth at creation time must be rejected; it prevents the apiserver from starting")
 	}
-	got := spec.ControlPlane.APIServer.ExtraArgs
-	if got["oidc-issuer-url"] != "https://keycloak.platform.adhar.io/realms/adhar" {
-		t.Errorf("issuer = %q", got["oidc-issuer-url"])
-	}
-	if got["oidc-groups-prefix"] != "oidc:" || got["oidc-username-prefix"] != "oidc:" {
-		t.Errorf("prefixes must be oidc: to match the shipped bindings, got %v", got)
+	for _, want := range []string{"oidcAuth", "after the platform is up"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must explain the remedy (missing %q): %v", want, err)
+		}
 	}
 
-	// An explicit issuer wins, for a platform not served on :443.
-	spec, err = buildClusterSpec(base([]config.KeyValueConfig{
-		{Key: "oidcAuth", Value: "true"},
-		{Key: "oidcIssuerUrl", Value: "https://keycloak.example.com:8443/realms/adhar"},
-	}))
-	if err != nil {
-		t.Fatalf("buildClusterSpec: %v", err)
+	// A value that is not "true" is simply ignored, so an explicit opt-out is fine.
+	if _, err := buildClusterSpec(base([]config.KeyValueConfig{{Key: "oidcAuth", Value: "false"}})); err != nil {
+		t.Errorf("oidcAuth=false must be accepted: %v", err)
 	}
-	if u := spec.ControlPlane.APIServer.ExtraArgs["oidc-issuer-url"]; u != "https://keycloak.example.com:8443/realms/adhar" {
-		t.Errorf("explicit oidcIssuerUrl must win, got %q", u)
+}
+
+// The sed script that inserts an apiserver flag must reach the node intact.
+//
+// This exists because a `\n` written in a double-quoted Go literal compiles to a
+// REAL newline, which splits the sed script across two lines; the node then fails
+// with `sed: -e expression #1, char 43: unterminated 's' command` and aborts
+// `adhar up` AFTER the droplets are created. sed needs the two characters
+// backslash + n, and nothing in the type system enforces that — only this test.
+func TestAPIServerFlagCommand(t *testing.T) {
+	cmd := apiServerFlagCommand("oidc-client-id", "kubernetes")
+
+	if strings.Contains(cmd, "\n") {
+		t.Fatalf("command contains a real newline; sed will see an unterminated 's' command:\n%q", cmd)
+	}
+	if !strings.Contains(cmd, `\n`) {
+		t.Errorf("command must pass a literal backslash-n to sed, got:\n%q", cmd)
+	}
+	// Idempotence: it must test for the flag NAME before inserting, so a re-run
+	// cannot add a second copy (duplicate apiserver flags are a start-up error).
+	if !strings.Contains(cmd, "grep -q -- '--oidc-client-id='") {
+		t.Errorf("command must be guarded by a grep on the flag name, got:\n%q", cmd)
+	}
+	if !strings.Contains(cmd, "--oidc-client-id=kubernetes") {
+		t.Errorf("command must insert the flag with its value, got:\n%q", cmd)
+	}
+	if !strings.Contains(cmd, "/etc/kubernetes/manifests/kube-apiserver.yaml") {
+		t.Errorf("command must target the static pod manifest, got:\n%q", cmd)
 	}
 }

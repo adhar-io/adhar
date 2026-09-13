@@ -507,34 +507,42 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 			// Note: DiskSize not available in current NodeGroupSpec
 			// This could be added to the spec if needed in the future
 		case "oidcAuth", "oidcAuthentication", "kubeOIDC":
-			// Opt-in: point the kube-apiserver at the platform's own Keycloak so
-			// `adhar auth login` yields a token kubectl can use. OFF by default —
-			// see apiServerOIDCArgs for why this is a deliberate choice and not a
-			// sensible default.
+			// REJECTED at provisioning time, on purpose — see below.
 			if strings.EqualFold(strings.TrimSpace(kv.Value), "true") {
 				oidcAuth = true
 			}
 		}
 	}
 
+	// `oidcAuth` CANNOT be honoured during cluster creation, and asking for it is
+	// an error rather than a silent no-op.
+	//
+	// Learned the hard way on a real DigitalOcean build: setting
+	// --oidc-issuer-url while `kubeadm init` runs points the kube-apiserver at a
+	// Keycloak that does not exist yet. The apiserver then failed to come up at
+	// all — 0 containers, https://127.0.0.1:6443/livez unreachable — and the
+	// build died at `kubeadm token create` with "unable to create *v1.Secret".
+	// Deleting the --oidc-* lines from the static pod manifest brought it back
+	// within seconds, which pins the cause exactly.
+	//
+	// It is also environment-dependent, which makes it worse: Kind gets the same
+	// flags at cluster creation and survives, because its issuer hostname
+	// resolves to 127.0.0.1 and refuses instantly, whereas a cloud hostname
+	// left over in DNS (a deleted cluster's load balancer) makes discovery HANG.
+	// A feature that bricks a control plane only when a stale DNS record happens
+	// to exist has no business running unattended during provisioning.
+	//
+	// The flags themselves are fine once Keycloak is serving — that is a DAY-2
+	// step, documented in docs/DIGITALOCEAN_PROVIDER.md ("kubectl with your
+	// platform identity"), using provider.ApplyAPIServerExtraArgs with
+	// provider.APIServerOIDCArgs.
 	if oidcAuth {
-		host := ""
-		if spec.Domain != nil {
-			host = spec.Domain.BaseDomain
-		}
-		if spec.ControlPlane.APIServer.ExtraArgs == nil {
-			spec.ControlPlane.APIServer.ExtraArgs = map[string]string{}
-		}
-		if issuer := clusterConfigString(envConfig, "oidcIssuerUrl", "oidcIssuer"); issuer != "" {
-			spec.ControlPlane.APIServer.ExtraArgs["oidc-issuer-url"] = issuer
-		}
-		for k, v := range apiServerOIDCArgs(host) {
-			// An explicit extraArgs entry always wins, so an operator can pin a
-			// different issuer or claim without editing this code.
-			if _, ok := spec.ControlPlane.APIServer.ExtraArgs[k]; !ok {
-				spec.ControlPlane.APIServer.ExtraArgs[k] = v
-			}
-		}
+		return nil, fmt.Errorf(
+			"clusterConfig key %q cannot be set at cluster-creation time: the kube-apiserver would be "+
+				"given --oidc-issuer-url before Keycloak exists, which prevents it from starting and "+
+				"aborts provisioning. Remove the key and enable OIDC after the platform is up "+
+				"(docs/DIGITALOCEAN_PROVIDER.md, \"kubectl with your platform identity\")",
+			"oidcAuth")
 	}
 
 	return spec, nil

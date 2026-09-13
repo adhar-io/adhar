@@ -118,7 +118,18 @@ spec:
         //${HOST}/repository/npm-registry/:_auth=$AUTH
         always-auth=true
         EOF
-        corepack enable
+        # corepack, installed somewhere WRITABLE.
+        #
+        # A bare `corepack enable` symlinks pnpm into /usr/local/bin, which uid 1000
+        # (this Task's stepTemplate) cannot write:
+        #   EACCES: permission denied, symlink '.../corepack/dist/pnpm.js' -> '/usr/local/bin/pnpm'
+        # It worked only while the step ran as root. --install-directory puts the shims
+        # on a path we own; COREPACK_HOME keeps its download cache off $HOME, which is
+        # `/` in this image and equally unwritable (the same trap that broke trivy).
+        export COREPACK_HOME=/tmp/corepack
+        mkdir -p /tmp/bin "$COREPACK_HOME"
+        export PATH=/tmp/bin:$PATH
+        corepack enable --install-directory /tmp/bin
         # The mirrored lockfile may lag package.json; refresh it here — we are
         # publishing packages, not enforcing a reproducible app deploy.
         pnpm install --no-frozen-lockfile \

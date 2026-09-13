@@ -584,6 +584,30 @@ select.pf-v5-c-form-control:focus {
   box-shadow: var(--ad-ring-brand);
 }
 
+/* …and ONLY on the wrapper — this is the focus half of the double-box bug.
+   ----------------------------------------------------------------------------
+   On the REGISTER page Keycloak puts the class on the input as well as on the
+   span that wraps it:
+
+       <span class="pf-v5-c-form-control">
+         <input id="email" class="pf-v5-c-form-control" …>
+
+   so `span…:focus-within` AND `input…:focus` both match one field and draw TWO
+   concentric rings. (Sign-in looks fine because its password input carries no
+   class, which is why this only showed on email / firstName / lastName.)
+
+   The base rule above already flattens a nested input; this does the same for
+   its focus state, so the wrapper alone shows the ring. Selector is
+   `span… > input:focus` (0,2,2) so it beats `input….pf-v5-c-form-control:focus`
+   (0,2,1) on specificity rather than on source order. */
+span.pf-v5-c-form-control > input:focus,
+span.pf-v5-c-form-control > select:focus,
+span.pf-v5-c-form-control > textarea:focus {
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
 /* Autofill — keep the field on-brand rather than browser yellow. */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,

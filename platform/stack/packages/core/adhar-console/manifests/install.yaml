@@ -323,6 +323,21 @@ spec:
         # Only tools actually deployed in this cluster are set; the rest stay
         # unconfigured (honest "not set up" tiles).
         - { name: GITEA_URL, value: 'http://gitea-http.adhar-system.svc.cluster.local:3000' }
+        # Where the marketplace toggle edits package enablement.
+        #
+        # Without these the console guesses `adhar/registry`, a repo this platform
+        # does not create, and every toggle fails with
+        #   "Could not locate the ApplicationSet YAML containing "<pkg>" in
+        #    adhar/registry. Set ADHAR_APPSET_REPO and ADHAR_APPSET_FILE …"
+        #
+        # Enablement is version-controlled in the `environments` repo, one file
+        # per environment, each holding the same element list as the matching
+        # adhar-appset-<env>.yaml (a parity test keeps the two in step). Cloud and
+        # on-prem clusters run the production set — see appSetFileForProvider in
+        # platform/controllers/adharplatform/controller.go — so that is the file a
+        # toggle must edit here. On a Kind cluster point it at local/config.yaml.
+        - { name: ADHAR_APPSET_REPO, value: 'adhar/environments' }
+        - { name: ADHAR_APPSET_FILE, value: 'production/config.yaml' }
         - { name: ARGOCD_URL, value: 'http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80' }
         # ArgoCD runs in adhar-system on this platform (not the default 'argocd'
         # namespace), so the tenant provisioner creates per-tenant AppProjects

@@ -62,9 +62,26 @@ func settings() keycloak {
 	if clientID == "" {
 		clientID = defaultClientID
 	}
+	issuer := strings.TrimRight(kcIssuer, "/")
+	adminURL := strings.TrimRight(kcAdminURL, "/")
+
+	// Only the LOCAL defaults are replaced by discovery. A value the user typed
+	// always wins — including one that happens to equal the default, which is
+	// harmless because discovery would resolve to the same cluster anyway.
+	if issuer == strings.TrimRight(defaultIssuer, "/") || adminURL == strings.TrimRight(defaultAdminAPIURL, "/") {
+		if d, ok := discoverKeycloak(realm); ok {
+			if issuer == strings.TrimRight(defaultIssuer, "/") {
+				issuer = d.Issuer
+			}
+			if adminURL == strings.TrimRight(defaultAdminAPIURL, "/") {
+				adminURL = d.AdminURL
+			}
+		}
+	}
+
 	return keycloak{
-		Issuer:     strings.TrimRight(kcIssuer, "/"),
-		AdminURL:   strings.TrimRight(kcAdminURL, "/"),
+		Issuer:     issuer,
+		AdminURL:   adminURL,
 		Realm:      realm,
 		ClientID:   clientID,
 		AdminToken: kcAdminToken,
@@ -160,9 +177,19 @@ func (k keycloak) bearer(ctx context.Context) (string, error) {
 	if k.AdminToken != "" {
 		return k.AdminToken, nil
 	}
+
+	// Prefer the logged-in session. `adhar-cli` is a PUBLIC client, and Keycloak
+	// refuses client_credentials for those — "unauthorized_client: Public client
+	// not allowed to retrieve service account" — so going straight to that grant
+	// made every admin subcommand fail for a user who had just run
+	// `adhar auth login`, while telling them to supply a token they already had.
+	if s, err := currentSession(ctx); err == nil && s.AccessToken != "" {
+		return s.AccessToken, nil
+	}
+
 	tr, err := k.clientCredentialsGrant(ctx)
 	if err != nil {
-		return "", fmt.Errorf("no --admin-token supplied and client_credentials grant failed: %w\n  hint: pass --admin-token <token> (e.g. from `adhar auth login` or `kcadm.sh`)", err)
+		return "", fmt.Errorf("not logged in and client_credentials grant failed: %w\n  hint: run `adhar auth login <username>` first, or pass --admin-token <token>", err)
 	}
 	return tr.AccessToken, nil
 }

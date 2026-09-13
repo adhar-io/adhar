@@ -29,6 +29,33 @@ spec:
     - {name: source}
   results:
     - {name: commit, description: Resolved commit SHA}
+  # THE CLONE MUST RUN AS THE SAME UID AS EVERY TASK THAT READS ITS OUTPUT.
+  #
+  # This Task had no securityContext, so it ran as the image's default user
+  # (root in alpine/git) and every directory it wrote under the shared workspace
+  # came out owned by root, mode 755. The build Tasks run as uid 1000 (their own
+  # stepTemplate), so they could read the tree but not write inside it:
+  #
+  #   failed to create directory '/workspace/source/src/node_modules/.deno/node_modules':
+  #   Permission denied (os error 13)
+  #
+  # ...which failed every `release-adhar-ui` PipelineRun. `fsGroup: 1000` on the
+  # pod template does NOT fix this: with `fsGroupChangePolicy: OnRootMismatch`
+  # the kubelet checks only the volume ROOT, finds the group already correct, and
+  # skips the recursive chown entirely -- so directories the clone creates later
+  # keep root's ownership and a group with no write bit.
+  #
+  # Matching the uid here is the fix, and it is the right one regardless: a
+  # pipeline whose stages disagree about who they are will keep producing
+  # permission failures at whichever stage happens to write next.
+  stepTemplate:
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      allowPrivilegeEscalation: false
+      capabilities: {drop: ["ALL"]}
+      seccompProfile: {type: RuntimeDefault}
   steps:
     - name: clone
       image: docker.io/alpine/git:2.45.2
@@ -68,6 +95,16 @@ metadata:
   annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
   description: Trivy filesystem scan of the cloned source (vulnerabilities, secrets, misconfigurations).
+  # Same uid as the clone and the builds -- trivy writes a cache and a report
+  # into the shared workspace, so an identity mismatch fails it the same way.
+  stepTemplate:
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      allowPrivilegeEscalation: false
+      capabilities: {drop: ["ALL"]}
+      seccompProfile: {type: RuntimeDefault}
   params:
     - {name: failOnCritical, type: string, default: "false"}
   workspaces:
@@ -77,6 +114,19 @@ spec:
   steps:
     - name: scan
       image: docker.io/aquasec/trivy:0.58.1
+      # Trivy derives its cache directory from $HOME, and in this image HOME is
+      # `/`. Running as root that happened to work; as uid 1000 (see the
+      # stepTemplate above) it dies before scanning anything:
+      #   failed to download vulnerability DB: mkdir /.cache: permission denied
+      # The 113 MiB DB downloads successfully first, which makes the failure look
+      # like a network problem rather than a filesystem one.
+      #
+      # /tmp is the writable path every step has. Setting both is deliberate:
+      # TRIVY_CACHE_DIR covers the DB and scan caches, HOME covers anything else
+      # in the image that expects a home to exist.
+      env:
+        - {name: HOME, value: /tmp}
+        - {name: TRIVY_CACHE_DIR, value: /tmp/trivy-cache}
       computeResources:
         requests: {cpu: 250m, memory: 512Mi}
         limits: {cpu: "1", memory: 2Gi}

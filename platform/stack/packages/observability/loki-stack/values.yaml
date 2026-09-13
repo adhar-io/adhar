@@ -61,7 +61,24 @@ singleBinary:
         name: loki-s3-credentials
   persistence:
     enabled: true
-    size: 10Gi
+    # 10Gi could not hold the retention configured above and Loki did not
+    # degrade — it DIED. The index-shipper cache write hit ENOSPC and the store
+    # module failed to initialise, so the process exited at startup and
+    # CrashLoopBackOff'd (29 restarts on the verified cluster):
+    #   msg="sync failed, retrying it" err="short write"
+    #   msg="error running loki" err="short write\nerror initialising module: store"
+    # The only user-visible symptoms were in Grafana — "no Loki datasource
+    # configured" and "Log volume has not been configured" — which both point at
+    # configuration rather than at a dead backend, so this is easy to chase in
+    # entirely the wrong direction. (`limits_config.volume_enabled: true` was set
+    # correctly the whole time.)
+    #
+    # Keep this in proportion to `retention_period` and `ingestion_rate_mb`
+    # above: 32 MB/s accepted ingest fills 10Gi in hours, and the retention asks
+    # for 30 days. Growing the volume costs DigitalOcean storage but NOT another
+    # attachment slot, which matters on a cluster near the 7-volumes-per-droplet
+    # ceiling.
+    size: 50Gi
   # Sized for the ingestion limits set above, not for the chart's defaults.
   # One process runs every Loki target (-target=all) and now buffers chunks in
   # memory until they flush to MinIO, so 32 MB/s of accepted ingest does not fit

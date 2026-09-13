@@ -106,11 +106,50 @@ spec:
       openai:
         # Pass-through, same reasoning as Anthropic above.
         {}
+      # OpenAI-COMPATIBLE endpoint. Default is OpenAI's own api.openai.com; this
+      # platform points the backend at OpenRouter, which speaks the same API and
+      # is what `hack/seed-adhar-ai-llm.sh --provider openrouter` keys.
+      #
+      # Change these three lines (and the BackendTLSPolicy hostname below) to use
+      # a different provider, or delete both blocks to go back to OpenAI.
+      #
+      # Overriding `host` on a managed provider LOSES its implicit TLS — without
+      # the BackendTLSPolicy the proxy speaks plain HTTP to :443 and the upstream
+      # answers `400 The plain HTTP request was sent to HTTPS port`. And the two
+      # must agree: a TLS policy naming a host the backend no longer points at
+      # produces `421 Misdirected Request`. Keep them in the same file so they
+      # cannot drift — that is exactly what happened when the override was applied
+      # by hand and selfHeal reverted only half of it.
+      host: openrouter.ai
+      port: 443
+      pathPrefix: /api/v1
   policies:
     auth:
       secretRef:
         name: adhar-ai-llm
         key: OPENAI_API_KEY
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: llm-openai-tls
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: llm-openai
+    app.kubernetes.io/part-of: agentgateway
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: llm-openai
+  validation:
+    # MUST match spec.ai.provider.host on the backend above.
+    hostname: openrouter.ai
+    wellKnownCACertificates: System
 ---
 # ------------------------- Self-hosted vLLM (local) -------------------------
 #

@@ -10166,7 +10166,11 @@ data:
       "templating": {
         "list": [
           {
-            "current": {},
+            "current": {
+              "selected": true,
+              "text": "Prometheus",
+              "value": "Prometheus"
+            },
             "hide": 0,
             "includeAll": false,
             "label": "Data source",

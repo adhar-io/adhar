@@ -641,6 +641,18 @@ data:
     MODE="${KEYCLOAK_CONFIG_MODE:-full}"
     ADMIN_PASSWORD=$(cat /var/secrets/KEYCLOAK_ADMIN_PASSWORD)
     USER1_PASSWORD=$(cat /var/secrets/USER_PASSWORD)
+    # user2 has its own credential (Secret/keycloak-user2 -- see secret-gen.yaml
+    # for why it is a separate object). The mount is non-optional, so the file is
+    # there by the time this runs; the guard is against it being EMPTY. Keycloak
+    # ACCEPTS an empty reset-password payload, and the account is then unusable
+    # while `adhar get secrets` still prints a password for it -- far worse to
+    # debug than user2 simply sharing user1's password for one reconcile.
+    if [ -s /var/secrets-user2/USER_PASSWORD ]; then
+      USER2_PASSWORD=$(cat /var/secrets-user2/USER_PASSWORD)
+    else
+      echo "WARNING: Secret/keycloak-user2 not mounted; user2 keeps user1's password"
+      USER2_PASSWORD="${USER1_PASSWORD}"
+    fi
 
     KEYCLOAK_URL=http://keycloak.adhar-system.svc.cluster.local:8080
     REALM_URL="${KEYCLOAK_URL}/admin/realms/adhar"
@@ -869,10 +881,43 @@ data:
       USER2ID=$(kc "${REALM_URL}/users?lastName=two" | jq -r '.[0].id')
 
       echo "setting user passwords"
-      jq -r --arg pass "${USER1_PASSWORD}" '.value = $pass' /var/config/user-password.json > /tmp/user-password-to-be-applied.json
-      kc -X PUT --data @/tmp/user-password-to-be-applied.json "${REALM_URL}/users/${USER1ID}/reset-password"
-      kc -X PUT --data @/tmp/user-password-to-be-applied.json "${REALM_URL}/users/${USER2ID}/reset-password"
+      jq -r --arg pass "${USER1_PASSWORD}" '.value = $pass' /var/config/user-password.json > /tmp/user1-password-to-be-applied.json
+      kc -X PUT --data @/tmp/user1-password-to-be-applied.json "${REALM_URL}/users/${USER1ID}/reset-password"
+      jq -r --arg pass "${USER2_PASSWORD}" '.value = $pass' /var/config/user-password.json > /tmp/user2-password-to-be-applied.json
+      kc -X PUT --data @/tmp/user2-password-to-be-applied.json "${REALM_URL}/users/${USER2ID}/reset-password"
       set +e
+    fi
+
+    # One-time migration of user2 onto its own password.
+    #
+    # user2 used to share user1's credential (both read USER_PASSWORD from
+    # Secret/keycloak-config). It now has its own, in Secret/keycloak-user2 --
+    # but the block above only runs when the realm is CREATED, so on a realm
+    # that already exists user2 would keep the old shared password while
+    # `adhar get secrets` printed the new one. A credential that looks right
+    # and silently fails is worse than an obviously shared one.
+    #
+    # Tracked by a user attribute rather than re-applied on every run: this job
+    # re-runs on every keycloak sync, and a blind reset would also revert a
+    # password an operator had deliberately changed. Absent attribute => the
+    # account is still on the legacy shared secret => converge once, stamp it,
+    # and never touch the password again.
+    U2ID=$(kc "${REALM_URL}/users?username=user2%40noreply.com&exact=true" | jq -r '.[0].id // empty')
+    if [ -n "${U2ID}" ] && [ -s /var/secrets-user2/USER_PASSWORD ]; then
+      U2REP=$(kc "${REALM_URL}/users/${U2ID}")
+      STAMP=$(echo "${U2REP}" | jq -r '.attributes."adhar.io/seed-password"[0] // empty')
+      if [ "${STAMP}" != "keycloak-user2" ]; then
+        echo "migrating user2 onto its own password (Secret/keycloak-user2)"
+        jq -r --arg pass "${USER2_PASSWORD}" '.value = $pass' /var/config/user-password.json > /tmp/user2-password-migrate.json
+        if kc -X PUT --data @/tmp/user2-password-migrate.json "${REALM_URL}/users/${U2ID}/reset-password"; then
+          # Stamp only after the reset succeeded, so a failed migration is
+          # retried on the next sync instead of being recorded as done.
+          echo "${U2REP}" | jq -c '.attributes = ((.attributes // {}) + {"adhar.io/seed-password":["keycloak-user2"]})' > /tmp/user2-attrs.json
+          kc -X PUT --data @/tmp/user2-attrs.json "${REALM_URL}/users/${U2ID}"
+        else
+          echo "WARNING: could not reset user2 password; will retry next sync"
+        fi
+      fi
     fi
 
     # Default group for self-registered users.
@@ -883,21 +928,49 @@ data:
     # a default the new account signs in successfully and then sees nothing,
     # which looks like a broken product rather than a permissions model.
     #
-    # platform-viewer deliberately: read-only is the only safe thing to hand
-    # someone who just created their own account. They gain real rights on their
-    # OWN namespace when onboarding provisions their organization, which binds
-    # their org group to the namespaced `admin` role — scoped to their tenant,
-    # not the cluster.
+    # base-user, NOT platform-viewer.
+    #
+    # platform-viewer carries a CLUSTER-WIDE ClusterRoleBinding to `view`, so
+    # making it the sign-up default handed anyone who could reach the
+    # registration page read access to every namespace on the platform,
+    # adhar-system and every other tenant included. Verified by impersonation:
+    # `view` does NOT reach Secrets, so this was not a credential leak -- but it
+    # was still every workload, config and topology on the platform, granted by
+    # filling in a registration form.
+    #
+    # base-user has no ClusterRoleBinding at all: a new account can sign in and
+    # be recognised, and holds no Kubernetes authority anywhere. It gains real
+    # rights only by being onboarded onto a TEAM, which binds `oidc:ws-team-<x>`
+    # to `admin` in that team's own namespace and nowhere else (see
+    # k8s-rbac.yaml, and the CompositeProject composition that emits it).
+    #
+    # This is the "tenant-scoped only" half of the model: full authority inside
+    # your own tenant, none outside it, and nothing at all until you have one.
+    #
+    # Any realm that already has platform-viewer as a default group is corrected
+    # here too -- leaving it would silently keep granting cluster-wide read to
+    # every new sign-up.
     #
     # Idempotent: PUT on default-groups is a no-op when already set. Runs on
     # every reconcile so it reaches realms that already existed.
-    VIEWER_GID=$(kc "${REALM_URL}/groups" | jq -r '.[] | select(.name=="platform-viewer") | .id')
-    if [ -n "${VIEWER_GID}" ] && [ "${VIEWER_GID}" != "null" ]; then
-      kc -X PUT "${REALM_URL}/default-groups/${VIEWER_GID}" >/dev/null 2>&1 \
-        && echo "default group for new sign-ups: platform-viewer" \
+    BASE_GID=$(kc "${REALM_URL}/groups" | jq -r '.[] | select(.name=="base-user") | .id')
+    if [ -n "${BASE_GID}" ] && [ "${BASE_GID}" != "null" ]; then
+      kc -X PUT "${REALM_URL}/default-groups/${BASE_GID}" >/dev/null 2>&1 \
+        && echo "default group for new sign-ups: base-user" \
         || echo "warning: could not set the default group; self-registered users will have no access"
     else
-      echo "warning: platform-viewer group not found; skipping default-group setup"
+      echo "warning: base-user group not found; skipping default-group setup"
+    fi
+
+    # Retract the old cluster-wide default. Existing members keep the group --
+    # removing people from platform-viewer is an operator decision, not this
+    # job's -- but it stops being applied to anyone NEW.
+    VIEWER_GID=$(kc "${REALM_URL}/groups" | jq -r '.[] | select(.name=="platform-viewer") | .id')
+    if [ -n "${VIEWER_GID}" ] && [ "${VIEWER_GID}" != "null" ]; then
+      if kc "${REALM_URL}/default-groups" | jq -e --arg id "${VIEWER_GID}" '.[] | select(.id==$id)' >/dev/null 2>&1; then
+        kc -X DELETE "${REALM_URL}/default-groups/${VIEWER_GID}" >/dev/null 2>&1 \
+          && echo "removed platform-viewer as a default group (was cluster-wide read for every sign-up)"
+      fi
     fi
 
     # Clients + keycloak-clients: the same data-driven pass on a fresh AND an
@@ -969,6 +1042,9 @@ spec:
         - name: keycloak-config
           secret:
             secretName: keycloak-config
+        - name: keycloak-user2
+          secret:
+            secretName: keycloak-user2
         - name: config-payloads
           configMap:
             name: config-job
@@ -982,6 +1058,9 @@ spec:
             - name: keycloak-config
               readOnly: true
               mountPath: "/var/secrets/"
+            - name: keycloak-user2
+              readOnly: true
+              mountPath: "/var/secrets-user2/"
             - name: config-payloads
               readOnly: true
               mountPath: "/var/config/"

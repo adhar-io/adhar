@@ -121,6 +121,8 @@ metadata:
     app.kubernetes.io/instance: airbyte
     app.kubernetes.io/version: 2.0.1
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
 spec:
   replicas: 1
   selector:
@@ -257,6 +259,8 @@ metadata:
     app.kubernetes.io/instance: airbyte
     app.kubernetes.io/version: 2.0.1
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
 spec:
   replicas: 1
   selector:
@@ -445,6 +449,8 @@ metadata:
     app.kubernetes.io/instance: airbyte
     app.kubernetes.io/version: 2.0.1
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
 spec:
   minReadySeconds: 30
   replicas: 1
@@ -777,6 +783,8 @@ metadata:
     app.kubernetes.io/instance: airbyte
     app.kubernetes.io/version: 2.0.1
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
 spec:
   replicas: 1
   selector:
@@ -864,6 +872,8 @@ metadata:
     app.kubernetes.io/instance: airbyte
     app.kubernetes.io/version: 2.0.1
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
 spec:
   replicas: 1
   selector:
@@ -1220,6 +1230,8 @@ metadata:
     app.kubernetes.io/instance: airbyte
     app.kubernetes.io/version: 2.0.1
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
 spec:
   minReadySeconds: 30
   replicas: 1
@@ -1464,6 +1476,8 @@ metadata:
     app.kubernetes.io/instance: airbyte
     app.kubernetes.io/version: 2.0.1
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
 spec:
   replicas: 1
   selector:
@@ -2060,201 +2074,173 @@ spec:
     app.kubernetes.io/name: airbyte-db
     app.kubernetes.io/instance: airbyte
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: batch/v1
+kind: Job
 metadata:
   name: airbyte-airbyte-bootloader
-  labels:
+  namespace: null
+  labels: &id001
     helm.sh/chart: airbyte-bootloader-1.9.2
     app.kubernetes.io/name: airbyte-bootloader
     app.kubernetes.io/instance: airbyte
     app.kubernetes.io/version: 2.0.1
     app.kubernetes.io/managed-by: Helm
   annotations:
-    helm.sh/hook: pre-install,pre-upgrade
-    helm.sh/hook-weight: '0'
-    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    argocd.argoproj.io/sync-wave: '1'
 spec:
-  serviceAccountName: airbyte-admin
-  restartPolicy: Never
-  containers:
-  - name: airbyte-bootloader-container
-    image: airbyte/bootloader:2.0.1
-    imagePullPolicy: IfNotPresent
-    env:
-    - name: AIRBYTE_VERSION
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: AIRBYTE_VERSION
-    - name: AIRBYTE_EDITION
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: AIRBYTE_EDITION
-    - name: MICROMETER_METRICS_ENABLED
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: MICROMETER_METRICS_ENABLED
-    - name: MICROMETER_METRICS_STEP
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: MICROMETER_METRICS_STEP
-    - name: MICROMETER_METRICS_OTLP_ENABLED
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: MICROMETER_METRICS_OTLP_ENABLED
-    - name: OTEL_COLLECTOR_ENDPOINT
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: OTEL_COLLECTOR_ENDPOINT
-    - name: MICROMETER_METRICS_STATSD_ENABLED
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: MICROMETER_METRICS_STATSD_ENABLED
-    - name: MICROMETER_METRICS_STATSD_FLAVOR
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: MICROMETER_METRICS_STATSD_FLAVOR
-    - name: RUN_DATABASE_MIGRATION_ON_STARTUP
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: RUN_DATABASE_MIGRATION_ON_STARTUP
-    - name: SEGMENT_WRITE_KEY
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: SEGMENT_WRITE_KEY
-    - name: STATSD_HOST
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: STATSD_HOST
-    - name: STATSD_PORT
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: STATSD_PORT
-    - name: TRACKING_STRATEGY
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: TRACKING_STRATEGY
-    - name: CONNECTOR_REGISTRY_SEED_PROVIDER
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: CONNECTOR_REGISTRY_SEED_PROVIDER
-    - name: AB_AUTH_SECRET_CREATION_ENABLED
-      value: 'true'
-    - name: AB_KUBERNETES_SECRET_NAME
-      value: airbyte-auth-secrets
-    - name: AB_INSTANCE_ADMIN_PASSWORD_SECRET_KEY
-      value: instance-admin-password
-    - name: AB_INSTANCE_ADMIN_CLIENT_ID_SECRET_KEY
-      value: instance-admin-client-id
-    - name: AB_INSTANCE_ADMIN_CLIENT_SECRET_SECRET_KEY
-      value: instance-admin-client-secret
-    - name: AB_JWT_SIGNATURE_SECRET_KEY
-      value: jwt-signature-secret
-    - name: AB_INSTANCE_ADMIN_PASSWORD
-      value: null
-    - name: AB_INSTANCE_ADMIN_CLIENT_ID
-      value: null
-    - name: AB_INSTANCE_ADMIN_CLIENT_SECRET
-      value: null
-    - name: AB_JWT_SIGNATURE_SECRET
-      value: null
-    - name: DATAPLANE_CLIENT_ID_SECRET_KEY
-      value: dataplane-client-id
-    - name: DATAPLANE_CLIENT_SECRET_SECRET_KEY
-      value: dataplane-client-secret
-    - name: DATABASE_HOST
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: DATABASE_HOST
-    - name: DATABASE_PORT
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: DATABASE_PORT
-    - name: DATABASE_DB
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: DATABASE_DB
-    - name: DATABASE_USER
-      valueFrom:
-        secretKeyRef:
-          name: airbyte-airbyte-secrets
-          key: DATABASE_USER
-    - name: DATABASE_PASSWORD
-      valueFrom:
-        secretKeyRef:
-          name: airbyte-airbyte-secrets
-          key: DATABASE_PASSWORD
-    - name: DATABASE_URL
-      valueFrom:
-        configMapKeyRef:
-          name: airbyte-airbyte-env
-          key: DATABASE_URL
-    resources:
-      limits: {}
-      requests: {}
-    securityContext:
-      allowPrivilegeEscalation: false
-      capabilities:
-        drop:
-        - ALL
-      readOnlyRootFilesystem: false
-      runAsGroup: 1000
-      runAsNonRoot: true
-      runAsUser: 1000
-      seccompProfile:
-        type: RuntimeDefault
-  securityContext:
-    fsGroup: 1000
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: airbyte-test-connection
-  labels:
-    helm.sh/chart: airbyte-1.9.3
-    app.kubernetes.io/name: airbyte
-    app.kubernetes.io/instance: airbyte
-    app.kubernetes.io/version: 2.0.2-alpha-c905e75
-    app.kubernetes.io/managed-by: Helm
-  annotations:
-    helm.sh/hook: test
-    argocd.argoproj.io/hook-delete-policy: HookSucceeded
-spec:
-  containers:
-  - name: webapp-test
-    image: airbyte/airbyte-base-java-image:3.3.7
-    command:
-    - curl
-    args:
-    - -s
-    - airbyte-airbyte-webapp-svc:80
-    - '>'
-    - /dev/null
-    resources:
-      requests:
-        memory: 64Mi
-        cpu: 100m
-      limits:
-        memory: 128Mi
-        cpu: 200m
-  restartPolicy: Never
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      serviceAccountName: airbyte-admin
+      restartPolicy: Never
+      containers:
+      - name: airbyte-bootloader-container
+        image: airbyte/bootloader:2.0.1
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: AIRBYTE_VERSION
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: AIRBYTE_VERSION
+        - name: AIRBYTE_EDITION
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: AIRBYTE_EDITION
+        - name: MICROMETER_METRICS_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: MICROMETER_METRICS_ENABLED
+        - name: MICROMETER_METRICS_STEP
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: MICROMETER_METRICS_STEP
+        - name: MICROMETER_METRICS_OTLP_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: MICROMETER_METRICS_OTLP_ENABLED
+        - name: OTEL_COLLECTOR_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: OTEL_COLLECTOR_ENDPOINT
+        - name: MICROMETER_METRICS_STATSD_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: MICROMETER_METRICS_STATSD_ENABLED
+        - name: MICROMETER_METRICS_STATSD_FLAVOR
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: MICROMETER_METRICS_STATSD_FLAVOR
+        - name: RUN_DATABASE_MIGRATION_ON_STARTUP
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: RUN_DATABASE_MIGRATION_ON_STARTUP
+        - name: SEGMENT_WRITE_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: SEGMENT_WRITE_KEY
+        - name: STATSD_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: STATSD_HOST
+        - name: STATSD_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: STATSD_PORT
+        - name: TRACKING_STRATEGY
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: TRACKING_STRATEGY
+        - name: CONNECTOR_REGISTRY_SEED_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: CONNECTOR_REGISTRY_SEED_PROVIDER
+        - name: AB_AUTH_SECRET_CREATION_ENABLED
+          value: 'true'
+        - name: AB_KUBERNETES_SECRET_NAME
+          value: airbyte-auth-secrets
+        - name: AB_INSTANCE_ADMIN_PASSWORD_SECRET_KEY
+          value: instance-admin-password
+        - name: AB_INSTANCE_ADMIN_CLIENT_ID_SECRET_KEY
+          value: instance-admin-client-id
+        - name: AB_INSTANCE_ADMIN_CLIENT_SECRET_SECRET_KEY
+          value: instance-admin-client-secret
+        - name: AB_JWT_SIGNATURE_SECRET_KEY
+          value: jwt-signature-secret
+        - name: AB_INSTANCE_ADMIN_PASSWORD
+          value: null
+        - name: AB_INSTANCE_ADMIN_CLIENT_ID
+          value: null
+        - name: AB_INSTANCE_ADMIN_CLIENT_SECRET
+          value: null
+        - name: AB_JWT_SIGNATURE_SECRET
+          value: null
+        - name: DATAPLANE_CLIENT_ID_SECRET_KEY
+          value: dataplane-client-id
+        - name: DATAPLANE_CLIENT_SECRET_SECRET_KEY
+          value: dataplane-client-secret
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: DATABASE_HOST
+        - name: DATABASE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: DATABASE_PORT
+        - name: DATABASE_DB
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: DATABASE_DB
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: airbyte-airbyte-secrets
+              key: DATABASE_USER
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: airbyte-airbyte-secrets
+              key: DATABASE_PASSWORD
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: airbyte-airbyte-env
+              key: DATABASE_URL
+        resources:
+          limits: {}
+          requests: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+          runAsGroup: 1000
+          runAsNonRoot: true
+          runAsUser: 1000
+          seccompProfile:
+            type: RuntimeDefault
+      securityContext:
+        fsGroup: 1000
 ---
 apiVersion: apps/v1
 kind: StatefulSet

@@ -1242,6 +1242,40 @@ metadata:
     app.kubernetes.io/instance: default
     app.kubernetes.io/part-of: adhar-system
 data:
+  # Every TaskRun pod gets fsGroup 1000, so the shared workspace volume is
+  # group-owned by — and writable to — the uid the platform's Tasks run as.
+  #
+  # Needed because the Tasks set `runAsUser: 1000` (they must: Pod Security
+  # `restricted` rejects a step container that can run as root, which failed
+  # admission with `container "step-mvn" must set securityContext.runAsNonRoot`).
+  # Dropping to uid 1000 without an fsGroup then made the workspace unwritable
+  # and every Maven build died with
+  #
+  #   java.nio.file.AccessDeniedException: /workspace/source/.m2
+  #
+  # — a "permission" failure that looks like a credentials problem but is plain
+  # filesystem ownership. fsGroup is a POD-level setting, so it cannot live in a
+  # Task's stepTemplate; setting it here applies to every TaskRun in the cluster,
+  # including ones created later by triggers, which is why this is the durable
+  # place for it rather than a podTemplate on individual PipelineRuns.
+  default-pod-template: |
+    securityContext:
+      fsGroup: 1000
+      # Always, NOT OnRootMismatch.
+      #
+      # OnRootMismatch makes the kubelet check only the volume ROOT: once that is
+      # group 1000 it skips the recursive pass, so anything a DIFFERENT uid wrote
+      # deeper in a reused workspace keeps its old ownership and no group-write
+      # bit. A pipeline whose clone once ran as root therefore stayed broken for
+      # every later run, even after the clone was fixed to run as uid 1000 --
+      # `rm -rf src` needs write on `src` itself, which it did not have:
+      #   failed to create directory '/workspace/source/src/.../node_modules':
+      #   Permission denied (os error 13)
+      #
+      # Always re-applies group ownership and g+rw on every mount, so a reused
+      # PVC self-heals instead of needing to be deleted by hand. The cost is a
+      # recursive chgrp at mount time, which is negligible for source workspaces.
+      fsGroupChangePolicy: Always
   _example: '################################
 
     #                              #

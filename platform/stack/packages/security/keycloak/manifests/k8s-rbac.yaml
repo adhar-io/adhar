@@ -6,12 +6,17 @@
 #   platform-admin     -> cluster-admin
 #   platform-engineer  -> cluster-admin  (platform/infra admin tier; full access,
 #                                         incl. Secrets)
-#   application-admin  -> admin  (cluster-wide app admin: manage workloads +
-#                                 read/write Secrets, but not cluster RBAC/nodes;
-#                                 tighten to per-namespace RoleBindings for tenants)
-#   platform-developer -> edit  (cluster-wide here; tighten to per-namespace
-#                                RoleBindings for tenant isolation)
-#   platform-viewer    -> view
+#   application-admin  -> (nothing cluster-wide -- see below)
+#   platform-developer -> edit  (platform team; cluster-wide by design)
+#   platform-viewer    -> view  (platform team; cluster-wide by design)
+#
+# APPLICATION TEAMS are NOT in the table above. There is exactly one
+# organisation on a platform, and teams are the unit of onboarding and the unit
+# of isolation. A team's authority is granted per-namespace by the
+# CompositeProject composition, binding `oidc:ws-team-<team>` to `admin` in that
+# team's own namespace only -- "Platform Admin of your own tenant". The
+# platform-* groups above are the platform team, whose shared services every
+# application team consumes.
 #
 # NOTE on Secrets — CHECK THIS AGAINST YOUR CLUSTER, the distinction is not what
 # an earlier revision of this comment claimed.
@@ -28,20 +33,12 @@
 # ClusterRole rather than the built-in `edit`.
 #
 # Group subjects use the "oidc:" prefix, which the API server must be configured
-# to produce. On the kubeadm providers (AWS/Azure/GCP/DigitalOcean/Civo/custom)
-# Adhar does this for you — OPT IN per environment:
-#
-#   environments:
-#     dev:
-#       clusterConfig:
-#         - key: oidcAuth
-#           value: "true"
-#         # Optional; only needed when the platform is not on :443.
-#         # - key: oidcIssuerUrl
-#         #   value: "https://keycloak.platform.example.com:8443/realms/adhar"
-#
-# which makes `provider.KubeadmInitMaster` add these flags to the kube-apiserver
-# static pod (see provider.apiServerOIDCArgs / ApplyAPIServerExtraArgs):
+# to produce. On the kubeadm providers this is a DAY-2 step, applied once Keycloak
+# is serving — `oidcAuth: "true"` in clusterConfig is REJECTED, because setting
+# --oidc-issuer-url during `kubeadm init` points the apiserver at a Keycloak that
+# does not exist yet and it then fails to start at all, aborting provisioning.
+# See docs/DIGITALOCEAN_PROVIDER.md, "kubectl with your platform identity", for
+# the exact commands. The flags are:
 #
 #   --oidc-issuer-url=https://keycloak.<host>/realms/adhar
 #   --oidc-client-id=kubernetes          # the token's AUDIENCE, not adhar-cli
@@ -98,18 +95,37 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  # DELIBERATELY BINDS NOTHING CLUSTER-WIDE.
+  #
+  # This used to bind oidc:application-admin to the built-in `admin` ClusterRole
+  # across the whole cluster, which meant every application admin had admin on
+  # every OTHER application team's namespace -- no tenant isolation at all, and
+  # read/write on their Secrets. The comment above this file's group table has
+  # said "tighten to per-namespace RoleBindings for tenants" since it was
+  # written; this is that tightening.
+  #
+  # An application team's authority is now granted where the team actually
+  # lives: the CompositeProject composition
+  # (platform/controlplane/configuration/compositions/project/local.yaml) emits
+  # a RoleBinding of `oidc:ws-team-<team>` to `admin` IN THAT TEAM'S NAMESPACE,
+  # plus a default-deny-ingress NetworkPolicy. Onboarding a team is what grants
+  # it access, and it reaches nothing else.
+  #
+  # The platform-* groups below stay cluster-wide on purpose: the platform team
+  # hosts the shared services every application team consumes.
+  #
+  # The empty subject list is kept rather than deleting the object so that
+  # clusters upgrading from the old model have the over-broad binding actively
+  # emptied by the sync, instead of leaving an orphan ClusterRoleBinding behind
+  # that ArgoCD would have no manifest to prune against.
   name: adhar-oidc-application-admin
   labels:
     adhar.io/component: rbac
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  # Built-in `admin` includes read/write on Secrets (unlike edit/view).
   name: admin
-subjects:
-  - apiGroup: rbac.authorization.k8s.io
-    kind: Group
-    name: oidc:application-admin
+subjects: []
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

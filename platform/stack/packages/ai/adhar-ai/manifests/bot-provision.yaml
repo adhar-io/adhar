@@ -1,0 +1,217 @@
+# Adhar AI — self-provisioning the agent's Gitea write identity.
+#
+# The `adhar-ai-bot` ExternalSecret reads `secret/adhar-ai/bot`
+# (GITEA_BOT_USER + GITEA_BOT_TOKEN) from the secrets backend, and until this
+# Job existed that path could only be created by hand:
+#
+#   bao kv put secret/adhar-ai/bot GITEA_BOT_USER=… GITEA_BOT_TOKEN=…
+#
+# Nobody does, so every platform sat with adhar-ai **Degraded** on
+# `could not get secret data from provider` — and the agent's whole write half
+# (propose_change: open a PR against a GitOps repo) was dead. Unlike the LLM
+# key, this credential is entirely INTERNAL: it is a Gitea account on this
+# platform's own Gitea, created from the admin credential the platform already
+# holds in `Secret/gitea-credential`. There is nothing for a human to supply, so
+# requiring a human step was pure friction plus a permanently red app.
+#
+# Runs at wave 7 — after OpenBao and the ESO store are up (so the write lands)
+# and before the wave-8 ExternalSecret that consumes it.
+#
+# Idempotent in all three steps: the user is created only when absent, the token
+# is ROTATED on each run (Gitea will not reveal an existing token's value, so
+# there is no way to reuse one — delete and recreate is the only convergent
+# option), and the backend write is a plain put.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adhar-ai-bot-provision
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-bot-provision
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    # A Job's selector and pod template are immutable, so without this any later
+    # edit to the script below is silently NOT applied: ArgoCD's patch fails and
+    # the cluster keeps running the previous version of the Job.
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-ai-bot-provision
+    spec:
+      restartPolicy: Never
+      # See platform/stack/packages/CONFLICTS.md: one namespace means Kubernetes
+      # injects a <NAME>_PORT env var per Service, and some of those decode as
+      # URLs in strict clients.
+      enableServiceLinks: false
+      serviceAccountName: adhar-ai-bot-provision
+      containers:
+        - name: provision
+          image: docker.io/alpine/k8s:1.31.0
+          env:
+            - name: GITEA_ADMIN_USER
+              valueFrom:
+                secretKeyRef: { name: gitea-credential, key: username }
+            - name: GITEA_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: gitea-credential, key: password }
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+
+              GITEA="http://gitea-http.adhar-system.svc.cluster.local:3000"
+              BOT_USER="adhar-ai-bot"
+              BOT_EMAIL="adhar-ai-bot@noreply.adhar.io"
+              TOKEN_NAME="adhar-ai"
+
+              ga() { curl -sS -u "${GITEA_ADMIN_USER}:${GITEA_ADMIN_PASSWORD}" -H 'Content-Type: application/json' "$@"; }
+
+              echo "waiting for the Gitea API"
+              for i in $(seq 1 60); do
+                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${GITEA}/api/v1/version" || echo 000)
+                [ "${code}" = "200" ] && break
+                sleep 5
+              done
+              [ "${code}" = "200" ] || { echo "Gitea API never became ready (last ${code})"; exit 1; }
+
+              # 1. the bot account. 422 = already exists, which is success here.
+              if ga -o /dev/null -w '%{http_code}' "${GITEA}/api/v1/users/${BOT_USER}" | grep -q 200; then
+                echo "bot user ${BOT_USER} already exists"
+              else
+                echo "creating bot user ${BOT_USER}"
+                ga -X POST "${GITEA}/api/v1/admin/users" -d "{
+                  \"username\": \"${BOT_USER}\",
+                  \"email\": \"${BOT_EMAIL}\",
+                  \"password\": \"$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)\",
+                  \"must_change_password\": false,
+                  \"send_notify\": false
+                }" >/dev/null
+              fi
+
+              # 2. a fresh PAT. Gitea returns sha1 ONLY at creation, so an
+              # existing token of the same name is unusable to us -- delete it
+              # and mint a new one. Scope is the minimum propose_change needs:
+              # read/write repository (branch + PR) and read user.
+              #
+              # Tokens live under /api/v1/USERS/<u>/tokens, not /api/v1/admin/...
+              # -- there is no admin token endpoint, and the admin path returns
+              # the plain-text body `404 page not found`, whose leading "404"
+              # parses as a JSON number and then fails with a baffling
+              # `JSONDecodeError: Extra data: line 1 column 5`. An admin acts as
+              # another user with the `Sudo` header.
+              echo "rotating access token ${TOKEN_NAME}"
+              ga -H "Sudo: ${BOT_USER}" -X DELETE "${GITEA}/api/v1/users/${BOT_USER}/tokens/${TOKEN_NAME}" >/dev/null 2>&1 || true
+              TOKEN=$(ga -H "Sudo: ${BOT_USER}" -X POST "${GITEA}/api/v1/users/${BOT_USER}/tokens" \
+                -d "{\"name\":\"${TOKEN_NAME}\",\"scopes\":[\"write:repository\",\"read:user\"]}" \
+                | python3 -c 'import sys,json;print(json.load(sys.stdin).get("sha1",""))' 2>/dev/null)
+              if [ -z "${TOKEN}" ]; then
+                echo "ERROR: Gitea did not return a token value"; exit 1
+              fi
+
+              # 3. store it where the ExternalSecret reads from.
+              #
+              # openbao-0 BY NAME, not by label: the openbao label also matches
+              # the Completed `openbao-bootstrap-*` pod, and `items[0]` picks
+              # whichever the API happens to return first -- exec into the
+              # finished bootstrap pod fails with no useful message.
+              echo "writing secret/adhar-ai/bot to the secrets backend"
+              kubectl -n adhar-system get pod openbao-0 >/dev/null 2>&1 \
+                || { echo "ERROR: openbao-0 not found; cannot store the bot credential"; exit 1; }
+
+              # `bao` needs to be authenticated to WRITE (status works unauthed,
+              # which makes this easy to miss). The bootstrap Job leaves the root
+              # token in Secret/openbao-keys.
+              # The whole init payload is ONE key, `init.json` -- not a
+              # `root_token` key, which is the obvious guess and returns empty.
+              BAO_TOKEN=$(kubectl -n adhar-system get secret openbao-keys \
+                -o jsonpath='{.data.init\.json}' 2>/dev/null | base64 -d \
+                | python3 -c 'import sys,json;print(json.load(sys.stdin)["root_token"])' 2>/dev/null)
+              [ -n "${BAO_TOKEN}" ] || { echo "ERROR: could not read the OpenBao root token"; exit 1; }
+
+              # Both the backend token and the PAT travel on STDIN, one per line.
+              # `kubectl exec` has no --env, and argv is readable through /proc --
+              # for a repo-write credential that is a real leak, not theoretical.
+              printf '%s\n%s\n' "${BAO_TOKEN}" "${TOKEN}" \
+              | kubectl -n adhar-system exec -i openbao-0 -- env \
+                  BAO_ADDR=http://127.0.0.1:8200 U="${BOT_USER}" \
+                sh -c '
+                  set -eu
+                  IFS= read -r BAO_TOKEN
+                  IFS= read -r PAT
+                  export BAO_TOKEN
+                  bao kv put secret/adhar-ai/bot "GITEA_BOT_USER=$U" "GITEA_BOT_TOKEN=$PAT" >/dev/null
+                ' || { echo "ERROR: writing to OpenBao failed"; exit 1; }
+
+              # Nudge ESO. On a FRESH cluster this Job (wave 7) runs before the
+              # ExternalSecret (wave 8), so its first read succeeds and this is a
+              # no-op. On a cluster that was already running without the path, the
+              # ExternalSecret has a failed status and `refreshInterval: 0` means
+              # ESO will never retry on its own -- the credential would sit
+              # correctly in the backend while adhar-ai stayed Degraded, which is
+              # a confusing place to leave an operator.
+              kubectl -n adhar-system annotate externalsecret adhar-ai-bot \
+                force-sync="$(date +%s)" --overwrite >/dev/null 2>&1 \
+                && echo "asked ESO to re-read secret/adhar-ai/bot" \
+                || echo "note: could not annotate the ExternalSecret; it will sync on its own schedule"
+
+              echo "adhar-ai bot identity provisioned: ${BOT_USER}"
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+            limits: { memory: 256Mi }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-ai-bot-provision
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+---
+# Only what the Job actually does: read the Gitea admin credential, find the
+# OpenBao pod, and exec into it to write one path.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-ai-bot-provision
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["gitea-credential", "openbao-keys"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  # To force ESO to re-read the path it just wrote (see the note in the script).
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    resourceNames: ["adhar-ai-bot"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-ai-bot-provision
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: adhar-ai-bot-provision
+subjects:
+  - kind: ServiceAccount
+    name: adhar-ai-bot-provision
+    namespace: adhar-system

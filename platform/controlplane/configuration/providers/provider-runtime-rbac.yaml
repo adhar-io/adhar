@@ -65,6 +65,24 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["roles", "rolebindings"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # ...and permission to BIND the built-in roles those RoleBindings reference.
+  #
+  # Create on rolebindings is NOT sufficient. Kubernetes' privilege-escalation
+  # prevention refuses a RoleBinding whose role grants anything the CREATOR does
+  # not itself hold, so the team-admin RoleBinding in the project composition
+  # failed with "attempting to grant RBAC permissions not currently held"
+  # (bindings, endpoints, ...) and every onboarded team silently got a namespace
+  # with no owner. The escape hatch is the `bind` verb.
+  #
+  # resourceNames pins it to the three built-in aggregated roles the platform
+  # actually hands to tenants. Without that list this would be `bind` on ALL
+  # ClusterRoles -- including cluster-admin -- which would let anyone who can
+  # author a Composition grant themselves the cluster. Granting the provider
+  # cluster-admin outright, the other common fix, has exactly the same problem.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["admin", "edit", "view"]
+    verbs: ["bind"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

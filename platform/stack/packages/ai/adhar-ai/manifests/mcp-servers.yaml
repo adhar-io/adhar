@@ -209,9 +209,22 @@ spec:
             # those claims — and the bearer token is preserved
             # (preserveToken: true) so RBAC-scoped reads still run as the USER.
           # Bot token for the PR-only write path (commit-only rights).
+          #
+          # `optional: true` because the platform must run UNKEYED (ADR-0024 §9).
+          # The Secret is projected by an ExternalSecret that reads a backend path
+          # an operator supplies; that ExternalSecret is sync-wave 8, deliberately
+          # after these Deployments, so on an unkeyed cluster it does not exist
+          # when the pods start. Without `optional` the kubelet refuses to create
+          # the container at all — `Error: secret "adhar-ai-bot" not found`,
+          # CreateContainerConfigError — and the write-capable servers
+          # (gitops / provision / security / catalog) never come up, taking
+          # adhar-ai Degraded with them. Optional, the server starts and simply
+          # reports its write path unavailable, which is the documented posture
+          # and matches what agent-runtime.yaml already does for its own refs.
           envFrom:
             - secretRef:
                 name: adhar-ai-bot
+                optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -330,6 +343,9 @@ spec:
           envFrom:
             - secretRef:
                 name: adhar-ai-bot
+                # optional: the platform must run unkeyed — see the note on the first
+                # adhar-ai-bot reference in this file.
+                optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -425,12 +441,28 @@ spec:
               value: "observability"
             - name: GITEA_WRITE_ENABLED
               value: "false"
+            # These three must match the SERVICE names the observability
+            # packages actually create, not the chart names. Both of the values
+            # here were wrong, and the failure mode is quiet: the MCP server
+            # starts, `tools/list` advertises promql/logql/traceql, and only a
+            # tool CALL fails -- with `httpx.ConnectError: Name or service not
+            # known` buried in the pod log and a bare "Error executing tool
+            # promql" returned to the agent. An agentic run then silently loses
+            # its metrics grounding and answers from the pod list instead.
+            #
+            # kube-prometheus is installed as Helm release `prometheus`, so the
+            # Prometheus Service is prometheus-kube-prometheus-prometheus.
+            # `kube-prometheus-stack-prometheus` is the name the chart would use
+            # under its own default release name and resolves to nothing here.
             - name: PROMETHEUS_URL
-              value: "http://kube-prometheus-stack-prometheus.adhar-system.svc.cluster.local:9090"
+              value: "http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090"
             - name: LOKI_URL
               value: "http://loki.adhar-system.svc.cluster.local:3100"
+            # Tempo's HTTP API is on 3200. 3100 is LOKI's port -- copied from the
+            # line above, and it resolves (the Service exists) so it fails as a
+            # connection refusal rather than a DNS error, which is harder to spot.
             - name: TEMPO_URL
-              value: "http://tempo.adhar-system.svc.cluster.local:3100"
+              value: "http://tempo.adhar-system.svc.cluster.local:3200"
             # The platform AI data plane (agentgateway, ADR-0025) — NOT the
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
@@ -565,6 +597,9 @@ spec:
           envFrom:
             - secretRef:
                 name: adhar-ai-bot
+                # optional: the platform must run unkeyed — see the note on the first
+                # adhar-ai-bot reference in this file.
+                optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -796,6 +831,9 @@ spec:
           envFrom:
             - secretRef:
                 name: adhar-ai-bot
+                # optional: the platform must run unkeyed — see the note on the first
+                # adhar-ai-bot reference in this file.
+                optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

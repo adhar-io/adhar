@@ -75463,7 +75463,7 @@ data:
   datasource.yaml: |-
     apiVersion: 1
     datasources:
-    - name: "Prometheus"
+    - name: Prometheus
       type: prometheus
       uid: prometheus
       url: http://prometheus-kube-prometheus-prometheus.adhar-system:9090/
@@ -75476,7 +75476,7 @@ data:
         - datasourceUid: tempo
           name: trace_id
           urlDisplayLabel: View trace
-    - name: "Alertmanager"
+    - name: Alertmanager
       type: alertmanager
       uid: alertmanager
       url: http://prometheus-kube-prometheus-alertmanager.adhar-system:9093/
@@ -75484,41 +75484,6 @@ data:
       jsonData:
         handleGrafanaManagedAlerts: false
         implementation: prometheus
-    - access: proxy
-      editable: false
-      jsonData:
-        derivedFields:
-        - datasourceUid: tempo
-          matcherRegex: '"?trace_id"?[=:]"?(\w+)"?'
-          name: TraceID
-          url: $${__value.raw}
-      name: Loki
-      type: loki
-      uid: loki
-      url: http://loki.adhar-system.svc.cluster.local:3100
-    - access: proxy
-      editable: false
-      jsonData:
-        serviceMap:
-          datasourceUid: prometheus
-        tracesToLogsV2:
-          datasourceUid: loki
-      name: Tempo
-      type: tempo
-      uid: tempo
-      url: http://tempo.adhar-system.svc.cluster.local:3200
-    - access: proxy
-      editable: false
-      name: Mimir
-      type: prometheus
-      uid: mimir
-      url: http://mimir-query-frontend.adhar-system.svc.cluster.local:8080/prometheus
-    - access: proxy
-      editable: false
-      name: Pyroscope
-      type: grafana-pyroscope-datasource
-      uid: pyroscope
-      url: http://pyroscope.adhar-system.svc.cluster.local:4040
 ---
 # Source: kube-prometheus-stack/charts/grafana/templates/clusterrole.yaml
 kind: ClusterRole
@@ -76463,6 +76428,8 @@ spec:
                 secretKeyRef:
                   name: prometheus-grafana
                   key: admin-password
+            - name: GF_PLUGINS_PREINSTALL_AUTO_UPDATE
+              value: "false"
             - name: GF_PLUGINS_PREINSTALL_SYNC
               valueFrom:
                 configMapKeyRef:

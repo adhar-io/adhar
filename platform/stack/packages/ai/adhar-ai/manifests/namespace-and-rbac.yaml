@@ -90,6 +90,102 @@ rules:
   - apiGroups: ["postgresql.cnpg.io"]
     resources: ["clusters", "scheduledbackups", "backups", "poolers"]
     verbs: ["get", "list", "watch"]
+  # EVERY OTHER PLATFORM API GROUP, read-only.
+  #
+  # The enumerated rules above covered the surfaces the agent was first written
+  # against, which left it blind to most of the platform it is supposed to
+  # explain: Tekton runs, Kargo promotions, Strimzi/Kafka, Velero backups,
+  # Cilium, KEDA, Dapr, Kubeflow, Harbor/cosign policy, Kubescape, the whole
+  # Crossplane provider surface, and the DigitalOcean managed resources. Asked
+  # about a failing build it could only describe a Pod, because a PipelineRun was
+  # not a thing it was allowed to see.
+  #
+  # `resources: ["*"]` per group, get/list/watch only. Adding a group here is the
+  # intended way to widen the agent's sight; regenerate the list from a live
+  # cluster with `kubectl api-versions | sed 's|/.*||' | sort -u`.
+  #
+  # The core ("") group is deliberately NOT wildcarded, and is enumerated above
+  # instead. RBAC has no deny rule, so a `*` group wildcard would necessarily
+  # include **Secrets** -- and this agent ships cluster context to an external
+  # LLM, so handing it every credential on the platform is the one read it must
+  # not have. Bound alongside the built-in `view` ClusterRole below, which is
+  # self-updating and excludes Secrets by the same reasoning.
+  - apiGroups:
+      - agentgateway.dev
+      - apiextensions.crossplane.io
+      - apiextensions.k8s.io
+      - app.k8s.io
+      - argoproj.io
+      - autoscaling
+      - cert-manager.io
+      - acme.cert-manager.io
+      - chaos-mesh.org
+      - cilium.io
+      - clickhouse.altinity.com
+      - dapr.io
+      - dashboard.tekton.dev
+      - discovery.k8s.io
+      - external-secrets.io
+      - generators.external-secrets.io
+      - gateway.networking.k8s.io
+      - gateway.networking.x-k8s.io
+      - helm.crossplane.io
+      - helm.m.crossplane.io
+      - hyperspike.io
+      - infra.contrib.fluxcd.io
+      - k6.io
+      - kargo.akuity.io
+      - keda.sh
+      - eventing.keda.sh
+      - kpack.io
+      - kubeflow.org
+      - kubernetes.crossplane.io
+      - kubernetes.m.crossplane.io
+      - kubescape.io
+      - hostdata.kubescape.cloud
+      - spdx.softwarecomposition.kubescape.io
+      - kyverno.io
+      - policies.kyverno.io
+      - reports.kyverno.io
+      - wgpolicyk8s.io
+      - monitoring.coreos.com
+      - mongodbcommunity.mongodb.com
+      - mysql.oracle.com
+      - networking.k8s.io
+      - node.k8s.io
+      - open-cluster-management.io
+      - addon.open-cluster-management.io
+      - cluster.open-cluster-management.io
+      - operator.open-cluster-management.io
+      - work.open-cluster-management.io
+      - ops.crossplane.io
+      - pkg.crossplane.io
+      - protection.crossplane.io
+      - platform.adhar.io
+      - adhar.io
+      - policy
+      - policy.sigstore.dev
+      - redis.redis.opstreelabs.in
+      - resolution.tekton.dev
+      - scheduling.k8s.io
+      - snapshot.storage.k8s.io
+      - source.toolkit.fluxcd.io
+      - sparkoperator.k8s.io
+      - storage.k8s.io
+      - core.strimzi.io
+      - kafka.strimzi.io
+      - tekton.dev
+      - triggers.tekton.dev
+      - velero.io
+      - zalando.org
+      - aws.upbound.io
+      - aws.m.upbound.io
+      - eks.aws.upbound.io
+      - eks.aws.m.upbound.io
+      - digitalocean.crossplane.io
+      - digitalocean.m.crossplane.io
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -103,6 +199,32 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: adhar-ai-readonly
+subjects:
+  - kind: ServiceAccount
+    name: adhar-ai
+    namespace: adhar-system
+---
+# The built-in `view` ClusterRole, as well.
+#
+# `view` is AGGREGATED: operators that ship a CRD read-role labelled
+# `rbac.authorization.k8s.io/aggregate-to-view: "true"` fold into it
+# automatically, so this keeps the agent's sight current as packages are added
+# without anyone having to remember to extend the group list above. It is also
+# the canonical "read everything except credentials" role -- `view` excludes
+# Secrets, which is exactly the boundary wanted here (see the note on the group
+# wildcard above: this agent sends cluster context to an external LLM).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-ai-view
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
 subjects:
   - kind: ServiceAccount
     name: adhar-ai

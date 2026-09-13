@@ -347,6 +347,30 @@ func WaitForNodePrep(ctx context.Context, signer ssh.Signer, user, ip string, de
 // bootstrap even though Keycloak is installed later in the same run. A wrong or
 // permanently unreachable issuer therefore degrades OIDC logins, and does NOT
 // prevent the API server from serving certificate-authenticated clients.
+// apiServerFlagCommand builds the idempotent shell one-liner that inserts a
+// single flag into the kube-apiserver static pod manifest.
+//
+// Extracted so it can be unit-tested: the `\n` below must reach sed as
+// BACKSLASH-n, which in a double-quoted Go literal has to be written `\\n`.
+// Written as `\n` it compiles to a real newline, splitting the sed script over
+// two lines, and the node answers
+//
+//	sed: -e expression #1, char 43: unterminated `s' command
+//
+// — which aborts `adhar up` only AFTER the droplets have been created, i.e. the
+// most expensive possible moment to discover a quoting slip. TestAPIServerFlagCommand
+// pins it.
+func apiServerFlagCommand(name, value string) string {
+	const manifest = "/etc/kubernetes/manifests/kube-apiserver.yaml"
+	flag := fmt.Sprintf("--%s=%s", name, value)
+	// grep on the flag NAME (not the whole assignment) so an existing flag with a
+	// different value counts as already-configured rather than being added a
+	// second time — two copies of one apiserver flag is a start-up error.
+	return fmt.Sprintf(
+		"grep -q -- '--%s=' %s || sed -i 's|    - kube-apiserver|    - kube-apiserver\\n    - %s|' %s",
+		name, manifest, flag, manifest)
+}
+
 func ApplyAPIServerExtraArgs(signer ssh.Signer, user, publicIP string, args map[string]string) error {
 	if len(args) == 0 {
 		return nil
@@ -357,17 +381,12 @@ func ApplyAPIServerExtraArgs(signer ssh.Signer, user, publicIP string, args map[
 	}
 	sort.Strings(names)
 
-	const manifest = "/etc/kubernetes/manifests/kube-apiserver.yaml"
 	for _, name := range names {
-		flag := fmt.Sprintf("--%s=%s", name, args[name])
 		// grep on the flag NAME (not the whole assignment) so an existing flag
 		// with a different value is treated as already-configured rather than
 		// added a second time — two copies of the same apiserver flag is a
 		// start-up error.
-		cmd := fmt.Sprintf(
-			"grep -q -- '--%s=' %s || sed -i 's|    - kube-apiserver|    - kube-apiserver\n    - %s|' %s",
-			name, manifest, flag, manifest)
-		if out, err := SSHRun(signer, user, publicIP, cmd, 2*time.Minute); err != nil {
+		if out, err := SSHRun(signer, user, publicIP, apiServerFlagCommand(name, args[name]), 2*time.Minute); err != nil {
 			return fmt.Errorf("failed to set apiserver flag --%s: %w (output: %s)", name, err, LastLines(out, 5))
 		}
 	}

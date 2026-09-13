@@ -143,3 +143,96 @@ with open(path, "w") as fh:
     yaml.safe_dump_all(docs, fh, default_flow_style=False, sort_keys=False)
 print(f"removed helm hook annotations from {len(cleaned)} long-lived resource(s): {', '.join(cleaned)}")
 PYEOF_HOOKS
+
+# The bootloader must be WAVE-ORDERED, not a PreSync hook.
+#
+# The block above correctly stops the ServiceAccount/Role/RoleBinding being
+# ArgoCD hooks -- they have to outlive a single sync. But the bootloader Pod is a
+# Pod, so it kept `helm.sh/hook: pre-install`, and an ArgoCD PreSync hook runs
+# BEFORE any ordinary resource is applied. The SA it runs as therefore does not
+# exist yet:
+#
+#   pods "airbyte-airbyte-bootloader" is forbidden: error looking up service
+#   account adhar-system/airbyte-admin: serviceaccount "airbyte-admin" not found
+#
+# ...retried forever, so Airbyte never installed at all (Missing, 57+ attempts).
+# Under Helm this worked only because the SA was a pre-install hook too, i.e. in
+# the same phase; removing the SA's hook annotation is what exposed it.
+#
+# So take the bootloader out of the hook phases entirely and let ArgoCD's own
+# wave ordering sequence it, which is the mechanism that actually matches the
+# requirement "after the SA, secrets and database; before the services":
+#
+#   wave 0  ServiceAccount, Role/Binding, Secret, ConfigMaps, Services, airbyte-db
+#   wave 1  bootloader
+#   wave 2  the seven Deployments
+#
+# Pod -> Job, because a bare Pod is the wrong primitive for a regular (non-hook)
+# resource: it is immutable, so the next image bump fails to patch it and the
+# sync breaks, and it would linger Completed in the desired state forever. A Job
+# is mutable enough for ArgoCD to replace, reports Complete as Healthy, and is
+# what a run-to-completion step should have been. backoffLimit is generous
+# because the bootloader legitimately waits on the database.
+python3 - ${INSTALL_YAML} <<'PYEOF_BOOTLOADER'
+import sys, yaml
+
+path = sys.argv[1]
+docs = [d for d in yaml.safe_load_all(open(path)) if d]
+HOOK_KEYS = ("helm.sh/hook", "helm.sh/hook-weight", "helm.sh/hook-delete-policy",
+             "argocd.argoproj.io/hook", "argocd.argoproj.io/hook-delete-policy")
+
+out, converted, waved = [], None, []
+for d in docs:
+    kind, name = d.get("kind"), (d.get("metadata") or {}).get("name")
+
+    # The chart's `helm.sh/hook: test` connection-test Pod. Helm runs it only on
+    # `helm test`; ArgoCD does not map a bare `test` hook, so it would be synced
+    # as an ordinary Pod and tracked forever. A test fixture is not desired
+    # state -- drop it, the same as the stripped MinIO hooks above.
+    if kind == "Pod" and name == "airbyte-test-connection":
+        continue
+
+    if kind == "Pod" and name == "airbyte-airbyte-bootloader":
+        meta = d["metadata"]
+        ann = {k: v for k, v in (meta.get("annotations") or {}).items()
+               if k not in HOOK_KEYS}
+        ann["argocd.argoproj.io/sync-wave"] = "1"
+        labels = dict(meta.get("labels") or {})
+        pod_spec = d["spec"]
+        pod_spec.setdefault("restartPolicy", "Never")
+        out.append({
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {"name": name, "namespace": meta.get("namespace"),
+                         "labels": labels, "annotations": ann},
+            "spec": {
+                "backoffLimit": 10,
+                "ttlSecondsAfterFinished": 600,
+                "template": {"metadata": {"labels": labels}, "spec": pod_spec},
+            },
+        })
+        converted = name
+        continue
+
+    if kind == "Deployment":
+        meta = d["metadata"]
+        ann = meta.get("annotations") or {}
+        ann["argocd.argoproj.io/sync-wave"] = "2"
+        meta["annotations"] = ann
+        waved.append(name)
+
+    out.append(d)
+
+if not converted:
+    sys.exit("ERROR: bootloader Pod not found -- did the chart rename it?")
+
+with open(path, "w") as fh:
+    yaml.safe_dump_all(out, fh, default_flow_style=False, sort_keys=False)
+print(f"bootloader {converted}: Pod -> Job at wave 1; wave 2 on {len(waved)} Deployment(s)")
+
+# Nothing may remain a PreSync hook: that phase runs before the ServiceAccount.
+leftover = [f"{d['kind']}/{d['metadata']['name']}" for d in out
+            if "pre-install" in ((d.get("metadata") or {}).get("annotations") or {}).get("helm.sh/hook", "")]
+if leftover:
+    sys.exit(f"ERROR: still PreSync hooks, will race the ServiceAccount: {leftover}")
+PYEOF_BOOTLOADER

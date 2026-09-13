@@ -336,18 +336,52 @@ default, because switching it on means Keycloak group membership grants
 Kubernetes authority — anyone in `platform-admin` becomes `cluster-admin`. Opt in
 per environment:
 
-```yaml
-environments:
-  dev:
-    clusterConfig:
-      - key: oidcAuth
-        value: "true"
-      # Only when the platform is not served on :443:
-      # - key: oidcIssuerUrl
-      #   value: "https://keycloak.platform.example.com:8443/realms/adhar"
+Once `adhar get status` shows Keycloak Healthy, add the flags to the control
+plane. They are inserted idempotently into the static pod manifest, and the
+kubelet restarts the apiserver:
+
+```bash
+KEY=~/.adhar/clusters/<env>/id_ed25519
+M=/etc/kubernetes/manifests/kube-apiserver.yaml
+ISSUER=https://keycloak.<your-domain>/realms/adhar
+
+ssh -i "$KEY" root@<control-plane-ip> "
+  for f in \
+    oidc-issuer-url=$ISSUER \
+    oidc-client-id=kubernetes \
+    oidc-username-claim=preferred_username \
+    oidc-username-prefix=oidc: \
+    oidc-groups-claim=groups \
+    oidc-groups-prefix=oidc: ; do
+      n=\${f%%=*}
+      grep -q -- \"--\$n=\" $M || sed -i \"s|    - kube-apiserver|    - kube-apiserver\\n    - --\$f|\" $M
+  done
+  grep -- --oidc $M"
 ```
 
-`adhar up` then adds `--oidc-issuer-url`, `--oidc-client-id=kubernetes`,
+Confirm the issuer is reachable **from the node** first — a hanging endpoint is
+what breaks the apiserver:
+
+```bash
+ssh -i "$KEY" root@<control-plane-ip> \
+  "curl -s -o /dev/null -w '%{http_code}\n' $ISSUER/.well-known/openid-configuration"
+```
+
+To undo, delete the lines and the apiserver returns:
+`sed -i '/--oidc-/d' /etc/kubernetes/manifests/kube-apiserver.yaml`.
+
+> **This is a DAY-2 step, not an `adhar up` option — and `oidcAuth: "true"` in
+> `clusterConfig` is rejected for that reason.** Setting `--oidc-issuer-url` while
+> `kubeadm init` runs points the kube-apiserver at a Keycloak that does not exist
+> yet. On a real build the apiserver then never started (0 containers,
+> `https://127.0.0.1:6443/livez` unreachable) and provisioning died at
+> `kubeadm token create`; deleting the `--oidc-*` lines from
+> `/etc/kubernetes/manifests/kube-apiserver.yaml` brought it back in seconds.
+> Kind survives the same flags only because its issuer resolves to `127.0.0.1`
+> and refuses instantly, whereas a cloud hostname left in DNS from a deleted
+> cluster makes discovery hang. Apply the flags once Keycloak is serving.
+
+Applying them adds `--oidc-issuer-url`, `--oidc-client-id=kubernetes`,
 `--oidc-username-claim=preferred_username`, `--oidc-groups-claim=groups` and the
 `oidc:` username/group prefixes to the kube-apiserver, which is what makes the
 ClusterRoleBindings the `keycloak` package ships take effect.

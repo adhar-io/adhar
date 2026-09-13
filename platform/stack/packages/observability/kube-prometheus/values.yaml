@@ -1222,15 +1222,63 @@ grafana:
   enabled: true
   namespaceOverride: ""
 
-  ## Popular, well-maintained Grafana plugins — installed at startup via
-  ## GF_INSTALL_PLUGINS. Two groups:
-  ##  - Panel plugins for richer, better-looking dashboards. grafana-piechart-panel
-  ##    is REQUIRED: the bundled Keycloak dashboard uses "grafana-piechart-panel"
-  ##    panels that render broken without it.
-  ##  - Official Grafana "Explore" app plugins that light up the platform's own
-  ##    telemetry backends: Logs->Loki, Traces->Tempo, Metrics->Prometheus.
+  ## Grafana plugins installed at startup. THIS LIST REPLACES GRAFANA'S OWN
+  ## DEFAULT PREINSTALL SET — it is rendered into `GF_PLUGINS_PREINSTALL_SYNC`,
+  ## which overrides rather than appends.
+  ##
+  ## DO NOT LIST A BUNDLED DATASOURCE HERE. It is fatal, not merely redundant.
+  ##
+  ## `loki`, `tempo`, `prometheus` and the other core datasources ship INSIDE the
+  ## image at /usr/share/grafana/data/plugins-bundled/. Naming one here makes the
+  ## background installer try to replace that directory, which on the distroless
+  ## image's read-only filesystem fails hard:
+  ##   failed to install plugin loki@: unlinkat
+  ##   /usr/share/grafana/data/plugins-bundled/loki: read-only file system
+  ## and it is not survivable — the installer is a startup module, so every
+  ## dependent service fails with it and Grafana CrashLoopBackOffs. Verified on
+  ## Grafana 13.2.1-distroless.
+  ##
+  ## Only plugins that are NOT in the image belong in this list: panel plugins and
+  ## the Drilldown apps. grafana-piechart-panel is REQUIRED — the bundled Keycloak
+  ## dashboard uses "grafana-piechart-panel" panels that render broken without it.
   ## These download from grafana.com on pod start (needs egress); trim per
   ## environment if the Grafana pod has no internet access.
+  ## Stop Grafana re-installing the datasources it already ships.
+  ##
+  ## Grafana runs its OWN default preinstall list at startup — prometheus, tempo,
+  ## loki, elasticsearch, mysql, mssql, influxdb, jaeger, zipkin … — every one of
+  ## which is already bundled in the image. When the catalog has a newer build
+  ## than the bundled one it tries to UPGRADE IN PLACE, and on the distroless
+  ## image that directory is read-only. Observed exactly this on 13.2.1:
+  ##
+  ##   Plugin registered            pluginId=loki            (bundled, working)
+  ##   Updating plugin              pluginId=loki from=13.1.0 to=13.2.0
+  ##   plugin process exited        .../plugins-bundled/loki/gpx_…
+  ##   Failed to install plugin     loki  error="unlinkat
+  ##     /usr/share/grafana/data/plugins-bundled/loki: read-only file system"
+  ##
+  ## It killed the working bundled plugin and then could not replace it, so Loki
+  ## ended up registered-then-dead: the provisioned datasource still looked fine
+  ## in /api/datasources, but every query failed and the only server-side clue was
+  ##   "Could not find plugin definition for data source" datasource_type=loki
+  ## while Logs Drilldown just said "no Loki datasource configured". Loki was hit
+  ## and Tempo/Prometheus were not purely because only Loki's bundled build was
+  ## behind the catalog — so this is a landmine that moves with each release.
+  ##
+  ## `preinstall_auto_update: false` is the precise fix, confirmed against
+  ## /api/admin/settings on the running instance. Preinstall still runs, so the
+  ## panel and Drilldown plugins below still install — it simply stops trying to
+  ## UPGRADE a plugin that is already present, which is the only thing that ever
+  ## touched the read-only bundled directory.
+  ##
+  ## `preinstall_disabled: true` also cures Loki and was tried first — do not use
+  ## it. It is a master switch: it silently dropped every plugin in the list below
+  ## too, including grafana-lokiexplore-app, so Logs Drilldown itself disappeared.
+  ## Verified live: loki PRESENT, but piechart/clock/lokiexplore/exploretraces/
+  ## metricsdrilldown all MISSING.
+  env:
+    GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
+
   plugins:
     - grafana-piechart-panel
     - grafana-clock-panel
@@ -1528,87 +1576,24 @@ grafana:
 
   ## Configure additional grafana datasources (passed through tpl)
   ## ref: https://grafana.com/docs/grafana/latest/administration/provisioning/#datasources
-  # LGTM datasources alongside the chart-provisioned Prometheus/Alertmanager:
-  # Loki (logs), Tempo (traces), Mimir (long-term metrics via Alloy
-  # remote_write). Loki's derived field links log lines carrying trace_id
-  # straight to the Tempo trace view.
-  additionalDataSources:
-    - name: Loki
-      type: loki
-      uid: loki
-      access: proxy
-      url: http://loki.adhar-system.svc.cluster.local:3100
-      editable: false
-      jsonData:
-        derivedFields:
-          - name: TraceID
-            matcherRegex: '"?trace_id"?[=:]"?(\w+)"?'
-            url: "$${__value.raw}"
-            datasourceUid: tempo
-    - name: Tempo
-      type: tempo
-      uid: tempo
-      access: proxy
-      url: http://tempo.adhar-system.svc.cluster.local:3200
-      editable: false
-      jsonData:
-        tracesToLogsV2:
-          datasourceUid: loki
-        serviceMap:
-          datasourceUid: prometheus
-    - name: Mimir
-      type: prometheus
-      uid: mimir
-      access: proxy
-      url: http://mimir-query-frontend.adhar-system.svc.cluster.local:8080/prometheus
-      editable: false
-    # Continuous profiling (Grafana Pyroscope). Powers the Explore > Profiles
-    # view and flame graphs. The `pyroscope` package must be enabled.
-    - name: Pyroscope
-      type: grafana-pyroscope-datasource
-      uid: pyroscope
-      access: proxy
-      url: http://pyroscope.adhar-system.svc.cluster.local:4040
-      editable: false
-
-  # Two Grafana folders only: "Platform" and "Application".
+  # DELIBERATELY EMPTY — Loki, Tempo, Mimir and Pyroscope are provisioned by
+  # manifests/extra-datasources.yaml, NOT here.
   #
-  # Every dashboard ships as an in-repo ConfigMap under manifests/
-  # (dashboard-*.yaml), generated by ./generate-dashboards.sh. The sidecar
-  # (configured above: folderAnnotation grafana_folder + foldersFromFilesStructure)
-  # files each into the Grafana folder named by its `grafana_folder` annotation
-  # — so the folders are created FROM the dashboards, and there is no separate
-  # `dashboardProviders`/`dashboards` block that would spawn duplicate folders.
-  # The JSON lives in git; runtime needs no egress to grafana.com.
+  # They were declared in BOTH places, with the same uids but DIFFERENT config,
+  # and whichever the Grafana sidecar loaded last silently won. The copies had
+  # genuinely diverged: this one pointed Mimir at
+  # mimir-query-frontend:8080, which answers 401 because it needs the
+  # X-Scope-OrgID tenant header, while extra-datasources.yaml uses
+  # mimir-gateway/prometheus, which injects it and answers 200 (both verified
+  # in-cluster). Loki's derivedFields and Tempo's tracesToLogsV2/serviceMap
+  # differed too. So the Mimir datasource worked or did not depending on file
+  # ordering — the worst kind of bug to chase.
   #
-  # To add a dashboard: append it to the DASHBOARDS list in
-  # generate-dashboards.py (grafana.com id, or a direct-download URL), re-run
-  # ./generate-dashboards.sh, and commit the new dashboard-<name>.yaml. Put
-  # infra/K8s/networking/Kafka/CNPG/storage/LGTM/security under folder
-  # "Platform"; Spring Boot / Micrometer / app-runtime under "Application".
-  # `datasource` inputs are auto-pinned to the provisioned datasource UIDs
-  # (prometheus / loki / tempo / mimir / pyroscope).
-  #
-  # Alternatively, to have Grafana pull from grafana.com at startup instead
-  # (needs egress), define `dashboardProviders` (one file provider per folder)
-  # and a `dashboards:` map of gnetId entries — omitted here by design.
-  # - name: prometheus-sample
-  #   access: proxy
-  #   basicAuth: true
-  #   secureJsonData:
-  #       basicAuthPassword: pass
-  #   basicAuthUser: daco
-  #   editable: false
-  #   jsonData:
-  #       tlsSkipVerify: true
-  #   orgId: 1
-  #   type: prometheus
-  #   url: https://{{ printf "%s-prometheus.svc" .Release.Name }}:9090
-  #   version: 1
-
-  # Flag to mark provisioned data sources for deletion if they are no longer configured.
-  # It takes no effect if data sources are already listed in the deleteDatasources section.
-  # ref: https://grafana.com/docs/grafana/latest/administration/provisioning/#example-data-source-configuration-file
+  # extra-datasources.yaml is the single source for the LGTM four: it is
+  # reviewable (this file renders into a 76k-line install.yaml), it documents
+  # the fixed uids the in-repo dashboards pin to, and it carries the correct
+  # cross-links. The chart still provisions Prometheus + Alertmanager itself.
+  additionalDataSources: []
   prune: false
 
   ## Passed to grafana subchart and used by servicemonitor below

@@ -1,0 +1,145 @@
+# PipelineRun / TaskRun retention.
+#
+# Tekton keeps every run forever. Without retention a platform accumulates them
+# without limit, and — because ArgoCD tracks the runs as children of the
+# Application that owns the Pipelines — a single historical failure keeps that
+# Application **Degraded indefinitely**, long after the cause is fixed. On this
+# cluster `adhar-libraries` sat Degraded on 42 failed runs whose root cause had
+# already been repaired and whose replacement run was green.
+#
+# Upstream's pruner ships with the Tekton *Operator* (TektonConfig.pruner), which
+# this platform does not install — it applies release manifests directly — so the
+# retention has to be its own object.
+#
+# Policy: keep the most recent KEEP completed runs PER PIPELINE (so every
+# pipeline retains its own recent history, and a busy pipeline cannot evict a
+# quiet one's), and never touch a run that is still executing.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tekton-pruner
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: tekton-pruner
+    app.kubernetes.io/part-of: tekton
+    adhar.io/component: application
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: tekton-pruner
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: prune
+              image: docker.io/alpine/k8s:1.31.0
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+              env:
+                # 3, not a larger number, on purpose. ArgoCD treats the runs as
+                # children of the Application that owns the Pipelines, so every
+                # RETAINED failure keeps that Application Degraded. Run history
+                # belongs on the CI page; what the Application should reflect is
+                # whether the recent pipeline is working. Three recent runs per
+                # pipeline is enough to see that and short enough that a fixed
+                # failure stops colouring the platform within a few runs.
+                - {name: KEEP, value: "3"}
+                - {name: NS, value: adhar-system}
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -uo pipefail
+                  # Completed = has a Succeeded condition that is no longer
+                  # Unknown. A run still executing reports Unknown, so this can
+                  # never delete work in progress.
+                  kubectl -n "$NS" get pipelineruns -o json \
+                    | python3 -c '
+                  import sys, json, subprocess, collections, os
+                  keep = int(os.environ["KEEP"]); ns = os.environ["NS"]
+                  runs = json.load(sys.stdin)["items"]
+                  done = collections.defaultdict(list)
+                  for r in runs:
+                      cond = next((c for c in r.get("status", {}).get("conditions", [])
+                                   if c["type"] == "Succeeded"), None)
+                      if not cond or cond["status"] == "Unknown":
+                          continue          # still running -- never touch
+                      pipeline = (r["metadata"].get("labels") or {}).get(
+                          "tekton.dev/pipeline", "<none>")
+                      # completionTime is the right ordering key, but fall back
+                      # to creationTimestamp so a run that somehow finished
+                      # without one sorts sanely instead of being treated as the
+                      # oldest thing on the cluster and pruned first.
+                      done[pipeline].append((
+                          r["status"].get("completionTime")
+                          or r["metadata"]["creationTimestamp"],
+                          r["metadata"]["name"]))
+                  doomed = []
+                  for pipeline, entries in done.items():
+                      entries.sort(reverse=True)          # newest first
+                      doomed += [n for _, n in entries[keep:]]
+                  if not doomed:
+                      print("nothing to prune"); raise SystemExit
+                  print(f"pruning {len(doomed)} completed PipelineRun(s), keeping {keep} per pipeline")
+                  # Deleting a PipelineRun garbage-collects its TaskRuns and pods
+                  # through ownerReferences, so they need no separate pass.
+                  for batch in (doomed[i:i+50] for i in range(0, len(doomed), 50)):
+                      subprocess.run(["kubectl", "-n", ns, "delete", "pipelinerun",
+                                      "--wait=false", *batch], check=False)
+                  '
+              resources:
+                requests: {cpu: 10m, memory: 64Mi}
+                limits: {memory: 256Mi}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-pruner
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-pruner
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+rules:
+  # PipelineRuns only. TaskRuns and pods are owned by their PipelineRun and are
+  # garbage-collected with it, so the pruner never needs to delete them itself.
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-pruner
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-pruner
+subjects:
+  - kind: ServiceAccount
+    name: tekton-pruner
+    namespace: adhar-system

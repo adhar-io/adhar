@@ -101,6 +101,119 @@ spec:
                         default: { cpu: "500m", memory: "512Mi" }
                         defaultRequest: { cpu: "100m", memory: "128Mi" }
             ---
+            # Team RBAC — the isolation boundary between application teams.
+            #
+            # Without this the namespace above is a container with no owner: the
+            # only OIDC bindings on the platform are CLUSTER-wide, so every
+            # application admin reaches every tenant's namespace and a team's
+            # own members reach none of it by right. Binding the team's Keycloak
+            # group here is what makes a project actually belong to a team.
+            #
+            # `ws-team-<slug>` is the group name the console's team onboarding
+            # already creates (alongside `org-<slug>` for the organisation), and
+            # `oidc:` is the --oidc-groups-prefix the API server is configured
+            # with. The realm's group mapper emits BARE names, not paths, so this
+            # must not be spelled as a path.
+            #
+            # `admin` and not `cluster-admin`: full authority inside the team's
+            # own namespace -- workloads, config, Secrets, and RBAC within it --
+            # and none outside. That is "Platform Admin of your own tenant".
+            #
+            # TWO subjects, and the difference matters:
+            #
+            #   oidc:ws-team-<team>    -- this team. Sees only its own namespace.
+            #   oidc:org-<org>-admin   -- the organisation's OWNER. Reaches every
+            #                             namespace in THEIR org, because teams are
+            #                             how they subdivide their own tenant; they
+            #                             are not walls against the person who
+            #                             created the tenant.
+            #
+            # Deliberately NOT bound: the plain `oidc:org-<org>` membership group.
+            # Binding that would make every member of the organisation an admin of
+            # every team in it, which erases the team boundary the teams exist to
+            # draw. Membership of the org gets you in the door; a team gets you a
+            # namespace; being the org admin gets you all of your own org.
+            #
+            # Platform staff need no entry here at all: `platform-admin` and
+            # `platform-engineer` hold cluster-admin cluster-wide (see the keycloak
+            # package's k8s-rbac.yaml), so the platform's own operators -- user1 and
+            # user2 on a seeded cluster -- already reach every organisation and
+            # every team without a per-tenant binding.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: team-admin-rbac
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: RoleBinding
+                  metadata:
+                    name: {{ printf "%s-team-admin" $name }}
+                    namespace: {{ $name }}
+                    labels:
+                      platform.adhar.io/organisation: {{ $org | quote }}
+                      platform.adhar.io/team: {{ $team | quote }}
+                  roleRef:
+                    apiGroup: rbac.authorization.k8s.io
+                    kind: ClusterRole
+                    name: admin
+                  subjects:
+                    - apiGroup: rbac.authorization.k8s.io
+                      kind: Group
+                      name: {{ printf "oidc:ws-team-%s" $team | quote }}
+                    - apiGroup: rbac.authorization.k8s.io
+                      kind: Group
+                      name: {{ printf "oidc:org-%s-admin" $org | quote }}
+            ---
+            # Network isolation between application teams.
+            #
+            # RBAC stops a team CHANGING another team's namespace; it does nothing
+            # to stop a Pod in one tenant opening a socket to a Pod in another,
+            # which on a flat cluster network it can. Default-deny ingress, then
+            # re-admit exactly two sources.
+            #
+            # Egress is deliberately left open: tenants legitimately need the
+            # internet and the shared platform, and a default-deny egress policy
+            # that forgets kube-dns breaks every workload in a way that looks like
+            # a DNS outage rather than a policy.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: tenant-isolation
+            spec:
+              providerConfigRef: { name: kubernetes-provider, kind: ClusterProviderConfig }
+              forProvider:
+                manifest:
+                  apiVersion: networking.k8s.io/v1
+                  kind: NetworkPolicy
+                  metadata:
+                    name: {{ printf "%s-tenant-isolation" $name }}
+                    namespace: {{ $name }}
+                    labels:
+                      platform.adhar.io/organisation: {{ $org | quote }}
+                      platform.adhar.io/team: {{ $team | quote }}
+                  spec:
+                    podSelector: {}
+                    policyTypes: [Ingress]
+                    ingress:
+                      # 1. the team's own namespace -- a tenant is not isolated
+                      #    from itself.
+                      - from:
+                          - podSelector: {}
+                      # 2. adhar-system -- the shared platform the platform team
+                      #    hosts for every application team: ingress gateway,
+                      #    Prometheus scrapes, Loki/Alloy, ArgoCD, admission
+                      #    webhooks. Without this the namespace is unreachable
+                      #    from the outside world and invisible to monitoring.
+                      - from:
+                          - namespaceSelector:
+                              matchLabels:
+                                kubernetes.io/metadata.name: adhar-system
+            ---
             # ArgoCD AppProject — deployment guardrails scoped to this project.
             apiVersion: kubernetes.m.crossplane.io/v1alpha1
             kind: Object

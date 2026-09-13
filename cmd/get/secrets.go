@@ -50,6 +50,11 @@ import (
 const (
 	keycloakSeedUser1 = "user1@noreply.com"
 	keycloakSeedUser2 = "user2@noreply.com"
+
+	// user2's password is generated into its own secret rather than alongside
+	// user1's in keycloak-config -- see the comment on the keycloak-user2
+	// ExternalSecret in the keycloak package for why they cannot share one.
+	keycloakUser2Secret = "keycloak-user2"
 )
 
 // secretsCmd represents the secrets command
@@ -107,8 +112,12 @@ var knownProviders = map[string]providerConfig{
 	"argocd":         {namespaces: []string{"adhar-system"}, patterns: []string{"argocd-initial-admin-secret"}},
 	"gitea":          {namespaces: []string{"adhar-system"}, patterns: []string{"gitea-admin-credentials"}},
 	"keycloak-admin": {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config"}},
-	"keycloak-user":  {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config"}},
-	"keycloak":       {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config", "keycloak-clients"}},
+	// keycloak-user2 must be listed explicitly: patterns match by substring, and
+	// the seed users' passwords live in DIFFERENT secrets (user1 in
+	// keycloak-config, user2 in keycloak-user2 — see the ExternalSecret comment
+	// in the keycloak package), so "keycloak-config" alone silently drops user2.
+	"keycloak-user": {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config", keycloakUser2Secret}},
+	"keycloak":      {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-config", "keycloak-clients", keycloakUser2Secret}},
 	// The Adhar Console's own SSO client (id + secret) — the confidential
 	// Keycloak client the console authenticates with. Shown by default so
 	// operators can see the console is wired and grab the client secret.
@@ -373,27 +382,39 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 			}}
 		}
 	case "keycloak-user":
+		// The two seed users hold SEPARATE passwords in SEPARATE secrets --
+		// keycloak-config for user1, keycloak-user2 for user2 -- so each secret
+		// contributes only its own row. Matching keycloak-user2 first matters:
+		// its name contains neither "keycloak-config" nor "keycloak-clients",
+		// but a looser test would have caught it in the wrong branch.
+		if secret.Name == keycloakUser2Secret {
+			return []SecretEntry{{
+				Icon: "👤", Service: "Keycloak user2 (developer)",
+				Username: keycloakSeedUser2, Password: string(secret.Data["USER_PASSWORD"]),
+			}}
+		}
 		if strings.Contains(secret.Name, "keycloak-config") {
-			pw := string(secret.Data["USER_PASSWORD"])
-			return []SecretEntry{
-				{Icon: "👤", Service: "Keycloak user1 (admin)", Username: keycloakSeedUser1, Password: pw},
-				{Icon: "👤", Service: "Keycloak user2 (developer)", Username: keycloakSeedUser2, Password: pw},
-			}
+			return []SecretEntry{{
+				Icon: "👤", Service: "Keycloak user1 (admin)",
+				Username: keycloakSeedUser1, Password: string(secret.Data["USER_PASSWORD"]),
+			}}
 		}
 	case "keycloak":
-		// When using -p keycloak, return both admin + user + clients
+		// When using -p keycloak, return both admin + users + clients
 		var entries []SecretEntry
+		if secret.Name == keycloakUser2Secret {
+			return []SecretEntry{{
+				Icon: "👤", Service: "Keycloak user2 (developer)",
+				Username: keycloakSeedUser2, Password: string(secret.Data["USER_PASSWORD"]),
+			}}
+		}
 		if strings.Contains(secret.Name, "keycloak-config") {
-			pw := string(secret.Data["USER_PASSWORD"])
 			entries = append(entries, SecretEntry{
 				Icon: "🔑", Service: "Keycloak (admin)",
 				Username: "adhar-admin", Password: string(secret.Data["KEYCLOAK_ADMIN_PASSWORD"]),
 			}, SecretEntry{
 				Icon: "👤", Service: "Keycloak user1 (admin)",
-				Username: keycloakSeedUser1, Password: pw,
-			}, SecretEntry{
-				Icon: "👤", Service: "Keycloak user2 (developer)",
-				Username: keycloakSeedUser2, Password: pw,
+				Username: keycloakSeedUser1, Password: string(secret.Data["USER_PASSWORD"]),
 			})
 		}
 		if strings.Contains(secret.Name, "keycloak-clients") {

@@ -80,16 +80,13 @@ environments:
       #   value: 10.244.0.0/16          # must differ per cluster if you mesh them
       # - key: clusterMeshId
       #   value: "1"                    # Cilium cluster ID (1-255), unique per meshed cluster
-      # Let `adhar auth login` produce a token kubectl accepts: points the
-      # kube-apiserver at this platform's Keycloak, so the oidc: ClusterRoleBindings
-      # security/keycloak ships take effect (platform-admin -> cluster-admin,
-      # platform-developer -> edit, platform-viewer -> view).
-      # OFF by default: it makes Keycloak group membership a grant of Kubernetes
-      # authority, which is the operator's decision, not a default.
-      # - key: oidcAuth
-      #   value: "true"
-      # - key: oidcIssuerUrl              # only when the platform is not on :443
-      #   value: "https://keycloak.platform.example.com:8443/realms/adhar"
+      # NOTE: there is deliberately no `oidcAuth` key here. Letting
+      # `adhar auth login` produce a token kubectl accepts requires --oidc-* flags
+      # on the kube-apiserver, and those CANNOT be set while `kubeadm init` runs:
+      # the issuer (this platform's own Keycloak) does not exist yet, so the
+      # apiserver fails to start and provisioning aborts. Setting the key is
+      # rejected with that explanation. Enable it as a day-2 step —
+      # docs/DIGITALOCEAN_PROVIDER.md, "kubectl with your platform identity".
 
     autoscaling:
       enabled: true
