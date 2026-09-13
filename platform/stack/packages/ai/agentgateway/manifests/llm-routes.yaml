@@ -40,7 +40,7 @@
 # CREDENTIALS
 # ---------------------------------------------------------------------------
 # Keys come from the EXISTING `adhar-ai-llm` Secret (projected from Vault by
-# ai/adhar-ai/manifests/llm-secret-external.yaml). agentgateway reads the key
+# adhar-ai/manifests/llm-secret-external.yaml). agentgateway reads the key
 # server-side and injects it upstream; it is never returned to a caller and never
 # enters a model context — the same guarantee the old gateway made, now enforced
 # by the data plane instead of by application code.
@@ -48,7 +48,7 @@
 #   * Anthropic uses `API_KEY`, the single-provider key that Secret already
 #     carries today (the platform default is PROVIDER=claude).
 #   * OpenAI uses `OPENAI_API_KEY`, which that Secret does NOT carry yet. Until
-#     ai/adhar-ai adds it (see ADR-0025 "Required changes in ai/adhar-ai"), the
+#     adhar-ai adds it (see ADR-0025 "Required changes in adhar-ai"), the
 #     OpenAI backend reports an unresolved-credential condition and ONLY the
 #     gpt-* route 5xxs — Anthropic, vLLM and all MCP traffic are unaffected.
 #   * vLLM needs no credential at all.
@@ -116,7 +116,7 @@ spec:
 #
 # OPTIONAL / FAIL-SOFT BY CONSTRUCTION.
 #
-# The `ai/vllm` package is built separately and may not be installed. This
+# The `vllm` package is built separately and may not be installed. This
 # backend addresses it by DNS NAME (`host`/`port`), not by `backendRef` to a
 # Service object. That distinction is the whole fail-soft mechanism:
 #
@@ -149,13 +149,13 @@ spec:
   ai:
     provider:
       openai: {}
-      # Service published by the ai/vllm package (built concurrently).
+      # Service published by the vllm package (built concurrently).
       # http://vllm.adhar-system.svc.cluster.local:8000/v1
       host: vllm.adhar-system.svc.cluster.local
       port: 8000
   policies:
     # No `auth`: a self-hosted vLLM in the same namespace needs no API key. If
-    # ai/vllm later enables `--api-key`, add a secretRef here pointing at the
+    # vllm later enables `--api-key`, add a secretRef here pointing at the
     # Secret that package publishes.
     http:
       # Local models on CPU are slow. The default request timeout is far too
@@ -256,14 +256,22 @@ spec:
     # --- Fallback ------------------------------------------------------------
     # No header match => strictly less specific than the three rules above, so
     # Gateway API only reaches it when none of them matched (unknown model name,
-    # empty body, /v1/models, /v1/embeddings, ...). Anthropic is the platform
-    # default provider (ai/adhar-ai values.yaml: provider=claude), so an
-    # unqualified request lands there rather than 404-ing.
+    # empty body, /v1/models, /v1/embeddings, ...).
+    #
+    # It must point at a backend whose credential is actually populated. This
+    # pointed at llm-anthropic while the installed key was an OpenAI/OpenRouter
+    # one, so `llm-anthropic` never reached Accepted ("secret adhar-ai-llm
+    # missing API_KEY value") and every request that fell through answered
+    #   500  reason=NotFound  error="service not found"
+    # — which reads as a broken route rather than an unset key, and is the
+    # hardest kind of failure to trace back to its cause. llm-openai is the
+    # backend this platform's key configures (PROVIDER=openai), so the
+    # unconditional fallback goes there.
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: llm-anthropic
+        - name: llm-openai
           group: agentgateway.dev
           kind: AgentgatewayBackend

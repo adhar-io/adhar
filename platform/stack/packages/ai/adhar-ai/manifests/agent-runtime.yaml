@@ -146,13 +146,24 @@ spec:
             - name: http
               containerPort: 8080
           env:
-            # The platform AI data plane (ai/agentgateway, ADR-0025) — NOT the
+            # The platform AI data plane (agentgateway, ADR-0025) — NOT the
             # retired adhar-ai-llm-gateway. /v1 is part of the base URL and the
             # loop POSTs an OpenAI-shaped body that NAMES A MODEL; the gateway
             # routes on that name (`claude-*` -> Anthropic, `gpt-*` -> OpenAI,
             # `local/*` -> the in-cluster vLLM) and holds the key server-side.
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
+            # The model every run names unless the caller asks for another.
+            #
+            # Not optional in practice. With this unset the runtime falls back
+            # to its library default (`claude-sonnet-5`), which on an install
+            # whose key is an OpenAI/OpenRouter one cannot be served — and the
+            # failure surfaces as a gateway routing error rather than "wrong
+            # model", which sends you looking in the wrong place. It must name
+            # a model the configured provider actually serves; the prefix is
+            # also what the gateway routes on.
+            - name: ADHAR_AI_LLM_MODEL
+              value: "openai/gpt-5"
             # The runtime KEEPS its OIDC settings: it publishes its own hostname
             # (httproute.yaml) so /chat is reached directly, not through the AI
             # gateway, and it exchanges the caller's token for a short-lived
@@ -175,6 +186,26 @@ spec:
             # platform-developer investigates, platform-admin may propose.
             - name: ADHAR_AI_WRITE_GROUPS
               value: "platform-admin"
+            # The runtime's OWN identity, for the calls it makes with no caller
+            # token to forward: the drift and cost pollers, and an Alertmanager
+            # webhook authenticated by the shared secret below. It needs one
+            # because agentgateway runs `jwtAuthentication: Strict` across
+            # the whole Gateway (ADR-0025) — a completion request with no token
+            # is a 401, so without this an operator could not run at all.
+            #
+            # The `adhar-ai` Keycloak client already ships
+            # serviceAccountsEnabled: true (oidc-client.yaml), and the config
+            # Job upserts its secret into `keycloak-clients`. The token endpoint
+            # is the IN-CLUSTER Service for the same reason the JWKS URL is:
+            # minting a token must not wait on the platform's own ingress.
+            - name: ADHAR_AI_OIDC_TOKEN_URL
+              value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/token"
+            - name: ADHAR_AI_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-clients
+                  key: ADHAR_AI_CLIENT_SECRET
+                  optional: true
             # Shared bearer for the machine callers that hold no OIDC client:
             # Alertmanager (http_config.authorization.credentials) and ArgoCD
             # notifications. Accepted ONLY on /operators/{name}/event, never on
