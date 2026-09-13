@@ -302,8 +302,17 @@ spec:
         # AI assistant — point at an in-cluster OpenAI-compatible endpoint to
         # enable it (leave AI_BASE_URL empty to disable). AI_API_KEY (if needed)
         # comes from the console-env-vars Secret.
-        - { name: AI_BASE_URL, value: '' }
+        - { name: AI_BASE_URL, value: 'http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1' }
         - { name: AI_MODEL, value: 'default' }
+        # Adhar AI — the agentic runtime (ADR-0024). Distinct from AI_BASE_URL
+        # above: that is a plain LLM endpoint the console's own tool loop calls,
+        # this is a governed agent with its own MCP tool contract, retrieval
+        # grounding and a write path that ends in a pull request. The console
+        # offers it as an extra agent and hides that agent entirely when this is
+        # empty, so an install without the runtime shows no broken choice.
+        # The SIGNED-IN USER's token is forwarded, so the runtime resolves its
+        # own Principal and pins autonomy per user rather than per console.
+        - { name: ADHAR_AI_URL, value: 'http://adhar-ai-runtime.adhar-system.svc.cluster.local:8080' }
         # ── Backing platform tools ───────────────────────────────────────────
         # Each <TOOL>_URL is the tool's IN-CLUSTER Service URL, used by the BFF's
         # server-side proxy (/api/svc/<tool>) — the public *.localtest.me hosts
