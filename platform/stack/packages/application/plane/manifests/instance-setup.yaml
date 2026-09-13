@@ -1,11 +1,15 @@
 # First-run instance setup for Plane, done for you.
 #
-# Plane Community Edition v1.4.1 has NO generic OIDC and NO SAML provider — the
+# Plane Community Edition has NO generic OIDC and NO SAML provider — the
 # only auth providers shipped in the image are
 #   plane/authentication/provider/credentials/{email,magic_code}.py
 #   plane/authentication/provider/oauth/{gitea,github,gitlab,google}.py
 # (`grep -ril oidc /code` and `grep -ril saml /code` in
-# artifacts.plane.so/makeplane/plane-backend:v1.4.1 both return nothing).
+# artifacts.plane.so/makeplane/plane-backend both return nothing). Re-checked
+# against the v1.4.2 source tree (the newest CE release): the provider set is
+# unchanged, and no path in the repository matches oidc or saml. This is a
+# capability the Community Edition does not ship, not a version we trail — so
+# the Gitea bridge below is the integration, not a stopgap until an upgrade.
 # So Keycloak reaches Plane two ways, both wired here and in sso.yaml:
 #
 #  1. ENFORCED EDGE SSO — every request to plane.<host> passes through the
@@ -129,7 +133,7 @@ spec:
       serviceAccountName: plane-instance-setup
       containers:
         - name: setup
-          image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
+          image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
           envFrom:
             - configMapRef: {name: plane-app-vars}
             - secretRef: {name: plane-app-secrets}
@@ -215,12 +219,16 @@ spec:
               instance.save()
               InstanceAdmin.objects.get_or_create(instance=instance, user=user, defaults={"role": 20})
               cfg("ENABLE_SIGNUP", "1", "AUTHENTICATION")
-              cfg("ENABLE_EMAIL_PASSWORD", "1", "AUTHENTICATION")
               cfg("ENABLE_MAGIC_LINK_LOGIN", "0", "AUTHENTICATION")
+              # Email/password starts ON and is switched off further down IF the
+              # Gitea bridge comes up — see the note there. Enabling it here
+              # first means an instance is never left with zero usable methods,
+              # which renders as "No authentication methods available".
+              cfg("ENABLE_EMAIL_PASSWORD", "1", "AUTHENTICATION")
               print(f"instance setup done; admin {'created' if created else 'updated'}: {email}", flush=True)
 
               # ── 2. Keycloak-federated login via the platform Gitea ───────────
-              # Plane CE v1.4.1 ships no OIDC provider; its Gitea OAuth provider
+              # Plane CE ships no OIDC provider; its Gitea OAuth provider
               # talks to a Gitea whose own sign-in is the Keycloak auth source,
               # so this is a real Keycloak login inside Plane. Best effort.
               def gitea_bridge():
@@ -304,12 +312,38 @@ spec:
                   cfg("ENABLE_GITEA_SYNC", "1", "GITEA")
                   return f"{note} (client_id {app['client_id']}, redirect {redirect})"
 
+              gitea_ready = False
               try:
                   print(f"gitea bridge: {gitea_bridge()}", flush=True)
+                  gitea_ready = True
               except Exception as exc:  # noqa: BLE001 — never fail the run on the optional path
                   detail = exc.read().decode()[:300] if isinstance(exc, urllib.error.HTTPError) else exc
                   print(f"gitea bridge: FAILED ({type(exc).__name__}: {detail}) — "
                         "edge SSO + password login still apply", flush=True)
+
+              # ── Single sign-on means one sign-in, so hide the password form ──
+              #
+              # Reaching Plane already required a Keycloak session at the edge
+              # proxy. Showing an email/password box after that reads as "log in
+              # again" and invites people to create a SECOND, local identity that
+              # Keycloak knows nothing about — the opposite of single sign-on.
+              # With the bridge up, "Continue with Gitea" is a real Keycloak
+              # login, so it should be the only thing on the page.
+              #
+              # Strictly conditional on the bridge: if Gitea is unreachable this
+              # stays on, because an instance with no enabled method shows "No
+              # authentication methods available" and locks everyone out.
+              #
+              # The god-mode instance admin is unaffected. That sign-in posts to
+              # /api/instances/admins/sign-in/, which authenticates InstanceAdmin
+              # rows directly; ENABLE_EMAIL_PASSWORD governs the WORKSPACE
+              # sign-in page only. `adhar get secrets -p plane` still prints the
+              # admin credentials, and they still work at /god-mode/.
+              if gitea_ready:
+                  cfg("ENABLE_EMAIL_PASSWORD", "0", "AUTHENTICATION")
+                  print("auth: email/password disabled — Gitea (Keycloak) is the only method", flush=True)
+              else:
+                  print("auth: keeping email/password — the Gitea bridge is not available", flush=True)
 
               # ── 3. platform workspace + console API key ──────────────────────
               slug = os.environ["WORKSPACE_SLUG"]

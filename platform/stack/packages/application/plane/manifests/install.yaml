@@ -397,7 +397,7 @@ spec:
       containers:
       - name: plane-admin
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-admin:v1.4.1
+        image: artifacts.plane.so/makeplane/plane-admin:v1.4.2
         stdin: true
         tty: true
         resources:
@@ -443,7 +443,7 @@ spec:
       containers:
       - name: plane-api
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
+        image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
         stdin: true
         tty: true
         resources:
@@ -510,7 +510,7 @@ spec:
       containers:
       - name: plane-beat-worker
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
+        image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
         stdin: true
         tty: true
         resources:
@@ -568,7 +568,7 @@ spec:
       containers:
       - name: plane-live
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-live:v1.4.1
+        image: artifacts.plane.so/makeplane/plane-live:v1.4.2
         stdin: true
         tty: true
         resources:
@@ -621,7 +621,7 @@ spec:
       containers:
       - name: plane-space
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-space:v1.4.1
+        image: artifacts.plane.so/makeplane/plane-space:v1.4.2
         stdin: true
         tty: true
         resources:
@@ -667,7 +667,7 @@ spec:
       containers:
       - name: plane-web
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-frontend:v1.4.1
+        image: artifacts.plane.so/makeplane/plane-frontend:v1.4.2
         stdin: true
         tty: true
         resources:
@@ -713,7 +713,7 @@ spec:
       containers:
       - name: plane-worker
         imagePullPolicy: Always
-        image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
+        image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
         stdin: true
         tty: true
         resources:
@@ -1008,7 +1008,7 @@ spec:
     spec:
       containers:
       - name: plane-api-migrate
-        image: artifacts.plane.so/makeplane/plane-backend:v1.4.1
+        image: artifacts.plane.so/makeplane/plane-backend:v1.4.2
         command: 
           - ./bin/docker-entrypoint-migrator.sh
         imagePullPolicy: Always
