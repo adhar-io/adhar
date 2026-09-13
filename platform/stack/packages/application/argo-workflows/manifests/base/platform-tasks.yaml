@@ -1,0 +1,507 @@
+# Platform tasks — the platform's own operational chores, as Argo Workflows.
+#
+# Adhar's defaults put each concern with one tool: **CI is Tekton**, **CD is
+# Argo CD**, and **Workflow is Argo Workflows**. Operational tasks are workflow
+# work, so they live here rather than as Tekton Pipelines or hand-run kubectl.
+#
+# Everything below is a `WorkflowTemplate`, so it shows up in the console's
+# Workflows view and in the Argo Workflows UI as something an operator can run
+# on demand with `Submit`. The ones worth running unattended also have a
+# `CronWorkflow`.
+#
+# Least privilege: these run as `platform-tasks`, which is **read-only across
+# the cluster** plus exactly two narrow writes — annotating Argo CD Applications
+# to request a refresh, and creating Events. Nothing here deletes a Kubernetes
+# object.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: platform-tasks
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/part-of: adhar-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-platform-tasks
+  labels:
+    app.kubernetes.io/part-of: adhar-platform
+rules:
+  # Read the whole cluster: the reports below summarise nodes, pods, PVCs,
+  # workloads and Argo CD state. Read-only, so a compromised task leaks nothing
+  # it could not already read through the console.
+  - apiGroups: ['']
+    resources: [nodes, pods, persistentvolumeclaims, persistentvolumes, namespaces, events, services]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [volumeattachments, storageclasses, csinodes]
+    verbs: [get, list, watch]
+  - apiGroups: [argoproj.io]
+    resources: [applications, appprojects, applicationsets]
+    verbs: [get, list, watch]
+  # The one write: `argocd-refresh-all` sets the refresh annotation. Argo CD
+  # treats that as "re-read git and recompute status" — it does not sync, so it
+  # cannot change a workload.
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [patch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes, pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-platform-tasks
+  labels:
+    app.kubernetes.io/part-of: adhar-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-platform-tasks
+subjects:
+  - kind: ServiceAccount
+    name: platform-tasks
+    namespace: adhar-system
+---
+# ─────────────────────────── read-only reports ───────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: cluster-health-report
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: reports
+  annotations:
+    workflows.argoproj.io/title: Cluster health report
+    workflows.argoproj.io/description: >-
+      Nodes, pods that are not Running, and Argo CD applications that are not
+      Synced+Healthy — the three questions asked first when the platform looks
+      wrong.
+spec:
+  serviceAccountName: platform-tasks
+  entrypoint: report
+  ttlStrategy: { secondsAfterCompletion: 86400 }
+  templates:
+    - name: report
+      container:
+        image: docker.io/alpine/k8s:1.31.0
+        command: [/bin/sh, -c]
+        args:
+          - |
+            set -eu
+            echo "═══ Nodes ═══"
+            kubectl get nodes -o wide
+            echo
+            echo "═══ Not-Running pods ═══"
+            kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded \
+              -o wide 2>/dev/null | head -60 || echo "  (none)"
+            echo
+            echo "═══ Restart hot-spots (top 15) ═══"
+            kubectl get pods -A -o json \
+              | jq -r '.items[] | . as $p
+                       | (.status.containerStatuses // [])
+                       | map(.restartCount) | add // 0
+                       | select(. > 0)
+                       | "\(.)\t\($p.metadata.namespace)/\($p.metadata.name)"' \
+              | sort -rn | head -15 || true
+            echo
+            echo "═══ Argo CD applications that are not Synced+Healthy ═══"
+            kubectl get applications.argoproj.io -A -o json \
+              | jq -r '.items[]
+                       | select((.status.sync.status // "Unknown") != "Synced"
+                             or (.status.health.status // "Unknown") != "Healthy")
+                       | "\(.metadata.namespace)/\(.metadata.name)\t\(.status.sync.status // "?")\t\(.status.health.status // "?")"' \
+              | sort | head -60 || echo "  (all healthy)"
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 512Mi }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: storage-capacity-report
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: reports
+  annotations:
+    workflows.argoproj.io/title: Storage capacity report
+    workflows.argoproj.io/description: >-
+      PVCs, bound volumes, and per-node volume-attachment counts against the CSI
+      driver's advertised limit. Written after an outage where a node hit the
+      cloud provider's per-instance attachment cap and databases silently
+      stopped scheduling.
+spec:
+  serviceAccountName: platform-tasks
+  entrypoint: report
+  ttlStrategy: { secondsAfterCompletion: 86400 }
+  templates:
+    - name: report
+      container:
+        image: docker.io/alpine/k8s:1.31.0
+        command: [/bin/sh, -c]
+        args:
+          - |
+            set -eu
+            echo "═══ PVCs by phase ═══"
+            kubectl get pvc -A -o json \
+              | jq -r '.items[] | "\(.status.phase)"' | sort | uniq -c
+            echo
+            echo "═══ Pending PVCs (nothing can start without these) ═══"
+            kubectl get pvc -A --field-selector=status.phase=Pending 2>/dev/null | head -20 \
+              || echo "  (none)"
+            echo
+            echo "═══ Volume attachments per node vs the CSI limit ═══"
+            # The limit each CSI driver advertises to the scheduler. When a node
+            # sits at its limit, pods with new PVCs will not schedule there —
+            # and when the advertised limit is LOWER than the provider's real
+            # one, the scheduler crowds everything onto whichever node still
+            # looks free until the provider starts refusing attachments.
+            kubectl get csinodes -o json \
+              | jq -r '.items[] | .metadata.name as $n
+                       | (.spec.drivers // [])[]
+                       | "\($n)\t\(.name)\tlimit=\(.allocatable.count // "unset")"'
+            echo
+            kubectl get volumeattachments -o json \
+              | jq -r '.items[] | select(.status.attached == true) | .spec.nodeName' \
+              | sort | uniq -c | sort -rn \
+              | awk '{printf "  attached=%-4s %s\n", $1, $2}'
+            echo
+            echo "═══ Largest PVCs ═══"
+            kubectl get pvc -A -o json \
+              | jq -r '.items[] | "\(.spec.resources.requests.storage)\t\(.metadata.namespace)/\(.metadata.name)"' \
+              | sort -rh | head -15
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 512Mi }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: image-inventory
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: reports
+  annotations:
+    workflows.argoproj.io/title: Running image inventory
+    workflows.argoproj.io/description: >-
+      Every distinct container image running in the cluster, with how many pods
+      use it and whether it is pinned by digest or floating on a tag.
+spec:
+  serviceAccountName: platform-tasks
+  entrypoint: report
+  ttlStrategy: { secondsAfterCompletion: 86400 }
+  templates:
+    - name: report
+      container:
+        image: docker.io/alpine/k8s:1.31.0
+        command: [/bin/sh, -c]
+        args:
+          - |
+            set -eu
+            kubectl get pods -A -o json > /tmp/pods.json
+            echo "═══ Images by pod count ═══"
+            jq -r '.items[] | (.spec.containers + (.spec.initContainers // []))[] | .image' /tmp/pods.json \
+              | sort | uniq -c | sort -rn | head -60
+            echo
+            echo "═══ Floating tags (not pinned by digest) ═══"
+            jq -r '.items[] | (.spec.containers + (.spec.initContainers // []))[] | .image' /tmp/pods.json \
+              | grep -v '@sha256:' | sort -u | head -40
+            echo
+            echo "═══ :latest — unreproducible by definition ═══"
+            jq -r '.items[] | (.spec.containers + (.spec.initContainers // []))[] | .image' /tmp/pods.json \
+              | grep -E ':latest$' | sort | uniq -c | sort -rn || echo "  (none)"
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 512Mi }
+---
+# ─────────────────────────── GitOps housekeeping ───────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: argocd-refresh-all
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: gitops
+  annotations:
+    workflows.argoproj.io/title: Refresh all Argo CD applications
+    workflows.argoproj.io/description: >-
+      Asks every Argo CD application to re-read git and recompute its status,
+      then reports what is drifted. Refresh only — this never syncs, so it
+      cannot change a running workload.
+spec:
+  serviceAccountName: platform-tasks
+  entrypoint: refresh
+  ttlStrategy: { secondsAfterCompletion: 86400 }
+  templates:
+    - name: refresh
+      container:
+        image: docker.io/alpine/k8s:1.31.0
+        command: [/bin/sh, -c]
+        args:
+          - |
+            set -eu
+            NS=${ARGOCD_NAMESPACE:-adhar-system}
+            echo "Requesting refresh for every application in ${NS}…"
+            for app in $(kubectl get applications.argoproj.io -n "${NS}" -o name); do
+              kubectl annotate "${app}" -n "${NS}" \
+                argocd.argoproj.io/refresh=normal --overwrite >/dev/null
+            done
+            echo "waiting 45s for the controller to work through them"
+            sleep 45
+            echo
+            echo "═══ Drifted after refresh ═══"
+            kubectl get applications.argoproj.io -n "${NS}" -o json \
+              | jq -r '.items[]
+                       | select((.status.sync.status // "Unknown") != "Synced")
+                       | "\(.metadata.name)\t\(.status.sync.status // "?")\t\(.status.health.status // "?")"' \
+              | sort || echo "  (everything synced)"
+        env:
+          - name: ARGOCD_NAMESPACE
+            value: adhar-system
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 512Mi }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: tenant-orphan-report
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: gitops
+  annotations:
+    workflows.argoproj.io/title: Orphaned tenant resources
+    workflows.argoproj.io/description: >-
+      Tenant namespaces and Argo CD AppProjects that no longer pair up — the
+      residue of half-finished onboarding. Reports only; deleting a tenant's
+      namespace is never something a scheduled job should decide.
+spec:
+  serviceAccountName: platform-tasks
+  entrypoint: report
+  ttlStrategy: { secondsAfterCompletion: 86400 }
+  templates:
+    - name: report
+      container:
+        image: docker.io/alpine/k8s:1.31.0
+        command: [/bin/sh, -c]
+        args:
+          - |
+            set -eu
+            NS=${ARGOCD_NAMESPACE:-adhar-system}
+            kubectl get ns -l adhar.io/tenant -o json \
+              | jq -r '.items[] | .metadata.labels["adhar.io/tenant"]' | sort -u > /tmp/tenant-ns
+            kubectl get appprojects.argoproj.io -n "${NS}" -o json \
+              | jq -r '.items[] | select(.metadata.labels["adhar.io/tenant"] != null)
+                       | .metadata.labels["adhar.io/tenant"]' | sort -u > /tmp/tenant-proj
+
+            echo "═══ Tenants ═══"
+            echo "  namespaces:   $(wc -l < /tmp/tenant-ns | tr -d ' ')"
+            echo "  appprojects:  $(wc -l < /tmp/tenant-proj | tr -d ' ')"
+            echo
+            echo "═══ Namespace but no AppProject (cannot deploy) ═══"
+            comm -23 /tmp/tenant-ns /tmp/tenant-proj | sed 's/^/  /' || true
+            echo
+            echo "═══ AppProject but no namespace (nothing to deploy into) ═══"
+            comm -13 /tmp/tenant-ns /tmp/tenant-proj | sed 's/^/  /' || true
+            echo
+            echo "═══ Tenant namespaces with no workloads ═══"
+            for t in $(cat /tmp/tenant-ns); do
+              n=$(kubectl get pods -n "$t" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+              [ "$n" = "0" ] && echo "  $t"
+            done || true
+        env:
+          - name: ARGOCD_NAMESPACE
+            value: adhar-system
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 512Mi }
+---
+# ─────────────────────── registry & image hygiene ───────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: harbor-garbage-collect
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: registry
+  annotations:
+    workflows.argoproj.io/title: Harbor garbage collection
+    workflows.argoproj.io/description: >-
+      Reclaims disk by deleting blobs no manifest references any more. This DOES
+      delete data in the registry — untagged, unreferenced layers — which is why
+      it is a deliberate task rather than something the platform does silently.
+spec:
+  serviceAccountName: platform-tasks
+  entrypoint: gc
+  ttlStrategy: { secondsAfterCompletion: 86400 }
+  arguments:
+    parameters:
+      # Harbor keeps blobs for this long after they stop being referenced, so an
+      # in-flight push cannot lose its layers to a concurrent GC.
+      - name: untagged-retention-hours
+        value: '24'
+      - name: delete-untagged
+        value: 'true'
+  templates:
+    - name: gc
+      inputs:
+        parameters:
+          - name: untagged-retention-hours
+          - name: delete-untagged
+      container:
+        image: docker.io/alpine/k8s:1.31.0
+        command: [/bin/sh, -c]
+        args:
+          - |
+            set -eu
+            AUTH="admin:${HARBOR_PASSWORD}"
+            echo "Starting Harbor GC (delete_untagged={{inputs.parameters.delete-untagged}}, retention={{inputs.parameters.untagged-retention-hours}}h)…"
+            code=$(curl -sk -o /tmp/out -w '%{http_code}' -u "${AUTH}" \
+              -X POST "${HARBOR_URL}/api/v2.0/system/gc/schedule" \
+              -H 'content-type: application/json' \
+              -d '{"schedule":{"type":"Manual"},"parameters":{"delete_untagged":{{inputs.parameters.delete-untagged}},"untagged_retention_hours":{{inputs.parameters.untagged-retention-hours}}}}')
+            echo "  schedule -> ${code}"
+            [ "${code}" -ge 300 ] && { cat /tmp/out; exit 1; } || true
+
+            # Poll the most recent GC execution until it leaves Running.
+            for i in $(seq 1 60); do
+              sleep 10
+              curl -sk -u "${AUTH}" "${HARBOR_URL}/api/v2.0/system/gc?page_size=1&sort=-creation_time" > /tmp/gc.json || continue
+              st=$(jq -r '.[0].job_status // "unknown"' /tmp/gc.json)
+              echo "  [${i}] ${st}"
+              case "${st}" in
+                Success) jq -r '.[0].job_parameters' /tmp/gc.json; exit 0 ;;
+                Error|Stopped) jq -r '.[0]' /tmp/gc.json; exit 1 ;;
+              esac
+            done
+            echo "GC did not finish within 10 minutes; it continues server-side."
+        env:
+          - name: HARBOR_URL
+            value: http://harbor-core.adhar-system.svc.cluster.local
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: harbor-core, key: HARBOR_ADMIN_PASSWORD }
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 512Mi }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: image-scan-sweep
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: registry
+  annotations:
+    workflows.argoproj.io/title: Scan all registry images
+    workflows.argoproj.io/description: >-
+      Asks Harbor to re-scan everything it holds, then reports the projects with
+      the most criticals. Needs a scanner registered in Harbor (Trivy); the task
+      says so plainly rather than reporting a clean bill of health it cannot
+      actually vouch for.
+spec:
+  serviceAccountName: platform-tasks
+  entrypoint: scan
+  ttlStrategy: { secondsAfterCompletion: 86400 }
+  templates:
+    - name: scan
+      container:
+        image: docker.io/alpine/k8s:1.31.0
+        command: [/bin/sh, -c]
+        args:
+          - |
+            set -eu
+            AUTH="admin:${HARBOR_PASSWORD}"
+
+            # A Harbor with no scanner answers every scan request with a 412 and
+            # reports zero vulnerabilities forever, which reads exactly like
+            # "everything is fine". Fail loudly instead.
+            scanners=$(curl -sk -u "${AUTH}" "${HARBOR_URL}/api/v2.0/scanners" || echo '[]')
+            if [ "$(echo "${scanners}" | jq 'length')" = "0" ]; then
+              echo "No scanner is registered in Harbor — nothing can be scanned."
+              echo "Install the Trivy adapter and register it under Administration → Interrogation Services."
+              exit 1
+            fi
+            echo "scanners: $(echo "${scanners}" | jq -r '.[].name' | paste -sd, -)"
+
+            code=$(curl -sk -o /tmp/out -w '%{http_code}' -u "${AUTH}" \
+              -X POST "${HARBOR_URL}/api/v2.0/system/scanAll/schedule" \
+              -H 'content-type: application/json' -d '{"schedule":{"type":"Manual"}}')
+            echo "scanAll -> ${code}"
+            [ "${code}" -ge 300 ] && { cat /tmp/out; exit 1; } || true
+
+            echo "waiting 120s for scans to land…"
+            sleep 120
+            echo
+            echo "═══ Vulnerability totals by project ═══"
+            for p in $(curl -sk -u "${AUTH}" "${HARBOR_URL}/api/v2.0/projects?page_size=100" | jq -r '.[].name'); do
+              echo "  ${p}: $(curl -sk -u "${AUTH}" "${HARBOR_URL}/api/v2.0/projects/${p}/summary" \
+                | jq -c '{repos: .repo_count, charts: .chart_count}' 2>/dev/null || echo '?')"
+            done
+        env:
+          - name: HARBOR_URL
+            value: http://harbor-core.adhar-system.svc.cluster.local
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: harbor-core, key: HARBOR_ADMIN_PASSWORD }
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 512Mi }
+---
+# ───────────────────────────── schedules ─────────────────────────────
+# Only the non-destructive reports run unattended. Harbor GC deletes data and
+# scan-all is expensive, so both stay manual until an operator asks for them.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: cluster-health-report-daily
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: reports
+spec:
+  # Argo Workflows >= 3.6 takes a LIST of cron expressions here.
+  schedules:
+    - '15 6 * * *'
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    serviceAccountName: platform-tasks
+    entrypoint: run
+    ttlStrategy: { secondsAfterCompletion: 604800 }
+    templates:
+      - name: run
+        steps:
+          - - name: health
+              templateRef: { name: cluster-health-report, template: report }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: storage-capacity-report-daily
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: reports
+spec:
+  schedules:
+    - '30 6 * * *'
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    serviceAccountName: platform-tasks
+    entrypoint: run
+    ttlStrategy: { secondsAfterCompletion: 604800 }
+    templates:
+      - name: run
+        steps:
+          - - name: storage
+              templateRef: { name: storage-capacity-report, template: report }
