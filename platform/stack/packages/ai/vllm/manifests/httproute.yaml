@@ -5,11 +5,11 @@
 #     https://vllm.adhar.localtest.me:8443/v1/chat/completions
 #
 # THIS ROUTE IS A DIRECT-ACCESS PATH, NOT THE PRIMARY ONE.
-# The intended production consumer is `ai/agentgateway`, which fronts vLLM as
+# The intended production consumer is `agentgateway`, which fronts vLLM as
 # one of its LLM backends over the cluster-internal address
 #     http://vllm.adhar-system.svc.cluster.local:8000/v1
 # and is where per-team routing, rate limiting, guardrails and token accounting
-# belong. ai/adhar-ai reaches the same endpoint with provider=openai-compatible.
+# belong. adhar-ai reaches the same endpoint with provider=openai-compatible.
 # Keep both: this route is how you curl the engine when the gateway in front of
 # it is the thing you are debugging, and how a developer talks to the local CPU
 # profile without standing up the whole AI stack. What it is NOT, any more, is

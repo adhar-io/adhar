@@ -17,6 +17,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -328,11 +329,56 @@ func WaitForNodePrep(ctx context.Context, signer ssh.Signer, user, ip string, de
 	}
 }
 
+// ApplyAPIServerExtraArgs adds flags to the kube-apiserver static pod manifest.
+//
+// `kubeadm init` takes arbitrary apiserver flags only through a config file, and
+// this bootstrap deliberately drives kubeadm from the command line, so the flags
+// are inserted into /etc/kubernetes/manifests/kube-apiserver.yaml afterwards —
+// the same technique already used above for --kubelet-preferred-address-types.
+// The kubelet notices the manifest change and restarts the static pod.
+//
+// Idempotent per flag: an arg whose NAME is already present is left alone, so a
+// re-run never duplicates it and never fights an operator's manual edit. Keys
+// are sorted so a re-run produces a byte-identical manifest.
+//
+// Safety note for the OIDC case: kube-apiserver does not require the OIDC issuer
+// to be reachable at startup (the authenticator fetches and refreshes JWKS
+// lazily, with retries), which is what makes it safe to set these during
+// bootstrap even though Keycloak is installed later in the same run. A wrong or
+// permanently unreachable issuer therefore degrades OIDC logins, and does NOT
+// prevent the API server from serving certificate-authenticated clients.
+func ApplyAPIServerExtraArgs(signer ssh.Signer, user, publicIP string, args map[string]string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(args))
+	for k := range args {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	const manifest = "/etc/kubernetes/manifests/kube-apiserver.yaml"
+	for _, name := range names {
+		flag := fmt.Sprintf("--%s=%s", name, args[name])
+		// grep on the flag NAME (not the whole assignment) so an existing flag
+		// with a different value is treated as already-configured rather than
+		// added a second time — two copies of the same apiserver flag is a
+		// start-up error.
+		cmd := fmt.Sprintf(
+			"grep -q -- '--%s=' %s || sed -i 's|    - kube-apiserver|    - kube-apiserver\n    - %s|' %s",
+			name, manifest, flag, manifest)
+		if out, err := SSHRun(signer, user, publicIP, cmd, 2*time.Minute); err != nil {
+			return fmt.Errorf("failed to set apiserver flag --%s: %w (output: %s)", name, err, LastLines(out, 5))
+		}
+	}
+	return nil
+}
+
 // KubeadmInitMaster runs kubeadm init on the control-plane node (idempotent —
 // skipped when the node is already initialized) and returns the worker join
 // command. kube-proxy is skipped: the platform bootstrap installs Cilium with
 // kubeProxyReplacement.
-func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR string) (string, error) {
+func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR string, apiServerExtraArgs map[string]string) (string, error) {
 	if podCIDR == "" {
 		podCIDR = KubeadmPodCIDR
 	}
@@ -353,6 +399,10 @@ func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR str
 	addrFix := `grep -q kubelet-preferred-address-types /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|    - kube-apiserver|    - kube-apiserver\n    - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname|' /etc/kubernetes/manifests/kube-apiserver.yaml`
 	if out, err := SSHRun(signer, user, publicIP, addrFix, 2*time.Minute); err != nil {
 		return "", fmt.Errorf("failed to set apiserver kubelet address preference: %w (output: %s)", err, LastLines(out, 5))
+	}
+
+	if err := ApplyAPIServerExtraArgs(signer, user, publicIP, apiServerExtraArgs); err != nil {
+		return "", err
 	}
 
 	joinCmd, err := SSHRun(signer, user, publicIP, "kubeadm token create --print-join-command", 2*time.Minute)

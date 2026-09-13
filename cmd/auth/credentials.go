@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/spf13/cobra"
 	"net/http"
 	"net/url"
 	"os"
@@ -188,6 +189,24 @@ func (k keycloak) endSession(ctx context.Context, refreshToken string) error {
 		return fmt.Errorf("keycloak logout endpoint returned %s", resp.Status)
 	}
 	return nil
+}
+
+// sessionFor is currentSession with usage suppressed on failure.
+//
+// "not logged in" and "session expired" are ordinary states, not syntax errors,
+// but Cobra prints the whole Usage/Flags block whenever RunE returns an error —
+// so `adhar auth token` before logging in buried a one-line instruction under a
+// flag dump. Silencing usage (and Cobra's duplicate "Error:" echo) keeps the
+// remedy the only thing on screen.
+func sessionFor(cmd *cobra.Command, ctx context.Context) (*storedSession, error) {
+	s, err := currentSession(ctx)
+	if err != nil && cmd != nil {
+		// Execute() in cmd/root.go is the single place that renders an error, so
+		// Cobra must not also print it — otherwise the line appears twice.
+		cmd.SilenceUsage = true
+		cmd.SilenceErrors = true
+	}
+	return s, err
 }
 
 // currentSession returns a session with a valid access token, transparently

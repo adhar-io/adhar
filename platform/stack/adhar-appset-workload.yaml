@@ -151,7 +151,7 @@ spec:
   template:
     metadata:
       finalizers:
-        - resources-finalizer.argoproj.io
+        - resources-finalizer.argocd.argoproj.io
       labels:
         adhar.io/package-name: "{{ .packageName }}"
         adhar.io/category: "{{ .category }}"

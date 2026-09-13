@@ -99,8 +99,8 @@ spec:
           # ALL THREE OFF BY DEFAULT: vLLM is heavy and entirely optional -- a
           # ~1.8 GB image, ~1 GB of model weights and a 6Gi memory request for the
           # CPU profile (a ~10 GB image, ~15 GB of weights and a GPU for the other
-          # one). Nothing in the platform depends on it; ai/agentgateway and
-          # ai/adhar-ai simply use a hosted model until it is turned on.
+          # one). Nothing in the platform depends on it; agentgateway and
+          # adhar-ai simply use a hosted model until it is turned on.
           #
           # Locally this is the CPU profile ("vllm-cpu", Qwen2.5-0.5B-Instruct on
           # the official vllm/vllm-openai-cpu image) -- it works on a Kind node,
@@ -605,7 +605,7 @@ spec:
   template:
     metadata:
       finalizers:
-        - resources-finalizer.argoproj.io
+        - resources-finalizer.argocd.argoproj.io
       labels:
         adhar.io/package-name: "{{ .name }}"
         adhar.io/category: "{{ .category }}"

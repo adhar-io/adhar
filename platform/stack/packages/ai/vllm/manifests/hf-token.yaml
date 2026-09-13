@@ -8,7 +8,7 @@
 #
 # Git carries a pointer, never the value (ADR-0009): the token is read from the
 # platform's secrets backend through the `vault` ClusterSecretStore (OpenBao
-# in production, HashiCorp Vault otherwise), exactly as ai/adhar-ai's
+# in production, HashiCorp Vault otherwise), exactly as adhar-ai's
 # llm-secret-external.yaml reads the LLM key.
 #
 #   vault kv put secret/vllm/hf HF_TOKEN="hf_..."

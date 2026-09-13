@@ -26,6 +26,20 @@ spec:
     - {name: command, type: string, description: "e.g. 'task build', 'task test', 'lint'"}
   workspaces:
     - {name: source}
+  # Satisfy the `restricted` Pod Security profile for this Task's OWN step
+  # container — Tekton's set-security-context flag only covers the containers
+  # Tekton injects, so a step is the Task author's to secure. Without it the pod
+  # is rejected with reason=PodAdmissionFailed ("container \"step-publish\" must
+  # set securityContext.allowPrivilegeEscalation=false"), which kept
+  # adhar-libraries Degraded. Node and Deno need no privileges here: they read
+  # the workspace and write into it.
+  stepTemplate:
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      runAsUser: 1000
+      capabilities: {drop: [ALL]}
+      seccompProfile: {type: RuntimeDefault}
   steps:
     - name: deno
       # adhar-ui's deno.lock is lockfile v5, which Deno < 2.5 cannot read
@@ -63,6 +77,20 @@ spec:
     - {name: scope, type: string, description: "npm scope routed to the hosted registry, e.g. @adhar-ui"}
   workspaces:
     - {name: source}
+  # Satisfy the `restricted` Pod Security profile for this Task's OWN step
+  # container — Tekton's set-security-context flag only covers the containers
+  # Tekton injects, so a step is the Task author's to secure. Without it the pod
+  # is rejected with reason=PodAdmissionFailed ("container \"step-publish\" must
+  # set securityContext.allowPrivilegeEscalation=false"), which kept
+  # adhar-libraries Degraded. Node and Deno need no privileges here: they read
+  # the workspace and write into it.
+  stepTemplate:
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      runAsUser: 1000
+      capabilities: {drop: [ALL]}
+      seccompProfile: {type: RuntimeDefault}
   steps:
     - name: publish
       image: docker.io/library/node:20-bookworm

@@ -1,4 +1,4 @@
-# Grafana dashboard for the self-hosted vLLM inference engine (ai/vllm).
+# Grafana dashboard for the self-hosted vLLM inference engine (vllm).
 # Auto-loaded by the Grafana sidecar (grafana_dashboard label); fed by
 # servicemonitor.yaml. Datasource is variable-driven and $model is populated
 # from the model_name label vLLM puts on every one of its metrics.

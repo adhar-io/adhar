@@ -101,3 +101,45 @@ with open(path, "w") as fh:
     yaml.safe_dump_all([d for d in docs if d], fh, default_flow_style=False, sort_keys=False)
 print(f"set hook-delete-policy=HookSucceeded on {patched} hook(s) that declared none")
 PYEOF
+
+# Long-lived resources must NOT be ArgoCD hooks at all.
+#
+# The chart annotates its ServiceAccount, Role, RoleBinding, env ConfigMap,
+# secrets Secret, db Service and db StatefulSet with `helm.sh/hook: pre-install`.
+# ArgoCD reads Helm hook annotations as ITS OWN hooks, and the default delete
+# policy for a hook is before-hook-creation — so every sync first DELETES those
+# objects and waits for them to disappear:
+#
+#   Running  waiting for deletion of hook rbac.../RoleBinding/airbyte-admin-binding
+#
+# which never resolves, because the same objects are also tracked as ordinary
+# managed resources and get re-applied. Airbyte sat Degraded for 146 sync
+# attempts on exactly that line.
+#
+# Under Helm these annotations only ordered the install; under ArgoCD the
+# sync-wave ordering already does that, and these objects have to EXIST for the
+# release's lifetime rather than be recreated per sync. So drop the hook
+# annotations for everything that is not a Pod or Job (those are handled above,
+# where HookSucceeded is correct because they run to completion).
+python3 - ${INSTALL_YAML} <<'PYEOF_HOOKS'
+import sys, yaml
+
+path = sys.argv[1]
+docs = [d for d in yaml.safe_load_all(open(path)) if d]
+HOOK_KEYS = ("helm.sh/hook", "helm.sh/hook-weight", "helm.sh/hook-delete-policy")
+cleaned = []
+for d in docs:
+    ann = (d.get("metadata") or {}).get("annotations") or {}
+    if d.get("kind") not in ("Pod", "Job") and any(k in ann for k in HOOK_KEYS):
+        for k in HOOK_KEYS:
+            ann.pop(k, None)
+        if ann:
+            d["metadata"]["annotations"] = ann
+        else:
+            d["metadata"].pop("annotations", None)
+        cleaned.append(f"{d.get('kind')}/{(d.get('metadata') or {}).get('name')}")
+
+with open(path, "w") as fh:
+    yaml.safe_dump_all(docs, fh, default_flow_style=False, sort_keys=False)
+print(f"removed helm hook annotations from {len(cleaned)} long-lived resource(s): {', '.join(cleaned)}")
+PYEOF_HOOKS

@@ -33,6 +33,36 @@ const (
 	DefaultSANWildcard       = "*.adhar.localtest.me"
 	DefaultHostName          = "adhar.localtest.me"
 
+	// KeycloakRealm is the platform realm every Adhar service authenticates
+	// against, and KeycloakCLIClientID is its public, direct-grant OIDC client.
+	// Both are named in three places that MUST agree — `adhar auth` (the CLI
+	// session), the kube-apiserver's --oidc-* flags when `oidcAuth: "true"` is
+	// set on an environment, and the realm the keycloak package provisions — so
+	// they live here rather than being re-spelled per package.
+	KeycloakRealm       = "adhar"
+	KeycloakCLIClientID = "adhar-cli"
+
+	// KubernetesOIDCAudience is what kube-apiserver's --oidc-client-id must be,
+	// and it is NOT KeycloakCLIClientID. A token minted by `adhar auth` carries
+	// `azp: adhar-cli` (the client that asked for it) but `aud: [kubernetes,
+	// account]` — and the API server matches the AUDIENCE. Setting
+	// --oidc-client-id=adhar-cli makes every token fail with a bare
+	// "Unauthorized", because the audience does not contain it. The Kind config
+	// (platform/providers/kind/resources/kind.yaml.tmpl) has always used
+	// "kubernetes"; the comment in security/keycloak/manifests/k8s-rbac.yaml said
+	// "adhar-cli" and was simply wrong.
+	KubernetesOIDCAudience = "kubernetes"
+
+	// ArgoCDResourcesFinalizer is the ONLY finalizer name ArgoCD honours for
+	// cascade deletion. The `argocd.` segment is not optional: the API server
+	// accepts any finalizer string, so the shortened
+	// `resources-finalizer.argoproj.io` is stored and then never removed by
+	// anything — the Application hangs in Terminating and the resources it owns
+	// are never pruned. Four ApplicationSets and this controller all carried the
+	// short form, which is why closing a preview PR left its Application and
+	// namespace behind.
+	ArgoCDResourcesFinalizer = "resources-finalizer.argocd.argoproj.io"
+
 	// GiteaPlatformOrg is the Gitea organization owning the platform GitOps
 	// repos (packages, environments). Keycloak groups map onto its teams via
 	// the auth source's --group-team-map (gitea-oauth-config.yaml):

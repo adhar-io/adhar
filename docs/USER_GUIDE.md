@@ -100,12 +100,35 @@ adhar down -f config.yaml --env dev   # tear down a CLOUD environment
 
 ```bash
 adhar get status             # AdharPlatform conditions + per-package health
-adhar get apps               # ArgoCD application sync/health (alias of `get applications`)
+adhar get apps               # workload readiness — Deployments/StatefulSets (alias of `get applications`, `get deploy`)
 adhar get all                # comprehensive overview
 adhar get secrets [-p svc]   # credentials
 adhar get dataplanes         # workload clusters registered with the control plane
 adhar health                 # platform health checks
 ```
+
+### Scripting the CLI
+
+Every inspection command takes `-o json` or `-o yaml`, and in those modes **stdout
+carries nothing but the document** — the banner, the footer and the `INFO:`
+progress lines all go to stderr instead. So the output pipes:
+
+```bash
+adhar get status -o json | jq -r '.OverallStatus'
+adhar get apps -o json   | jq -r '.[] | select(.status | contains("Not Ready")) | .name'
+adhar get secrets -p keycloak -o json | jq -r '.[] | "\(.service)\t\(.username)"'
+```
+
+`adhar auth token` is the same idea with no flag needed: its output *is* the
+token, so it composes directly and fails cleanly (one line on stderr, empty
+stdout, exit 1) when there is no session:
+
+```bash
+TOKEN=$(adhar auth token) || { echo "run: adhar auth login <user>" >&2; exit 1; }
+curl -H "Authorization: Bearer $TOKEN" https://…
+```
+
+Redirect stderr when you want the payload alone: `adhar get status -o json 2>/dev/null`.
 
 ### Applications
 
@@ -353,7 +376,7 @@ kubectl -n adhar-system create secret generic libredb-datasource-extras \
 
 Studio re-reads its seed file on a 60-second cache, so the connections appear shortly after. Until then it logs one `Seed connection skipped` line per unresolved connection at ERROR level — expected, not a fault.
 
-The **Adhar AI RAG** connection is listed but ships no ExternalSecret on purpose: `ai/adhar-ai` is opt-in, and an ExternalSecret whose remote key is absent fails and makes ArgoCD retry the Application forever. After enabling `ai/adhar-ai`, add a `libredb-ds-adhar-ai` ExternalSecret by copying any of the shipped Postgres blocks in the package's `manifests/datasources.yaml`.
+The **Adhar AI RAG** connection is listed but ships no ExternalSecret on purpose: `adhar-ai` is opt-in, and an ExternalSecret whose remote key is absent fails and makes ArgoCD retry the Application forever. After enabling `adhar-ai`, add a `libredb-ds-adhar-ai` ExternalSecret by copying any of the shipped Postgres blocks in the package's `manifests/datasources.yaml`.
 
 ## 8. Use the AI layer
 
@@ -361,9 +384,9 @@ The AI stack is **opt-in and disabled in every profile**. Nothing in the platfor
 
 | Package | Role | Endpoint |
 | --- | --- | --- |
-| `ai/agentgateway` | The AI data plane — one proxy carrying identity, authorization, guardrails, budgets and telemetry for every LLM and MCP request | `https://ai.<host>/v1`, `https://mcp.<host>/mcp` |
-| `ai/adhar-ai` | The agent runtime and seven MCP tool servers | `https://agent.<host>` |
-| `ai/vllm` | Optional self-hosted, OpenAI-compatible inference so prompts never leave the cluster | `http://vllm.adhar-system.svc.cluster.local:8000/v1` |
+| `agentgateway` | The AI data plane — one proxy carrying identity, authorization, guardrails, budgets and telemetry for every LLM and MCP request | `https://ai.<host>/v1`, `https://mcp.<host>/mcp` |
+| `adhar-ai` | The agent runtime and seven MCP tool servers | `https://agent.<host>` |
+| `vllm` | Optional self-hosted, OpenAI-compatible inference so prompts never leave the cluster | `http://vllm.adhar-system.svc.cluster.local:8000/v1` |
 
 ### One endpoint, model-name routing
 
@@ -450,7 +473,7 @@ Other provider layouts are documented in the package: `PROVIDER=openai` + `MODEL
 
 ### Self-hosted inference (vLLM)
 
-`ai/vllm` ships as three ApplicationSet entries from one directory. **Enable `vllm` plus exactly one profile** — both Deployments are named `vllm` and share one Service, so enabling both makes two Applications fight over the same object.
+`vllm` ships as three ApplicationSet entries from one directory. **Enable `vllm` plus exactly one profile** — both Deployments are named `vllm` and share one Service, so enabling both makes two Applications fight over the same object.
 
 | Entry | Image | Model | Requests |
 | --- | --- | --- | --- |

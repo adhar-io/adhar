@@ -10,7 +10,7 @@ OpenBao is wire-compatible with Vault's HTTP API. Consequences that matter:
 
 - the External Secrets provider is still `vault:`;
 - the `ClusterSecretStore` is still **named `vault`** — every consumer
-  (`ai/adhar-ai`, `ai/vllm`, …) keeps working with no change;
+  (`adhar-ai`, `vllm`, …) keeps working with no change;
 - a compatibility `Service/vault` is published so consumers that address the
   backend by DNS name (`adhar-console`'s `VAULT_URL`,
   `credential-rotation`'s break-glass write) keep working too;

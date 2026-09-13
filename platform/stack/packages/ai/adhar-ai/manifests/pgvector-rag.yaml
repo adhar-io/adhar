@@ -42,17 +42,20 @@ spec:
       owner: adhar_ai
       # CNPG generates the app-user Secret `adhar-ai-rag-app` (consumed by the
       # runtime via envFrom, see agent-runtime.yaml).
+      #
+      # ONLY the extension is created here, deliberately. The TABLES are created
+      # and migrated by the runtime itself (`rag/store.py`), which is the one
+      # place that knows their current shape — it adds columns with
+      # `ADD COLUMN IF NOT EXISTS` as the schema evolves. A copy of the DDL here
+      # would be a second definition that silently drifts, and an initdb-created
+      # table missing a column the code requires fails every insert with no
+      # obvious cause.
+      #
+      # The extension stays here because creating one needs privileges the
+      # application user does not have; `postInitApplicationSQL` runs before
+      # those are dropped. The runtime attempts it too and ignores the failure.
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS vector;
-        - |
-          CREATE TABLE IF NOT EXISTS kb_chunk (
-            id        BIGSERIAL PRIMARY KEY,
-            source    TEXT,          -- docs/adr/0024-...md, PRODUCTION.md#5, runbook:...
-            kind      TEXT,          -- adr | doc | runbook | incident
-            chunk     TEXT,
-            embedding vector(1536)
-          );
-        - CREATE INDEX IF NOT EXISTS kb_chunk_embedding_idx ON kb_chunk USING hnsw (embedding vector_cosine_ops);
   # Scheduled base backups + WAL archiving to the platform object store, matching
   # the keycloak-db posture. RAG content is reconstructable from docs, so this is
   # convenience, not a hard dependency; WAL warns until minio is healthy.

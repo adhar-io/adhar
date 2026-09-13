@@ -13,20 +13,54 @@
 #                                RoleBindings for tenant isolation)
 #   platform-viewer    -> view
 #
-# NOTE: the built-in `edit` and `view` ClusterRoles intentionally EXCLUDE Secrets
-# (a privilege-escalation guard since k8s 1.24), so only the admin-tier groups
-# above can read Secrets. This is why a developer/viewer sees "secrets.read
-# requires elevated access" — it is expected; use an admin-tier group instead.
+# NOTE on Secrets — CHECK THIS AGAINST YOUR CLUSTER, the distinction is not what
+# an earlier revision of this comment claimed.
 #
-# Group subjects use the "oidc:" prefix — configure the API server (or your
-# managed cluster's OIDC settings) accordingly:
+# `view` does NOT grant Secrets. `edit` DOES: verified on Kubernetes v1.37,
+# where the built-in `edit` ClusterRole carries get/list/watch on secrets, so
+# **platform-developer can READ Secrets in any namespace** (it cannot write
+# them). Only `view`/platform-viewer is excluded.
+#
+# This comment previously asserted that edit and view both excluded Secrets and
+# that "only the admin-tier groups above can read Secrets" — which would lead an
+# operator to hand out platform-developer believing Secrets were out of reach.
+# If you need a developer tier that genuinely cannot read Secrets, bind a custom
+# ClusterRole rather than the built-in `edit`.
+#
+# Group subjects use the "oidc:" prefix, which the API server must be configured
+# to produce. On the kubeadm providers (AWS/Azure/GCP/DigitalOcean/Civo/custom)
+# Adhar does this for you — OPT IN per environment:
+#
+#   environments:
+#     dev:
+#       clusterConfig:
+#         - key: oidcAuth
+#           value: "true"
+#         # Optional; only needed when the platform is not on :443.
+#         # - key: oidcIssuerUrl
+#         #   value: "https://keycloak.platform.example.com:8443/realms/adhar"
+#
+# which makes `provider.KubeadmInitMaster` add these flags to the kube-apiserver
+# static pod (see provider.apiServerOIDCArgs / ApplyAPIServerExtraArgs):
 #
 #   --oidc-issuer-url=https://keycloak.<host>/realms/adhar
-#   --oidc-client-id=adhar-cli
+#   --oidc-client-id=kubernetes          # the token's AUDIENCE, not adhar-cli
 #   --oidc-username-claim=preferred_username
 #   --oidc-username-prefix=oidc:
 #   --oidc-groups-claim=groups
 #   --oidc-groups-prefix=oidc:
+#
+# --oidc-client-id is the token's `aud`, which is `kubernetes` — NOT `adhar-cli`,
+# which is only the `azp` (the client that requested the token). An earlier
+# revision of this comment said adhar-cli; with that value the API server rejects
+# every token with a bare "Unauthorized" and the bindings below never match.
+#
+# It is off by default on purpose: enabling it makes Keycloak group membership a
+# grant of Kubernetes authority (anyone in platform-admin becomes cluster-admin),
+# so it belongs to whoever runs the platform. Kind sets the same flags via
+# platform/providers/kind/resources/kind.yaml.tmpl. A MANAGED control plane
+# (DOKS/EKS/AKS/GKE) does not take apiserver flags this way — use the cloud's own
+# OIDC settings, with the same claims and prefixes.
 #
 # The prefix keeps OIDC identities from ever colliding with built-in
 # system: users/groups. kubectl can then use the CLI session directly:

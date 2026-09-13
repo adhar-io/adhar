@@ -211,7 +211,7 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 	}
 
 	fmt.Printf("🎯 Running kubeadm init on primary master %s...\n", primaryMaster.InstanceId)
-	joinCmd, err := provider.KubeadmInitMaster(signer, awsSSHUser, primaryMaster.PublicIP, primaryMaster.PrivateIP, provider.PodCIDROrDefault(spec))
+	joinCmd, err := provider.KubeadmInitMaster(signer, awsSSHUser, primaryMaster.PublicIP, primaryMaster.PrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
 	if err != nil {
 		return fmt.Errorf("failed to initialize primary master: %w", err)
 	}

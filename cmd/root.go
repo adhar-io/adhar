@@ -105,6 +105,21 @@ Built for developer productivity with enterprise-grade security and governance.`
 					}
 				}
 
+				// Machine-readable stdout gets no chrome: the banner would become
+				// part of the token / JSON document the caller is capturing.
+				//
+				// The logger has to move too. It defaults to STDOUT, so an
+				// informational line like "📊 Retrieving platform status..." was
+				// emitted ahead of the JSON document and no `adhar ... -o json`
+				// output anywhere in the CLI could be piped into `jq`. Diagnostics
+				// belong on stderr; only the payload belongs on stdout. SetOutput
+				// (rather than re-Init) keeps the level from --log-level and the
+				// configured formatter intact.
+				if helpers.IsMachineReadableOutput(cmd) {
+					noHeader = true
+					logger.GetLogger().SetOutput(os.Stderr)
+				}
+
 				if !noHeader {
 					printHeader()
 				}
@@ -124,6 +139,10 @@ Built for developer productivity with enterprise-grade security and governance.`
 				if shortFlag {
 					noFooter = true
 				}
+			}
+
+			if helpers.IsMachineReadableOutput(cmd) {
+				noFooter = true
 			}
 
 			if !noFooter {

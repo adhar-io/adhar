@@ -84,11 +84,26 @@ spec:
       script: |
         #!/bin/sh
         set -eu
+        # Skip build output — and note the `**/` patterns.
+        #
+        # `--skip-dirs target` matches only ./target, NOT <module>/target, and
+        # adhar-kit is a MULTI-MODULE Maven build. So trivy still walked
+        # adhar-kit-commons/target, where surefire creates and deletes
+        # directories while the test task runs, and died:
+        #
+        #   FATAL fs scan error: walk dir error: unknown error with
+        #   adhar-kit-commons/target/surefire: no such file or directory
+        #
+        # That is a FATAL walk error, not a finding, so `--exit-code 0` does not
+        # suppress it — the step exits 1 and fails the release. Build output has
+        # no business being scanned anyway: the artefacts that matter are scanned
+        # as images later in the chain.
+        SKIP='node_modules,**/node_modules,target,**/target,dist,**/dist,.git,**/.git'
         # Human-readable report in the log; JSON alongside for the count.
         trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 0 \
-          --skip-dirs node_modules,target,dist --format table .
+          --skip-dirs "$SKIP" --format table .
         trivy fs --scanners vuln --severity CRITICAL --exit-code 0 \
-          --skip-dirs node_modules,target,dist --format json -o /tmp/trivy.json . >/dev/null
+          --skip-dirs "$SKIP" --format json -o /tmp/trivy.json . >/dev/null
         n=$(grep -o '"Severity":"CRITICAL"' /tmp/trivy.json | wc -l | tr -d ' ')
         printf '%s' "$n" | tee "$(results.critical.path)"
         echo
@@ -111,6 +126,27 @@ spec:
     - {name: args, type: string, default: ""}
   workspaces:
     - {name: source}
+  # Satisfy the `restricted` Pod Security profile for the Task's OWN step
+  # containers. Tekton's `set-security-context: true` feature flag covers only
+  # the containers TEKTON injects (prepare, place-scripts,
+  # working-dir-initializer); a step's container is the Task author's to secure,
+  # so without this the pod is still rejected —
+  #
+  #   pods "release-adhar-kit-…-publish-pod" is forbidden: violates PodSecurity
+  #   "restricted:latest": … (container "step-mvn" must set
+  #   securityContext.allowPrivilegeEscalation=false) …
+  #
+  # which surfaced as TaskRun reason=PodAdmissionFailed on the publish task only
+  # (the other steps' images already run unprivileged) and kept adhar-libraries
+  # Degraded. Maven needs no privileges: it reads the workspace and writes its
+  # local repository there, both of which a non-root uid can do.
+  stepTemplate:
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      runAsUser: 1000
+      capabilities: {drop: [ALL]}
+      seccompProfile: {type: RuntimeDefault}
   steps:
     - name: mvn
       # adhar-kit's parent pom enforces RequireJavaVersion [25,), so the build

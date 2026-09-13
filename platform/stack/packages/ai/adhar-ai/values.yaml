@@ -10,7 +10,7 @@ plane: control-plane
 
 # LLM access. THE GATEWAY IS EXTERNAL TO THIS PACKAGE (ADR-0025): the bespoke
 # adhar-ai-llm-gateway Deployment is gone and the AI data plane is now
-# ai/agentgateway, which this package's components call at
+# agentgateway, which this package's components call at
 #
 #   http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1
 #
@@ -22,14 +22,14 @@ plane: control-plane
 # The ONE secret (Vault: secret/adhar-ai/llm) still drives credentials; leave it
 # unset and the platform runs unaffected/unkeyed. Token/rate BUDGETS moved with
 # the gateway: they are the `conditional` local rate limits in
-# ai/agentgateway/manifests/guardrails.yaml, keyed on the caller's Keycloak
+# agentgateway/manifests/guardrails.yaml, keyed on the caller's Keycloak
 # group. The numbers below are recorded here only as the values that were
 # carried over, and changing them here changes nothing.
 llm:
-  gateway: external           # ai/agentgateway (ADR-0025); this package ships none
+  gateway: external           # agentgateway (ADR-0025); this package ships none
   gatewayUrl: http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1
   defaultModel: claude-opus-4-5-20251101   # latest Claude by default
-  budgets:                    # enforced in ai/agentgateway, not here
+  budgets:                    # enforced in agentgateway, not here
     perUserDailyTokens: 2000000
     perOpMaxToolCalls: 40
     perOpMaxTokens: 400000
@@ -64,7 +64,7 @@ rag:
 
 # Outward surface (Gateway + OIDC). This package publishes ONE hostname: the
 # agent runtime. `ai.<host>` (completions) and `mcp.<host>` (federated tools)
-# belong to ai/agentgateway now — see manifests/httproute.yaml for why the
+# belong to agentgateway now — see manifests/httproute.yaml for why the
 # runtime moved off them.
 ingress:
   hostnames:

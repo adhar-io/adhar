@@ -1,6 +1,6 @@
 # ADR-0024: Agentic AI platform — MCP-native tools and a GitOps-safe agent runtime
 
-**Status**: Accepted (control-plane package `ai/adhar-ai` scaffolded — MCP servers, LLM gateway, agent runtime, pgvector RAG, OIDC, guardrails — opt-in/disabled by default; runtime container images and live enablement are Roadmap Phase 3) · **Date**: 2026-08
+**Status**: Accepted (control-plane package `adhar-ai` scaffolded — MCP servers, LLM gateway, agent runtime, pgvector RAG, OIDC, guardrails — opt-in/disabled by default; runtime container images and live enablement are Roadmap Phase 3) · **Date**: 2026-08
 
 ## Context
 

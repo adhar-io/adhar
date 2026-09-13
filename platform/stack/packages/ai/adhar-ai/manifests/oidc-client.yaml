@@ -5,7 +5,7 @@
 # is WHO checks its tokens:
 #
 #   * ai.<host> (completions) and mcp.<host> (federated tools) are validated ONCE
-#     by ai/agentgateway, whose CEL authorization reads the `groups` claim the
+#     by agentgateway, whose CEL authorization reads the `groups` claim the
 #     mapper below emits (read tools -> platform-developer, PR-opening tools ->
 #     platform-admin). The seven MCP Deployments no longer set OIDC_ISSUER_URL /
 #     OIDC_CLIENT_ID at all.
@@ -38,7 +38,7 @@ data:
       "protocol": "openid-connect",
       "clientId": "adhar-ai",
       "name": "Adhar AI",
-      "description": "Adhar AI OIDC client: gates the agent runtime /chat and, through ai/agentgateway, the ai.<host> completions and mcp.<host> federated-tool endpoints; tokens carry groups for gateway authorization, RBAC-scoped reads and PR authorship",
+      "description": "Adhar AI OIDC client: gates the agent runtime /chat and, through agentgateway, the ai.<host> completions and mcp.<host> federated-tool endpoints; tokens carry groups for gateway authorization, RBAC-scoped reads and PR authorship",
       "publicClient": false,
       "authorizationServicesEnabled": false,
       "serviceAccountsEnabled": true,

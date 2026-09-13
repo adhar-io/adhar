@@ -478,6 +478,7 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 	spec.Domain = buildDomainConfig(envConfig)
 
 	// Apply cluster-specific configuration
+	oidcAuth := false
 	for _, kv := range envConfig.ResolvedClusterConfig {
 		switch kv.Key {
 		case "kubeVersion", "version":
@@ -505,6 +506,34 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 		case "diskSize":
 			// Note: DiskSize not available in current NodeGroupSpec
 			// This could be added to the spec if needed in the future
+		case "oidcAuth", "oidcAuthentication", "kubeOIDC":
+			// Opt-in: point the kube-apiserver at the platform's own Keycloak so
+			// `adhar auth login` yields a token kubectl can use. OFF by default —
+			// see apiServerOIDCArgs for why this is a deliberate choice and not a
+			// sensible default.
+			if strings.EqualFold(strings.TrimSpace(kv.Value), "true") {
+				oidcAuth = true
+			}
+		}
+	}
+
+	if oidcAuth {
+		host := ""
+		if spec.Domain != nil {
+			host = spec.Domain.BaseDomain
+		}
+		if spec.ControlPlane.APIServer.ExtraArgs == nil {
+			spec.ControlPlane.APIServer.ExtraArgs = map[string]string{}
+		}
+		if issuer := clusterConfigString(envConfig, "oidcIssuerUrl", "oidcIssuer"); issuer != "" {
+			spec.ControlPlane.APIServer.ExtraArgs["oidc-issuer-url"] = issuer
+		}
+		for k, v := range apiServerOIDCArgs(host) {
+			// An explicit extraArgs entry always wins, so an operator can pin a
+			// different issuer or claim without editing this code.
+			if _, ok := spec.ControlPlane.APIServer.ExtraArgs[k]; !ok {
+				spec.ControlPlane.APIServer.ExtraArgs[k] = v
+			}
 		}
 	}
 
@@ -566,6 +595,62 @@ func buildCredentials(envConfig *config.ResolvedEnvironmentConfig) *types.Creden
 	}
 
 	return credentials
+}
+
+// apiServerOIDCArgs returns the kube-apiserver flags that let the platform's own
+// Keycloak authenticate kubectl, matching the `oidc:`-prefixed Group subjects in
+// the ClusterRoleBindings that security/keycloak ships (platform-admin ->
+// cluster-admin, platform-developer -> edit, platform-viewer -> view).
+//
+// WHY THIS IS OPT-IN AND NOT THE DEFAULT. Turning it on means membership of a
+// Keycloak group grants Kubernetes authority — anyone in `platform-admin`
+// becomes cluster-admin — so it changes who can administer the cluster, and it
+// makes the realm a part of the cluster's trust boundary. That is a decision for
+// whoever runs the platform, not a default. It is also not universally
+// applicable: managed control planes (DOKS, EKS, AKS, GKE) do not accept
+// apiserver flags this way and need their provider's own OIDC settings.
+//
+// Enable with `oidcAuth: "true"` in the environment's clusterConfig.
+//
+// The username/group PREFIXES matter: without `oidc:` an OIDC identity could
+// collide with a built-in `system:` user or group, which is why the shipped
+// bindings expect it.
+func apiServerOIDCArgs(baseDomain string) map[string]string {
+	if baseDomain == "" {
+		return nil
+	}
+	// The portless HTTPS form, because this path is the kubeadm/cloud one, where
+	// the platform is published on 443 through a load balancer. A platform served
+	// on a non-standard port (a Kind-style :8443) must state the issuer itself —
+	// `oidcIssuerUrl` in clusterConfig, applied before this and left untouched
+	// below — rather than have a port guessed here from settings that the
+	// resolved environment does not carry.
+	return map[string]string{
+		"oidc-issuer-url": fmt.Sprintf("https://keycloak.%s/realms/%s", baseDomain, globals.KeycloakRealm),
+		// The token's AUDIENCE, not the CLI client id that requested it — see
+		// globals.KubernetesOIDCAudience. Using adhar-cli here rejects every token.
+		"oidc-client-id":       globals.KubernetesOIDCAudience,
+		"oidc-username-claim":  "preferred_username",
+		"oidc-username-prefix": "oidc:",
+		"oidc-groups-claim":    "groups",
+		"oidc-groups-prefix":   "oidc:",
+	}
+}
+
+// clusterConfigString returns the first non-empty value among keys from the
+// environment's resolved clusterConfig.
+func clusterConfigString(envConfig *config.ResolvedEnvironmentConfig, keys ...string) string {
+	if envConfig == nil {
+		return ""
+	}
+	for _, want := range keys {
+		for _, kv := range envConfig.ResolvedClusterConfig {
+			if kv.Key == want && strings.TrimSpace(kv.Value) != "" {
+				return strings.TrimSpace(kv.Value)
+			}
+		}
+	}
+	return ""
 }
 
 // parseIntOrDefault parses a string to int with a default fallback

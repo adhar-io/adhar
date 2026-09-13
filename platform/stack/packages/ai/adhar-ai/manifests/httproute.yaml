@@ -4,7 +4,7 @@
 # ---------------------------------------------------------------------------
 # WHY THIS ROUTE MOVED OFF ai.<host> AND mcp.<host>
 # ---------------------------------------------------------------------------
-# It used to claim BOTH of those hostnames for `adhar-ai-runtime`. ai/agentgateway
+# It used to claim BOTH of those hostnames for `adhar-ai-runtime`. agentgateway
 # now claims exactly the same two on the same Gateway (`adhar-gateway`), because
 # they are the platform's AI *protocol* endpoints and agentgateway is the thing
 # that speaks those protocols:

@@ -197,7 +197,7 @@ data:
           "id": 3,
           "type": "stat",
           "title": "Error ratio (5xx)",
-          "description": "Fraction of requests answered 5xx. A missing upstream (e.g. the optional vLLM backend with ai/vllm not installed) shows up here.",
+          "description": "Fraction of requests answered 5xx. A missing upstream (e.g. the optional vLLM backend with vllm not installed) shows up here.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"

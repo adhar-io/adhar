@@ -323,12 +323,15 @@ func buildGiteaAdminSecret(clientset *kubernetes.Clientset) *corev1.Secret {
 	}
 }
 
-// SecretEntry is a single row in the output table
+// SecretEntry is a single row in the output table.
+//
+// The json tags are the machine-readable contract for `-o json|yaml`. Icon is
+// decorative, so it is omitted rather than baked into a consumer's expectations.
 type SecretEntry struct {
-	Icon     string
-	Service  string
-	Username string
-	Password string
+	Icon     string `json:"-" yaml:"-"`
+	Service  string `json:"service" yaml:"service"`
+	Username string `json:"username" yaml:"username"`
+	Password string `json:"password" yaml:"password"`
 }
 
 // extractEntries converts a K8s secret into one or more display entries based on provider context
@@ -479,6 +482,16 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 
 // displaySecretEntries renders the entries as a clean table
 func displaySecretEntries(entries []SecretEntry, label string) error {
+	// `get secrets` was the one `get` subcommand that declared the inherited
+	// -o/--output flag and then ignored it, so `-o json` silently printed the
+	// human table. Honour it the same way status/apps/environments do.
+	switch outputFormat {
+	case "json":
+		return helpers.PrintJSON(entries)
+	case "yaml":
+		return helpers.PrintYAML(entries)
+	}
+
 	fmt.Println()
 	logger.Info(fmt.Sprintf("Found %d credential(s) for %s\n", len(entries), label))
 

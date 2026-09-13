@@ -270,7 +270,7 @@ Each concern has exactly one owning component, and all of them arrive as ordinar
 
 | Name | Why it stays `vault` |
 |---|---|
-| `ClusterSecretStore/vault` | Consumers reference the store **by name** (`ai/adhar-ai`, `ai/vllm` ExternalSecrets); renaming would wedge them in `SecretSyncedError`. The External Secrets provider type is `vault:` either way |
+| `ClusterSecretStore/vault` | Consumers reference the store **by name** (`adhar-ai`, `vllm` ExternalSecrets); renaming would wedge them in `SecretSyncedError`. The External Secrets provider type is `vault:` either way |
 | `Service/vault` | Republished by openbao's `manifests/vault-compat.yaml` for consumers that address the backend by DNS (`core/adhar-console`'s `VAULT_URL`, `security/credential-rotation`) |
 | `vault_*` Prometheus metrics | OpenBao keeps Vault's metric namespace, so the existing Grafana dashboard works unchanged |
 
@@ -349,10 +349,10 @@ Three packages in the `ai` category, all **disabled by default** and enabled tog
 flowchart LR
     cli["adhar-ai agent runtime<br/>Console · external IDE · Claude Code"]
     edge["Cilium edge (adhar-gateway)<br/>TLS, *.host wildcard"]
-    agw["ai/agentgateway<br/>GatewayClass agentgateway"]
+    agw["agentgateway<br/>GatewayClass agentgateway"]
     anth["Anthropic"]
     oai["OpenAI"]
-    vllm["ai/vllm<br/>vllm:8000"]
+    vllm["vllm<br/>vllm:8000"]
     mcp["7 adhar-ai MCP tool servers"]
     cli --> edge
     edge -- "ai.&lt;host&gt; / mcp.&lt;host&gt;" --> agw
@@ -364,19 +364,19 @@ flowchart LR
 
 | Package | What it is | Key facts |
 |---|---|---|
-| **`ai/agentgateway`** | The AI **data plane** — agentgateway v1.5.0 (Apache 2.0, Linux Foundation) ([ADR-0025](adr/0025-ai-gateway-agentgateway.md)) | One OpenAI-compatible endpoint at `ai.<host>/v1` routing **by model name**; one federated MCP endpoint at `mcp.<host>/mcp` multiplexing all seven `adhar-ai` tool servers; Keycloak JWT + CEL authorization; regex guardrails; per-group budgets; OTel spans to Tempo |
-| **`ai/vllm`** | Self-hosted OpenAI-compatible inference | CPU profile (`vllm/vllm-openai-cpu:v0.29.0` + `Qwen/Qwen2.5-0.5B-Instruct`) and GPU profile (`vllm/vllm-openai:v0.29.0` + `Qwen/Qwen2.5-7B-Instruct`) as separate ApplicationSet elements over one shared Service `vllm:8000` |
-| **`ai/adhar-ai`** | The agent layer: seven MCP tool servers, the agent runtime with staged autonomy, and a pgvector RAG store on CNPG ([ADR-0024](adr/0024-agentic-ai-platform.md)) | The **runtime lives in a separate repository, [`github.com/adhar-io/adhar-ai`](https://github.com/adhar-io/adhar-ai)** (Python, 162 tests); this package is the manifests that install its images |
+| **`agentgateway`** | The AI **data plane** — agentgateway v1.5.0 (Apache 2.0, Linux Foundation) ([ADR-0025](adr/0025-ai-gateway-agentgateway.md)) | One OpenAI-compatible endpoint at `ai.<host>/v1` routing **by model name**; one federated MCP endpoint at `mcp.<host>/mcp` multiplexing all seven `adhar-ai` tool servers; Keycloak JWT + CEL authorization; regex guardrails; per-group budgets; OTel spans to Tempo |
+| **`vllm`** | Self-hosted OpenAI-compatible inference | CPU profile (`vllm/vllm-openai-cpu:v0.29.0` + `Qwen/Qwen2.5-0.5B-Instruct`) and GPU profile (`vllm/vllm-openai:v0.29.0` + `Qwen/Qwen2.5-7B-Instruct`) as separate ApplicationSet elements over one shared Service `vllm:8000` |
+| **`adhar-ai`** | The agent layer: seven MCP tool servers, the agent runtime with staged autonomy, and a pgvector RAG store on CNPG ([ADR-0024](adr/0024-agentic-ai-platform.md)) | The **runtime lives in a separate repository, [`github.com/adhar-io/adhar-ai`](https://github.com/adhar-io/adhar-ai)** (Python, 162 tests); this package is the manifests that install its images |
 
 How the three compose:
 
-- **Model-name routing, not provider selection.** A `PreRouting` policy lifts `.model` out of the request body into an `x-model` header; ordinary Gateway API header matches then pick the backend — `claude-*` → Anthropic, `gpt-*`/`o[1-9]-*` → OpenAI, `local/*` → in-cluster vLLM. vLLM is addressed by DNS **name**, not a Service `backendRef`, so `ai/vllm` being absent degrades to a 503 on `local/*` instead of reporting the whole Application Degraded. Moving a task to a self-hosted model is a body field, not a redeployment.
+- **Model-name routing, not provider selection.** A `PreRouting` policy lifts `.model` out of the request body into an `x-model` header; ordinary Gateway API header matches then pick the backend — `claude-*` → Anthropic, `gpt-*`/`o[1-9]-*` → OpenAI, `local/*` → in-cluster vLLM. vLLM is addressed by DNS **name**, not a Service `backendRef`, so `vllm` being absent degrades to a 503 on `local/*` instead of reporting the whole Application Degraded. Moving a task to a self-hosted model is a body field, not a redeployment.
 - **Governance in one place.** One `jwtAuthentication` policy on the Gateway validates Keycloak tokens for every route, LLM and MCP alike — issuer from the public realm URL, JWKS from the **in-cluster** `keycloak:8080` Service so key retrieval works before DNS, TLS and the edge have settled. Authorization is two merged `Allow` rules over the platform's existing groups: `platform-developer` gets completions and read tools; `platform-admin` additionally gets write tools; everyone else gets nothing. "Write" still means **opens a Gitea PR** — there is no `kubectl apply` tool anywhere.
 - **Guardrails ship permissive and say so.** Regex guards **Mask** credentials in and out; PII detectors **Audit**. Budgets are `conditional` local rate limits keyed on the caller's group. Every control documents the single field that makes it enforcing. Local rate limits are per proxy replica, so they are exact only at the single replica this package provisions.
 - **It sits behind the Cilium edge and terminates no TLS.** agentgateway brings its own GatewayClass (`agentgateway`), which coexists with `adhar`; `ai.<host>` and `mcp.<host>` are ordinary platform HTTPRoutes on `adhar-gateway` whose backend is agentgateway's ClusterIP Service `adhar-ai-gateway:8080`. One certificate lifecycle, one host-port mapping, one LB per cloud.
 - **Keys stay server-side.** Provider keys come from the `adhar-ai-llm` Secret (OpenBao → ESO) and are never returned to a caller or placed in a model context.
 
-**Status, precisely**: the AI packages are built, wired into all three ApplicationSets, and disabled everywhere; they await a live enablement run ([Roadmap](ROADMAP.md) Phase 3). The `ai/adhar-ai` rewiring that [ADR-0025](adr/0025-ai-gateway-agentgateway.md) required has landed — the bespoke LLM gateway is deleted, callers point at `adhar-ai-gateway:8080/v1`, both provider keys are in the `adhar-ai-llm` template, and the runtime moved to its own hostname `agent.<host>`, so no two routes contest a hostname. Two items are deliberately still open: the MCP servers keep their per-server OIDC validation until traffic is confirmed to arrive only through the gateway, and serving MCP over StreamableHTTP at `/mcp` is a change in the `adhar-ai` repository.
+**Status, precisely**: the AI packages are built, wired into all three ApplicationSets, and disabled everywhere; they await a live enablement run ([Roadmap](ROADMAP.md) Phase 3). The `adhar-ai` rewiring that [ADR-0025](adr/0025-ai-gateway-agentgateway.md) required has landed — the bespoke LLM gateway is deleted, callers point at `adhar-ai-gateway:8080/v1`, both provider keys are in the `adhar-ai-llm` template, and the runtime moved to its own hostname `agent.<host>`, so no two routes contest a hostname. Two items are deliberately still open: the MCP servers keep their per-server OIDC validation until traffic is confirmed to arrive only through the gateway, and serving MCP over StreamableHTTP at `/mcp` is a change in the `adhar-ai` repository.
 
 ## 11. Observability
 

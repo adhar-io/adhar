@@ -1,6 +1,6 @@
 # ADR-0025: agentgateway as the platform's AI data plane
 
-**Status**: Accepted (package `ai/agentgateway` — chart v1.5.0 — wired into all three ApplicationSets, opt-in/disabled by default, enabled exactly where `adhar-ai` is enabled) · **Date**: 2026-09
+**Status**: Accepted (package `agentgateway` — chart v1.5.0 — wired into all three ApplicationSets, opt-in/disabled by default, enabled exactly where `adhar-ai` is enabled) · **Date**: 2026-09
 
 ## Context
 
@@ -38,7 +38,7 @@ Adopt **agentgateway v1.5.0** as the platform's AI data plane, as the package `p
 | LLM | `https://ai.<host>/v1/chat/completions` | OpenAI-compatible; the caller names a **model**, never a provider |
 | MCP | `https://mcp.<host>/mcp` | All seven `adhar-ai` tool servers federated into one endpoint |
 
-**2. Model-name routing across hosted and self-hosted models.** A `PreRouting` policy lifts `.model` out of the JSON body into an `x-model` header; ordinary Gateway API header matches then select a backend: `claude-*` → Anthropic, `gpt-*`/`o[1-9]-*` → OpenAI, `local/*` → the in-cluster vLLM (`ai/vllm`) at `vllm.adhar-system.svc.cluster.local:8000`. This uses only stable primitives — the native `AgentgatewayModel` API is left disabled because upstream marks it experimental. The vLLM backend is addressed by DNS **name**, not by a Service `backendRef`, so that `ai/vllm` being absent degrades to a 503 on `local/*` requests instead of a dangling reference that would report the whole Application Degraded.
+**2. Model-name routing across hosted and self-hosted models.** A `PreRouting` policy lifts `.model` out of the JSON body into an `x-model` header; ordinary Gateway API header matches then select a backend: `claude-*` → Anthropic, `gpt-*`/`o[1-9]-*` → OpenAI, `local/*` → the in-cluster vLLM (`vllm`) at `vllm.adhar-system.svc.cluster.local:8000`. This uses only stable primitives — the native `AgentgatewayModel` API is left disabled because upstream marks it experimental. The vLLM backend is addressed by DNS **name**, not by a Service `backendRef`, so that `vllm` being absent degrades to a 503 on `local/*` requests instead of a dangling reference that would report the whole Application Degraded.
 
 **3. Credentials stay where they are.** Keys come from the existing `adhar-ai-llm` Secret (Vault → ESO), read server-side by the proxy and never returned to a caller or placed in a model context. ADR-0024's "one secret turns agency on" property is preserved exactly; what changes is that the guarantee is now enforced by the data plane rather than by application code.
 
@@ -52,7 +52,7 @@ Adopt **agentgateway v1.5.0** as the platform's AI data plane, as the package `p
 
 The same groups already drive Gitea teams and Kubernetes RBAC, so AI authority and cluster authority cannot drift apart. "Write" still means **opens a Gitea PR** — ADR-0024's guarantee that no `kubectl apply` tool exists anywhere is untouched, and is now defended a second time at the gateway. The token is preserved (`preserveToken: true`) so the MCP servers can still exchange it for a short-lived RBAC-scoped Kubernetes token and run reads as the *user*.
 
-**5. Guardrails and budgets, permissive by default and explicitly so.** Regex prompt guards **Mask** credentials (AWS keys, `sk-` keys, JWTs, PEM private keys, DB connection strings) on the way in and on the way out, and **Audit** built-in PII detectors. Per-consumer-class request and token budgets are enforced with `conditional` local rate limits keyed on the caller's group, carrying forward the numbers already in `ai/adhar-ai`'s `values.yaml` so nobody's budget silently changes. Everything ships non-blocking for the same reason ADR-0024's Kyverno guardrail ships as `Audit`: a platform that starts by breaking requests gets switched off. Each control documents the single field to change to make it enforcing.
+**5. Guardrails and budgets, permissive by default and explicitly so.** Regex prompt guards **Mask** credentials (AWS keys, `sk-` keys, JWTs, PEM private keys, DB connection strings) on the way in and on the way out, and **Audit** built-in PII detectors. Per-consumer-class request and token budgets are enforced with `conditional` local rate limits keyed on the caller's group, carrying forward the numbers already in `adhar-ai`'s `values.yaml` so nobody's budget silently changes. Everything ships non-blocking for the same reason ADR-0024's Kyverno guardrail ships as `Audit`: a platform that starts by breaking requests gets switched off. Each control documents the single field to change to make it enforcing.
 
 **6. Observability for free.** OTel spans go to the platform Tempo (`tempo.adhar-system.svc.cluster.local:4317`) carrying OTel GenAI semantic-convention attributes (`gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.cost_usd`, plus `mcp.tool.name` / `mcp.tool.target`). Data-plane metrics are scraped by a `PodMonitor` and surfaced in a dedicated Grafana dashboard: request rate and latency, tokens in/out per model and provider, realized USD spend, guardrail hits, and MCP tool calls and errors. None of this is built; all of it is configured.
 
@@ -60,15 +60,15 @@ The same groups already drive Gitea teams and Kubernetes RBAC, so AI authority a
 
 **8. Opt-in, exactly as wide as `adhar-ai`.** Wired into all three ApplicationSets and both environment configs with `enabled: "false"`, matching `adhar-ai` flag for flag. AI remains something an operator turns on.
 
-## Required changes in `ai/adhar-ai`
+## Required changes in `adhar-ai`
 
-This ADR does **not** modify `ai/adhar-ai`; that rewiring is a separate change. It requires exactly the following:
+This ADR does **not** modify `adhar-ai`; that rewiring is a separate change. It requires exactly the following:
 
-1. **Delete `manifests/llm-gateway.yaml`.** The `adhar-ai-llm-gateway` Deployment and Service are superseded. The budget environment variables it carried are now the `conditional` rate limits in `ai/agentgateway/manifests/guardrails.yaml`.
+1. **Delete `manifests/llm-gateway.yaml`.** The `adhar-ai-llm-gateway` Deployment and Service are superseded. The budget environment variables it carried are now the `conditional` rate limits in `agentgateway/manifests/guardrails.yaml`.
 2. **Repoint `LLM_GATEWAY_URL` in all seven MCP Deployments** (`manifests/mcp-servers.yaml`) and in the agent runtime (`manifests/agent-runtime.yaml`) from `http://adhar-ai-llm-gateway.adhar-system.svc.cluster.local:8080` to `http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1`. Callers must then send an OpenAI-shaped body naming a model (`claude-*`, `gpt-*`, `local/*`) rather than relying on a server-side provider selection.
-3. **Narrow `manifests/httproute.yaml`.** It currently claims both `ai.<host>` and `mcp.<host>` for `adhar-ai-runtime`; `ai/agentgateway` claims the same two hostnames on the same Gateway. Two HTTPRoutes claiming one hostname is resolved by creation timestamp, which is not a configuration. The runtime's route must drop both hostnames and move to a path under a hostname it owns (e.g. `adhar.<host>/ai/*`), or be dropped entirely if the Console proxies to the runtime Service directly.
+3. **Narrow `manifests/httproute.yaml`.** It currently claims both `ai.<host>` and `mcp.<host>` for `adhar-ai-runtime`; `agentgateway` claims the same two hostnames on the same Gateway. Two HTTPRoutes claiming one hostname is resolved by creation timestamp, which is not a configuration. The runtime's route must drop both hostnames and move to a path under a hostname it owns (e.g. `adhar.<host>/ai/*`), or be dropped entirely if the Console proxies to the runtime Service directly.
 4. **Add two keys to the `adhar-ai-llm` ExternalSecret template** (`manifests/llm-secret-external.yaml`): `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, so both hosted providers can be keyed at once. Today's single `API_KEY` is what the Anthropic backend reads, so the default `PROVIDER=claude` posture works unchanged; OpenAI stays unkeyed until this lands and only `gpt-*` requests are affected.
-5. **Serve MCP over StreamableHTTP at `/mcp` on port 8080** in the seven `adhar-ai-mcp-*` images. `ai/agentgateway/manifests/mcp-federation.yaml` federates them at that path; if the images ship SSE instead, the fix is one `protocol: SSE` field per target in that file and no client reconfiguration.
+5. **Serve MCP over StreamableHTTP at `/mcp` on port 8080** in the seven `adhar-ai-mcp-*` images. `agentgateway/manifests/mcp-federation.yaml` federates them at that path; if the images ship SSE instead, the fix is one `protocol: SSE` field per target in that file and no client reconfiguration.
 6. **Drop per-server OIDC validation** (`OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` on the MCP Deployments) once traffic is confirmed to arrive only through the gateway, and keep only the token *exchange* used for RBAC-scoped reads. Keep the Keycloak `adhar-ai` client: it remains the client users authenticate against, and its `groups` mapper is what the gateway's authorization rules read.
 7. **Update `README.md` and `values.yaml`** to describe the LLM gateway as external, and to drop `images.gateway`.
 
@@ -82,6 +82,6 @@ This ADR does **not** modify `ai/adhar-ai`; that rewiring is a separate change. 
 - ✅ Apache 2.0, vendor-neutral foundation governance, no phone-home — consistent with ARCHITECTURE.md §1
 - ⚠️ A new upstream dependency on the critical path of every AI request. Mitigated by: opt-in and disabled by default; pinned chart and image (`v1.5.0`, never a floating tag); no other package depends on it; and the platform runs entirely unaffected when it is off
 - ⚠️ A second GatewayClass in the cluster. Deliberate and documented, but an operator now has two `GatewayClass` objects to reason about, and a Gateway created with the wrong `gatewayClassName` silently goes to the wrong controller
-- ⚠️ A coordinated change with `ai/adhar-ai` (above). Until it lands the two packages claim the same two hostnames and one route reports a conflict condition
+- ⚠️ A coordinated change with `adhar-ai` (above). Until it lands the two packages claim the same two hostnames and one route reports a conflict condition
 - ⚠️ Local rate limits are per proxy replica, so they multiply with replica count. Exact with the single replica this package provisions; true per-identity budgets need `rateLimit.global` and an external rate-limit service the platform does not yet run
 - ⚠️ Response masking does not apply to **streamed** responses upstream, so the request-side guard is the primary control and the response guard is defence in depth for non-streaming callers

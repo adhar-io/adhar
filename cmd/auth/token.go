@@ -41,7 +41,11 @@ Examples:
   adhar auth token
   adhar auth token --user admin --insecure
   adhar auth token --client-id my-svc --client-secret xxxx`,
-		RunE: runToken,
+		// The default output IS a bearer token, so the CLI header/footer must not
+		// be printed around it — otherwise `$(adhar auth token)` captures the
+		// banner and the footer along with the credential.
+		Annotations: map[string]string{helpers.AnnotationPlainOutput: "true"},
+		RunE:        runToken,
 	}
 
 	// Token specific flags
@@ -85,7 +89,7 @@ func runDecodeToken(cmd *cobra.Command, args []string) error {
 	if len(args) == 1 {
 		raw = args[0]
 	} else {
-		s, err := currentSession(ctx)
+		s, err := sessionFor(cmd, ctx)
 		if err != nil {
 			return err
 		}
@@ -131,7 +135,7 @@ func runToken(cmd *cobra.Command, args []string) error {
 	// Default path: the logged-in session, refreshed as needed. Raw token on
 	// stdout so it composes with curl/kubectl.
 	if tokenUser == "" && kcClientSecret == "" {
-		s, err := currentSession(ctx)
+		s, err := sessionFor(cmd, ctx)
 		if err != nil {
 			return err
 		}

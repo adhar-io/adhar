@@ -399,7 +399,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 	if err := enableExternalCloudProvider(signer, masterIP, masterPrivateIP); err != nil {
 		return nil, fmt.Errorf("failed to enable external cloud provider on master: %w", err)
 	}
-	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, masterIP, masterPrivateIP, provider.PodCIDROrDefault(spec))
+	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, masterIP, masterPrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
 	if err != nil {
 		return nil, err
 	}

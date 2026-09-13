@@ -227,7 +227,7 @@ spec:
 ---
 # adhar-ai-rag (pgvector) is deliberately NOT wired here.
 #
-# `ai/adhar-ai` is opt-in and disabled by default, so its CNPG cluster — and
+# `adhar-ai` is opt-in and disabled by default, so its CNPG cluster — and
 # therefore the `adhar-ai-rag-app` Secret this would read — does not exist on a
 # default install. External Secrets fails an ExternalSecret whose remote key is
 # absent ("could not get secret data from provider"), and ArgoCD then retries
@@ -237,6 +237,6 @@ spec:
 # sync. A datasource must never be able to put the package into a permanent
 # retry loop over something that is switched off.
 #
-# To add it after enabling `ai/adhar-ai`, copy the pattern of any Postgres
+# To add it after enabling `adhar-ai`, copy the pattern of any Postgres
 # block above (the README has the one-command recipe) — the seed document
 # already tolerates a connection whose env vars are unset.

@@ -1,10 +1,10 @@
-# vLLM — package values (ai/vllm).
+# vLLM — package values (vllm).
 #
 # This package ships PLAIN MANIFESTS, not a Helm chart, so this file is the
 # documented knob surface rather than chart input: every value below names the
 # exact file and field that carries it. Change the manifest, commit, let ArgoCD
 # reconcile — editing this file alone changes nothing (the same convention
-# ai/adhar-ai/values.yaml follows).
+# adhar-ai/values.yaml follows).
 #
 # ---------------------------------------------------------------------------
 # WHY NOT THE UPSTREAM HELM CHART
@@ -37,11 +37,11 @@
 # The package is wired into the ApplicationSets as THREE elements because the
 # GPU/CPU difference cannot be expressed in a plain manifest directory:
 #
-#   vllm       -> ai/vllm/manifests        shared surface: PVC, Service,
+#   vllm       -> vllm/manifests        shared surface: PVC, Service,
 #                                          HTTPRoute, ServiceMonitor, dashboard,
 #                                          HF-token ExternalSecret
-#   vllm-cpu   -> ai/vllm/manifests/cpu    the CPU-profile Deployment
-#   vllm-gpu   -> ai/vllm/manifests/gpu    the GPU-profile Deployment
+#   vllm-cpu   -> vllm/manifests/cpu    the CPU-profile Deployment
+#   vllm-gpu   -> vllm/manifests/gpu    the GPU-profile Deployment
 #
 # Enable `vllm` plus EXACTLY ONE of `vllm-cpu` / `vllm-gpu` — both Deployments
 # are named `vllm` and are selected by the same Service, so enabling both makes
@@ -177,8 +177,8 @@ storage:
 # The in-cluster contract — manifests/service.yaml. DO NOT RENAME.
 # ---------------------------------------------------------------------------
 service:
-  # ai/agentgateway fronts vLLM as one of its LLM backends at exactly
-  # http://vllm.adhar-system.svc.cluster.local:8000/v1, and ai/adhar-ai's
+  # agentgateway fronts vLLM as one of its LLM backends at exactly
+  # http://vllm.adhar-system.svc.cluster.local:8000/v1, and adhar-ai's
   # llm-secret-external.yaml documents the same URL for
   # provider=openai-compatible. Both profiles' pods carry
   # app.kubernetes.io/name: vllm so this one Service follows whichever is on.

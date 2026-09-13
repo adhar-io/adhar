@@ -80,6 +80,17 @@ environments:
       #   value: 10.244.0.0/16          # must differ per cluster if you mesh them
       # - key: clusterMeshId
       #   value: "1"                    # Cilium cluster ID (1-255), unique per meshed cluster
+      # Let `adhar auth login` produce a token kubectl accepts: points the
+      # kube-apiserver at this platform's Keycloak, so the oidc: ClusterRoleBindings
+      # security/keycloak ships take effect (platform-admin -> cluster-admin,
+      # platform-developer -> edit, platform-viewer -> view).
+      # OFF by default: it makes Keycloak group membership a grant of Kubernetes
+      # authority, which is the operator's decision, not a default.
+      # - key: oidcAuth
+      #   value: "true"
+      # - key: oidcIssuerUrl              # only when the platform is not on :443
+      #   value: "https://keycloak.platform.example.com:8443/realms/adhar"
+
     autoscaling:
       enabled: true
       minWorkers: 3
@@ -92,3 +103,33 @@ environments:
       scaleDownUtilizationThreshold: "50%"
       scaleDownDelay: 10m
       scaleUpCooldown: 3m
+
+# ---------------------------------------------------------------------------
+# Agentic capabilities (Adhar AI)
+#
+# Two steps, and NEITHER puts the LLM key in this file — git carries pointers,
+# the secrets backend carries values (ADR-0009):
+#
+#   1. Enable the two AI packages for the environment. They go together:
+#      `adhar-ai` is the agent layer, `agentgateway` serves its LLM + MCP
+#      endpoints, and adhar-ai has no LLM path of its own.
+#
+#        platform/stack/adhar-appset-production.yaml   (and the mirrored
+#        platform/stack/environments/production/config.yaml)
+#          - name: "adhar-ai"      -> enabled: "true"
+#          - name: "agentgateway"  -> enabled: "true"
+#
+#   2. After `adhar up`, seed the key. ESO projects it with no redeploy:
+#
+#        export ADHAR_AI_LLM_API_KEY='sk-ant-...'
+#        hack/seed-adhar-ai-llm.sh                       # Anthropic (default)
+#        ADHAR_AI_LLM_PROVIDER=openrouter \
+#          hack/seed-adhar-ai-llm.sh                     # OpenRouter / OpenAI-compatible
+#
+# Enabling the packages WITHOUT a key is a supported state: the seven MCP tool
+# servers and the agent runtime come up and report themselves unkeyed, and
+# nothing else on the platform is affected.
+#
+# Full walkthrough, including the extra BackendTLSPolicy a non-default endpoint
+# needs: docs/DIGITALOCEAN_PROVIDER.md -> "Agentic platform (Adhar AI)".
+# ---------------------------------------------------------------------------

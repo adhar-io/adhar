@@ -64,9 +64,9 @@ resources:
   localSafe: false
   notes: >-
     Three ApplicationSet elements from one package directory: `vllm`
-    (ai/vllm/manifests — PVC, Service, HTTPRoute, oauth2-proxy SSO,
+    (vllm/manifests — PVC, Service, HTTPRoute, oauth2-proxy SSO,
     ServiceMonitor, dashboard, HF-token ExternalSecret), `vllm-cpu`
-    (ai/vllm/manifests/cpu) and `vllm-gpu` (ai/vllm/manifests/gpu). Enable
+    (vllm/manifests/cpu) and `vllm-gpu` (vllm/manifests/gpu). Enable
     `vllm` plus exactly ONE profile: both Deployments are named `vllm` and share
     one Service. The GPU profile needs a GPU node pool with the NVIDIA device
     plugin advertising nvidia.com/gpu. The public route is Keycloak-authenticated

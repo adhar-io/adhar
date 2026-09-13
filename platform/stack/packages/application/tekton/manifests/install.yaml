@@ -1562,7 +1562,22 @@ data:
   enable-provenance-in-status: 'true'
   enforce-nonfalsifiability: none
   results-from: termination-message
-  set-security-context: 'false'
+  # Tekton must stamp a securityContext on the containers it injects.
+  #
+  # With this false, `prepare`, `place-scripts` and `working-dir-initializer` get
+  # no securityContext at all, so any TaskRun pod is rejected the moment Pod
+  # Security `restricted` applies to its namespace:
+  #
+  #   pods "release-adhar-ui-…-publish-pod" is forbidden: violates PodSecurity
+  #   "restricted:latest": allowPrivilegeEscalation != false (containers
+  #   "prepare", "place-scripts", "working-dir-initializer", "step-publish" …)
+  #
+  # which surfaced as TaskRun reason=PodAdmissionFailed and a Degraded
+  # adhar-libraries. True makes Tekton set allowPrivilegeEscalation=false,
+  # capabilities.drop=[ALL], runAsNonRoot=true and seccompProfile=RuntimeDefault
+  # on its own containers — there is no downside, and it is what upstream
+  # recommends for any cluster that enforces the restricted profile.
+  set-security-context: 'true'
   keep-pod-on-cancel: 'false'
   enable-cel-in-whenexpression: 'false'
   enable-step-actions: 'false'

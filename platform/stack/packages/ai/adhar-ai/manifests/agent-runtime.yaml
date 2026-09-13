@@ -224,6 +224,14 @@ spec:
               value: "adhar-ai-rag-rw.adhar-system.svc.cluster.local"
             - name: RAG_DB_NAME
               value: "adhar_ai_rag"
+            # How often the knowledge base re-derives itself from the platform.
+            # The live cluster inventory sets the floor; the documentation and
+            # package sources are cheap to re-check because content whose hash
+            # and embedding model are unchanged is never re-embedded. The
+            # knowledge-reindex CronJob does the same work on a nightly schedule
+            # for the case the runtime is down or mid-rollout.
+            - name: ADHAR_AI_KNOWLEDGE_REFRESH_SECONDS
+              value: "1800"
           envFrom:
             # CNPG app user credentials for the RAG store.
             - secretRef:

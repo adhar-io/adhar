@@ -1,0 +1,102 @@
+# Scheduled knowledge refresh.
+#
+# The agent runtime already refreshes its knowledge base on a timer in-process
+# (ADHAR_AI_KNOWLEDGE_REFRESH_SECONDS, default 30 minutes). This CronJob exists
+# for the case that timer cannot cover: a refresh that must happen whether or not
+# the runtime is up, healthy, or mid-rollout — and one an operator can trigger by
+# hand with `kubectl create job --from=cronjob/adhar-ai-knowledge-reindex`.
+#
+# It is the SAME code path (`adhar-ai index`) against the SAME database, and it
+# is incremental: content whose hash and embedding model are unchanged is never
+# re-embedded, so a nightly pass over a corpus that did not move costs one
+# database round trip per origin rather than a full re-embedding bill. That is
+# what makes a schedule affordable at all.
+#
+# Kept OUT of the AI data plane on purpose: this talks to pgvector and to the LLM
+# gateway, not to any MCP server, so it needs no Keycloak token.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: adhar-ai-knowledge-reindex
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-knowledge-reindex
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+    adhar.io/origin: adhar-ai
+  annotations:
+    # Wave 6: after the runtime (wave 5) and the CNPG cluster it writes to.
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  # 02:15, off the hour so it does not land with every other platform CronJob.
+  schedule: "15 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # A run that has not finished in an hour is stuck, not slow.
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: adhar-ai-knowledge-reindex
+            adhar.io/origin: adhar-ai
+        spec:
+          restartPolicy: Never
+          serviceAccountName: adhar-ai
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reindex
+              image: ghcr.io/adhar-io/adhar-ai-runtime:latest
+              imagePullPolicy: Always
+              args: ["index"]
+              env:
+                # Embeddings go through the AI data plane, exactly as the
+                # runtime's do, so the provider key stays server-side.
+                - name: LLM_GATEWAY_URL
+                  value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
+                - name: RAG_DB_HOST
+                  value: "adhar-ai-rag-rw.adhar-system.svc.cluster.local"
+                - name: RAG_DB_NAME
+                  value: "adhar_ai_rag"
+                # The docs tree the runtime indexes. Same mount, same content.
+                - name: ADHAR_AI_DOCS_PATH
+                  value: "/etc/adhar-ai/docs"
+              envFrom:
+                - secretRef:
+                    name: adhar-ai-rag-app
+                    optional: true
+              volumeMounts:
+                - name: docs
+                  mountPath: /etc/adhar-ai/docs
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              resources:
+                requests: {cpu: 100m, memory: 256Mi}
+                limits: {cpu: "1", memory: 1Gi}
+          volumes:
+            # Optional: with no docs ConfigMap the other knowledge sources (the
+            # tool inventory, the live cluster inventory, findings and notes)
+            # still refresh. A missing docs mount degrades the base, it does not
+            # fail the job.
+            - name: docs
+              configMap:
+                name: adhar-ai-docs
+                optional: true
+            - name: tmp
+              emptyDir: {}

@@ -30,7 +30,7 @@
 # ───────────────────────────────── lifecycle ────────────────────────────────
 # Closing or merging the PR removes it from the generator's result set; the
 # ApplicationSet controller then DELETES the Application, and the
-# `resources-finalizer.argoproj.io` finalizer cascades that into a prune of every
+# `resources-finalizer.argocd.argoproj.io` finalizer cascades that into a prune of every
 # resource it owned — including the Namespace, which the overlay declares as a
 # managed resource precisely so it is pruned (a namespace created only by
 # `CreateNamespace=true` is unmanaged and would be left behind). Dropping the
@@ -112,7 +112,7 @@ spec:
         adhar.io/preview-url: "https://{{ .repository }}-pr-{{ .number }}.adhar.localtest.me:8443"
         adhar.io/preview-head-sha: "{{ .head_sha }}"
       finalizers:
-        - resources-finalizer.argoproj.io
+        - resources-finalizer.argocd.argoproj.io
     spec:
       project: default
       source:

@@ -26,16 +26,20 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"adhar-io/adhar/globals"
 )
 
 // Default Keycloak endpoints for the local Adhar platform (per-app subdomain
 // routing, same URLs the SSO chain uses — ADR-0013). Override with the
 // persistent flags on the auth command.
+// The realm and client id come from globals so the CLI, the keycloak package and
+// the kube-apiserver's --oidc-client-id cannot drift apart.
 const (
-	defaultIssuer      = "https://keycloak.adhar.localtest.me:8443/realms/adhar"
-	defaultClientID    = "adhar-cli"
+	defaultIssuer      = "https://keycloak.adhar.localtest.me:8443/realms/" + globals.KeycloakRealm
+	defaultClientID    = globals.KeycloakCLIClientID
 	defaultAdminAPIURL = "https://keycloak.adhar.localtest.me:8443"
-	defaultRealm       = "adhar"
+	defaultRealm       = globals.KeycloakRealm
 )
 
 // keycloak holds the resolved connection settings shared by auth subcommands.

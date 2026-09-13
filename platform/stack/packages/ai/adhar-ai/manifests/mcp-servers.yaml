@@ -8,14 +8,14 @@
 #     kubectl_apply / argo_sync / helm_install / cloud-mutation tool anywhere.
 #
 # The servers are reachable outward (Claude Code / IDE assistants / ChatOps)
-# through ONE federated endpoint — `https://mcp.<host>/mcp` on ai/agentgateway
+# through ONE federated endpoint — `https://mcp.<host>/mcp` on agentgateway
 # (ADR-0025) — which multiplexes all seven of these ClusterIP Services, validates
 # the Keycloak JWT and authorizes per tool. They are NOT published individually
 # and the runtime is no longer on the critical path of an external tool call.
 # All carry adhar.io/origin=adhar-ai so the Kyverno guardrail
 # (kyverno-policy.yaml) can attribute their activity.
 #
-# TRANSPORT CONTRACT (what ai/agentgateway/manifests/mcp-federation.yaml
+# TRANSPORT CONTRACT (what agentgateway/manifests/mcp-federation.yaml
 # federates): StreamableHTTP at `/mcp` on port 8080, plus `/healthz` on the same
 # port for the probe below. The image serves exactly that (`--listen=:8080`).
 #
@@ -77,7 +77,7 @@ spec:
               value: "cluster"
             - name: GITEA_WRITE_ENABLED
               value: "false"
-            # The platform AI data plane (ai/agentgateway, ADR-0025) — NOT the
+            # The platform AI data plane (agentgateway, ADR-0025) — NOT the
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
@@ -86,10 +86,10 @@ spec:
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # No OIDC_ISSUER_URL / OIDC_CLIENT_ID: per-server token validation is
-            # gone (ADR-0025 "Required changes in ai/adhar-ai", item 6). Every
+            # gone (ADR-0025 "Required changes in adhar-ai", item 6). Every
             # request reaches these servers through agentgateway, which validates
             # the Keycloak JWT ONCE for all seven and authorizes per tool
-            # (ai/agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
+            # (agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
             # client and its `groups` mapper stay — the gateway's CEL rules read
             # those claims — and the bearer token is preserved
             # (preserveToken: true) so RBAC-scoped reads still run as the USER.
@@ -192,7 +192,7 @@ spec:
               value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
             - name: GITEA_WRITE_REPOS
               value: "packages,environments"
-            # The platform AI data plane (ai/agentgateway, ADR-0025) — NOT the
+            # The platform AI data plane (agentgateway, ADR-0025) — NOT the
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
@@ -201,10 +201,10 @@ spec:
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # No OIDC_ISSUER_URL / OIDC_CLIENT_ID: per-server token validation is
-            # gone (ADR-0025 "Required changes in ai/adhar-ai", item 6). Every
+            # gone (ADR-0025 "Required changes in adhar-ai", item 6). Every
             # request reaches these servers through agentgateway, which validates
             # the Keycloak JWT ONCE for all seven and authorizes per tool
-            # (ai/agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
+            # (agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
             # client and its `groups` mapper stay — the gateway's CEL rules read
             # those claims — and the bearer token is preserved
             # (preserveToken: true) so RBAC-scoped reads still run as the USER.
@@ -311,7 +311,7 @@ spec:
               value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
             - name: GITEA_WRITE_REPOS
               value: "packages,environments"
-            # The platform AI data plane (ai/agentgateway, ADR-0025) — NOT the
+            # The platform AI data plane (agentgateway, ADR-0025) — NOT the
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
@@ -320,10 +320,10 @@ spec:
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # No OIDC_ISSUER_URL / OIDC_CLIENT_ID: per-server token validation is
-            # gone (ADR-0025 "Required changes in ai/adhar-ai", item 6). Every
+            # gone (ADR-0025 "Required changes in adhar-ai", item 6). Every
             # request reaches these servers through agentgateway, which validates
             # the Keycloak JWT ONCE for all seven and authorizes per tool
-            # (ai/agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
+            # (agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
             # client and its `groups` mapper stay — the gateway's CEL rules read
             # those claims — and the bearer token is preserved
             # (preserveToken: true) so RBAC-scoped reads still run as the USER.
@@ -431,7 +431,7 @@ spec:
               value: "http://loki.adhar-system.svc.cluster.local:3100"
             - name: TEMPO_URL
               value: "http://tempo.adhar-system.svc.cluster.local:3100"
-            # The platform AI data plane (ai/agentgateway, ADR-0025) — NOT the
+            # The platform AI data plane (agentgateway, ADR-0025) — NOT the
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
@@ -440,10 +440,10 @@ spec:
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # No OIDC_ISSUER_URL / OIDC_CLIENT_ID: per-server token validation is
-            # gone (ADR-0025 "Required changes in ai/adhar-ai", item 6). Every
+            # gone (ADR-0025 "Required changes in adhar-ai", item 6). Every
             # request reaches these servers through agentgateway, which validates
             # the Keycloak JWT ONCE for all seven and authorizes per tool
-            # (ai/agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
+            # (agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
             # client and its `groups` mapper stay — the gateway's CEL rules read
             # those claims — and the bearer token is preserved
             # (preserveToken: true) so RBAC-scoped reads still run as the USER.
@@ -546,7 +546,7 @@ spec:
               value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
             - name: GITEA_WRITE_REPOS
               value: "packages,environments"
-            # The platform AI data plane (ai/agentgateway, ADR-0025) — NOT the
+            # The platform AI data plane (agentgateway, ADR-0025) — NOT the
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
@@ -555,10 +555,10 @@ spec:
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # No OIDC_ISSUER_URL / OIDC_CLIENT_ID: per-server token validation is
-            # gone (ADR-0025 "Required changes in ai/adhar-ai", item 6). Every
+            # gone (ADR-0025 "Required changes in adhar-ai", item 6). Every
             # request reaches these servers through agentgateway, which validates
             # the Keycloak JWT ONCE for all seven and authorizes per tool
-            # (ai/agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
+            # (agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
             # client and its `groups` mapper stay — the gateway's CEL rules read
             # those claims — and the bearer token is preserved
             # (preserveToken: true) so RBAC-scoped reads still run as the USER.
@@ -662,7 +662,7 @@ spec:
               value: "false"
             - name: OPENCOST_URL
               value: "http://opencost.adhar-system.svc.cluster.local:9003"
-            # The platform AI data plane (ai/agentgateway, ADR-0025) — NOT the
+            # The platform AI data plane (agentgateway, ADR-0025) — NOT the
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
@@ -671,10 +671,10 @@ spec:
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # No OIDC_ISSUER_URL / OIDC_CLIENT_ID: per-server token validation is
-            # gone (ADR-0025 "Required changes in ai/adhar-ai", item 6). Every
+            # gone (ADR-0025 "Required changes in adhar-ai", item 6). Every
             # request reaches these servers through agentgateway, which validates
             # the Keycloak JWT ONCE for all seven and authorizes per tool
-            # (ai/agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
+            # (agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
             # client and its `groups` mapper stay — the gateway's CEL rules read
             # those claims — and the bearer token is preserved
             # (preserveToken: true) so RBAC-scoped reads still run as the USER.
@@ -777,7 +777,7 @@ spec:
               value: "http://gitea-http.adhar-system.svc.cluster.local:3000"
             - name: GITEA_WRITE_REPOS
               value: "packages,environments"
-            # The platform AI data plane (ai/agentgateway, ADR-0025) — NOT the
+            # The platform AI data plane (agentgateway, ADR-0025) — NOT the
             # retired adhar-ai-llm-gateway. The URL carries the /v1 prefix and
             # the caller POSTs an OpenAI-shaped body that NAMES A MODEL
             # (`claude-*` -> Anthropic, `gpt-*`/`o[1-9]-*` -> OpenAI,
@@ -786,10 +786,10 @@ spec:
             - name: LLM_GATEWAY_URL
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # No OIDC_ISSUER_URL / OIDC_CLIENT_ID: per-server token validation is
-            # gone (ADR-0025 "Required changes in ai/adhar-ai", item 6). Every
+            # gone (ADR-0025 "Required changes in adhar-ai", item 6). Every
             # request reaches these servers through agentgateway, which validates
             # the Keycloak JWT ONCE for all seven and authorizes per tool
-            # (ai/agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
+            # (agentgateway/manifests/security.yaml). The Keycloak `adhar-ai`
             # client and its `groups` mapper stay — the gateway's CEL rules read
             # those claims — and the bearer token is preserved
             # (preserveToken: true) so RBAC-scoped reads still run as the USER.

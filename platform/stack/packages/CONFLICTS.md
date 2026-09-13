@@ -61,7 +61,7 @@ running:
 
 | Name | Owned by | Why it is shared |
 |---|---|---|
-| `ClusterSecretStore/vault` | both packages | Consumers reference the store **by name** (`ai/adhar-ai/manifests/llm-secret-external.yaml`, `ai/vllm/manifests/hf-token.yaml`). Renaming it would silently wedge each of their ExternalSecrets in `SecretSyncedError`. The External Secrets provider is `vault:` either way. |
+| `ClusterSecretStore/vault` | both packages | Consumers reference the store **by name** (`adhar-ai/manifests/llm-secret-external.yaml`, `vllm/manifests/hf-token.yaml`). Renaming it would silently wedge each of their ExternalSecrets in `SecretSyncedError`. The External Secrets provider is `vault:` either way. |
 | `Service/vault` | vault (from its chart) / openbao (`manifests/vault-compat.yaml`) | Consumers address the backend by DNS name: `core/adhar-console` (`VAULT_URL`) and `security/credential-rotation` (break-glass write). |
 | `vault_*` Prometheus metrics | both | OpenBao keeps Vault's metric namespace, so `observability/kube-prometheus/manifests/dashboard-vault.yaml` works for either. |
 | `MutatingWebhookConfiguration/*-agent-injector-cfg` | both (distinct names) | Two agent injectors in one namespace would both mutate pods; only one belongs. |

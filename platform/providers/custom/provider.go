@@ -278,7 +278,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		}
 	}
 
-	joinCmd, err := provider.KubeadmInitMaster(signer, p.config.SSHUser, masterIP, masterIP, provider.PodCIDROrDefault(spec))
+	joinCmd, err := provider.KubeadmInitMaster(signer, p.config.SSHUser, masterIP, masterIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
 	if err != nil {
 		return nil, err
 	}

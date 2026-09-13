@@ -9,7 +9,7 @@ name: adhar-ai
 category: ai
 version: "0.1.0"
 appVersion: latest
-description: 'Agentic control layer (ADR-0024): per-domain MCP tool servers and an agent runtime whose writes land as Gitea PRs; LLM completions and federated MCP are served by the ai/agentgateway data plane (ADR-0025).'
+description: 'Agentic control layer (ADR-0024): per-domain MCP tool servers and an agent runtime whose writes land as Gitea PRs; LLM completions and federated MCP are served by the agentgateway data plane (ADR-0025).'
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar

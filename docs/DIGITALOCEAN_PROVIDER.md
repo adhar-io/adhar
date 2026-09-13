@@ -328,6 +328,166 @@ the email as the username; signing in as `user1` fails with the deliberately
 vague "Invalid username or password". Every other UI (`argocd.`, `gitea.`,
 `grafana.`, `harbor.`, `nexus.`, …`.platform.adhar.io`) uses the same SSO.
 
+### kubectl with your platform identity (opt-in)
+
+`adhar auth login` always works against Keycloak, but for the **API server** to
+accept that token the cluster has to be told to trust the realm. That is off by
+default, because switching it on means Keycloak group membership grants
+Kubernetes authority — anyone in `platform-admin` becomes `cluster-admin`. Opt in
+per environment:
+
+```yaml
+environments:
+  dev:
+    clusterConfig:
+      - key: oidcAuth
+        value: "true"
+      # Only when the platform is not served on :443:
+      # - key: oidcIssuerUrl
+      #   value: "https://keycloak.platform.example.com:8443/realms/adhar"
+```
+
+`adhar up` then adds `--oidc-issuer-url`, `--oidc-client-id=kubernetes`,
+`--oidc-username-claim=preferred_username`, `--oidc-groups-claim=groups` and the
+`oidc:` username/group prefixes to the kube-apiserver, which is what makes the
+ClusterRoleBindings the `keycloak` package ships take effect.
+
+The client id is `kubernetes`, not `adhar-cli`: a token from `adhar auth` carries
+`azp: adhar-cli` (who asked for it) but `aud: [kubernetes, account]`, and the API
+server matches the **audience**. Setting `adhar-cli` there rejects every token
+with a bare `Unauthorized`.
+
+| Keycloak group | Kubernetes role |
+|---|---|
+| `platform-admin`, `platform-engineer` | `cluster-admin` |
+| `platform-developer` | `edit` |
+| `platform-viewer` | `view` |
+| `application-admin` | `admin` |
+
+```bash
+adhar auth login user1@noreply.com --issuer https://keycloak.platform.adhar.io/realms/adhar
+kubectl --token "$(adhar auth token)" auth can-i '*' '*'      # yes, for platform-admin
+```
+
+Two caveats worth knowing. A **managed** control plane (DOKS, EKS, AKS, GKE) does
+not take apiserver flags this way — configure the cloud's own OIDC settings with
+the same claims and prefixes. And the `oidc:` prefixes are not cosmetic: without
+them an OIDC identity could collide with a built-in `system:` user or group,
+which is why the shipped bindings expect them.
+
+## Agentic platform (Adhar AI)
+
+Adhar AI is **opt-in** and needs two things: the packages enabled, and one LLM
+key. Enabling the packages without the key is a valid state — the seven MCP tool
+servers and the agent runtime come up and report themselves unkeyed.
+
+### 1. Enable the packages
+
+`ai/adhar-ai` is the agent layer; `ai/agentgateway` is the governed data plane
+that serves its LLM and MCP endpoints. **Enable them together** — adhar-ai has no
+LLM path of its own. In your environment's package list (and the matching
+`adhar-appset-<env>.yaml`):
+
+```yaml
+  - name: "adhar-ai"
+    enabled: "true"
+    namespace: "adhar-system"
+    category: "ai"
+    manifestPath: "ai/adhar-ai/manifests"
+  - name: "agentgateway"
+    enabled: "true"
+    namespace: "adhar-system"
+    category: "ai"
+    manifestPath: "ai/agentgateway/manifests"
+```
+
+### 2. Supply the LLM key
+
+The key is a credential, so it never goes in `config.yaml` — git carries pointers,
+the secrets backend carries values (ADR-0009). `adhar up` therefore never takes
+it; seed it afterwards, and External Secrets projects it with no redeploy:
+
+```bash
+export ADHAR_AI_LLM_API_KEY='sk-ant-...'
+hack/seed-adhar-ai-llm.sh                                   # Anthropic (default)
+
+ADHAR_AI_LLM_PROVIDER=openai     hack/seed-adhar-ai-llm.sh  # OpenAI
+ADHAR_AI_LLM_PROVIDER=openrouter hack/seed-adhar-ai-llm.sh  # OpenRouter
+```
+
+The script reads the key from the environment, passes it to the backend over
+stdin (never argv, so it is not in any process list), writes
+`secret/adhar-ai/llm`, and waits for the `adhar-ai-llm` Secret to be projected.
+It is idempotent: it creates the path on first run and patches it afterwards, so
+budgets and the other provider's key are preserved.
+
+`ADHAR_AI_LLM_MODEL` and `ADHAR_AI_LLM_ENDPOINT` override the per-provider
+defaults; `ADHAR_AI_LLM_PROVIDER=openai-compatible` requires both (self-hosted
+vLLM, Ollama, a gateway of your own).
+
+### 3. Use it
+
+Every request needs a platform token — agentgateway runs
+`jwtAuthentication: Strict` across the whole Gateway, so an unauthenticated call
+is a `401 no bearer token found`:
+
+```bash
+adhar auth login user1@noreply.com --issuer https://keycloak.<your-domain>/realms/adhar
+TOKEN=$(adhar auth token)
+
+# Completions, routed BY MODEL NAME (no caller ever sees a provider or a key)
+curl -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  https://ai.<your-domain>/v1/chat/completions \
+  -d '{"model":"claude-opus-4-5-20251101","messages":[{"role":"user","content":"hi"}]}'
+```
+
+| model name matches | goes to |
+|---|---|
+| `claude-*`, `anthropic/*` | hosted Anthropic (`API_KEY`) |
+| `gpt-*`, `o1-*`, `openai/*` | hosted OpenAI (`OPENAI_API_KEY`) |
+| `local/*`, `vllm/*` | the in-cluster `vllm` package, if enabled |
+
+The agent itself answers on `https://agent.<your-domain>`, and the federated MCP
+endpoint for external agents (Claude Code, IDEs) is `https://mcp.<your-domain>`.
+
+### A non-default endpoint needs two extra steps
+
+This bites anyone using OpenRouter, Together, Groq, or a self-hosted gateway.
+agentgateway's `openai` provider defaults to `api.openai.com`, and **overriding
+the host loses the provider's implicit TLS** — requests then leave as plain HTTP
+and the upstream answers `400 The plain HTTP request was sent to HTTPS port`.
+Point the backend at your host *and* attach a `BackendTLSPolicy`:
+
+```yaml
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata: {name: llm-openai, namespace: adhar-system}
+spec:
+  ai:
+    provider:
+      openai: {}
+      host: openrouter.ai
+      port: 443
+      pathPrefix: /api/v1
+  policies:
+    auth: {secretRef: {name: adhar-ai-llm, key: OPENAI_API_KEY}}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata: {name: llm-openai-tls, namespace: adhar-system}
+spec:
+  targetRefs:
+    - {group: agentgateway.dev, kind: AgentgatewayBackend, name: llm-openai}
+  validation:
+    hostname: openrouter.ai
+    wellKnownCACertificates: System
+```
+
+Also mind the model id: only names matching the OpenAI route regex
+(`gpt-*`, `o1-*`, `openai/*`) reach that backend, so on OpenRouter use ids like
+`openai/gpt-4o-mini` rather than `anthropic/claude-3.5-sonnet` — the latter
+matches the Anthropic route and would be sent to Anthropic with the wrong key.
+
 ### 3.1 Verified day-2 drills (2026-09)
 
 Everything below was run against the verified cluster; use it as the acceptance

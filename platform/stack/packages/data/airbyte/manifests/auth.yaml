@@ -44,7 +44,18 @@ kind: Password
 metadata:
   name: airbyte-admin
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+  # Wave -3, the SAME wave as the ExternalSecret that consumes it
+  # (airbyte-config-secrets), not -2.
+  #
+  # At -2 the generator was created a wave AFTER its consumer. ArgoCD applies
+  # wave -3 first, the ExternalSecret cannot resolve a generatorRef that does not
+  # exist yet, ESO reports `could not get secret data from provider`, the wave
+  # never becomes healthy — and so wave -2 is never reached and the generator is
+  # never created. A permanent deadlock: airbyte sat Degraded with that one error
+  # and no amount of retrying could break it, because the thing it was waiting
+  # for was queued behind it. `airbyte-auth` (below) has always been in the same
+  # wave as its consumers, which is why only this one generator deadlocked.
+  annotations: {argocd.argoproj.io/sync-wave: "-3"}
 spec:
   length: 24
   digits: 4

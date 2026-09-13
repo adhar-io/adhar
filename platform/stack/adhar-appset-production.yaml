@@ -86,7 +86,7 @@ spec:
           # platform runs unaffected until enabled. Write path is Gitea-PR-only; no
           # direct cluster/cloud mutation. Runs on the control plane (adhar.io/plane).
           - name: "adhar-ai"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "ai"
             plane: "control"
@@ -97,7 +97,7 @@ spec:
           # Replaces adhar-ai's bespoke adhar-ai-llm-gateway. Enabled exactly
           # where adhar-ai is enabled and no wider — AI is opt-in.
           - name: "agentgateway"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "ai"
             plane: "control"
@@ -115,7 +115,7 @@ spec:
           # GPU node pool with the NVIDIA device plugin advertising nvidia.com/gpu
           # (Adhar's default droplets are CPU-only), ~15 GB of model weights on the
           # PVC, and 4 CPU / 16Gi of host RAM per replica. Nothing in the platform
-          # depends on it; ai/agentgateway and ai/adhar-ai fall back to a hosted
+          # depends on it; agentgateway and adhar-ai fall back to a hosted
           # model until it is enabled. On a cloud cluster WITHOUT GPU nodes,
           # "vllm-cpu" is still a valid (slow) choice for small models.
           - name: "vllm"
@@ -378,8 +378,15 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/supply-chain-policies/manifests/audit"
+          # Enforce pack ENABLED (2026-09-13). hack/verify-supply-chain.sh passed
+          # twice on a live DigitalOcean cluster before this was flipped: unsigned
+          # image DENIED, signed image ADMITTED, against a key-based cosign
+          # signature made exactly the way the Tekton cosign-sign Task makes one.
+          # Platform namespaces are excluded twice over (by name and by the
+          # adhar.io/plane: control label), so this gates workload and preview
+          # namespaces only.
           - name: "supply-chain-policies-enforce"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/supply-chain-policies/manifests/enforce"
@@ -603,7 +610,7 @@ spec:
   template:
     metadata:
       finalizers:
-        - resources-finalizer.argoproj.io
+        - resources-finalizer.argocd.argoproj.io
       labels:
         adhar.io/package-name: "{{ .name }}"
         adhar.io/category: "{{ .category }}"

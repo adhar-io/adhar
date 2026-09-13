@@ -35,7 +35,14 @@ metadata:
       reported, not blocked.
 spec:
   validationFailureAction: Audit
-  background: true
+  # MUST be false: both rules match on `subjects` (the adhar-ai ServiceAccount),
+  # which is userInfo from the admission request. A background scan re-evaluates
+  # stored resources with no request and no user, so Kyverno rejects the policy
+  # outright — `only select variables are allowed in background mode … invalid
+  # variable used at path: spec/rules[0]/match/any[0]/subjects`. This policy is
+  # about WHO made a change, which only exists at admission time, so background
+  # scanning could not answer it even if it were allowed.
+  background: false
   emitWarning: true
   rules:
     # 1. Anything created/updated by adhar-ai must be labelled as AI-originated.
@@ -52,10 +59,15 @@ spec:
                 - ConfigMap
                 - Secret
               operations: ["CREATE", "UPDATE"]
-              subjects:
-                - kind: ServiceAccount
-                  name: adhar-ai
-                  namespace: adhar-system
+            # `subjects` is a SIBLING of `resources` in Kyverno's ResourceFilter,
+            # not a field inside it. Nested, the apiserver rejected the whole
+            # ClusterPolicy with ".spec.rules[0].match.any[0].resources.subjects:
+            # field not declared in schema", which failed the Application's sync
+            # and left every adhar-ai Deployment OutOfSync with no pods at all.
+            subjects:
+              - kind: ServiceAccount
+                name: adhar-ai
+                namespace: adhar-system
       validate:
         message: >-
           Resources created by the adhar-ai ServiceAccount must carry the label
@@ -78,10 +90,11 @@ spec:
                 - CronJob
                 - argoproj.io/v1alpha1/Application
               operations: ["CREATE", "UPDATE", "DELETE"]
-              subjects:
-                - kind: ServiceAccount
-                  name: adhar-ai
-                  namespace: adhar-system
+            # Sibling of `resources` — see the note on rule 1.
+            subjects:
+              - kind: ServiceAccount
+                name: adhar-ai
+                namespace: adhar-system
       exclude:
         # The agent's OWN runtime artefacts (its self-managed ConfigMaps live
         # under adhar-ai-self RBAC) are not platform workloads; workload kinds

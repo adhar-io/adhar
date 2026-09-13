@@ -18,7 +18,7 @@
 # --- Labels ------------------------------------------------------------------
 # DEVIATION (default: {}). Stamp the platform's component/plane labels on every
 # object the chart creates so `adhar.io/component=ai` selects the whole AI data
-# plane and ADR-0023 plane-affinity selectors work, matching ai/adhar-ai.
+# plane and ADR-0023 plane-affinity selectors work, matching adhar-ai.
 commonLabels:
   adhar.io/component: ai
   adhar.io/plane: control
@@ -110,7 +110,7 @@ agentgatewayModels:
 inferenceExtension:
   # DELIBERATELY OFF (chart default). Gateway API Inference Extension
   # (InferencePool) targets GPU-backed model serving fleets. The local kind
-  # cluster has no GPU and the ai/vllm package fronts a single Service; revisit
+  # cluster has no GPU and the vllm package fronts a single Service; revisit
   # when vLLM runs as a multi-replica GPU pool.
   enabled: false
 

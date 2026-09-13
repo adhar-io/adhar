@@ -17,6 +17,7 @@ limitations under the License.
 package dataplane
 
 import (
+	"adhar-io/adhar/globals"
 	"context"
 	"fmt"
 	"strings"
@@ -384,7 +385,15 @@ func (r *DataPlaneReconciler) vclusterFor(dp *v1alpha1.DataPlane) *unstructured.
 	app.SetNamespace(controlPlaneNamespace)
 	app.SetLabels(map[string]string{dataPlaneLabelKey: dp.Name, "adhar.io/component": "vcluster"})
 	// Cascade: deleting the Application removes the vcluster it installed.
-	app.SetFinalizers([]string{"resources-finalizer.argoproj.io"})
+	//
+	// The name must be `resources-finalizer.argocd.argoproj.io` — with the
+	// `argocd.` segment. ArgoCD recognises only that string; the shorter
+	// `resources-finalizer.argoproj.io` is added happily by the API server and
+	// then never removed by anyone, so the Application hangs in Terminating
+	// forever and the resources it owns are never pruned. Verified on a live
+	// cluster: an Application carrying the short name sat deleting for 12+
+	// minutes while the controller logged `process_finalizers_ms=0` every pass.
+	app.SetFinalizers([]string{globals.ArgoCDResourcesFinalizer})
 	app.Object["spec"] = map[string]interface{}{
 		"project": "default",
 		"source": map[string]interface{}{

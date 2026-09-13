@@ -17,7 +17,7 @@ homepage: https://agentgateway.dev
 adharCompatibility:
   minVersion: "0.1.0"
   notes: >-
-    Replaces the bespoke adhar-ai-llm-gateway Deployment shipped by ai/adhar-ai.
+    Replaces the bespoke adhar-ai-llm-gateway Deployment shipped by adhar-ai.
     Enable together with adhar-ai; on its own the gateway has no MCP targets to
     federate and no LLM credential to use. Requires the Gateway API CRDs the
     platform foundation already installs. Brings its own GatewayClass
@@ -57,7 +57,7 @@ resources:
   localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml (AI is opt-in)
   notes: >-
     Controller 100m/128Mi plus one data-plane proxy pod per Gateway at
-    100m/128Mi. No GPU and no persistent storage: model serving lives in ai/vllm,
+    100m/128Mi. No GPU and no persistent storage: model serving lives in vllm,
     not here.
 keywords:
   - ai

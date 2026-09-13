@@ -4,7 +4,7 @@
 # POSTURE: PERMISSIVE BY DEFAULT, AND SAID OUT LOUD
 # ---------------------------------------------------------------------------
 # Every control here is deliberately set to its non-blocking or generous
-# setting, for the same reason the Kyverno guardrail in ai/adhar-ai ships as
+# setting, for the same reason the Kyverno guardrail in adhar-ai ships as
 # Audit: a platform that starts by breaking people's requests gets turned off.
 # The defaults make the behaviour VISIBLE first (metrics, masked values, logs);
 # each block says exactly what to change to make it ENFORCING. Tighten in this
@@ -174,7 +174,7 @@ spec:
       # instance, so they multiply by replica count. With the single-replica
       # AgentgatewayParameters in gateway.yaml they are exact.
       #
-      # The numbers mirror ai/adhar-ai values.yaml (rateLimitRequestsPerMinute:
+      # The numbers mirror adhar-ai values.yaml (rateLimitRequestsPerMinute:
       # 60, perUserDailyTokens: 2_000_000) so replacing the old gateway does not
       # silently change anyone's budget. Both are generous on purpose — see the
       # header. Watch the 429 rate in the dashboard before lowering them.

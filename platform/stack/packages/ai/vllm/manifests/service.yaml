@@ -1,9 +1,9 @@
 # The stable in-cluster address of the platform's self-hosted inference engine.
 #
 # THE NAME AND PORT ARE PART OF THE PLATFORM CONTRACT — DO NOT RENAME.
-# `ai/agentgateway` fronts vLLM as one of its LLM backends at
+# `agentgateway` fronts vLLM as one of its LLM backends at
 #     http://vllm.adhar-system.svc.cluster.local:8000/v1
-# and ai/adhar-ai's llm-secret-external.yaml documents exactly that URL as the
+# and adhar-ai's llm-secret-external.yaml documents exactly that URL as the
 # `openai-compatible` ENDPOINT. Both profiles (manifests/cpu, manifests/gpu)
 # deploy a Deployment whose pods carry app.kubernetes.io/name: vllm, so this one
 # Service selects whichever profile is enabled — they are mutually exclusive.

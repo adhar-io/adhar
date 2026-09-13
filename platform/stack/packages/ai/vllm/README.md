@@ -6,8 +6,8 @@ instead of a third-party endpoint. Pinned to **v0.29.0**.
 
 ```
                                  ┌─────────────────────────────────────────┐
-  ai/agentgateway  ──────────────▶│ vllm.adhar-system.svc.cluster.local:8000 │
-  ai/adhar-ai (openai-compatible) │  /v1/models  /v1/chat/completions        │
+  agentgateway  ──────────────▶│ vllm.adhar-system.svc.cluster.local:8000 │
+  adhar-ai (openai-compatible) │  /v1/models  /v1/chat/completions        │
   your app (any OpenAI SDK)       └─────────────────────────────────────────┘
                                                    ▲
   https://vllm.<host>/v1  ── Cilium Gateway ────────┘   (debugging path, unauthenticated)
@@ -25,7 +25,7 @@ chart (0.1.12). It is the wrong fit here on three counts:
    default `vllmConfig.v0: "1"` pins the V0 engine, whose metric names were removed in V1.
 2. **It bundles what the platform already has** — its own router in front of the engines and its own Redis.
    That is a second routing layer beside the Cilium Gateway and a second cache beside `data/valkey`, which
-   [ADR-0011](../../../../docs/adr/0011-shared-platform-namespace.md) explicitly forbids.
+   [ADR-0011](../../../../../docs/adr/0011-shared-platform-namespace.md) explicitly forbids.
 3. **The real requirement is one Deployment, one Service and a PVC.** Two profiles we own are easier to keep
    correct than a chart we would override on every one of the above points.
 
@@ -98,7 +98,7 @@ if you need VRAM/SM utilisation.
 ## Security
 
 ⚠️ **The HTTPRoute is unauthenticated.** It exists as a debugging / direct-access path; the production
-consumer is `ai/agentgateway` over the cluster-internal Service, which is where auth, per-team routing, rate
+consumer is `agentgateway` over the cluster-internal Service, which is where auth, per-team routing, rate
 limiting and token accounting belong. vLLM's own `--api-key` is one shared static string and upstream warns
 against relying on it. Before enabling vLLM on an internet-facing platform, either delete
 `manifests/httproute.yaml` or front it with the Keycloak oauth2-proxy (see `application/n8n/manifests/sso.yaml`).
@@ -107,7 +107,7 @@ against relying on it. Before enabling vLLM on an internet-facing platform, eith
 
 Both default models are ungated and Apache-2.0, so no HuggingFace token is needed. For Llama / Gemma /
 Mistral, put a token that has accepted the repo licence into the secrets backend (`vault` ClusterSecretStore — OpenBao in production) — Git carries a pointer, never the value
-([ADR-0009](../../../../docs/adr/0009-secrets-eso-vault.md)):
+([ADR-0009](../../../../../docs/adr/0009-secrets-eso-vault.md)):
 
 ```bash
 vault kv put secret/vllm/hf HF_TOKEN="hf_..."

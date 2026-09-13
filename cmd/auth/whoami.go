@@ -21,7 +21,7 @@ roles, and token expiry. Refreshes the access token if needed.`,
 }
 
 func runWhoami(cmd *cobra.Command, args []string) error {
-	s, err := currentSession(context.Background())
+	s, err := sessionFor(cmd, context.Background())
 	if err != nil {
 		return err
 	}

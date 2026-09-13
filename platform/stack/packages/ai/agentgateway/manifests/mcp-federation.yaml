@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 # THE PROBLEM THIS SOLVES
 # ---------------------------------------------------------------------------
-# ai/adhar-ai (ADR-0024) splits the platform's tools across seven per-domain MCP
+# adhar-ai (ADR-0024) splits the platform's tools across seven per-domain MCP
 # servers so that read/write authority is scoped per domain. That is right for
 # authorization and wrong for clients: Claude Code, an IDE assistant or a ChatOps
 # bot would have to be configured with seven separate MCP endpoints, seven sets
@@ -20,10 +20,10 @@
 # in front of every tool — not seven times in seven Python services.
 #
 # ---------------------------------------------------------------------------
-# TARGET CONTRACT (what ai/adhar-ai's MCP images must serve)
+# TARGET CONTRACT (what adhar-ai's MCP images must serve)
 # ---------------------------------------------------------------------------
 # Service names and ports below are taken verbatim from
-# ai/adhar-ai/manifests/mcp-servers.yaml: seven ClusterIP Services named
+# adhar-ai/manifests/mcp-servers.yaml: seven ClusterIP Services named
 # `adhar-ai-mcp-<domain>`, each with a single port named `http` on 8080.
 #
 # TRANSPORT: `StreamableHTTP` at `/mcp` — the transport of the current MCP spec

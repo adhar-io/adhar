@@ -42,11 +42,11 @@
 # rewrites `adhar.localtest.me:8443` to the real domain and port suffix when the
 # stack is seeded into Gitea (stageStack). Never hardcode another domain.
 #
-# NOTE — these are the SAME two hostnames ai/adhar-ai currently publishes in its
+# NOTE — these are the SAME two hostnames adhar-ai currently publishes in its
 # own httproute.yaml, pointed at `adhar-ai-runtime`. Two HTTPRoutes claiming one
 # hostname on one Gateway is a conflict the Gateway resolves by creation
-# timestamp, which is not a configuration. ai/adhar-ai's route must be reduced to
-# the runtime's own paths — see ADR-0025 "Required changes in ai/adhar-ai". That
+# timestamp, which is not a configuration. adhar-ai's route must be reduced to
+# the runtime's own paths — see ADR-0025 "Required changes in adhar-ai". That
 # rewiring is owned by a separate change; until it lands, expect one of the two
 # routes to report a RouteConflict condition.
 #
