@@ -128,8 +128,11 @@ PYSCAN
 - **Packages must never ship a `kind: Namespace` object.** An app that tracks
   `Namespace/adhar-system` will delete the entire platform namespace when it is
   pruned, and a Namespace carrying `pod-security.kubernetes.io/enforce:
-  restricted` blocks pod creation platform-wide. kpack and Kubeflow Pipelines
-  both vendor one; both generators drop it.
+  restricted` blocks pod creation platform-wide. kpack, Kubeflow Pipelines
+  and Tekton all vendor one; all three generators drop it (Tekton's was found
+  live on 2026-09-15 as an *intermittent* "violates PodSecurity" — present only
+  between a tekton sync and the next Application that rewrote the namespace's
+  labels).
 - **Never bundle a capability the platform already provides.** Kubeflow
   Pipelines shipped its own MinIO *and* its own Argo Workflows; both are stripped
   at generation time so it consumes the platform's.

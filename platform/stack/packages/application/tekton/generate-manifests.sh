@@ -71,3 +71,21 @@ with open(path, "w") as fh:
     yaml.safe_dump_all([d for d in docs if d], fh, default_flow_style=False, sort_keys=False)
 print(f"enableServiceLinks=false on {len(patched)} workload(s): {', '.join(patched)}")
 PYEOF
+
+# Upstream Tekton ships its own Namespace objects (tekton-pipelines,
+# tekton-pipelines-resolvers) labelled pod-security.kubernetes.io/enforce:
+# restricted. Rebased onto adhar-system (ADR-0011) they become the PLATFORM
+# namespace carrying "restricted" — every sync of this package stamped the
+# label onto adhar-system until another Application's namespace metadata
+# removed it, and in between any plain pod (a Tekton clone step, a kubectl
+# run) was refused with `violates PodSecurity "restricted:latest"`
+# (2026-09-15 DO bring-up). Drop the Namespace documents entirely, as the
+# kpack and Kubeflow generators do (see packages/CONFLICTS.md).
+python3 - manifests/install.yaml <<'PYEOF'
+import sys
+path = sys.argv[1]
+docs = open(path).read().split('\n---\n')
+kept = [d for d in docs if not ('kind: Namespace' in d and 'pod-security.kubernetes.io/enforce' in d)]
+open(path, 'w').write('\n---\n'.join(kept))
+print(f"dropped {len(docs) - len(kept)} PSA-labelled Namespace document(s)")
+PYEOF

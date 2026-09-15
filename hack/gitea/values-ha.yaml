@@ -372,7 +372,15 @@ gitea:
     username: gitea_admin
     password: r8sA8CPHD9!bt6d
     email: "gitea@local.domain"
-    passwordMode: keepUpdated
+    # NOT keepUpdated: that mode re-applies the inline bootstrap password on
+    # EVERY pod start, which silently undid the platform's rotation — the
+    # credential-rotation package rotates the admin password and records it in
+    # Secret/gitea-credential (the authoritative credential every consumer and
+    # the controller read); after a plain restart Gitea was back on the
+    # bootstrap password and every gitea-credential client got 401
+    # (2026-09-15 DO bring-up). initialOnlyNoReset creates the admin once and
+    # never touches the password again.
+    passwordMode: initialOnlyNoReset
 
   ## @param gitea.metrics.enabled Enable Gitea metrics
   ## @param gitea.metrics.token used for `bearer` token authentication on metrics endpoint. If not specified or empty metrics endpoint is public.
@@ -435,6 +443,9 @@ gitea:
   config:
     #  APP_NAME: "Gitea: Git with a cup of tea"
     #  RUN_MODE: dev
+    # See values.yaml: in-cluster webhook targets (the Tekton EventListeners).
+    webhook:
+      ALLOWED_HOST_LIST: external,private,*.svc.cluster.local
     server:
       # Served behind the Cilium Gateway under /gitea — ROOT_URL must carry the
       # sub-path so Gitea emits assets/redirects/clone URLs under /gitea/. See

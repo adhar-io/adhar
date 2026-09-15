@@ -133,6 +133,7 @@ stringData:
     SSH_PORT=22
     START_SSH_SERVER=true
   session: |-
+  webhook: ALLOWED_HOST_LIST=external,private,*.svc.cluster.local
     PROVIDER=redis
     PROVIDER_CONFIG=redis+cluster://:@gitea-valkey-cluster-headless.adhar-system.svc.cluster.local:6379/0?pool_size=100&idle_timeout=180s&
 ---
@@ -3045,7 +3046,7 @@ spec:
             - name: GITEA_ADMIN_PASSWORD
               value: "r8sA8CPHD9!bt6d"
             - name: GITEA_ADMIN_PASSWORD_MODE
-              value: keepUpdated
+              value: initialOnlyNoReset
           volumeMounts:
             - name: init
               mountPath: /usr/sbinx
