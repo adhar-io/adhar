@@ -303,7 +303,19 @@ spec:
         # enable it (leave AI_BASE_URL empty to disable). AI_API_KEY (if needed)
         # comes from the console-env-vars Secret.
         - { name: AI_BASE_URL, value: 'http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1' }
-        - { name: AI_MODEL, value: 'default' }
+        # The model the console's own agents name on every request — read from
+        # the SAME Secret the AI gateway backends are keyed from, so the console
+        # asks for whatever the platform was seeded for (hack/seed-adhar-ai-llm.sh
+        # writes MODEL and the provider key together). The literal `default` it
+        # replaced matched none of the gateway's model routes, fell through to the
+        # unconditional rule, and on an install without an OpenAI key every one
+        # of the console's agents answered `500 service not found`.
+        - name: AI_MODEL
+          valueFrom:
+            secretKeyRef:
+              name: adhar-ai-llm
+              key: MODEL
+              optional: true
         # Adhar AI — the agentic runtime (ADR-0024). Distinct from AI_BASE_URL
         # above: that is a plain LLM endpoint the console's own tool loop calls,
         # this is a governed agent with its own MCP tool contract, retrieval
@@ -391,7 +403,7 @@ spec:
         - { name: TOOLJET_URL, value: 'http://tooljet.adhar-system.svc.cluster.local:80' }
         - { name: PENPOT_URL, value: 'http://penpot.adhar-system.svc.cluster.local:8080' }
         - { name: OPENSEARCH_URL, value: 'http://opensearch-dashboards.adhar-system.svc.cluster.local:5601' }
-        - { name: MINIO_URL, value: 'http://minio.adhar-system.svc.cluster.local:9000' }
+        - { name: MINIO_URL, value: 'http://rustfs.adhar-system.svc.cluster.local:9000' }
         - { name: ARGO_ROLLOUTS_URL, value: 'http://argo-rollouts-dashboard.adhar-system.svc.cluster.local:3100' }
         # Kyverno + Crossplane have no standalone web UI — their data reaches the
         # console as CRDs through the kube-apiserver. These URLs point at their
