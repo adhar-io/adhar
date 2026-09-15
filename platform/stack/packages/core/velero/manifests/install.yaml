@@ -3926,7 +3926,7 @@ spec:
   config:
     region: "minio"
     s3ForcePathStyle: "true"
-    s3Url: "http://minio.adhar-system.svc.cluster.local:9000"
+    s3Url: "http://rustfs.adhar-system.svc.cluster.local:9000"
 ---
 # Source: velero/templates/upgrade-crds/serviceaccount-upgrade.yaml
 apiVersion: v1

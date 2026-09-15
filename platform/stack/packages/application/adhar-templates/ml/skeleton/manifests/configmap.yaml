@@ -23,8 +23,12 @@ data:
   MODEL_URI: ""
   # Platform MinIO — also the Kubeflow Pipelines artifact store, which is what
   # makes a KFP Output[Model] directly loadable here.
-  S3_ENDPOINT: "http://minio.adhar-system.svc.cluster.local:9000"
+  S3_ENDPOINT: "http://rustfs.adhar-system.svc.cluster.local:9000"
   # Kubeflow Pipelines API (the kubeflow package, adhar-system).
   KFP_ENDPOINT: "http://ml-pipeline.adhar-system.svc.cluster.local:8888"
+  # Model registry + experiment tracking (data/mlflow). Register a trained
+  # model here; the FastAPI server loads `models:/<name>/<stage>` from it.
+  MLFLOW_TRACKING_URI: "http://mlflow.adhar-system.svc.cluster.local:5000"
+  MLFLOW_S3_ENDPOINT_URL: "http://rustfs.adhar-system.svc.cluster.local:9000"
   KFP_EXPERIMENT: ${{values.modelName | dump}}
   TRAINING_FRAMEWORK: ${{values.framework | dump}}

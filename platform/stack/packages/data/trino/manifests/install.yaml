@@ -15,6 +15,21 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/component: catalogs
 data:
+  iceberg.properties: |
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://rustfs.adhar-system.svc.cluster.local:9000/iceberg
+    iceberg.rest-catalog.warehouse=lakehouse
+    iceberg.rest-catalog.security=SIGV4
+    iceberg.rest-catalog.signing-name=s3
+    iceberg.rest-catalog.vended-credentials-enabled=false
+    fs.native-s3.enabled=true
+    s3.endpoint=http://rustfs.adhar-system.svc.cluster.local:9000
+    s3.region=us-east-1
+    s3.path-style-access=true
+    s3.aws-access-key=${ENV:S3_ACCESS_KEY}
+    s3.aws-secret-key=${ENV:S3_SECRET_KEY}
+    
   tpcds.properties: |
     connector.name=tpcds
     tpcds.splits-per-node=4
@@ -238,8 +253,8 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/catalog-config: 8178a3ce4c7a8368637d247f54592efd408cc56243d34962e2a1f8ddd8f1ecfc
-        checksum/coordinator-config: d2660d9430ab8d045d34be1baf9828b8930ed22a37081814cf5f369f7296cd1b
+        checksum/catalog-config: 03591c7a519ba131f59c34349ac071649a610510e8ceaa96dd8cd858d705cfb5
+        checksum/coordinator-config: d5d26c7d2d5d92ad9dcda45ff4eb28300d720333168a8f7ca3e4b48f74416780
 
       labels:
         helm.sh/chart: trino-1.42.2
@@ -277,7 +292,8 @@ spec:
           env:
             []
           envFrom:
-            []
+            - secretRef:
+                name: trino-s3-credentials
           volumeMounts:
             - mountPath: /etc/trino
               name: config-volume
@@ -347,8 +363,8 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/catalog-config: 8178a3ce4c7a8368637d247f54592efd408cc56243d34962e2a1f8ddd8f1ecfc
-        checksum/worker-config: 2cb77819fe7eed3a6382e252a4dc9eefe797d302200b93f1e57c53d1e50558d1
+        checksum/catalog-config: 03591c7a519ba131f59c34349ac071649a610510e8ceaa96dd8cd858d705cfb5
+        checksum/worker-config: 622ccec3da870ab972c40d5d41e608c79f5d31deea213716c1acdfa55b972d70
       labels:
         helm.sh/chart: trino-1.42.2
         app.kubernetes.io/name: trino
@@ -385,7 +401,8 @@ spec:
           env:
             []
           envFrom:
-            []
+            - secretRef:
+                name: trino-s3-credentials
           volumeMounts:
             - mountPath: /etc/trino
               name: config-volume

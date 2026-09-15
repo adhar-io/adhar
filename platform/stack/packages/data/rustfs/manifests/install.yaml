@@ -11,6 +11,13 @@ kind: Password
 metadata:
   name: rustfs
   namespace: adhar-system
+  # Earlier wave than the ExternalSecret that references it (root-creds at
+  # -5). A generator applied after its consumer is a
+  # permanent deadlock: the ExternalSecret cannot resolve the generatorRef, the
+  # wave never goes healthy, and the generator's own wave is never reached —
+  # exactly what took Airbyte down. Observed on the 2026-09-15 bring-up:
+  # rustfs sat at "waiting for healthy state of ExternalSecret/root-creds".
+  annotations: {argocd.argoproj.io/sync-wave: "-6"}
 spec:
   length: 36
   digits: 6
@@ -18,38 +25,6 @@ spec:
   noUpper: false
   allowRepeat: true
 ---
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: rustfs-credentials
-  namespace: adhar-system
-spec:
-  # CreatedOnce + 5m: retry until the source exists, then freeze so the
-  # generated credentials never rotate. A bare refreshInterval "0" is one
-  # attempt with NO retry — an ES whose first sync fails stays
-  # SecretSyncedError forever.
-  refreshPolicy: CreatedOnce
-  refreshInterval: 5m
-  target:
-    name: rustfs-credentials
-    template:
-      engineVersion: v2
-      metadata:
-        labels:
-          adhar.io/cli-secret: "true"
-          adhar.io/package-name: rustfs
-      data:
-        RUSTFS_ACCESS_KEY: "rustfsadmin"
-        RUSTFS_SECRET_KEY: "{{ .SECRET_KEY }}"
-  dataFrom:
-    - sourceRef:
-        generatorRef:
-          apiVersion: generators.external-secrets.io/v1alpha1
-          kind: Password
-          name: rustfs
-      rewrite:
-        - transform:
-            template: "SECRET_KEY"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -61,7 +36,13 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
+      # The primary object store for the whole platform: Loki chunks, Mimir
+      # blocks, CNPG barman backups, Velero, Kubeflow/MLflow artifacts, the
+      # Iceberg warehouse. MinIO shipped 100Gi; 5Gi filled in two hours on the
+      # 2026-09-15 bring-up (Loki 3.2G + backups 1.5G) and every write — the
+      # lakehouse included — failed with "Disk full". do-block-storage expands
+      # online, so a larger request rolls out without recreating the volume.
+      storage: 100Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -93,7 +74,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: rustfs
-          image: docker.io/rustfs/rustfs:1.0.0-beta.8
+          image: docker.io/rustfs/rustfs:1.0.0-rc.6
           env:
             - name: RUSTFS_VOLUMES
               value: "/data"
@@ -105,7 +86,7 @@ spec:
               value: ":9001"
           envFrom:
             - secretRef:
-                name: rustfs-credentials
+                name: root-creds
           ports:
             - name: s3
               containerPort: 9000
@@ -124,12 +105,16 @@ spec:
               port: s3
             initialDelaySeconds: 20
             periodSeconds: 20
+          # The whole platform writes through this one process (Loki chunks,
+          # Mimir blocks, CNPG barman, Velero, artifacts, the Iceberg catalog).
+          # At 512Mi it was OOM-killed (exit 137) within two hours of the
+          # 2026-09-15 DO bring-up once Loki and the backups started flushing.
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
+              cpu: 250m
               memory: 512Mi
+            limits:
+              memory: 3Gi
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -166,3 +151,73 @@ spec:
     - name: console
       port: 9001
       targetPort: console
+---
+# `root-creds` — THE PLATFORM OBJECT-STORE CREDENTIAL CONTRACT, now published by
+# RustFS.
+#
+# Every consumer of the platform object store (CNPG barman backups, Velero,
+# Loki, Airbyte, Kubeflow Pipelines, Penpot, PostHog, the console, the
+# CompositeStorage bucket composition …) reads Secret `root-creds` keys
+# `rootUser` / `rootPassword`. MinIO used to mint that Secret in a Job. RustFS is
+# the primary store and MinIO is disabled in every profile, so RustFS must
+# publish the same contract — otherwise twenty consumers break at once, each in
+# its own way.
+#
+# ONE ExternalSecret publishes both spellings (RUSTFS_* for the server's
+# envFrom, rootUser/rootPassword for consumers). It must stay one: an ESO
+# generator mints a fresh value for every ExternalSecret that references it, so
+# a second ExternalSecret over the same Password generator is a second,
+# different key — the store and its consumers silently disagree (seen live on
+# the 2026-09-15 bring-up: every SigV4 call answered 403 SignatureDoesNotMatch).
+#
+# CreatedOnce + 5m: retry until the source exists, then freeze so the
+# generated credentials never rotate. A bare refreshInterval "0" is one
+# attempt with NO retry — an ES whose first sync fails stays
+# SecretSyncedError forever.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: root-creds
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+spec:
+  refreshPolicy: CreatedOnce
+  refreshInterval: 5m
+  target:
+    name: root-creds
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          adhar.io/cli-secret: "true"
+          adhar.io/package-name: rustfs
+          adhar.io/object-store-root: "true"
+      data:
+        RUSTFS_ACCESS_KEY: "rustfsadmin"
+        RUSTFS_SECRET_KEY: "{{ .SECRET_KEY }}"
+        rootUser: "rustfsadmin"
+        rootPassword: "{{ .SECRET_KEY }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: rustfs
+      rewrite:
+        - transform:
+            template: "SECRET_KEY"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: rustfs
+spec:
+  selector:
+    app.kubernetes.io/name: rustfs
+  ports:
+    - {name: s3, port: 9000, targetPort: 9000}
+    - {name: console, port: 9001, targetPort: 9001}

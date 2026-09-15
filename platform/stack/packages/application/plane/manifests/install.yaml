@@ -986,6 +986,9 @@ kind: Job
 metadata:
   namespace: adhar-system
   name: plane-api-migrate-1
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
   labels:
     helm.sh/chart: plane-ce-1.8.0
     app.kubernetes.io/name: plane-ce

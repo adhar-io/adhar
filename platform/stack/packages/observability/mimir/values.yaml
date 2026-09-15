@@ -11,7 +11,18 @@
 kafka:
   enabled: false
 
+# The S3 keys reach every component as env (global.extraEnvFrom — the chart
+# has no `mimir.extraEnvFrom`; a value there renders nothing, and every
+# component then hits the store as an anonymous client: "Access Denied" on the
+# 2026-09-15 bring-up) and are expanded into mimir.yaml by config.expand-env.
+global:
+  extraEnvFrom:
+    - secretRef:
+        name: mimir-s3-credentials
+
 mimir:
+  extraArgs:
+    config.expand-env: "true"
   structuredConfig:
     # Classic ingest: kafka.enabled=false removes the Kafka StatefulSet, but
     # the rendered mimir.yaml still defaults to the ingest-storage
@@ -23,6 +34,26 @@ mimir:
     common:
       storage:
         backend: s3
+        # The platform RustFS, not the chart's bundled MinIO. RustFS is the
+        # primary S3 store and MinIO is disabled in every profile (ADR-0011:
+        # never bundle a capability the platform already provides). Keys are the
+        # platform root-creds, mirrored into Secret mimir-s3-credentials and
+        # expanded from env at start (extraArgs config.expand-env), as Loki does.
+        s3:
+          endpoint: rustfs.adhar-system.svc.cluster.local:9000
+          insecure: true
+          region: us-east-1
+          access_key_id: ${S3_ACCESS_KEY}
+          secret_access_key: ${S3_SECRET_KEY}
+    blocks_storage:
+      s3:
+        bucket_name: mimir-blocks
+    ruler_storage:
+      s3:
+        bucket_name: mimir-ruler
+    alertmanager_storage:
+      s3:
+        bucket_name: mimir-alertmanager
     ingester:
       # Chart 6.x disables the ingester Push gRPC method assuming Kafka
       # ingest-storage carries writes; with classic ingest the distributor
@@ -102,16 +133,9 @@ gateway:
       memory: 64Mi
 
 minio:
-  # Dedicated SA name: the standalone minio package also ships "minio-sa" in
-  # the same namespace, and ArgoCD flags the shared resource (it blocked
-  # enabling mimir in the production set).
-  serviceAccount:
-    create: true
-    name: mimir-minio-sa
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
+  # Bundled MinIO OFF — object storage is the platform RustFS (see
+  # mimir.structuredConfig.common.storage.s3).
+  enabled: false
 
 # Local profile: no meta-monitoring or dashboards from this chart —
 # kube-prometheus owns Grafana and scraping.
@@ -125,6 +149,3 @@ nginx:
 # Recreate: this Deployment owns a ReadWriteOnce volume, so a RollingUpdate can
 # never schedule its replacement (the volume stays attached to the old pod's
 # node) and every change parked the new pod in ContainerCreating for good.
-minio:
-  deploymentUpdate:
-    type: Recreate

@@ -18,6 +18,7 @@ import (
 	"github.com/digitalocean/godo"
 	"golang.org/x/crypto/ssh"
 
+	"adhar-io/adhar/globals"
 	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
 )
@@ -396,7 +397,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		return nil, fmt.Errorf("control-plane node not ready: %w", err)
 	}
 
-	if err := enableExternalCloudProvider(signer, masterIP, masterPrivateIP); err != nil {
+	if err := enableExternalCloudProvider(signer, masterIP, masterPrivateIP, false); err != nil {
 		return nil, fmt.Errorf("failed to enable external cloud provider on master: %w", err)
 	}
 	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, masterIP, masterPrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
@@ -416,7 +417,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, ip, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", d.Name, err)
 		}
-		if err := enableExternalCloudProvider(signer, ip, privIP); err != nil {
+		if err := enableExternalCloudProvider(signer, ip, privIP, true); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", d.Name, err)
 		}
 		if err := provider.KubeadmJoinWorker(signer, computeSSHUser, ip, joinCmd); err != nil {
@@ -924,7 +925,7 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 				return fmt.Errorf("new worker %s not ready: %w", nodeName, err)
 			}
 			privIP, _ := d.PrivateIPv4()
-			if err := enableExternalCloudProvider(signer, ip, privIP); err != nil {
+			if err := enableExternalCloudProvider(signer, ip, privIP, true); err != nil {
 				return fmt.Errorf("new worker %s: %w", nodeName, err)
 			}
 			if err := provider.KubeadmJoinWorker(signer, computeSSHUser, ip, joinCmd); err != nil {
@@ -1025,13 +1026,19 @@ const (
 	doCSIReleaseBase  = "https://raw.githubusercontent.com/digitalocean/csi-digitalocean/master/deploy/kubernetes/releases/csi-digitalocean-v4.14.0"
 	kubectlAdminBase  = "kubectl --kubeconfig /etc/kubernetes/admin.conf"
 	externalCloudFlag = "KUBELET_EXTRA_ARGS=--cloud-provider=external"
+	// A worker joins with this taint and the node autoscaler lifts it once the
+	// node's CSINode reports the DO driver (globals.NodeCSIStartupTaint). The
+	// scheduler enforces the 7-volume attach limit only after the CSI node
+	// plugin publishes it; before that it packs the node without limit — 11
+	// attachments on a 7-volume droplet, seen on two separate bring-ups.
+	csiStartupTaintFlag = "--register-with-taints=" + globals.NodeCSIStartupTaint + "=:NoSchedule"
 )
 
 // enableExternalCloudProvider marks a node's kubelet for external cloud
 // provider mode; must run before kubeadm init/join on that node. Nodes then
 // carry the uninitialized taint until the CCM adopts them (Cilium's DaemonSet
 // tolerates it, so the CNI still comes up first during platform bootstrap).
-func enableExternalCloudProvider(signer ssh.Signer, ip, privateIP string) error {
+func enableExternalCloudProvider(signer ssh.Signer, ip, privateIP string, worker bool) error {
 	// --node-ip is required alongside external mode: without it the kubelet
 	// registers no InternalIP until the CCM initializes the node, which
 	// deadlocks scheduling (Cilium cannot start without a node IP, the CCM
@@ -1040,6 +1047,12 @@ func enableExternalCloudProvider(signer ssh.Signer, ip, privateIP string) error 
 	flags := externalCloudFlag
 	if privateIP != "" {
 		flags += " --node-ip=" + privateIP
+	}
+	// Only workers carry the CSI startup taint: the control plane is already
+	// unschedulable for workloads, and nothing would lift the taint there
+	// before the autoscaler is running.
+	if worker {
+		flags += " " + csiStartupTaintFlag
 	}
 	_, err := provider.SSHRun(signer, computeSSHUser, ip,
 		"grep -q cloud-provider=external /etc/default/kubelet 2>/dev/null || { echo '"+flags+"' >> /etc/default/kubelet && systemctl restart kubelet; }", 2*time.Minute)
@@ -1066,6 +1079,11 @@ func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUI
 		{"CSI volume tag", kubectlAdminBase + " -n kube-system get statefulset csi-do-controller -o jsonpath='{.spec.template.spec.containers[4].args}' | grep -q -- '--do-tag' || " +
 			kubectlAdminBase + ` -n kube-system patch statefulset csi-do-controller --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/4/args/-","value":"--do-tag=` + clusterTag + `"}]'`},
 		{"CSI snapshot controller", kubectlAdminBase + " apply -f " + doCSIReleaseBase + "/snapshot-controller.yaml"},
+		// The node plugin is what lifts the CSI startup taint (its CSINode is
+		// the signal), so it must run on a tainted node. The upstream DaemonSet
+		// ships with no tolerations at all.
+		{"CSI node taint toleration", kubectlAdminBase + " -n kube-system get daemonset csi-do-node -o jsonpath='{.spec.template.spec.tolerations}' | grep -q " + globals.NodeCSIStartupTaint + " || " +
+			kubectlAdminBase + ` -n kube-system patch daemonset csi-do-node --type=json -p '[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"` + globals.NodeCSIStartupTaint + `","operator":"Exists","effect":"NoSchedule"}]}]'`},
 		// Without the cluster VPC pin the CCM creates load balancers in the
 		// region's default VPC and droplet targeting fails with 422.
 		{"CCM cluster VPC", kubectlAdminBase + " -n kube-system set env deploy/digitalocean-cloud-controller-manager DO_CLUSTER_VPC_ID=" + vpcUUID},

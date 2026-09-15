@@ -1,0 +1,86 @@
+# Scrape the agentic layer.
+#
+# Until this existed, adhar-ai was the one part of the platform with no
+# operational signal: an operator could reconstruct from the audit log what the
+# agent did yesterday, but could not see what it was doing now, what it cost, or
+# whether it was failing.
+#
+# TWO monitors, because the two component classes answer different questions and
+# are labelled differently:
+#
+#   adhar-ai-runtime   agent runs, spend, policy refusals, knowledge freshness
+#   adhar-ai-mcp-*     per-domain tool calls — including calls from EXTERNAL
+#                      agents (Claude Code, IDEs, ChatOps) that reach the tools
+#                      through agentgateway and never touch the runtime, and so
+#                      are invisible in the runtime's own metrics
+#
+# Both are optional in effect: without kube-prometheus the ServiceMonitor CRD is
+# absent and the Application reports the missing resource, which is why the
+# package declares kube-prometheus as a dependency.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: adhar-ai-runtime
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-runtime
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: observability
+    adhar.io/plane: control
+  annotations:
+    # Wave 10: after the workloads it scrapes. A ServiceMonitor pointing at a
+    # Service with no endpoints is not an error, but scraping something that
+    # does not exist yet fills the logs with noise on a first sync.
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-ai-runtime
+  endpoints:
+    - port: http
+      path: /metrics
+      # 30s rather than the 15s default: these are counters about minute-scale
+      # work, and an agent run takes tens of seconds. A faster scrape would cost
+      # cardinality without resolving anything the data does not already show.
+      interval: 30s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: adhar-ai-mcp
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-mcp
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: observability
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    # One monitor for all seven Services, selected on the label only they carry.
+    # `Exists` rather than a new shared label: the Services already have
+    # `adhar.io/mcp-domain`, and a second label meaning the same thing is one
+    # more thing that can fall out of step.
+    matchExpressions:
+      - key: adhar.io/mcp-domain
+        operator: Exists
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      relabelings:
+        # Carry the domain onto every series from this target, so a dashboard
+        # can break tool latency down by domain rather than averaging the
+        # cost server together with the cluster server.
+        - sourceLabels: [__meta_kubernetes_service_label_adhar_io_mcp_domain]
+          targetLabel: mcp_domain

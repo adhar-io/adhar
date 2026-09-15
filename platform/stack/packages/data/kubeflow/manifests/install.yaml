@@ -2004,7 +2004,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: MINIO_SERVICE_SERVICE_HOST
-          value: minio.adhar-system.svc.cluster.local
+          value: rustfs.adhar-system.svc.cluster.local
         - name: MINIO_SERVICE_SERVICE_PORT
           value: '9000'
         image: ghcr.io/kubeflow/kfp-metadata-writer:2.4.1
@@ -2134,7 +2134,7 @@ spec:
               key: secretkey
               name: mlpipeline-minio-artifact
         - name: MINIO_SERVICE_SERVICE_HOST
-          value: minio.adhar-system.svc.cluster.local
+          value: rustfs.adhar-system.svc.cluster.local
         - name: MINIO_SERVICE_SERVICE_PORT
           value: '9000'
         image: ghcr.io/kubeflow/kfp-api-server:2.4.1
@@ -2232,7 +2232,7 @@ spec:
         - name: LOG_LEVEL
           value: info
         - name: MINIO_SERVICE_SERVICE_HOST
-          value: minio.adhar-system.svc.cluster.local
+          value: rustfs.adhar-system.svc.cluster.local
         - name: MINIO_SERVICE_SERVICE_PORT
           value: '9000'
         image: ghcr.io/kubeflow/kfp-persistence-agent:2.4.1
@@ -2301,7 +2301,7 @@ spec:
               key: cronScheduleTimezone
               name: pipeline-install-config
         - name: MINIO_SERVICE_SERVICE_HOST
-          value: minio.adhar-system.svc.cluster.local
+          value: rustfs.adhar-system.svc.cluster.local
         - name: MINIO_SERVICE_SERVICE_PORT
           value: '9000'
         image: ghcr.io/kubeflow/kfp-scheduled-workflow-controller:2.4.1
@@ -2366,7 +2366,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: MINIO_SERVICE_SERVICE_HOST
-          value: minio.adhar-system.svc.cluster.local
+          value: rustfs.adhar-system.svc.cluster.local
         - name: MINIO_SERVICE_SERVICE_PORT
           value: '9000'
         image: ghcr.io/kubeflow/kfp-frontend:2.4.1
@@ -2453,7 +2453,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: MINIO_SERVICE_SERVICE_HOST
-          value: minio.adhar-system.svc.cluster.local
+          value: rustfs.adhar-system.svc.cluster.local
         - name: MINIO_SERVICE_SERVICE_PORT
           value: '9000'
         image: ghcr.io/kubeflow/kfp-viewer-crd-controller:2.4.1

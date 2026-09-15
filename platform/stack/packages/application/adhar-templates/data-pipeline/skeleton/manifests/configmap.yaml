@@ -1,8 +1,12 @@
 # Iceberg REST catalog wiring (ADR-0020): every engine — Dagster/PyIceberg here,
-# Trino for dbt — talks to the one platform-operated Iceberg REST catalog, so
-# tables written by this pipeline are immediately readable by the rest. Points
-# at the placeholder platform `iceberg-rest` service; override warehouse/URI per
-# environment. The warehouse is a bucket provisioned via a Crossplane XR.
+# Trino for dbt — talks to the one platform Iceberg REST catalog, so tables
+# written by this pipeline are immediately readable by the rest.
+#
+# That catalog is RustFS S3 Tables: it runs INSIDE the platform object store on
+# the S3 port, so the REST uri and the S3 endpoint are the same host and the
+# credential is an ordinary S3 key pair over SigV4 (secret below, mirrored from
+# the platform root-creds). The warehouse `lakehouse` is a table bucket the
+# rustfs package provisions; a per-pipeline namespace keeps tables apart.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,9 +17,39 @@ metadata:
     app.kubernetes.io/name: ${{values.name}}
     adhar.io/owner: ${{values.owner}}
 data:
-  ICEBERG_REST_URI: "http://iceberg-rest.adhar-system.svc:8181"
-  ICEBERG_WAREHOUSE: "s3://lakehouse/${{values.name}}"
+  ICEBERG_REST_URI: "http://rustfs.adhar-system.svc.cluster.local:9000/iceberg"
+  ICEBERG_WAREHOUSE: "lakehouse"
+  ICEBERG_NAMESPACE: ${{values.name | dump}}
+  S3_ENDPOINT: "http://rustfs.adhar-system.svc.cluster.local:9000"
+  S3_REGION: "us-east-1"
   TARGET_TABLE: ${{values.targetTable | dump}}
   SOURCE_CONNECTOR: ${{values.sourceConnector | dump}}
   TRINO_HOST: "trino.adhar-system.svc"
   TRINO_PORT: "8080"
+---
+# S3 / catalog credential for PyIceberg (SigV4 against RustFS), from the
+# platform root-creds. Lives in the pipeline's own namespace.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: ${{values.name}}-object-store
+  namespace: ${{values.name | dump}}
+  labels:
+    entity-id: ${{values.name}}
+    app.kubernetes.io/name: ${{values.name}}
+spec:
+  refreshInterval: 1m
+  secretStoreRef: {name: gitea, kind: ClusterSecretStore}
+  target: {name: ${{values.name}}-object-store, creationPolicy: Owner}
+  data:
+    - secretKey: S3_ACCESS_KEY_ID
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: S3_SECRET_ACCESS_KEY
+      remoteRef: {key: root-creds, property: rootPassword}
+    # The same pair under the AWS names: PyIceberg signs the REST catalog
+    # calls (SigV4) with boto3's default session, which reads only AWS_*;
+    # the s3.access-key-id properties above cover the data plane only.
+    - secretKey: AWS_ACCESS_KEY_ID
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: AWS_SECRET_ACCESS_KEY
+      remoteRef: {key: root-creds, property: rootPassword}

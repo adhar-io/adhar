@@ -1,16 +1,22 @@
 ---
-# Local object-storage (bucket) composition — creates a MinIO bucket in the
-# in-cluster MinIO for self-service object storage. CompositeStorage with
+# Local object-storage (bucket) composition — creates a bucket in the platform's
+# primary object store, RustFS, for self-service storage. CompositeStorage with
 # type: object; selected via the `provider: local, type: object` labels or an
 # explicit compositionRef.
 #
-# A Job creates the bucket via `mc`; a connection Secret `<name>-bucket` exposes
-# the S3 endpoint + bucket name (credentials are the platform MinIO root, in
-# secret root-creds).
+# RustFS, not MinIO. RustFS is the platform's primary S3 store and MinIO is
+# disabled in every profile, so a bucket created in MinIO would land in a store
+# nothing else can reach. The endpoint below is the RustFS Service; `mc` is only
+# a client and speaks to any S3 endpoint, so the tool is unchanged.
+#
+# A Job creates the bucket; a connection Secret `<name>-bucket` exposes the S3
+# endpoint + bucket name. Credentials are the platform object-store root, in
+# Secret `root-creds` (rootUser / rootPassword) — the contract every consumer on
+# the platform reads, which the rustfs package now publishes.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: compositestorage-local-minio
+  name: compositestorage-local-rustfs
   labels:
     feature: storage
     provider: local
@@ -34,7 +40,7 @@ spec:
             {{- $meta := $xr.metadata -}}
             {{- $ns := $meta.namespace -}}
             {{- $bucket := dig "spec" "name" $meta.name $xr -}}
-            {{- $endpoint := "http://minio.adhar-system.svc.cluster.local:9000" -}}
+            {{- $endpoint := "http://rustfs.adhar-system.svc.cluster.local:9000" -}}
             ---
             apiVersion: batch/v1
             kind: Job
@@ -55,13 +61,13 @@ spec:
                       args:
                         - |
                           set -e
-                          mc alias set local {{ $endpoint }} "$MINIO_USER" "$MINIO_PASS"
+                          mc alias set local {{ $endpoint }} "$S3_USER" "$S3_PASS"
                           mc mb --ignore-existing "local/{{ $bucket }}"
                           echo "bucket {{ $bucket }} ready"
                       env:
-                        - name: MINIO_USER
+                        - name: S3_USER
                           valueFrom: { secretKeyRef: { name: root-creds, key: rootUser } }
-                        - name: MINIO_PASS
+                        - name: S3_PASS
                           valueFrom: { secretKeyRef: { name: root-creds, key: rootPassword } }
             ---
             apiVersion: v1

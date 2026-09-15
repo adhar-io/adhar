@@ -29,6 +29,15 @@ metadata:
   labels:
     app.kubernetes.io/part-of: adhar-platform
 rules:
+  # The Argo executor (the `wait` sidecar) reports each step's outputs by
+  # creating a WorkflowTaskResult in the workflow's namespace, and it does so
+  # with the WORKFLOW's ServiceAccount. Without this every platform task ended
+  # `Error (exit code 64): workflowtaskresults.argoproj.io is forbidden` after
+  # its main container had already finished (2026-09-15) — the Console showed
+  # only red runs.
+  - apiGroups: [argoproj.io]
+    resources: [workflowtaskresults]
+    verbs: [create, patch]
   # Read the whole cluster: the reports below summarise nodes, pods, PVCs,
   # workloads and Argo CD state. Read-only, so a compromised task leaks nothing
   # it could not already read through the console.
@@ -505,3 +514,103 @@ spec:
         steps:
           - - name: storage
               templateRef: { name: storage-capacity-report, template: report }
+---
+# The remaining platform tasks on a schedule, so the Console's task history is
+# populated by the platform itself rather than only when someone submits a run
+# by hand (2026-09-15: four templates had never produced a single Workflow).
+# argocd-refresh-all stays on demand — it is a remediation, not a report.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: image-inventory-weekly
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: reports
+spec:
+  schedules:
+    - '30 6 * * 1'
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    serviceAccountName: platform-tasks
+    entrypoint: run
+    ttlStrategy: { secondsAfterCompletion: 2419200 }
+    templates:
+      - name: run
+        steps:
+          - - name: inventory
+              templateRef: { name: image-inventory, template: report }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: tenant-orphan-report-daily
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: gitops
+spec:
+  schedules:
+    - '45 6 * * *'
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  workflowSpec:
+    serviceAccountName: platform-tasks
+    entrypoint: run
+    ttlStrategy: { secondsAfterCompletion: 604800 }
+    templates:
+      - name: run
+        steps:
+          - - name: orphans
+              templateRef: { name: tenant-orphan-report, template: report }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: image-scan-sweep-weekly
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: registry
+spec:
+  schedules:
+    - '0 3 * * 0'
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    serviceAccountName: platform-tasks
+    entrypoint: run
+    ttlStrategy: { secondsAfterCompletion: 2419200 }
+    templates:
+      - name: run
+        steps:
+          - - name: scan
+              templateRef: { name: image-scan-sweep, template: scan }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: harbor-garbage-collect-weekly
+  namespace: adhar-system
+  labels:
+    adhar.io/task-group: registry
+spec:
+  schedules:
+    - '0 4 * * 0'
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  workflowSpec:
+    serviceAccountName: platform-tasks
+    entrypoint: run
+    ttlStrategy: { secondsAfterCompletion: 2419200 }
+    templates:
+      - name: run
+        steps:
+          - - name: gc
+              templateRef: { name: harbor-garbage-collect, template: gc }

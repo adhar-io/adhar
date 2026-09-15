@@ -139,3 +139,19 @@ PYSCAN
   `CONFIG_LOGGING_NAME` kept pointing at `config-logging` after the ConfigMap was
   renamed, which would have made it read tekton's. Grep for `value: <name>-system`,
   `--*namespace=` and `.<old-namespace>:` when adding packages.
+
+## Object store: RustFS is primary, MinIO is disabled (2026-09-15)
+
+RustFS (`data/rustfs`) is the platform's one S3 endpoint
+(`rustfs.adhar-system.svc.cluster.local:9000`) and publishes the `root-creds`
+credential every consumer reads. `data/minio` is disabled in every profile and
+kept only as an opt-in alternative; its `secret-sync` Job adopts an existing
+`root-creds` rather than minting one, so enabling both does not fork the
+credential — but do not make both the default store. lakeFS was removed. Mimir
+no longer ships its bundled MinIO (three RustFS buckets instead). Plane still
+bundles `plane-minio` — the one remaining ADR-0011 exception on the data side.
+
+RustFS S3 Tables is also the Iceberg REST catalog (`…:9000/iceberg`, prefix
+`/iceberg/v1`, SigV4 with the S3 keys, warehouse = the `lakehouse` table bucket).
+Trino's `iceberg` catalog, the data golden path, MLflow artifacts, OpenMetadata
+ingestion and the nightly table-maintenance Operation all point there.

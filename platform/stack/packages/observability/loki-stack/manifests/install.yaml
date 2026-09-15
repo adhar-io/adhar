@@ -45,7 +45,7 @@ data:
         s3:
           access_key_id: ${MINIO_ACCESS_KEY_ID}
           bucketnames: loki
-          endpoint: http://minio.adhar-system.svc.cluster.local:9000
+          endpoint: http://rustfs.adhar-system.svc.cluster.local:9000
           insecure: true
           region: us-east-1
           s3forcepathstyle: true
@@ -85,7 +85,7 @@ data:
         s3:
           access_key_id: ${MINIO_ACCESS_KEY_ID}
           bucketnames: loki
-          endpoint: http://minio.adhar-system.svc.cluster.local:9000
+          endpoint: http://rustfs.adhar-system.svc.cluster.local:9000
           insecure: true
           region: us-east-1
           s3forcepathstyle: true

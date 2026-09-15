@@ -86,7 +86,6 @@ data:
   generateSuccessEvents: "false"
   excludeGroups: "system:nodes"
   resourceFilters: >-
-    [*/*,adhar-system,*]
     [Event,*,*]
     [*/*,kube-system,*]
     [*/*,kube-public,*]
@@ -191,7 +190,7 @@ data:
     [Secret,adhar-system,kyverno-svc.adhar-system.svc.*]
     [Secret,adhar-system,kyverno-cleanup-controller.adhar-system.svc.*]
   updateRequestThreshold: "1000"
-  webhooks: "{\"namespaceSelector\":{\"matchExpressions\":[{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"kube-system\"]},{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"adhar-system\"]}],\"matchLabels\":null}}"
+  webhooks: "{\"namespaceSelector\":{\"matchExpressions\":[{\"key\":\"kubernetes.io/metadata.name\",\"operator\":\"NotIn\",\"values\":[\"kube-system\"]}]}}"
   webhookAnnotations: "{\"admissions.enforcer/disabled\":\"true\"}"
 ---
 # Source: kyverno/templates/config/metricsconfigmap.yaml

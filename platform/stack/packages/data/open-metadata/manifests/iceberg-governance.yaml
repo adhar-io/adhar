@@ -1,0 +1,127 @@
+# Governance out of the box (Phase 4): the lakehouse is registered in
+# OpenMetadata as a database service and its metadata is ingested on a
+# schedule, so tables written through the RustFS Iceberg REST catalog appear in
+# discovery/lineage/ownership without anyone clicking through the UI.
+#
+# THROUGH TRINO, not a direct catalog connection: OpenMetadata 2.0 ships no
+# Iceberg connector (the ingestion image has no icebergConnection schema —
+# verified on 2.0.1, 2026-09-15), so the service is the platform Trino's
+# `iceberg` catalog, which IS the RustFS lakehouse (data/trino wires it over
+# SigV4 to rustfs:9000/iceberg). One catalog, one credential, and OpenMetadata
+# also gets Trino's view of the tables — the same one every analyst queries.
+#
+# Two steps, both via OpenMetadata's own tooling rather than its Airflow-based
+# ingestion (which this platform does not run):
+#   1. `register` — creates the `lakehouse` database service pointing at
+#      Trino's iceberg catalog via the REST API, idempotently (PUT on the
+#      service name).
+#   2. `ingest`   — runs the `metadata` CLI from the official ingestion image
+#      with a workflow that walks that service. Daily; also on every sync so
+#      a fresh cluster is populated as soon as the catalog has tables.
+#
+# Auth: OpenMetadata is on its basic provider with the bootstrap admin
+# (`admin@open-metadata.org`); the login endpoint returns a JWT that the
+# ingestion workflow carries. The password comes from the secret the package
+# already manages; nothing is written down here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openmetadata-lakehouse-ingestion
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "6"}
+data:
+  workflow.yaml: |
+    source:
+      type: trino
+      serviceName: lakehouse
+      serviceConnection:
+        config:
+          type: Trino
+          hostPort: trino.adhar-system.svc.cluster.local:8080
+          username: openmetadata
+          catalog: iceberg
+      sourceConfig:
+        config:
+          type: DatabaseMetadata
+          markDeletedTables: true
+          includeTables: true
+          includeViews: true
+          # Trino's own sample catalogs are not the lakehouse.
+          databaseFilterPattern: {includes: ["^iceberg$"]}
+    sink:
+      type: metadata-rest
+      config: {}
+    workflowConfig:
+      loggerLevel: INFO
+      openMetadataServerConfig:
+        hostPort: http://openmetadata.adhar-system.svc.cluster.local:8585/api
+        authProvider: openmetadata
+        securityConfig:
+          jwtToken: ${OM_JWT}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: openmetadata-lakehouse-ingest
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: openmetadata-lakehouse-ingest, app.kubernetes.io/part-of: open-metadata}
+  annotations: {argocd.argoproj.io/sync-wave: "7"}
+spec:
+  schedule: "30 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 3600
+      template:
+        spec:
+          restartPolicy: Never
+          enableServiceLinks: false
+          containers:
+            - name: ingest
+              image: docker.getcollate.io/openmetadata/ingestion:2.0.1
+              env:
+                - {name: OM, value: http://openmetadata.adhar-system.svc.cluster.local:8585}
+                - {name: OM_ADMIN_EMAIL, value: admin@open-metadata.org}
+                - name: OM_ADMIN_PASSWORD
+                  valueFrom: {secretKeyRef: {name: openmetadata-admin, key: password, optional: true}}
+              volumeMounts:
+                - {name: workflow, mountPath: /workflow}
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -uo pipefail
+                  for i in $(seq 1 60); do curl -sf "$OM/api/v1/system/version" >/dev/null && break; sleep 10; done
+                  # 1. login (basic provider) -> JWT. Bootstrap password is
+                  #    'admin' unless the package rotated it into
+                  #    Secret/openmetadata-admin.
+                  PW="${OM_ADMIN_PASSWORD:-admin}"
+                  B64=$(printf '%s' "$PW" | base64 | tr -d '\n')
+                  OM_JWT=$(curl -sf -X POST "$OM/api/v1/users/login" -H 'Content-Type: application/json' \
+                    -d "{\"email\":\"$OM_ADMIN_EMAIL\",\"password\":\"$B64\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["accessToken"])')
+                  [ -n "$OM_JWT" ] || { echo "login failed"; exit 1; }
+                  export OM_JWT
+                  # 2. register the service idempotently (PUT = create-or-update)
+                  python3 - <<'PY'
+                  import os, json, yaml, urllib.request
+                  wf = yaml.safe_load(os.path.expandvars(open('/workflow/workflow.yaml').read()))
+                  svc = {"name": "lakehouse", "serviceType": "Trino",
+                         "description": "Platform lakehouse — the Iceberg REST catalog inside RustFS (S3 Tables), seen through Trino's iceberg catalog",
+                         "connection": {"config": wf["source"]["serviceConnection"]["config"]}}
+                  req = urllib.request.Request(os.environ["OM"] + "/api/v1/services/databaseServices",
+                        data=json.dumps(svc).encode(), method="PUT",
+                        headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ["OM_JWT"]})
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      print("service registered:", json.load(r)["fullyQualifiedName"])
+                  PY
+                  # 3. ingest
+                  envsubst < /workflow/workflow.yaml > /tmp/workflow.yaml 2>/dev/null || python3 -c 'import os;open("/tmp/workflow.yaml","w").write(os.path.expandvars(open("/workflow/workflow.yaml").read()))'
+                  metadata ingest -c /tmp/workflow.yaml
+              resources:
+                requests: {cpu: 100m, memory: 512Mi}
+                limits: {memory: 2Gi}
+          volumes:
+            - name: workflow
+              configMap: {name: openmetadata-lakehouse-ingestion}

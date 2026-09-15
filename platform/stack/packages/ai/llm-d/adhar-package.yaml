@@ -1,0 +1,38 @@
+# Adhar marketplace contract for the llm-d package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
+# package changes; the generator never overwrites an existing contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: llm-d
+category: ai
+version: "0.10.0"
+appVersion: "v0.10.0"
+description: 'llm-d distributed inference: an endpoint-picker router with an agentgateway sidecar in front of vLLM replicas, serving `local/*` models to the agent runtime through the platform AI data plane.'
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://llm-d.ai
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies: []
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  localSafe: false   # scaffolded from adhar-appset-local.yaml; review
+keywords:
+  - inference
+  - llm
+  - vllm
+  - llm-d
+  - self-hosted

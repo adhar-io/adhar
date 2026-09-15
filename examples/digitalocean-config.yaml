@@ -73,7 +73,7 @@ environments:
       - key: nodeSize
         value: s-8vcpu-16gb             # overrides the provider's droplet_size for this environment
       - key: nodeCount
-        value: "3"                      # workers at creation; the autoscaler grows from here
+        value: '2'                      # workers at creation; the autoscaler grows from here
       # - key: kubeVersion
       #   value: v1.37.0                # pin Kubernetes for this environment
       # - key: podCIDR
@@ -90,11 +90,11 @@ environments:
 
     autoscaling:
       enabled: true
-      minWorkers: 3
+      minWorkers: 2
       # The full catalogue needs >= 9 workers: DigitalOcean attaches at most 7
       # block volumes per droplet, and the platform creates ~55 PersistentVolumes.
       # That attach limit, not CPU or memory, is what bounds the cluster.
-      maxWorkers: 10
+      maxWorkers: 4
       # Everything below is optional; these are the defaults.
       nodeGroup: workers
       scaleDownUtilizationThreshold: "50%"

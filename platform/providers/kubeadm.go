@@ -174,6 +174,20 @@ systemctl daemon-reexec || true
 mkdir -p /etc/containerd
 containerd config default >/etc/containerd/config.toml
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+# Per-registry host config (certs.d) for BOTH pull paths of containerd 2.x.
+# The CRI images plugin already defaults config_path to certs.d, but pulls
+# go through the transfer service (use_local_image_pull = false), whose own
+# config_path is empty — so a hosts.toml/CA dropped into certs.d (the
+# harbor package's node DaemonSet, for kpack-built images on the in-cluster
+# Harbor) was silently ignored and every such pull failed on DNS/TLS
+# (2026-09-15 DO bring-up). Set it on every table that carries the key.
+sed -i "s|config_path = ''|config_path = '/etc/containerd/certs.d'|" /etc/containerd/config.toml
+# And let the CRI plugin pull images itself (the classic, certs.d-honouring
+# path) instead of delegating to the transfer service: on a node provisioned
+# with only the config_path change above, a pull still resolved the original
+# registry host by DNS and ignored the hosts.toml mirror (2026-09-15).
+sed -i 's/use_local_image_pull = false/use_local_image_pull = true/' /etc/containerd/config.toml
+mkdir -p /etc/containerd/certs.d
 systemctl restart containerd
 systemctl enable containerd
 

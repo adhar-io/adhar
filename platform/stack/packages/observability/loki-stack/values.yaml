@@ -21,7 +21,7 @@ loki:
       ruler: loki
       admin: loki
     s3:
-      endpoint: http://minio.adhar-system.svc.cluster.local:9000
+      endpoint: http://rustfs.adhar-system.svc.cluster.local:9000
       region: us-east-1
       s3ForcePathStyle: true
       insecure: true

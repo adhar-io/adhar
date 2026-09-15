@@ -8,7 +8,7 @@ kind: AdharPackage
 name: minio
 category: data
 version: "5.4.0"
-description: MinIO S3-compatible object storage — the default bucket backend for Loki, Mimir, Velero and platform apps.
+description: MinIO S3-compatible object store. Disabled in every profile since RustFS became the platform's primary object store; kept as an opt-in alternative.
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
@@ -32,7 +32,7 @@ provenance:
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
 planeAffinity: control-plane
-stability: stable
+stability: beta
 resources:
   localSafe: true   # mirrors the enabled gate in adhar-appset-local.yaml
 keywords:

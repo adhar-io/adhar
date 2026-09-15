@@ -1,0 +1,124 @@
+# The model server behind the llm-d router: vLLM's OFFICIAL CPU build serving a
+# small instruction model, so the whole stack — router, EPP scheduling,
+# agentgateway routing on `local/*` — is exercisable on the platform's CPU
+# droplets and on Kind. Swap the image for `vllm/vllm-openai` and add a GPU
+# resource on an accelerator node pool; nothing else changes.
+#
+# Labels are the contract with the router (values.yaml
+# router.modelServers.matchLabels): the EPP discovers replicas by these labels,
+# so they must match exactly.
+#
+# Model: Qwen2.5-0.5B-Instruct — open weights, no HF token required, ~1 GB, and
+# it answers in seconds on 4 CPUs, which is what makes an end-to-end proof of the
+# agentic loop against self-hosted inference practical. `local/` + this model id
+# is what the agent runtime sends (adhar-ai DEFAULT_MODELS["local"]).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-d-model-cache
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 10Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-d-decode
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: llm-d-decode
+    app.kubernetes.io/part-of: llm-d
+    llm-d.ai/inferenceServing: "true"
+    llm-d.ai/model: qwen2.5-0.5b-instruct
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # single RWO model cache
+  selector:
+    matchLabels:
+      llm-d.ai/inferenceServing: "true"
+      llm-d.ai/model: qwen2.5-0.5b-instruct
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: llm-d-decode
+        app.kubernetes.io/part-of: llm-d
+        llm-d.ai/inferenceServing: "true"
+        llm-d.ai/model: qwen2.5-0.5b-instruct
+    spec:
+      enableServiceLinks: false
+      securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true}
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai-cpu:v0.29.0
+          command: ["vllm", "serve"]
+          args:
+            - "Qwen/Qwen2.5-0.5B-Instruct"
+            # The model NAME clients send. agentgateway strips nothing, so the
+            # runtime's `local/Qwen/Qwen2.5-0.5B-Instruct` must be served as-is.
+            - "--served-model-name=local/Qwen/Qwen2.5-0.5B-Instruct"
+            - "--port=8000"
+            # The agent runtime sends its whole MCP toolbox (27 tool schemas,
+            # ~4k tokens) with every turn; at 4096 vLLM answered every request
+            # 400 "maximum context length is 4096 tokens" (2026-09-15). Qwen2.5
+            # supports 32k; VLLM_CPU_KVCACHE_SPACE below sizes the CPU KV cache.
+            - "--max-model-len=32768"
+            - "--dtype=bfloat16"
+            # The agent runtime sends tools with every turn (MCP toolbox) and
+            # tool_choice=auto; without a tool-call parser vLLM answers 400
+            # ("tool_choice=auto requires --enable-auto-tool-choice"), which
+            # is what the runtime's first local-model run hit on 2026-09-15.
+            # hermes is the parser for the Qwen2.5 family.
+            - "--enable-auto-tool-choice"
+            - "--tool-call-parser=hermes"
+          env:
+            # The image runs as a non-root user with no HOME; Triton's kernel
+            # cache defaults to ~/.triton and the worker died with
+            # "PermissionError: '/.triton'" on the 2026-09-15 DO bring-up.
+            # Everything cache-like lives on the model-cache volume.
+            - {name: HOME, value: /cache}
+            - {name: TRITON_CACHE_DIR, value: /cache/triton}
+            - {name: XDG_CACHE_HOME, value: /cache/xdg}
+            - {name: VLLM_CPU_KVCACHE_SPACE, value: "4"}
+            - {name: VLLM_CPU_NUM_OF_RESERVED_CPU, value: "1"}
+            - {name: HF_HOME, value: /cache/hf}
+            - {name: VLLM_CACHE_ROOT, value: /cache/vllm}
+          ports:
+            - {name: http, containerPort: 8000}
+          volumeMounts:
+            - {name: cache, mountPath: /cache}
+            - {name: dshm, mountPath: /dev/shm}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 15
+            failureThreshold: 120   # first start downloads the weights
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: "2", memory: 6Gi}
+            limits: {cpu: "4", memory: 10Gi}
+      volumes:
+        - name: cache
+          persistentVolumeClaim: {claimName: llm-d-model-cache}
+        - name: dshm
+          emptyDir: {medium: Memory, sizeLimit: 2Gi}
+---
+# Plain Service over the replicas — the router's agentgateway sidecar reaches
+# pods directly via the EPP, but a Service keeps the model reachable for health
+# checks, dashboards and a bypass path when debugging the router.
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-d-decode
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: llm-d-decode, app.kubernetes.io/part-of: llm-d}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  selector:
+    llm-d.ai/inferenceServing: "true"
+    llm-d.ai/model: qwen2.5-0.5b-instruct
+  ports:
+    - {name: http, port: 8000, targetPort: http}

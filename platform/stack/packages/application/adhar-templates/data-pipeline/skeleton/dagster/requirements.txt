@@ -2,7 +2,9 @@
 # the platform image (manifests/deployment.yaml) installs the same set.
 dagster==1.9.5
 dagster-webserver==1.9.5
-pyiceberg[s3fs,pyarrow]==0.8.1
+pyiceberg[pyarrow]==0.9.1   # PyArrow FileIO; s3fs pins an aiobotocore that conflicts with boto3
 pyarrow>=17.0.0
 dbt-core==1.9.1
 dbt-trino==1.9.0
+boto3>=1.34            # SigV4 signer for the RustFS Iceberg REST catalog
+trino>=0.330            # bootstraps the raw table through the platform Trino (see _bootstrap_table)

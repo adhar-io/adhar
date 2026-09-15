@@ -23,7 +23,7 @@ spec:
       data:
         accessKeyID: '{{ .accessKeyID }}'
         secretAccessKey: '{{ .secretAccessKey }}'
-        endpointURI: http://minio.adhar-system.svc.cluster.local:9000
+        endpointURI: http://rustfs.adhar-system.svc.cluster.local:9000
   data:
     - secretKey: accessKeyID
       remoteRef: {key: root-creds, property: rootUser}

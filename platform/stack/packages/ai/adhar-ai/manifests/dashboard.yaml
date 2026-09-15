@@ -1,0 +1,449 @@
+# Grafana dashboard for the agentic layer.
+#
+# Every query below uses a metric this repo actually exports — the panel list was
+# generated from the live registry rather than written by hand, so there are no
+# panels for metrics that do not exist. An empty panel here means the thing is
+# genuinely not happening, not that the query is wrong.
+#
+# Loaded by the kube-prometheus Grafana sidecar, which watches for this label.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-ai-dashboard
+  namespace: adhar-system
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: adhar-ai
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: observability
+    adhar.io/plane: control
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    # Folder the sidecar files it under, matching every other platform dashboard.
+    k8s-sidecar-target-directory: /tmp/dashboards/Platform
+data:
+  adhar-ai.json: |
+    {
+      "uid": "adhar-ai",
+      "title": "Adhar AI \u2014 agent, tools and spend",
+      "tags": [
+        "adhar",
+        "ai",
+        "agent"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Agent runs",
+          "type": "timeseries",
+          "description": "How runs end. A rising `error` or `budget_exhausted` share is the first sign something upstream is wrong.",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 12,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (outcome) (rate(adhar_ai_agent_runs_total[5m]))",
+              "legendFormat": "{{outcome}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "title": "Run latency",
+          "type": "timeseries",
+          "description": "Split by trigger: an operator run and a person's question have very different latency expectations.",
+          "gridPos": {
+            "x": 12,
+            "y": 0,
+            "w": 12,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum by (le, trigger) (rate(adhar_ai_agent_run_duration_seconds_bucket[5m])))",
+              "legendFormat": "p50 {{trigger}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, trigger) (rate(adhar_ai_agent_run_duration_seconds_bucket[5m])))",
+              "legendFormat": "p95 {{trigger}}",
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "title": "Tokens per second",
+          "type": "timeseries",
+          "description": "Input vs output, per model. Output tokens usually dominate cost.",
+          "gridPos": {
+            "x": 0,
+            "y": 7,
+            "w": 8,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (model, direction) (rate(adhar_ai_tokens_total[5m]))",
+              "legendFormat": "{{model}} {{direction}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "title": "Realized spend",
+          "type": "timeseries",
+          "description": "Only where the gateway reports a cost. An empty panel means it does not \u2014 deliberately not estimated, because somebody would budget against a guessed figure.",
+          "gridPos": {
+            "x": 8,
+            "y": 7,
+            "w": 8,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (model) (increase(adhar_ai_cost_usd_total[1h]))",
+              "legendFormat": "{{model}} / hour",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "title": "Steps per run",
+          "type": "timeseries",
+          "description": "Runs pressed against the step limit are runs that did not converge \u2014 usually a tool returning something the model cannot use.",
+          "gridPos": {
+            "x": 16,
+            "y": 7,
+            "w": 8,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(adhar_ai_agent_steps_bucket[5m])))",
+              "legendFormat": "p95 steps",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "title": "Policy refusals",
+          "type": "timeseries",
+          "description": "THE security signal. A steady trickle is the system working; a spike is either a misconfiguration or something trying to make the agent exceed its authority.",
+          "gridPos": {
+            "x": 0,
+            "y": 14,
+            "w": 12,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (reason) (rate(adhar_ai_denied_total[5m]))",
+              "legendFormat": "{{reason}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "title": "Pull requests opened",
+          "type": "timeseries",
+          "description": "The complete record of the agent's effect on the world: opening a pull request is the only way it changes anything.",
+          "gridPos": {
+            "x": 12,
+            "y": 14,
+            "w": 12,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (repo) (increase(adhar_ai_pull_requests_total[1h]))",
+              "legendFormat": "{{repo}} / hour",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "title": "Tool calls",
+          "type": "timeseries",
+          "description": "By domain and outcome. A domain that is all `error` has a backend problem, not an agent problem.",
+          "gridPos": {
+            "x": 0,
+            "y": 21,
+            "w": 12,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (domain, decision) (rate(adhar_ai_tool_calls_total[5m]))",
+              "legendFormat": "{{domain}} {{decision}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 9,
+          "title": "Tool latency p95",
+          "type": "timeseries",
+          "description": "Which backend the agent is waiting on.",
+          "gridPos": {
+            "x": 12,
+            "y": 21,
+            "w": 12,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, domain) (rate(adhar_ai_tool_call_duration_seconds_bucket[5m])))",
+              "legendFormat": "{{domain}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "title": "MCP servers connected",
+          "type": "stat",
+          "description": "Below 7 means the agent has silently lost a domain's tools.",
+          "gridPos": {
+            "x": 0,
+            "y": 28,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "min(adhar_ai_mcp_servers_connected)",
+              "legendFormat": "connected",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 11,
+          "title": "Circuit breakers",
+          "type": "timeseries",
+          "description": "0 closed, 1 half-open, 2 open. Anything above 0 names the failing dependency.",
+          "gridPos": {
+            "x": 6,
+            "y": 28,
+            "w": 9,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "max by (target) (adhar_ai_circuit_state)",
+              "legendFormat": "{{target}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 12,
+          "title": "Knowledge base",
+          "type": "timeseries",
+          "description": "Indexed chunks per source. A source that flatlines at zero has stopped being re-derived.",
+          "gridPos": {
+            "x": 15,
+            "y": 28,
+            "w": 9,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (origin) (adhar_ai_knowledge_chunks)",
+              "legendFormat": "{{origin}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }

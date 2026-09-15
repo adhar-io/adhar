@@ -126,7 +126,7 @@ var knownProviders = map[string]providerConfig{
 	"postgres":      {namespaces: []string{"adhar-system"}, patterns: []string{"postgres", "postgresql"}},
 	"redis":         {namespaces: []string{"adhar-system"}, patterns: []string{"redis"}},
 	"harbor":        {namespaces: []string{"adhar-system"}, patterns: []string{"harbor-admin", "harbor-core"}},
-	"rustfs":        {namespaces: []string{"adhar-system"}, patterns: []string{"rustfs-credentials"}},
+	"rustfs":        {namespaces: []string{"adhar-system"}, patterns: []string{"root-creds"}},
 }
 
 func runGetSecrets(cmd *cobra.Command, args []string) error {
@@ -433,7 +433,7 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 			return []SecretEntry{{Icon: "⚓", Service: "Harbor (core)", Username: "harbor", Password: string(secret.Data["secret"])}}
 		}
 	case "rustfs":
-		if strings.Contains(secret.Name, "rustfs-credentials") {
+		if strings.Contains(secret.Name, "root-creds") {
 			return []SecretEntry{{
 				Icon: "📦", Service: "RustFS (S3/console)",
 				Username: string(secret.Data["RUSTFS_ACCESS_KEY"]),

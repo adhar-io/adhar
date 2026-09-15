@@ -1,16 +1,18 @@
-# Keycloak SSO in front of the RustFS console.
+# SSO for the RustFS console — SYNC-WAVE 5, deliberately late.
 #
-# RustFS has no native OIDC (S3 access-key/secret-key auth only), so an oauth2-proxy
-# gates the console with Keycloak. RustFS gets its OWN host (rustfs.adhar.localtest.me);
-# the console is a Next.js SPA served at /rustfs/console/ making same-origin calls, so
-# proxying the whole :9001 console through oauth2-proxy covers it. The wildcard cert
-# (*.adhar.localtest.me) already covers this subdomain and the Gateway is host-agnostic.
----
+# The oauth2-proxy reads its client secret from Keycloak, which on a fresh
+# cluster comes up long after the object store has to exist. With the proxy in
+# an early wave, ArgoCD waited on "Deployment/rustfs-oauth2-proxy" and never
+# reached the wave-2 buckets/warehouse Job — so nothing in the platform had a
+# bucket, and every consumer of root-creds sat Degraded behind a login proxy.
+# Observed on the 2026-09-15 bring-up. The store must never wait for its UI.
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
 metadata:
   name: rustfs-oauth2-cookie
   namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
 spec:
   length: 32
   digits: 8
@@ -23,11 +25,9 @@ kind: ExternalSecret
 metadata:
   name: rustfs-oauth2-proxy
   namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
 spec:
-  # CreatedOnce + 5m: retry until keycloak-clients exists, then freeze so the
-  # generated cookie secret never rotates. A bare refreshInterval "0" is one
-  # attempt with NO retry — any ES created before the Keycloak realm job
-  # finishes (always, on a cold bootstrap) stays SecretSyncedError forever.
   refreshPolicy: CreatedOnce
   refreshInterval: 5m
   secretStoreRef:
@@ -38,22 +38,22 @@ spec:
     template:
       engineVersion: v2
       data:
-        OAUTH2_PROXY_CLIENT_SECRET: "{{ .RUSTFS_CLIENT_SECRET }}"
-        OAUTH2_PROXY_COOKIE_SECRET: "{{ .COOKIE_SECRET }}"
+        OAUTH2_PROXY_CLIENT_SECRET: '{{ .RUSTFS_CLIENT_SECRET }}'
+        OAUTH2_PROXY_COOKIE_SECRET: '{{ .COOKIE_SECRET }}'
   dataFrom:
-    - sourceRef:
-        generatorRef:
-          apiVersion: generators.external-secrets.io/v1alpha1
-          kind: Password
-          name: rustfs-oauth2-cookie
-      rewrite:
-        - transform:
-            template: "COOKIE_SECRET"
+  - sourceRef:
+      generatorRef:
+        apiVersion: generators.external-secrets.io/v1alpha1
+        kind: Password
+        name: rustfs-oauth2-cookie
+    rewrite:
+    - transform:
+        template: COOKIE_SECRET
   data:
-    - secretKey: RUSTFS_CLIENT_SECRET
-      remoteRef:
-        key: keycloak-clients
-        property: RUSTFS_CLIENT_SECRET
+  - secretKey: RUSTFS_CLIENT_SECRET
+    remoteRef:
+      key: keycloak-clients
+      property: RUSTFS_CLIENT_SECRET
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -63,6 +63,8 @@ metadata:
   labels:
     app.kubernetes.io/name: rustfs-oauth2-proxy
     app.kubernetes.io/part-of: rustfs
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
 spec:
   replicas: 1
   selector:
@@ -74,41 +76,41 @@ spec:
         app: rustfs-oauth2-proxy
     spec:
       containers:
-        - name: oauth2-proxy
-          image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
-          args:
-            - --http-address=0.0.0.0:4180
-            - --provider=oidc
-            - --oidc-issuer-url=https://keycloak.adhar.localtest.me:8443/realms/adhar
-            - --ssl-insecure-skip-verify=true
-            - --client-id=rustfs
-            - --redirect-url=https://rustfs.adhar.localtest.me:8443/oauth2/callback
-            - --upstream=http://rustfs-console.adhar-system.svc.cluster.local:9001
-            - --email-domain=*
-            - --scope=openid profile email groups
-            - --cookie-secure=true
-            - --skip-provider-button=true
-            - --reverse-proxy=true
-          envFrom:
-            - secretRef:
-                name: rustfs-oauth2-proxy
-          ports:
-            - name: http
-              containerPort: 4180
-          readinessProbe:
-            httpGet:
-              path: /ping
-              port: http
-          livenessProbe:
-            httpGet:
-              path: /ping
-              port: http
-          resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
-            limits:
-              memory: 128Mi
+      - name: oauth2-proxy
+        image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+        args:
+        - --http-address=0.0.0.0:4180
+        - --provider=oidc
+        - --oidc-issuer-url=https://keycloak.adhar.localtest.me:8443/realms/adhar
+        - --ssl-insecure-skip-verify=true
+        - --client-id=rustfs
+        - --redirect-url=https://rustfs.adhar.localtest.me:8443/oauth2/callback
+        - --upstream=http://rustfs-console.adhar-system.svc.cluster.local:9001
+        - --email-domain=*
+        - --scope=openid profile email groups
+        - --cookie-secure=true
+        - --skip-provider-button=true
+        - --reverse-proxy=true
+        envFrom:
+        - secretRef:
+            name: rustfs-oauth2-proxy
+        ports:
+        - name: http
+          containerPort: 4180
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: http
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: http
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
 ---
 apiVersion: v1
 kind: Service
@@ -118,18 +120,16 @@ metadata:
   labels:
     app.kubernetes.io/name: rustfs-oauth2-proxy
     app.kubernetes.io/part-of: rustfs
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
 spec:
   selector:
     app: rustfs-oauth2-proxy
   ports:
-    - name: http
-      port: 4180
-      targetPort: http
+  - name: http
+    port: 4180
+    targetPort: http
 ---
-# Dedicated host for the RustFS console via the Cilium Gateway -> oauth2-proxy.
-# The console lives at /rustfs/console/, so the bare "/" is rewritten there for a
-# clean entry URL; everything else (assets, same-origin API, /oauth2/*) forwards
-# intact to oauth2-proxy.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -138,30 +138,32 @@ metadata:
   labels:
     app.kubernetes.io/name: rustfs
     app.kubernetes.io/part-of: rustfs
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
 spec:
   parentRefs:
-    - name: adhar-gateway
-      namespace: adhar-system
+  - name: adhar-gateway
+    namespace: adhar-system
   hostnames:
-    - rustfs.adhar.localtest.me
+  - rustfs.adhar.localtest.me
   rules:
-    - matches:
-        - path:
-            type: Exact
-            value: /
-      filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplaceFullPath
-              replaceFullPath: /rustfs/console/
-      backendRefs:
-        - name: rustfs-oauth2-proxy
-          port: 4180
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      backendRefs:
-        - name: rustfs-oauth2-proxy
-          port: 4180
+  - matches:
+    - path:
+        type: Exact
+        value: /
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /rustfs/console/
+    backendRefs:
+    - name: rustfs-oauth2-proxy
+      port: 4180
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: rustfs-oauth2-proxy
+      port: 4180

@@ -7,9 +7,9 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: rustfs
 category: data
-version: "1.0.0-beta.8"
-appVersion: "1.0.0-beta.8"
-description: RustFS Rust-based S3-compatible object store, offered alongside MinIO with a Keycloak-gated console.
+version: "1.0.0-rc.6"
+appVersion: "1.0.0-rc.6"
+description: RustFS — the platform's PRIMARY S3 object store, with S3 Tables (an Apache Iceberg REST catalog inside the store) providing the lakehouse warehouse, and a Keycloak-gated console.
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
@@ -32,7 +32,7 @@ provenance:
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
 planeAffinity: control-plane
-stability: beta
+stability: stable
 resources:
   localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
 keywords:

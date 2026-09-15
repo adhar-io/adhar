@@ -16,7 +16,7 @@ Become the definitive open foundation for cloud-native platform engineering. A s
 
 ### Value Proposition
 
-- **Standardization as enablement, not constraint** — battle-tested patterns with 91 packages pre-configured
+- **Standardization as enablement, not constraint** — battle-tested patterns with 92 packages pre-configured
 - **Self-service with guardrails** — instant provisioning within security/compliance boundaries
 - **GitOps-native** — declarative infrastructure and application management via Git + ArgoCD
 - **Multi-cloud freedom** — consistent experience across 6 cloud providers + local Kind
@@ -47,7 +47,7 @@ Adhar uses a two-phase deployment model:
 9. Create the `adhar` Gitea org (teams `Owners`/`developers`/`viewers`, mapped from Keycloak groups via the auth source's `--group-team-map`) and the `environments` and `packages` repos under it (via API with `auto_init: true`); constants in `globals/project.go` (`GiteaPlatformOrg`, `GitOpsRepo*`)
 10. Populate repos: `kubectl cp` from `platform/stack/{packages,environments}` → Gitea pod → git push
 11. Apply ArgoCD auth (repo secrets + dedicated `gitea-argocd` service)
-12. Apply `adhar-appset-local.yaml` (ApplicationSet wiring 94 elements over 91 packages; a `selector` on `enabled: "true"` deploys a curated local-safe core (32), the rest are wired but disabled)
+12. Apply `adhar-appset-local.yaml` (ApplicationSet wiring 95 elements over 92 packages; a `selector` on `enabled: "true"` deploys a curated local-safe core (32), the rest are wired but disabled)
 13. ArgoCD syncs all applications from Gitea repos
 14. Controller detects platform is deployed → graceful shutdown → success message
 
@@ -136,9 +136,9 @@ adhar/
 │   │   └── kind/                  # Local Kind cluster (cluster.go, config.go, coredns.go, tls.go)
 │   ├── config/                    # Multi-layered config (global, provider, template, environment)
 │   ├── stack/                     # GitOps content pushed to Gitea repos
-│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (94 elements / 91 packages, enabled-gated; 32 enabled locally; adhar-appset-production.yaml: 76 enabled)
+│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (95 elements / 92 packages, enabled-gated; 32 enabled locally; adhar-appset-production.yaml: 77 enabled)
 │   │   ├── argocd-auth.yaml         # ArgoCD repo secrets + gitea-argocd service
-│   │   ├── packages/                # 91 packages, each with an adhar-package.yaml contract (ai/, application/, core/, data/, infrastructure/, observability/, security/)
+│   │   ├── packages/                # 92 packages, each with an adhar-package.yaml contract (ai/, application/, core/, data/, infrastructure/, observability/, security/)
 │   │   └── environments/            # Environment configs (local, dev, staging, prod)
 │   ├── k8s/                       # Kubernetes client, schema, provisioning, deserialization
 │   ├── utils/                     # ArgoCD, Gitea, Git, URL, filesystem utilities
@@ -242,7 +242,7 @@ Validated against `config.schema.json` (JSON Schema draft-07).
 - Server-Side Apply with `ForceOwnership` for all manifest application
 - 20+ linters enabled via golangci-lint
 
-## Integrated Services (91 packages)
+## Integrated Services (92 packages)
 
 ### Core (Bootstrap Phase - Embedded Manifests)
 Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
@@ -258,12 +258,12 @@ Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
 - **Package .xpkg** built via `crossplane xpkg build` (`make build-control-plane`) into the gitignored `platform/controlplane/dist/adhar-control-plane-<version>.xpkg`, versioned from the latest git tag (Makefile `VERSION`) and uploaded as a release asset by GoReleaser; the controller applies the embedded `configuration/` tree directly, so the file is not tracked in git.
 - Install order: Crossplane core → wait for ready → XRDs → Compositions → Functions → ProviderConfigs → Operations
 
-### GitOps Phase (91 packages / 94 ApplicationSet elements; 76 enabled in production, 32 in the local curated core)
-Categories (count): **ai** (3) · **application** (31) · **core** (7) · **data** (23) · **infrastructure** (2) · **observability** (16) · **security** (16).
+### GitOps Phase (92 packages / 95 ApplicationSet elements; 77 enabled in production, 32 in the local curated core)
+Categories (count): **ai** (4) · **application** (31) · **core** (7) · **data** (23) · **infrastructure** (2) · **observability** (16) · **security** (16).
 
-**ai**: adhar-ai (agent runtime; images from the separate `adhar-io/adhar-ai` repo), agentgateway (the AI data plane — LLM routing by model name, federated MCP, JWT/CEL/guardrails/budgets), vllm (self-hosted inference). All opt-in, disabled by default.
+**ai**: adhar-ai (agent runtime; images from the separate `adhar-io/adhar-ai` repo), agentgateway (the AI data plane — LLM routing by model name, federated MCP, JWT/CEL/guardrails/budgets), llm-d (distributed inference: endpoint-picker router + agentgateway sidecar in front of vLLM, serves `local/*` models), vllm (bare vLLM, GPU profile). Opt-in; llm-d/adhar-ai/agentgateway on in production.
 **Security**: cert-manager, external-secrets, keycloak, kyverno, kyverno-policies, **openbao** (production secrets backend; `vault` is disabled but the ESO store keeps that name), cosign, supply-chain-policies (audit + enforce variants), trivy, falco, tetragon, kubescape, policy-packs, policy-reporter, credential-rotation, vault
-**Data**: cnpg, minio, valkey, redis, opensearch, kafka-operator, rabbitmq, **libredb-studio** (browser SQL IDE over every platform database, Keycloak SSO), airbyte, metabase, trino, lakefs, kubeflow, jupyterhub, dagster, prefect, spark-operator, open-metadata, mongodb, mysql-operator, kafka-ui, rustfs
+**Data**: **rustfs** (the PRIMARY S3 object store; S3 Tables = the Iceberg REST catalog inside it, warehouse `lakehouse`), cnpg, valkey, redis, opensearch, kafka-operator, rabbitmq, **libredb-studio** (browser SQL IDE over every platform database, Keycloak SSO), airbyte, metabase, trino (`iceberg` catalog on RustFS), kubeflow, jupyterhub, dagster, prefect, spark-operator, open-metadata (ingests the lakehouse), **mlflow** (model registry), mongodb, mysql-operator, kafka-ui, minio (disabled in every profile — opt-in alternative)
 **Observability**: metrics-server, kube-prometheus, loki-stack, alloy, tempo, mimir, opencost, oncall, headlamp, hubble, beyla, faro, fluent-bit, pixie, pyroscope, victoria-metrics
 **Application**: argo-workflows, argo-events, argo-rollout, harbor, kargo, tekton, supply-chain, **preview-environments** (PR-labelled ephemeral environments), adhar-templates (four golden paths: microservice, frontend, data-pipeline, ml), scorecards, coder, n8n, penpot, plane, posthog, nexus, keda, dapr, k6, chaos-mesh, buildpack (the one package outside `adhar-system` — see ADR-0011), external-dns, knative, open-function, baserow, tooljet, adhar-libraries
 **Infrastructure**: crossplane, terraform
@@ -271,6 +271,9 @@ Categories (count): **ai** (3) · **application** (31) · **core** (7) · **data
 
 ## Important Implementation Notes
 
+- **Object store**: RustFS is the platform's primary S3 store and publishes the `root-creds` credential every consumer reads; MinIO is disabled in every profile. RustFS S3 Tables is the Iceberg REST catalog (`http://rustfs.adhar-system.svc.cluster.local:9000/iceberg`, warehouse `lakehouse`, SigV4 with the S3 keys). Control-plane buckets (`CompositeStorage type: object`) are created there
+- **Kyverno admits `adhar-system`** (`security/kyverno` sets `config.excludeKyvernoNamespace: false` and an explicit webhook `namespaceSelector`): the chart's default excludes its own release namespace, which on this platform is every package. Validation policies stay Audit or exclude `adhar-system` themselves; the exception exists so mutate rules that target platform pods (the kpack build-pod CA injection in `application/supply-chain`) actually fire
+- **Nodes pull kpack-built images from the in-cluster Harbor** via a containerd certs.d host config: Kind mounts it at creation (`platform/providers/kind`), cloud nodes get it from the harbor package's `harbor-node-registry-trust` DaemonSet plus the kubeadm cloud-init's containerd settings (`use_local_image_pull = true` so the CRI plugin pulls itself and honours certs.d, and `config_path` on every registry table — the transfer service containerd 2.x delegates to ignored the hosts.toml mirror)
 - **One namespace**: every package installs into `adhar-system` (ADR-0011). The single exception is `buildpack`, which keeps `kpack-system` because kpack and cosign both hardcode `Secret/webhook-certs` in their binaries. Kargo `Project` namespaces (`adhar-environments`) and data-plane vclusters (`dp-<name>`) are the only other platform-created namespaces. Sharing one namespace means Kubernetes injects a `<NAME>_PORT` env var per Service — cosign's `Service/webhook` becomes `WEBHOOK_PORT=tcp://…`, which crashes pods that decode env strictly, so those set `enableServiceLinks: false` (see `platform/stack/packages/CONFLICTS.md`)
 - **Kubernetes version precedence**: explicit `adhar up --kube-version` (every provider, not just Kind) → the environment's `kubeVersion`/`version` → `globals.DefaultKubernetesVersion` (v1.37.0). A node added later by `adhar cluster scale` or the node autoscaler takes its version from the running control plane, so a scaled cluster cannot skew
 - **A wave-stuck ArgoCD sync replays the revision it started with.** While an Application sits at `waiting for healthy state of <resource>`, pushing a fix to Gitea changes nothing and `kubectl` edits are reverted. `operation: null` does not clear it — terminate via the API (`DELETE /api/v1/applications/<app>/operation` with a `content-type: application/json` header), then hard-refresh

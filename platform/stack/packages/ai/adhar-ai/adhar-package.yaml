@@ -28,6 +28,14 @@ dependencies:
     optional: true
   - name: minio
     category: data
+  # kube-prometheus owns the ServiceMonitor CRD the two monitors in
+  # manifests/servicemonitor.yaml register with, and the Grafana sidecar that
+  # loads manifests/dashboard.yaml. Optional: without it the agent runs
+  # identically and still serves /metrics on every component — there is simply
+  # nothing scraping it.
+  - name: kube-prometheus
+    category: observability
+    optional: true
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
   signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline

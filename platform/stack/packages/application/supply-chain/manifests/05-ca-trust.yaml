@@ -33,6 +33,13 @@ rules:
   - apiGroups: [""]
     resources: [configmaps]
     verbs: [get, create, update, patch]
+  # The Job probes for kpack-system before writing there. Without this rule the
+  # probe fails, the loop skipped BOTH namespaces silently, and no `adhar-ca`
+  # existed anywhere — the ClusterBuilder then failed on Harbor's CA exactly as
+  # described below (2026-09-15 DO bring-up).
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get]
   # The kpack controller builds its CA pool once at start-up, so refreshing the
   # ConfigMap is not enough -- the Deployment has to be restarted.
   - apiGroups: [apps]
@@ -113,11 +120,17 @@ spec:
               #     that mounts the same name.
               #   adhar-system/adhar-ca-bundle — injected into kpack BUILD pods by
               #     the Kyverno mutate below (builds run in adhar-system).
-              for ns in kpack-system adhar-system; do
-                kubectl get namespace "$ns" >/dev/null 2>&1 || continue
-                kubectl create configmap adhar-ca -n "$ns" --from-file=ca.crt=/tmp/ca.crt \
+              # adhar-system always; kpack-system only once the buildpack package
+              # has created it (a missing probe permission must fail loudly, not
+              # skip — see the ClusterRole).
+              kubectl create configmap adhar-ca -n adhar-system --from-file=ca.crt=/tmp/ca.crt \
+                --dry-run=client -o yaml | kubectl apply -f -
+              if kubectl get namespace kpack-system >/dev/null; then
+                kubectl create configmap adhar-ca -n kpack-system --from-file=ca.crt=/tmp/ca.crt \
                   --dry-run=client -o yaml | kubectl apply -f -
-              done
+              else
+                echo "kpack-system not created yet; the buildpack package's own sync distributes the CA on its next run"
+              fi
               kubectl create configmap adhar-ca-bundle -n adhar-system --from-file=ca.crt=/tmp/ca.crt \
                 --dry-run=client -o yaml | kubectl apply -f -
               # Pick up the refreshed bundle: the controller reads it once at boot.

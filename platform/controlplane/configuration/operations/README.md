@@ -14,6 +14,13 @@ composition functions; here they run [`function-python`](../functions/functions.
 
 ## Files
 
+### `table-maintenance-cronoperation.yaml` — `adhar-lakehouse-maintenance`
+
+Nightly Iceberg table maintenance for the `lakehouse` warehouse: for every
+table, `POST …/maintenance/scheduler/run` then `…/maintenance/worker/run` on the
+RustFS S3 Tables catalog (the maintenance engine lives inside the object store).
+Emits a Kubernetes Job authenticated with `root-creds` over SigV4.
+
 ### `backup-cronoperation.yaml` — `adhar-daily-backup`
 A `CronOperation` on `schedule: "0 2 * * *"` (daily, 02:00). Its pipeline emits a
 **Velero `Backup` (`velero.io/v1`)** for the `adhar-system` namespace (168h TTL). `concurrencyPolicy: Forbid` prevents

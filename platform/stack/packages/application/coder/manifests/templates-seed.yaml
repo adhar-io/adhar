@@ -60,7 +60,7 @@ spec:
             # between "leave the operator's template alone" and "push a new
             # version because the platform now ships more IDEs".
             - name: IDE_REVISION
-              value: adhar-ide-v1
+              value: adhar-ide-v2
           command: [/bin/sh, -c]
           args:
             - |
@@ -119,8 +119,12 @@ spec:
               #    do require the matching client locally: JetBrains Gateway (or
               #    Toolbox) for IntelliJ, and the Coder extension for VS Code.
               #
-              #    `share = "owner"` matches the starter's code-server: a
-              #    workspace's IDEs are reachable by whoever owns it.
+              #    No `share` on them: the coder provider rejects `external`
+              #    together with `share` ("external": conflicts with share),
+              #    which made `terraform plan` fail on every push — the seed
+              #    Job crash-looped and a fresh platform had NO template, i.e.
+              #    no Cloud Dev Environment at all (2026-09-15). External apps
+              #    are deep links, so the owner-only sharing is implicit.
               cat > /tmp/tpl/${TEMPLATE_NAME}/adhar-ide-apps.tf <<'TF'
               # ─── Added by the Adhar platform: desktop IDE entry points ───
 
@@ -131,7 +135,6 @@ spec:
                 icon         = "/icon/intellij.svg"
                 external     = true
                 order        = 1
-                share        = "owner"
 
                 # Opens JetBrains Gateway and points it at this workspace. IU =
                 # IntelliJ IDEA Ultimate; Gateway offers to download the backend
@@ -154,7 +157,6 @@ spec:
                 icon         = "/icon/code.svg"
                 external     = true
                 order        = 2
-                share        = "owner"
 
                 url = join("", [
                   "vscode://coder.coder-remote/open?owner=", data.coder_workspace_owner.me.name,

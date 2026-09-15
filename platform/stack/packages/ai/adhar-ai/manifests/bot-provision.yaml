@@ -36,7 +36,10 @@ metadata:
     # A Job's selector and pod template are immutable, so without this any later
     # edit to the script below is silently NOT applied: ArgoCD's patch fails and
     # the cluster keeps running the previous version of the Job.
-    argocd.argoproj.io/sync-options: Replace=true
+    # Force: a Job's selector is server-generated and immutable, so a plain
+    # Replace (PUT) is rejected with "spec.selector: Required value" on every
+    # re-sync (seen on the 2026-09-15 DO bring-up); Force deletes and recreates.
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
 spec:
   backoffLimit: 10
   ttlSecondsAfterFinished: 1800

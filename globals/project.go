@@ -43,6 +43,15 @@ const (
 	KeycloakCLIClientID = "adhar-cli"
 
 	// KubernetesOIDCAudience is what kube-apiserver's --oidc-client-id must be,
+
+	// NodeCSIStartupTaint is placed on a freshly joined worker (kubelet
+	// --register-with-taints) and removed by the node autoscaler once the node's
+	// CSINode reports a storage driver. Without it the scheduler sees no attach
+	// limit on a node whose CSI plugin has not registered yet and packs it past
+	// the cloud's per-node volume ceiling (11 attachments on a 7-volume
+	// DigitalOcean droplet, observed twice). Tolerated by DaemonSets, so the CNI
+	// and the CSI node plugin still start; everything else waits.
+	NodeCSIStartupTaint = "node.adhar.io/csi-not-ready"
 	// and it is NOT KeycloakCLIClientID. A token minted by `adhar auth` carries
 	// `azp: adhar-cli` (the client that asked for it) but `aud: [kubernetes,
 	// account]` — and the API server matches the AUDIENCE. Setting

@@ -24,6 +24,25 @@ helm template --namespace adhar-system plane plane/plane-ce -f values.yaml --ver
 sed -i '' -E 's/^([[:space:]]*)timestamp: "[^"]*"$/\1timestamp: "pinned-by-generate-manifests"/' ${INSTALL_YAML} \
   || sed -i -E 's/^([[:space:]]*)timestamp: "[^"]*"$/\1timestamp: "pinned-by-generate-manifests"/' ${INSTALL_YAML}
 
+# The migrator is a plain Job in the chart: it runs once, and if the database
+# is not up yet on a fresh cluster it exhausts backoffLimit ("timed out waiting
+# for the condition") and stays Failed forever — ArgoCD then reports the whole
+# Application Degraded on every sync (2026-09-15 DO bring-up). Migrations are
+# idempotent, so make it a Sync hook that is recreated on every sync: a failed
+# run is retried on the next sync instead of wedging the app.
+python3 - "${INSTALL_YAML}" <<'PYEOF'
+import re, sys
+path = sys.argv[1]
+src = open(path).read()
+hook = ('  name: plane-api-migrate-1\n'
+        '  annotations:\n'
+        '    argocd.argoproj.io/hook: Sync\n'
+        '    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation\n')
+out, n = re.subn(r'(?m)^  name: plane-api-migrate-1\n', hook, src, count=1)
+open(path, 'w').write(out)
+print(f"migrator Job marked as a Sync hook ({n})")
+PYEOF
+
 # Pin the bundled MinIO images to the registry the platform already pulls from.
 #
 # The chart ships `minio/minio:latest` and `minio/mc:latest` from Docker Hub.

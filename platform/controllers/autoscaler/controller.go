@@ -29,6 +29,8 @@ package autoscaler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -199,6 +201,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 		return ctrl.Result{RequeueAfter: wait}, nil
 	}
 
+	// Runs before every gate below: the join path taints workers whether or
+	// not autoscaling is on, and the first workers join before the platform
+	// CR exists, so nothing else may stand between a node and its taint being
+	// lifted.
+	if err := r.clearStartupTaints(ctx); err != nil {
+		logger.Error(err, "clearing CSI startup taints")
+	}
+
 	platform, err := r.findPlatform(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -325,6 +335,41 @@ func (r *Reconciler) snapshot(ctx context.Context, platform *v1alpha1.AdharPlatf
 		},
 		cluster: cluster,
 	}, nil
+}
+
+// startupTaintMaxWait bounds how long a node stays tainted when no CSI driver
+// ever registers (a cluster without block storage), so the taint cannot strand
+// a node forever.
+const startupTaintMaxWait = 10 * time.Minute
+
+// clearStartupTaints lifts globals.NodeCSIStartupTaint from every worker whose
+// CSINode has registered a driver — see StartupTaintsToClear for why.
+func (r *Reconciler) clearStartupTaints(ctx context.Context) error {
+	nodes := &corev1.NodeList{}
+	if err := r.List(ctx, nodes); err != nil {
+		return err
+	}
+	csinodes := &storagev1.CSINodeList{}
+	if err := r.List(ctx, csinodes); err != nil && !meta.IsNoMatchError(err) {
+		return err
+	}
+	var errs []error
+	for _, name := range StartupTaintsToClear(nodes.Items, csinodes.Items, r.Now(), startupTaintMaxWait) {
+		for i := range nodes.Items {
+			if nodes.Items[i].Name != name {
+				continue
+			}
+			node := &nodes.Items[i]
+			base := node.DeepCopy()
+			node.Spec.Taints = WithoutTaint(node.Spec.Taints, globals.NodeCSIStartupTaint)
+			if err := r.Patch(ctx, node, client.MergeFrom(base)); err != nil {
+				errs = append(errs, fmt.Errorf("node %s: %w", name, err))
+				continue
+			}
+			log.FromContext(ctx).Info("CSI driver registered; node is schedulable", "node", name)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // volumesPerNode reports how many block volumes one worker can host, read from

@@ -48,6 +48,8 @@ spec:
               envFrom:
                 - configMapRef:
                     name: ${{values.name}}-iceberg-catalog
+                - secretRef:
+                    name: ${{values.name}}-object-store
               env:
                 - name: DAGSTER_HOME
                   value: /opt/dagster/home

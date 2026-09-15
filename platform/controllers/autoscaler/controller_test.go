@@ -7,6 +7,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -46,6 +47,9 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	s := runtime.NewScheme()
 	if err := corev1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := storagev1.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
 	if err := v1alpha1.AddToScheme(s); err != nil {
@@ -261,5 +265,29 @@ func TestReconcileRequeuesWhenDebounced(t *testing.T) {
 	}
 	if res.RequeueAfter <= 0 || res.RequeueAfter > minEvaluationInterval {
 		t.Fatalf("debounced tick must requeue within the window, got %s", res.RequeueAfter)
+	}
+}
+
+func TestReconcileLiftsStartupTaintBeforeAnyGate(t *testing.T) {
+	// No AdharPlatform at all — the first workers join before it exists —
+	// and the taint must still be lifted once the CSI driver registers.
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "w1", Labels: map[string]string{"node-role.kubernetes.io/worker": ""}}}
+	node.Spec.Taints = []corev1.Taint{
+		{Key: "keep-me", Effect: corev1.TaintEffectNoSchedule},
+		{Key: globals.NodeCSIStartupTaint, Effect: corev1.TaintEffectNoSchedule},
+	}
+	csi := &storagev1.CSINode{ObjectMeta: metav1.ObjectMeta{Name: "w1"}, Spec: storagev1.CSINodeSpec{Drivers: []storagev1.CSINodeDriver{{Name: "dobs.csi.digitalocean.com", NodeID: "1"}}}}
+	r := newReconciler(t, &fakeScaler{}, node, csi)
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	got := &corev1.Node{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "w1"}, got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if len(got.Spec.Taints) != 1 || got.Spec.Taints[0].Key != "keep-me" {
+		t.Fatalf("expected only the unrelated taint to remain, got %v", got.Spec.Taints)
 	}
 }

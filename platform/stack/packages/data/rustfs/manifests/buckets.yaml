@@ -1,0 +1,88 @@
+# Platform buckets + the Iceberg warehouse, provisioned by the primary store.
+#
+# RustFS is the platform's primary S3 store, so it provisions the buckets every
+# other package assumes exist (these used to be the `minio` package's post-job
+# list, carried over unchanged) plus `lakehouse`, the Apache Iceberg warehouse.
+#
+# `lakehouse` is a TABLE BUCKET: RustFS S3 Tables (1.0.0-rc.x) runs an Iceberg
+# REST Catalog inside the object-store kernel on the same port (9000), so there
+# is no separate catalog service to run. A regular bucket is turned into a
+# warehouse with one admin call — `PUT /iceberg/v1/buckets/{warehouse}` — after
+# which every engine talks to `http://rustfs:9000/iceberg` (REST prefix
+# `/iceberg/v1`) with ordinary S3 keys over SigV4 (signing name `s3`). Enabling
+# is idempotent, so the Job can re-run on every sync.
+#
+# Everything is plain S3 over `curl --aws-sigv4` (bucket creation is
+# `PUT /{bucket}`), so the Job needs no client download and no egress —
+# dl.min.io's `mc` link answered 410 on a live bring-up and stalled the store.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rustfs-buckets
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: rustfs-buckets
+    app.kubernetes.io/part-of: rustfs
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # A Job's template is immutable; Replace lets an edited bucket list re-run
+    # instead of failing the sync with a patch error. Force is required with
+    # it: a Job's selector is server-generated, so a plain PUT of the manifest
+    # is rejected with "spec.selector: Required value" on every re-sync (seen
+    # live 2026-09-15 — it wedged the whole rustfs Application); Force deletes
+    # and recreates.
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 1800
+  template:
+    spec:
+      restartPolicy: OnFailure
+      enableServiceLinks: false
+      containers:
+        - name: buckets
+          image: docker.io/alpine/k8s:1.31.0
+          env:
+            - name: S3_ENDPOINT
+              value: http://rustfs.adhar-system.svc.cluster.local:9000
+            - name: S3_USER
+              valueFrom: {secretKeyRef: {name: root-creds, key: rootUser}}
+            - name: S3_PASS
+              valueFrom: {secretKeyRef: {name: root-creds, key: rootPassword}}
+            # One line per bucket. Mimir's three are here because Mimir now
+            # writes to RustFS instead of its own bundled MinIO.
+            - name: BUCKETS
+              value: "adhar-backups mlpipeline penpot loki airbyte mlflow mimir-blocks mimir-ruler mimir-alertmanager lakehouse"
+            - name: WAREHOUSES
+              value: "lakehouse"
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+              echo "waiting for the S3 endpoint"
+              for i in $(seq 1 90); do
+                curl -s -o /dev/null --max-time 5 "${S3_ENDPOINT}/" && break
+                sleep 5
+              done
+              s3() { curl -s -o /tmp/out -w '%{http_code}' --user "${S3_USER}:${S3_PASS}" \
+                       --aws-sigv4 "aws:amz:us-east-1:s3" "$@"; }
+              for b in ${BUCKETS}; do
+                code=$(s3 -X PUT "${S3_ENDPOINT}/${b}")
+                case "${code}" in
+                  200|409) echo "bucket ${b} ready (HTTP ${code})" ;;
+                  *) echo "bucket ${b}: HTTP ${code}: $(head -c 300 /tmp/out)"; exit 1 ;;
+                esac
+              done
+              # Turn each warehouse bucket into an Iceberg table bucket.
+              for w in ${WAREHOUSES}; do
+                code=$(s3 -X PUT "${S3_ENDPOINT}/iceberg/v1/buckets/${w}")
+                if [ "${code}" = "200" ]; then
+                  echo "warehouse ${w}: Iceberg REST catalog enabled -> ${S3_ENDPOINT}/iceberg"
+                else
+                  echo "warehouse ${w}: enable returned HTTP ${code}: $(head -c 300 /tmp/out)"; exit 1
+                fi
+                s3 "${S3_ENDPOINT}/iceberg/v1/config?warehouse=${w}" >/dev/null; head -c 400 /tmp/out; echo
+              done
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {memory: 256Mi}

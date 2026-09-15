@@ -46,7 +46,7 @@ global:
       # Overrides the chart default "http://airbyte-minio-svc:9000"
       # (templates/_helpers.tpl -> airbyte.storage.minio.endpoint), which is the
       # only reference to the stripped subchart Service.
-      endpoint: http://minio.adhar-system.svc.cluster.local:9000
+      endpoint: http://rustfs.adhar-system.svc.cluster.local:9000
 
 webapp:
   ingress:

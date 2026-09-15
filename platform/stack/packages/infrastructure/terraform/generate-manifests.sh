@@ -2,14 +2,19 @@
 set -e
 
 INSTALL_YAML="manifests/install.yaml"
-CHART_VERSION="v0.15.1"
+# tofu-controller (the continuation of tf-controller under flux-iac). v0.15.x
+# still watched Flux sources at source.toolkit.fluxcd.io/v1beta2, which the
+# flux2 2.19 source-controller CRDs below no longer serve — the controller
+# crash-looped forever on "timed out waiting for cache to be synced for Kind
+# *v1beta2.Bucket" (2026-09-15 DO bring-up). 0.16.x watches v1.
+CHART_VERSION="0.16.5"
 
 echo "# TERRAFORM INSTALL RESOURCES" >${INSTALL_YAML}
 echo "# This file is auto-generated with 'platform/stack/packages/infrastructure/terraform/generate-manifests.sh'" >>${INSTALL_YAML}
 
 helm repo add terraform https://flux-iac.github.io/tofu-controller --force-update
 helm repo update terraform
-helm template --namespace adhar-system tf-controller terraform/tf-controller -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
+helm template --namespace adhar-system tf-controller terraform/tofu-controller -f values.yaml --version ${CHART_VERSION} --include-crds >>${INSTALL_YAML}
 
 # tf-controller (tofu-controller) sources its Terraform from Flux `GitRepository` /
 # `OCIRepository` / `Bucket` objects, i.e. it needs Flux's source-controller and its
@@ -32,13 +37,12 @@ helm template --namespace adhar-system flux-source fluxcd-community/flux2 --vers
   --set rbac.create=true \
   --set-string crds.annotations."argocd\.argoproj\.io/sync-wave"="-1" >>${INSTALL_YAML}
 
-# Version skew between the two charts above: tf-controller still renders its
-# optional "primitive modules" OCIRepository at source.toolkit.fluxcd.io/v1beta2,
-# while flux2 2.19's source-controller CRDs serve only v1. ArgoCD cannot apply it
-# ("no matches for kind OCIRepository in version …/v1beta2") and retries the whole
-# Application forever — seen live as `Retrying attempt #41`. The spec fields
-# (interval, ref.tag, url) are unchanged between the two versions, so pin the
-# object to the version the CRDs actually serve.
+# Guard against version skew between the two charts: an older tf-controller
+# rendered its optional "primitive modules" OCIRepository at
+# source.toolkit.fluxcd.io/v1beta2, which flux2 2.19's CRDs do not serve, and
+# ArgoCD retried the Application forever. tofu-controller 0.16 renders v1
+# (the rewrite below reports 0), but keep the pin so a future chart bump
+# cannot reintroduce it silently.
 python3 - "${INSTALL_YAML}" <<'PYEOF'
 import re, sys
 path = sys.argv[1]
@@ -47,6 +51,11 @@ src = open(path).read()
 # which appear indented inside the OpenAPI definitions.
 out, n = re.subn(r'(?m)^apiVersion: source\.toolkit\.fluxcd\.io/v1beta2$',
                  'apiVersion: source.toolkit.fluxcd.io/v1', src)
+# The tofu-controller chart hardcodes the runner cache-encryption Secret into
+# `flux-system` regardless of the release namespace; ArgoCD then fails the
+# sync on a namespace that does not exist. Everything lives in adhar-system
+# (ADR-0011), the chart's own runner ServiceAccount included.
+out, m = re.subn(r'(?m)^  namespace: flux-system$', '  namespace: adhar-system', out)
 open(path, 'w').write(out)
-print(f"repinned {n} source.toolkit.fluxcd.io object(s) from v1beta2 to v1")
+print(f"repinned {n} source.toolkit.fluxcd.io object(s) from v1beta2 to v1; {m} flux-system namespace(s) moved to adhar-system")
 PYEOF

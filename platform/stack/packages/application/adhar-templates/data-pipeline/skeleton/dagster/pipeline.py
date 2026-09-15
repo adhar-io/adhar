@@ -12,7 +12,11 @@ same table directly so the chain runs end-to-end from day one. Swap the body of
 ``raw_events`` for your real extract without touching anything downstream.
 """
 
-from __future__ import annotations
+# No `from __future__ import annotations` here: Dagster 1.9 resolves the
+# `context: AssetExecutionContext` annotation at decoration time and rejects
+# the postponed (string) form with "Cannot annotate `context` parameter…" —
+# the asset never loads, and the CronJob fails before touching the catalog
+# (found running this skeleton on the platform, 2026-09-15).
 
 import os
 from datetime import datetime, timezone
@@ -32,24 +36,95 @@ from pyiceberg.catalog import load_catalog
 # defaults here let `dagster dev` run against a port-forwarded catalog locally.
 CATALOG_NAME = "adhar"
 ICEBERG_REST_URI = os.environ.get(
-    "ICEBERG_REST_URI", "http://iceberg-rest.adhar-system.svc:8181"
+    "ICEBERG_REST_URI", "http://rustfs.adhar-system.svc.cluster.local:9000/iceberg"
 )
-ICEBERG_WAREHOUSE = os.environ.get(
-    "ICEBERG_WAREHOUSE", "s3://lakehouse/${{values.name}}"
-)
+ICEBERG_WAREHOUSE = os.environ.get("ICEBERG_WAREHOUSE", "lakehouse")
+ICEBERG_NAMESPACE = os.environ.get("ICEBERG_NAMESPACE", "${{values.name}}")
+S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "http://rustfs.adhar-system.svc.cluster.local:9000")
+S3_REGION = os.environ.get("S3_REGION", "us-east-1")
+# RustFS S3 Tables authenticates the REST catalog with the S3 keys over SigV4
+# (signing name `s3`) and the data plane is the same endpoint.
+S3_ACCESS_KEY_ID = os.environ.get("S3_ACCESS_KEY_ID", "")
+S3_SECRET_ACCESS_KEY = os.environ.get("S3_SECRET_ACCESS_KEY", "")
+# The catalog's SigV4 signer is boto3's default session, which only reads the
+# AWS_* names; the ExternalSecret publishes both spellings, and this fallback
+# keeps a local run with only the S3_* pair working.
+os.environ.setdefault("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY_ID)
+os.environ.setdefault("AWS_SECRET_ACCESS_KEY", S3_SECRET_ACCESS_KEY)
+os.environ.setdefault("AWS_DEFAULT_REGION", S3_REGION)
 TARGET_TABLE = os.environ.get("TARGET_TABLE", "${{values.targetTable}}")
 SOURCE_CONNECTOR = os.environ.get("SOURCE_CONNECTOR", "${{values.sourceConnector}}")
 
 
 def _catalog():
+    # RustFS S3 Tables: the REST catalog and the S3 data plane are the same
+    # endpoint, and both are authenticated with the S3 key pair — the catalog
+    # over SigV4 (`rest.sigv4-enabled`, signing name `s3`), the data files as
+    # ordinary S3 objects.
     return load_catalog(
         CATALOG_NAME,
         **{
             "type": "rest",
             "uri": ICEBERG_REST_URI,
             "warehouse": ICEBERG_WAREHOUSE,
+            "rest.sigv4-enabled": "true",
+            "rest.signing-region": S3_REGION,
+            "rest.signing-name": "s3",
+            "s3.endpoint": S3_ENDPOINT,
+            "s3.region": S3_REGION,
+            "s3.access-key-id": S3_ACCESS_KEY_ID,
+            "s3.secret-access-key": S3_SECRET_ACCESS_KEY,
+            "s3.path-style-access": "true",
+            # PyArrow's FileIO needs no extra S3 driver; the s3fs path pulls
+            # an aiobotocore that pins boto3 and breaks dependency resolution.
+            "py-io-impl": "pyiceberg.io.pyarrow.PyArrowFileIO",
+            # RustFS's S3 kernel requires the SigV4 payload-hash header on
+            # every signed call and PyIceberg's generic signer omits it —
+            # without this every catalog call is a 400 "missing header:
+            # x-amz-content-sha256" (verified on RustFS 1.0.0-rc.6).
+            "header.x-amz-content-sha256": "UNSIGNED-PAYLOAD",
         },
     )
+
+
+def _bootstrap_table(namespace: str, table_name: str, schema: pa.Schema) -> None:
+    """Create the raw table through Trino if it does not exist yet.
+
+    Verified on the platform's RustFS S3 Tables catalog (1.0.0-rc.6): a table's
+    FIRST data commit from PyIceberg is rejected (``assert-ref-snapshot-id
+    requires snapshot-id`` — the client omits the null snapshot-id the spec
+    allows), while a table created by Trino takes PyIceberg appends fine and
+    both engines read it. So the paved road creates the table with Trino's
+    ``iceberg`` catalog — the same catalog dbt uses downstream — and appends
+    with PyIceberg from then on. Idempotent (``IF NOT EXISTS``).
+    """
+    import trino
+
+    type_map = {
+        pa.int64(): "bigint",
+        pa.int32(): "integer",
+        pa.float64(): "double",
+        pa.string(): "varchar",
+        pa.bool_(): "boolean",
+    }
+    cols = []
+    for field in schema:
+        if pa.types.is_timestamp(field.type):
+            trino_type = "timestamp(6) with time zone"
+        else:
+            trino_type = type_map.get(field.type, "varchar")
+        cols.append(f'"{field.name}" {trino_type}')
+    conn = trino.dbapi.connect(
+        host=os.environ.get("TRINO_HOST", "trino.adhar-system.svc"),
+        port=int(os.environ.get("TRINO_PORT", "8080")),
+        user=os.environ.get("TRINO_USER", "${{values.name}}"),
+        catalog="iceberg",
+        schema=namespace,
+    )
+    cur = conn.cursor()
+    cur.execute(f'CREATE SCHEMA IF NOT EXISTS iceberg."{namespace}"')
+    cur.execute(f'CREATE TABLE IF NOT EXISTS iceberg."{namespace}"."{table_name}" ({", ".join(cols)})')
+    cur.fetchall()
 
 
 @asset(
@@ -79,10 +154,8 @@ def raw_events(context: AssetExecutionContext) -> None:
 
     catalog = _catalog()
     catalog.create_namespace_if_not_exists(namespace)
-    table = catalog.create_table_if_not_exists(
-        identifier=(namespace, table_name),
-        schema=batch.schema,
-    )
+    _bootstrap_table(namespace, table_name, batch.schema)
+    table = catalog.load_table((namespace, table_name))
     table.append(batch)
 
     context.log.info(

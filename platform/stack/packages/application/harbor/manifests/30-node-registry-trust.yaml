@@ -1,0 +1,115 @@
+# Teach every node's containerd to pull from the in-cluster Harbor.
+#
+# kpack tags what it builds as
+# harbor-core.adhar-system.svc.cluster.local/library/<app>, and the kubelet
+# pulls those images with the NODE's containerd — outside the cluster DNS and
+# outside the cluster's trust of Harbor's internal CA. Kind solves this at
+# cluster creation by mounting a certs.d tree into the node
+# (platform/providers/kind: hosts.toml.tmpl, renderRegistryCertsDir). A
+# kubeadm node on a cloud (DigitalOcean, …) gets nothing of the kind, so every
+# golden-path build pod sat in Init:ErrImagePull on "dial tcp: lookup
+# harbor-core.adhar-system.svc.cluster.local" (2026-09-15 DO bring-up).
+#
+# This DaemonSet is the cloud equivalent: on each node it writes
+#   /etc/containerd/certs.d/harbor-core.adhar-system.svc.cluster.local/
+#     hosts.toml — dial Harbor's PINNED core ClusterIP over HTTPS (the core
+#                  cert carries that IP as a SAN, see 10-internal-tls-certs.yaml)
+#     ca.crt     — the internal CA, so there is no skip_verify anywhere
+# and keeps them fresh (the CA is re-copied every 5 minutes, so a rotation by
+# cert-manager propagates). containerd reads certs.d on every pull — no
+# restart; the node-prep cloud-init already sets `config_path` to it. On a Kind
+# node the tree is a read-only mount that already holds the same config, so a
+# failed write there is reported and ignored.
+#
+# The ClusterIP is the same pin the kind provider and generate-manifests.sh
+# use (HarborCorePinnedClusterIP); the DaemonSet reads it from the Service so a
+# different pin never drifts from it.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: harbor-node-registry-trust
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: harbor-node-registry-trust
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+rules:
+  - apiGroups: [""]
+    resources: [services]
+    resourceNames: [harbor-core]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: harbor-node-registry-trust
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: harbor-node-registry-trust}
+subjects: [{kind: ServiceAccount, name: harbor-node-registry-trust, namespace: adhar-system}]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: harbor-node-registry-trust
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: harbor-node-registry-trust
+    app.kubernetes.io/part-of: harbor
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: harbor-node-registry-trust}
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: "100%"}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: harbor-node-registry-trust}
+    spec:
+      serviceAccountName: harbor-node-registry-trust
+      enableServiceLinks: false
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: trust
+          image: docker.io/alpine/k8s:1.31.0
+          env:
+            - {name: REGISTRY_HOST, value: harbor-core.adhar-system.svc.cluster.local}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+              D="/host-certs.d/${REGISTRY_HOST}"
+              while true; do
+                IP=$(kubectl -n adhar-system get svc harbor-core -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+                if [ -z "${IP}" ]; then echo "harbor-core Service not found yet"; sleep 30; continue; fi
+                if mkdir -p "${D}" 2>/dev/null && cp /ca/tls.crt "${D}/ca.crt.tmp" 2>/dev/null; then
+                  mv "${D}/ca.crt.tmp" "${D}/ca.crt"
+                  printf 'server = "https://%s"\n\n[host."https://%s"]\n  capabilities = ["pull", "resolve"]\n  ca = "%s/ca.crt"\n' \
+                    "${IP}" "${IP}" "/etc/containerd/certs.d/${REGISTRY_HOST}" > "${D}/hosts.toml.tmp"
+                  mv "${D}/hosts.toml.tmp" "${D}/hosts.toml"
+                  echo "$(date -u +%FT%TZ) containerd trusts ${REGISTRY_HOST} -> https://${IP} (CA $(sha256sum /ca/tls.crt | cut -c1-12))"
+                else
+                  echo "$(date -u +%FT%TZ) certs.d not writable on this node (a Kind node ships it read-only); nothing to do"
+                fi
+                sleep 300
+              done
+          volumeMounts:
+            - {name: certs-d, mountPath: /host-certs.d}
+            - {name: ca, mountPath: /ca, readOnly: true}
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+      volumes:
+        - name: certs-d
+          hostPath: {path: /etc/containerd/certs.d, type: DirectoryOrCreate}
+        - name: ca
+          secret: {secretName: harbor-internal-ca, items: [{key: tls.crt, path: tls.crt}]}

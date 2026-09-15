@@ -23,10 +23,12 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/globals"
 )
 
 // Action is what a tick concluded the cluster needs.
@@ -600,4 +602,66 @@ func scaleUpBurst(s Snapshot, pending []string, workers, maxWorkers int32) int32
 		needed = room
 	}
 	return needed
+}
+
+// StartupTaintsToClear returns the workers whose CSI startup taint
+// (globals.NodeCSIStartupTaint) can be removed: the node's CSINode reports at
+// least one driver, or the node has been Ready for longer than maxWait — the
+// fallback for a cluster with no CSI driver at all, so the taint can never
+// strand a node forever.
+//
+// Why this exists: a worker becomes schedulable the moment the kubelet
+// registers, but the scheduler only enforces the per-node volume attach limit
+// once the CSI node plugin has published a CSINode. In that window it packs the
+// node without limit — on DigitalOcean, 11 attachments onto a 7-volume droplet,
+// seen on two separate bring-ups. The join path registers the node with this
+// taint; this is the other half, lifting it exactly when the limit is known.
+func StartupTaintsToClear(nodes []corev1.Node, csinodes []storagev1.CSINode, now time.Time, maxWait time.Duration) []string {
+	drivers := make(map[string]int, len(csinodes))
+	for _, c := range csinodes {
+		drivers[c.Name] = len(c.Spec.Drivers)
+	}
+	var clear []string
+	for _, n := range nodes {
+		tainted := false
+		for _, t := range n.Spec.Taints {
+			if t.Key == globals.NodeCSIStartupTaint {
+				tainted = true
+				break
+			}
+		}
+		if !tainted {
+			continue
+		}
+		if drivers[n.Name] > 0 {
+			clear = append(clear, n.Name)
+			continue
+		}
+		if ready := readySince(n); ready != nil && now.Sub(*ready) > maxWait {
+			clear = append(clear, n.Name)
+		}
+	}
+	return clear
+}
+
+// readySince returns when the node last became Ready, or nil if it is not.
+func readySince(n corev1.Node) *time.Time {
+	for _, c := range n.Status.Conditions {
+		if c.Type == corev1.NodeReady && c.Status == corev1.ConditionTrue {
+			t := c.LastTransitionTime.Time
+			return &t
+		}
+	}
+	return nil
+}
+
+// WithoutTaint returns a copy of taints with every entry of key removed.
+func WithoutTaint(taints []corev1.Taint, key string) []corev1.Taint {
+	out := make([]corev1.Taint, 0, len(taints))
+	for _, t := range taints {
+		if t.Key != key {
+			out = append(out, t)
+		}
+	}
+	return out
 }

@@ -84,6 +84,9 @@ To remove everything:
 ./adhar down -f config.yaml --env dev --purge-orphaned-volumes
 ```
 
+To build it again afterwards, the exact sequence — including the two day-2 steps
+`adhar up` deliberately leaves out — is [§5.1 Recreate from scratch](#51-recreate-from-scratch).
+
 ## 0. Prerequisites
 
 **API token.** A DigitalOcean token that can read/write **droplets, VPCs,
@@ -730,7 +733,48 @@ catalogue exhausts attachment slots long before CPU or memory — on a 3-worker
 cluster the first thing to go Pending is every StatefulSet with a PVC. A fresh
 droplet brings seven more slots, so it is a real capacity signal, unlike a
 zone-pinned volume ("volume node affinity conflict"), which another identical
-droplet would not fix and which is therefore ignored. Pods blocked by taints,
+droplet would not fix and which is therefore ignored.
+
+A new worker joins with the taint `node.adhar.io/csi-not-ready=:NoSchedule`
+(kubelet `--register-with-taints`, set by the same join path) and the
+autoscaler lifts it the moment the node's `CSINode` reports the DO driver —
+or after 10 minutes if no CSI driver ever registers. Without it the scheduler
+sees no attach limit on a node whose CSI plugin has not registered yet and
+packs it past the 7-volume ceiling (11 attachments on one droplet, twice on
+live bring-ups), and every volume past the seventh stays `ContainerCreating`
+on `attach limit reached`. DaemonSets with a blanket toleration (Cilium, the
+CSI node plugin — which `adhar up` patches to tolerate the taint) still start
+on the tainted node; everything else waits the ~1–2 minutes until the limit
+is known. Verified live 2026-09-15: `workers-11` joined `Ready` carrying the
+taint, its `CSINode` appeared with `count: 7` ~45 s later, and the taint was
+gone on the next tick. On a cluster created before this change, apply the CSI
+toleration once by hand (the exact patch `adhar up` now applies):
+`kubectl -n kube-system patch daemonset csi-do-node --type=json -p '[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"node.adhar.io/csi-not-ready","operator":"Exists","effect":"NoSchedule"}]}]'`
+— without it the plugin cannot start on the tainted node and only the 10-minute
+fallback releases it.
+
+**Manual scale-ups and the autoscaler.** `adhar cluster scale --workers N`
+adds droplets, but the running autoscaler treats an empty new node on an
+"idle" cluster as removable and drained one within five minutes of joining.
+Pause it first for capacity tests (`kubectl -n adhar-system patch
+adharplatform <name> --type=merge -p '{"spec":{"autoscaling":{"enabled":false}}}'`)
+and re-enable afterwards. The provider counts *droplets*, so a droplet that was
+created but never joined (`adhar-dev-workers-4` on 2026-09-15) makes
+`--workers <current>` a no-op and keeps billing — check `adhar cluster status`
+against `kubectl get nodes` when the counts disagree.
+
+**Pulling kpack-built images on a kubeadm node.** kpack tags images with the
+in-cluster Service name `harbor-core.adhar-system.svc.cluster.local`, which a
+node can neither resolve nor trust. The harbor package's
+`harbor-node-registry-trust` DaemonSet writes a containerd certs.d host config
+on every node (dial Harbor's pinned ClusterIP `10.96.222.222` over TLS, verified
+against the internal CA), and the node-prep cloud-init makes containerd honour
+it: `use_local_image_pull = true` (the CRI plugin pulls itself and reads
+certs.d — containerd 2.x otherwise delegates to the transfer service, which
+ignored the hosts.toml mirror even with its own `config_path` set) plus
+`config_path = '/etc/containerd/certs.d'` on every registry table. Nodes
+provisioned before this change need those two lines in
+`/etc/containerd/config.toml` and one `systemctl restart containerd`. Pods blocked by taints,
 node affinity that no current worker satisfies, or unbound volumes are
 ignored: another identical droplet would not schedule them. The new node is
 created, prepared and `kubeadm join`ed by the same code path
@@ -891,6 +935,62 @@ adhar cluster delete dev --force -f config.yaml --purge-orphaned-volumes
 
 `adhar down` prompts before it destroys anything; add `--force` to skip that.
 Omitting `--env` tears down **every** environment in the file.
+
+### 5.1 Recreate from scratch
+
+The exact sequence, verified end to end. Substitute your own config path; the
+reference run uses `do-config.yaml` beside the repo.
+
+```bash
+# 0. Token. A scoped token is fine — see §0 for why `doctl account get` lies.
+export DIGITALOCEAN_ACCESS_TOKEN="dop_v1_…"     # DIGITALOCEAN_TOKEN also accepted
+
+# 1. Provision. --env is NOT optional: without it EVERY environment in the file
+#    is provisioned. ~13 min to a usable platform.
+./adhar up -f ../do-config.yaml --env dev --dry-run    # resolves config, creates nothing
+./adhar up -f ../do-config.yaml --env dev
+
+# 2. Verify the cluster itself.
+export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
+kubectl get nodes
+./adhar get status
+./adhar get secrets                # every platform credential, incl. user1 + user2
+
+# 3. Let the catalogue converge — 30–45 min AFTER the CLI returns. Not a hang.
+kubectl -n adhar-system get applications.argoproj.io
+```
+
+**The cluster is named after the environment.** It is `dev`, not the
+`clusterConfig.name` value — `adhar cluster list/scale/delete` all want `dev`.
+Passing the `clusterConfig.name` gives `cluster "…" not found in any configured
+provider`, which reads like a credentials problem and is not one.
+
+Two day-2 steps are **not** part of `adhar up`, by design:
+
+```bash
+# Agentic features (Adhar AI). Without a key the AI packages come up unkeyed and
+# the platform runs unaffected; adhar-ai reports Degraded on its two backend-
+# sourced ExternalSecrets until this runs. The key goes in over stdin — never
+# argv, never a file, never git.
+ADHAR_AI_LLM_PROVIDER=openrouter hack/seed-adhar-ai-llm.sh
+# …or self-hosted, no key at all: vLLM behind the llm-d router (ai/llm-d)
+# answers every `local/*` model name.
+ADHAR_AI_LLM_PROVIDER=local hack/seed-adhar-ai-llm.sh
+
+# kubectl as your platform identity (apiserver OIDC). MUST be applied after
+# Keycloak is serving — `oidcAuth: "true"` at creation time is REJECTED, because
+# pointing --oidc-issuer-url at a Keycloak that does not exist yet stops the
+# apiserver starting at all. See §"kubectl with your platform identity".
+```
+
+**Check `autoscaling.maxWorkers` before you provision.** The reference config
+ships a deliberately small default — `minWorkers: 2`, `maxWorkers: 4`,
+`nodeCount: 2` — so an idle platform costs little. The trade-off is
+DigitalOcean's ceiling of **7 block-storage attachments per droplet**: 4 workers
+hold 28, and the full catalogue (every stateful package on) needs roughly 40, so
+a full-profile cluster left at 4 leaves StatefulSet databases Pending with
+`exceed max volume count`. Raise `maxWorkers` (10 was the verified full-profile
+value) before provisioning everything, or enable packages selectively.
 
 **`-f` means `--file` on every command that takes one.** Passing `--file` is what
 makes `adhar down` look at the cloud at all: with no configuration file it only

@@ -6,10 +6,12 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/globals"
 )
 
 var testNow = time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
@@ -469,5 +471,52 @@ func TestScaleUpBurstIsAlwaysAtLeastOne(t *testing.T) {
 			t.Fatalf("scaleUpBurst(workers=%d,max=%d) = %d, must be >= 1",
 				room.workers, room.max, got)
 		}
+	}
+}
+
+func csiTainted(name string) corev1.Node {
+	n := worker(name)
+	n.Spec.Taints = []corev1.Taint{{Key: globals.NodeCSIStartupTaint, Effect: corev1.TaintEffectNoSchedule}}
+	return n
+}
+
+func csiNode(name string, drivers int) storagev1.CSINode {
+	c := storagev1.CSINode{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	for i := 0; i < drivers; i++ {
+		c.Spec.Drivers = append(c.Spec.Drivers, storagev1.CSINodeDriver{Name: fmt.Sprintf("driver-%d", i)})
+	}
+	return c
+}
+
+func TestStartupTaintClearsOnceCSIDriverRegisters(t *testing.T) {
+	now := time.Now()
+	nodes := []corev1.Node{csiTainted("w1"), csiTainted("w2"), worker("w3")}
+	got := StartupTaintsToClear(nodes, []storagev1.CSINode{csiNode("w1", 1), csiNode("w2", 0), csiNode("w3", 1)}, now, 10*time.Minute)
+	if len(got) != 1 || got[0] != "w1" {
+		t.Fatalf("expected only the tainted node whose CSINode has a driver, got %v", got)
+	}
+}
+
+func TestStartupTaintClearsAfterMaxWaitWithoutCSI(t *testing.T) {
+	now := time.Now()
+	fresh := csiTainted("fresh")
+	fresh.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(now.Add(-time.Minute))}}
+	stale := csiTainted("stale")
+	stale.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(now.Add(-11 * time.Minute))}}
+	notReady := csiTainted("notready")
+	got := StartupTaintsToClear([]corev1.Node{fresh, stale, notReady}, nil, now, 10*time.Minute)
+	if len(got) != 1 || got[0] != "stale" {
+		t.Fatalf("no CSI driver at all: only a node Ready past the fallback should be released, got %v", got)
+	}
+}
+
+func TestWithoutTaintKeepsOtherTaints(t *testing.T) {
+	taints := []corev1.Taint{
+		{Key: "node.cloudprovider.kubernetes.io/uninitialized", Effect: corev1.TaintEffectNoSchedule},
+		{Key: globals.NodeCSIStartupTaint, Effect: corev1.TaintEffectNoSchedule},
+	}
+	got := WithoutTaint(taints, globals.NodeCSIStartupTaint)
+	if len(got) != 1 || got[0].Key != "node.cloudprovider.kubernetes.io/uninitialized" {
+		t.Fatalf("expected the other taint to survive, got %v", got)
 	}
 }

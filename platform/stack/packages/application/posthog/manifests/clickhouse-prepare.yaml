@@ -67,7 +67,10 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
     # A Job's selector and pod template are immutable, so a later edit to this
     # file would otherwise fail the sync with a patch error rather than re-running.
-    argocd.argoproj.io/sync-options: Replace=true
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+    # Force alongside Replace: a Job's selector is server-generated and
+    # immutable, so a plain PUT on re-sync is rejected with "spec.selector:
+    # Required value" and wedges the Application (seen live 2026-09-15).
 spec:
   backoffLimit: 20
   ttlSecondsAfterFinished: 3600

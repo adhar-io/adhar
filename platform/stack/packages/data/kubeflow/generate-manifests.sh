@@ -138,7 +138,7 @@ python3 - "${INSTALL_YAML}" <<'PYEOF_MINIO'
 import sys, yaml
 p = sys.argv[1]
 docs = [d for d in yaml.safe_load_all(open(p)) if d]
-inject = [{"name": "MINIO_SERVICE_SERVICE_HOST", "value": "minio.adhar-system.svc.cluster.local"},
+inject = [{"name": "MINIO_SERVICE_SERVICE_HOST", "value": "rustfs.adhar-system.svc.cluster.local"},
           {"name": "MINIO_SERVICE_SERVICE_PORT", "value": "9000"}]
 n = 0
 for d in docs:

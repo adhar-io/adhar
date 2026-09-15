@@ -181,7 +181,7 @@ metadata:
     adhar.io/component: ai
     adhar.io/plane: control
     # Marks the backend as depending on a package that may not be installed.
-    adhar.io/optional-dependency: vllm
+    adhar.io/optional-dependency: llm-d
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
@@ -190,8 +190,11 @@ spec:
       openai: {}
       # Service published by the vllm package (built concurrently).
       # http://vllm.adhar-system.svc.cluster.local:8000/v1
-      host: vllm.adhar-system.svc.cluster.local
-      port: 8000
+      # The llm-d ROUTER, not a bare vLLM Service: its agentgateway sidecar
+      # + endpoint picker choose the replica (prefix-cache affinity, load)
+      # and forward to vLLM. `local/*` model names land here. Package: ai/llm-d.
+      host: llm-d-epp.adhar-system.svc.cluster.local
+      port: 8081
   policies:
     # No `auth`: a self-hosted vLLM in the same namespace needs no API key. If
     # vllm later enables `--api-key`, add a secretRef here pointing at the

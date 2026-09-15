@@ -235,15 +235,15 @@ spec:
       secret:
         name: keycloak-config
   # Scheduled base backups + WAL archiving to the platform object store
-  # (roadmap P1.5). Credentials are MinIO's root-creds (the minio package
+  # (roadmap P1.5). Credentials are the object store's root-creds (the rustfs package
   # creates bucket adhar-backups); point destinationPath/endpointURL at real
   # object storage in cloud environments. WAL archiving logs warnings until
-  # the minio package is healthy, then self-heals.
+  # the rustfs package is healthy, then self-heals.
   backup:
     retentionPolicy: 7d  # a week of PITR; 30d of WAL for every platform DB filled the shared MinIO
     barmanObjectStore:
       destinationPath: s3://adhar-backups/cnpg/keycloak-db
-      endpointURL: http://minio.adhar-system.svc.cluster.local:9000
+      endpointURL: http://rustfs.adhar-system.svc.cluster.local:9000
       s3Credentials:
         accessKeyId:
           name: root-creds

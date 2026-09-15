@@ -28,7 +28,7 @@ metadata:
   annotations: {argocd.argoproj.io/sync-wave: "-2"}
 spec:
   type: ExternalName
-  externalName: minio.adhar-system.svc.cluster.local
+  externalName: rustfs.adhar-system.svc.cluster.local
   ports:
     - {name: http, port: 9000, targetPort: 9000}
 ---

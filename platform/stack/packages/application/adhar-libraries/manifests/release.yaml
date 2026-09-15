@@ -55,7 +55,20 @@ spec:
           args:
             - |
               set -euo pipefail
+              # A library is built and published ONCE. This hook runs on every
+              # sync of the Application, and every push to the packages
+              # monorepo re-syncs every Application (the sync storm in
+              # CLAUDE.md) — without this guard each push queued a fresh
+              # release of both libraries (10 syncs = 10 builds, 2026-09-15).
+              # A library with a Succeeded release, or one in flight, is
+              # skipped; a real re-release comes from the Gitea push trigger
+              # (triggers.yaml) or from deleting the Succeeded run.
               for lib in adhar-kit adhar-ui; do
+                if kubectl -n adhar-system get pipelinerun -l "adhar.io/library=${lib}" -o json \
+                     | python3 -c 'import sys,json;rs=[c for p in json.load(sys.stdin)["items"] for c in p.get("status",{}).get("conditions",[]) if c.get("type")=="Succeeded" and c.get("status") in ("True","Unknown")];sys.exit(0 if rs else 1)'; then
+                  echo "${lib}: a release already succeeded or is running; not queuing another"
+                  continue
+                fi
                 # generateName => a fresh, distinct object every single sync.
                 # No delete, no collision, no lost history.
                 kubectl create -f - <<EOF
@@ -87,4 +100,28 @@ spec:
                             storage: 4Gi
               EOF
               done
-              echo "created one release PipelineRun per library (generateName)"
+              echo "release PipelineRuns reconciled (queued only for a library that had none)"
+---
+# The bootstrap hook decides whether to queue a release by reading the existing
+# PipelineRuns; the triggers Role it borrows grants only `create`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-ci-release-reader
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [pipelineruns]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-ci-release-reader
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: adhar-ci-release-reader}
+subjects: [{kind: ServiceAccount, name: adhar-ci, namespace: adhar-system}]

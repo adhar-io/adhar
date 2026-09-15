@@ -1,0 +1,23 @@
+# Trino's view of the platform object store: the root-creds credential under the
+# env names the iceberg catalog properties expand (`${ENV:S3_ACCESS_KEY}`).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: trino-s3-credentials
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: gitea
+    kind: ClusterSecretStore
+  target:
+    name: trino-s3-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: S3_ACCESS_KEY
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: S3_SECRET_KEY
+      remoteRef: {key: root-creds, property: rootPassword}

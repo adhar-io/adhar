@@ -25,7 +25,9 @@ spec:
       - adhar-system
   selector:
     matchLabels:
-      app.kubernetes.io/name: tf-controller
+      # The tofu-controller chart labels its pod `name: tofu-controller`;
+      # the release (instance) is still tf-controller.
+      app.kubernetes.io/name: tofu-controller
       app.kubernetes.io/instance: tf-controller
   podMetricsEndpoints:
     - port: http-prom

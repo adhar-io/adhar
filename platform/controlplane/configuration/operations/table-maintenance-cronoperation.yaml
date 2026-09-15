@@ -1,0 +1,143 @@
+---
+# Iceberg table maintenance as a day-2 Operation (Phase 4).
+#
+# Every night, for every table in the `lakehouse` warehouse, ask the catalog to
+# plan and run maintenance — RustFS S3 Tables carries the maintenance engine
+# (snapshot expiration, orphan and metadata cleanup, compaction planning) INSIDE
+# the object store, so there is no Spark job to schedule and nothing to install:
+# the platform just has to tell it when. Two REST calls per table, in order:
+#
+#   POST /iceberg/v1/{warehouse}/namespaces/{ns}/tables/{table}/maintenance/scheduler/run
+#   POST /iceberg/v1/{warehouse}/namespaces/{ns}/tables/{table}/maintenance/worker/run
+#
+# (rustfs/src/admin/handlers/table_catalog/routes.rs). The scheduler plans jobs
+# from the table's maintenance config; the worker executes what was planned.
+# Both are idempotent and safe to repeat, so a missed night costs nothing.
+#
+# Shape mirrors backup-cronoperation.yaml: function-python emits a Kubernetes
+# Job; Crossplane server-side applies it. The Job authenticates to the catalog
+# with the platform object-store credential (root-creds) over SigV4 via
+# `curl --aws-sigv4`, the same way the rustfs package enables the warehouse.
+#
+# Requires the core --enable-operations flag (see hack/crossplane/values*.yaml).
+apiVersion: ops.crossplane.io/v1alpha1
+kind: CronOperation
+metadata:
+  name: adhar-lakehouse-maintenance
+  labels:
+    feature: lakehouse
+    provider: kubernetes
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulHistoryLimit: 5
+  failedHistoryLimit: 3
+  startingDeadlineSeconds: 900
+  operationTemplate:
+    metadata:
+      labels:
+        feature: lakehouse
+    spec:
+      mode: Pipeline
+      pipeline:
+        - step: run-table-maintenance
+          functionRef:
+            name: function-python
+          input:
+            apiVersion: python.fn.crossplane.io/v1beta1
+            kind: Script
+            script: |
+              import datetime
+
+              from crossplane.function.proto.v1 import run_function_pb2 as fnv1
+
+              WAREHOUSE = "lakehouse"
+              ENDPOINT = "http://rustfs.adhar-system.svc.cluster.local:9000"
+
+              SCRIPT = r'''
+              set -uo pipefail
+              sig() { curl -s --user "${S3_USER}:${S3_PASS}" --aws-sigv4 "aws:amz:us-east-1:s3" "$@"; }
+              base="${ENDPOINT}/iceberg/v1/${WAREHOUSE}"
+              # The platform's per-table maintenance policy (RustFS table_catalog/maintenance
+              # config schema): background maintenance on, expired snapshots/orphans actually
+              # deleted, a bounded metadata-file history, retries with backoff, and a 7-day
+              # quarantine so a deletion can be undone.
+              POLICY='{"version":1,"background-enabled":true,"delete-enabled":true,"retain-recent-metadata-files":10,"max-retry-attempts":3,"retry-initial-backoff-seconds":5,"retry-max-backoff-seconds":300,"quarantine-enabled":true,"quarantine-retention-seconds":604800}'
+              tables=0; ok=0; failed=0
+              for ns in $(sig "${base}/namespaces" | python3 -c 'import sys,json;[print(".".join(n)) for n in json.load(sys.stdin).get("namespaces",[])]'); do
+                for t in $(sig "${base}/namespaces/${ns}/tables" | python3 -c 'import sys,json;[print(i["name"]) for i in json.load(sys.stdin).get("identifiers",[])]'); do
+                  tables=$((tables+1))
+                  m="${base}/namespaces/${ns}/tables/${t}/maintenance"
+                  # A fresh table's config is DEFAULT: background-enabled=false,
+                  # delete-enabled=false — the scheduler then reports every job
+                  # DISABLED and the worker does nothing (seen live 2026-09-15).
+                  # Enable the platform policy on the table first (idempotent PUT;
+                  # a table's own override, if someone set one, is preserved: only
+                  # DEFAULT-sourced configs are written).
+                  src=$(sig -X POST "${m}/scheduler/run" -H 'Content-Type: application/json' -d '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("report",{}).get("job",{}).get("config_source",""))' 2>/dev/null)
+                  if [ "${src}" = "DEFAULT" ]; then
+                    sig -o /dev/null -X PUT "${m}/config" -H 'Content-Type: application/json' -d "${POLICY}"
+                  fi
+                  # Both calls REQUIRE a JSON body (400 "request body is required" without one).
+                  s=$(sig -o /dev/null -w '%{http_code}' -X POST "${m}/scheduler/run" -H 'Content-Type: application/json' -d '{}')
+                  w=$(sig -o /tmp/worker.json -w '%{http_code}' -X POST "${m}/worker/run" -H 'Content-Type: application/json' -d '{}')
+                  st=$(python3 -c 'import json;j=json.load(open("/tmp/worker.json")).get("job",{});print(j.get("operation",""),j.get("status",""))' 2>/dev/null)
+                  if [ "$s" = "200" ] && [ "$w" = "200" ]; then ok=$((ok+1)); echo "maintained ${ns}.${t}: ${st}"; else failed=$((failed+1)); echo "FAILED ${ns}.${t} scheduler=${s} worker=${w}"; fi
+                done
+              done
+              echo "tables=${tables} ok=${ok} failed=${failed}"
+              [ "$failed" = "0" ]
+              '''
+
+
+              def operate(req: fnv1.RunFunctionRequest,
+                          rsp: fnv1.RunFunctionResponse):
+                  """Emit a Job that runs catalog maintenance for every lakehouse table."""
+                  stamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+                      "%Y%m%d-%H%M%S"
+                  )
+                  name = f"lakehouse-maintenance-{stamp}"
+
+                  rsp.desired.resources["maintenance-job"].resource.update({
+                      "apiVersion": "batch/v1",
+                      "kind": "Job",
+                      "metadata": {
+                          "name": name,
+                          "namespace": "adhar-system",
+                          "labels": {
+                              "adhar.io/managed": "true",
+                              "adhar.io/operation": "adhar-lakehouse-maintenance",
+                          },
+                      },
+                      "spec": {
+                          "backoffLimit": 2,
+                          "ttlSecondsAfterFinished": 86400,
+                          "template": {
+                              "spec": {
+                                  "restartPolicy": "Never",
+                                  "enableServiceLinks": False,
+                                  "containers": [{
+                                      "name": "maintenance",
+                                      "image": "docker.io/alpine/k8s:1.31.0",
+                                      "command": ["/bin/bash", "-c", SCRIPT],
+                                      "env": [
+                                          {"name": "ENDPOINT", "value": ENDPOINT},
+                                          {"name": "WAREHOUSE", "value": WAREHOUSE},
+                                          {"name": "S3_USER", "valueFrom": {"secretKeyRef": {"name": "root-creds", "key": "rootUser"}}},
+                                          {"name": "S3_PASS", "valueFrom": {"secretKeyRef": {"name": "root-creds", "key": "rootPassword"}}},
+                                      ],
+                                      "resources": {
+                                          "requests": {"cpu": "10m", "memory": "32Mi"},
+                                          "limits": {"memory": "128Mi"},
+                                      },
+                                  }],
+                              },
+                          },
+                      },
+                  })
+
+                  rsp.output["jobName"] = name
+                  rsp.output["scheduledAt"] = stamp
+                  rsp.output["message"] = (
+                      f"Requested lakehouse table maintenance Job {name}"
+                  )

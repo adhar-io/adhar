@@ -8,3 +8,21 @@ crds:
 features:
   forceFailurePolicyIgnore:
     enabled: true
+
+# Admit the platform namespace. The chart excludes its own release namespace
+# from BOTH the resource filters and the webhook namespaceSelector, and on this
+# platform that namespace is adhar-system — where every package, including
+# kpack's build pods, lives (ADR-0011). With the exclusion in place the
+# `kpack-build-ca-trust` mutate (application/supply-chain) never fired, build
+# pods never got the Harbor CA, and every golden-path build failed on
+# "x509: certificate signed by unknown authority" (2026-09-15 DO bring-up).
+# Validation policies stay Audit / exclude adhar-system themselves, so
+# admitting it changes admission only for the mutate rules that target it.
+config:
+  excludeKyvernoNamespace: false
+  webhooks:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system]

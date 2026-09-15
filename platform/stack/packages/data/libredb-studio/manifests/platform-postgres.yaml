@@ -97,7 +97,7 @@ spec:
     retentionPolicy: 7d  # a week of PITR; 30d of WAL for every platform DB filled the shared MinIO
     barmanObjectStore:
       destinationPath: s3://adhar-backups/cnpg/libredb-db
-      endpointURL: http://minio.adhar-system.svc.cluster.local:9000
+      endpointURL: http://rustfs.adhar-system.svc.cluster.local:9000
       s3Credentials:
         accessKeyId:
           name: root-creds

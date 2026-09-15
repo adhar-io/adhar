@@ -38,7 +38,7 @@ data:
     artifactRepository:
       archiveLogs: false
       s3:
-        endpoint: minio.adhar-system.svc.cluster.local:9000
+        endpoint: rustfs.adhar-system.svc.cluster.local:9000
         bucket: mlpipeline
         insecure: true
         accessKeySecret:

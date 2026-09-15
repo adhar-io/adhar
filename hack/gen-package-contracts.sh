@@ -238,13 +238,19 @@ CURATED = {
    version="0.7.2", appVersion="v0.7.2",
    keywords="kafka ui console streaming"),
  "data/kubeflow": dict(
-   description="Kubeflow Pipelines for authoring and running ML workflows, backed by the platform's MinIO object store.",
+   description="Kubeflow Pipelines for authoring and running ML workflows, backed by the platform's RustFS object store.",
    license="Apache-2.0", homepage="https://www.kubeflow.org",
    keywords="ml pipelines kubeflow training"),
- "data/lakefs": dict(
-   description="lakeFS git-like version control over object storage: branches, commits and merges for data.",
-   license="Apache-2.0", homepage="https://lakefs.io",
-   keywords="data-versioning lakehouse object-storage"),
+ "ai/llm-d": dict(
+   description="llm-d distributed inference: an endpoint-picker router with an agentgateway sidecar in front of vLLM replicas, serving `local/*` models to the agent runtime through the platform AI data plane.",
+   license="Apache-2.0", homepage="https://llm-d.ai",
+   version="0.10.0", appVersion="v0.10.0",
+   keywords="inference llm vllm llm-d self-hosted"),
+ "data/mlflow": dict(
+   description="MLflow experiment tracking and model registry, CNPG-backed with artifacts in the platform RustFS object store and Keycloak SSO via oauth2-proxy.",
+   license="Apache-2.0", homepage="https://mlflow.org",
+   version="3.8.1", appVersion="v3.8.1",
+   keywords="ml mlops model-registry experiment-tracking"),
  "data/metabase": dict(
    description="Metabase BI and dashboards over the platform's databases, with Keycloak SSO and a CNPG-backed application database.",
    license="AGPL-3.0", homepage="https://www.metabase.com",

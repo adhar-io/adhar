@@ -1,0 +1,18 @@
+# Artifacts (models, runs) live in the platform object store — RustFS, bucket
+# `mlflow` (provisioned by the rustfs package). Credential is the platform
+# root-creds under the AWS names the MLflow server reads.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: mlflow-s3-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2", argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true}
+spec:
+  refreshInterval: 1m
+  secretStoreRef: {name: gitea, kind: ClusterSecretStore}
+  target: {name: mlflow-s3-credentials, creationPolicy: Owner}
+  data:
+    - secretKey: AWS_ACCESS_KEY_ID
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: AWS_SECRET_ACCESS_KEY
+      remoteRef: {key: root-creds, property: rootPassword}

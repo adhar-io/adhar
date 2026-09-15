@@ -22,7 +22,7 @@
 #
 # Environment:
 #   ADHAR_AI_LLM_API_KEY   (required) the provider API key
-#   ADHAR_AI_LLM_PROVIDER  anthropic | openai | openrouter | openai-compatible
+#   ADHAR_AI_LLM_PROVIDER  anthropic | openai | openrouter | openai-compatible | local (no key)
 #                          (default: anthropic)
 #   ADHAR_AI_LLM_MODEL     model id; a sensible per-provider default is used
 #   ADHAR_AI_LLM_ENDPOINT  base URL, for openai-compatible / self-hosted
@@ -30,8 +30,13 @@
 #
 set -euo pipefail
 
-: "${ADHAR_AI_LLM_API_KEY:?set ADHAR_AI_LLM_API_KEY to your provider API key}"
 PROVIDER="${ADHAR_AI_LLM_PROVIDER:-anthropic}"
+# `local` needs no key: the model is served in-cluster (ai/llm-d) and reached
+# through agentgateway's `local/*` route. Every other provider must have one.
+if [[ "${PROVIDER}" != "local" ]]; then
+  : "${ADHAR_AI_LLM_API_KEY:?set ADHAR_AI_LLM_API_KEY to your provider API key}"
+fi
+ADHAR_AI_LLM_API_KEY="${ADHAR_AI_LLM_API_KEY:-}"
 NS="adhar-system"
 
 # Which Secret KEY the provider's agentgateway backend reads. `llm-anthropic`
@@ -62,9 +67,15 @@ case "${PROVIDER}" in
     ENDPOINT="${ADHAR_AI_LLM_ENDPOINT}"
     KV_PROVIDER="openai-compatible"
     SET_ANTHROPIC=0; SET_OPENAI=1 ;;
+  local)
+    # Self-hosted inference: vLLM behind the llm-d router, no key at all.
+    MODEL="${ADHAR_AI_LLM_MODEL:-local/Qwen/Qwen2.5-0.5B-Instruct}"
+    ENDPOINT=""
+    KV_PROVIDER="local"
+    SET_ANTHROPIC=0; SET_OPENAI=0 ;;
   *)
     echo "ERROR: unknown ADHAR_AI_LLM_PROVIDER '${PROVIDER}'" >&2
-    echo "       expected: anthropic | openai | openrouter | openai-compatible" >&2
+    echo "       expected: anthropic | openai | openrouter | openai-compatible | local" >&2
     exit 2 ;;
 esac
 

@@ -1,0 +1,41 @@
+# llm-d router (standalone mode) — values for the platform render.
+#
+# STANDALONE + AGENTGATEWAY SIDECAR, not the Gateway-API-managed mode. In
+# standalone mode the router pod carries its own proxy next to the EPP
+# (endpoint picker) and talks to it over localhost ext-proc, so it needs no
+# Gateway API infrastructure of its own. agentgateway is chosen as that proxy
+# because it is already the platform's AI data plane (ADR-0025): one proxy
+# technology, one set of operators to understand. Upstream: with
+# proxyType=agentgateway, `inferencePool.create` MUST be false — agentgateway
+# builds its own pseudo-service for the model pods.
+router:
+  modelServers:
+    # Selects the vLLM pods this router balances across (see modelserver.yaml).
+    matchLabels:
+      llm-d.ai/inferenceServing: "true"
+      llm-d.ai/model: qwen2.5-0.5b-instruct
+    protocol: http
+  inferencePool:
+    create: false
+    failureMode: FailOpen
+  proxy:
+    proxyType: agentgateway
+    # The chart's preset tags the sidecar with the CHART version
+    # (cr.agentgateway.dev/agentgateway:v0.10.0), which is not a published
+    # agentgateway image — ImagePullBackOff on the 2026-09-15 DO bring-up. Pin
+    # the same agentgateway release the platform's data plane runs
+    # (ai/agentgateway: cr.agentgateway.dev/controller:v1.5.0).
+    image: cr.agentgateway.dev/agentgateway:v1.5.0
+    args: ["-f", "/config/config.yaml"]
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 1Gi}
+  epp:
+    replicas: 1
+    flags:
+      v: 2
+    pluginsConfigFile: "default-plugins.yaml"
+    # Upstream sizes the EPP for a 16-GPU pool; a CPU droplet gets a fraction.
+    resources:
+      requests: {cpu: 200m, memory: 512Mi}
+      limits: {memory: 2Gi}
