@@ -155,15 +155,29 @@ spec:
               value: "http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1"
             # The model every run names unless the caller asks for another.
             #
-            # Not optional in practice. With this unset the runtime falls back
-            # to its library default (`claude-sonnet-5`), which on an install
-            # whose key is an OpenAI/OpenRouter one cannot be served — and the
-            # failure surfaces as a gateway routing error rather than "wrong
-            # model", which sends you looking in the wrong place. It must name
-            # a model the configured provider actually serves; the prefix is
-            # also what the gateway routes on.
+            # Read from the SAME Secret the gateway backends are keyed from —
+            # `adhar-ai-llm`, projected from the secrets backend by
+            # llm-secret-external.yaml and written by hack/seed-adhar-ai-llm.sh.
+            # That script sets MODEL and the provider key together, so whatever
+            # model the platform is keyed for is the model the runtime asks for.
+            #
+            # This used to be a literal here, and drifted: the manifest said
+            # `openai/gpt-5` while the cluster had been seeded `local` with no
+            # OpenAI key. The route for `openai/*` then selected a backend that
+            # could not be translated ("missing OPENAI_API_KEY value"), and
+            # every run answered `500 service not found` — a routing error, for
+            # what was a wrong-model problem, on a line nobody thinks to check.
+            # A literal cannot follow a re-seed; a secretRef cannot disagree
+            # with one. `optional: true` keeps an unkeyed install booting: the
+            # runtime then falls back to its library default and fails on the
+            # first run instead of at start-up, which is the failure the seed
+            # script's own docs describe.
             - name: ADHAR_AI_LLM_MODEL
-              value: "openai/gpt-5"
+              valueFrom:
+                secretKeyRef:
+                  name: adhar-ai-llm
+                  key: MODEL
+                  optional: true
             # The runtime KEEPS its OIDC settings: it publishes its own hostname
             # (httproute.yaml) so /chat is reached directly, not through the AI
             # gateway, and it exchanges the caller's token for a short-lived
