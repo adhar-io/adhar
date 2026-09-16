@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v6"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 
@@ -76,13 +77,20 @@ const azureSSHUser = "adhar"
 // Register the Azure provider on package import
 func init() {
 	provider.DefaultFactory.RegisterProvider("azure", func(config map[string]interface{}) (provider.Provider, error) {
-		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
-			return nil, fmt.Errorf("useManagedK8s is not supported for the azure provider: adhar provisions Kubernetes on raw compute here (AKS integration is not offered); remove useManagedK8s or set it to false")
-		}
 		// Create provider config from the configuration map
 		providerConfig, err := parseProviderConfig(config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse Azure provider config: %w", err)
+		}
+		// Default: kubeadm on VMs. `useManagedK8s: true` (or clusterMode: aks)
+		// opts into AKS; everything else behaves the same.
+		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
+			providerConfig.ClusterMode = clusterModeAKS
+		}
+		if mode, ok := config["clusterMode"].(string); ok && mode != "" {
+			providerConfig.ClusterMode = mode
+		} else if mode, ok := config["cluster_mode"].(string); ok && mode != "" {
+			providerConfig.ClusterMode = mode
 		}
 
 		return NewProvider(providerConfig)
@@ -317,6 +325,10 @@ type Provider struct {
 	clusters         map[string]*types.Cluster
 	resourceTrackers map[string]*ResourceTracker
 
+	// Azure SDK clients for the managed (AKS) mode
+	managedClustersClient *armcontainerservice.ManagedClustersClient
+	agentPoolsClient      *armcontainerservice.AgentPoolsClient
+
 	// Azure SDK clients for manual infrastructure
 	resourceGroupClient        *armresources.ResourceGroupsClient
 	virtualNetworkClient       *armnetwork.VirtualNetworksClient
@@ -332,6 +344,12 @@ type Provider struct {
 
 // Config holds Azure provider configuration for manual clusters
 type Config struct {
+	// ClusterMode selects how clusters are created:
+	//   "compute" (default) — VMs + kubeadm, Kubernetes managed by adhar
+	//   itself (Cilium replaces kube-proxy during bootstrap).
+	//   "aks" — Azure Kubernetes Service (`useManagedK8s: true`).
+	ClusterMode string `json:"clusterMode,omitempty"`
+
 	SubscriptionID string `json:"subscriptionId"`
 	ClientID       string `json:"clientId"`
 	ClientSecret   string `json:"clientSecret"`
@@ -401,6 +419,14 @@ func NewProvider(config *Config) (*Provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource group client: %w", err)
 	}
+	managedClustersClient, err := armcontainerservice.NewManagedClustersClient(config.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create managed clusters client: %w", err)
+	}
+	agentPoolsClient, err := armcontainerservice.NewAgentPoolsClient(config.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create agent pools client: %w", err)
+	}
 
 	virtualNetworkClient, err := armnetwork.NewVirtualNetworksClient(config.SubscriptionID, cred, nil)
 	if err != nil {
@@ -450,6 +476,8 @@ func NewProvider(config *Config) (*Provider, error) {
 	provider := &Provider{
 		config:                     config,
 		cred:                       cred,
+		managedClustersClient:      managedClustersClient,
+		agentPoolsClient:           agentPoolsClient,
 		clusters:                   make(map[string]*types.Cluster),
 		resourceTrackers:           make(map[string]*ResourceTracker),
 		resourceGroupClient:        resourceGroupClient,
@@ -595,6 +623,12 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		return nil, fmt.Errorf("provider mismatch: expected azure, got %s", spec.Provider)
 	}
 
+	// Default mode: self-managed Kubernetes on VMs. AKS is the explicit
+	// opt-in (`useManagedK8s: true` / clusterMode: aks).
+	if p.isManagedMode() {
+		return p.createManagedCluster(ctx, spec)
+	}
+
 	log.Printf("Creating manual Kubernetes cluster: %s", spec.Name)
 
 	// Validate cluster specification
@@ -682,6 +716,11 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, master.PublicIP, 15*time.Minute); err != nil {
 		return nil, fmt.Errorf("control-plane node not ready: %w", err)
 	}
+	// External cloud provider: the kubelet defers node initialisation to
+	// cloud-provider-azure, installed right after the joins.
+	if err := provider.EnableExternalCloudProvider(signer, azureSSHUser, master.PublicIP, master.PrivateIP, true, false); err != nil {
+		return nil, fmt.Errorf("control plane %s: %w", master.VMName, err)
+	}
 	joinCmd, err := provider.KubeadmInitMaster(signer, azureSSHUser, master.PublicIP, master.PrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
 	if err != nil {
 		return nil, err
@@ -695,9 +734,19 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, w.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", w.VMName, err)
 		}
+		if err := provider.EnableExternalCloudProvider(signer, azureSSHUser, w.PublicIP, w.PrivateIP, true, true); err != nil {
+			return nil, fmt.Errorf("worker %s: %w", w.VMName, err)
+		}
 		if err := provider.KubeadmJoinWorker(signer, azureSSHUser, w.PublicIP, joinCmd); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", w.VMName, err)
 		}
+	}
+	if tracker := p.resourceTrackers[cluster.ID]; tracker != nil && len(tracker.VirtualNetworks) > 0 && len(tracker.Subnets) > 0 && len(tracker.NetworkSecurityGroups) > 0 {
+		if err := p.installCloudIntegration(signer, master.PublicIP, spec.Name, tracker.ResourceGroup, tracker.VirtualNetworks[0], tracker.Subnets[0], tracker.NetworkSecurityGroups[0]); err != nil {
+			return nil, err
+		}
+	} else {
+		log.Printf("Warning: no resource tracker for cluster %s; cloud integration (CCM/CSI) not installed", spec.Name)
 	}
 	log.Printf("Kubernetes bootstrapped on cluster %s; nodes stay NotReady until the platform bootstrap installs Cilium", spec.Name)
 
@@ -1318,6 +1367,14 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	// Remove local per-cluster state (SSH key used to drive kubeadm)
 	defer provider.RemoveClusterState(extractClusterName(clusterID))
 
+	// A managed (AKS) cluster: delete the control plane first; the resource
+	// group cleanup below is shared with compute mode.
+	if p.isManagedCluster(ctx, clusterID) {
+		if err := p.deleteManagedControlPlane(ctx, clusterID); err != nil {
+			return err
+		}
+	}
+
 	// For Azure, we can delete the entire resource group if it was created by us
 	// This is more efficient and ensures complete cleanup
 	resourceGroupName := resourceTracker.ResourceGroup
@@ -1563,6 +1620,9 @@ func (p *Provider) discoverExistingClusters(ctx context.Context) ([]*types.Clust
 
 // AddNodeGroup adds a node group to the cluster
 func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup *types.NodeGroupSpec) (*types.NodeGroup, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedAddNodeGroup(ctx, clusterID, nodeGroup)
+	}
 	log.Printf("Adding node group %s to cluster %s", nodeGroup.Name, clusterID)
 
 	cluster, exists := p.clusters[clusterID]
@@ -1626,6 +1686,9 @@ func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup
 
 // RemoveNodeGroup removes a node group from the cluster
 func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) error {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedRemoveNodeGroup(ctx, clusterID, nodeGroupName)
+	}
 	log.Printf("Removing node group %s from cluster %s", nodeGroupName, clusterID)
 
 	cluster, exists := p.clusters[clusterID]
@@ -1663,42 +1726,130 @@ func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGr
 
 // ScaleNodeGroup scales a node group
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGroupName string, replicas int) error {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedScaleNodeGroup(ctx, clusterID, nodeGroupName, replicas)
+	}
+	// Self-managed (kubeadm on VMs) node groups: the same lifecycle as
+	// DigitalOcean's — new VMs are prepared and joined through the shared
+	// kubeadm helpers, retired ones are drained and removed from the cluster
+	// before the VM is deleted, and the node group's members are whatever VMs
+	// carry the `<cluster>-worker-<group>-` prefix, so the count is real, not a
+	// stub. (This used to log "Successfully scaled" without touching a VM.)
 	log.Printf("Scaling node group %s in cluster %s to %d replicas", nodeGroupName, clusterID, replicas)
 
-	_, exists := p.clusters[clusterID]
+	cluster, exists := p.clusters[clusterID]
 	if !exists {
 		return fmt.Errorf("cluster %s not found", clusterID)
 	}
+	tracker := p.resourceTrackers[clusterID]
+	if tracker == nil {
+		return fmt.Errorf("cluster %s has no resource tracker; cannot scale", clusterID)
+	}
+	prefix := fmt.Sprintf("%s-worker-%s-", cluster.Name, nodeGroupName)
+	add, remove := provider.WorkerScalePlan(prefix, tracker.VirtualMachines, replicas)
+	if len(add) == 0 && len(remove) == 0 {
+		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
+		return nil
+	}
+	signer, sshPubKey, err := provider.EnsureClusterSSHKey(cluster.Name)
+	if err != nil {
+		return fmt.Errorf("failed to load cluster SSH key: %w", err)
+	}
+	masterIP := masterIPFromEndpoint(cluster.Endpoint)
+	if masterIP == "" {
+		return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterID)
+	}
 
-	// In a real implementation, we would:
-	// 1. Count current VMs in the node group
-	// 2. Add or remove VMs to match desired replicas
-	// 3. Update resource tracker
+	if len(add) > 0 {
+		joinCmd, err := provider.JoinCommand(signer, azureSSHUser, masterIP)
+		if err != nil {
+			return err
+		}
+		startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(cluster.Version))
+		vmSize := p.config.VMSize
+		if len(tracker.VirtualNetworks) == 0 || len(tracker.Subnets) == 0 || len(tracker.NetworkSecurityGroups) == 0 {
+			return fmt.Errorf("cluster %s tracker lacks network resources; cannot add workers", clusterID)
+		}
+		for _, vmName := range add {
+			nodeInfo, err := p.createVirtualMachine(ctx, tracker.ResourceGroup, tracker.VirtualNetworks[0], tracker.Subnets[0], tracker.NetworkSecurityGroups[0], vmName, vmSize, false, sshPubKey, startupScript)
+			if err != nil {
+				return fmt.Errorf("failed to create worker node %s: %w", vmName, err)
+			}
+			if err := provider.WaitForNodePrep(ctx, signer, azureSSHUser, nodeInfo.PublicIP, 15*time.Minute); err != nil {
+				return fmt.Errorf("new worker %s not ready: %w", vmName, err)
+			}
+			// Same flags as a worker from `adhar up`: cloud-provider-azure
+			// initialises the node, the disk CSI node plugin lifts the taint.
+			if err := provider.EnableExternalCloudProvider(signer, azureSSHUser, nodeInfo.PublicIP, nodeInfo.PrivateIP, true, true); err != nil {
+				return fmt.Errorf("new worker %s: %w", vmName, err)
+			}
+			if err := provider.KubeadmJoinWorker(signer, azureSSHUser, nodeInfo.PublicIP, joinCmd); err != nil {
+				return fmt.Errorf("new worker %s: %w", vmName, err)
+			}
+			tracker.VirtualMachines = append(tracker.VirtualMachines, nodeInfo.VMName)
+			log.Printf("Added worker %s to cluster %s", vmName, cluster.Name)
+		}
+	}
 
-	log.Printf("Successfully scaled node group %s to %d replicas", nodeGroupName, replicas)
+	for _, vmName := range remove {
+		if err := provider.RetireWorker(signer, azureSSHUser, masterIP, vmName); err != nil {
+			log.Printf("Warning: %v", err)
+		}
+		poller, err := p.virtualMachineClient.BeginDelete(ctx, tracker.ResourceGroup, vmName, nil)
+		if err != nil {
+			return fmt.Errorf("failed to delete VM %s: %w", vmName, err)
+		}
+		if _, err := poller.PollUntilDone(ctx, nil); err != nil {
+			return fmt.Errorf("failed to wait for VM deletion %s: %w", vmName, err)
+		}
+		kept := tracker.VirtualMachines[:0]
+		for _, v := range tracker.VirtualMachines {
+			if v != vmName {
+				kept = append(kept, v)
+			}
+		}
+		tracker.VirtualMachines = kept
+		log.Printf("Removed worker %s from cluster %s", vmName, cluster.Name)
+	}
+	if err := p.saveState(); err != nil {
+		log.Printf("Warning: failed to persist cluster state after scaling: %v", err)
+	}
+	log.Printf("Node group %s in cluster %s now has %d workers", nodeGroupName, cluster.Name, replicas)
 	return nil
 }
 
-// GetNodeGroup retrieves node group information
 func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) (*types.NodeGroup, error) {
-	_, exists := p.clusters[clusterID]
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedGetNodeGroup(ctx, clusterID, nodeGroupName)
+	}
+	cluster, exists := p.clusters[clusterID]
 	if !exists {
 		return nil, fmt.Errorf("cluster %s not found", clusterID)
 	}
-
-	// In a real implementation, we would query the actual VMs and their status
+	replicas := 0
+	if tracker := p.resourceTrackers[clusterID]; tracker != nil {
+		prefix := fmt.Sprintf("%s-worker-%s-", cluster.Name, nodeGroupName)
+		for _, vm := range tracker.VirtualMachines {
+			if strings.HasPrefix(vm, prefix) {
+				replicas++
+			}
+		}
+	}
 	return &types.NodeGroup{
 		Name:         nodeGroupName,
-		Replicas:     3,
+		Replicas:     replicas,
 		InstanceType: p.config.VMSize,
 		Status:       "ready",
-		CreatedAt:    time.Now().Add(-1 * time.Hour),
+		CreatedAt:    cluster.CreatedAt,
 		UpdatedAt:    time.Now(),
 	}, nil
 }
 
 // ListNodeGroups lists all node groups for a cluster
 func (p *Provider) ListNodeGroups(ctx context.Context, clusterID string) ([]*types.NodeGroup, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedListNodeGroups(ctx, clusterID)
+	}
 	return []*types.NodeGroup{
 		{
 			Name:         "default",
@@ -2304,6 +2455,9 @@ func (p *Provider) GetStorage(ctx context.Context, storageID string) (*types.Sto
 
 // UpgradeCluster upgrades cluster by updating VM configurations
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedUpgrade(ctx, clusterID, version)
+	}
 	log.Printf("Upgrading self-managed Azure cluster %s to version %s via kubeadm", clusterID, version)
 
 	cluster, err := p.GetCluster(ctx, clusterID)
@@ -2363,6 +2517,9 @@ func (p *Provider) RestoreCluster(ctx context.Context, backupID string, targetCl
 
 // GetClusterHealth retrieves cluster health
 func (p *Provider) GetClusterHealth(ctx context.Context, clusterID string) (*types.HealthStatus, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedHealth(ctx, clusterID)
+	}
 	cluster, err := p.GetCluster(ctx, clusterID)
 	if err != nil {
 		return &types.HealthStatus{
@@ -2734,6 +2891,9 @@ func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string,
 
 	if cluster.Status != types.ClusterStatusRunning {
 		return "", fmt.Errorf("cluster is not running: %s", cluster.Status)
+	}
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedKubeconfig(ctx, clusterID)
 	}
 
 	masterIP := masterIPFromEndpoint(cluster.Endpoint)

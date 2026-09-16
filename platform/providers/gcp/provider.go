@@ -16,6 +16,7 @@ import (
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/container/v1"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/proto"
 
@@ -58,6 +59,7 @@ type ClusterInfrastructure struct {
 // ResourceTracker tracks all GCP resources created for a cluster
 type ResourceTracker struct {
 	ClusterName     string    `json:"clusterName"`
+	Mode            string    `json:"mode,omitempty"` // "" / "compute" (kubeadm) or "gke"
 	ProjectID       string    `json:"projectId"`
 	Region          string    `json:"region"`
 	Zone            string    `json:"zone"`
@@ -110,10 +112,18 @@ const gcpSSHUser = "adhar"
 // Register the GCP provider on package import
 func init() {
 	provider.DefaultFactory.RegisterProvider("gcp", func(config map[string]interface{}) (provider.Provider, error) {
-		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
-			return nil, fmt.Errorf("useManagedK8s is not supported for the gcp provider: adhar provisions Kubernetes on raw compute here (GKE integration is not offered); remove useManagedK8s or set it to false")
-		}
 		gcpConfig := &Config{}
+
+		// Default: kubeadm on Compute Engine. `useManagedK8s: true` (or
+		// clusterMode: gke) opts into GKE; everything else behaves the same.
+		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
+			gcpConfig.ClusterMode = clusterModeGKE
+		}
+		if mode, ok := config["clusterMode"].(string); ok && mode != "" {
+			gcpConfig.ClusterMode = mode
+		} else if mode, ok := config["cluster_mode"].(string); ok && mode != "" {
+			gcpConfig.ClusterMode = mode
+		}
 
 		// Parse GCP-specific configuration with multiple auth methods
 		// Check both root level and config section for backward compatibility
@@ -257,6 +267,9 @@ type Provider struct {
 	instanceClient         *compute.InstancesClient
 	snapshotClient         *compute.SnapshotsClient
 
+	// containerService drives the managed (GKE) mode.
+	containerService *container.Service
+
 	// Resource tracking for clusters
 	clusters         map[string]*ClusterInfrastructure
 	resourceTrackers map[string]*ResourceTracker
@@ -264,6 +277,12 @@ type Provider struct {
 
 // Config holds GCP provider configuration
 type Config struct {
+	// ClusterMode selects how clusters are created:
+	//   "compute" (default) — Compute Engine VMs + kubeadm, Kubernetes managed
+	//   by adhar itself (Cilium replaces kube-proxy during bootstrap).
+	//   "gke" — Google Kubernetes Engine (`useManagedK8s: true`).
+	ClusterMode string `json:"clusterMode,omitempty"`
+
 	ProjectID string `json:"projectId"`
 	Region    string `json:"region"`
 	Zone      string `json:"zone"`
@@ -490,6 +509,10 @@ func NewProvider(config *Config) (*Provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create instance client: %w", err)
 	}
+	containerService, err := container.NewService(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GKE client: %w", err)
+	}
 
 	snapshotClient, err := compute.NewSnapshotsRESTClient(ctx, opts...)
 	if err != nil {
@@ -513,6 +536,7 @@ func NewProvider(config *Config) (*Provider, error) {
 		diskClient:             diskClient,
 		imageClient:            imageClient,
 		instanceClient:         instanceClient,
+		containerService:       containerService,
 		snapshotClient:         snapshotClient,
 		clusters:               make(map[string]*ClusterInfrastructure),
 		resourceTrackers:       make(map[string]*ResourceTracker),
@@ -650,6 +674,12 @@ func (p *Provider) ValidatePermissions(ctx context.Context) error {
 
 // CreateCluster creates a new manual Kubernetes cluster on GCP Compute Engine instances
 func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (*types.Cluster, error) {
+	// Default mode: self-managed Kubernetes on Compute Engine. GKE is the
+	// explicit opt-in (`useManagedK8s: true` / clusterMode: gke).
+	if p.isManagedMode() {
+		return p.createManagedCluster(ctx, spec)
+	}
+
 	log.Printf("Creating manual Kubernetes cluster: %s", spec.Name)
 
 	// Validate cluster specification
@@ -709,6 +739,11 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, master.PublicIP, 15*time.Minute); err != nil {
 		return nil, fmt.Errorf("control-plane node not ready: %w", err)
 	}
+	// External cloud provider: the kubelet defers node initialisation to
+	// cloud-provider-gcp, installed right after the joins.
+	if err := provider.EnableExternalCloudProvider(signer, gcpSSHUser, master.PublicIP, master.PrivateIP, true, false); err != nil {
+		return nil, fmt.Errorf("control plane %s: %w", master.InstanceName, err)
+	}
 	joinCmd, err := provider.KubeadmInitMaster(signer, gcpSSHUser, master.PublicIP, master.PrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
 	if err != nil {
 		return nil, err
@@ -722,9 +757,15 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, w.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", w.InstanceName, err)
 		}
+		if err := provider.EnableExternalCloudProvider(signer, gcpSSHUser, w.PublicIP, w.PrivateIP, true, true); err != nil {
+			return nil, fmt.Errorf("worker %s: %w", w.InstanceName, err)
+		}
 		if err := provider.KubeadmJoinWorker(signer, gcpSSHUser, w.PublicIP, joinCmd); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", w.InstanceName, err)
 		}
+	}
+	if err := p.installCloudIntegration(signer, master.PublicIP); err != nil {
+		return nil, err
 	}
 	log.Printf("Kubernetes bootstrapped on cluster %s; nodes stay NotReady until the platform bootstrap installs Cilium", spec.Name)
 
@@ -1330,6 +1371,14 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		return fmt.Errorf("cluster %s not found in resource tracker", clusterID)
 	}
 
+	// A managed (GKE) cluster: delete the control plane and its firewall
+	// rules first; the subnet/network cleanup below is shared with compute mode.
+	if p.isManagedCluster(ctx, clusterID) {
+		if err := p.deleteManagedControlPlane(ctx, clusterID); err != nil {
+			return err
+		}
+	}
+
 	var errors []string
 
 	// Delete instances (VMs)
@@ -1638,6 +1687,13 @@ func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Clu
 	if !exists && !hasTracker {
 		return nil, fmt.Errorf("cluster not found: %s", clusterID)
 	}
+	if hasTracker && tracker.Mode == clusterModeGKE {
+		c, err := p.containerService.Projects.Locations.Clusters.Get(p.gkeClusterName(clusterID)).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("describing GKE cluster %s: %w", clusterID, err)
+		}
+		return p.gkeToCluster(clusterID, c), nil
+	}
 
 	region := p.config.Region
 	zone := p.config.Zone
@@ -1696,6 +1752,12 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 
 	// Get all tracked clusters from resource trackers
 	for clusterID, tracker := range p.resourceTrackers {
+		if tracker.Mode == clusterModeGKE {
+			if c, err := p.GetCluster(ctx, clusterID); err == nil {
+				clusters = append(clusters, c)
+			}
+			continue
+		}
 		// Extract cluster name from cluster ID (format: gcp/projectid/clustername)
 		parts := strings.Split(clusterID, "/")
 		if len(parts) < 3 {
@@ -1910,47 +1972,176 @@ func (p *Provider) verifyInstanceExists(ctx context.Context, instanceName, zone 
 
 // listGKEClusters lists managed GKE clusters
 func (p *Provider) listGKEClusters(ctx context.Context) ([]*types.Cluster, error) {
-	// This would require container service API access
-	// For now, return empty list as we're focusing on manual clusters
-	return []*types.Cluster{}, nil
+	return p.managedListClusters(ctx)
 }
 
 // AddNodeGroup adds a node pool to the cluster
+// Self-managed (kubeadm on Compute Engine VMs) node groups share DigitalOcean's
+// lifecycle through the platform/providers helpers: a fresh join token per
+// scale-up, prepared-then-joined instances, drain-then-delete on scale-down,
+// and the member list is whatever instances carry the `<cluster>-worker-<group>-`
+// prefix in the persisted infrastructure — not a hard-coded 3. (AddNodeGroup,
+// RemoveNodeGroup and ScaleNodeGroup were stubs returning fake node groups.)
+func (p *Provider) workerPrefix(clusterName, nodeGroupName string) string {
+	return fmt.Sprintf("%s-worker-%s-", clusterName, nodeGroupName)
+}
+
+func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, machineType string, replicas int) error {
+	infra, exists := p.clusters[clusterID]
+	if !exists {
+		return fmt.Errorf("cluster %s not found", clusterID)
+	}
+	if len(infra.MasterNodes) == 0 || infra.MasterNodes[0].PublicIP == "" {
+		return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterID)
+	}
+	clusterName := strings.TrimSuffix(infra.MasterNodes[0].InstanceName, "-master-1")
+	prefix := p.workerPrefix(clusterName, nodeGroupName)
+	current := make([]string, 0, len(infra.WorkerNodes))
+	for _, w := range infra.WorkerNodes {
+		current = append(current, w.InstanceName)
+	}
+	add, remove := provider.WorkerScalePlan(prefix, current, replicas)
+	if len(add) == 0 && len(remove) == 0 {
+		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
+		return nil
+	}
+	signer, sshPubKey, err := provider.EnsureClusterSSHKey(clusterName)
+	if err != nil {
+		return fmt.Errorf("failed to load cluster SSH key: %w", err)
+	}
+	masterIP := infra.MasterNodes[0].PublicIP
+
+	if len(add) > 0 {
+		joinCmd, err := provider.JoinCommand(signer, gcpSSHUser, masterIP)
+		if err != nil {
+			return err
+		}
+		version := ""
+		if c := p.clusterVersion(clusterID); c != "" {
+			version = c
+		}
+		startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(version))
+		subnetURL := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", p.config.ProjectID, p.config.Region, infra.SubnetName)
+		for _, name := range add {
+			nodeInfo, err := p.createComputeInstance(ctx, name, subnetURL, machineType, false, sshPubKey, startupScript)
+			if err != nil {
+				return fmt.Errorf("failed to create worker node %s: %w", name, err)
+			}
+			if err := provider.WaitForNodePrep(ctx, signer, gcpSSHUser, nodeInfo.PublicIP, 15*time.Minute); err != nil {
+				return fmt.Errorf("new worker %s not ready: %w", name, err)
+			}
+			// Same flags as a worker from `adhar up`: cloud-provider-gcp
+			// initialises the node, the PD CSI node plugin lifts the taint.
+			if err := provider.EnableExternalCloudProvider(signer, gcpSSHUser, nodeInfo.PublicIP, nodeInfo.PrivateIP, true, true); err != nil {
+				return fmt.Errorf("new worker %s: %w", name, err)
+			}
+			if err := provider.KubeadmJoinWorker(signer, gcpSSHUser, nodeInfo.PublicIP, joinCmd); err != nil {
+				return fmt.Errorf("new worker %s: %w", name, err)
+			}
+			infra.WorkerNodes = append(infra.WorkerNodes, *nodeInfo)
+			log.Printf("Added worker %s to cluster %s", name, clusterName)
+		}
+	}
+	for _, name := range remove {
+		if err := provider.RetireWorker(signer, gcpSSHUser, masterIP, name); err != nil {
+			log.Printf("Warning: %v", err)
+		}
+		zone := p.config.Zone
+		kept := infra.WorkerNodes[:0]
+		for _, w := range infra.WorkerNodes {
+			if w.InstanceName == name {
+				if w.Zone != "" {
+					zone = w.Zone
+				}
+				continue
+			}
+			kept = append(kept, w)
+		}
+		if err := p.deleteInstance(ctx, name, zone); err != nil {
+			return fmt.Errorf("failed to delete instance %s: %w", name, err)
+		}
+		infra.WorkerNodes = kept
+		log.Printf("Removed worker %s from cluster %s", name, clusterName)
+	}
+	if err := p.saveState(); err != nil {
+		log.Printf("Warning: failed to persist cluster state after scaling: %v", err)
+	}
+	return nil
+}
+
+// clusterVersion returns the Kubernetes version recorded for a cluster, or ""
+// when the state predates version tracking (the node-prep script then falls
+// back to the platform default minor, which matches a cluster created by this
+// version of adhar).
+func (p *Provider) clusterVersion(clusterID string) string {
+	if c, err := p.GetCluster(context.Background(), clusterID); err == nil && c != nil {
+		return c.Version
+	}
+	return ""
+}
+
 func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup *types.NodeGroupSpec) (*types.NodeGroup, error) {
-	return &types.NodeGroup{
-		Name:         nodeGroup.Name,
-		Replicas:     nodeGroup.Replicas,
-		InstanceType: nodeGroup.InstanceType,
-		Status:       "ready",
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}, nil
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedAddNodeGroup(ctx, clusterID, nodeGroup)
+	}
+	log.Printf("Adding node group %s (%d × %s) to cluster %s", nodeGroup.Name, nodeGroup.Replicas, nodeGroup.InstanceType, clusterID)
+	if err := p.scaleWorkers(ctx, clusterID, nodeGroup.Name, nodeGroup.InstanceType, nodeGroup.Replicas); err != nil {
+		return nil, err
+	}
+	return p.GetNodeGroup(ctx, clusterID, nodeGroup.Name)
 }
 
-// RemoveNodeGroup removes a node pool from the cluster
 func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) error {
-	return nil
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedRemoveNodeGroup(ctx, clusterID, nodeGroupName)
+	}
+	log.Printf("Removing node group %s from cluster %s", nodeGroupName, clusterID)
+	return p.scaleWorkers(ctx, clusterID, nodeGroupName, "", 0)
 }
 
-// ScaleNodeGroup scales a node pool
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGroupName string, replicas int) error {
-	return nil
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedScaleNodeGroup(ctx, clusterID, nodeGroupName, replicas)
+	}
+	log.Printf("Scaling node group %s in cluster %s to %d replicas", nodeGroupName, clusterID, replicas)
+	return p.scaleWorkers(ctx, clusterID, nodeGroupName, "", replicas)
 }
 
-// GetNodeGroup retrieves node pool information
 func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) (*types.NodeGroup, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedGetNodeGroup(ctx, clusterID, nodeGroupName)
+	}
+	infra, exists := p.clusters[clusterID]
+	if !exists {
+		return nil, fmt.Errorf("cluster %s not found", clusterID)
+	}
+	clusterName := ""
+	if len(infra.MasterNodes) > 0 {
+		clusterName = strings.TrimSuffix(infra.MasterNodes[0].InstanceName, "-master-1")
+	}
+	prefix := p.workerPrefix(clusterName, nodeGroupName)
+	replicas, machineType := 0, p.config.MachineType
+	for _, w := range infra.WorkerNodes {
+		if strings.HasPrefix(w.InstanceName, prefix) {
+			replicas++
+			if w.MachineType != "" {
+				machineType = w.MachineType
+			}
+		}
+	}
 	return &types.NodeGroup{
 		Name:         nodeGroupName,
-		Replicas:     3,
-		InstanceType: "e2-medium",
+		Replicas:     replicas,
+		InstanceType: machineType,
 		Status:       "ready",
-		CreatedAt:    time.Now().Add(-1 * time.Hour),
 		UpdatedAt:    time.Now(),
 	}, nil
 }
 
-// ListNodeGroups lists all node pools for a cluster
 func (p *Provider) ListNodeGroups(ctx context.Context, clusterID string) ([]*types.NodeGroup, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedListNodeGroups(ctx, clusterID)
+	}
 	return []*types.NodeGroup{
 		{
 			Name:         "default-pool",
@@ -2449,6 +2640,9 @@ func (p *Provider) GetStorage(ctx context.Context, storageID string) (*types.Sto
 
 // UpgradeCluster upgrades cluster by creating new instance templates with newer versions
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedUpgrade(ctx, clusterID, version)
+	}
 	log.Printf("Upgrading self-managed GCP cluster %s to version %s via kubeadm", clusterID, version)
 
 	clusterName := extractClusterName(clusterID)
@@ -2609,6 +2803,9 @@ func (p *Provider) RestoreCluster(ctx context.Context, backupID string, targetCl
 
 // GetClusterHealth retrieves cluster health
 func (p *Provider) GetClusterHealth(ctx context.Context, clusterID string) (*types.HealthStatus, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedHealth(ctx, clusterID)
+	}
 	return &types.HealthStatus{
 		Status: "healthy",
 		Components: map[string]types.ComponentHealth{
@@ -2752,7 +2949,12 @@ func generateClusterIP() string {
 		(time.Now().Unix()/256)%256)
 }
 
+// extractClusterName returns the cluster name from an ID of the form
+// gcp/<project>/<name> (the provider's convention) or gcp-<name> (legacy).
 func extractClusterName(clusterID string) string {
+	if strings.HasPrefix(clusterID, "gcp/") {
+		return clusterID[strings.LastIndex(clusterID, "/")+1:]
+	}
 	if len(clusterID) > 4 && clusterID[:4] == "gcp-" {
 		return clusterID[4:]
 	}
@@ -2764,6 +2966,9 @@ func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string,
 	cluster, err := p.GetCluster(ctx, clusterID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get cluster: %w", err)
+	}
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedKubeconfig(ctx, clusterID)
 	}
 
 	infrastructure, err := p.getClusterInfrastructure(ctx, cluster.Name)
@@ -2788,29 +2993,50 @@ func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string,
 	return provider.FetchAdminKubeconfig(signer, gcpSSHUser, masterIP)
 }
 
-// getClusterInfrastructure discovers and returns the current cluster infrastructure
+// getClusterInfrastructure returns the cluster's infrastructure: the tracked
+// record when the cluster was created on this machine, otherwise a discovery
+// of the instances named by the provider's conventions (<name>-master-N,
+// <name>-worker-N) with their current addresses.
 func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName string) (*ClusterInfrastructure, error) {
-	// This would typically query GCP Compute Engine API to get the actual infrastructure
-	// For now, return a basic structure based on stored cluster information
-
-	infrastructure := &ClusterInfrastructure{
+	clusterID := fmt.Sprintf("gcp/%s/%s", p.config.ProjectID, clusterName)
+	if infra, ok := p.clusters[clusterID]; ok && infra != nil && len(infra.MasterNodes) > 0 {
+		// Refresh addresses: ephemeral public IPs change across stop/start.
+		for i := range infra.MasterNodes {
+			if priv, pub, err := p.instanceIPs(ctx, infra.MasterNodes[i].InstanceName, infra.MasterNodes[i].Zone); err == nil {
+				infra.MasterNodes[i].PrivateIP, infra.MasterNodes[i].PublicIP = priv, pub
+			}
+		}
+		return infra, nil
+	}
+	zone := p.config.Zone
+	if tracker, ok := p.resourceTrackers[clusterID]; ok && tracker.Zone != "" {
+		zone = tracker.Zone
+	}
+	infra := &ClusterInfrastructure{
 		NetworkName:   fmt.Sprintf("%s-network", clusterName),
 		SubnetName:    fmt.Sprintf("%s-subnet", clusterName),
 		FirewallRules: []string{fmt.Sprintf("%s-firewall", clusterName)},
-		MasterNodes: []NodeInfo{
-			{
-				InstanceName: fmt.Sprintf("%s-master-1", clusterName),
-				Zone:         p.config.Zone,
-				PrivateIP:    "10.128.0.2", // Would be discovered from GCP
-				PublicIP:     "",           // Would be discovered from GCP
-				MachineType:  p.config.MachineType,
-				Role:         "master",
-			},
-		},
-		WorkerNodes: []NodeInfo{}, // Would be populated based on actual infrastructure
 	}
-
-	return infrastructure, nil
+	for i := 1; i <= 3; i++ {
+		name := fmt.Sprintf("%s-master-%d", clusterName, i)
+		priv, pub, err := p.instanceIPs(ctx, name, zone)
+		if err != nil {
+			break
+		}
+		infra.MasterNodes = append(infra.MasterNodes, NodeInfo{InstanceName: name, Zone: zone, PrivateIP: priv, PublicIP: pub, MachineType: p.config.MachineType, Role: "master"})
+	}
+	for i := 1; i <= 100; i++ {
+		name := fmt.Sprintf("%s-worker-%d", clusterName, i)
+		priv, pub, err := p.instanceIPs(ctx, name, zone)
+		if err != nil {
+			break
+		}
+		infra.WorkerNodes = append(infra.WorkerNodes, NodeInfo{InstanceName: name, Zone: zone, PrivateIP: priv, PublicIP: pub, MachineType: p.config.MachineType, Role: "worker"})
+	}
+	if len(infra.MasterNodes) == 0 {
+		return nil, fmt.Errorf("no control-plane instance %s-master-1 found in zone %s", clusterName, zone)
+	}
+	return infra, nil
 }
 
 // InvestigateCluster performs comprehensive investigation of a cluster

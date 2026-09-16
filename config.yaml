@@ -55,6 +55,10 @@ providers:
   # AWS Provider (enabled for production workloads)
   # aws:
   #   type: aws
+  #   # Default: raw compute + kubeadm (adhar-managed Kubernetes). Set
+  #   # useManagedK8s: true for managed EKS instead; every other behaviour
+  #   # and operation is identical.
+  #   # useManagedK8s: true
   #   region: ap-south-1
   #   primary: true  # Set to true if you want provider to handle management cluster
   #   credentials_file: "~/.aws/credentials"
@@ -93,6 +97,10 @@ providers:
   # Azure Provider (commented - uncomment and configure to use)
   # azure:
   #   type: azure
+  #   # Default: raw compute + kubeadm (adhar-managed Kubernetes). Set
+  #   # useManagedK8s: true for managed AKS instead; every other behaviour
+  #   # and operation is identical.
+  #   # useManagedK8s: true
   #   region: westindia
   #   primary: true
   #   credentials_file: "~/.azure/accessTokens.json"
@@ -135,6 +143,10 @@ providers:
   # Google Cloud Provider (commented - uncomment and configure to use)
   # gcp:
   #   type: gcp
+  #   # Default: raw compute + kubeadm (adhar-managed Kubernetes). Set
+  #   # useManagedK8s: true for managed GKE instead; every other behaviour
+  #   # and operation is identical.
+  #   # useManagedK8s: true
   #   region: asia-south1
   #   primary: true
   #   credentials_file: "~/.config/gcloud/YOUR_GCP_SERVICE_ACCOUNT.json"

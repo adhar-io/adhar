@@ -26,6 +26,12 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		return nil, fmt.Errorf("provider mismatch: expected aws, got %s", spec.Provider)
 	}
 
+	// Default mode: self-managed Kubernetes on EC2. EKS is the explicit
+	// opt-in (`useManagedK8s: true` / clusterMode: eks).
+	if p.isManagedMode() {
+		return p.createManagedCluster(ctx, spec)
+	}
+
 	if spec.ControlPlane.Replicas > 1 || spec.ControlPlane.HighAvailability {
 		return nil, fmt.Errorf("HA control plane not yet supported: self-managed AWS clusters run a single control-plane node")
 	}
@@ -211,6 +217,11 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 	}
 
 	fmt.Printf("🎯 Running kubeadm init on primary master %s...\n", primaryMaster.InstanceId)
+	// External cloud provider: the kubelet defers node initialisation to the
+	// AWS cloud-controller-manager installed right after the joins.
+	if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, primaryMaster.PublicIP, primaryMaster.PrivateIP, true, false); err != nil {
+		return fmt.Errorf("control plane %s: %w", primaryMaster.InstanceId, err)
+	}
 	joinCmd, err := provider.KubeadmInitMaster(signer, awsSSHUser, primaryMaster.PublicIP, primaryMaster.PrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
 	if err != nil {
 		return fmt.Errorf("failed to initialize primary master: %w", err)
@@ -229,11 +240,17 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 		if err := provider.WaitForNodePrep(ctx, signer, awsSSHUser, worker.PublicIP, 15*time.Minute); err != nil {
 			return fmt.Errorf("worker node %s not ready: %w", worker.InstanceId, err)
 		}
+		if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, worker.PublicIP, worker.PrivateIP, true, true); err != nil {
+			return fmt.Errorf("worker node %s: %w", worker.InstanceId, err)
+		}
 		if err := provider.KubeadmJoinWorker(signer, awsSSHUser, worker.PublicIP, joinCmd); err != nil {
 			return fmt.Errorf("failed to join worker node %s: %w", worker.InstanceId, err)
 		}
 	}
 
+	if err := p.installCloudIntegration(signer, primaryMaster.PublicIP, spec.Name); err != nil {
+		return err
+	}
 	fmt.Printf("✅ Kubernetes cluster setup complete!\n")
 
 	cluster.Endpoint = fmt.Sprintf("https://%s:6443", primaryMaster.PublicIP)
@@ -311,6 +328,14 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	clusterName := extractClusterName(clusterID)
 	log.Printf("🗑️  Starting comprehensive deletion of cluster %s and ALL associated AWS resources...", clusterName)
 	fmt.Printf("🗑️  Deleting cluster '%s' and ALL associated AWS resources...\n", clusterName)
+
+	// A managed (EKS) cluster: remove node groups, control plane and IAM roles
+	// first; the tag-based network cleanup below is shared with compute mode.
+	if p.isManagedCluster(ctx, clusterID) {
+		if err := p.deleteManagedControlPlane(ctx, clusterName); err != nil {
+			return err
+		}
+	}
 
 	// Create resource tracker to find all resources
 	tracker, err := p.discoverClusterResources(ctx, clusterName)
@@ -553,6 +578,9 @@ func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *ty
 // GetCluster retrieves cluster information from AWS infrastructure
 func (p *Provider) GetCluster(ctx context.Context, clusterID string) (*types.Cluster, error) {
 	clusterName := extractClusterName(clusterID)
+	if c, err := p.describeEKS(ctx, clusterName); err == nil {
+		return p.eksToCluster(c), nil
+	}
 
 	// Get infrastructure details to build cluster information
 	infrastructure, err := p.getClusterInfrastructure(ctx, clusterName)
@@ -646,6 +674,13 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 		clusters = append(clusters, cluster)
 	}
 
+	// Managed (EKS) clusters have no tagged control-plane instance.
+	if managed, err := p.managedListClusters(ctx); err != nil {
+		log.Printf("Warning: listing EKS clusters: %v", err)
+	} else {
+		clusters = append(clusters, managed...)
+	}
+
 	return clusters, nil
 }
 
@@ -653,6 +688,9 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 // node over SSH.
 func (p *Provider) GetKubeconfig(ctx context.Context, clusterID string) (string, error) {
 	clusterName := extractClusterName(clusterID)
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedKubeconfig(ctx, clusterName)
+	}
 
 	masters, err := p.getClusterMasterNodes(ctx, clusterName)
 	if err != nil {

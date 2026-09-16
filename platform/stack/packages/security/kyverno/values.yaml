@@ -26,3 +26,40 @@ config:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values: [kube-system]
+
+# Trust the platform CA in every Kyverno controller. `verify-image-signatures`
+# fetches signatures from the in-cluster Harbor (harbor-core.adhar-system.svc,
+# an internal CA) — without the CA the verifier fails with "Get https://harbor-
+# core…/v2/: tls: …" and every platform-built image is refused as unverified,
+# so no golden path ever reaches a running Pod (2026-09-15 DO bring-up). The
+# `adhar-ca` ConfigMap is distributed by application/supply-chain; it is
+# optional here because Kyverno starts before that package, and the
+# distributor restarts the admission controller once the bundle exists (Go
+# loads the system roots once, on first use). Kept OUT of
+# global.caCertificates, which replaces /etc/ssl/certs/ca-certificates.crt and
+# would drop the public CAs Kyverno needs to verify ghcr.io/docker.io images.
+admissionController:
+  container:
+    extraEnvVars:
+      - {name: SSL_CERT_DIR, value: /etc/ssl/certs:/etc/adhar-ca}
+  extraVolumes:
+    - name: adhar-ca
+      configMap: {name: adhar-ca, optional: true}
+  extraVolumeMounts:
+    - {name: adhar-ca, mountPath: /etc/adhar-ca, readOnly: true}
+backgroundController:
+  extraEnvVars:
+    - {name: SSL_CERT_DIR, value: /etc/ssl/certs:/etc/adhar-ca}
+  extraVolumes:
+    - name: adhar-ca
+      configMap: {name: adhar-ca, optional: true}
+  extraVolumeMounts:
+    - {name: adhar-ca, mountPath: /etc/adhar-ca, readOnly: true}
+reportsController:
+  extraEnvVars:
+    - {name: SSL_CERT_DIR, value: /etc/ssl/certs:/etc/adhar-ca}
+  extraVolumes:
+    - name: adhar-ca
+      configMap: {name: adhar-ca, optional: true}
+  extraVolumeMounts:
+    - {name: adhar-ca, mountPath: /etc/adhar-ca, readOnly: true}

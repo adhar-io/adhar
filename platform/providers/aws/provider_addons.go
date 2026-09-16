@@ -55,6 +55,9 @@ func (p *Provider) TestCleanup(ctx context.Context) error {
 
 // UpgradeCluster upgrades a Kubernetes cluster by updating node AMIs and Kubernetes version
 func (p *Provider) UpgradeCluster(ctx context.Context, clusterID string, version string) error {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedUpgrade(ctx, extractClusterName(clusterID), version)
+	}
 	clusterName := extractClusterName(clusterID)
 	log.Printf("Upgrading self-managed AWS cluster %s to version %s via kubeadm", clusterName, version)
 
@@ -152,6 +155,9 @@ func (p *Provider) RestoreCluster(ctx context.Context, backupID string, targetCl
 
 // GetClusterHealth retrieves cluster health from manual Kubernetes cluster
 func (p *Provider) GetClusterHealth(ctx context.Context, clusterID string) (*types.HealthStatus, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedHealth(ctx, extractClusterName(clusterID))
+	}
 	// 1. Get cluster info first to verify it exists
 	cluster, err := p.GetCluster(ctx, clusterID)
 	if err != nil {

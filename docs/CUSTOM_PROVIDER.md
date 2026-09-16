@@ -99,15 +99,25 @@ export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
 Because Adhar owns no infrastructure here, the create step is the SSH bootstrap
 only: no VPC, no load balancer, no volumes.
 
+Scaling moves the cluster boundary within `workerIPs` rather than creating
+machines: `adhar cluster scale <env> --workers N` joins the first N hosts that
+are not members yet (prep + `kubeadm join`) and retires the ones beyond N
+(drain, delete the Node, `kubeadm reset` on the host). To go past the list,
+add hosts to `workerIPs` first.
+
 ## 4. Load balancing, storage and DNS are yours
 
 The cloud providers get these from the cloud. On your own hosts you supply them:
 
 - **Ingress.** The Cilium Gateway listens on node ports 30080/30443. Put your own
   load balancer or DNS in front of the nodes, or use MetalLB.
-- **Storage.** There is no CSI driver by default, so anything wanting a
-  PersistentVolume stays `Pending`. Install a storage provider that suits your
-  hardware before enabling the full catalogue.
+- **Storage.** There is no cloud block storage, so the create step installs the
+  [local-path provisioner](https://github.com/rancher/local-path-provisioner)
+  (pinned in `custom/cloud_integration.go`) and marks `local-path` the default
+  StorageClass: PersistentVolumes are node-local hostPath directories — fine
+  for a lab, not replicated. Install a storage provider that suits your
+  hardware (Longhorn, Rook/Ceph, your SAN's CSI) before trusting the full
+  catalogue with data.
 - **DNS and TLS.** Point `*.<defaultHost>` at your load balancer. ACME HTTP-01
   needs the zone to resolve publicly; otherwise supply your own certificate.
 

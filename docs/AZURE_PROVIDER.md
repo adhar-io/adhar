@@ -13,7 +13,7 @@ that is live-verified on DigitalOcean.
 
 | | |
 |---|---|
-| Provisioning model | kubeadm on Azure VMs (AKS is not the default path) |
+| Provisioning model | kubeadm on Azure VMs (default); AKS via `useManagedK8s: true` |
 | Kubernetes | `globals.DefaultKubernetesVersion` (v1.37.0) unless pinned |
 | DNS | Azure DNS, or any zone you point at the load balancer |
 
@@ -95,6 +95,34 @@ environments:
 
 Note that `location` and the provider-level `region` mean the same thing here;
 set both to the same value to avoid surprises.
+
+
+### Managed mode (AKS)
+
+The default is kubeadm on compute. One switch on the provider hands the control
+plane to AKS instead; every other operation (`adhar up`, node groups,
+`adhar cluster scale`, `adhar upgrade`, `adhar down`) works the same way:
+
+```yaml
+providers:
+  azure:
+    type: azure
+    useManagedK8s: true      # or clusterMode: aks
+```
+
+What it creates: the resource group (or the configured one), then an AKS
+cluster with `networkPlugin: none` (BYO CNI — the platform bootstrap installs
+Cilium exactly as on every other cluster), a system-assigned identity and one
+agent pool per `nodeGroups` entry (the first is the System pool; names are
+squeezed to AKS's 12 lowercase alphanumerics). The kubeconfig is the
+cluster-admin credential AKS issues. Teardown deletes the cluster and then the
+resource group when Adhar created it.
+
+What compute mode installs on the control plane after the first joins
+(`azure/cloud_integration.go`): `kube-system/azure-cloud-provider` (`azure.json`
+from the service-principal fields), the `cloud-provider-azure` chart, the
+`azuredisk-csi-driver` chart, the default `adhar-block` StandardSSD
+StorageClass and the CSI startup-taint toleration.
 
 ## 3. Run it
 

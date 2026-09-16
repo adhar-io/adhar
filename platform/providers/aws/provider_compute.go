@@ -158,52 +158,67 @@ func (p *Provider) createWorkerNodes(ctx context.Context, subnetID, sgID, cluste
 
 		for i := 0; i < nodeGroup.Replicas; i++ {
 			nodeName := fmt.Sprintf("%s-%s-%d", clusterName, nodeGroup.Name, i+1)
-
-			// Create EC2 instance
-			runResult, err := p.ec2Client.RunInstances(ctx, &ec2.RunInstancesInput{
-				ImageId:          aws.String(amiID),
-				InstanceType:     ec2types.InstanceType(instanceType),
-				MinCount:         aws.Int32(1),
-				MaxCount:         aws.Int32(1),
-				KeyName:          aws.String(sshKeyName),
-				SubnetId:         aws.String(subnetID),
-				SecurityGroupIds: []string{sgID},
-				TagSpecifications: []ec2types.TagSpecification{
-					{
-						ResourceType: ec2types.ResourceTypeInstance,
-						Tags: []ec2types.Tag{
-							{Key: aws.String("Name"), Value: aws.String(nodeName)},
-							{Key: aws.String("Cluster"), Value: aws.String(clusterName)},
-							{Key: aws.String("Role"), Value: aws.String("worker")},
-							{Key: aws.String("NodeGroup"), Value: aws.String(nodeGroup.Name)},
-							{Key: aws.String("KubernetesCluster"), Value: aws.String(clusterName)},
-						},
-					},
-				},
-				UserData: aws.String(userData),
+			node, err := p.runWorkerInstance(ctx, workerInstanceSpec{
+				Name: nodeName, ClusterName: clusterName, NodeGroup: nodeGroup.Name, InstanceType: instanceType,
+				AMI: amiID, KeyName: sshKeyName, SubnetID: subnetID, SecurityGroupID: sgID, UserData: userData,
 			})
-
 			if err != nil {
-				return nil, fmt.Errorf("failed to create worker node %s: %w", nodeName, err)
+				return nil, err
 			}
-
-			inst, err := p.waitForInstanceIPs(ctx, *runResult.Instances[0].InstanceId)
-			if err != nil {
-				return nil, fmt.Errorf("worker node %s: %w", nodeName, err)
-			}
-
-			workerNodes = append(workerNodes, NodeInfo{
-				InstanceId:   *inst.InstanceId,
-				PrivateIP:    aws.ToString(inst.PrivateIpAddress),
-				PublicIP:     aws.ToString(inst.PublicIpAddress),
-				InstanceType: instanceType,
-				Role:         "worker",
-			})
+			workerNodes = append(workerNodes, *node)
 		}
 	}
 
 	log.Printf("Successfully created %d worker nodes", len(workerNodes))
 	return workerNodes, nil
+}
+
+// workerInstanceSpec is everything one worker EC2 instance needs. One place, so
+// the instance a scale-up adds is indistinguishable from one `adhar up` made.
+type workerInstanceSpec struct {
+	Name, ClusterName, NodeGroup, InstanceType string
+	AMI, KeyName, SubnetID, SecurityGroupID    string
+	UserData                                   string
+}
+
+// runWorkerInstance launches one tagged worker instance and waits for its IPs.
+func (p *Provider) runWorkerInstance(ctx context.Context, w workerInstanceSpec) (*NodeInfo, error) {
+	runResult, err := p.ec2Client.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId:          aws.String(w.AMI),
+		InstanceType:     ec2types.InstanceType(w.InstanceType),
+		MinCount:         aws.Int32(1),
+		MaxCount:         aws.Int32(1),
+		KeyName:          aws.String(w.KeyName),
+		SubnetId:         aws.String(w.SubnetID),
+		SecurityGroupIds: []string{w.SecurityGroupID},
+		TagSpecifications: []ec2types.TagSpecification{
+			{
+				ResourceType: ec2types.ResourceTypeInstance,
+				Tags: []ec2types.Tag{
+					{Key: aws.String("Name"), Value: aws.String(w.Name)},
+					{Key: aws.String("Cluster"), Value: aws.String(w.ClusterName)},
+					{Key: aws.String("Role"), Value: aws.String("worker")},
+					{Key: aws.String("NodeGroup"), Value: aws.String(w.NodeGroup)},
+					{Key: aws.String("KubernetesCluster"), Value: aws.String(w.ClusterName)},
+				},
+			},
+		},
+		UserData: aws.String(w.UserData),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create worker node %s: %w", w.Name, err)
+	}
+	inst, err := p.waitForInstanceIPs(ctx, *runResult.Instances[0].InstanceId)
+	if err != nil {
+		return nil, fmt.Errorf("worker node %s: %w", w.Name, err)
+	}
+	return &NodeInfo{
+		InstanceId:   *inst.InstanceId,
+		PrivateIP:    aws.ToString(inst.PrivateIpAddress),
+		PublicIP:     aws.ToString(inst.PublicIpAddress),
+		InstanceType: w.InstanceType,
+		Role:         "worker",
+	}, nil
 }
 
 // getClusterInfrastructure retrieves the infrastructure details for a cluster
@@ -533,6 +548,9 @@ func (p *Provider) scaleDownWorkerNodes(ctx context.Context, infrastructure *Clu
 
 // AddNodeGroup adds a node group to the cluster
 func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup *types.NodeGroupSpec) (*types.NodeGroup, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedAddNodeGroup(ctx, extractClusterName(clusterID), nodeGroup)
+	}
 	return &types.NodeGroup{
 		Name:         nodeGroup.Name,
 		Replicas:     nodeGroup.Replicas,
@@ -545,41 +563,211 @@ func (p *Provider) AddNodeGroup(ctx context.Context, clusterID string, nodeGroup
 
 // RemoveNodeGroup removes a node group from the cluster
 func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) error {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedRemoveNodeGroup(ctx, extractClusterName(clusterID), nodeGroupName)
+	}
 	return nil
 }
 
 // ScaleNodeGroup scales a node group
+// ScaleNodeGroup moves a self-managed node group to `replicas` workers with the
+// lifecycle DigitalOcean established (platform/providers helpers): a fresh join
+// token, prepared-then-joined instances, drain-then-terminate on the way down.
+// Members are the running instances tagged Cluster=<cluster>, Role=worker and
+// NodeGroup=<group>; their Name tags are `<cluster>-<group>-<n>`. This used to
+// return nil without touching an instance, and scaleDownWorkerNodes terminated
+// instances without draining them.
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGroupName string, replicas int) error {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedScaleNodeGroup(ctx, extractClusterName(clusterID), nodeGroupName, replicas)
+	}
+	log.Printf("Scaling node group %s in cluster %s to %d replicas", nodeGroupName, clusterID, replicas)
+	infra, err := p.getClusterInfrastructure(ctx, clusterID)
+	if err != nil {
+		return err
+	}
+	if len(infra.MasterNodes) == 0 || infra.MasterNodes[0].PublicIP == "" {
+		return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterID)
+	}
+	members, err := p.nodeGroupInstances(ctx, clusterID, nodeGroupName)
+	if err != nil {
+		return err
+	}
+	prefix := fmt.Sprintf("%s-%s-", clusterID, nodeGroupName)
+	current := make([]string, 0, len(members))
+	for name := range members {
+		current = append(current, name)
+	}
+	add, remove := provider.WorkerScalePlan(prefix, current, replicas)
+	if len(add) == 0 && len(remove) == 0 {
+		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
+		return nil
+	}
+	signer, err := provider.LoadClusterSSHKey(clusterID)
+	if err != nil {
+		return fmt.Errorf("failed to load cluster SSH key: %w", err)
+	}
+	masterIP := infra.MasterNodes[0].PublicIP
+
+	if len(add) > 0 {
+		if len(infra.SubnetIds) == 0 || len(infra.SecurityGroups) == 0 {
+			return fmt.Errorf("cluster %s has no subnet/security group to place workers in", clusterID)
+		}
+		joinCmd, err := provider.JoinCommand(signer, awsSSHUser, masterIP)
+		if err != nil {
+			return err
+		}
+		amiID, err := p.getUbuntuAMI(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to find Ubuntu AMI: %w", err)
+		}
+		sshKeyName, err := p.ensureSSHKeyPair(ctx, clusterID)
+		if err != nil {
+			return fmt.Errorf("failed to resolve the cluster SSH key pair: %w", err)
+		}
+		instanceType := "t3.medium"
+		for _, m := range members {
+			if m.InstanceType != "" {
+				instanceType = m.InstanceType
+				break
+			}
+		}
+		// The same node-prep the cluster was created with; the version comes
+		// from the running control plane so a scaled cluster cannot skew.
+		spec := &types.ClusterSpec{}
+		if c, gerr := p.GetCluster(ctx, clusterID); gerr == nil && c != nil {
+			spec.Version = c.Version
+		}
+		for _, name := range add {
+			node, err := p.runWorkerInstance(ctx, workerInstanceSpec{
+				Name: name, ClusterName: clusterID, NodeGroup: nodeGroupName, InstanceType: instanceType,
+				AMI: amiID, KeyName: sshKeyName, SubnetID: infra.SubnetIds[0], SecurityGroupID: infra.SecurityGroups[0], UserData: nodeUserData(spec),
+			})
+			if err != nil {
+				return err
+			}
+			if err := provider.WaitForNodePrep(ctx, signer, awsSSHUser, node.PublicIP, 15*time.Minute); err != nil {
+				return fmt.Errorf("new worker %s not ready: %w", name, err)
+			}
+			// The EBS CSI driver is a platform addon on AWS, so a worker carries
+			// the CSI startup taint until its CSINode registers; no
+			// cloud-controller-manager is installed yet (docs/PROVIDERS.md).
+			if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, node.PublicIP, node.PrivateIP, false, true); err != nil {
+				return fmt.Errorf("new worker %s: %w", name, err)
+			}
+			if err := provider.KubeadmJoinWorker(signer, awsSSHUser, node.PublicIP, joinCmd); err != nil {
+				return fmt.Errorf("new worker %s: %w", name, err)
+			}
+			log.Printf("Added worker %s (%s) to cluster %s", name, node.InstanceId, clusterID)
+		}
+	}
+	for _, name := range remove {
+		if err := provider.RetireWorker(signer, awsSSHUser, masterIP, name); err != nil {
+			log.Printf("Warning: %v", err)
+		}
+		if _, err := p.ec2Client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{members[name].InstanceId}}); err != nil {
+			return fmt.Errorf("failed to terminate worker %s: %w", name, err)
+		}
+		log.Printf("Removed worker %s (%s) from cluster %s", name, members[name].InstanceId, clusterID)
+	}
 	return nil
 }
 
-// GetNodeGroup retrieves node group information
-func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) (*types.NodeGroup, error) {
-	return &types.NodeGroup{
-		Name:         nodeGroupName,
-		Replicas:     3,
-		InstanceType: "t3.medium",
-		Status:       "ready",
-		CreatedAt:    time.Now().Add(-1 * time.Hour),
-		UpdatedAt:    time.Now(),
-	}, nil
-}
-
-// ListNodeGroups lists all node groups for a cluster
-func (p *Provider) ListNodeGroups(ctx context.Context, clusterID string) ([]*types.NodeGroup, error) {
-	return []*types.NodeGroup{
-		{
-			Name:         "default",
-			Replicas:     3,
-			InstanceType: "t3.medium",
-			Status:       "ready",
-			CreatedAt:    time.Now().Add(-1 * time.Hour),
-			UpdatedAt:    time.Now(),
+// nodeGroupInstances lists the running workers of one node group by Name tag.
+func (p *Provider) nodeGroupInstances(ctx context.Context, clusterName, nodeGroupName string) (map[string]NodeInfo, error) {
+	result, err := p.ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		Filters: []ec2types.Filter{
+			{Name: aws.String("tag:Cluster"), Values: []string{clusterName}},
+			{Name: aws.String("tag:Role"), Values: []string{"worker"}},
+			{Name: aws.String("tag:NodeGroup"), Values: []string{nodeGroupName}},
+			{Name: aws.String("instance-state-name"), Values: []string{"running", "pending"}},
 		},
-	}, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list node group %s instances: %w", nodeGroupName, err)
+	}
+	members := map[string]NodeInfo{}
+	for _, r := range result.Reservations {
+		for _, inst := range r.Instances {
+			name := ""
+			for _, tag := range inst.Tags {
+				if aws.ToString(tag.Key) == "Name" {
+					name = aws.ToString(tag.Value)
+				}
+			}
+			if name == "" {
+				continue
+			}
+			members[name] = NodeInfo{
+				InstanceId:   aws.ToString(inst.InstanceId),
+				PrivateIP:    aws.ToString(inst.PrivateIpAddress),
+				PublicIP:     aws.ToString(inst.PublicIpAddress),
+				InstanceType: string(inst.InstanceType),
+				Role:         "worker",
+			}
+		}
+	}
+	return members, nil
 }
 
-// getClusterMasterNodes retrieves master nodes for a cluster
+func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) (*types.NodeGroup, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedGetNodeGroup(ctx, extractClusterName(clusterID), nodeGroupName)
+	}
+	members, err := p.nodeGroupInstances(ctx, clusterID, nodeGroupName)
+	if err != nil {
+		return nil, err
+	}
+	instanceType := "t3.medium"
+	for _, m := range members {
+		if m.InstanceType != "" {
+			instanceType = m.InstanceType
+			break
+		}
+	}
+	return &types.NodeGroup{Name: nodeGroupName, Replicas: len(members), InstanceType: instanceType, Status: "ready", UpdatedAt: time.Now()}, nil
+}
+
+func (p *Provider) ListNodeGroups(ctx context.Context, clusterID string) ([]*types.NodeGroup, error) {
+	if p.isManagedCluster(ctx, clusterID) {
+		return p.managedListNodeGroups(ctx, extractClusterName(clusterID))
+	}
+	// Group the running workers by their NodeGroup tag; workers created before
+	// node groups were tagged report as one "default" group.
+	result, err := p.ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		Filters: []ec2types.Filter{
+			{Name: aws.String("tag:Cluster"), Values: []string{clusterID}},
+			{Name: aws.String("tag:Role"), Values: []string{"worker"}},
+			{Name: aws.String("instance-state-name"), Values: []string{"running", "pending"}},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list workers of %s: %w", clusterID, err)
+	}
+	groups := map[string]*types.NodeGroup{}
+	for _, r := range result.Reservations {
+		for _, inst := range r.Instances {
+			group := "default"
+			for _, tag := range inst.Tags {
+				if aws.ToString(tag.Key) == "NodeGroup" && aws.ToString(tag.Value) != "" {
+					group = aws.ToString(tag.Value)
+				}
+			}
+			g := groups[group]
+			if g == nil {
+				g = &types.NodeGroup{Name: group, InstanceType: string(inst.InstanceType), Status: "ready", UpdatedAt: time.Now()}
+				groups[group] = g
+			}
+			g.Replicas++
+		}
+	}
+	out := make([]*types.NodeGroup, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, g)
+	}
+	return out, nil
+}
+
 func (p *Provider) getClusterMasterNodes(ctx context.Context, clusterName string) ([]NodeInfo, error) {
 	result, err := p.ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		Filters: []ec2types.Filter{

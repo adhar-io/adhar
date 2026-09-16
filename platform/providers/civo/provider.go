@@ -1239,6 +1239,9 @@ func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID, nodeGroupName
 
 // ScaleNodeGroup updates the node count of a Civo pool (by pool ID).
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID, nodeGroupName string, replicas int) error {
+	if p.isComputeCluster(clusterID) {
+		return p.scaleComputeWorkers(ctx, clusterID, nodeGroupName, replicas)
+	}
 	id, err := p.resolveCivoClusterID(clusterID)
 	if err != nil {
 		return err

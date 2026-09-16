@@ -29,9 +29,6 @@ spec:
   successfulHistoryLimit: 10
   failedHistoryLimit: 5
   operationTemplate:
-    metadata:
-      labels:
-        feature: drift
     spec:
       mode: Pipeline
       pipeline:

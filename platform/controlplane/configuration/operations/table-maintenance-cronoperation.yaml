@@ -34,9 +34,6 @@ spec:
   failedHistoryLimit: 3
   startingDeadlineSeconds: 900
   operationTemplate:
-    metadata:
-      labels:
-        feature: lakehouse
     spec:
       mode: Pipeline
       pipeline:

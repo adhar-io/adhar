@@ -28,9 +28,6 @@ spec:
   # If the controller misses the scheduled time by more than 15m, skip the run.
   startingDeadlineSeconds: 900
   operationTemplate:
-    metadata:
-      labels:
-        feature: backup
     spec:
       mode: Pipeline
       pipeline:

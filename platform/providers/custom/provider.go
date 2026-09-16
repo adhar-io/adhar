@@ -294,6 +294,10 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		}
 	}
 
+	if err := p.installCloudIntegration(signer, masterIP); err != nil {
+		return nil, err
+	}
+
 	cluster := &types.Cluster{
 		ID:        fmt.Sprintf("custom-%s", spec.Name),
 		Name:      spec.Name,
@@ -434,19 +438,91 @@ func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGr
 	return fmt.Errorf("the custom provider cannot remove node groups: drain the nodes, run `kubeadm reset` on them, and remove their IPs from workerIPs")
 }
 
-// ScaleNodeGroup is not supported: the hosts are user-supplied.
+// ScaleNodeGroup joins or retires hosts from the configured workerIPs so
+// that the first `replicas` of them are cluster members: hosts are
+// user-supplied, so scaling never creates or deletes machines — it moves the
+// boundary within the list (the same drain-then-remove lifecycle every cloud
+// provider uses, via the shared kubeadm helpers).
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGroupName string, replicas int) error {
-	return fmt.Errorf("the custom provider cannot scale node groups: the hosts are user-supplied; update workerIPs in the provider configuration")
+	if nodeGroupName != "workers" {
+		return fmt.Errorf("node group %s not found (the custom provider has a single %q group from workerIPs)", nodeGroupName, "workers")
+	}
+	if replicas < 0 || replicas > len(p.config.WorkerIPs) {
+		return fmt.Errorf("cannot scale to %d workers: workerIPs lists %d host(s); add hosts to workerIPs in the provider configuration first", replicas, len(p.config.WorkerIPs))
+	}
+	signer, err := p.sshSigner()
+	if err != nil {
+		return err
+	}
+	masterIP := p.masterIP()
+	joined := provider.KubeadmJoinedNodes(signer, p.config.SSHUser, masterIP)
+
+	var joinCmd string
+	for _, ip := range p.config.WorkerIPs[:replicas] {
+		if joined.Has("", ip) {
+			continue
+		}
+		if joinCmd == "" {
+			out, err := p.run(masterIP, "kubeadm version -o short", 2*time.Minute)
+			if err != nil {
+				return fmt.Errorf("reading the control plane's kubeadm version: %w", err)
+			}
+			if err := p.prepareHost(ip, provider.K8sMinorFromVersion(strings.TrimSpace(out))); err != nil {
+				return err
+			}
+			joinCmd, err = provider.JoinCommand(signer, p.config.SSHUser, masterIP)
+			if err != nil {
+				return err
+			}
+		} else if err := p.prepareHost(ip, ""); err != nil {
+			return err
+		}
+		log.Printf("Joining host %s to cluster %s", ip, clusterID)
+		if err := provider.KubeadmJoinWorker(signer, p.config.SSHUser, ip, joinCmd); err != nil {
+			return fmt.Errorf("worker %s: %w", ip, err)
+		}
+	}
+	for _, ip := range p.config.WorkerIPs[replicas:] {
+		if !joined.Has("", ip) {
+			continue
+		}
+		nodeName := provider.NodeNameForIP(signer, p.config.SSHUser, masterIP, ip)
+		if nodeName == "" {
+			log.Printf("Warning: no node registered for host %s; skipping retire", ip)
+			continue
+		}
+		log.Printf("Retiring host %s (node %s) from cluster %s", ip, nodeName, clusterID)
+		if err := provider.RetireWorker(signer, p.config.SSHUser, masterIP, nodeName); err != nil {
+			return err
+		}
+		if out, err := p.run(ip, "kubeadm reset -f && rm -rf /etc/cni/net.d", 10*time.Minute); err != nil {
+			log.Printf("Warning: kubeadm reset on %s failed: %v (output: %s)", ip, err, provider.LastLines(out, 5))
+		}
+	}
+	return nil
 }
 
-// GetNodeGroup reports the single configured worker group.
+// GetNodeGroup reports the single configured worker group: its replicas are
+// the workerIPs hosts currently registered as nodes.
 func (p *Provider) GetNodeGroup(ctx context.Context, clusterID string, nodeGroupName string) (*types.NodeGroup, error) {
 	if nodeGroupName != "workers" {
 		return nil, fmt.Errorf("node group %s not found (the custom provider has a single %q group from workerIPs)", nodeGroupName, "workers")
 	}
+	replicas := len(p.config.WorkerIPs)
+	if signer, err := p.sshSigner(); err == nil {
+		joined := provider.KubeadmJoinedNodes(signer, p.config.SSHUser, p.masterIP())
+		if len(joined.Addresses) > 0 {
+			replicas = 0
+			for _, ip := range p.config.WorkerIPs {
+				if joined.Has("", ip) {
+					replicas++
+				}
+			}
+		}
+	}
 	return &types.NodeGroup{
 		Name:         "workers",
-		Replicas:     len(p.config.WorkerIPs),
+		Replicas:     replicas,
 		InstanceType: "byo-host",
 		Status:       types.NodeGroupStatusReady,
 		UpdatedAt:    time.Now(),

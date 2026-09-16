@@ -98,12 +98,21 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
 .PHONY: e2e
-e2e: build ## Run the e2e tests. Creates (and destroys) a local Kind cluster named 'adhar' via `adhar up`.
-	@docker info >/dev/null 2>&1 || { \
-		echo "Docker is not running. The e2e tests bootstrap a Kind cluster and need Docker."; \
-		exit 1; \
-	}
-	go test -v -p 1 -timeout 120m --tags=e2e ./tests/e2e/...
+# ENGINE selects the container engine Kind runs on: docker (Docker Desktop /
+# Engine), podman, nerdctl or finch — the same set the Kind provider supports
+# (docs/KIND_PROVIDER.md). Default: whatever `KIND_EXPERIMENTAL_PROVIDER` says,
+# else auto-detect docker → podman → nerdctl → finch. Podman is a first-class
+# local engine, so `make e2e ENGINE=podman` must pass exactly like Docker.
+ENGINE ?= $(KIND_EXPERIMENTAL_PROVIDER)
+e2e: build ## Run the e2e tests on Docker or Podman (ENGINE=docker|podman|nerdctl|finch). Creates (and destroys) a local Kind cluster named 'adhar' via `adhar up`.
+	@engine="$(ENGINE)"; \
+	if [ -z "$$engine" ]; then \
+		for c in docker podman nerdctl finch; do command -v $$c >/dev/null 2>&1 && $$c info >/dev/null 2>&1 && { engine=$$c; break; }; done; \
+	fi; \
+	[ -n "$$engine" ] || { echo "No running container engine found (docker, podman, nerdctl or finch). The e2e tests bootstrap a Kind cluster."; exit 1; }; \
+	$$engine info >/dev/null 2>&1 || { echo "$$engine is not running. The e2e tests bootstrap a Kind cluster on it."; exit 1; }; \
+	echo "e2e: container engine = $$engine"; \
+	KIND_EXPERIMENTAL_PROVIDER=$$engine ADHAR_E2E_ENGINE=$$engine go test -v -p 1 -timeout 120m --tags=e2e ./tests/e2e/...
 
 .PHONY: validate-packages
 validate-packages: ## Validate every package marketplace contract (platform/stack/packages/*/*/adhar-package.yaml).

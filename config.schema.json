@@ -211,6 +211,10 @@
         "credentials_file": { "type": "string" },
         "useEnvironment": { "type": "boolean" },
         "useManagedK8s": { "type": "boolean" },
+        "clusterMode": {
+          "type": "string",
+          "description": "How clusters are created: compute (default, kubeadm on raw instances) or the cloud's managed service (eks, aks, gke, doks, k3s). useManagedK8s: true is the same switch."
+        },
         "config": {
           "type": "object",
           "description": "Provider-specific configuration. Shape varies per provider.",

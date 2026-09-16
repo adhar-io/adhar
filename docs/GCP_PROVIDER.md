@@ -13,7 +13,7 @@ same code path that is live-verified on DigitalOcean.
 
 | | |
 |---|---|
-| Provisioning model | kubeadm on Compute Engine instances (GKE is not the default path) |
+| Provisioning model | kubeadm on Compute Engine instances (default); GKE via `useManagedK8s: true` |
 | Kubernetes | `globals.DefaultKubernetesVersion` (v1.37.0) unless pinned |
 | DNS | Cloud DNS, or any zone you point at the load balancer |
 
@@ -106,6 +106,35 @@ environments:
 id is the most common first-run failure, and the shipped sample configs
 historically carried `YOUR_PROJECT_ID` placeholders that create an orphan
 instance before failing.
+
+
+### Managed mode (GKE)
+
+The default is kubeadm on compute. One switch on the provider hands the control
+plane to GKE instead; every other operation (`adhar up`, node groups,
+`adhar cluster scale`, `adhar upgrade`, `adhar down`) works the same way:
+
+```yaml
+providers:
+  gcp:
+    type: gcp
+    useManagedK8s: true      # or clusterMode: gke
+```
+
+What it creates: the VPC network and subnet (same helpers as compute mode),
+then a zonal GKE cluster in the provider's `zone` with one node pool per
+`nodeGroups` entry (VPC-native; REGULAR release channel unless a version is
+pinned). The kubeconfig authenticates through `gke-gcloud-auth-plugin`, so it
+**must be on PATH** (`gcloud components install gke-gcloud-auth-plugin`) on the
+machine running `adhar up` and wherever the kubeconfig is used. Teardown
+deletes the cluster, the `gke-<cluster>-*` firewall rules GKE adds, then the
+subnet and network.
+
+What compute mode installs on the control plane after the first joins
+(`gcp/cloud_integration.go`): the `cloud-provider-gcp` manifest, the
+Persistent Disk CSI driver (remote kustomization; `gce-pd-csi-driver/cloud-sa`
+from the service-account key, or application-default credentials), the default
+`adhar-block` pd-balanced StorageClass and the CSI startup-taint toleration.
 
 ## 3. Run it
 

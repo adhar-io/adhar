@@ -133,9 +133,14 @@ spec:
               fi
               kubectl create configmap adhar-ca-bundle -n adhar-system --from-file=ca.crt=/tmp/ca.crt \
                 --dry-run=client -o yaml | kubectl apply -f -
-              # Pick up the refreshed bundle: the controller reads it once at boot.
+              # Pick up the refreshed bundle: both read it once at boot (Go loads
+              # the system roots on first use). Kyverno's image verifier fetches
+              # signatures from Harbor over the same internal CA.
               kubectl -n kpack-system rollout restart deployment/kpack-controller 2>/dev/null \
                 || echo "kpack-controller not installed yet; it will read the bundle at start-up"
+              for d in kyverno-admission-controller kyverno-background-controller kyverno-reports-controller; do
+                kubectl -n adhar-system rollout restart deployment/$d 2>/dev/null || echo "$d not installed yet"
+              done
               echo "CA bundle distributed to adhar-system/adhar-ca and adhar-system/adhar-ca-bundle"
 ---
 # Inject the adhar CA into every kpack build pod. kpack builds run in adhar-system

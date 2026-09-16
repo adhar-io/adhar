@@ -397,7 +397,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		return nil, fmt.Errorf("control-plane node not ready: %w", err)
 	}
 
-	if err := enableExternalCloudProvider(signer, masterIP, masterPrivateIP, false); err != nil {
+	if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, masterIP, masterPrivateIP, true, false); err != nil {
 		return nil, fmt.Errorf("failed to enable external cloud provider on master: %w", err)
 	}
 	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, masterIP, masterPrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
@@ -417,7 +417,7 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, ip, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", d.Name, err)
 		}
-		if err := enableExternalCloudProvider(signer, ip, privIP, true); err != nil {
+		if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, ip, privIP, true, true); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", d.Name, err)
 		}
 		if err := provider.KubeadmJoinWorker(signer, computeSSHUser, ip, joinCmd); err != nil {
@@ -925,7 +925,7 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 				return fmt.Errorf("new worker %s not ready: %w", nodeName, err)
 			}
 			privIP, _ := d.PrivateIPv4()
-			if err := enableExternalCloudProvider(signer, ip, privIP, true); err != nil {
+			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, ip, privIP, true, true); err != nil {
 				return fmt.Errorf("new worker %s: %w", nodeName, err)
 			}
 			if err := provider.KubeadmJoinWorker(signer, computeSSHUser, ip, joinCmd); err != nil {
@@ -952,15 +952,16 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 // going away regardless and blocking here would leave a cordoned node and a
 // billed droplet behind.
 func (p *Provider) retireComputeWorker(ctx context.Context, signer ssh.Signer, masterIP string, d godo.Droplet) error {
-	drain := fmt.Sprintf(
-		"kubectl --kubeconfig /etc/kubernetes/admin.conf drain %[1]s --ignore-daemonsets --delete-emptydir-data --timeout=5m || true; "+
-			"kubectl --kubeconfig /etc/kubernetes/admin.conf delete node %[1]s --ignore-not-found", d.Name)
-	if out, err := provider.SSHRun(signer, computeSSHUser, masterIP, drain, 10*time.Minute); err != nil {
-		log.Printf("Warning: drain of %s reported: %v (%s)", d.Name, err, provider.LastLines(out, 5))
+	// Drain + delete the Node object first (shared with every raw-compute
+	// provider), then the droplet. A failed drain is logged, not fatal: the
+	// droplet is going away regardless.
+	if err := provider.RetireWorker(signer, computeSSHUser, masterIP, d.Name); err != nil {
+		log.Printf("Warning: %v", err)
 	}
 	if _, err := p.client.Droplets.Delete(ctx, d.ID); err != nil {
-		return fmt.Errorf("failed to delete droplet %s: %w", d.Name, err)
+		return fmt.Errorf("deleting droplet %s: %w", d.Name, err)
 	}
+	log.Printf("Removed worker %s (droplet %d)", d.Name, d.ID)
 	return nil
 }
 
@@ -1022,42 +1023,10 @@ func (p *Provider) RemoveWorkerNode(ctx context.Context, clusterID string, nodeN
 // platform component needs. Versions are pinned; manifests are applied on the
 // control plane via kubectl so no local tooling is required.
 const (
-	doCCMManifestURL  = "https://raw.githubusercontent.com/digitalocean/digitalocean-cloud-controller-manager/master/releases/digitalocean-cloud-controller-manager/v0.1.62.yml"
-	doCSIReleaseBase  = "https://raw.githubusercontent.com/digitalocean/csi-digitalocean/master/deploy/kubernetes/releases/csi-digitalocean-v4.14.0"
-	kubectlAdminBase  = "kubectl --kubeconfig /etc/kubernetes/admin.conf"
-	externalCloudFlag = "KUBELET_EXTRA_ARGS=--cloud-provider=external"
-	// A worker joins with this taint and the node autoscaler lifts it once the
-	// node's CSINode reports the DO driver (globals.NodeCSIStartupTaint). The
-	// scheduler enforces the 7-volume attach limit only after the CSI node
-	// plugin publishes it; before that it packs the node without limit — 11
-	// attachments on a 7-volume droplet, seen on two separate bring-ups.
-	csiStartupTaintFlag = "--register-with-taints=" + globals.NodeCSIStartupTaint + "=:NoSchedule"
+	doCCMManifestURL = "https://raw.githubusercontent.com/digitalocean/digitalocean-cloud-controller-manager/master/releases/digitalocean-cloud-controller-manager/v0.1.62.yml"
+	doCSIReleaseBase = "https://raw.githubusercontent.com/digitalocean/csi-digitalocean/master/deploy/kubernetes/releases/csi-digitalocean-v4.14.0"
+	kubectlAdminBase = "kubectl --kubeconfig /etc/kubernetes/admin.conf"
 )
-
-// enableExternalCloudProvider marks a node's kubelet for external cloud
-// provider mode; must run before kubeadm init/join on that node. Nodes then
-// carry the uninitialized taint until the CCM adopts them (Cilium's DaemonSet
-// tolerates it, so the CNI still comes up first during platform bootstrap).
-func enableExternalCloudProvider(signer ssh.Signer, ip, privateIP string, worker bool) error {
-	// --node-ip is required alongside external mode: without it the kubelet
-	// registers no InternalIP until the CCM initializes the node, which
-	// deadlocks scheduling (Cilium cannot start without a node IP, the CCM
-	// cannot schedule until Cilium clears its taint) and breaks kubectl
-	// logs/exec through the API server.
-	flags := externalCloudFlag
-	if privateIP != "" {
-		flags += " --node-ip=" + privateIP
-	}
-	// Only workers carry the CSI startup taint: the control plane is already
-	// unschedulable for workloads, and nothing would lift the taint there
-	// before the autoscaler is running.
-	if worker {
-		flags += " " + csiStartupTaintFlag
-	}
-	_, err := provider.SSHRun(signer, computeSSHUser, ip,
-		"grep -q cloud-provider=external /etc/default/kubelet 2>/dev/null || { echo '"+flags+"' >> /etc/default/kubelet && systemctl restart kubelet; }", 2*time.Minute)
-	return err
-}
 
 // installDOCloudIntegration applies the token secret, CCM, CSI driver and
 // marks do-block-storage as the default StorageClass, all via the control

@@ -7,12 +7,22 @@ on:
 
 # E2E bootstraps a full platform; cancel superseded runs on the same ref.
 concurrency:
-  group: e2e-${{ github.ref }}
+  group: e2e-${{ github.ref }}-${{ matrix.engine || 'all' }}
   cancel-in-progress: true
 
 jobs:
   e2e:
-    name: Full bootstrap sequence
+    # Docker and Podman are both first-class local engines for `adhar up`
+    # (docs/KIND_PROVIDER.md): the same bootstrap must pass on each, so both
+    # run on every push — a regression that only shows on Podman (image
+    # preload, port mapping, rootless networking) is caught here, not by a
+    # user. Podman on the runner is rootful (`sudo`), which is the mode Kind
+    # documents for CI; rootless Podman works for local development.
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [docker, podman]
+    name: Full bootstrap sequence (${{ matrix.engine }})
     # The job budget must EXCEED the test's own, or GitHub kills the runner
     # first and every failure looks identical (a cancelled job with no output).
     # The test defaults to a 90m overall budget and 60m for `adhar up`; the
@@ -38,7 +48,20 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Prepare Podman
+        if: matrix.engine == 'podman'
+        run: |
+          # ubuntu-latest ships podman; Kind needs the rootful daemonless
+          # engine reachable by the current user, and cgroup v2 delegation.
+          sudo apt-get update -qq && sudo apt-get install -y -qq podman
+          podman --version
+          # Run the Kind/Podman path as root (rootless Kind needs extra
+          # systemd delegation the hosted runner does not grant).
+          echo "SUDO=sudo -E" >> "$GITHUB_ENV"
+
       # Runs tests/e2e/bootstrap: adhar up → Ready condition → foundation →
       # Gitea repos → ArgoCD API → package health → CLI status → adhar down
       - name: Run e2e tests
-        run: make e2e
+        run: ${SUDO:-} make e2e ENGINE=${{ matrix.engine }}
+        env:
+          HOME: /home/runner

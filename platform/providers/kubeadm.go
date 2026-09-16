@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -559,4 +560,120 @@ func KubeadmUpgradeCluster(ctx context.Context, signer ssh.Signer, user, masterI
 		}
 	}
 	return nil
+}
+
+// ─── Self-managed worker lifecycle, shared by every raw-compute provider ────
+//
+// DigitalOcean grew these first (join with the external cloud-provider flags,
+// drain-then-delete on scale-down, a deterministic scale plan) and the other
+// providers re-implemented — or stubbed — them. They live here so a fix lands
+// once: a scale-down on AWS, Azure, GCP or Civo drains exactly like one on
+// DigitalOcean, and the CSI startup taint is spelled in one place.
+
+// ExternalCloudProviderFlag is the kubelet argument that defers node
+// initialisation to a cloud-controller-manager.
+const ExternalCloudProviderFlag = "--cloud-provider=external"
+
+// EnableExternalCloudProvider writes the kubelet extra args a raw-compute
+// node needs BEFORE it joins, then restarts the kubelet:
+//
+//   - --cloud-provider=external, when the provider installs a CCM: without it
+//     the node is never initialised by the CCM;
+//   - --node-ip=<privateIP>: without it the kubelet registers no InternalIP
+//     until the CCM initialises the node, which deadlocks scheduling (Cilium
+//     cannot start without a node IP, the CCM cannot schedule until Cilium
+//     clears its taint) and breaks kubectl logs/exec through the API server;
+//   - --register-with-taints=<globals.NodeCSIStartupTaint>=:NoSchedule on a
+//     WORKER whose provider installs a CSI driver: the scheduler enforces the
+//     per-node volume attach limit only once the CSI node plugin has published
+//     a CSINode, and before that it packs the node past the cloud's ceiling
+//     (11 attachments on a 7-volume DigitalOcean droplet, seen twice). The node
+//     autoscaler lifts the taint the moment the CSINode appears.
+//
+// Idempotent: a node whose /etc/default/kubelet already carries the flags is
+// left alone, so a re-run of `adhar up` never restarts a healthy kubelet.
+func EnableExternalCloudProvider(signer ssh.Signer, user, ip, privateIP string, externalCCM, csiStartupTaint bool) error {
+	flags := "KUBELET_EXTRA_ARGS="
+	var parts []string
+	if externalCCM {
+		parts = append(parts, ExternalCloudProviderFlag)
+	}
+	if privateIP != "" {
+		parts = append(parts, "--node-ip="+privateIP)
+	}
+	if csiStartupTaint {
+		parts = append(parts, "--register-with-taints="+globals.NodeCSIStartupTaint+"=:NoSchedule")
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	flags += strings.Join(parts, " ")
+	marker := parts[0]
+	_, err := SSHRun(signer, user, ip,
+		"grep -q -- '"+marker+"' /etc/default/kubelet 2>/dev/null || { echo '"+flags+"' >> /etc/default/kubelet && systemctl restart kubelet; }", 2*time.Minute)
+	return err
+}
+
+// JoinCommand mints a fresh bootstrap token on the control plane and returns
+// the `kubeadm join …` line a new worker runs. Tokens expire (24h), so a
+// scale-up hours after `adhar up` must not reuse the bootstrap one.
+func JoinCommand(signer ssh.Signer, user, masterIP string) (string, error) {
+	out, err := SSHRun(signer, user, masterIP, "kubeadm token create --print-join-command", 2*time.Minute)
+	if err != nil {
+		return "", fmt.Errorf("creating a kubeadm join token on %s: %w", masterIP, err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// RetireWorker drains a worker and removes its Node object through the
+// control plane's admin kubeconfig, so the cloud instance can be deleted
+// without stranding pods or leaving a NotReady ghost node behind. A failed
+// drain is reported, not fatal: the node is going away regardless, and the
+// pods it still holds are rescheduled once the Node object is gone.
+func RetireWorker(signer ssh.Signer, user, masterIP, nodeName string) error {
+	drain := fmt.Sprintf(
+		"kubectl --kubeconfig /etc/kubernetes/admin.conf drain %[1]s --ignore-daemonsets --delete-emptydir-data --timeout=5m || true; "+
+			"kubectl --kubeconfig /etc/kubernetes/admin.conf delete node %[1]s --ignore-not-found", nodeName)
+	out, err := SSHRun(signer, user, masterIP, drain, 10*time.Minute)
+	if err != nil {
+		return fmt.Errorf("retiring node %s: %w (%s)", nodeName, err, LastLines(out, 5))
+	}
+	return nil
+}
+
+// WorkerScalePlan decides which workers to add or remove to move a node group
+// from its current members to a desired count. Names are `<prefix><index>`;
+// new workers take the lowest free indices, removals take the highest-indexed
+// members first (the youngest, least likely to hold state). Pure, so every
+// provider's scale-up/down is exercised by the same unit tests.
+func WorkerScalePlan(prefix string, current []string, desired int) (add, remove []string) {
+	if desired < 0 {
+		desired = 0
+	}
+	used := map[int]string{}
+	for _, name := range current {
+		if idx, ok := strings.CutPrefix(name, prefix); ok {
+			if i, err := strconv.Atoi(idx); err == nil {
+				used[i] = name
+			}
+		}
+	}
+	switch {
+	case desired > len(used):
+		for i := 1; len(add) < desired-len(used); i++ {
+			if _, taken := used[i]; !taken {
+				add = append(add, fmt.Sprintf("%s%d", prefix, i))
+			}
+		}
+	case desired < len(used):
+		idx := make([]int, 0, len(used))
+		for i := range used {
+			idx = append(idx, i)
+		}
+		sort.Sort(sort.Reverse(sort.IntSlice(idx)))
+		for _, i := range idx[:len(used)-desired] {
+			remove = append(remove, used[i])
+		}
+	}
+	return add, remove
 }

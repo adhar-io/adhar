@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/eks"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 
 	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
@@ -65,10 +67,18 @@ type NodeInfo struct {
 // Register the AWS provider on package import
 func init() {
 	provider.DefaultFactory.RegisterProvider("aws", func(config map[string]interface{}) (provider.Provider, error) {
-		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
-			return nil, fmt.Errorf("useManagedK8s is not supported for the aws provider: adhar provisions Kubernetes on raw compute here (EKS integration is not offered); remove useManagedK8s or set it to false")
-		}
 		awsConfig := &Config{}
+
+		// Default: kubeadm on EC2. `useManagedK8s: true` (or clusterMode: eks)
+		// opts into Amazon EKS; everything else behaves the same.
+		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
+			awsConfig.ClusterMode = clusterModeEKS
+		}
+		if mode, ok := config["clusterMode"].(string); ok && mode != "" {
+			awsConfig.ClusterMode = mode
+		} else if mode, ok := config["cluster_mode"].(string); ok && mode != "" {
+			awsConfig.ClusterMode = mode
+		}
 
 		// Parse AWS-specific configuration with multiple auth methods
 		if region, ok := config["region"].(string); ok {
@@ -121,11 +131,19 @@ type Provider struct {
 	config    *Config
 	awsConfig aws.Config
 	ec2Client *ec2.Client
+	eksClient *eks.Client
+	iamClient *iam.Client
 }
 
 // Config holds AWS provider configuration
 type Config struct {
 	Region string `json:"region"`
+
+	// ClusterMode selects how clusters are created:
+	//   "compute" (default) — EC2 instances + kubeadm, Kubernetes managed by
+	//   adhar itself (Cilium replaces kube-proxy during bootstrap).
+	//   "eks" — Amazon's managed Kubernetes service (`useManagedK8s: true`).
+	ClusterMode string `json:"clusterMode,omitempty"`
 
 	// Authentication Methods (multiple options supported)
 	// Option 1: Access Key and Secret Key
@@ -232,6 +250,8 @@ func NewProvider(config *Config) (*Provider, error) {
 		config:    config,
 		awsConfig: cfg,
 		ec2Client: ec2.NewFromConfig(cfg),
+		eksClient: eks.NewFromConfig(cfg),
+		iamClient: iam.NewFromConfig(cfg),
 	}, nil
 }
 

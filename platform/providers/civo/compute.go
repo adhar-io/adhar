@@ -284,6 +284,11 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		return nil, fmt.Errorf("control-plane node not ready: %w", err)
 	}
 
+	// External cloud provider: the kubelet defers node initialisation to the
+	// Civo cloud-controller-manager installed right after the joins.
+	if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, master.PublicIP, master.PrivateIP, true, false); err != nil {
+		return nil, fmt.Errorf("control plane %s: %w", master.Hostname, err)
+	}
 	joinCmd, err := provider.KubeadmInitMaster(signer, computeSSHUser, master.PublicIP, master.PrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
 	if err != nil {
 		return nil, err
@@ -298,11 +303,17 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, instance.PublicIP, 15*time.Minute); err != nil {
 			return nil, fmt.Errorf("worker %s not ready: %w", instance.Hostname, err)
 		}
+		if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, instance.PublicIP, instance.PrivateIP, true, true); err != nil {
+			return nil, fmt.Errorf("worker %s: %w", instance.Hostname, err)
+		}
 		if err := provider.KubeadmJoinWorker(signer, computeSSHUser, instance.PublicIP, joinCmd); err != nil {
 			return nil, fmt.Errorf("worker %s: %w", instance.Hostname, err)
 		}
 	}
 
+	if err := p.installCloudIntegration(signer, master.PublicIP, name, tag); err != nil {
+		return nil, err
+	}
 	cluster := &types.Cluster{
 		ID:        tag,
 		Name:      name,
@@ -568,5 +579,109 @@ func (p *Provider) upgradeComputeCluster(ctx context.Context, clusterID, version
 		return fmt.Errorf("kubeadm upgrade of cluster %s failed: %w", name, err)
 	}
 	log.Printf("Successfully upgraded cluster %q to %s", name, version)
+	return nil
+}
+
+// scaleComputeWorkers moves a self-managed node group to `desired` workers with
+// the lifecycle DigitalOcean established (platform/providers helpers): a fresh
+// join token, prepared-then-joined instances, drain-then-delete on the way
+// down. Workers are the cluster's instances tagged adhar-role-worker whose
+// hostnames carry the `adhar-<cluster>-<group>-` prefix (the default group is
+// named "worker"), so the count is real. Civo compute clusters used to reach
+// the managed node-pool API here and fail with "pool not found".
+func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroupName string, desired int) error {
+	name := computeClusterName(clusterID)
+	instances, err := p.computeClusterInstances(name)
+	if err != nil {
+		return err
+	}
+	if nodeGroupName == "" {
+		nodeGroupName = "worker"
+	}
+	prefix := fmt.Sprintf("adhar-%s-%s-", name, nodeGroupName)
+	byName := map[string]civogo.Instance{}
+	current := []string{}
+	for _, inst := range instances {
+		for _, t := range inst.Tags {
+			if t == computeWorkerTag {
+				byName[inst.Hostname] = inst
+				current = append(current, inst.Hostname)
+			}
+		}
+	}
+	add, remove := provider.WorkerScalePlan(prefix, current, desired)
+	if len(add) == 0 && len(remove) == 0 {
+		log.Printf("Node group %s of %s already at %d workers", nodeGroupName, name, desired)
+		return nil
+	}
+	sshKeyID, signer, err := p.ensureComputeSSHKey(name)
+	if err != nil {
+		return err
+	}
+	masterIP, err := p.computeMasterIP(name)
+	if err != nil {
+		return err
+	}
+	if len(add) > 0 {
+		joinCmd, err := provider.JoinCommand(signer, computeSSHUser, masterIP)
+		if err != nil {
+			return err
+		}
+		networkID, err := p.ensureComputeNetwork(name)
+		if err != nil {
+			return err
+		}
+		firewallID, err := p.ensureComputeFirewall(name, networkID)
+		if err != nil {
+			return err
+		}
+		imageID, err := p.computeDiskImageID()
+		if err != nil {
+			return err
+		}
+		size := p.config.Size
+		for _, inst := range byName {
+			if inst.Size != "" {
+				size = inst.Size
+				break
+			}
+		}
+		// The node-prep script of the running control plane's minor, so a
+		// scaled cluster cannot skew.
+		minor := provider.K8sMinorFromVersion("")
+		if out, err := provider.SSHRun(signer, computeSSHUser, masterIP, "kubeadm version -o short", time.Minute); err == nil && strings.TrimSpace(out) != "" {
+			minor = provider.K8sMinorFromVersion(strings.TrimSpace(out))
+		}
+		userData := provider.KubeadmNodePrepScript(minor)
+		tag := computeClusterTag(name)
+		for _, host := range add {
+			inst, err := p.createComputeInstance(ctx, host, networkID, firewallID, sshKeyID, imageID, size, userData, []string{tag, computeWorkerTag})
+			if err != nil {
+				return err
+			}
+			if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, inst.PublicIP, 15*time.Minute); err != nil {
+				return fmt.Errorf("new worker %s not ready: %w", host, err)
+			}
+			// No cloud-controller-manager / CSI driver is installed on Civo
+			// compute clusters yet (docs/PROVIDERS.md); only --node-ip applies.
+			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, false, false); err != nil {
+				return fmt.Errorf("new worker %s: %w", host, err)
+			}
+			if err := provider.KubeadmJoinWorker(signer, computeSSHUser, inst.PublicIP, joinCmd); err != nil {
+				return fmt.Errorf("new worker %s: %w", host, err)
+			}
+			log.Printf("Added worker %s to cluster %s", host, name)
+		}
+	}
+	for _, host := range remove {
+		if err := provider.RetireWorker(signer, computeSSHUser, masterIP, host); err != nil {
+			log.Printf("Warning: %v", err)
+		}
+		if _, err := p.client.DeleteInstance(byName[host].ID); err != nil {
+			return fmt.Errorf("deleting instance %s: %w", host, err)
+		}
+		log.Printf("Removed worker %s from cluster %s", host, name)
+	}
+	p.clearClustersFromCache(clusterID)
 	return nil
 }

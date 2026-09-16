@@ -13,7 +13,7 @@ is live-verified on DigitalOcean.
 
 | | |
 |---|---|
-| Provisioning model | kubeadm on EC2 instances (EKS is not the default path) |
+| Provisioning model | kubeadm on EC2 instances (default); EKS via `useManagedK8s: true` |
 | Kubernetes | `globals.DefaultKubernetesVersion` (v1.37.0) unless pinned |
 | DNS | Route 53, or any zone you point at the load balancer |
 
@@ -101,6 +101,35 @@ environments:
 `clusterConfig.nodeSize` is an EC2 instance type. The full catalogue wants
 roughly 8 vCPU and 16–32 GiB per worker; a curated profile is comfortable on
 half that.
+
+
+### Managed mode (EKS)
+
+The default is kubeadm on compute. One switch on the provider hands the control
+plane to EKS instead; every other operation (`adhar up`, node groups,
+`adhar cluster scale`, `adhar upgrade`, `adhar down`) works the same way:
+
+```yaml
+providers:
+  aws:
+    type: aws
+    useManagedK8s: true      # or clusterMode: eks
+```
+
+What it creates: the same VPC/subnets/security group as compute mode, two IAM
+roles (`adhar-<cluster>-eks-cluster`, `adhar-<cluster>-eks-node`), the EKS
+control plane, one managed node group per `nodeGroups` entry and the
+`aws-ebs-csi-driver` addon. The kubeconfig authenticates through
+`aws eks get-token`, so the **`aws` CLI must be on PATH** on the machine
+running `adhar up` and wherever the kubeconfig is used. Teardown deletes the
+node groups, the cluster and the roles, then the shared tag-based network
+cleanup runs.
+
+What compute mode installs on the control plane after the first joins
+(`aws/cloud_integration.go`): the `aws-cloud-controller-manager` chart, the
+`aws-ebs-csi-driver` chart (with `kube-system/aws-secret` when static keys are
+configured; nothing when `useInstanceProfile: true`), the default `adhar-block`
+gp3 StorageClass and the CSI startup-taint toleration.
 
 ## 3. Run it
 

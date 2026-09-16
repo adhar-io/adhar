@@ -122,6 +122,11 @@ Teardown:
   pods is the signal; the autoscaler treats it as a reason to add a worker.
 - **Account quotas.** Civo accounts start with modest instance and volume
   quotas; the full profile will exceed a default account.
+- **Cloud integration on `compute`.** After the first joins the control plane
+  gets the Civo cloud-controller-manager and the Civo CSI driver
+  (`kube-system/civo-api-access` carries the API key), `civo-volume` becomes
+  the default StorageClass and the CSI DaemonSet tolerates the startup taint
+  (`civo/cloud_integration.go`, pinned).
 - **`cluster_mode`.** `compute` is the Adhar-managed kubeadm path this
   documentation describes. `k3s` hands cluster lifecycle to Civo and behaves
   differently; do not mix expectations between the two.
