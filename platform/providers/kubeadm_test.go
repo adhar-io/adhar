@@ -42,3 +42,18 @@ func TestWorkerScalePlanAddsLowestFreeIndicesAndRemovesHighestFirst(t *testing.T
 		t.Fatalf("negative desired: remove=%v", remove)
 	}
 }
+
+func TestWorkerScalePlanEdgeCases(t *testing.T) {
+	if add, remove := WorkerScalePlan("w-", []string{"w-1", "w-2"}, 2); len(add) != 0 || len(remove) != 0 {
+		t.Errorf("at the desired count nothing changes: add=%v remove=%v", add, remove)
+	}
+	if add, remove := WorkerScalePlan("w-", []string{"w-1", "w-2"}, 0); len(add) != 0 || len(remove) != 2 || remove[0] != "w-2" {
+		t.Errorf("scaling to zero removes highest first: add=%v remove=%v", add, remove)
+	}
+	if add, _ := WorkerScalePlan("w-", nil, 2); len(add) != 2 || add[0] != "w-1" || add[1] != "w-2" {
+		t.Errorf("from nothing, indices start at 1: %v", add)
+	}
+	if add, _ := WorkerScalePlan("w-", []string{"w-1", "w-3", "other"}, 4); len(add) != 2 || add[0] != "w-2" || add[1] != "w-4" {
+		t.Errorf("gaps are filled lowest-first and foreign names ignored: %v", add)
+	}
+}

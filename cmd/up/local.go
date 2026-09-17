@@ -131,6 +131,7 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		{Label: "Cilium & Gateway", Detail: "eBPF CNI + Cilium Gateway API"},
 		{Label: "ArgoCD", Detail: "GitOps engine"},
 		{Label: "Gitea", Detail: "in-cluster Git server"},
+		{Label: "GitOps repos", Detail: "seed packages · environments · templates into Gitea"},
 		{Label: "Crossplane", Detail: "control plane + providers"},
 		{Label: "GitOps sync - platform stack", Detail: "curated platform apps via ArgoCD"},
 	}
@@ -345,8 +346,8 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 				continue
 			}
 			st := pl.Status
-			// Stage 3 Cilium & Gateway → 4 ArgoCD → 5 Gitea → 6 Crossplane →
-			// 7 GitOps sync (completed after the controller shuts down).
+			// Stage 3 Cilium & Gateway → 4 ArgoCD → 5 Gitea → 6 GitOps repos →
+			// 7 Crossplane → 8 GitOps sync (completed after the controller shuts down).
 			//
 			// The controller sets Status.*.Available on APPLY (not readiness), so
 			// gating the ArgoCD/Gitea stages purely on those flags would make them
@@ -366,9 +367,16 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 				tracker.Done(5)
 				tracker.Activate(6)
 			}
-			if st.Crossplane.Available {
+			// Stage 6 GitOps repos: the ~1 min seeding of the packages /
+			// environments / templates repos used to be booked under
+			// "Crossplane", which merely followed it.
+			if st.Gitea.RepositoriesCreated {
 				tracker.Done(6)
 				tracker.Activate(7)
+			}
+			if st.Crossplane.Available {
+				tracker.Done(7)
+				tracker.Activate(8)
 			}
 		}
 	}

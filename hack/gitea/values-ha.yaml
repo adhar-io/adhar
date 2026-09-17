@@ -193,7 +193,7 @@ ingress:
 ## PRODUCTION HA: Enhanced resource allocation for production workloads
 resources:
   limits:
-    cpu: 1000m
+    cpu: "2"
     memory: 2048Mi
   requests:
     cpu: 200m

@@ -95,6 +95,18 @@ func (p *Provider) waitGKEOperation(ctx context.Context, op *container.Operation
 	}
 }
 
+// gkeTaintEffect maps a Kubernetes taint effect onto GKE's spelling.
+func gkeTaintEffect(effect string) string {
+	switch strings.ToLower(strings.ReplaceAll(effect, "_", "")) {
+	case "noexecute":
+		return "NO_EXECUTE"
+	case "prefernoschedule":
+		return "PREFER_NO_SCHEDULE"
+	default:
+		return "NO_SCHEDULE"
+	}
+}
+
 // gkeNodePool maps a node-group spec onto a GKE node pool.
 func (p *Provider) gkeNodePool(ng *types.NodeGroupSpec) *container.NodePool {
 	replicas := ng.Replicas
@@ -124,7 +136,7 @@ func (p *Provider) gkeNodePool(ng *types.NodeGroupSpec) *container.NodePool {
 		},
 	}
 	for _, t := range ng.Taints {
-		pool.Config.Taints = append(pool.Config.Taints, &container.NodeTaint{Key: t.Key, Value: t.Value, Effect: strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(t.Effect, "NoSchedule", "NO_SCHEDULE"), "NoExecute", "NO_EXECUTE"))})
+		pool.Config.Taints = append(pool.Config.Taints, &container.NodeTaint{Key: t.Key, Value: t.Value, Effect: gkeTaintEffect(t.Effect)})
 	}
 	if ng.AutoScaling.MaxReplicas > 0 {
 		minCount := ng.AutoScaling.MinReplicas

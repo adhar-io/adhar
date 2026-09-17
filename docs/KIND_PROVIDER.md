@@ -36,11 +36,54 @@ adhar version                              # reports the engine actually in use
 export KIND_EXPERIMENTAL_PROVIDER=podman   # force one
 ```
 
-The engine is used for the whole lifecycle: creating nodes, preloading images
-from the host cache, removing leftover containers and the `kind` network on
-teardown. Earlier versions shelled out to `docker` for those last steps, so on a
+The engine is used for the whole lifecycle: creating nodes, running the local
+image cache, removing leftover containers and the `kind` network on teardown.
+Earlier versions shelled out to `docker` for those last steps, so on a
 Podman-only machine the cluster came up and then teardown and image preloading
 silently did nothing.
+
+### The local image cache
+
+The curated core pulls ~90 images (~10 GB) from eight public registries. A fresh
+Kind node has none of them, and the old fix — `docker save` a hand-picked
+"core" set on the host and `ctr import` it into the node — moved 7 GB through a
+tar on **every** `adhar up` (about three minutes before the first CRD was
+installed), still missed two thirds of the images, and its list went stale.
+
+Now `adhar up` runs one small `registry` container per upstream registry
+(`adhar-registry-cache-<host>`, image `registry:3.0.0`, all sharing the engine
+volume `adhar-registry-cache`) on the `kind` network as a pull-through cache,
+and points the node's containerd at them through `certs.d` mirrors with the
+upstream as fallback. Nothing is copied by hand:
+
+- **First run** on a machine: images are pulled from the internet through the
+  caches, which keep them. Expect the usual pull times.
+- **Every later run**: all images come from local disk at LAN speed — the
+  Cilium phase, Gitea, Crossplane and the whole GitOps sync no longer wait on
+  the network. Tags are re-resolved upstream when reachable, so `:latest`
+  images stay current; offline, the cached copy is served.
+- **A cache that is down** is skipped by containerd, which falls back to the
+  upstream server; it can never break a pull.
+- `adhar down` **stops** the caches and keeps the volume; the next `adhar up`
+  restarts them. `adhar down --purge-image-cache` (or `make clean-image-cache`)
+  removes containers and volume.
+
+Measured on one machine (Docker Desktop, 11 CPUs), `adhar up --recreate`
+before and after, warm cache:
+
+| Stage | Before | After |
+| --- | --- | --- |
+| Kind cluster (create + old 7 GB image save/load) | 3m30s | 37s–1m03s (no save/load; includes deleting the previous cluster) |
+| GitOps repos (seed the 62 MB stack into Gitea) | ~60s, hidden inside "Crossplane" | 16s — packed on the host as a git bundle, Gitea's CPU limit raised from 200m to 2 |
+| Crossplane | 1m38s | 12s — core Deployment now starts before seeding; readiness polled instead of fixed sleeps |
+| Total to "GitOps sync" | > 7 min | 3m24s |
+
+What remains is component readiness (ArgoCD, Gitea, Cilium starting up) and
+the ArgoCD sync of the curated core itself.
+
+Only the three Cilium data-path images are still seeded from the host cache
+(`make preload-images`), and only while the registry cache is cold — they are
+on the critical path before the CNI is up.
 
 ### Podman specifics
 

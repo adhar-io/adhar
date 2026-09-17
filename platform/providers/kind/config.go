@@ -156,7 +156,28 @@ func renderRegistryCertsDir(cfg v1alpha1.BuildCustomizationSpec) (string, error)
 		return "", fmt.Errorf("writing harbor registry config %w", err)
 	}
 
+	// Public registries: pull through the local caches (registrycache.go),
+	// falling back to upstream when a cache is down.
+	if err := writeRegistryMirrorHosts(dir); err != nil {
+		return "", err
+	}
+
 	return dir, nil
+}
+
+// writeRegistryMirrorHosts writes one certs.d/<host>/hosts.toml per mirrored
+// public registry into the node's certs.d tree.
+func writeRegistryMirrorHosts(dir string) error {
+	for _, m := range registryMirrors {
+		hostDir := filepath.Join(dir, m.Host)
+		if err := os.MkdirAll(hostDir, 0700); err != nil {
+			return fmt.Errorf("creating certs.d dir for %s: %w", m.Host, err)
+		}
+		if err := os.WriteFile(filepath.Join(hostDir, "hosts.toml"), []byte(m.HostsTOML()), 0700); err != nil {
+			return fmt.Errorf("writing mirror config for %s: %w", m.Host, err)
+		}
+	}
+	return nil
 }
 
 const (

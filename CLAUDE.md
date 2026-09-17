@@ -32,7 +32,7 @@ Adhar uses a two-phase deployment model:
 
 ### `adhar up` Sequence (Local Development)
 
-1. Create Kind cluster with Cilium CNI disabled (Adhar manages CNI), ports 8080/8443 mapped
+1. Create Kind cluster with Cilium CNI disabled (Adhar manages CNI), ports 8080/8443 mapped; start the per-registry pull-through image caches (`adhar-registry-cache-*` on the `kind` network, volume `adhar-registry-cache`) the node's containerd mirrors to via certs.d — every later `adhar up` pulls all ~90 images from local disk
 2. Install CRDs (AdharPlatform, GitRepository, CustomPackage)
 3. Start controller-runtime manager with 5 controllers
 4. Setup CoreDNS (custom rewrite rules for `*.adhar.localtest.me`)
@@ -45,7 +45,7 @@ Adhar uses a two-phase deployment model:
    - Install Gitea (install + post-install HTTPRoute)
 8. Wait for Gitea API readiness (deployment + pod + HTTP probe)
 9. Create the `adhar` Gitea org (teams `Owners`/`developers`/`viewers`, mapped from Keycloak groups via the auth source's `--group-team-map`) and the `environments` and `packages` repos under it (via API with `auto_init: true`); constants in `globals/project.go` (`GiteaPlatformOrg`, `GitOpsRepo*`)
-10. Populate repos: `kubectl cp` from `platform/stack/{packages,environments}` → Gitea pod → git push
+10. Populate repos: the staged `platform/stack/{packages,environments,templates}` trees are committed on the HOST into throw-away repos and exported as git bundles (delta-packed by the host git, ~6 MB for the 62 MB packages tree), `kubectl cp` of the bundle → Gitea pod → `git fetch` + `read-tree` + commit on top of the repo history → push (no recompression in the CPU-limited pod; falls back to in-pod `git add` when the host has no git). The three repos seed concurrently and the Crossplane core Deployment is applied just before seeding so its startup overlaps it; the CLI checklist shows seeding as its own "GitOps repos" stage (~16 s, was ~60 s). Gitea runs with a 2-CPU limit because receiving that push at the chart default 200m was CFS-throttled
 11. Apply ArgoCD auth (repo secrets + dedicated `gitea-argocd` service)
 12. Apply `adhar-appset-local.yaml` (ApplicationSet wiring 95 elements over 92 packages; a `selector` on `enabled: "true"` deploys a curated local-safe core (32), the rest are wired but disabled)
 13. ArgoCD syncs all applications from Gitea repos

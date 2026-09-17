@@ -171,39 +171,18 @@ build-control-plane: ## Build Crossplane control-plane configuration package
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd
 
-# Platform bootstrap + core-component images `adhar up` needs early: the Cilium
-# critical path plus the heavy components that gate the rest (ArgoCD, Gitea, CNPG,
-# ESO, Vault, Keycloak, kube-prometheus, Hubble relay/UI). Warming the host cache
-# once lets every `adhar up` load them into the Kind node instead of pulling from
-# the internet. Keep in sync with platform/providers/kind/preload.go.
+# Cilium critical-path images: the only ones `adhar up` still seeds into a fresh
+# Kind node from the host cache (and only while the local registry cache is
+# cold). Everything else is pulled through the persistent pull-through caches
+# (adhar-registry-cache-* containers, volume adhar-registry-cache) that the
+# first `adhar up` populates. Keep in sync with platform/providers/kind/preload.go.
 ADHAR_PRELOAD_IMAGES ?= \
 	quay.io/cilium/cilium:v1.20.0 \
 	quay.io/cilium/cilium-envoy:v1.37.5-1782911245-7cffc778c923f68a77954a53b1a98d6b5353f004 \
-	quay.io/cilium/operator-generic:v1.20.0 \
-	ghcr.io/adhar-io/adhar-console:latest \
-	busybox:1.36 \
-	quay.io/argoproj/argocd:v3.5.1 \
-	docker.gitea.com/gitea:1.27.0-rootless \
-	docker.io/bitnami/postgresql:latest \
-	docker.io/bitnami/valkey:latest \
-	ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0 \
-	ghcr.io/cloudnative-pg/postgresql:16-bookworm \
-	ghcr.io/external-secrets/external-secrets:v2.5.0 \
-	hashicorp/vault:1.21.2 \
-	hashicorp/vault-k8s:1.7.2 \
-	quay.io/keycloak/keycloak:26.7.1 \
-	docker.io/grafana/grafana:13.1.3 \
-	quay.io/prometheus/prometheus:v3.4.0 \
-	quay.io/prometheus-operator/prometheus-operator:v0.93.0 \
-	quay.io/prometheus/alertmanager:v0.28.1 \
-	quay.io/prometheus/node-exporter:v1.12.1-distroless \
-	registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1 \
-	quay.io/cilium/hubble-relay:v1.20.0 \
-	quay.io/cilium/hubble-ui:v0.13.5 \
-	quay.io/cilium/hubble-ui-backend:v0.13.5
+	quay.io/cilium/operator-generic:v1.20.0
 
 .PHONY: preload-images
-preload-images: ## Pre-pull platform bootstrap + core images into the host Docker cache so `adhar up` loads them into the Kind node instead of pulling (much faster platform readiness). Runs as part of `make build`; parallel pulls; set ADHAR_SKIP_PRELOAD=1 to skip.
+preload-images: ## Pre-pull the Cilium critical-path images into the host cache so a COLD first `adhar up` seeds them into the Kind node (later runs use the local registry cache instead). Runs as part of `make build`; set ADHAR_SKIP_PRELOAD=1 to skip.
 	@if [ -n "$(ADHAR_SKIP_PRELOAD)" ]; then \
 		echo "preload-images: skipped (ADHAR_SKIP_PRELOAD set)"; \
 	elif ! docker info >/dev/null 2>&1; then \
@@ -213,6 +192,13 @@ preload-images: ## Pre-pull platform bootstrap + core images into the host Docke
 		echo "$(ADHAR_PRELOAD_IMAGES)" | tr ' ' '\n' | grep . | xargs -P 4 -n 1 sh -c 'docker pull "$$1" >/dev/null 2>&1 && echo "  ok  $$1" || echo "  skip $$1"' _; \
 		echo "Host cache warmed. 'adhar up' will preload these into the Kind node."; \
 	fi
+
+.PHONY: clean-image-cache
+clean-image-cache: ## Remove the local Kind image cache (containers + volume); the next `adhar up` pulls from the internet again
+	@ENGINE=$$(command -v docker >/dev/null 2>&1 && echo docker || echo podman); \
+	for c in $$($$ENGINE ps -aq --filter label=io.adhar.role=registry-cache); do $$ENGINE rm -f $$c >/dev/null; done; \
+	$$ENGINE volume rm adhar-registry-cache >/dev/null 2>&1 || true; \
+	echo "› image cache removed"
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.

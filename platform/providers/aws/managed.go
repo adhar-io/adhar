@@ -326,45 +326,65 @@ func (p *Provider) ensureEKSNodegroup(ctx context.Context, clusterName, nodeRole
 	if !isEKSNotFound(err) {
 		return err
 	}
-	replicas := ng.Replicas
-	if replicas <= 0 {
-		replicas = eksDefaultNodeCount
-	}
-	minSize, maxSize := replicas, replicas
-	if ng.AutoScaling.MaxReplicas > 0 {
-		minSize, maxSize = ng.AutoScaling.MinReplicas, ng.AutoScaling.MaxReplicas
-		if minSize <= 0 {
-			minSize = 1
-		}
-		if replicas < minSize {
-			replicas = minSize
-		}
-		if replicas > maxSize {
-			replicas = maxSize
-		}
-	}
-	instanceType := ng.InstanceType
-	if instanceType == "" {
-		instanceType = eksDefaultNodeType
-	}
+	replicas, minSize, maxSize, instanceType := eksScaling(ng)
 	in := &eks.CreateNodegroupInput{
 		ClusterName:   aws.String(clusterName),
 		NodegroupName: aws.String(ng.Name),
 		NodeRole:      aws.String(nodeRole),
 		Subnets:       []string{subnet},
 		InstanceTypes: []string{instanceType},
-		ScalingConfig: &ekstypes.NodegroupScalingConfig{MinSize: aws.Int32(int32(minSize)), MaxSize: aws.Int32(int32(maxSize)), DesiredSize: aws.Int32(int32(replicas))},
+		ScalingConfig: &ekstypes.NodegroupScalingConfig{MinSize: aws.Int32(minSize), MaxSize: aws.Int32(maxSize), DesiredSize: aws.Int32(replicas)},
 		Labels:        ng.Labels,
 		Tags:          map[string]string{"Cluster": clusterName, "ManagedBy": "adhar", "NodeGroup": ng.Name},
 	}
 	for _, t := range ng.Taints {
-		in.Taints = append(in.Taints, ekstypes.Taint{Key: aws.String(t.Key), Value: aws.String(t.Value), Effect: ekstypes.TaintEffect(strings.ToUpper(strings.ReplaceAll(t.Effect, "NoSchedule", "NO_SCHEDULE")))})
+		in.Taints = append(in.Taints, ekstypes.Taint{Key: aws.String(t.Key), Value: aws.String(t.Value), Effect: eksTaintEffect(t.Effect)})
 	}
 	if _, err := p.eksClient.CreateNodegroup(ctx, in); err != nil {
 		return fmt.Errorf("creating EKS node group %s: %w", ng.Name, err)
 	}
 	fmt.Printf("⏳ Waiting for node group %s (%d × %s)...\n", ng.Name, replicas, instanceType)
 	return p.waitEKSNodegroup(ctx, clusterName, ng.Name, ekstypes.NodegroupStatusActive, eksCreateTimeout)
+}
+
+// eksTaintEffect maps a Kubernetes taint effect onto EKS's spelling.
+func eksTaintEffect(effect string) ekstypes.TaintEffect {
+	switch strings.ToLower(strings.ReplaceAll(effect, "_", "")) {
+	case "noexecute":
+		return ekstypes.TaintEffectNoExecute
+	case "prefernoschedule":
+		return ekstypes.TaintEffectPreferNoSchedule
+	default:
+		return ekstypes.TaintEffectNoSchedule
+	}
+}
+
+// eksScaling derives the node group's scaling config from the spec: fixed at
+// the replica count unless an autoscaling range is given, in which case the
+// desired size is clamped into the range.
+func eksScaling(ng *types.NodeGroupSpec) (desired, minSize, maxSize int32, instanceType string) {
+	replicas := ng.Replicas
+	if replicas <= 0 {
+		replicas = eksDefaultNodeCount
+	}
+	lo, hi := replicas, replicas
+	if ng.AutoScaling.MaxReplicas > 0 {
+		lo, hi = ng.AutoScaling.MinReplicas, ng.AutoScaling.MaxReplicas
+		if lo <= 0 {
+			lo = 1
+		}
+		if replicas < lo {
+			replicas = lo
+		}
+		if replicas > hi {
+			replicas = hi
+		}
+	}
+	instanceType = ng.InstanceType
+	if instanceType == "" {
+		instanceType = eksDefaultNodeType
+	}
+	return int32(replicas), int32(lo), int32(hi), instanceType
 }
 
 func (p *Provider) eksToCluster(c *ekstypes.Cluster) *types.Cluster {

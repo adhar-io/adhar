@@ -21,6 +21,7 @@ import (
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
 	"adhar-io/adhar/platform/logger"
+	"adhar-io/adhar/platform/providers/kind"
 	"adhar-io/adhar/platform/utils"
 	"context"
 	"fmt"
@@ -142,12 +143,13 @@ Examples:
 
 var (
 	// Platform flags for down command
-	forceDelete    bool
-	verboseDown    bool
-	noAnimation    bool
-	downConfigFile string
-	downEnv        string
-	purgeVolumes   bool
+	forceDelete     bool
+	purgeImageCache bool
+	verboseDown     bool
+	noAnimation     bool
+	downConfigFile  string
+	downEnv         string
+	purgeVolumes    bool
 )
 
 func init() {
@@ -159,6 +161,7 @@ func init() {
 	DownCmd.Flags().StringVarP(&downConfigFile, "file", "f", "", "Configuration file describing the environment to tear down")
 	DownCmd.Flags().StringVar(&downEnv, "env", "", "Environment to tear down (defaults to every environment in --file)")
 	DownCmd.Flags().BoolVar(&forceDelete, "force", false, "Skip the confirmation prompt")
+	DownCmd.Flags().BoolVar(&purgeImageCache, "purge-image-cache", false, "Also remove the local Kind image cache containers and volume (the next `adhar up` pulls everything from the internet again)")
 	DownCmd.Flags().BoolVar(&purgeVolumes, "purge-orphaned-volumes", false,
 		"Also delete unattached pvc-* block-storage volumes in the cluster's region that carry no other cluster's tag. "+
 			"Only safe when no other Kubernetes cluster uses that region.")
@@ -456,9 +459,19 @@ func teardown(sub chan tea.Msg) {
 		detail("  removed any leftover '%s' %s containers", clusterName, eng.Name)
 	}
 
-	// Step 3: Clean up the kind network
+	// Step 3: Clean up the kind network. The image caches sit on it: stop them
+	// first (kept, with their cached layers, for the next `adhar up`) or purge
+	// them when asked.
 	eng := utils.DetectContainerEngine()
 	emit(logger.StepMsg("Cleaning up"))
+	if purgeImageCache {
+		emit(logger.StatusMsg("Removing the local image cache containers and volume..."))
+		detail("→ %s rm -f adhar-registry-cache-* && %s volume rm %s", eng.Binary, eng.Binary, kind.RegistryCacheVolume)
+	} else {
+		emit(logger.StatusMsg("Stopping the local image cache (kept for the next `adhar up`; --purge-image-cache removes it)..."))
+		detail("→ %s stop adhar-registry-cache-*", eng.Binary)
+	}
+	kind.StopRegistryCache(context.Background(), purgeImageCache)
 	emit(logger.StatusMsg(fmt.Sprintf("Removing the 'kind' %s network...", eng.Name)))
 	detail("→ %s network rm kind", eng.Binary)
 	_ = exec.Command(eng.Binary, "network", "rm", "kind").Run()

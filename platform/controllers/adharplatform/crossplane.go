@@ -15,6 +15,8 @@ import (
 	"adhar-io/adhar/platform/controlplane"
 
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -23,12 +25,13 @@ import (
 //go:embed resources/crossplane
 var crossplaneFS embed.FS
 
-// ReconcileCrossplane installs Crossplane core and applies the control plane configuration
-func (r *AdharPlatformReconciler) ReconcileCrossplane(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Crossplane control plane")
-
-	// Step 1: Install Crossplane core
+// InstallCrossplaneCore applies the Crossplane core manifest (server-side
+// apply, idempotent). It is called EARLY in the reconcile — right after the
+// foundation packages and before the GitOps repos are seeded — so the
+// Crossplane Deployment pulls and starts while the ~60 s seeding runs, instead
+// of only beginning afterwards. ReconcileCrossplane re-applies the same
+// manifest, so an early failure here only costs the overlap.
+func (r *AdharPlatformReconciler) InstallCrossplaneCore(ctx context.Context, resource *v1alpha1.AdharPlatform) error {
 	manifestPath := "resources/crossplane/install.yaml"
 	if resource.Spec.BuildCustomization.EnableHAMode {
 		// Two replicas with leader election, larger caps (see install-ha.yaml).
@@ -36,16 +39,34 @@ func (r *AdharPlatformReconciler) ReconcileCrossplane(ctx context.Context, req c
 	}
 	manifestBytes, err := crossplaneFS.ReadFile(manifestPath)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("reading crossplane manifest: %w", err)
+		return fmt.Errorf("reading crossplane manifest: %w", err)
 	}
-
 	if err := r.applyManifest(ctx, manifestBytes, resource, "Crossplane install"); err != nil {
-		return ctrl.Result{}, fmt.Errorf("applying crossplane manifest: %w", err)
+		return fmt.Errorf("applying crossplane manifest: %w", err)
+	}
+	return nil
+}
+
+// crossplaneReadyPoll is how often the readiness waits below re-check. A fixed
+// 10 s sleep between checks used to add up to 10 s to the critical path for a
+// Deployment that is typically ready within a few seconds of the check.
+const crossplaneReadyPoll = 2 * time.Second
+
+// ReconcileCrossplane installs Crossplane core and applies the control plane configuration
+func (r *AdharPlatformReconciler) ReconcileCrossplane(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling Crossplane control plane")
+
+	// Step 1: Install Crossplane core (idempotent; usually already applied by
+	// the early InstallCrossplaneCore call).
+	if err := r.InstallCrossplaneCore(ctx, resource); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	// Step 2: Wait for Crossplane deployment to be ready
+	// Step 2: Wait for Crossplane deployment to be ready (up to 5 minutes).
 	logger.Info("Waiting for Crossplane deployment to be ready...")
-	for i := 0; i < 30; i++ {
+	deadline := time.Now().Add(5 * time.Minute)
+	for {
 		var dep appsv1.Deployment
 		err := r.Get(ctx, types.NamespacedName{
 			Name:      "crossplane",
@@ -55,10 +76,11 @@ func (r *AdharPlatformReconciler) ReconcileCrossplane(ctx context.Context, req c
 			logger.Info("Crossplane deployment is ready")
 			break
 		}
-		if i == 29 {
+		if time.Now().After(deadline) {
 			logger.Info("Crossplane not fully ready yet, continuing")
+			break
 		}
-		time.Sleep(10 * time.Second)
+		time.Sleep(crossplaneReadyPoll)
 	}
 
 	resource.Status.Crossplane.Available = true
@@ -106,7 +128,7 @@ func (r *AdharPlatformReconciler) applyControlPlaneConfiguration(ctx context.Con
 	if err := r.applyEmbeddedManifests(ctx, fsys, "configuration/xrd", resource, "XRDs", false, false); err != nil {
 		return fmt.Errorf("applying XRDs: %w", err)
 	}
-	time.Sleep(5 * time.Second)
+	r.waitForXRDsEstablished(ctx, 30*time.Second)
 
 	// Compositions (nested per-domain directories → recursive).
 	if err := r.applyEmbeddedManifests(ctx, fsys, "configuration/compositions", resource, "Compositions", true, false); err != nil {
@@ -328,4 +350,46 @@ func (r *AdharPlatformReconciler) applyCloudProviders(ctx context.Context, fsys 
 		return fmt.Errorf("applying %s ProviderConfig (provider CRDs may not be registered yet): %w", family, err)
 	}
 	return nil
+}
+
+// waitForXRDsEstablished polls until every CompositeResourceDefinition reports
+// Established (its CRD is registered), or the timeout passes — the point at
+// which Compositions can safely reference them. Replaces a fixed 5 s sleep:
+// on a warm cluster this returns in a poll or two, and on a slow one it waits
+// as long as it actually needs to.
+func (r *AdharPlatformReconciler) waitForXRDsEstablished(ctx context.Context, timeout time.Duration) {
+	logger := log.FromContext(ctx)
+	deadline := time.Now().Add(timeout)
+	for {
+		list := &unstructured.UnstructuredList{}
+		list.SetGroupVersionKind(schema.GroupVersionKind{Group: "apiextensions.crossplane.io", Version: "v2", Kind: "CompositeResourceDefinitionList"})
+		err := r.List(ctx, list)
+		if err == nil && len(list.Items) > 0 && allXRDsEstablished(list.Items) {
+			return
+		}
+		if time.Now().After(deadline) {
+			logger.Info("XRDs not all Established yet; continuing (Compositions retry on the next reconcile)")
+			return
+		}
+		time.Sleep(crossplaneReadyPoll)
+	}
+}
+
+// allXRDsEstablished reports whether every XRD carries an Established=True condition.
+func allXRDsEstablished(items []unstructured.Unstructured) bool {
+	for _, it := range items {
+		conds, _, _ := unstructured.NestedSlice(it.Object, "status", "conditions")
+		established := false
+		for _, c := range conds {
+			m, ok := c.(map[string]interface{})
+			if ok && m["type"] == "Established" && m["status"] == "True" {
+				established = true
+				break
+			}
+		}
+		if !established {
+			return false
+		}
+	}
+	return true
 }

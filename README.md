@@ -60,7 +60,7 @@ Adhar delivers battle-tested architectural patterns with 50+ production-grade se
 
 The local provider runs Kubernetes in containers, so it needs a **container
 engine**. Any one of these works — Adhar detects which is present and uses it
-for everything: creating the cluster, preloading images and tearing it down.
+for everything: creating the cluster, running the local image cache and tearing it down.
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|

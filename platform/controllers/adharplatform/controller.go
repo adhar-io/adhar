@@ -33,6 +33,7 @@ import (
 	"code.gitea.io/sdk/gitea"
 	argocdapp "github.com/cnoe-io/argocd-api/api/argo/application"
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
+	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -198,6 +199,16 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// entirely, leaving ArgoCD empty. Re-applying every pass makes an empty
 	// ArgoCD self-correcting. The in-cluster manager runs with an empty StackDir
 	// and only maintains an already-seeded platform, so it skips this block.
+	// Start the Crossplane core Deployment now, before the repo seeding below,
+	// so its image pull and startup overlap the seeding instead of following
+	// it. Best effort: ReconcileCrossplane re-applies the same manifest later
+	// and is the call that decides success.
+	if !localBuild.Status.Crossplane.Available {
+		if cpErr := r.InstallCrossplaneCore(ctx, &localBuild); cpErr != nil {
+			logger.Info("Early Crossplane core install failed; it is retried after the stack", "error", cpErr)
+		}
+	}
+
 	if r.StackDir != "" {
 		logger.Info("Ensuring platform stack (repos + ArgoCD auth + ApplicationSet)")
 		err = r.applyPlatformStack(ctx, req, &localBuild)
@@ -781,36 +792,38 @@ func (r *AdharPlatformReconciler) populateRepositories(ctx context.Context) erro
 	}
 	logger.Info("Using Gitea pod", "podName", podName)
 
-	if err := r.populateGiteaRepo(ctx, podName, globals.GitOpsRepoPackages, filepath.Join(r.StackDir, globals.GitOpsRepoPackages)); err != nil {
-		return fmt.Errorf("failed to populate packages repository: %w", err)
+	// The three repos are independent (own working dirs in the pod, own
+	// remotes), so they are seeded concurrently: the 62 MB packages repo
+	// dominates, and the small environments/templates repos ride alongside
+	// it instead of queueing behind it.
+	repos := map[string]string{
+		globals.GitOpsRepoPackages:     filepath.Join(r.StackDir, globals.GitOpsRepoPackages),
+		globals.GitOpsRepoEnvironments: filepath.Join(r.StackDir, globals.GitOpsRepoEnvironments),
 	}
-
-	if err := r.populateGiteaRepo(ctx, podName, globals.GitOpsRepoEnvironments, filepath.Join(r.StackDir, globals.GitOpsRepoEnvironments)); err != nil {
-		return fmt.Errorf("failed to populate environments repository: %w", err)
-	}
-
-	// Templates repo is optional-tolerant: an older StackDir may not ship a
-	// templates/ tree, so a missing dir must not fail bootstrap.
 	templatesDir := filepath.Join(r.StackDir, globals.GitOpsRepoTemplates)
 	if _, statErr := os.Stat(templatesDir); statErr == nil {
-		if err := r.populateGiteaRepo(ctx, podName, globals.GitOpsRepoTemplates, templatesDir); err != nil {
-			return fmt.Errorf("failed to populate templates repository: %w", err)
-		}
+		repos[globals.GitOpsRepoTemplates] = templatesDir
 	} else {
 		logger.Info("No templates directory in stack; skipping templates repo population", "dir", templatesDir)
+	}
+	g, gctx := errgroup.WithContext(ctx)
+	for name, dir := range repos {
+		name, dir := name, dir
+		g.Go(func() error {
+			if err := r.populateGiteaRepo(gctx, podName, name, dir); err != nil {
+				return fmt.Errorf("failed to populate %s repository: %w", name, err)
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
 	logger.Info("Successfully populated all GitOps repositories")
 	return nil
 }
 
-// populateGiteaRepo clones a Gitea repo inside the pod, copies local content into it, and pushes.
-// localSourceDir is the absolute path on the host to the directory whose CONTENTS should be the repo root.
-// stackTemplateSuffix marks stack files that are rendered with the platform's
-// BuildCustomizationSpec when the stack is seeded into Gitea. Only files with
-// this suffix are templated (other manifests may legitimately contain `{{`,
-// e.g. Grafana dashboards), and the suffix is dropped from the seeded name:
-// cluster-issuers.yaml.tmpl → cluster-issuers.yaml.
 const stackTemplateSuffix = ".tmpl"
 
 // stageStack materialises the stack for this cluster before it is seeded into
@@ -886,69 +899,72 @@ func stageStack(srcDir string, spec v1alpha1.BuildCustomizationSpec) (string, fu
 	return tmp, cleanup, nil
 }
 
+// populateGiteaRepo seeds one GitOps repo with the staged stack content.
+//
+// The expensive part of seeding is not the transfer and not Gitea: it is
+// git's delta compression of the ~62 MB, ~900-file packages tree. Done inside
+// the Gitea pod (the original path) that ran under the container's CPU limit
+// and took 20-80 s per run; a push of an already-packed repo takes ~7 s. So
+// the packing now happens on the host: the staged tree is committed into a
+// throw-away repo and exported as a git bundle (~6 MB, objects delta-packed by
+// the host's multi-core git), the bundle is copied into the pod, and the pod
+// commits that tree on top of the repo's existing history and pushes — its
+// pack-objects reuses the bundle's deltas, so no recompression happens. When
+// the host has no git, the original in-pod path (kubectl cp + git add/commit)
+// is used instead; the result is identical, only slower.
 func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName, repoName, localSourceDir string) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Populating repository", "repo", repoName, "source", localSourceDir)
 
-	// Render stack templates and rewrite the local host convention to the
-	// configured domain so seeded GitOps content is correct for this cluster.
 	stagedSrc, cleanupStage, err := r.stageStack(localSourceDir)
 	if err != nil {
 		return fmt.Errorf("staging %s with domain: %w", repoName, err)
 	}
 	defer cleanupStage()
-	localSourceDir = stagedSrc
 
 	ns := globals.AdharSystemNamespace
 	workDir := "/tmp/" + repoName + "-working"
 	stagingDir := "/tmp/" + repoName + "-staging"
+	bundlePath := "/tmp/" + repoName + ".bundle"
 	bareRepoPath := r.giteaAdminRepoURL(ctx, repoName)
 
-	// Helper to run kubectl exec with sh -c for proper shell expansion
 	kubectlExecSh := func(script string) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", ns, podName, "--", "sh", "-c", script)
 		return cmd.CombinedOutput()
 	}
+	kubectlCp := func(src, dst string) ([]byte, error) {
+		return exec.CommandContext(ctx, "kubectl", "cp", src, fmt.Sprintf("%s/%s:%s", ns, podName, dst)).CombinedOutput()
+	}
 
-	// Step 1: Clean up previous working/staging directories
-	kubectlExecSh(fmt.Sprintf("rm -rf %s %s", workDir, stagingDir))
+	_, _ = kubectlExecSh(fmt.Sprintf("rm -rf %s %s %s", workDir, stagingDir, bundlePath))
 
-	// Step 2: Clone the repository from Gitea API (not bare repo path)
+	// Clone the existing repo (tiny: the auto_init commit, or the previous
+	// seed) so the new content lands on top of its history.
 	logger.V(1).Info("Cloning repository from Gitea", "repo", repoName)
-	if output, err := kubectlExecSh(fmt.Sprintf("git clone %s %s 2>&1", bareRepoPath, workDir)); err != nil {
+	if output, err := kubectlExecSh(fmt.Sprintf("git clone -q --no-checkout %s %s 2>&1", bareRepoPath, workDir)); err != nil {
 		logger.Info("Clone failed, initializing new repo", "error", err, "output", string(output))
-		if _, err := kubectlExecSh(fmt.Sprintf("mkdir -p %s && cd %s && git init -b main", workDir, workDir)); err != nil {
+		if _, err := kubectlExecSh(fmt.Sprintf("mkdir -p %s && cd %s && git init -q -b main", workDir, workDir)); err != nil {
 			return fmt.Errorf("failed to initialize git repository: %w", err)
 		}
 	}
 
-	// Step 3: Remove existing content (use sh -c for glob expansion)
-	kubectlExecSh(fmt.Sprintf("cd %s && rm -rf $(ls -A | grep -v .git)", workDir))
-
-	// Step 4: Copy content from host to staging in the pod, then move to working dir
-	// kubectl cp copies the directory itself, so we copy to staging then move contents
-	logger.V(1).Info("Copying content to pod", "source", localSourceDir)
-	copyCmd := exec.CommandContext(ctx, "kubectl", "cp", localSourceDir, fmt.Sprintf("%s/%s:%s", ns, podName, stagingDir))
-	if output, err := copyCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to copy %s content to pod: %w, output: %s", repoName, err, string(output))
+	var commitScript string
+	if localBundle, cleanupBundle, err := buildStackBundle(ctx, stagedSrc, repoName); err == nil {
+		defer cleanupBundle()
+		logger.V(1).Info("Copying packed bundle to pod", "repo", repoName)
+		if output, err := kubectlCp(localBundle, bundlePath); err != nil {
+			return fmt.Errorf("failed to copy %s bundle to pod: %w, output: %s", repoName, err, string(output))
+		}
+		commitScript = seedFromBundleScript(workDir, bundlePath, repoName)
+	} else {
+		logger.V(1).Info("Host git unavailable; packing inside the pod", "repo", repoName, "reason", err.Error())
+		if output, err := kubectlCp(stagedSrc, stagingDir); err != nil {
+			return fmt.Errorf("failed to copy %s content to pod: %w, output: %s", repoName, err, string(output))
+		}
+		commitScript = seedFromTreeScript(workDir, stagingDir, repoName)
 	}
 
-	// Move contents from staging to working directory root
-	// kubectl cp of dir "packages" to "/tmp/packages-staging" creates "/tmp/packages-staging" with contents directly
-	if _, err := kubectlExecSh(fmt.Sprintf("cp -a %s/. %s/", stagingDir, workDir)); err != nil {
-		return fmt.Errorf("failed to move %s content from staging: %w", repoName, err)
-	}
-	kubectlExecSh(fmt.Sprintf("rm -rf %s", stagingDir))
-
-	// Step 5: Configure git, add, commit, and push
-	gitScript := fmt.Sprintf(`cd %s && \
-		git config user.name "Adhar Platform" && \
-		git config user.email "admin@adhar.io" && \
-		git add -A && \
-		git diff --cached --quiet && echo "NO_CHANGES" || \
-		git commit -m "Update: Add %s content"`, workDir, repoName)
-
-	output, err := kubectlExecSh(gitScript)
+	output, err := kubectlExecSh(commitScript)
 	if err != nil {
 		outputStr := string(output)
 		if !strings.Contains(outputStr, "NO_CHANGES") {
@@ -957,22 +973,95 @@ func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName
 		logger.Info("No changes to commit", "repo", repoName)
 	}
 
-	// Step 6: Push to Gitea
 	pushScript := fmt.Sprintf(`cd %s && \
 		git remote remove origin 2>/dev/null; \
 		git remote add origin %s && \
-		branch=$(git rev-parse --abbrev-ref HEAD) && \
-		git push -f origin "$branch:main" 2>&1`, workDir, bareRepoPath)
-
+		git push -q -f origin HEAD:main 2>&1`, workDir, bareRepoPath)
 	if output, err := kubectlExecSh(pushScript); err != nil {
 		return fmt.Errorf("failed to push to %s repository: %w, output: %s", repoName, err, string(output))
 	}
 
-	// Cleanup
-	kubectlExecSh(fmt.Sprintf("rm -rf %s", workDir))
-
+	_, _ = kubectlExecSh(fmt.Sprintf("rm -rf %s %s %s", workDir, stagingDir, bundlePath))
 	logger.Info("✅ Repository populated successfully!", "repo", repoName)
 	return nil
+}
+
+// seedGitIdentity is the committer of platform seed commits.
+const seedGitIdentity = `-c user.name="Adhar Platform" -c user.email="admin@adhar.io"`
+
+// seedFromBundleScript commits the tree carried by a git bundle on top of the
+// working repo's current HEAD without recompressing any object: fetch the
+// bundle's packed objects, point the index at its tree, commit. Prints
+// NO_CHANGES when the tree is already HEAD's.
+func seedFromBundleScript(workDir, bundlePath, repoName string) string {
+	return fmt.Sprintf(`cd %s && \
+		git fetch -q %s main && \
+		git read-tree --reset FETCH_HEAD && \
+		{ git rev-parse -q --verify HEAD >/dev/null 2>&1 && git diff --cached --quiet HEAD && echo "NO_CHANGES" || git %s commit -q -m "Update: Add %s content"; }`,
+		workDir, bundlePath, seedGitIdentity, repoName)
+}
+
+// seedFromTreeScript is the fallback without a host git: replace the working
+// tree with the staged content and commit it inside the pod.
+func seedFromTreeScript(workDir, stagingDir, repoName string) string {
+	return fmt.Sprintf(`cd %s && \
+		git checkout -q -- . 2>/dev/null; rm -rf $(ls -A | grep -v '^.git$') && \
+		cp -a %s/. . && rm -rf %s && \
+		git add -A && \
+		{ git diff --cached --quiet && echo "NO_CHANGES" || git %s commit -q -m "Update: Add %s content"; }`,
+		workDir, stagingDir, stagingDir, seedGitIdentity, repoName)
+}
+
+// buildStackBundle commits srcDir into a throw-away repository on the host
+// (its own GIT_DIR, isolated from any user git config or hooks — no signing
+// prompts, no autocrlf) and exports it as a single-ref git bundle whose
+// objects are delta-packed by the host's git. Returns an error when the host
+// has no usable git, in which case the caller packs inside the pod instead.
+func buildStackBundle(ctx context.Context, srcDir, repoName string) (string, func(), error) {
+	noop := func() {}
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		return "", noop, fmt.Errorf("git not found on PATH")
+	}
+	tmp, err := os.MkdirTemp("", "adhar-bundle-*")
+	if err != nil {
+		return "", noop, err
+	}
+	cleanup := func() { _ = os.RemoveAll(tmp) }
+	gitDir := filepath.Join(tmp, "git")
+	bundle := filepath.Join(tmp, repoName+".bundle")
+	env := append(os.Environ(),
+		"GIT_DIR="+gitDir, "GIT_WORK_TREE="+srcDir,
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_AUTHOR_NAME=Adhar Platform", "GIT_AUTHOR_EMAIL=admin@adhar.io",
+		"GIT_COMMITTER_NAME=Adhar Platform", "GIT_COMMITTER_EMAIL=admin@adhar.io",
+	)
+	run := func(args ...string) error {
+		cmd := exec.CommandContext(ctx, gitBin, args...)
+		cmd.Env = env
+		cmd.Dir = srcDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git %s: %w (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	// `git init -b` and `bundle create -q` need git ≥ 2.28 / 2.22; the
+	// symbolic-ref form and plain bundle create work on every git still in
+	// use (macOS ships an older Apple git).
+	steps := [][]string{
+		{"init", "-q"},
+		{"symbolic-ref", "HEAD", "refs/heads/main"},
+		{"-c", "core.hooksPath=/dev/null", "add", "-A"},
+		{"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "Update: Add " + repoName + " content"},
+		{"bundle", "create", bundle, "main"},
+	}
+	for _, st := range steps {
+		if err := run(st...); err != nil {
+			cleanup()
+			return "", noop, err
+		}
+	}
+	return bundle, cleanup, nil
 }
 
 func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req ctrl.Request, resource *v1alpha1.AdharPlatform) {

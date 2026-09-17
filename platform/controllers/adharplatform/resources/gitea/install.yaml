@@ -1067,13 +1067,17 @@ spec:
             tcpSocket:
               port: http
             timeoutSeconds: 1
+          # Gitea receives the whole GitOps stack (62 MB, ~900 files) as one
+          # push during `adhar up`; at the chart default of 200m CPU that
+          # receive is CFS-throttled to ~40-80 s. Two cores let it finish in
+          # seconds. The request stays small so the node is not over-committed.
           resources:
             limits:
-              cpu: 200m
-              memory: 512Mi
+              cpu: "2"
+              memory: 1Gi
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 200m
+              memory: 256Mi
           volumeMounts:
             - name: temp
               mountPath: /tmp

@@ -218,6 +218,9 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 			if !c.isHealthy() {
 				return c.getClusterHealthError("Cluster exists but is not healthy")
 			}
+			// The caches are stopped by `adhar down`; an existing cluster still
+			// wants them back for its next pulls.
+			c.ensureRegistryCache(ctx)
 			return nil
 		}
 	}
@@ -246,10 +249,11 @@ func (c *Cluster) Reconcile(ctx context.Context, recreate bool) error {
 	}
 	setupLog.Info("Done creating cluster", "cluster", c.name)
 
-	// Best-effort: seed the Cilium/Hubble bootstrap images from the host Docker
-	// cache into the new node so the "Cilium & Gateway" phase starts them from
-	// the node cache instead of pulling ~1GB from the internet. No-op (and never
-	// fatal) when the host cache is empty; `make preload-images` warms it.
+	// The node pulls every public image through local pull-through caches on
+	// the kind network (registrycache.go); start them now, before the first
+	// pull. Then, only while that cache is still cold, seed the Cilium
+	// critical-path images from the host cache (`make preload-images`).
+	c.ensureRegistryCache(ctx)
 	c.preloadBootstrapImages(ctx)
 
 	return nil

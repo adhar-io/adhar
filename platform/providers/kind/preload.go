@@ -14,73 +14,36 @@ import (
 
 // criticalPathImages are pulled on the CRITICAL PATH of `adhar up` — the Cilium
 // CNI + Gateway data path that must be Ready before anything else proceeds. On a
-// fresh Kind node these ~1GB are pulled from the internet before the CNI is
-// Ready, dominating the "Cilium & Gateway" phase. Keep in sync with
+// fresh Kind node these ~1GB are pulled before the CNI is Ready, dominating the
+// "Cilium & Gateway" phase. Keep in sync with
 // platform/controllers/adharplatform/resources/cilium/install.yaml.
+//
+// Everything else the platform pulls goes through the local registry cache
+// (registrycache.go) and needs no host-side handling: the old ~7 GB
+// "core images" save/load that ran here on every `adhar up` cost about three
+// minutes before the first CRD was installed and is gone.
 var criticalPathImages = []string{
 	"quay.io/cilium/cilium:v1.20.0",
 	"quay.io/cilium/cilium-envoy:v1.37.5-1782911245-7cffc778c923f68a77954a53b1a98d6b5353f004",
 	"quay.io/cilium/operator-generic:v1.20.0",
 }
 
-// coreImages are the heavy, early platform components whose readiness gates most
-// other apps (databases, secrets, SSO, observability). Preloading them from the
-// host cache lets the GitOps sync bring the platform to health far sooner — the
-// difference between "pull ~5GB from the internet" and "copy from host". Keep in
-// sync with the bootstrap installs + the enabled local packages.
-var coreImages = []string{
-	// adhar-console — the platform's own UI, which should be reachable as soon as
-	// the GitOps sync starts. It is imagePullPolicy: Always (tracks :latest), so
-	// preloading turns its first pod start from a full layer download into a quick
-	// digest check; busybox is its CA-bundle init container. Its data deps (CNPG,
-	// ESO, ArgoCD, Gitea, Keycloak) are all preloaded below, so the whole console
-	// dependency chain comes up from cache.
-	"ghcr.io/adhar-io/adhar-console:latest",
-	"busybox:1.36",
-	// GitOps engine + git server (bootstrap). Gitea ships its own PostgreSQL +
-	// Valkey (bitnami subcharts) — preload those too or Gitea's DB/cache pull on
-	// cold start and dominate the "Gitea" stage of `adhar up`.
-	"quay.io/argoproj/argocd:v3.5.1",
-	"docker.gitea.com/gitea:1.27.0-rootless",
-	"docker.io/bitnami/postgresql:latest",
-	"docker.io/bitnami/valkey:latest",
-	// Databases: CNPG operator + the Postgres image its Clusters run.
-	"ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0",
-	"ghcr.io/cloudnative-pg/postgresql:16-bookworm",
-	// Secrets + SSO: ESO, Vault, Keycloak — the auth/secret backbone many apps wait on.
-	"ghcr.io/external-secrets/external-secrets:v2.5.0",
-	"hashicorp/vault:1.21.2",
-	"hashicorp/vault-k8s:1.7.2",
-	"quay.io/keycloak/keycloak:26.7.1",
-	// Observability core (kube-prometheus stack + Hubble relay/UI GitOps package).
-	"docker.io/grafana/grafana:13.1.3",
-	"quay.io/prometheus/prometheus:v3.4.0",
-	"quay.io/prometheus-operator/prometheus-operator:v0.93.0",
-	"quay.io/prometheus/alertmanager:v0.28.1",
-	"quay.io/prometheus/node-exporter:v1.12.1-distroless",
-	"registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1",
-	"quay.io/cilium/hubble-relay:v1.20.0",
-	"quay.io/cilium/hubble-ui:v0.13.5",
-	"quay.io/cilium/hubble-ui-backend:v0.13.5",
-}
-
 // preloadImages returns every image the preloader will try to seed.
 func preloadImages() []string {
-	return append(append([]string{}, criticalPathImages...), coreImages...)
+	return append([]string{}, criticalPathImages...)
 }
 
-// preloadBootstrapImages best-effort loads any preloadImages() already present in
-// the host Docker daemon into the cluster's Kind nodes, so both the critical
-// Cilium/Gateway phase AND the subsequent GitOps sync of the core components
-// start from the node cache instead of pulling from the internet — the main
-// lever for getting the whole platform healthy quickly on repeat runs.
+// preloadBootstrapImages seeds the critical-path images into the new node from
+// the host's engine cache — but only the ones the local registry cache does
+// not already hold, because a cached image arrives at LAN speed anyway and the
+// save/load is the slower path. So: a warm cache skips this entirely; a cold
+// cache on a host that has the images (`make preload-images`) still gets the
+// Cilium phase from the host copy instead of the internet.
 //
 // It is deliberately:
 //   - NON-FATAL: any error is logged and skipped; it can never fail cluster
 //     creation (worst case: the image is pulled in-cluster as before).
-//   - COLD-SAFE: images absent from the host are skipped (no pull here), so it
-//     never slows a first run on a machine with an empty Docker cache. Populate
-//     the cache once with `make preload-images` to unlock the speed-up.
+//   - COLD-SAFE: images absent from the host are skipped (no pull here).
 //   - BATCHED: all present images are saved to a single archive and loaded once
 //     per node, which is far faster than a save+load per image.
 func (c *Cluster) preloadBootstrapImages(ctx context.Context) {
@@ -89,14 +52,10 @@ func (c *Cluster) preloadBootstrapImages(ctx context.Context) {
 		return
 	}
 
-	var present []string
-	for _, img := range preloadImages() {
-		if hostHasImage(ctx, img) {
-			present = append(present, img)
-		}
-	}
+	eng := utils.DetectContainerEngine()
+	present := imagesToPreload(ctx, realEngineRunner(eng.Binary), preloadImages(), func(img string) bool { return hostHasImage(ctx, img) })
 	if len(present) == 0 {
-		setupLog.V(1).Info("preload: no bootstrap/core images in host cache; skipping (run 'make preload-images' to warm it)")
+		setupLog.V(1).Info("preload: critical-path images are cached locally or absent from the host; nothing to seed")
 		return
 	}
 
@@ -104,8 +63,22 @@ func (c *Cluster) preloadBootstrapImages(ctx context.Context) {
 		setupLog.V(1).Info("preload: image load skipped", "error", err)
 		return
 	}
-	setupLog.Info("preloaded platform images from host cache; Cilium & Gateway and core-component readiness will be much faster",
-		"count", len(present), "nodes", len(nodeList))
+	setupLog.Info("seeded critical-path images from the host cache into the node", "count", len(present), "nodes", len(nodeList))
+}
+
+// imagesToPreload filters the candidates to those worth a save/load: absent
+// from the local registry cache and present on the host.
+func imagesToPreload(ctx context.Context, run engineRunner, candidates []string, hostHas func(string) bool) []string {
+	var present []string
+	for _, img := range candidates {
+		if cacheHasImage(ctx, run, img) {
+			continue
+		}
+		if hostHas(img) {
+			present = append(present, img)
+		}
+	}
+	return present
 }
 
 // hostHasImage reports whether the host's container engine already holds the

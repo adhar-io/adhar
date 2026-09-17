@@ -191,13 +191,16 @@ ingress:
 #
 ## @param resources Kubernetes resources
 ## LOCAL DEV: Minimal resource allocation for development environments
+# Gitea receives the whole GitOps stack (62 MB, ~900 files) as one push during
+# `adhar up`; at 200m CPU that receive is CFS-throttled to ~40-80 s. Two cores
+# let it finish in seconds; the request stays small.
 resources:
   limits:
-    cpu: 200m
-    memory: 512Mi
+    cpu: "2"
+    memory: 1Gi
   requests:
-    cpu: 50m
-    memory: 128Mi
+    cpu: 200m
+    memory: 256Mi
 
 ## Use an alternate scheduler, e.g. "stork".
 ## ref: https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/
