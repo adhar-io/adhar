@@ -40,7 +40,7 @@ spec:
         fsGroup: 200
       containers:
         - name: nexus
-          image: sonatype/nexus3:3.75.1
+          image: sonatype/nexus3:3.79.1
           imagePullPolicy: IfNotPresent
           # Deterministic admin password ("admin123") so the bootstrap Job can
           # configure repositories without scraping the random admin.password

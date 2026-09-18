@@ -17,7 +17,7 @@ spec:
   # 1h, not "0": sync-once is a single attempt with no retry, so any ES created
   # before the Keycloak realm job has written keycloak-clients wedges as
   # SecretSyncedError forever.
-  refreshInterval: 1h
+  refreshInterval: 30s
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore

@@ -1,0 +1,91 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: preview-namespace-guardrails
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    # kyverno's CRDs come from another package; on a fresh cluster this must be
+    # allowed to apply before the dry-run can resolve ClusterPolicy.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    policies.kyverno.io/title: Preview Namespace Guardrails
+    policies.kyverno.io/category: Adhar Governance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Namespace, ResourceQuota, LimitRange
+    policies.kyverno.io/description: >-
+      Every ephemeral pull-request preview namespace (adhar.io/preview=true) is
+      capped by a ResourceQuota and given container defaults by a LimitRange, so N
+      open pull requests cannot exhaust the cluster (ADR-0017).
+  labels:
+    app.kubernetes.io/name: preview-environments
+    app.kubernetes.io/part-of: adhar-platform
+spec:
+  background: true
+  # Reporting only where it is a validation; the generate rules below always act.
+  rules:
+    - name: preview-resource-quota
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  adhar.io/preview: "true"
+      generate:
+        apiVersion: v1
+        kind: ResourceQuota
+        name: preview-quota
+        namespace: "{{request.object.metadata.name}}"
+        synchronize: true
+        # Previews that already exist when this policy lands get the quota too.
+        generateExisting: true
+        data:
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: kyverno
+              adhar.io/preview: "true"
+          spec:
+            hard:
+              requests.cpu: "2"
+              requests.memory: 4Gi
+              limits.cpu: "4"
+              limits.memory: 8Gi
+              pods: "20"
+              persistentvolumeclaims: "2"
+              services.nodeports: "0"
+              services.loadbalancers: "0"
+    - name: preview-limit-range
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  adhar.io/preview: "true"
+      generate:
+        apiVersion: v1
+        kind: LimitRange
+        name: preview-limits
+        namespace: "{{request.object.metadata.name}}"
+        synchronize: true
+        generateExisting: true
+        data:
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: kyverno
+              adhar.io/preview: "true"
+          spec:
+            limits:
+              - type: Container
+                # A container that declares nothing still counts against the quota
+                # (a ResourceQuota on requests.cpu rejects pods without requests).
+                default:
+                  cpu: 250m
+                  memory: 256Mi
+                defaultRequest:
+                  cpu: 50m
+                  memory: 64Mi
+                max:
+                  cpu: "1"
+                  memory: 2Gi

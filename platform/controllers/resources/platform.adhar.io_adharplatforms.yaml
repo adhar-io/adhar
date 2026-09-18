@@ -408,6 +408,22 @@ spec:
                   available:
                     type: boolean
                 type: object
+              gitOps:
+                description: |-
+                  GitOps reports platform Application convergence after the ApplicationSet
+                  is applied.
+                properties:
+                  applicationsHealthy:
+                    type: integer
+                  applicationsTotal:
+                    type: integer
+                  pending:
+                    description: Pending names the Applications not yet Synced + Healthy
+                      (capped).
+                    items:
+                      type: string
+                    type: array
+                type: object
               gitea:
                 properties:
                   adminUserSecretNameecret:

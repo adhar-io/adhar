@@ -432,7 +432,7 @@ spec:
             path: /healthz
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           successThreshold: 1
           failureThreshold: 3
         readinessProbe:
@@ -441,7 +441,7 @@ spec:
             path: /readyz
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           successThreshold: 1
           failureThreshold: 3
       serviceAccountName: argo-events-controller-manager

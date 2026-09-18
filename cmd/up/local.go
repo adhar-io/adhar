@@ -83,6 +83,7 @@ type LocalOptions struct {
 	CustomPackageUrls         []string
 	PackageCustomization      map[string]v1alpha1.PackageCustomization
 	ExitOnSync                bool
+	AppsTimeout               time.Duration
 	StackDir                  string
 	Scheme                    *runtime.Scheme
 	CancelFunc                context.CancelFunc
@@ -297,7 +298,24 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	}
 
 	finish(false)
+	reportPendingApplications(context.Background(), kubeClient, lp.options.Name)
 	return nil
+}
+
+// reportPendingApplications names the platform Applications that were not yet
+// Synced + Healthy when `adhar up` stopped waiting (ArgoCD keeps converging
+// them), so the user knows what to watch instead of assuming everything is up.
+func reportPendingApplications(ctx context.Context, c client.Client, name string) {
+	var lb v1alpha1.AdharPlatform
+	if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &lb); err != nil || lb.Status.GitOps == nil {
+		return
+	}
+	g := lb.Status.GitOps
+	if g.ApplicationsTotal == 0 || g.ApplicationsHealthy == g.ApplicationsTotal {
+		return
+	}
+	logger.Infof("%d/%d platform apps are Synced + Healthy; ArgoCD is still converging: %s (watch with `adhar get status`)",
+		g.ApplicationsHealthy, g.ApplicationsTotal, strings.Join(g.Pending, ", "))
 }
 
 // verifyPlatformProvisioned confirms the bootstrap reached the GitOps handoff.
@@ -377,6 +395,9 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 			if st.Crossplane.Available {
 				tracker.Done(7)
 				tracker.Activate(8)
+			}
+			if st.GitOps != nil && st.GitOps.ApplicationsTotal > 0 {
+				tracker.SetDetail(8, fmt.Sprintf("%d/%d apps Synced + Healthy", st.GitOps.ApplicationsHealthy, st.GitOps.ApplicationsTotal))
 			}
 		}
 	}
@@ -499,6 +520,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		CustomPackageDirs:         localDirs,
 		CustomPackageUrls:         remotePaths,
 		ExitOnSync:                exitOnSync,
+		AppsTimeout:               appsTimeout,
 		StackDir:                  absStackDir,
 		PackageCustomization:      o,
 		Scheme:                    k8s.GetScheme(),
@@ -822,7 +844,7 @@ func (b *LocalProvisioner) ReconcileCRDs(ctx context.Context, kubeClient client.
 // RunControllers starts the platform controllers on the given manager, signalling
 // completion or errors over exitCh.
 func (b *LocalProvisioner) RunControllers(ctx context.Context, mgr manager.Manager, exitCh chan error, tmpDir string) error {
-	return controllers.RunControllers(ctx, mgr, exitCh, b.options.CancelFunc, b.options.ExitOnSync, b.options.TemplateData, tmpDir, b.options.StackDir)
+	return controllers.RunControllers(ctx, mgr, exitCh, b.options.CancelFunc, b.options.ExitOnSync, b.options.AppsTimeout, b.options.TemplateData, tmpDir, b.options.StackDir)
 }
 
 func (b *LocalProvisioner) isCompatible(ctx context.Context, kubeClient client.Client) (bool, error) {

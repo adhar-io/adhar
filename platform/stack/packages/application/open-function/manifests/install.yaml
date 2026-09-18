@@ -65522,7 +65522,7 @@ spec:
               port: 8002
             initialDelaySeconds: 10
             periodSeconds: 3
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             successThreshold: 1
             failureThreshold: 3
           livenessProbe:

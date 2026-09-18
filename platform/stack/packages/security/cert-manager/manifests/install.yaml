@@ -13912,7 +13912,7 @@ spec:
               scheme: HTTP
             initialDelaySeconds: 60
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             successThreshold: 1
             failureThreshold: 3
           readinessProbe:
@@ -13922,7 +13922,7 @@ spec:
               scheme: HTTP
             initialDelaySeconds: 5
             periodSeconds: 5
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             successThreshold: 1
             failureThreshold: 3
           securityContext:

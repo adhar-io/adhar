@@ -12,7 +12,7 @@ spec:
   # Explicit 1h: leaving refreshInterval unset means 0 = a single sync attempt
   # with no retry, so an ES created before the Keycloak realm job has written
   # keycloak-clients wedges as SecretSyncedError forever.
-  refreshInterval: 1h
+  refreshInterval: 30s
   target:
     name: oidc
     template:

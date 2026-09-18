@@ -482,6 +482,10 @@ type AdharPlatformStatus struct {
 	Gateway            GatewayStatus    `json:"gateway,omitempty"`
 	Gitea              GiteaStatus      `json:"gitea,omitempty"`
 	Crossplane         CrossplaneStatus `json:"crossplane,omitempty"`
+	// GitOps reports platform Application convergence after the ApplicationSet
+	// is applied.
+	// +optional
+	GitOps *GitOpsSyncStatus `json:"gitOps,omitempty"`
 
 	// Autoscaling reports the node autoscaler's view of the cluster.
 	// +optional
@@ -541,6 +545,19 @@ type GiteaStatus struct {
 type ArgoCDStatus struct {
 	Available   bool `json:"available,omitempty"`
 	AppsCreated bool `json:"appsCreated,omitempty"`
+}
+
+// GitOpsSyncStatus is how far the platform ApplicationSet's Applications
+// have converged to Synced + Healthy; maintained by the convergence driver
+// (adharplatform/gitops_converge.go) and shown by `adhar up`.
+type GitOpsSyncStatus struct {
+	// +optional
+	ApplicationsTotal int `json:"applicationsTotal,omitempty"`
+	// +optional
+	ApplicationsHealthy int `json:"applicationsHealthy,omitempty"`
+	// Pending names the Applications not yet Synced + Healthy (capped).
+	// +optional
+	Pending []string `json:"pending,omitempty"`
 }
 
 type GatewayStatus struct {

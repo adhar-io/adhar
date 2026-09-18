@@ -9,6 +9,7 @@ package adharplatform
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -195,5 +196,143 @@ func TestGiteaBootstrapValuesKeepCIAndRotationWorking(t *testing.T) {
 		if !strings.Contains(string(raw), "ALLOWED_HOST_LIST=external,private,*.svc.cluster.local") {
 			t.Errorf("resources/gitea/%s: embedded manifest lacks the webhook allow-list — regenerate it", name)
 		}
+	}
+}
+
+// Every enabled ApplicationSet element must point at a directory that exists,
+// and — because Kyverno is off in the local curated core — no enabled local
+// element may ship kyverno.io resources unless the kyverno engine itself is
+// enabled there. A violation means an Application that can never sync.
+func TestEnabledElementsExistAndKyvernoResourcesFollowTheEngine(t *testing.T) {
+	root := stackRoot(t)
+	for _, appset := range []string{"adhar-appset-local.yaml", "adhar-appset-production.yaml"} {
+		raw, err := os.ReadFile(filepath.Join(root, appset))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Spec struct {
+				Generators []struct {
+					List struct {
+						Elements []map[string]string `yaml:"elements"`
+					} `yaml:"list"`
+				} `yaml:"generators"`
+			} `yaml:"spec"`
+		}
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("%s: %v", appset, err)
+		}
+		kyvernoOn := false
+		var enabled []map[string]string
+		for _, g := range doc.Spec.Generators {
+			for _, e := range g.List.Elements {
+				if e["enabled"] != "true" {
+					continue
+				}
+				enabled = append(enabled, e)
+				if e["name"] == "kyverno" {
+					kyvernoOn = true
+				}
+			}
+		}
+		for _, e := range enabled {
+			dir := filepath.Join(root, "packages", e["manifestPath"])
+			if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+				t.Errorf("%s: element %s points at missing directory %s", appset, e["name"], e["manifestPath"])
+				continue
+			}
+			if kyvernoOn {
+				continue
+			}
+			entries, _ := os.ReadDir(dir)
+			for _, f := range entries {
+				if f.IsDir() || !strings.HasSuffix(f.Name(), ".yaml") {
+					continue
+				}
+				b, _ := os.ReadFile(filepath.Join(dir, f.Name()))
+				if strings.Contains(string(b), "kyverno.io/v") {
+					t.Errorf("%s: element %s ships kyverno.io resources (%s) while the kyverno engine is disabled — it can never sync", appset, e["name"], f.Name())
+				}
+			}
+		}
+	}
+}
+
+// No package may ship a probe with a one-second timeout.
+//
+// Measured on a loaded local cluster: harbor-database's liveness and readiness
+// probes (timeoutSeconds: 1, the upstream chart default) failed 377 times in
+// 22 hours — "command timed out: /docker-healthcheck.sh timed out after 1s" —
+// on a database that was up and logging "ready to accept connections". Kubelet
+// killed it 29 times; harbor-core then FATALs after its own 60 s database wait,
+// which took jobservice, registry, nginx and exporter down with it (55-66
+// restarts each). A probe timeout must leave room for a contended node.
+func TestNoProbeShipsAOneSecondTimeout(t *testing.T) {
+	root := filepath.Join(stackRoot(t), "packages")
+	probe := regexp.MustCompile(`\b(liveness|readiness|startup)Probe:`)
+	tight := regexp.MustCompile(`^\s*timeoutSeconds: 1$`)
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !(strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml")) {
+			return err
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		lines := strings.Split(string(b), "\n")
+		last := -99
+		for i, l := range lines {
+			if probe.MatchString(l) {
+				last = i
+			}
+			if tight.MatchString(l) && i-last <= 14 {
+				rel, _ := filepath.Rel(root, path)
+				t.Errorf("%s:%d ships a probe with timeoutSeconds: 1 — it will kill healthy pods on a loaded node", rel, i+1)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A package must not own an ExternalSecret whose source Secret is created by a
+// DIFFERENT, independently-enabled package: on a profile where that package is
+// off, the ExternalSecret can never resolve, the owning app fails its sync on
+// "could not get secret data from provider", and ArgoCD retries forever (the
+// console hit attempt #39 on the local profile before coder-credentials moved
+// into the coder package, 2026-09-19).
+func TestPackagesDoNotOwnExternalSecretsSourcedFromOtherPackages(t *testing.T) {
+	root := filepath.Join(stackRoot(t), "packages")
+	// source Secret name -> package directory that creates it
+	crossPackage := map[string]string{
+		"coder-admin-credentials": "application/coder",
+		"plane-api-credentials":   "application/plane",
+	}
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return err
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		body := string(b)
+		if !strings.Contains(body, "kind: ExternalSecret") {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		owner := filepath.ToSlash(filepath.Dir(filepath.Dir(rel))) // <category>/<package>
+		for source, producer := range crossPackage {
+			if strings.Contains(body, "key: "+source) && owner != producer {
+				t.Errorf("%s: package %s owns an ExternalSecret reading %q, which only %s creates — move it into %s",
+					rel, owner, source, producer, producer)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

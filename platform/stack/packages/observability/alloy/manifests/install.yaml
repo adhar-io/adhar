@@ -401,7 +401,7 @@ spec:
               port: 12345
               scheme: HTTP
             initialDelaySeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
           volumeMounts:
             - name: config
               mountPath: /etc/alloy

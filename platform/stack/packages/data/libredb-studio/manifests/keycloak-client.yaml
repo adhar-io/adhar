@@ -66,7 +66,7 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   refreshPolicy: CreatedOnce
-  refreshInterval: 5m
+  refreshInterval: 30s
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore

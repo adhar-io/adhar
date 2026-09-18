@@ -126,6 +126,20 @@ func (t *StageTracker) Activate(i int) {
 	t.mu.Unlock()
 }
 
+// SetDetail replaces stage i's detail text (progress such as "24/32 apps
+// healthy"); on a non-TTY it prints the detail once per change.
+func (t *StageTracker) SetDetail(i int, detail string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if i < 0 || i >= len(t.stages) || t.stages[i].detail == detail {
+		return
+	}
+	t.stages[i].detail = detail
+	if !t.isTTY && t.stages[i].state == stageActive {
+		fmt.Fprintf(t.w, "    %s\n", stDetailStyle.Render(detail))
+	}
+}
+
 // Done marks stage i complete.
 func (t *StageTracker) Done(i int) { t.setFinal(i, stageDone) }
 

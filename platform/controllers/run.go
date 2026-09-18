@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"time"
 
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
@@ -23,6 +24,7 @@ func RunControllers(
 	exitCh chan error,
 	ctxCancel context.CancelFunc,
 	exitOnSync bool,
+	appsTimeout time.Duration,
 	cfg v1alpha1.BuildCustomizationSpec,
 	tmpDir string,
 	stackDir string,
@@ -33,14 +35,15 @@ func RunControllers(
 
 	// Run AdharPlatform controller
 	if err := (&adharplatform.AdharPlatformReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		ExitOnSync: exitOnSync,
-		CancelFunc: ctxCancel,
-		Config:     cfg,
-		TempDir:    tmpDir,
-		StackDir:   stackDir,
-		RepoMap:    repoMap,
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		ExitOnSync:          exitOnSync,
+		AppsConvergeTimeout: appsTimeout,
+		CancelFunc:          ctxCancel,
+		Config:              cfg,
+		TempDir:             tmpDir,
+		StackDir:            stackDir,
+		RepoMap:             repoMap,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "unable to create adharplatform controller")
 		return err

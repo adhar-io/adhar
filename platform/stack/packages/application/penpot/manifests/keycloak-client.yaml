@@ -46,7 +46,7 @@ metadata:
   namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "-2"}
 spec:
-  refreshInterval: 1h
+  refreshInterval: 30s
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore

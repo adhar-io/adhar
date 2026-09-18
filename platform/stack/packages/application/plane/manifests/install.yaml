@@ -473,7 +473,7 @@ spec:
             scheme: HTTP
           periodSeconds: 10
           successThreshold: 1
-          timeoutSeconds: 1
+          timeoutSeconds: 5
       serviceAccount: plane-srv-account
       serviceAccountName: plane-srv-account
 ---

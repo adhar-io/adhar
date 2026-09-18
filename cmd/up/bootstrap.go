@@ -305,7 +305,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	defer cancel()
 
 	exitCh := make(chan error)
-	if err := controllers.RunControllers(bootstrapCtx, mgr, exitCh, cancel, true, templateData, tmpDir, stackDir); err != nil {
+	if err := controllers.RunControllers(bootstrapCtx, mgr, exitCh, cancel, true, appsTimeout, templateData, tmpDir, stackDir); err != nil {
 		return fmt.Errorf("starting controllers: %w", err)
 	}
 

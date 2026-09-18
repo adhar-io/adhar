@@ -1016,7 +1016,7 @@ spec:
             port: 8443
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 360
           successThreshold: 1
         livenessProbe:
@@ -1026,7 +1026,7 @@ spec:
             port: 8443
           initialDelaySeconds: 0
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 2
           successThreshold: 1
         readinessProbe:
@@ -1036,7 +1036,7 @@ spec:
             port: 8443
           initialDelaySeconds: 0
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 2
           successThreshold: 1
         envFrom:
@@ -1168,7 +1168,7 @@ spec:
             port: 8001
           initialDelaySeconds: 300
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         readinessProbe:
@@ -1177,7 +1177,7 @@ spec:
             port: 8001
           initialDelaySeconds: 30
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         args: ["-log-level", "info"]
@@ -1276,7 +1276,7 @@ spec:
             port: 8443
           initialDelaySeconds: 300
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         readinessProbe:
@@ -1286,7 +1286,7 @@ spec:
             port: 8443
           initialDelaySeconds: 20
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         env:
@@ -1397,7 +1397,7 @@ spec:
             port: 8080
           initialDelaySeconds: 300
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         readinessProbe:
@@ -1407,7 +1407,7 @@ spec:
             port: 8080
           initialDelaySeconds: 1
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         securityContext: 
@@ -1497,7 +1497,7 @@ spec:
             port: 8443
           initialDelaySeconds: 300
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         readinessProbe:
@@ -1507,7 +1507,7 @@ spec:
             port: 8443
           initialDelaySeconds: 1
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         ports:
@@ -1592,7 +1592,7 @@ spec:
             port: 5443
           initialDelaySeconds: 300
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         readinessProbe:
@@ -1602,7 +1602,7 @@ spec:
             port: 5443
           initialDelaySeconds: 1
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         securityContext: 
@@ -1651,7 +1651,7 @@ spec:
             port: 8443
           initialDelaySeconds: 300
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         readinessProbe:
@@ -1661,7 +1661,7 @@ spec:
             port: 8443
           initialDelaySeconds: 1
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         securityContext: 
@@ -1821,7 +1821,7 @@ spec:
             - /docker-healthcheck.sh
           initialDelaySeconds: 300
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         readinessProbe:
@@ -1830,7 +1830,7 @@ spec:
             - /docker-healthcheck.sh
           initialDelaySeconds: 1
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         envFrom:
@@ -1933,7 +1933,7 @@ spec:
             port: 6379
           initialDelaySeconds: 300
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         readinessProbe:
@@ -1941,7 +1941,7 @@ spec:
             port: 6379
           initialDelaySeconds: 1
           periodSeconds: 10
-          timeoutSeconds: 1
+          timeoutSeconds: 5
           failureThreshold: 3
           successThreshold: 1
         volumeMounts:
@@ -2107,7 +2107,7 @@ spec:
               port: api-server
             initialDelaySeconds: 5
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 10
             successThreshold: 1
           readinessProbe:
@@ -2117,7 +2117,7 @@ spec:
               port: api-server
             initialDelaySeconds: 5
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 3
             successThreshold: 1
           resources:

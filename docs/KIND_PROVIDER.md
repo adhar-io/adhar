@@ -11,7 +11,7 @@ no configuration file, and the only path exercised continuously by CI.
 |---|---|
 | Provisioning model | Kind (Kubernetes in containers) on Docker, Podman or nerdctl; Adhar supplies the CNI |
 | Kubernetes | `globals.DefaultKubernetesVersion` (v1.37.0) unless pinned |
-| Package set | A curated local-safe core (32 of 91), not the full catalogue |
+| Package set | A curated local-development core (15 of 97 elements): the console with its database, SSO, cache and object store, the golden path (Tekton, buildpack, Harbor, supply-chain with its Kyverno policies), plus metrics-server, kube-prometheus and Headlamp. Production delivery, CI infrastructure and heavy JVM services (Kafka, Nexus, Dapr, the Loki/Tempo/Mimir pipelines, preview environments) stay wired but disabled, not the full catalogue |
 
 ## 1. Requirements
 
@@ -77,6 +77,7 @@ before and after, warm cache:
 | GitOps repos (seed the 62 MB stack into Gitea) | ~60s, hidden inside "Crossplane" | 16s — packed on the host as a git bundle, Gitea's CPU limit raised from 200m to 2 |
 | Crossplane | 1m38s | 12s — core Deployment now starts before seeding; readiness polled instead of fixed sleeps |
 | Total to "GitOps sync" | > 7 min | 3m24s |
+| Every app Synced + Healthy | 18m50s and still only 18 of 31 | **10m13s, all 15** (foundation 2m38s + sync 6m38s) |
 
 What remains is component readiness (ArgoCD, Gitea, Cilium starting up) and
 the ArgoCD sync of the curated core itself.

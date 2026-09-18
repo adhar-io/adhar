@@ -304,8 +304,8 @@ data:
   server.rbac.log.enforce.enable: "false"
   statusbadge.enabled: "false"
   timeout.hard.reconciliation: 0s
-  timeout.reconciliation: 300s
-  timeout.reconciliation.jitter: 60s
+  timeout.reconciliation: 120s
+  timeout.reconciliation.jitter: 15s
   url: https://argocd.{{ .Host }}{{ .PortSuffix }}
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-cmd-params-cm.yaml
@@ -345,6 +345,11 @@ data:
   controller.self.heal.timeout.seconds: "5"
   controller.status.processors: "16"
   controller.sync.timeout.seconds: "0"
+  # Diff against a server-side dry-run apply, so fields the API server or an
+  # admission webhook DEFAULTS are not reported as drift. Without it kyverno's
+  # CRDs/ClusterPolicies and tekton's Tasks/Pipelines synced successfully and
+  # went straight back to OutOfSync forever (2026-09-19).
+  controller.diff.server.side: "true"
   dexserver.log.format: text
   dexserver.log.level: info
   hydrator.enabled: "false"

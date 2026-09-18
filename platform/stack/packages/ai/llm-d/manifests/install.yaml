@@ -222,7 +222,7 @@ spec:
               scheme: HTTP
             periodSeconds: 5
             successThreshold: 1
-            timeoutSeconds: 1
+            timeoutSeconds: 5
           startupProbe:
             failureThreshold: 60
             httpGet:

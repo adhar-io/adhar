@@ -23,7 +23,7 @@ spec:
             category: "application"
             manifestPath: "application/knative/manifests"
           - name: "hubble"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/hubble/manifests"
@@ -64,7 +64,7 @@ spec:
           # too -- cosign and buildpack are mutually exclusive in one namespace.
           # See platform/stack/packages/CONFLICTS.md before enabling both.
           - name: "cosign"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/cosign/manifests"
@@ -198,7 +198,7 @@ spec:
           # has onto the platform's databases. Connections whose package is not
           # enabled here are skipped, not broken.
           - name: "libredb-studio"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/libredb-studio/manifests"
@@ -228,7 +228,7 @@ spec:
             category: "observability"
             manifestPath: "observability/fluent-bit/manifests"
           - name: "kafka-ui"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/kafka-ui/manifests"
@@ -268,7 +268,7 @@ spec:
             category: "application"
             manifestPath: "application/argo-events/manifests"
           - name: "argo-rollout"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/argo-rollout/manifests"
@@ -372,8 +372,12 @@ spec:
             category: "data"
             manifestPath: "data/cnpg/manifests"
           # Required by the supply-chain package (its verify-supply-chain-images
-          # + kpack-build-ca-trust are kyverno ClusterPolicies). supply-chain is
-          # enabled below, so kyverno must stay on or supply-chain fails to sync.
+          # + kpack-build-ca-trust are kyverno ClusterPolicies, applied by the
+          # separate supply-chain-kyverno element). The engine stays on locally
+          # (the golden path's CA-trust and image-verification policies need
+          # it); the policy sets and policy-reporter are off in the local core
+          # (2026-09-18) — they add webhooks and reports without exercising
+          # anything the local platform needs. Production keeps them on.
           - name: "kyverno"
             enabled: "true"
             namespace: "adhar-system"
@@ -384,12 +388,12 @@ spec:
           # platform's own namespaces. Cheap: policies are just CRs, no new pods
           # (the kyverno engine is already enabled above).
           - name: "kyverno-policies"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/kyverno-policies/manifests"
           - name: "policy-reporter"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/policy-reporter/manifests"
@@ -403,7 +407,7 @@ spec:
           # `-enforce` suffix). See the package README for the staging recipe
           # and hack/verify-supply-chain.sh for the drill that proves it works.
           - name: "supply-chain-policies"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/supply-chain-policies/manifests/audit"
@@ -457,7 +461,7 @@ spec:
           # Nexus Repository OSS — artefact repository for language packages
           # (Maven/npm/PyPI). Harbor stays OCI-images-only; Nexus owns the rest.
           - name: "nexus"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/nexus/manifests"
@@ -470,18 +474,38 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/supply-chain/manifests"
+          # Kyverno ClusterPolicies of supply-chain, split out so supply-chain itself
+          # can run without the kyverno package (off in the local curated core).
+          - name: "supply-chain-kyverno"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/supply-chain/kyverno"
           # Ephemeral per-PR preview environments (ADR-0017): an ApplicationSet with the
           # Gitea pull-request generator, plus the Kyverno ResourceQuota/LimitRange
           # guardrails for preview namespaces. Costs nothing until a repo ships
           # preview/kustomization.yaml and a PR is labelled `preview`, so it is on
           # everywhere.
           - name: "preview-environments"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/preview-environments/manifests"
+          # Kyverno ClusterPolicies of preview-environments, split out so preview-environments itself
+          # can run without the kyverno package (off in the local curated core).
+          - name: "preview-environments-kyverno"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/preview-environments/kyverno"
+          # Off in the local core (2026-09-19): its PostSync hook starts Tekton
+          # PipelineRuns that build adhar-kit and adhar-ui from source — each measured
+          # at ~1 full CPU core on an 11-core box — and the app only reports Healthy
+          # once those releases finish, so it cannot converge quickly and it steals the
+          # CPU every other app is waiting for. Publishing the libraries is CI work;
+          # enable it when you actually want a local release.
           - name: "adhar-libraries"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/adhar-libraries/manifests"
@@ -521,7 +545,7 @@ spec:
             category: "observability"
             manifestPath: "observability/kube-prometheus/manifests"
           - name: "loki"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/loki-stack/manifests"
@@ -531,7 +555,7 @@ spec:
             category: "observability"
             manifestPath: "observability/opencost/manifests"
           - name: "alloy"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/alloy/manifests"
@@ -541,7 +565,7 @@ spec:
             category: "observability"
             manifestPath: "observability/oncall/manifests"
           - name: "tempo"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/tempo/manifests"
@@ -551,12 +575,12 @@ spec:
             category: "observability"
             manifestPath: "observability/pyroscope/manifests"
           - name: "mimir"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/mimir/manifests"
           - name: "k6"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/k6/manifests"
@@ -571,7 +595,7 @@ spec:
             category: "infrastructure"
             manifestPath: "infrastructure/terraform/manifests"
           - name: "dapr"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/dapr/manifests"
@@ -586,7 +610,7 @@ spec:
             category: "data"
             manifestPath: "data/valkey/manifests"
           - name: "kafka-operator"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/kafka-operator/manifests"
@@ -651,6 +675,62 @@ spec:
             - '.spec.rules[]?.backendRefs[]?.weight'
         - group: external-secrets.io
           kind: ExternalSecret
+          jsonPointers:
+            - /status
+        # Fields the API server and admission webhooks DEFAULT onto these
+        # resources. Without these entries the app syncs successfully and is
+        # then immediately OutOfSync again — forever — because applying cannot
+        # remove a defaulted field. Each path below was measured by diffing the
+        # live object against the manifest in Git (2026-09-19).
+        - group: apiextensions.k8s.io
+          kind: CustomResourceDefinition
+          jsonPointers:
+            - /status
+          jqPathExpressions:
+            # Injected by the owning project's conversion webhook, then
+            # defaulted by the API server.
+            - '.spec.conversion.webhook.clientConfig.caBundle'
+            - '.spec.conversion.webhook.clientConfig.service.path'
+            - '.spec.conversion.webhook.clientConfig.service.port'
+            - '.spec.names.listKind'
+        - group: kyverno.io
+          kind: ClusterPolicy
+          jsonPointers:
+            - /status
+            - /spec/admission
+            - /spec/emitWarning
+            - /spec/validationFailureAction
+          jqPathExpressions:
+            - '.spec.rules[]?.skipBackgroundRequests'
+        - group: kyverno.io
+          kind: Policy
+          jsonPointers:
+            - /status
+            - /spec/admission
+            - /spec/emitWarning
+            - /spec/validationFailureAction
+          jqPathExpressions:
+            - '.spec.rules[]?.skipBackgroundRequests'
+        - group: tekton.dev
+          kind: Task
+          jqPathExpressions:
+            - '.spec.results[]?.type'
+            - '.spec.steps[]?.computeResources'
+            - '.spec.params[]?.type'
+        - group: tekton.dev
+          kind: ClusterTask
+          jqPathExpressions:
+            - '.spec.results[]?.type'
+            - '.spec.steps[]?.computeResources'
+            - '.spec.params[]?.type'
+        - group: tekton.dev
+          kind: Pipeline
+          jqPathExpressions:
+            - '.spec.params[]?.type'
+            - '.spec.results[]?.type'
+            - '.spec.tasks[]?.taskRef.kind'
+        - group: triggers.tekton.dev
+          kind: EventListener
           jsonPointers:
             - /status
       sources:

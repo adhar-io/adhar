@@ -12054,7 +12054,7 @@ spec:
               port: 8081
             initialDelaySeconds: 25
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 3
             successThreshold: 1
           readinessProbe:
@@ -12063,7 +12063,7 @@ spec:
               port: 8081
             initialDelaySeconds: 20
             periodSeconds: 3
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 3
             successThreshold: 1
           ports:
@@ -12172,7 +12172,7 @@ spec:
               scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 3
             successThreshold: 1
           readinessProbe:
@@ -12182,7 +12182,7 @@ spec:
               scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 3
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 3
             successThreshold: 1
           env:
@@ -12314,7 +12314,7 @@ spec:
               port: 8081
             initialDelaySeconds: 25
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 3
             successThreshold: 1
           readinessProbe:
@@ -12323,7 +12323,7 @@ spec:
               port: 8081
             initialDelaySeconds: 20
             periodSeconds: 3
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 3
             successThreshold: 1
           ports:

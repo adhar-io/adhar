@@ -139,7 +139,7 @@ func runController(cmd *cobra.Command, args []string) error {
 	exitCh := make(chan error)
 	// exitOnSync is always false in-cluster: this manager's purpose is
 	// continuous reconciliation.
-	if err := controllers.RunControllers(ctx, mgr, exitCh, cancel, false, buildCfg, tmpDir, stackDir); err != nil {
+	if err := controllers.RunControllers(ctx, mgr, exitCh, cancel, false, 0, buildCfg, tmpDir, stackDir); err != nil {
 		return fmt.Errorf("starting controllers: %w", err)
 	}
 	return <-exitCh

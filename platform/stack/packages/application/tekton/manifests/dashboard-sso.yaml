@@ -27,7 +27,7 @@ spec:
   # attempt with NO retry — any ES created before the Keycloak realm job
   # finishes (always, on a cold bootstrap) stays SecretSyncedError forever.
   refreshPolicy: CreatedOnce
-  refreshInterval: 5m
+  refreshInterval: 30s
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore
@@ -62,6 +62,10 @@ metadata:
     app.kubernetes.io/name: tekton-oauth2-proxy
     app.kubernetes.io/part-of: tekton
 spec:
+  # A late SSO secret (this app can sync before Keycloak has written
+  # keycloak-clients) must not hold the rollout Progressing for the default
+  # 10 minutes — surface it fast so ArgoCD retries.
+  progressDeadlineSeconds: 120
   replicas: 1
   selector:
     matchLabels:

@@ -479,6 +479,13 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/supply-chain/manifests"
+          # Kyverno ClusterPolicies of supply-chain, split out so supply-chain itself
+          # can run without the kyverno package (off in the local curated core).
+          - name: "supply-chain-kyverno"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/supply-chain/kyverno"
           # Ephemeral per-PR preview environments (ADR-0017): an ApplicationSet with the
           # Gitea pull-request generator, plus the Kyverno ResourceQuota/LimitRange
           # guardrails for preview namespaces. Costs nothing until a repo ships
@@ -489,6 +496,13 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/preview-environments/manifests"
+          # Kyverno ClusterPolicies of preview-environments, split out so preview-environments itself
+          # can run without the kyverno package (off in the local curated core).
+          - name: "preview-environments-kyverno"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/preview-environments/kyverno"
           - name: "adhar-libraries"
             enabled: "true"
             namespace: "adhar-system"
@@ -632,6 +646,75 @@ spec:
         # which is wired through this ApplicationSet.
         namespace: "{{ .namespace }}"
         server: https://kubernetes.default.svc
+      # Fields the API server and admission webhooks DEFAULT onto these resources.
+      # Without these entries an app syncs successfully and is immediately OutOfSync
+      # again — forever — because applying cannot remove a defaulted field. Paths were
+      # measured by diffing live objects against Git (2026-09-19). Keep in sync with
+      # adhar-appset-local.yaml.
+      ignoreDifferences:
+      - group: gateway.networking.k8s.io
+        kind: HTTPRoute
+        jsonPointers:
+        - /status
+        jqPathExpressions:
+        - .spec.parentRefs[]?.group
+        - .spec.parentRefs[]?.kind
+        - .spec.rules[]?.backendRefs[]?.group
+        - .spec.rules[]?.backendRefs[]?.kind
+        - .spec.rules[]?.backendRefs[]?.weight
+      - group: external-secrets.io
+        kind: ExternalSecret
+        jsonPointers:
+        - /status
+      - group: apiextensions.k8s.io
+        kind: CustomResourceDefinition
+        jsonPointers:
+        - /status
+        jqPathExpressions:
+        - .spec.conversion.webhook.clientConfig.caBundle
+        - .spec.conversion.webhook.clientConfig.service.path
+        - .spec.conversion.webhook.clientConfig.service.port
+        - .spec.names.listKind
+      - group: kyverno.io
+        kind: ClusterPolicy
+        jsonPointers:
+        - /status
+        - /spec/admission
+        - /spec/emitWarning
+        - /spec/validationFailureAction
+        jqPathExpressions:
+        - .spec.rules[]?.skipBackgroundRequests
+      - group: kyverno.io
+        kind: Policy
+        jsonPointers:
+        - /status
+        - /spec/admission
+        - /spec/emitWarning
+        - /spec/validationFailureAction
+        jqPathExpressions:
+        - .spec.rules[]?.skipBackgroundRequests
+      - group: tekton.dev
+        kind: Task
+        jqPathExpressions:
+        - .spec.results[]?.type
+        - .spec.steps[]?.computeResources
+        - .spec.params[]?.type
+      - group: tekton.dev
+        kind: ClusterTask
+        jqPathExpressions:
+        - .spec.results[]?.type
+        - .spec.steps[]?.computeResources
+        - .spec.params[]?.type
+      - group: tekton.dev
+        kind: Pipeline
+        jqPathExpressions:
+        - .spec.params[]?.type
+        - .spec.results[]?.type
+        - .spec.tasks[]?.taskRef.kind
+      - group: triggers.tekton.dev
+        kind: EventListener
+        jsonPointers:
+        - /status
       project: default
       sources:
         - path: "{{ .manifestPath }}"

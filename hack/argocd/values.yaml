@@ -208,9 +208,8 @@ configs:
     # lease renewals then time out and every operator crashloops). Gitea
     # webhooks still deliver instant sync on push; the periodic re-diff is
     # only a drift backstop.
-    timeout.reconciliation: 300s
-    timeout.reconciliation.jitter: 60s
-
+    timeout.reconciliation: 120s
+    timeout.reconciliation.jitter: 15s
     # -- Timeout to refresh application data as well as target manifests cache
     timeout.hard.reconciliation: 0s
 
@@ -479,6 +478,7 @@ configs:
     controller.repo.server.timeout.seconds: 60
     # -- Specifies the timeout after which a sync would be terminated. 0 means no timeout
     controller.sync.timeout.seconds: 0
+    controller.diff.server.side: "true"
 
     ## Server properties
     # -- Run server without TLS

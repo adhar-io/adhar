@@ -1073,7 +1073,7 @@ spec:
           readinessProbe:
             initialDelaySeconds: 0
             periodSeconds: 2
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 1000
             httpGet:
               path: /hub/health
@@ -1186,7 +1186,7 @@ spec:
           readinessProbe:
             initialDelaySeconds: 0
             periodSeconds: 2
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             failureThreshold: 1000
             httpGet:
               path: /_chp_healthz

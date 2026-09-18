@@ -77,10 +77,15 @@ type AdharPlatformReconciler struct {
 	CancelFunc     context.CancelFunc
 	ExitOnSync     bool
 	shouldShutdown bool
-	Config         v1alpha1.BuildCustomizationSpec
-	TempDir        string
-	StackDir       string // Path to the platform/stack directory on the host filesystem
-	RepoMap        *utils.RepoMap
+	// AppsConvergeTimeout is how long an ExitOnSync run keeps driving the
+	// platform Applications toward Synced + Healthy after the foundation is
+	// ready before it exits anyway (0: exit as soon as the foundation is ready).
+	AppsConvergeTimeout time.Duration
+	convergeStart       time.Time
+	Config              v1alpha1.BuildCustomizationSpec
+	TempDir             string
+	StackDir            string // Path to the platform/stack directory on the host filesystem
+	RepoMap             *utils.RepoMap
 
 	// lastFailureReason/lastFailureMessage describe the most recent reconcile
 	// failure; they are surfaced on the aggregate Ready condition and cleared
@@ -153,9 +158,9 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// that leaves XRDs/Compositions unapplied forever in local mode, since no
 	// controller remains to retry.
 	if r.ExitOnSync && localBuild.Status.Crossplane.ControlPlaneApplied && r.isPlatformAlreadyDeployed(ctx) {
-		logger.Info("✅ Platform is already fully deployed - marking for immediate shutdown")
-		r.shouldShutdown = true
-		return ctrl.Result{}, nil
+		// Foundation done: keep driving the platform Applications until they
+		// converge (or the timeout passes) before shutting down.
+		return r.driveConvergence(ctx, &localBuild)
 	}
 
 	// Install FOUNDATION packages only (Gateway API CRDs -> Cilium -> Gateway ->
@@ -251,13 +256,19 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{RequeueAfter: errRequeueTime}, nil
 		}
 		if ready {
-			logger.Info("✅ Platform GitOps setup complete! ArgoCD will continue managing applications")
-			r.shouldShutdown = true
-			return ctrl.Result{}, nil
+			return r.driveConvergence(ctx, &localBuild)
 		}
 
 		logger.Info("⏳ Platform is still converging, will check again shortly...")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	// Watch mode (the in-cluster manager, or `adhar up --no-exit`): keep
+	// nudging Applications that ArgoCD left on a comparison error — after a
+	// stack push, a Gitea restart or a DNS blip they would otherwise wait for
+	// the periodic resync.
+	if report, nErr := r.nudgeApplications(ctx); nErr == nil {
+		r.publishConvergence(ctx, &localBuild, report)
 	}
 
 	if r.Config.StaticPassword {

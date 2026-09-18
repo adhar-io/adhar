@@ -1099,7 +1099,7 @@ spec:
               path: /ready
               port: http-metrics
             initialDelaySeconds: 15
-            timeoutSeconds: 1
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 25m

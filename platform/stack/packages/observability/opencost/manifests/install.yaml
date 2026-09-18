@@ -296,7 +296,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 30
-            timeoutSeconds: 1
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /healthz
@@ -304,7 +304,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 20
             failureThreshold: 3
-            timeoutSeconds: 1
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /healthz
@@ -312,7 +312,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
-            timeoutSeconds: 1
+            timeoutSeconds: 5
             successThreshold: 1
           env:
             - name: LOG_LEVEL

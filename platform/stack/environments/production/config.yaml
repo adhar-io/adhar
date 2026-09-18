@@ -387,6 +387,11 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/supply-chain/manifests"
+  - name: "supply-chain-kyverno"
+    enabled: "true"
+    namespace: "adhar-system"
+    category: "application"
+    manifestPath: "application/supply-chain/kyverno"
   # Ephemeral per-PR preview environments (ADR-0017): an ApplicationSet with the
   # Gitea pull-request generator, plus the Kyverno ResourceQuota/LimitRange
   # guardrails for preview namespaces. Costs nothing until a repo ships
@@ -397,6 +402,11 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/preview-environments/manifests"
+  - name: "preview-environments-kyverno"
+    enabled: "true"
+    namespace: "adhar-system"
+    category: "application"
+    manifestPath: "application/preview-environments/kyverno"
   - name: "adhar-libraries"
     enabled: "true"
     namespace: "adhar-system"
