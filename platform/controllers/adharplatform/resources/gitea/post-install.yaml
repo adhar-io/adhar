@@ -33,6 +33,47 @@ spec:
   hostnames:
     - gitea.{{ .Host }}
   rules:
+    # Click-free single sign-on. Gitea renders its login page server-side, so the
+    # gateway can send a browser that lands there straight to the Keycloak auth
+    # source instead ("keycloak" is the name gitea-oauth-config registers, which
+    # is why the callback is /user/oauth2/keycloak/callback). A user who already
+    # signed in elsewhere on the platform returns authenticated without seeing a
+    # login screen. Nothing else is fronted: git clone/push, the API and the
+    # webhooks never touch /user/login, so CLI access is untouched.
+    #
+    # Break-glass for the local gitea_admin account: /user/login?local=1 still
+    # serves the real form. It is matched FIRST and carries one more query match
+    # than the redirect rule, which is how Gateway API breaks the tie once both
+    # rules match on method. Both are GET-only so the form's own POST to
+    # /user/login falls through to Gitea and local sign-in still completes.
+    - matches:
+        - path:
+            type: Exact
+            value: /user/login
+          method: GET
+          queryParams:
+            - name: local
+              value: "1"
+      backendRefs:
+        - name: gitea-http
+          port: 3000
+    - matches:
+        - path:
+            type: Exact
+            value: /user/login
+          method: GET
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /user/oauth2/keycloak
+            # The port MUST be stated. Gateway API defaults a redirect's port to
+            # the scheme default, so locally the Location header came back as
+            # gitea.<host>:443 — a port nothing listens on, since the platform is
+            # published on 8443. In cloud this renders as 443 and is a no-op.
+            port: {{ .Port }}
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

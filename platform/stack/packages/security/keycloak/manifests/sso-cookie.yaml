@@ -1,15 +1,23 @@
 # One session cookie secret shared by EVERY oauth2-proxy on the platform.
 #
-# Each app used to mint its own cookie secret from its own Password generator,
-# and no proxy set --cookie-domain. Two consequences, both of which broke single
-# sign-on: the session cookie was scoped to one host (hubble.<domain>), so a
-# sibling app saw no session at all; and even with a shared domain a sibling
-# could not have decrypted the cookie, because the secret differed. Signing in
-# to the console and opening Argo CD or Grafana therefore hit an auth round trip
-# every time.
+# Each app used to mint its own secret from its own Password generator, which
+# made secret management awkward for no benefit: a generator mints a distinct
+# value per ExternalSecret, so rotating or reasoning about them meant touching
+# every package. One secret is simply easier to operate.
 #
-# With one secret plus --cookie-domain=.<domain>, any proxy accepts the session
-# another one established: one sign-in covers every SSO-fronted app.
+# It does NOT make sessions shareable, and must not be used to try. Sharing the
+# secret AND the cookie name on the parent domain was tried and was worse than
+# the problem it meant to solve: every proxy then decrypted and reused every
+# other proxy's session, so Argo CD was handed a token minted for the tekton
+# client and rejected it with 'expected audience "argocd" got ["tekton"]', and
+# whichever app the user opened last overwrote all the other sessions. Each
+# proxy therefore sets its OWN --cookie-name and leaves --cookie-domain unset.
+#
+# Seamless sign-in is Keycloak's job, which is what an identity provider is for:
+# a proxy with no session of its own redirects to Keycloak, Keycloak recognises
+# the existing session and returns an authorization code immediately, and the
+# proxy mints its own session with the right audience. The user sees no login
+# screen on any app after the first.
 #
 # Wave 4: before the oauth2-proxy front-ends (wave 5) that read it.
 apiVersion: generators.external-secrets.io/v1alpha1

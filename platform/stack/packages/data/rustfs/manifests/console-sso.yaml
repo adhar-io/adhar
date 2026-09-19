@@ -70,9 +70,10 @@ spec:
         - --email-domain=*
         - --scope=openid profile email groups
         - --cookie-secure=true
-        # Parent-domain cookie + the shared secret above = real single sign-on:
-        # another app's proxy accepts this session with no round trip to Keycloak.
-        - --cookie-domain=.adhar.localtest.me
+        # A cookie name UNIQUE to this app: a shared name let every proxy reuse
+        # another app's session, forwarding a token minted for the wrong OIDC
+        # client. Seamlessness comes from Keycloak's own session instead.
+        - --cookie-name=_adhar_sso_rustfs
         - --whitelist-domain=.adhar.localtest.me:8443
         - --skip-provider-button=true
         - --reverse-proxy=true

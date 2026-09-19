@@ -197,6 +197,10 @@ func getComprehensiveOverview(clientset *kubernetes.Clientset) (*ComprehensiveOv
 	// Get applications summary
 	applications, err := getApplications(clientset, "", nil)
 	if err == nil {
+		// Same rows as `adhar get apps`, so the same namespaces are hidden —
+		// an overview that disagreed with the detail view would be worse than
+		// either one alone.
+		applications = hideInfraNamespaces(applications, "", includeSystem)
 		for _, app := range applications {
 			overview.Applications = append(overview.Applications, ApplicationSummary{
 				Name:      app.Name,

@@ -153,6 +153,17 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// Click-free SSO for the Argo CD UI, once the platform can supply the
+	// identity it needs. Placed HERE, above the "already deployed" shortcut that
+	// returns straight into convergence: below it this never ran once the
+	// platform was up, and inside ReconcileArgo it ran only while the foundation
+	// was still installing — both far too early for the Keycloak client secret
+	// and the shared session cookie to exist. Conditional and non-fatal: until
+	// those secrets are published the route keeps Argo CD's own login page.
+	if err := r.reconcileArgoCDSSOProxy(ctx, &localBuild); err != nil {
+		logger.V(1).Info("Argo CD SSO proxy not ready yet; its own login page stays in place", "reason", err)
+	}
+
 	// If ExitOnSync is enabled, check if platform is already deployed. The
 	// Crossplane control plane must be fully applied too — shutting down before
 	// that leaves XRDs/Compositions unapplied forever in local mode, since no

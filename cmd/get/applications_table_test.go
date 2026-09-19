@@ -53,3 +53,55 @@ func TestAppStateStripsAnAlreadyDecoratedStatus(t *testing.T) {
 		t.Errorf("unexpected %q", got)
 	}
 }
+
+// Kubernetes' and Kind's own namespaces hold no Adhar application, so they are
+// hidden from `adhar get apps`. kube-system and local-path-storage in particular
+// cannot be emptied instead: kube-system holds the static control-plane pods, and
+// Kind creates local-path-storage before adhar-system exists.
+func TestHideInfraNamespacesDropsOnlyInfrastructureRows(t *testing.T) {
+	apps := []ApplicationInfo{
+		{Name: "adhar-console", Namespace: "adhar-system"},
+		{Name: "coredns", Namespace: "kube-system"},
+		{Name: "local-path-provisioner", Namespace: "local-path-storage"},
+		{Name: "kpack-controller", Namespace: "kpack-system"},
+		{Name: "my-api", Namespace: "team-payments"},
+	}
+
+	got := hideInfraNamespaces(apps, "", false)
+
+	var names []string
+	for _, a := range got {
+		names = append(names, a.Name)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected the two application rows to survive, got %v", names)
+	}
+	if names[0] != "adhar-console" || names[1] != "my-api" {
+		t.Errorf("wrong rows kept: %v", names)
+	}
+}
+
+// Hiding a namespace must never override an explicit request for it: a user who
+// types -n kube-system is asking to see exactly that.
+func TestHideInfraNamespacesRespectsAnExplicitRequest(t *testing.T) {
+	apps := []ApplicationInfo{{Name: "coredns", Namespace: "kube-system"}}
+
+	if got := hideInfraNamespaces(apps, "kube-system", false); len(got) != 1 {
+		t.Errorf("-n kube-system must still list kube-system, got %d rows", len(got))
+	}
+	if got := hideInfraNamespaces(apps, "", true); len(got) != 1 {
+		t.Errorf("--include-system must list every namespace, got %d rows", len(got))
+	}
+}
+
+// An application namespace that merely resembles an infrastructure one is a
+// normal namespace and must be listed.
+func TestHideInfraNamespacesMatchesWholeNamesOnly(t *testing.T) {
+	apps := []ApplicationInfo{
+		{Name: "a", Namespace: "kube-system-tools"},
+		{Name: "b", Namespace: "my-kube-system"},
+	}
+	if got := hideInfraNamespaces(apps, "", false); len(got) != 2 {
+		t.Errorf("only exact namespace names may be hidden, got %d rows", len(got))
+	}
+}

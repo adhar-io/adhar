@@ -117,11 +117,17 @@ spec:
             - --email-domain=*
             - --scope=openid profile email groups
             - --cookie-secure=true
-            # Parent-domain cookie + the shared secret above = real single
-            # sign-on: another app's proxy accepts this session without a round
-            # trip to Keycloak. Seed-time host rewriting turns the literal
-            # domain into the platform's own.
-            - --cookie-domain=.adhar.localtest.me
+            # A cookie name UNIQUE to this app. Every proxy once shared the
+            # default name on the parent domain with a shared secret, which meant
+            # each one decrypted and reused the others' sessions: Argo CD received
+            # a token minted for the tekton client and rejected it with
+            # 'expected audience "argocd" got ["tekton"]', and whichever app you
+            # opened last overwrote the rest. Single sign-on comes from Keycloak's
+            # own session instead: with no cookie of its own this proxy bounces
+            # through Keycloak, which already knows the user and returns a code
+            # immediately, so the user sees no login screen and this app gets a
+            # token with its own audience.
+            - --cookie-name=_adhar_sso_baserow
             - --whitelist-domain=.adhar.localtest.me:8443
             - --skip-provider-button=true
             - --reverse-proxy=true

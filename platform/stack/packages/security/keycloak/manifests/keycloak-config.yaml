@@ -328,7 +328,8 @@ data:
       "rootUrl": "",
       "baseUrl": "",
       "redirectUris": [
-        "https://argocd.adhar.localtest.me:8443/auth/callback"
+        "https://argocd.adhar.localtest.me:8443/auth/callback",
+        "https://argocd.adhar.localtest.me:8443/oauth2/callback"
       ],
       "webOrigins": [
         "/*"

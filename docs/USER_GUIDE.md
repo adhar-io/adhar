@@ -38,8 +38,8 @@ Every UI is a subdomain of the platform host on the shared Cilium Gateway. Local
 
 | Service | URL | Sign in with |
 | --- | --- | --- |
-| ArgoCD | `https://argocd.adhar.localtest.me:8443` | `admin` / `adhar get secrets -p argocd`, or Keycloak SSO |
-| Gitea | `https://gitea.adhar.localtest.me:8443` | `gitea_admin` / `r8sA8CPHD9!bt6d` (day-0 only), or Keycloak SSO |
+| ArgoCD | `https://argocd.adhar.localtest.me:8443` | Keycloak SSO, no login screen. Break-glass: `admin` / `adhar get secrets -p argocd` via `kubectl port-forward` |
+| Gitea | `https://gitea.adhar.localtest.me:8443` | Keycloak SSO, no login screen. Break-glass: `/user/login?local=1` as `gitea_admin` / `r8sA8CPHD9!bt6d` (day-0 only) |
 
 **Enabled in the local curated core:**
 
@@ -73,6 +73,51 @@ adhar auth login
 adhar auth whoami      # identity + group membership
 adhar auth token       # an OIDC token for scripting
 ```
+
+**Single sign-on: what one sign-in actually gets you.** Every UI trusts the same
+Keycloak realm. Sign in once and the rest follow, because Keycloak remembers the
+session: an app you open next bounces through Keycloak, which recognises you and
+returns an authorization code straight away, so no login screen is drawn. How far
+that goes depends on what each application allows:
+
+| Behaviour | Applications | How |
+| --- | --- | --- |
+| No login screen at all | ArgoCD, Gitea, Grafana, Prometheus, RustFS, Tekton | An oauth2-proxy in front, the application's own auto-redirect, or a gateway redirect of its login path |
+| One click, never a password | Harbor, Headlamp | Their sign-in screen is drawn in the browser, and neither upstream can skip it |
+| Where you sign in | Adhar Console, Keycloak | The entry point |
+
+Three mechanisms are in play, and which one an application gets is decided by
+what it can accept rather than by preference:
+
+- **Fronted by oauth2-proxy.** Prometheus, RustFS and Tekton have no identity of
+  their own, so the proxy is the only thing authenticating them. ArgoCD keeps its
+  own identity and RBAC; the proxy forwards the Keycloak ID token as a bearer
+  token, which ArgoCD verifies itself, so nothing here trusts a header a caller
+  could spoof. The `argocd` CLI, its webhooks and the health endpoint bypass the
+  proxy and authenticate exactly as before.
+- **The application redirects itself.** Grafana runs with
+  `auth.generic_oauth.auto_login`, so it never renders its own form. If Keycloak
+  is ever unreachable, `/login?disableAutoLogin=true` still gives you the local
+  admin form.
+- **The gateway redirects the login page.** Gitea renders its login page
+  server-side, so the Gateway sends a browser that lands on `/user/login`
+  straight to the Keycloak auth source. Only that one path and only GET is
+  redirected: `git clone`, `git push`, the API and the webhooks are untouched, and
+  `/user/login?local=1` still serves the real form for the break-glass
+  `gitea_admin` account.
+
+Each proxy keeps its **own** session cookie, and that detail matters. Giving them
+all one cookie name on the parent domain looks like the way to share a session and
+is in fact the way to break one: every proxy then decrypts and reuses the others'
+sessions, so ArgoCD was handed a token minted for the Tekton client and rejected
+it, and whichever app you opened last wiped out the rest. Sharing sessions is the
+identity provider's job, not the cookie's.
+
+Harbor and Headlamp are the honest exceptions. Both draw their sign-in screen in
+the browser rather than on the server, and neither offers a setting to skip it, so
+there is no path the gateway or a proxy can intercept. Fronting Harbor would also
+break `docker login` and `docker push`, which speak to the same hostname. You will
+click once; you will not type a password.
 
 **Credentials.**
 

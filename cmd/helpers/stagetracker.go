@@ -176,7 +176,25 @@ func (t *StageTracker) Stop() {
 		<-t.doneCh
 	}
 	t.render(false)
-	fmt.Fprintln(t.w) // blank line after the block
+	// On success the block flows straight into the "Platform ready" panel, so it
+	// must not leave a gap: the checklist and its result read as one list. A
+	// failure is followed by an error message instead, which does want the
+	// separation.
+	if t.anyFailed() {
+		fmt.Fprintln(t.w)
+	}
+}
+
+// anyFailed reports whether any stage ended in the failed state.
+func (t *StageTracker) anyFailed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i := range t.stages {
+		if t.stages[i].state == stageFailed {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *StageTracker) loop() {

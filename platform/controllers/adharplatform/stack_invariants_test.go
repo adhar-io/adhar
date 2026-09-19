@@ -337,15 +337,18 @@ func TestPackagesDoNotOwnExternalSecretsSourcedFromOtherPackages(t *testing.T) {
 	}
 }
 
-// Single sign-on across the platform requires every oauth2-proxy to share ONE
-// cookie secret and scope its cookie to the PARENT domain. Each app used to
-// mint its own secret from its own Password generator with no --cookie-domain,
-// so the session cookie was host-scoped and undecryptable by any sibling:
-// signing in to the console and opening Argo CD or Grafana forced another auth
-// round trip every time (reported 2026-09-19).
-func TestEveryOAuth2ProxySharesTheSSOSessionCookie(t *testing.T) {
+// Single sign-on across the platform requires every oauth2-proxy to keep its
+// OWN session cookie. Sharing one cookie name on the parent domain with a shared
+// secret was tried and broke sign-in outright: each proxy decrypted and reused
+// the others' sessions, so Argo CD was handed a token minted for the tekton
+// client and rejected it ('expected audience "argocd" got ["tekton"]'), and the
+// app opened last overwrote every other session. Seamlessness comes from
+// Keycloak's session: a proxy with no cookie of its own bounces through Keycloak,
+// which returns a code immediately, so no app shows a login screen (2026-09-19).
+func TestEveryOAuth2ProxyKeepsItsOwnSessionCookie(t *testing.T) {
 	root := filepath.Join(stackRoot(t), "packages")
 	proxies := 0
+	names := map[string]string{}
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".yaml") {
 			return err
@@ -360,17 +363,27 @@ func TestEveryOAuth2ProxySharesTheSSOSessionCookie(t *testing.T) {
 		}
 		proxies++
 		rel, _ := filepath.Rel(root, path)
-		if !strings.Contains(body, "key: adhar-sso-cookie") {
-			t.Errorf("%s: oauth2-proxy does not read the shared cookie secret (adhar-sso-cookie) — its session cannot be shared with other apps", rel)
+
+		if strings.Contains(body, "--cookie-domain=") {
+			t.Errorf("%s: sets --cookie-domain, which puts its session on the parent domain where sibling proxies read it", rel)
 		}
-		if strings.Contains(body, "-oauth2-cookie") {
-			t.Errorf("%s: still mints a per-app cookie secret, which breaks single sign-on", rel)
+		m := regexp.MustCompile(`--cookie-name=(\S+)`).FindStringSubmatch(body)
+		if m == nil {
+			t.Errorf("%s: sets no --cookie-name, so it uses the default every other proxy also uses", rel)
+			return nil
 		}
-		if !strings.Contains(body, "--cookie-domain=.") {
-			t.Errorf("%s: oauth2-proxy sets no parent-domain --cookie-domain, so its cookie is scoped to one host", rel)
+		if prev, dup := names[m[1]]; dup {
+			t.Errorf("%s: cookie name %s is already used by %s — the two proxies will overwrite each other", rel, m[1], prev)
+		}
+		names[m[1]] = rel
+
+		// Without this the proxy renders its own "sign in with" button, which is
+		// a login screen even when no password is typed.
+		if !strings.Contains(body, "--skip-provider-button=true") {
+			t.Errorf("%s: does not set --skip-provider-button, so the user still has to click through a login page", rel)
 		}
 		if !strings.Contains(body, "--whitelist-domain=.") {
-			t.Errorf("%s: oauth2-proxy has no --whitelist-domain, so redirects to sibling apps are refused", rel)
+			t.Errorf("%s: has no --whitelist-domain, so redirects to sibling apps are refused", rel)
 		}
 		return nil
 	})

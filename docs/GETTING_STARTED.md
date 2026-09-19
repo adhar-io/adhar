@@ -110,6 +110,11 @@ adhar get status      # AdharPlatform conditions + per-package health
 adhar get apps        # ArgoCD application sync/health states
 ```
 
+`adhar get apps` lists your platform and your own workloads. Kubernetes' and
+Kind's own namespaces are left out, because they hold nothing you deployed:
+`kube-system`, `kube-public`, `kube-node-lease` and `local-path-storage`. Add
+`--include-system` to see them, or ask for one directly with `-n kube-system`.
+
 ## 5. Deploy your first service
 
 The quickest real deployment uses a template from the Gitea `templates` repo:

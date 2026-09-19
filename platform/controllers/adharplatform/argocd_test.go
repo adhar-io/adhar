@@ -58,9 +58,9 @@ func TestGetRawInstallResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRawInstallResources() error: %v", err)
 	}
-	// install-ha.yaml, install.yaml, post-install.yaml
-	if len(resources) != 3 {
-		t.Fatalf("GetRawInstallResources() resources len != 3, got %d", len(resources))
+	// install-ha.yaml, install.yaml, post-install.yaml, sso-proxy.yaml
+	if len(resources) != 4 {
+		t.Fatalf("GetRawInstallResources() resources len != 4, got %d", len(resources))
 	}
 	for i, r := range resources {
 		if len(r) == 0 {

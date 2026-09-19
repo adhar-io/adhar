@@ -316,6 +316,15 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 // appsBudgetPoll is how often the watchdog re-reads convergence progress.
 const appsBudgetPoll = 15 * time.Second
 
+// convergedGrace is how long the watchdog lets the controller shut itself down
+// after every application is green before ending the run itself.
+const convergedGrace = 45 * time.Second
+
+// maxWatchdogReadFailures is how many consecutive status reads may fail before
+// the watchdog stops waiting. At the 15s poll that is two minutes of an
+// unreachable API server, which no longer ends in an indefinite silent wait.
+const maxWatchdogReadFailures = 8
+
 // watchAppsBudget cancels the bootstrap once app convergence has had its full
 // budget, independently of how often the controller reconciles. It starts the
 // clock when the platform first publishes convergence progress, so the
@@ -328,6 +337,8 @@ func watchAppsBudget(ctx context.Context, c client.Client, name string, budget, 
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	var started time.Time
+	var converged time.Time
+	readFailures := 0
 	for {
 		select {
 		case <-stop:
@@ -337,22 +348,57 @@ func watchAppsBudget(ctx context.Context, c client.Client, name string, budget, 
 		case <-t.C:
 			var lb v1alpha1.AdharPlatform
 			if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &lb); err != nil {
+				// A swallowed read error is how this watchdog can stop doing its
+				// job in silence: it neither advances the budget clock nor says
+				// anything, so a run whose API server has become unreachable
+				// waits forever with no output. Tolerate blips, then end the run
+				// and say why.
+				readFailures++
+				if readFailures >= maxWatchdogReadFailures {
+					fmt.Fprintf(os.Stderr, "  %s\n", helpers.MutedStyle.Render(
+						fmt.Sprintf("could not read platform status for %s (%v) — stopping the wait; ArgoCD keeps converging in the background",
+							time.Duration(readFailures)*interval, err)))
+					if cancel != nil {
+						cancel()
+					}
+					return
+				}
 				continue
 			}
+			readFailures = 0
 			g := lb.Status.GitOps
 			if g == nil || g.ApplicationsTotal == 0 {
 				continue // convergence has not started; the clock is not running
 			}
 			if g.ApplicationsHealthy == g.ApplicationsTotal {
-				return // converged; the controller shuts itself down
+				// Converged. The controller normally shuts itself down here, but
+				// returning on that assumption is how `adhar up` hung for 31
+				// minutes after a fully successful run: every application was
+				// green, the status said so, and nothing ever cancelled the
+				// context, so the CLI waited on a manager that was never going to
+				// stop — with no output at all. Give the controller a grace
+				// period to exit on its own, then cancel so the run always ends.
+				if converged.IsZero() {
+					converged = time.Now()
+					continue
+				}
+				if time.Since(converged) < convergedGrace {
+					continue
+				}
+				if cancel != nil {
+					cancel()
+				}
+				return
 			}
+			// A regression from green back to pending restarts the grace clock.
+			converged = time.Time{}
 			if started.IsZero() {
 				started = time.Now()
 				continue
 			}
 			if time.Since(started) >= budget {
-				logger.Infof("apps budget of %s spent with %d/%d Synced + Healthy; finishing and leaving ArgoCD to converge",
-					budget, g.ApplicationsHealthy, g.ApplicationsTotal)
+				fmt.Fprintf(os.Stderr, "  %s\n", helpers.MutedStyle.Render(
+					fmt.Sprintf("apps budget of %s spent — ArgoCD keeps converging in the background", budget)))
 				if cancel != nil {
 					cancel()
 				}
@@ -374,8 +420,11 @@ func reportPendingApplications(ctx context.Context, c client.Client, name string
 	if g.ApplicationsTotal == 0 || g.ApplicationsHealthy == g.ApplicationsTotal {
 		return
 	}
-	logger.Infof("%d/%d platform apps are Synced + Healthy; ArgoCD is still converging: %s (watch with `adhar get status`)",
-		g.ApplicationsHealthy, g.ApplicationsTotal, strings.Join(g.Pending, ", "))
+	// Printed, not logged: this is a closing summary for a person, so it gets no
+	// timestamp or INFO prefix.
+	fmt.Fprintf(os.Stderr, "  %s  %s\n",
+		helpers.SubtitleStyle.Render(fmt.Sprintf("%d/%d apps ready", g.ApplicationsHealthy, g.ApplicationsTotal)),
+		helpers.MutedStyle.Render("still converging: "+strings.Join(g.Pending, ", ")))
 }
 
 // verifyPlatformProvisioned confirms the bootstrap reached the GitOps handoff.
@@ -625,8 +674,9 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		return showLocalDryRunInfo(envConfig)
 	}
 
-	// Start the provisioning process
-	logger.GetLogger().StartOperation("Local Development Cluster", "Creating Kind cluster with platform services")
+	// No "Starting …" log line: the provisioning checklist that follows names
+	// every stage as it runs, and the sign-off reports the result. A timestamped
+	// INFO record either side is duplication.
 
 	// Use the LocalProvisioner to create the complete environment
 	if err := provisioner.Provision(ctx, args); err != nil {
@@ -636,8 +686,6 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 		})
 		return fmt.Errorf("failed to provision local development cluster: %w", err)
 	}
-
-	logger.GetLogger().FinishOperation("Local Development Cluster", "Platform ready for development")
 
 	// Hand reconciliation over to an in-cluster manager so the platform keeps
 	// self-healing after this process exits. Runs on a fresh context: the
@@ -654,9 +702,9 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 
 	// Check if the context has been cancelled
 	if cmd.Context().Err() != nil {
-		// Context was cancelled - this is expected when ExitOnSync is enabled
-		// and the controller has finished provisioning. Return success.
-		logger.Info("Context cancelled - platform provisioning completed successfully")
+		// A cancelled context on this path IS the success path: the controller
+		// signalled that provisioning finished. printSuccessMsg says so, so
+		// saying it again as a timestamped INFO line is noise.
 		printSuccessMsg()
 		return nil
 	}
@@ -752,7 +800,6 @@ func printSuccessMsg() {
 		{"Teardown", "adhar down"},
 	}
 
-	fmt.Println()
 	fmt.Println(helpers.RenderReadyPanel(access, hints))
 	fmt.Println()
 }

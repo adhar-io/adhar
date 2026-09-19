@@ -66,7 +66,40 @@ var (
 	appNamespace  string
 	labelSelector string
 	fieldSelector string
+	includeSystem bool
 )
+
+// infraNamespaces are Kubernetes' and Kind's own namespaces. They hold no Adhar
+// application, and every platform package installs into adhar-system (ADR-0011),
+// so listing them only pads the table with rows nobody asked for. Two of them
+// cannot simply be emptied: kube-system holds the four static control-plane pods,
+// and local-path-storage is created by Kind before adhar-system exists. Hiding
+// them is therefore the fix, not moving their contents — that was tried and it
+// took cluster DNS and every PVC down with it.
+var infraNamespaces = map[string]bool{
+	"kube-system":        true,
+	"kube-public":        true,
+	"kube-node-lease":    true,
+	"local-path-storage": true,
+	"kpack-system":       true,
+}
+
+// hideInfraNamespaces drops rows from the namespaces above. It does nothing when
+// the user asked for one of them by name, or passed --include-system: an explicit
+// request is never silently answered with less than it asked for.
+func hideInfraNamespaces(apps []ApplicationInfo, requested string, includeAll bool) []ApplicationInfo {
+	if includeAll || infraNamespaces[requested] {
+		return apps
+	}
+	kept := make([]ApplicationInfo, 0, len(apps))
+	for _, app := range apps {
+		if infraNamespaces[app.Namespace] {
+			continue
+		}
+		kept = append(kept, app)
+	}
+	return kept
+}
 
 func init() {
 	applicationsCmd.Flags().BoolVar(&showStatus, "status", false, "Show detailed application status")
@@ -75,6 +108,7 @@ func init() {
 	applicationsCmd.Flags().StringVarP(&appNamespace, "namespace", "n", "", "Namespace to query (overrides global namespace)")
 	applicationsCmd.Flags().StringVarP(&labelSelector, "selector", "l", "", "Label selector to filter applications")
 	applicationsCmd.Flags().StringVar(&fieldSelector, "field-selector", "", "Field selector to filter applications")
+	applicationsCmd.Flags().BoolVar(&includeSystem, "include-system", false, "Also list Kubernetes' own namespaces (kube-system, local-path-storage, ...)")
 }
 
 type ApplicationInfo struct {
@@ -163,6 +197,7 @@ func runGetApplications(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get applications: %w", err)
 	}
+	applications = hideInfraNamespaces(applications, queryNamespace, includeSystem)
 
 	if len(applications) == 0 {
 		logger.Info("No applications found")

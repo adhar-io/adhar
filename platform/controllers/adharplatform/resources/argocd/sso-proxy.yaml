@@ -1,0 +1,145 @@
+# Click-free single sign-on for the Argo CD UI.
+#
+# Argo CD authenticates natively against Keycloak, which means its own login
+# page with a "LOG IN VIA KEYCLOAK" button. Keycloak's session makes the button
+# silent, but the user still sees a login screen on an app they already signed in
+# to — which is not single sign-on as anyone experiences it.
+#
+# Argo CD accepts an OIDC ID token as `Authorization: Bearer`, validating it
+# against the same `argocd` client and applying its own RBAC from the token's
+# groups. So the UI is fronted with an oauth2-proxy that holds the SHARED
+# platform session cookie (security/keycloak/manifests/sso-cookie.yaml, scoped to
+# the parent domain) and forwards that token. A user who signed in anywhere on
+# the platform lands straight on the Argo CD dashboard; nothing trusts a
+# spoofable identity header, because the bearer token is verified by Argo CD.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argocd-oauth2-proxy
+  namespace: adhar-system
+spec:
+  refreshPolicy: CreatedOnce
+  refreshInterval: 30s
+  secretStoreRef:
+    name: keycloak
+    kind: ClusterSecretStore
+  target:
+    name: argocd-oauth2-proxy
+  # Remote keys are mapped STRAIGHT onto the env var names oauth2-proxy reads,
+  # with no `target.template`. The stack packages template theirs, but this
+  # manifest is a bootstrap resource and every bootstrap resource is rendered as
+  # a Go template first. That pass tried to resolve ExternalSecrets' own
+  # placeholder for the client secret against the platform config and failed with
+  # "can't evaluate field ARGOCD_CLIENT_SECRET in type BuildCustomizationSpec", so
+  # the proxy was silently never created and Argo CD kept its own login page.
+  # secretKey does the same job without needing a second templating pass, and a
+  # bootstrap manifest must never contain a template action the renderer cannot
+  # resolve — not even inside a comment.
+  data:
+    - secretKey: OAUTH2_PROXY_CLIENT_SECRET
+      remoteRef:
+        key: keycloak-clients
+        property: ARGOCD_CLIENT_SECRET
+    # The platform-wide session cookie: the whole point of this proxy is that it
+    # accepts the session another app established.
+    - secretKey: OAUTH2_PROXY_COOKIE_SECRET
+      remoteRef:
+        key: adhar-sso-cookie
+        property: COOKIE_SECRET
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argocd-oauth2-proxy
+    app.kubernetes.io/part-of: argocd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argocd-oauth2-proxy
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=oidc
+            - --oidc-issuer-url=https://keycloak.{{ .Host }}{{ .PortSuffix }}/realms/adhar
+            - --ssl-insecure-skip-verify=true
+            - --client-id=argocd
+            - --redirect-url=https://argocd.{{ .Host }}{{ .PortSuffix }}/oauth2/callback
+            - --upstream=http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80
+            - --email-domain=*
+            - --scope=openid profile email groups
+            - --cookie-secure=true
+            # Parent-domain cookie + the shared secret = a session established by
+            # any other app is accepted here without a round trip to Keycloak.
+            - --cookie-name=_adhar_sso_argocd
+            - --whitelist-domain=.{{ .Host }}{{ .PortSuffix }}
+            - --skip-provider-button=true
+            - --reverse-proxy=true
+            # Fronting the UI must not take away the `argocd` CLI, its webhooks
+            # or the health endpoint. The CLI speaks gRPC-web to
+            # /<package>.<Name>Service/<Method> and carries its own Argo CD JWT,
+            # and /api/v1/session is how it obtains one. These paths bypass the
+            # proxy's session check (and get no injected bearer token); Argo CD
+            # authenticates them itself exactly as it did before.
+            - --skip-auth-route=^/healthz
+            - --skip-auth-route=^/api/webhook
+            # Anchored: an unanchored ^/api/v1/session also matched
+            # /api/v1/session/userinfo, which the UI calls to learn who is
+            # signed in — bypassing the proxy there made every page look
+            # logged out. Only the CLI login endpoint itself is exempt.
+            - --skip-auth-route=^/api/v1/session$
+            - --skip-auth-route=^/[a-z]+\.[A-Za-z]+Service/
+            # The ID token goes upstream as a bearer token: Argo CD verifies it
+            # against the same client and applies its own RBAC, so the user never
+            # sees its login page.
+            #
+            # It MUST be --pass-authorization-header. The similarly named
+            # --set-authorization-header sets the header on the RESPONSE to the
+            # browser (for nginx auth_request setups) and sends nothing upstream,
+            # so Argo CD saw no token at all: the page loaded, every API call came
+            # back unauthenticated, and the UI fell back to its own login screen.
+            - --pass-authorization-header=true
+            - --pass-access-token=true
+            - --pass-user-headers=true
+          envFrom:
+            - secretRef:
+                name: argocd-oauth2-proxy
+          ports:
+            - name: http
+              containerPort: 4180
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 4180
+            initialDelaySeconds: 5
+            timeoutSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: argocd-oauth2-proxy
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: argocd-oauth2-proxy
+spec:
+  selector:
+    app.kubernetes.io/name: argocd-oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180

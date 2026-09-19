@@ -8,7 +8,13 @@ import (
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/platform/k8s"
 
+	"adhar-io/adhar/globals"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -76,4 +82,103 @@ func (r *AdharPlatformReconciler) ReconcileArgo(ctx context.Context, req ctrl.Re
 	resource.Status.ArgoCD.Available = true
 	logger.Info("ArgoCD reconciliation completed successfully")
 	return ctrl.Result{}, nil
+}
+
+// The oauth2-proxy that fronts the Argo CD UI.
+const (
+	proxyServiceName = "argocd-oauth2-proxy"
+	proxyServicePort = 4180
+	// The route the bootstrap post-install manifest creates. NOT "argocd".
+	proxyRouteName = "argocd-server"
+)
+
+// reconcileArgoCDSSOProxy installs the oauth2-proxy that fronts the Argo CD UI
+// and repoints the UI route at it, but only when the identity it needs exists.
+func (r *AdharPlatformReconciler) reconcileArgoCDSSOProxy(ctx context.Context, resource *v1alpha1.AdharPlatform) error {
+	logger := log.FromContext(ctx)
+
+	// Prerequisites, both created by stack packages: the Argo CD Keycloak client
+	// secret and the platform-wide session cookie.
+	var clients corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Name: "keycloak-clients", Namespace: globals.AdharSystemNamespace}, &clients); err != nil {
+		return fmt.Errorf("keycloak-clients not published yet: %w", err)
+	}
+	if len(clients.Data["ARGOCD_CLIENT_SECRET"]) == 0 {
+		return fmt.Errorf("keycloak-clients has no ARGOCD_CLIENT_SECRET yet")
+	}
+	var cookie corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Name: "adhar-sso-cookie", Namespace: globals.AdharSystemNamespace}, &cookie); err != nil {
+		return fmt.Errorf("shared SSO cookie not published yet: %w", err)
+	}
+
+	proxyBytes, err := argoCDFS.ReadFile("resources/argocd/sso-proxy.yaml")
+	if err != nil {
+		return fmt.Errorf("reading the Argo CD SSO proxy manifest: %w", err)
+	}
+	if proxyBytes, err = r.renderEmbedded(proxyBytes); err != nil {
+		return fmt.Errorf("rendering the Argo CD SSO proxy manifest: %w", err)
+	}
+	if err := r.applyManifest(ctx, proxyBytes, resource, "ArgoCD SSO proxy"); err != nil {
+		return fmt.Errorf("applying the Argo CD SSO proxy: %w", err)
+	}
+
+	// Only send traffic through the proxy once it is actually serving, so a
+	// failed rollout never takes the UI with it.
+	var proxy appsv1.Deployment
+	if err := r.Get(ctx, types.NamespacedName{Name: "argocd-oauth2-proxy", Namespace: globals.AdharSystemNamespace}, &proxy); err != nil {
+		return fmt.Errorf("reading the Argo CD SSO proxy: %w", err)
+	}
+	if proxy.Status.ReadyReplicas == 0 {
+		return fmt.Errorf("the Argo CD SSO proxy has no ready replica yet")
+	}
+
+	// post-install.yaml re-points this route at the Argo CD Service on every
+	// pass, so the switch is re-applied here after it. HTTPRoute is handled as
+	// unstructured, like every other Gateway API object in this controller: the
+	// gateway-api Go module is deliberately not a dependency.
+	route := &unstructured.Unstructured{}
+	route.SetGroupVersionKind(schema.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"})
+	if err := r.Get(ctx, types.NamespacedName{Name: proxyRouteName, Namespace: globals.AdharSystemNamespace}, route); err != nil {
+		return fmt.Errorf("reading the Argo CD route: %w", err)
+	}
+	rules, found, err := unstructured.NestedSlice(route.Object, "spec", "rules")
+	if err != nil || !found || len(rules) == 0 {
+		return fmt.Errorf("the Argo CD route has no rules to repoint")
+	}
+	changed := false
+	for i := range rules {
+		rule, ok := rules[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		refs, ok := rule["backendRefs"].([]interface{})
+		if !ok {
+			continue
+		}
+		for j := range refs {
+			ref, ok := refs[j].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if ref["name"] == proxyServiceName && ref["port"] == int64(proxyServicePort) {
+				continue
+			}
+			ref["name"] = proxyServiceName
+			ref["port"] = int64(proxyServicePort)
+			changed = true
+		}
+		rule["backendRefs"] = refs
+		rules[i] = rule
+	}
+	if !changed {
+		return nil
+	}
+	if err := unstructured.SetNestedSlice(route.Object, rules, "spec", "rules"); err != nil {
+		return fmt.Errorf("rewriting the Argo CD route backends: %w", err)
+	}
+	if err := r.Update(ctx, route); err != nil {
+		return fmt.Errorf("repointing the Argo CD route at its SSO proxy: %w", err)
+	}
+	logger.Info("Argo CD UI now serves through the platform SSO session; its own login page is bypassed")
+	return nil
 }
