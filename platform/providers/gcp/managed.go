@@ -162,14 +162,14 @@ func (p *Provider) createManagedCluster(ctx context.Context, spec *types.Cluster
 	if networkName == "" {
 		networkName = fmt.Sprintf("%s-network", name)
 	}
-	if err := p.createVPCNetwork(ctx, networkName); err != nil {
+	if err := p.createVPCNetwork(ctx, networkName, name); err != nil {
 		return nil, fmt.Errorf("failed to create VPC network: %w", err)
 	}
 	subnetName := p.config.SubnetName
 	if subnetName == "" || subnetName == "default-subnet" {
 		subnetName = fmt.Sprintf("%s-subnet", name)
 	}
-	if err := p.createSubnet(ctx, networkName, subnetName); err != nil {
+	if err := p.createSubnet(ctx, networkName, subnetName, name); err != nil {
 		return nil, fmt.Errorf("failed to create subnet: %w", err)
 	}
 

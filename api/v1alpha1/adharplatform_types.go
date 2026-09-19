@@ -353,6 +353,13 @@ type BuildCustomizationSpec struct {
 	// live in the adhar-dns-provider Secret in the platform namespace, created
 	// by the CLI from the provider credentials at bootstrap — never in Git.
 	DNSProvider string `json:"dnsProvider,omitempty"`
+
+	// DNSProject is the cloud project that owns the DNS zone. Only Google Cloud
+	// needs it, and it is REQUIRED there: cert-manager's cloudDNS solver rejects
+	// a ClusterIssuer without `project`, so the DNS-01 issuer failed to apply and
+	// the platform wildcard certificate could never be issued — the Gateway kept
+	// serving its self-signed fallback with nothing in the logs to say why.
+	DNSProject string `json:"dnsProject,omitempty"`
 }
 
 // Normalize derives computed fields (PortSuffix) from Port/Protocol so that

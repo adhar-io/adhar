@@ -100,3 +100,39 @@ func TestEnsureClusterSpecConfigMapExcludesCredentials(t *testing.T) {
 		t.Fatalf("provider config lost its region: %v", provider)
 	}
 }
+
+// The provider map recorded for the in-cluster controllers must carry no path
+// that only exists on the machine that ran `adhar up`. serviceAccountKeyFile
+// survived this filter, and because the GCP provider prefers a key FILE over an
+// inline key, the in-cluster autoscaler chose the laptop path over the credential
+// it had been handed: every scale-up failed with "credentials file not found:
+// /Users/.../key.json". The cluster could be scaled down and never back up, which
+// makes "minimum resources plus autoscaling" impossible (2026-09-19).
+func TestCredentialFilePathsNeverReachTheCluster(t *testing.T) {
+	for _, key := range []string{
+		"serviceAccountKeyFile",
+		"serviceAccountKeyPath",
+		"credentialsFile",
+		"credentials_file",
+		"tokenFile",
+		"kubeconfigPath",
+	} {
+		if !credentialProviderKeys[key] {
+			t.Errorf("%q names a file on the host and must be stripped from the recorded provider map", key)
+		}
+	}
+	// The inline credential forms stay stripped too: they are secrets and come
+	// from the <provider>-credentials Secret instead.
+	for _, key := range []string{"token", "serviceAccountKey", "secretAccessKey", "clientSecret"} {
+		if !credentialProviderKeys[key] {
+			t.Errorf("%q is a credential and must not be recorded in a ConfigMap", key)
+		}
+	}
+	// Non-credential provider settings must survive, or the controller cannot
+	// construct the provider at all.
+	for _, key := range []string{"projectId", "region", "zone", "machineType"} {
+		if credentialProviderKeys[key] {
+			t.Errorf("%q is ordinary configuration and must reach the controller", key)
+		}
+	}
+}

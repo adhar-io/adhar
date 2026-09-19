@@ -3,8 +3,10 @@ package gcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/container/v1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/proto"
 
@@ -114,6 +117,16 @@ func init() {
 	provider.DefaultFactory.RegisterProvider("gcp", func(config map[string]interface{}) (provider.Provider, error) {
 		gcpConfig := &Config{}
 
+		// Flatten the nested `config:` block into the map the rest of this
+		// function reads. Only project_id and zone had a fallback into that
+		// section, so every OTHER key under `providers.gcp.config` in config.yaml
+		// was silently ignored and the built-in default was used instead: a
+		// cluster asking for 100 GB pd-balanced disks and a 10.20.0.0/16 subnet
+		// got 20 GB pd-standard on 10.0.0.0/24, and the VPC was named
+		// "default-vpc" rather than the configured name. Root-level keys still
+		// win, because they are the more specific place to say something.
+		config = flattenProviderConfig(config)
+
 		// Default: kubeadm on Compute Engine. `useManagedK8s: true` (or
 		// clusterMode: gke) opts into GKE; everything else behaves the same.
 		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
@@ -205,10 +218,10 @@ func init() {
 		} else if machineType, ok := config["machine_type"].(string); ok {
 			gcpConfig.MachineType = machineType
 		}
-		if diskSize, ok := config["diskSize"].(int32); ok {
+		if diskSize, ok := toInt32(config["diskSize"]); ok {
 			gcpConfig.DiskSize = diskSize
-		} else if diskSize, ok := config["disk_size_gb"].(int); ok {
-			gcpConfig.DiskSize = int32(diskSize)
+		} else if diskSize, ok := toInt32(config["disk_size_gb"]); ok {
+			gcpConfig.DiskSize = diskSize
 		}
 		if diskType, ok := config["diskType"].(string); ok {
 			gcpConfig.DiskType = diskType
@@ -242,6 +255,18 @@ func init() {
 		} else if subnetCIDR, ok := config["subnet_cidr"].(string); ok {
 			gcpConfig.SubnetCIDR = subnetCIDR
 		}
+		for _, key := range []string{"nodeServiceAccount", "node_service_account"} {
+			if sa, ok := config[key].(string); ok && sa != "" {
+				gcpConfig.NodeServiceAccount = sa
+				break
+			}
+		}
+		for _, key := range []string{"adminSourceRanges", "admin_source_ranges"} {
+			if ranges, ok := config[key]; ok {
+				gcpConfig.AdminSourceRanges = toStringSlice(ranges)
+				break
+			}
+		}
 
 		return NewProvider(gcpConfig)
 	})
@@ -253,6 +278,8 @@ type Provider struct {
 	computeClient          *compute.InstancesClient
 	networkClient          *compute.NetworksClient
 	subnetClient           *compute.SubnetworksClient
+	regionsClient          *compute.RegionsClient
+	projectsClient         *compute.ProjectsClient
 	firewallClient         *compute.FirewallsClient
 	addressClient          *compute.AddressesClient
 	forwardingRulesClient  *compute.ForwardingRulesClient
@@ -291,6 +318,18 @@ type Config struct {
 	VPCName    string `json:"vpcName"`
 	SubnetName string `json:"subnetName"`
 	SubnetCIDR string `json:"subnetCIDR"`
+
+	// AdminSourceRanges restricts who may reach SSH (22) and the Kubernetes API
+	// (6443). Empty means the internet, which is the historical behaviour and is
+	// logged as a warning at provisioning time.
+	AdminSourceRanges []string `json:"adminSourceRanges"`
+
+	// NodeServiceAccount is the service account attached to every node. The
+	// cloud-controller-manager and the PD CSI driver authenticate to the GCP API
+	// through it, so without one the CCM cannot create the Gateway's load
+	// balancer and the CSI driver cannot create disks. Defaults to the identity
+	// of the configured service-account key.
+	NodeServiceAccount string `json:"nodeServiceAccount"`
 
 	// Authentication Methods (multiple options supported)
 	// Option 1: Service Account Key File
@@ -360,6 +399,15 @@ func NewProvider(config *Config) (*Provider, error) {
 	}
 	if config.SubnetCIDR == "" {
 		config.SubnetCIDR = "10.0.0.0/24"
+	}
+	if config.NodeServiceAccount == "" {
+		// The identity of the key we already hold. Nodes were previously created
+		// with no service account at all, so the cloud-controller-manager had no
+		// way to reach the GCP API: it crash-looped and the Gateway's
+		// LoadBalancer Service stayed <pending> forever.
+		if email := serviceAccountEmail(config); email != "" {
+			config.NodeServiceAccount = email
+		}
 	}
 
 	ctx := context.Background()
@@ -455,6 +503,19 @@ func NewProvider(config *Config) (*Provider, error) {
 		return nil, fmt.Errorf("failed to create firewall client: %w", err)
 	}
 
+	// Used only to read quota before provisioning. Deliberately non-fatal: a
+	// preflight check that cannot run must not stop a cluster being created.
+	regionsClient, regionsErr := compute.NewRegionsRESTClient(ctx, opts...)
+	if regionsErr != nil {
+		log.Printf("WARNING: regional quota preflight unavailable: %v", regionsErr)
+	}
+	// Project-wide quotas live on a different object from regional ones, and the
+	// cap that stops a first deployment (CPUS_ALL_REGIONS) is only here.
+	projectsClient, projectsErr := compute.NewProjectsRESTClient(ctx, opts...)
+	if projectsErr != nil {
+		log.Printf("WARNING: project quota preflight unavailable: %v", projectsErr)
+	}
+
 	addressClient, err := compute.NewAddressesRESTClient(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create address client: %w", err)
@@ -524,6 +585,8 @@ func NewProvider(config *Config) (*Provider, error) {
 		computeClient:          computeClient,
 		networkClient:          networkClient,
 		subnetClient:           subnetClient,
+		regionsClient:          regionsClient,
+		projectsClient:         projectsClient,
 		firewallClient:         firewallClient,
 		addressClient:          addressClient,
 		forwardingRulesClient:  forwardingRulesClient,
@@ -687,6 +750,16 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		return nil, fmt.Errorf("invalid cluster specification: %w", err)
 	}
 
+	// Check regional quota BEFORE creating anything. Without this the first
+	// build of this cluster created a VPC, a subnet, five firewall rules, a
+	// control plane and one worker, and only then failed on the second worker
+	// with QUOTA_EXCEEDED — leaving a half-built cluster billing and needing a
+	// teardown. The limit that bites is not the obvious one: pd-balanced and
+	// pd-ssd count against SSD_TOTAL_GB (250 GB by default), not DISKS_TOTAL_GB.
+	if err := p.checkRegionalQuota(ctx, spec); err != nil {
+		return nil, err
+	}
+
 	// Create cluster infrastructure
 	infrastructure, err := p.createClusterInfrastructure(ctx, spec.Name, spec)
 	if err != nil {
@@ -764,7 +837,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 			return nil, fmt.Errorf("worker %s: %w", w.InstanceName, err)
 		}
 	}
-	if err := p.installCloudIntegration(signer, master.PublicIP); err != nil {
+	if err := p.installCloudIntegration(signer, master.PublicIP, spec.Name); err != nil {
 		return nil, err
 	}
 	log.Printf("Kubernetes bootstrapped on cluster %s; nodes stay NotReady until the platform bootstrap installs Cilium", spec.Name)
@@ -824,7 +897,7 @@ func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName 
 	if networkName == "" {
 		networkName = fmt.Sprintf("%s-network", clusterName)
 	}
-	err := p.createVPCNetwork(ctx, networkName)
+	err := p.createVPCNetwork(ctx, networkName, clusterName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VPC network: %w", err)
 	}
@@ -835,7 +908,7 @@ func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName 
 	if subnetName == "" {
 		subnetName = fmt.Sprintf("%s-subnet", clusterName)
 	}
-	err = p.createSubnet(ctx, networkName, subnetName)
+	err = p.createSubnet(ctx, networkName, subnetName, clusterName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create subnet: %w", err)
 	}
@@ -876,7 +949,7 @@ func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName 
 }
 
 // createVPCNetwork creates a VPC network using Google Cloud SDK
-func (p *Provider) createVPCNetwork(ctx context.Context, networkName string) error {
+func (p *Provider) createVPCNetwork(ctx context.Context, networkName, clusterName string) error {
 	log.Printf("Creating VPC network: %s", networkName)
 
 	// Check if network already exists
@@ -893,7 +966,7 @@ func (p *Provider) createVPCNetwork(ctx context.Context, networkName string) err
 
 	// Network doesn't exist, create it
 	autoCreateSubnetworks := false
-	description := fmt.Sprintf("Network for cluster %s", networkName)
+	description := clusterMarker(clusterName, "network")
 
 	req := &computepb.InsertNetworkRequest{
 		Project: p.config.ProjectID,
@@ -921,7 +994,7 @@ func (p *Provider) createVPCNetwork(ctx context.Context, networkName string) err
 }
 
 // createSubnet creates a subnet in the VPC network using Google Cloud SDK
-func (p *Provider) createSubnet(ctx context.Context, networkName, subnetName string) error {
+func (p *Provider) createSubnet(ctx context.Context, networkName, subnetName, clusterName string) error {
 	log.Printf("Creating subnet: %s", subnetName)
 
 	// Check if subnet already exists
@@ -943,7 +1016,7 @@ func (p *Provider) createSubnet(ctx context.Context, networkName, subnetName str
 	if ipCIDR == "" {
 		ipCIDR = "10.0.0.0/24"
 	}
-	description := fmt.Sprintf("Subnet for cluster %s", subnetName)
+	description := clusterMarker(clusterName, "subnet")
 
 	req := &computepb.InsertSubnetworkRequest{
 		Project: p.config.ProjectID,
@@ -975,126 +1048,624 @@ func (p *Provider) createSubnet(ctx context.Context, networkName, subnetName str
 	return nil
 }
 
-// createFirewallRules creates firewall rules for the cluster using Google Cloud SDK
+// createFirewallRules creates the cluster's firewall rules.
+//
+// Every rule is scoped to the cluster's own network tag (see instanceTag), so
+// two Adhar clusters in one project never open each other's ports, and the
+// ranges come from the cluster's real CIDRs rather than a constant.
 func (p *Provider) createFirewallRules(ctx context.Context, clusterName, networkName string) ([]string, error) {
 	log.Printf("Creating firewall rules for cluster: %s", clusterName)
 
 	networkURL := fmt.Sprintf("projects/%s/global/networks/%s", p.config.ProjectID, networkName)
+	tag := instanceTag(clusterName)
+
+	// The node subnet and the pod network. The internal rule used to hardcode
+	// 10.0.0.0/24, so ANY cluster configured with a different subnet_cidr had
+	// node-to-node traffic dropped and never finished joining. The pod CIDR is
+	// listed too: Cilium in native-routing mode puts pod addresses on the wire
+	// directly, and VXLAN mode simply does not match these ranges.
+	subnetCIDR := p.config.SubnetCIDR
+	if subnetCIDR == "" {
+		subnetCIDR = "10.0.0.0/24"
+	}
+	internalRanges := []string{subnetCIDR}
+	if podCIDR := provider.KubeadmPodCIDR; podCIDR != "" && podCIDR != subnetCIDR {
+		internalRanges = append(internalRanges, podCIDR)
+	}
+
+	// Ranges Google's load balancers health-check from. Without these the
+	// Gateway's LoadBalancer Service has backends that never turn healthy, so
+	// the platform is unreachable from the internet even though every pod is up.
+	// https://cloud.google.com/load-balancing/docs/health-check-concepts
+	healthCheckRanges := []string{"130.211.0.0/22", "35.191.0.0/16", "209.85.152.0/22", "209.85.204.0/22"}
+
+	tcp := "tcp"
+	udp := "udp"
+	icmp := "icmp"
+	ingress := "INGRESS"
+
+	// sshSourceRanges narrows administrative access when the caller asked for
+	// it. Defaulting to 0.0.0.0/0 keeps existing behaviour, but a public SSH and
+	// API server is worth stating rather than leaving implied.
+	adminRanges := p.config.AdminSourceRanges
+	if len(adminRanges) == 0 {
+		adminRanges = []string{"0.0.0.0/0"}
+		log.Printf("WARNING: SSH (22) and the Kubernetes API (6443) are open to the internet for cluster %s; set admin_source_ranges to restrict them", clusterName)
+	}
+
+	rules := []*computepb.Firewall{
+		{
+			Name:        ptrString(fmt.Sprintf("%s-allow-ssh", clusterName)),
+			Network:     &networkURL,
+			Description: ptrString("Allow SSH access to cluster nodes"),
+			Allowed:     []*computepb.Allowed{{IPProtocol: &tcp, Ports: []string{"22"}}},
+			// Both the node subnet and the admin ranges: node-to-node SSH is how
+			// the provisioner joins workers to the control plane.
+			SourceRanges: append(append([]string{}, adminRanges...), subnetCIDR),
+			TargetTags:   []string{tag},
+			Direction:    &ingress,
+		},
+		{
+			Name:         ptrString(fmt.Sprintf("%s-allow-k8s-api", clusterName)),
+			Network:      &networkURL,
+			Description:  ptrString("Allow Kubernetes API server access"),
+			Allowed:      []*computepb.Allowed{{IPProtocol: &tcp, Ports: []string{"6443"}}},
+			SourceRanges: append(append([]string{}, adminRanges...), internalRanges...),
+			TargetTags:   []string{tag},
+			Direction:    &ingress,
+		},
+		{
+			Name:        ptrString(fmt.Sprintf("%s-allow-internal", clusterName)),
+			Network:     &networkURL,
+			Description: ptrString("Allow internal cluster communication"),
+			Allowed: []*computepb.Allowed{
+				{IPProtocol: &tcp, Ports: []string{"0-65535"}},
+				{IPProtocol: &udp, Ports: []string{"0-65535"}},
+				{IPProtocol: &icmp},
+			},
+			SourceRanges: internalRanges,
+			TargetTags:   []string{tag},
+			Direction:    &ingress,
+		},
+		{
+			Name:        ptrString(fmt.Sprintf("%s-allow-web", clusterName)),
+			Network:     &networkURL,
+			Description: ptrString("Allow HTTP/HTTPS to the platform Gateway"),
+			Allowed: []*computepb.Allowed{
+				{IPProtocol: &tcp, Ports: []string{"80", "443", "30000-32767"}},
+			},
+			SourceRanges: []string{"0.0.0.0/0"},
+			TargetTags:   []string{tag},
+			Direction:    &ingress,
+		},
+		{
+			Name:        ptrString(fmt.Sprintf("%s-allow-health-checks", clusterName)),
+			Network:     &networkURL,
+			Description: ptrString("Allow Google load balancer health checks"),
+			Allowed: []*computepb.Allowed{
+				{IPProtocol: &tcp, Ports: []string{"0-65535"}},
+			},
+			SourceRanges: healthCheckRanges,
+			TargetTags:   []string{tag},
+			Direction:    &ingress,
+		},
+	}
+
 	var firewallRules []string
-
-	// SSH access rule
-	sshRuleName := fmt.Sprintf("%s-allow-ssh", clusterName)
-	sshDescription := "Allow SSH access"
-	sshDirection := "INGRESS"
-	sshProtocol := "tcp"
-
-	sshRule := &computepb.Firewall{
-		Name:        &sshRuleName,
-		Network:     &networkURL,
-		Description: &sshDescription,
-		Allowed: []*computepb.Allowed{
-			{
-				IPProtocol: &sshProtocol,
-				Ports:      []string{"22"},
-			},
-		},
-		SourceRanges: []string{"0.0.0.0/0"},
-		Direction:    &sshDirection,
+	for _, rule := range rules {
+		name := rule.GetName()
+		op, err := p.firewallClient.Insert(ctx, &computepb.InsertFirewallRequest{
+			Project:          p.config.ProjectID,
+			FirewallResource: rule,
+		})
+		if err != nil {
+			// Idempotent: re-running provisioning over a partially created
+			// cluster must not fail on a rule that already exists.
+			if isAlreadyExists(err) {
+				log.Printf("Firewall rule %s already exists; keeping it", name)
+				firewallRules = append(firewallRules, name)
+				continue
+			}
+			return nil, fmt.Errorf("failed to create firewall rule %s: %w", name, err)
+		}
+		operationName := op.Name()
+		if err := p.waitForGlobalOperation(ctx, &operationName); err != nil {
+			return nil, fmt.Errorf("failed to wait for firewall rule %s: %w", name, err)
+		}
+		firewallRules = append(firewallRules, name)
 	}
-
-	req := &computepb.InsertFirewallRequest{
-		Project:          p.config.ProjectID,
-		FirewallResource: sshRule,
-	}
-
-	op, err := p.firewallClient.Insert(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SSH firewall rule: %w", err)
-	}
-
-	operationName := op.Name()
-	err = p.waitForGlobalOperation(ctx, &operationName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to wait for SSH firewall rule creation: %w", err)
-	}
-	firewallRules = append(firewallRules, sshRuleName)
-
-	// Kubernetes API server rule
-	apiRuleName := fmt.Sprintf("%s-allow-k8s-api", clusterName)
-	apiDescription := "Allow Kubernetes API server access"
-
-	apiRule := &computepb.Firewall{
-		Name:        &apiRuleName,
-		Network:     &networkURL,
-		Description: &apiDescription,
-		Allowed: []*computepb.Allowed{
-			{
-				IPProtocol: &sshProtocol,
-				Ports:      []string{"6443"},
-			},
-		},
-		SourceRanges: []string{"0.0.0.0/0"},
-		Direction:    &sshDirection,
-	}
-
-	req = &computepb.InsertFirewallRequest{
-		Project:          p.config.ProjectID,
-		FirewallResource: apiRule,
-	}
-
-	op, err = p.firewallClient.Insert(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create API firewall rule: %w", err)
-	}
-
-	operationName = op.Name()
-	err = p.waitForGlobalOperation(ctx, &operationName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to wait for API firewall rule creation: %w", err)
-	}
-	firewallRules = append(firewallRules, apiRuleName)
-
-	// Internal cluster communication
-	internalRuleName := fmt.Sprintf("%s-allow-internal", clusterName)
-	internalDescription := "Allow internal cluster communication"
-
-	internalRule := &computepb.Firewall{
-		Name:        &internalRuleName,
-		Network:     &networkURL,
-		Description: &internalDescription,
-		Allowed: []*computepb.Allowed{
-			{
-				IPProtocol: &sshProtocol,
-				Ports:      []string{"0-65535"},
-			},
-			{
-				IPProtocol: func() *string { s := "udp"; return &s }(),
-				Ports:      []string{"0-65535"},
-			},
-		},
-		SourceRanges: []string{"10.0.0.0/24"},
-		Direction:    &sshDirection,
-	}
-
-	req = &computepb.InsertFirewallRequest{
-		Project:          p.config.ProjectID,
-		FirewallResource: internalRule,
-	}
-
-	op, err = p.firewallClient.Insert(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create internal firewall rule: %w", err)
-	}
-
-	operationName = op.Name()
-	err = p.waitForGlobalOperation(ctx, &operationName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to wait for internal firewall rule creation: %w", err)
-	}
-	firewallRules = append(firewallRules, internalRuleName)
 
 	log.Printf("Successfully created firewall rules: %v", firewallRules)
 	return firewallRules, nil
+}
+
+// discoverClusterResources rebuilds a ResourceTracker by asking the project what
+// exists, for when the local state file is gone. It matches on the cluster's own
+// naming convention — the same names createClusterInfrastructure gives them — and
+// on the cluster network tag, so it can never pick up another cluster's nodes.
+func (p *Provider) discoverClusterResources(ctx context.Context, clusterID string) (*ResourceTracker, error) {
+	name := extractClusterName(clusterID)
+	if name == "" {
+		return nil, fmt.Errorf("could not derive a cluster name from %q", clusterID)
+	}
+	tracker := &ResourceTracker{
+		ClusterName: name,
+		ProjectID:   p.config.ProjectID,
+		Region:      p.config.Region,
+		Zone:        p.config.Zone,
+	}
+	tag := instanceTag(name)
+
+	if p.instanceClient != nil {
+		it := p.instanceClient.List(ctx, &computepb.ListInstancesRequest{
+			Project: p.config.ProjectID,
+			Zone:    p.config.Zone,
+		})
+		for {
+			inst, err := it.Next()
+			if err != nil {
+				break
+			}
+			carriesTag := false
+			if inst.GetTags() != nil {
+				for _, t := range inst.GetTags().GetItems() {
+					if t == tag {
+						carriesTag = true
+						break
+					}
+				}
+			}
+			if carriesTag || strings.HasPrefix(inst.GetName(), name+"-") {
+				tracker.Instances = append(tracker.Instances, inst.GetName())
+			}
+		}
+	}
+
+	if p.firewallClient != nil {
+		it := p.firewallClient.List(ctx, &computepb.ListFirewallsRequest{Project: p.config.ProjectID})
+		for {
+			rule, err := it.Next()
+			if err != nil {
+				break
+			}
+			if strings.HasPrefix(rule.GetName(), name+"-allow-") {
+				tracker.FirewallRules = append(tracker.FirewallRules, rule.GetName())
+			}
+		}
+	}
+
+	if p.config.SubnetName != "" {
+		tracker.Subnets = append(tracker.Subnets, p.config.SubnetName)
+	}
+	if p.config.VPCName != "" {
+		tracker.Networks = append(tracker.Networks, p.config.VPCName)
+	}
+
+	if len(tracker.Instances) == 0 && len(tracker.FirewallRules) == 0 {
+		return nil, fmt.Errorf("no instances or firewall rules found for cluster %q in project %s zone %s", name, p.config.ProjectID, p.config.Zone)
+	}
+	log.Printf("Discovered %d instance(s) and %d firewall rule(s) for cluster %s",
+		len(tracker.Instances), len(tracker.FirewallRules), name)
+	return tracker, nil
+}
+
+// discoverUntrackedClusters finds Adhar clusters present in the project but
+// absent from the local state file, by grouping instances on the per-cluster
+// network tag every node carries. Firewall rules are checked too, so a run that
+// died between creating the network and creating the first instance is still
+// visible and still removable.
+func (p *Provider) discoverUntrackedClusters(ctx context.Context) []*types.Cluster {
+	names := map[string]int{}
+
+	if p.instanceClient != nil {
+		it := p.instanceClient.List(ctx, &computepb.ListInstancesRequest{
+			Project: p.config.ProjectID,
+			Zone:    p.config.Zone,
+		})
+		for {
+			inst, err := it.Next()
+			if err != nil {
+				break
+			}
+			if inst.GetTags() == nil {
+				continue
+			}
+			for _, tag := range inst.GetTags().GetItems() {
+				if name, ok := clusterNameFromTag(tag); ok {
+					names[name]++
+				}
+			}
+		}
+	}
+
+	if p.firewallClient != nil {
+		it := p.firewallClient.List(ctx, &computepb.ListFirewallsRequest{Project: p.config.ProjectID})
+		for {
+			rule, err := it.Next()
+			if err != nil {
+				break
+			}
+			for _, tag := range rule.GetTargetTags() {
+				if name, ok := clusterNameFromTag(tag); ok {
+					if _, seen := names[name]; !seen {
+						names[name] = 0
+					}
+				}
+			}
+		}
+	}
+
+	// Networks and subnets carry the marker in their description, which is what
+	// makes a cluster whose create died before the first instance removable.
+	if p.networkClient != nil {
+		it := p.networkClient.List(ctx, &computepb.ListNetworksRequest{Project: p.config.ProjectID})
+		for {
+			nw, err := it.Next()
+			if err != nil {
+				break
+			}
+			if name, ok := clusterNameFromMarker(nw.GetDescription()); ok {
+				if _, seen := names[name]; !seen {
+					names[name] = 0
+				}
+			}
+		}
+	}
+
+	out := make([]*types.Cluster, 0, len(names))
+	for name, instanceCount := range names {
+		status := types.ClusterStatusRunning
+		if instanceCount == 0 {
+			// Networks and firewall rules but no nodes: a partial create.
+			status = types.ClusterStatusError
+		}
+		out = append(out, &types.Cluster{
+			ID:       fmt.Sprintf("gcp/%s/%s", p.config.ProjectID, name),
+			Name:     name,
+			Provider: "gcp",
+			Region:   p.config.Region,
+			Status:   status,
+			Metadata: map[string]interface{}{
+				"projectId":     p.config.ProjectID,
+				"zone":          p.config.Zone,
+				"instanceCount": instanceCount,
+				"discovered":    true,
+			},
+		})
+	}
+	return out
+}
+
+// checkRegionalQuota fails before provisioning when the region cannot hold the
+// requested cluster. It reports the metric, the limit and what the cluster needs,
+// because "QUOTA_EXCEEDED" halfway through a build is expensive to diagnose.
+func (p *Provider) checkRegionalQuota(ctx context.Context, spec *types.ClusterSpec) error {
+	if p.regionsClient == nil {
+		return nil
+	}
+	region, err := p.regionsClient.Get(ctx, &computepb.GetRegionRequest{
+		Project: p.config.ProjectID,
+		Region:  p.config.Region,
+	})
+	if err != nil {
+		log.Printf("WARNING: could not read quota for region %s (%v); continuing", p.config.Region, err)
+		return nil
+	}
+
+	nodes := int64(spec.ControlPlane.Replicas)
+	for _, group := range spec.NodeGroups {
+		nodes += int64(group.Replicas)
+	}
+	if nodes <= 0 {
+		return nil
+	}
+
+	diskPerNode := int64(p.config.DiskSize)
+	if diskPerNode <= 0 {
+		diskPerNode = 50
+	}
+	diskNeeded := nodes * diskPerNode
+
+	// Which disk quota applies depends on the type, and this is the trap: only
+	// pd-standard counts against DISKS_TOTAL_GB. Everything else is SSD.
+	diskMetric := "SSD_TOTAL_GB"
+	if p.config.DiskType == "" || p.config.DiskType == "pd-standard" {
+		diskMetric = "DISKS_TOTAL_GB"
+	}
+
+	limits := map[string]float64{}
+	usage := map[string]float64{}
+	for _, q := range region.GetQuotas() {
+		limits[q.GetMetric()] = q.GetLimit()
+		usage[q.GetMetric()] = q.GetUsage()
+	}
+	// CPUS_ALL_REGIONS and the other project-wide caps are NOT on the region
+	// object, so reading only regional quotas misses the limit most likely to
+	// stop a first deployment.
+	if p.projectsClient != nil {
+		if project, perr := p.projectsClient.Get(ctx, &computepb.GetProjectRequest{
+			Project: p.config.ProjectID,
+		}); perr == nil {
+			for _, q := range project.GetQuotas() {
+				limits[q.GetMetric()] = q.GetLimit()
+				usage[q.GetMetric()] = q.GetUsage()
+			}
+		} else {
+			log.Printf("WARNING: could not read project-wide quota (%v); continuing", perr)
+		}
+	}
+
+	var problems []string
+	if limit, ok := limits[diskMetric]; ok {
+		if available := limit - usage[diskMetric]; float64(diskNeeded) > available {
+			problems = append(problems, fmt.Sprintf(
+				"%s: need %d GB (%d nodes x %d GB), %.0f GB available of %.0f GB limit — lower disk_size_gb, or use disk_type: pd-standard which counts against DISKS_TOTAL_GB instead, or request a quota increase",
+				diskMetric, diskNeeded, nodes, diskPerNode, available, limit))
+		}
+	}
+
+	if cpusPerNode, ok := machineTypeCPUs(p.config.MachineType); ok {
+		cpusNeeded := float64(nodes * cpusPerNode)
+		// CPUS is the regional quota. CPUS_ALL_REGIONS is a separate PROJECT-WIDE
+		// cap that defaults to 12 on a new project, and it is the one that
+		// actually stops a first deployment: the regional limit was 100 while the
+		// global limit was 12, so a four-node cluster of e2-standard-4 passed the
+		// regional check and then failed on its last worker. Both are checked.
+		for _, metric := range []string{"CPUS", "CPUS_ALL_REGIONS"} {
+			limit, ok := limits[metric]
+			if !ok {
+				continue
+			}
+			available := limit - usage[metric]
+			if cpusNeeded <= available {
+				continue
+			}
+			scope := "in this region"
+			if metric == "CPUS_ALL_REGIONS" {
+				scope = "across all regions (a project-wide cap, 12 by default on a new project)"
+			}
+			problems = append(problems, fmt.Sprintf(
+				"%s: need %.0f vCPU (%d nodes x %d), %.0f available of %.0f limit %s — use a smaller machine_type, fewer nodes, or request a quota increase",
+				metric, cpusNeeded, nodes, cpusPerNode, available, limit, scope))
+		}
+	}
+
+	if len(problems) > 0 {
+		return fmt.Errorf("region %s cannot hold this cluster, so nothing was created:\n  - %s",
+			p.config.Region, strings.Join(problems, "\n  - "))
+	}
+	return nil
+}
+
+// machineTypeCPUs reads the vCPU count out of a standard machine type name such
+// as e2-standard-4 or n2-highmem-16. Custom and unrecognised names return false,
+// and the CPU check is then skipped rather than guessed at.
+func machineTypeCPUs(machineType string) (int64, bool) {
+	parts := strings.Split(machineType, "-")
+	if len(parts) < 3 {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(parts[len(parts)-1], 10, 64)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// clusterMarker is the description stamped on a network or subnet. Neither
+// resource type supports labels, and the description used to name the NETWORK
+// rather than the cluster ("Network for cluster adhar-vpc"), so an interrupted
+// `adhar up` left a VPC with nothing tying it to a cluster: teardown could not
+// find it and the only way to remove it was by hand.
+func clusterMarker(clusterName, kind string) string {
+	return fmt.Sprintf("Adhar platform %s for cluster %s [%s%s]", kind, clusterName, clusterMarkerPrefix, clusterName)
+}
+
+// clusterMarkerPrefix is the machine-readable part of clusterMarker.
+const clusterMarkerPrefix = "adhar.io/cluster="
+
+// clusterNameFromMarker reads the cluster name back out of a description.
+func clusterNameFromMarker(description string) (string, bool) {
+	i := strings.Index(description, clusterMarkerPrefix)
+	if i < 0 {
+		return "", false
+	}
+	rest := description[i+len(clusterMarkerPrefix):]
+	if end := strings.IndexAny(rest, "] "); end >= 0 {
+		rest = rest[:end]
+	}
+	if rest == "" {
+		return "", false
+	}
+	return rest, true
+}
+
+// clusterNameFromTag reverses instanceTag. It deliberately does not match a bare
+// "-node" or a tag from another tool, so an unrelated instance in the project is
+// never mistaken for an Adhar cluster.
+func clusterNameFromTag(tag string) (string, bool) {
+	const suffix = "-node"
+	if !strings.HasSuffix(tag, suffix) || len(tag) <= len(suffix) {
+		return "", false
+	}
+	return strings.TrimSuffix(tag, suffix), true
+}
+
+// findOrphanedResources lists billable resources the in-cluster controllers
+// created, which no tracker records: load balancer forwarding rules from the
+// cloud controller manager, and unattached persistent disks from the CSI driver.
+// It only reports; deleting a disk that still holds data is the user's call.
+func (p *Provider) findOrphanedResources(ctx context.Context, tracker *ResourceTracker) []string {
+	var found []string
+
+	if p.forwardingRulesClient != nil {
+		it := p.forwardingRulesClient.List(ctx, &computepb.ListForwardingRulesRequest{
+			Project: tracker.ProjectID,
+			Region:  tracker.Region,
+		})
+		for {
+			rule, err := it.Next()
+			if err != nil {
+				break
+			}
+			// The cloud controller manager stamps the Service it belongs to into
+			// the description; that is what distinguishes a Kubernetes-created
+			// rule from one a human made.
+			if strings.Contains(rule.GetDescription(), "kubernetes.io/service-name") {
+				found = append(found, fmt.Sprintf("forwarding-rule %s (%s) in %s", rule.GetName(), rule.GetIPAddress(), tracker.Region))
+			}
+		}
+	}
+
+	if p.diskClient != nil {
+		it := p.diskClient.List(ctx, &computepb.ListDisksRequest{
+			Project: tracker.ProjectID,
+			Zone:    tracker.Zone,
+		})
+		for {
+			disk, err := it.Next()
+			if err != nil {
+				break
+			}
+			// Attached disks belong to instances and go with them. An unattached
+			// disk named for a PersistentVolumeClaim is a CSI leftover.
+			if len(disk.GetUsers()) > 0 {
+				continue
+			}
+			if strings.HasPrefix(disk.GetName(), "pvc-") || strings.Contains(disk.GetDescription(), "storage.gke.io/created-for") {
+				found = append(found, fmt.Sprintf("disk %s (%d GB) in %s", disk.GetName(), disk.GetSizeGb(), tracker.Zone))
+			}
+		}
+	}
+
+	return found
+}
+
+// instanceTag is the network tag every node of a cluster carries, and the tag
+// every firewall rule targets. Rules used to apply to the whole network, which
+// meant one cluster's rules governed every other cluster in the project.
+func instanceTag(clusterName string) string {
+	return fmt.Sprintf("%s-node", clusterName)
+}
+
+func ptrString(s string) *string { return &s }
+
+// nodeServiceAccounts builds the ServiceAccounts block for a node. An empty
+// email yields nil, which leaves the instance on the project's default compute
+// service account rather than attaching nothing at all.
+func nodeServiceAccounts(email string) []*computepb.ServiceAccount {
+	if email == "" {
+		return nil
+	}
+	return []*computepb.ServiceAccount{{
+		Email:  ptrString(email),
+		Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
+	}}
+}
+
+// serviceAccountEmail reads client_email out of the configured service-account
+// key, inline or from disk. Returns "" when there is no key, in which case the
+// nodes fall back to the project's default compute service account.
+func serviceAccountEmail(config *Config) string {
+	raw := config.ServiceAccountKey
+	if raw == "" && config.ServiceAccountKeyPath != "" {
+		path, perr := expandHomePath(config.ServiceAccountKeyPath)
+		if perr != nil {
+			return ""
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("WARNING: could not read %s to find the node service account: %v", config.ServiceAccountKeyPath, err)
+			return ""
+		}
+		raw = string(b)
+	}
+	if raw == "" {
+		return ""
+	}
+	var parsed struct {
+		ClientEmail string `json:"client_email"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return ""
+	}
+	return parsed.ClientEmail
+}
+
+// flattenProviderConfig returns a copy of the provider config map with the
+// entries of its nested "config" section merged in. Keys already present at the
+// root are left alone, so an explicit root-level setting always wins.
+func flattenProviderConfig(config map[string]interface{}) map[string]interface{} {
+	section, ok := config["config"].(map[string]interface{})
+	if !ok || len(section) == 0 {
+		return config
+	}
+	merged := make(map[string]interface{}, len(config)+len(section))
+	for k, v := range section {
+		merged[k] = v
+	}
+	for k, v := range config {
+		merged[k] = v
+	}
+	return merged
+}
+
+// toInt32 accepts the numeric types a YAML or JSON integer can arrive as. The
+// disk-size parser only accepted int and int32, so a value that had been through
+// a JSON round trip (float64) was dropped.
+func toInt32(v interface{}) (int32, bool) {
+	switch t := v.(type) {
+	case int:
+		return int32(t), true
+	case int32:
+		return t, true
+	case int64:
+		return int32(t), true
+	case float64:
+		return int32(t), true
+	case float32:
+		return int32(t), true
+	}
+	return 0, false
+}
+
+// toStringSlice accepts the shapes a YAML list survives as once it has been
+// through the generic provider config map: []string, []interface{}, or a single
+// comma-separated string.
+func toStringSlice(v interface{}) []string {
+	switch t := v.(type) {
+	case []string:
+		return t
+	case []interface{}:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	case string:
+		out := []string{}
+		for _, part := range strings.Split(t, ",") {
+			if p := strings.TrimSpace(part); p != "" {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// isAlreadyExists reports whether a Compute API error is a 409 conflict.
+func isAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) && apiErr.Code == http.StatusConflict {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "already exists")
 }
 
 // createMasterNodes creates master nodes for the Kubernetes cluster using Google Cloud SDK
@@ -1107,7 +1678,7 @@ func (p *Provider) createMasterNodes(ctx context.Context, clusterName, subnetNam
 	for i := 0; i < spec.ControlPlane.Replicas; i++ {
 		nodeName := fmt.Sprintf("%s-master-%d", clusterName, i)
 
-		nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, spec.ControlPlane.InstanceType, true, sshPubKey, startupScript)
+		nodeInfo, err := p.createComputeInstance(ctx, clusterName, nodeName, subnetURL, spec.ControlPlane.InstanceType, true, sshPubKey, startupScript)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create master node %s: %w", nodeName, err)
 		}
@@ -1130,7 +1701,7 @@ func (p *Provider) createWorkerNodes(ctx context.Context, clusterName, subnetNam
 		for i := 0; i < nodeGroup.Replicas; i++ {
 			nodeName := fmt.Sprintf("%s-worker-%s-%d", clusterName, nodeGroup.Name, i)
 
-			nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, nodeGroup.InstanceType, false, sshPubKey, startupScript)
+			nodeInfo, err := p.createComputeInstance(ctx, clusterName, nodeName, subnetURL, nodeGroup.InstanceType, false, sshPubKey, startupScript)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create worker node %s: %w", nodeName, err)
 			}
@@ -1144,7 +1715,7 @@ func (p *Provider) createWorkerNodes(ctx context.Context, clusterName, subnetNam
 }
 
 // createComputeInstance creates a compute instance using Google Cloud SDK
-func (p *Provider) createComputeInstance(ctx context.Context, instanceName, subnetURL, machineType string, isMaster bool, sshPubKey, startupScript string) (*NodeInfo, error) {
+func (p *Provider) createComputeInstance(ctx context.Context, clusterName, instanceName, subnetURL, machineType string, isMaster bool, sshPubKey, startupScript string) (*NodeInfo, error) {
 	log.Printf("Creating compute instance: %s", instanceName)
 
 	// Use default machine type if not specified
@@ -1154,8 +1725,19 @@ func (p *Provider) createComputeInstance(ctx context.Context, instanceName, subn
 
 	machineTypeURL := fmt.Sprintf("projects/%s/zones/%s/machineTypes/%s", p.config.ProjectID, p.config.Zone, machineType)
 	sourceImage := fmt.Sprintf("projects/%s/global/images/family/%s", p.config.ImageProject, p.config.ImageFamily)
-	diskSizeGb := int64(50)
-	diskType := fmt.Sprintf("projects/%s/zones/%s/diskTypes/pd-standard", p.config.ProjectID, p.config.Zone)
+	// Honour the configured disk. Both values were parsed and defaulted and then
+	// ignored here, so disk_size_gb and disk_type in config.yaml (and in the
+	// provider docs) silently did nothing — every node got 50 GB of pd-standard,
+	// which is slow enough to matter for etcd and the container image cache.
+	diskSizeGb := int64(p.config.DiskSize)
+	if diskSizeGb <= 0 {
+		diskSizeGb = 50
+	}
+	diskTypeName := p.config.DiskType
+	if diskTypeName == "" {
+		diskTypeName = "pd-standard"
+	}
+	diskType := fmt.Sprintf("projects/%s/zones/%s/diskTypes/%s", p.config.ProjectID, p.config.Zone, diskTypeName)
 	autoDelete := true
 	boot := true
 
@@ -1201,9 +1783,19 @@ func (p *Provider) createComputeInstance(ctx context.Context, instanceName, subn
 					},
 				},
 			},
+			// The CLUSTER's tag, not the instance's. Firewall rules target this
+			// tag, and a per-instance tag matched none of them, so the rules
+			// applied to nothing.
 			Tags: &computepb.Tags{
-				Items: []string{fmt.Sprintf("%s-node", instanceName)},
+				Items: []string{instanceTag(clusterName)},
 			},
+			// Nodes carried NO service account, so the in-cluster GCP controllers
+			// had no identity: the cloud-controller-manager crash-looped and the
+			// Gateway's LoadBalancer Service never received an address, and the
+			// PD CSI driver could not create disks. cloud-platform is the scope
+			// those controllers need; IAM on the service account itself is what
+			// actually bounds what they can do.
+			ServiceAccounts: nodeServiceAccounts(p.config.NodeServiceAccount),
 		},
 	}
 
@@ -1365,10 +1957,19 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	// Remove local per-cluster state (SSH key) regardless of tracker presence.
 	defer provider.RemoveClusterState(extractClusterName(clusterID))
 
-	// Get resource tracker for the cluster
+	// Get resource tracker for the cluster. A missing tracker used to abort the
+	// whole teardown, which is the worst possible outcome: the local state file
+	// (~/.adhar/state/gcp/clusters.json) is not the cluster, and losing it left
+	// live instances billing with no supported way to remove them. Rebuild what
+	// the cluster looks like from the cloud instead.
 	tracker, exists := p.resourceTrackers[clusterID]
 	if !exists {
-		return fmt.Errorf("cluster %s not found in resource tracker", clusterID)
+		log.Printf("No local state for cluster %s; discovering its resources from the project", clusterID)
+		discovered, err := p.discoverClusterResources(ctx, clusterID)
+		if err != nil {
+			return fmt.Errorf("cluster %s is not in local state and could not be discovered: %w", clusterID, err)
+		}
+		tracker = discovered
 	}
 
 	// A managed (GKE) cluster: delete the control plane and its firewall
@@ -1460,6 +2061,19 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	// Save state to persist the deletion
 	if err := p.saveState(); err != nil {
 		log.Printf("Warning: Failed to save provider state after deletion: %v", err)
+	}
+
+	// Anything the in-cluster controllers created is invisible to the tracker:
+	// the cloud controller manager provisions a load balancer for the Gateway
+	// Service, and the PD CSI driver provisions a disk per PersistentVolume.
+	// Neither is recorded here, so both used to survive `adhar down` and keep
+	// billing. Report whatever is left rather than leaving it silent.
+	if leftovers := p.findOrphanedResources(ctx, tracker); len(leftovers) > 0 {
+		log.Printf("WARNING: %d resource(s) created inside the cluster are still present and still billing:", len(leftovers))
+		for _, item := range leftovers {
+			log.Printf("  %s", item)
+		}
+		log.Printf("Remove them with: gcloud compute forwarding-rules list --project %s   /   gcloud compute disks list --project %s", tracker.ProjectID, tracker.ProjectID)
 	}
 
 	if len(errors) > 0 {
@@ -1642,7 +2256,7 @@ func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *ty
 				p.config.ProjectID, p.config.Region, fmt.Sprintf("%s-subnet", clusterName))
 			for i := currentWorkers; i < desiredWorkers; i++ {
 				nodeName := fmt.Sprintf("%s-worker-%d", clusterName, i)
-				nodeInfo, err := p.createComputeInstance(ctx, nodeName, subnetURL, machineType, false, sshPubKey, startupScript)
+				nodeInfo, err := p.createComputeInstance(ctx, clusterName, nodeName, subnetURL, machineType, false, sshPubKey, startupScript)
 				if err != nil {
 					return fmt.Errorf("failed to scale up cluster %s: %w", clusterID, err)
 				}
@@ -1805,6 +2419,22 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 		}
 
 		clusters = append(clusters, cluster)
+	}
+
+	// The local state file is a cache, not the source of truth. An `adhar up`
+	// that was interrupted before it saved state leaves real instances, networks
+	// and firewall rules behind that nothing could then see: `adhar down`
+	// reported "cluster not found in any configured provider" and removed
+	// nothing, so the only way to clean up was by hand. Ask the project what
+	// exists and merge anything the cache missed.
+	tracked := make(map[string]bool, len(clusters))
+	for _, c := range clusters {
+		tracked[c.Name] = true
+	}
+	for _, c := range p.discoverUntrackedClusters(ctx) {
+		if !tracked[c.Name] {
+			clusters = append(clusters, c)
+		}
 	}
 
 	// Also check for any GKE clusters if we have container service access
@@ -1994,7 +2624,14 @@ func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, m
 	if len(infra.MasterNodes) == 0 || infra.MasterNodes[0].PublicIP == "" {
 		return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterID)
 	}
-	clusterName := strings.TrimSuffix(infra.MasterNodes[0].InstanceName, "-master-1")
+	// The cluster name, derived from the cluster ID rather than by string-surgery
+	// on an instance name. This trimmed the literal suffix "-master-1" from
+	// "production-master-0", so clusterName stayed "production-master-0": the SSH
+	// key was looked up under a directory that did not exist (generating a fresh
+	// key the nodes had never seen, so every scale failed to authenticate), and
+	// the worker prefix matched none of the real workers, so a scale DOWN was
+	// computed as a scale UP.
+	clusterName := extractClusterName(clusterID)
 	prefix := p.workerPrefix(clusterName, nodeGroupName)
 	current := make([]string, 0, len(infra.WorkerNodes))
 	for _, w := range infra.WorkerNodes {
@@ -2023,7 +2660,7 @@ func (p *Provider) scaleWorkers(ctx context.Context, clusterID, nodeGroupName, m
 		startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(version))
 		subnetURL := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", p.config.ProjectID, p.config.Region, infra.SubnetName)
 		for _, name := range add {
-			nodeInfo, err := p.createComputeInstance(ctx, name, subnetURL, machineType, false, sshPubKey, startupScript)
+			nodeInfo, err := p.createComputeInstance(ctx, clusterName, name, subnetURL, machineType, false, sshPubKey, startupScript)
 			if err != nil {
 				return fmt.Errorf("failed to create worker node %s: %w", name, err)
 			}

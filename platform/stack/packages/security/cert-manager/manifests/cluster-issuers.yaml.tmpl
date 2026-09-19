@@ -109,6 +109,12 @@ spec:
               key: secret-access-key
 {{- else if eq .DNSProvider "gcp" }}
           cloudDNS:
+            # project is REQUIRED by cert-manager. Without it the API server
+            # rejects this ClusterIssuer outright ("spec.acme.solvers[0].dns01
+            # .cloudDNS.project: Required value"), so the issuer never applies,
+            # the wildcard certificate is never issued, and the Gateway quietly
+            # keeps serving its self-signed fallback.
+            project: {{ .DNSProject }}
             serviceAccountSecretRef:
               name: adhar-dns-provider
               key: credentials.json

@@ -101,6 +101,14 @@ spec:
                       as the external-dns TXT owner id so several clusters can publish into
                       the same DNS zone without stealing each other's records.
                     type: string
+                  dnsProject:
+                    description: |-
+                      DNSProject is the cloud project that owns the DNS zone. Only Google Cloud
+                      needs it, and it is REQUIRED there: cert-manager's cloudDNS solver rejects
+                      a ClusterIssuer without `project`, so the DNS-01 issuer failed to apply and
+                      the platform wildcard certificate could never be issued — the Gateway kept
+                      serving its self-signed fallback with nothing in the logs to say why.
+                    type: string
                   dnsProvider:
                     description: |-
                       DNSProvider is the DNS backend of the platform edge — the zone that

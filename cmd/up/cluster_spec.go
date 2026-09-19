@@ -62,6 +62,20 @@ var credentialProviderKeys = map[string]bool{
 	"serviceAccountKey": true,
 	"clientSecret":      true,
 	"credentials_file":  true,
+	// PATHS to credential files are stripped as well, and not because they are
+	// secret — because they name a file on the machine that ran `adhar up`. They
+	// used to survive into the in-cluster provider map, and a provider that
+	// prefers a key file over an inline key then chose the laptop path over the
+	// credential it had been given: every autoscaling action failed with
+	// "credentials file not found: /Users/.../key.json", so a cluster scaled down
+	// and could never scale back up. The inline value from
+	// `<provider>-credentials` is the only form that means anything in-cluster.
+	"serviceAccountKeyFile": true,
+	"serviceAccountKeyPath": true,
+	"credentialsFile":       true,
+	"credentialFile":        true,
+	"tokenFile":             true,
+	"kubeconfigPath":        true,
 }
 
 // clusterConfigValue returns the first matching key from the environment's

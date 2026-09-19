@@ -60,6 +60,38 @@ func canonicalProvider(name string) string {
 	return ""
 }
 
+// resolveDNSProject returns the cloud project that owns the DNS zone. Only
+// Google Cloud needs it, and cert-manager's cloudDNS solver REQUIRES it — a
+// ClusterIssuer without `project` is rejected by the API server, so the DNS-01
+// issuer never applies and the wildcard certificate is never issued.
+func resolveDNSProject(cfg *config.Config, dnsProvider string) string {
+	if dnsProvider != dnsGCP || cfg == nil {
+		return ""
+	}
+	for name, pc := range cfg.Providers {
+		if !strings.EqualFold(name, "gcp") {
+			continue
+		}
+		if id := pc.ToProviderMap()["projectId"]; id != nil {
+			if s, ok := id.(string); ok && s != "" {
+				return s
+			}
+		}
+		if section, ok := pc.ToProviderMap()["config"].(map[string]interface{}); ok {
+			if s, ok := section["project_id"].(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	// Same environment fallbacks the DNS secret uses.
+	for _, env := range []string{"GOOGLE_PROJECT", "CLOUDSDK_CORE_PROJECT"} {
+		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // resolveDNSProvider returns the edge DNS provider for an environment: the
 // explicit globalSettings.dnsProvider when set ("none" disables edge DNS),
 // otherwise the environment's cloud provider when that cloud has a DNS

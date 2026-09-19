@@ -1,0 +1,160 @@
+# Adhar on Google Cloud — kubeadm on Compute Engine, autoscaled.
+#
+# The default here is the same as every other cloud: Adhar builds the cluster
+# itself with kubeadm on plain GCE instances. GKE is available behind one flag
+# (useManagedK8s, below) and every other behaviour is identical, but the
+# kubeadm path is the one the platform is designed around.
+#
+#   adhar up -f examples/gcp-config.yaml --env production --dry-run   # validate
+#   adhar up -f examples/gcp-config.yaml --env production             # deploy
+#   adhar down -f examples/gcp-config.yaml --env production           # tear down
+#
+# Before the first run:
+#   1. Enable these APIs on the project: serviceusage, cloudresourcemanager,
+#      compute, container, dns, iam. The Container API is needed even in kubeadm
+#      mode, because the provider constructs its client unconditionally.
+#   2. Give the service account roles/compute.admin and roles/dns.admin, plus
+#      roles/iam.serviceAccountUser if the nodes run as a service account.
+#   3. Create a Cloud DNS managed zone for defaultHost and delegate that
+#      subdomain at your registrar to the zone's four nameservers. Nothing in
+#      the platform creates the zone for you.
+
+apiVersion: v1alpha1
+kind: Config
+
+globalSettings:
+  adharContext: adhar-mgmt
+
+  # Drives every URL, the DNS zone external-dns manages, and the wildcard
+  # certificate. Apps are published at <app>.<defaultHost>.
+  defaultHost: cloud.example.com
+
+  # 443, not 8443. The cloud path puts a real load balancer in front, so the
+  # local Kind convention of a high port does not apply.
+  defaultHttpPort: 80
+  defaultHttpsPort: 443
+
+  enableHAMode: false
+
+  # Required. Let's Encrypt uses it for expiry notices.
+  email: admin@example.com
+
+  # Selects the edge DNS backend for external-dns and the cert-manager DNS-01
+  # solver. Omit, or set to `none`, to stay on self-signed certificates with no
+  # DNS automation.
+  dnsProvider: gcp
+
+providers:
+  gcp:
+    type: gcp
+    region: asia-southeast1
+    primary: true
+
+    projectId: your-gcp-project
+
+    # A service account key file, and not only Application Default Credentials:
+    # the edge DNS step needs a key it can mount into external-dns and
+    # cert-manager, so ADC alone fails there even though it is fine for
+    # provisioning. `~` is expanded.
+    serviceAccountKeyFile: ~/.config/gcloud/your-service-account.json
+
+    # Managed GKE instead of kubeadm on GCE. Everything else — packages, GitOps,
+    # SSO, autoscaling, teardown — behaves the same either way.
+    # useManagedK8s: true
+
+    config:
+      project_id: your-gcp-project
+      zone: asia-southeast1-a
+
+      vpc_name: adhar-vpc
+      subnet_name: adhar-subnet
+      # Any range works. The firewall rules are built from this value; they used
+      # to hardcode 10.0.0.0/24, which silently dropped node-to-node traffic on
+      # every cluster that chose a different subnet.
+      subnet_cidr: 10.20.0.0/16
+
+      machine_type: e2-standard-4
+      # pd-standard, deliberately. pd-balanced and pd-ssd both count against the
+      # region's SSD_TOTAL_GB quota, which defaults to 250 GB — three 100 GB
+      # workers plus a control plane exceeds it and the create fails partway with
+      # QUOTA_EXCEEDED. pd-standard counts against DISKS_TOTAL_GB (2 TB by
+      # default), so it leaves room for the autoscaler to reach maxWorkers.
+      # Request an SSD_TOTAL_GB increase and switch to pd-balanced for better
+      # etcd and image-pull latency.
+      disk_type: pd-standard
+      disk_size_gb: 100
+
+      image_family: ubuntu-2404-lts-amd64
+      image_project: ubuntu-os-cloud
+
+      # Who may reach SSH (22) and the Kubernetes API (6443). Leaving this out
+      # opens both to the internet and logs a warning at provisioning time. Set
+      # it to your office or VPN ranges; note that a range which excludes the
+      # machine running `adhar` will also block scaling and upgrades.
+      # admin_source_ranges:
+      #   - 203.0.113.4/32
+
+      labels:
+        environment: production
+        project: adhar
+
+# At least one template must exist; environments inherit from one by name.
+environmentTemplates:
+  prod-defaults:
+    clusterConfig:
+      - key: autoScale
+        value: "true"
+    coreServices:
+      cilium:
+        chart:
+          repoURL: https://helm.cilium.io/
+          name: cilium
+          version: 1.15.7
+
+environments:
+  production:
+    type: production
+    provider: gcp
+    region: asia-southeast1
+    template: prod-defaults
+
+    clusterConfig:
+      - key: name
+        value: adhar-mgmt
+      # Keys are matched ignoring case and separators, so machineType,
+      # machine_type and MACHINE_TYPE are the same key.
+      - key: machineType
+        value: e2-standard-4
+      - key: nodeCount
+        value: "3"
+      # - key: kubeVersion
+      #   value: v1.37.0
+      # - key: podCIDR
+      #   value: 10.244.0.0/16      # must not overlap subnet_cidr
+
+    # Start small and let the cluster buy capacity when it actually needs it.
+    # The platform's full production catalogue is CPU-bound rather than
+    # memory-bound, so the autoscaler reacts to pods pending for capacity.
+    autoscaling:
+      enabled: true
+      minWorkers: 3
+      maxWorkers: 8
+      nodeGroup: workers
+      scaleDownUtilizationThreshold: "50%"
+      # A node takes ~10 minutes to join, so removals are deliberately slow:
+      # losing one to a gap between batch waves costs more than it saves.
+      scaleDownDelay: 10m
+      scaleUpCooldown: 3m
+
+# ---------------------------------------------------------------------------
+# Agentic capabilities (Adhar AI)
+#
+# The LLM key never goes in this file. Enable the packages here, then seed the
+# key straight into the secrets backend after `adhar up`:
+#
+#   export ADHAR_AI_LLM_API_KEY='sk-or-v1-...'
+#   ADHAR_AI_LLM_PROVIDER=openrouter hack/seed-adhar-ai-llm.sh
+#
+# Enabling the packages with no key is a supported state: the agent runtime and
+# the MCP tool servers come up and report themselves unkeyed.
+# ---------------------------------------------------------------------------

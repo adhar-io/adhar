@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -393,4 +394,113 @@ func TestEveryOAuth2ProxyKeepsItsOwnSessionCookie(t *testing.T) {
 	if proxies < 20 {
 		t.Errorf("expected the SSO-fronted apps to be found, got %d", proxies)
 	}
+}
+
+// A PersistentVolumeClaim must never sit in an EARLIER sync wave than the
+// workload that mounts it. The platform's default StorageClass on GCP binds
+// WaitForFirstConsumer, so such a PVC cannot become Bound until a pod mounts it —
+// and Argo CD will not apply the next wave until the current one is healthy. The
+// result is a permanent deadlock reporting "waiting for healthy state of
+// /PersistentVolumeClaim/<name>", which never resolves and never times out.
+// It is invisible on clusters whose StorageClass binds Immediately, which is why
+// llm-d shipped this way and only failed on GCP (2026-09-19).
+func TestNoPVCWaitsInAnEarlierWaveThanItsConsumer(t *testing.T) {
+	root := filepath.Join(stackRoot(t), "packages")
+	const waveKey = "argocd.argoproj.io/sync-wave"
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return err
+		}
+		raw, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		if !strings.Contains(string(raw), "PersistentVolumeClaim") || !strings.Contains(string(raw), waveKey) {
+			return nil
+		}
+
+		claimWave := map[string]int{}
+		consumerWaves := map[string][]int{}
+		decoder := yaml.NewDecoder(strings.NewReader(string(raw)))
+		for {
+			var doc map[string]interface{}
+			if derr := decoder.Decode(&doc); derr != nil {
+				break
+			}
+			if len(doc) == 0 {
+				continue
+			}
+			wave, ok := syncWave(doc, waveKey)
+			if !ok {
+				continue
+			}
+			meta, _ := doc["metadata"].(map[string]interface{})
+			name, _ := meta["name"].(string)
+			if doc["kind"] == "PersistentVolumeClaim" && name != "" {
+				claimWave[name] = wave
+			}
+			for _, claim := range mountedClaims(doc) {
+				consumerWaves[claim] = append(consumerWaves[claim], wave)
+			}
+		}
+
+		rel, _ := filepath.Rel(root, path)
+		for claim, pvcWave := range claimWave {
+			for _, cw := range consumerWaves[claim] {
+				if pvcWave < cw {
+					t.Errorf("%s: PVC %q is in wave %d but its consumer is in wave %d — with WaitForFirstConsumer binding this deadlocks the sync forever; put the PVC in the same wave as the workload that mounts it",
+						rel, claim, pvcWave, cw)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// syncWave reads an object's Argo CD sync wave, which YAML may present as a
+// string or a number.
+func syncWave(doc map[string]interface{}, key string) (int, bool) {
+	meta, _ := doc["metadata"].(map[string]interface{})
+	ann, _ := meta["annotations"].(map[string]interface{})
+	raw, ok := ann[key]
+	if !ok {
+		return 0, false
+	}
+	switch v := raw.(type) {
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		return n, err == nil
+	case int:
+		return v, true
+	case float64:
+		return int(v), true
+	}
+	return 0, false
+}
+
+// mountedClaims lists the PVC names a workload's pod template mounts.
+func mountedClaims(doc map[string]interface{}) []string {
+	spec, _ := doc["spec"].(map[string]interface{})
+	if spec == nil {
+		return nil
+	}
+	tmpl, _ := spec["template"].(map[string]interface{})
+	podSpec, _ := tmpl["spec"].(map[string]interface{})
+	if podSpec == nil {
+		return nil
+	}
+	volumes, _ := podSpec["volumes"].([]interface{})
+	var out []string
+	for _, v := range volumes {
+		vol, _ := v.(map[string]interface{})
+		pvc, _ := vol["persistentVolumeClaim"].(map[string]interface{})
+		if name, ok := pvc["claimName"].(string); ok && name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }

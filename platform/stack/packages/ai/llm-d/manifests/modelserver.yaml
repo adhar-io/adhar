@@ -17,7 +17,13 @@ kind: PersistentVolumeClaim
 metadata:
   name: llm-d-model-cache
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "0"}
+  # SAME WAVE as llm-d-decode, the only consumer. A WaitForFirstConsumer PVC
+  # cannot bind until a pod mounts it, so leaving it in an earlier wave than its
+  # consumer deadlocks the sync permanently: Argo CD waits for the PVC to become
+  # Bound before applying the Deployment that would bind it. The default
+  # StorageClass on GCP (pd.csi.storage.gke.io) is WaitForFirstConsumer, which is
+  # why this only showed up there and not on clusters that bind Immediately.
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
   accessModes: [ReadWriteOnce]
   resources: {requests: {storage: 10Gi}}

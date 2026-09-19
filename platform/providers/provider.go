@@ -24,6 +24,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -480,33 +481,39 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 	// Apply cluster-specific configuration
 	oidcAuth := false
 	for _, kv := range envConfig.ResolvedClusterConfig {
-		switch kv.Key {
-		case "kubeVersion", "version":
+		// Keys are matched case-insensitively and ignoring separators, so
+		// node_count, nodeCount and NodeCount are the same key. They were matched
+		// literally in camelCase before, which meant the snake_case spellings
+		// used throughout the provider docs and the shipped test configs were
+		// silently dropped: a config asking for node_count: 3 got the default
+		// worker count instead, with nothing logged.
+		switch normalizeClusterConfigKey(kv.Key) {
+		case "kubeversion", "version":
 			spec.Version = kv.Value
-		case "controlPlaneReplicas":
+		case "controlplanereplicas":
 			if replicas := parseIntOrDefault(kv.Value, spec.ControlPlane.Replicas); replicas > 0 {
 				spec.ControlPlane.Replicas = replicas
 			}
-		case "workerReplicas", "nodeCount", "numNodes":
+		case "workerreplicas", "nodecount", "numnodes":
 			// nodeCount (DO/generic) and numNodes (GKE) are the spellings used in
 			// config.yaml environments; workerReplicas is the internal name. All
 			// set the worker node pool size.
 			if replicas := parseIntOrDefault(kv.Value, workerReplicas); replicas > 0 {
 				spec.NodeGroups[0].Replicas = replicas
 			}
-		case "nodeInstanceType", "instanceType", "nodeSize", "machineType":
+		case "nodeinstancetype", "instancetype", "nodesize", "machinetype":
 			// nodeSize (DO/generic) and machineType (GKE) are the config.yaml
 			// spellings; nodeInstanceType/instanceType are internal aliases.
 			spec.NodeGroups[0].InstanceType = kv.Value
-		case "podCIDR", "podCidr", "podNetworkCIDR":
+		case "podcidr", "podnetworkcidr":
 			// A cluster that will join a Cilium Cluster Mesh must not share a
 			// Pod CIDR with its peers, so the environment can move off the
 			// platform default (10.244.0.0/16).
 			spec.Networking.PodCIDR = kv.Value
-		case "diskSize":
+		case "disksize":
 			// Note: DiskSize not available in current NodeGroupSpec
 			// This could be added to the spec if needed in the future
-		case "oidcAuth", "oidcAuthentication", "kubeOIDC":
+		case "oidcauth", "oidcauthentication", "kubeoidc":
 			// REJECTED at provisioning time, on purpose — see below.
 			if strings.EqualFold(strings.TrimSpace(kv.Value), "true") {
 				oidcAuth = true
@@ -546,6 +553,22 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 	}
 
 	return spec, nil
+}
+
+// normalizeClusterConfigKey folds a clusterConfig key to a canonical form:
+// lowercase with separators removed. config.yaml, the provider docs and the test
+// fixtures each use a different convention for the same key, and a literal match
+// honoured only one of them.
+func normalizeClusterConfigKey(key string) string {
+	var b strings.Builder
+	for _, r := range key {
+		switch r {
+		case '_', '-', '.', ' ':
+			continue
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
 }
 
 // buildDomainConfig creates domain configuration based on environment and provider
