@@ -504,73 +504,140 @@ func getDeploymentResourceUsage(deployment appsv1.Deployment) ResourceUsage {
 }
 
 func displayApplicationsTable(applications []ApplicationInfo) error {
-	logger.Info(fmt.Sprintf("📋 Found %d applications", len(applications)))
+	logger.Info(fmt.Sprintf("Found %d applications", len(applications)))
 
-	// Create table header
-	var table strings.Builder
-	table.WriteString(fmt.Sprintf("%-30s %-15s %-12s %-15s %-12s %-8s\n",
-		"🏷️  NAME", "📁 NAMESPACE", "📦 TYPE", "📊 STATUS", "🔄 REPLICAS", "📅 AGE"))
-	table.WriteString(strings.Repeat("─", 90) + "\n")
+	// One shared, display-width-aware table (cmd/helpers/table.go) so this and
+	// `adhar get cluster` align identically. The NAMESPACE column is dropped
+	// when the rows are already grouped under a namespace heading.
+	grouped := len(uniqueNamespaces(applications)) > 1
 
-	// Group by namespace for better readability
 	namespaceGroups := make(map[string][]ApplicationInfo)
+	var order []string
 	for _, app := range applications {
+		if _, seen := namespaceGroups[app.Namespace]; !seen {
+			order = append(order, app.Namespace)
+		}
 		namespaceGroups[app.Namespace] = append(namespaceGroups[app.Namespace], app)
 	}
+	sort.Strings(order)
 
-	// Display applications grouped by namespace
-	for namespace, apps := range namespaceGroups {
-		if len(namespaceGroups) > 1 {
-			table.WriteString(fmt.Sprintf("\n%s:\n", helpers.TitleStyle.Render("📁 "+namespace)))
+	headers := []string{"NAME", "TYPE", "STATUS", "REPLICAS", "AGE"}
+	if !grouped {
+		headers = []string{"NAME", "NAMESPACE", "TYPE", "STATUS", "REPLICAS", "AGE"}
+	}
+	cells := func(a ApplicationInfo) []string {
+		replicas := fmt.Sprintf("%d/%d", a.Replicas.Ready, a.Replicas.Total)
+		if grouped {
+			return []string{a.Name, a.Type, appState(a.Status), replicas, a.Age}
 		}
-
-		for _, app := range apps {
-			replicas := fmt.Sprintf("%d/%d", app.Replicas.Ready, app.Replicas.Total)
-
-			row := fmt.Sprintf("%-30s %-15s %-12s %-15s %-12s %-8s\n",
-				truncateString(app.Name, 28),
-				truncateString(app.Namespace, 13),
-				app.Type,
-				app.Status,
-				replicas,
-				app.Age)
-			table.WriteString(row)
-
-			// Show additional details if requested
-			if showStatus && len(app.Conditions) > 0 {
-				for _, condition := range app.Conditions {
-					if condition.Type == "Available" || condition.Type == "Progressing" {
-						conditionLine := fmt.Sprintf("  └─ %s: %s", condition.Type, condition.Status)
-						if condition.Message != "" {
-							conditionLine += fmt.Sprintf(" (%s)", truncateString(condition.Message, 40))
-						}
-						table.WriteString(conditionLine + "\n")
-					}
-				}
-			}
-
-			if showEndpoints && len(app.Services) > 0 {
-				for _, svc := range app.Services {
-					serviceLine := fmt.Sprintf("  🌐 Service: %s (%s) - %s",
-						svc.Name, svc.Type, strings.Join(svc.Ports, ", "))
-					table.WriteString(serviceLine + "\n")
-				}
-			}
-
-			if showResources && (app.ResourceUsage.CPURequests != "" || app.ResourceUsage.MemoryRequests != "") {
-				resourceLine := fmt.Sprintf("  💾 Resources: CPU: %s/%s, Memory: %s/%s",
-					app.ResourceUsage.CPURequests, app.ResourceUsage.CPULimits,
-					app.ResourceUsage.MemoryRequests, app.ResourceUsage.MemoryLimits)
-				table.WriteString(resourceLine + "\n")
-			}
-		}
+		return []string{a.Name, a.Namespace, a.Type, appState(a.Status), replicas, a.Age}
 	}
 
-	// Display the table in a bordered box
-	tableBox := helpers.BorderStyle.Width(95).Render(table.String())
-	fmt.Println(tableBox)
+	// Width is computed across ALL rows so every namespace group shares one
+	// column layout, then each group is rendered with that layout.
+	sizer := helpers.NewTable(headers...)
+	for _, app := range applications {
+		sizer.Row(cells(app)...)
+	}
+	budget := sizer.Width()
 
+	var out strings.Builder
+	for i, namespace := range order {
+		if i > 0 {
+			out.WriteString("\n\n")
+		}
+		if grouped {
+			out.WriteString(helpers.SectionHeading(helpers.IconNamespace, namespace) + "\n")
+		}
+		t := helpers.NewTable(headers...).WithBudget(budget)
+		for _, app := range namespaceGroups[namespace] {
+			t.Row(cells(app)...)
+		}
+		out.WriteString(t.Render())
+		out.WriteString(appDetailLines(namespaceGroups[namespace], budget))
+	}
+
+	fmt.Println(helpers.BorderStyle.Width(budget + 2).Render(out.String()))
 	return nil
+}
+
+// appState renders a workload's status through the shared state vocabulary, so
+// health reads the same in every command.
+func appState(status string) string {
+	// The collector already decorates some statuses ("✅ Ready"), which would
+	// render as two icons once the shared vocabulary adds its own. Strip any
+	// leading symbol run and keep just the word.
+	label := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(status), "✅❌⚠️⏳🔄🟢🔴🟡●◌▲✖◍○ "))
+	if label == "" {
+		label = strings.TrimSpace(status)
+	}
+	s := strings.ToLower(label)
+	// Failure states are tested FIRST: "NotReady" contains "ready", so a
+	// ready-first match reported a failed node as healthy.
+	switch {
+	case strings.Contains(s, "notready"), strings.Contains(s, "fail"), strings.Contains(s, "error"),
+		strings.Contains(s, "crash"), strings.Contains(s, "missing"), strings.Contains(s, "unavailable"),
+		strings.Contains(s, "backoff"), strings.Contains(s, "evicted"):
+		return helpers.StateFailed(label)
+	case strings.Contains(s, "degraded"), strings.Contains(s, "warn"):
+		return helpers.StateDegraded(label)
+	case strings.Contains(s, "progress"), strings.Contains(s, "pending"), strings.Contains(s, "creating"),
+		strings.Contains(s, "updating"), strings.Contains(s, "scaling"), strings.Contains(s, "terminating"):
+		return helpers.StatePending(label)
+	case strings.Contains(s, "disabled"), strings.Contains(s, "suspend"):
+		return helpers.StateDisabled(label)
+	case strings.Contains(s, "ready"), strings.Contains(s, "running"), strings.Contains(s, "healthy"),
+		strings.Contains(s, "active"), strings.Contains(s, "complete"), strings.Contains(s, "synced"):
+		return helpers.StateReady(label)
+	default:
+		return helpers.StateUnknown(label)
+	}
+}
+
+// appDetailLines renders the optional --status/--endpoints/--resources detail
+// under each row, indented and clipped to the table width.
+func appDetailLines(apps []ApplicationInfo, budget int) string {
+	var b strings.Builder
+	for _, app := range apps {
+		if showStatus {
+			for _, condition := range app.Conditions {
+				if condition.Type != "Available" && condition.Type != "Progressing" {
+					continue
+				}
+				line := fmt.Sprintf("  %s %s: %s", helpers.IconArrow, condition.Type, condition.Status)
+				if condition.Message != "" {
+					line += " (" + condition.Message + ")"
+				}
+				b.WriteString("\n" + helpers.TruncateDisplay(line, budget))
+			}
+		}
+		if showEndpoints {
+			for _, svc := range app.Services {
+				line := fmt.Sprintf("  %s %s (%s) %s", helpers.IconNetwork, svc.Name, svc.Type, strings.Join(svc.Ports, ", "))
+				b.WriteString("\n" + helpers.TruncateDisplay(line, budget))
+			}
+		}
+		if showResources && (app.ResourceUsage.CPURequests != "" || app.ResourceUsage.MemoryRequests != "") {
+			line := fmt.Sprintf("  %s CPU %s/%s · Memory %s/%s", helpers.IconStorage,
+				app.ResourceUsage.CPURequests, app.ResourceUsage.CPULimits,
+				app.ResourceUsage.MemoryRequests, app.ResourceUsage.MemoryLimits)
+			b.WriteString("\n" + helpers.TruncateDisplay(line, budget))
+		}
+	}
+	return b.String()
+}
+
+// uniqueNamespaces lists the distinct namespaces present in the rows.
+func uniqueNamespaces(apps []ApplicationInfo) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, a := range apps {
+		if !seen[a.Namespace] {
+			seen[a.Namespace] = true
+			out = append(out, a.Namespace)
+		}
+	}
+	return out
 }
 
 func contains(slice []string, item string) bool {
@@ -593,11 +660,4 @@ func matchesSelector(selector map[string]string, labels map[string]string) bool 
 		}
 	}
 	return true
-}
-
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }

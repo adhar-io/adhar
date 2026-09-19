@@ -12,6 +12,9 @@ IMG ?= adhar:latest
 # v0.1.0 on tagless checkouts (fresh forks, shallow clones).
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.1.0)
 
+# `sed -i` needs an empty argument on BSD/macOS and none on GNU.
+SED_INPLACE ?= $(shell if sed --version >/dev/null 2>&1; then echo "sed -i"; else echo "sed -i ''"; fi)
+
 # RELEASE_VERSION is the version `make release` will tag — a NEW version, NOT the
 # auto-detected latest tag above (which is what `release` used to re-tag, causing
 # "Tag vX.Y.Z already exists"). It is taken from, in order:
@@ -263,8 +266,22 @@ release: ## Create and push a release tag (e.g. make release v0.2.2); CI (GoRele
 	if git rev-parse "$$REL" >/dev/null 2>&1; then \
 		echo "Error: Tag $$REL already exists"; exit 1; \
 	fi; \
+	NUM="$${REL#v}"; \
+	if grep -q "badge/version-" README.md; then \
+		$(SED_INPLACE) "s|badge/version-[0-9][0-9A-Za-z.\-]*-blue|badge/version-$$NUM-blue|g" README.md; \
+		if git diff --quiet -- README.md; then \
+			echo "README version badge already at $$NUM"; \
+		else \
+			echo "README version badge -> $$NUM"; \
+			git add README.md; \
+			git commit -m "docs: release $$REL" >/dev/null; \
+		fi; \
+	else \
+		echo "Warning: no version badge found in README.md; skipping the version bump"; \
+	fi; \
 	git tag -a "$$REL" -m "Release $$REL"; \
 	git push origin "$$REL"; \
+	git push origin HEAD; \
 	echo "Tag $$REL pushed. The release workflow now builds and publishes the release:"; \
 	echo "  https://github.com/adhar-io/adhar/actions/workflows/release.yaml"
 

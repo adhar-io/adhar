@@ -27,7 +27,13 @@ provenance:
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
 planeAffinity: control-plane
-stability: stable
+# Opt-in since 2026-09-19: the policy-controller writes Secret/webhook-certs
+# under a name compiled into its binary, as kpack does, so the two cannot share
+# adhar-system (ADR-0011). Image-signature enforcement moved to the
+# supply-chain-kyverno ClusterPolicy verify-supply-chain-images, which checks the
+# same cosign key. Enable this only on a cluster where you need the
+# ClusterImagePolicy API and kpack/buildpack is off.
+stability: beta
 resources:
   localSafe: true   # mirrors the enabled gate in adhar-appset-local.yaml
 keywords:

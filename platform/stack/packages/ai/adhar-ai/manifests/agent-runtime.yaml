@@ -7,6 +7,12 @@
 #     upgrade-preflight). Each subscribes to a trigger and declares its own
 #     allowed_tools + autonomy level, read from the adhar-ai-config ConfigMap.
 #
+# It also runs the agentic layer: a roster of specialist agents that hand work
+# to one another, durable tasks that outlive the request that raised them, and
+# scheduled chores. The `agents:` and `chores:` blocks below are OPTIONAL
+# overlays — absent, the shipped roster runs and every chore is off — so this
+# ConfigMap is complete as it stands.
+#
 # Staged-autonomy ladder (global default `suggest` => every write is a PR;
 # nothing is ever a direct cluster mutation): read-only -> suggest ->
 # approve-to-apply -> scoped.
@@ -102,6 +108,61 @@ data:
     # says so rather than pretending they are durable.
     findings:
       table: finding
+    # -------------------------------------------------------------------------
+    # Specialized agents. This block OVERLAYS the shipped roster rather than
+    # replacing it: naming one agent here leaves the other six as they ship, and an
+    # agent added in a later release arrives with its shipped defaults rather than
+    # absent. Omit the block entirely to run the shipped roster unchanged.
+    #
+    # `ceiling` is the highest autonomy the agent may ever reach, whoever asks. It
+    # narrows `autonomy.default` above and can never widen it — a `read-only` agent
+    # stays read-only for a platform administrator, because the narrowing belongs to
+    # the role rather than to the request.
+    #
+    # `escalatesTo` is a closed list. An agent cannot hand work to a colleague it
+    # did not declare, and cannot invent one; a target that is not in the roster is
+    # rejected at start-up rather than failing at three in the morning.
+    #
+    #   agents:
+    #     guide:
+    #       ceiling: read-only
+    #       keywords: [how do i, what is, runbook]
+    #     dba:
+    #       role: Postgres and CNPG questions.
+    #       instructions: Prefer the cluster's own CNPG conventions over general advice.
+    #       tools: [list_pods, describe, get_events, logs, promql]
+    #       ceiling: read-only
+    #       keywords: [postgres, cnpg, database, replica, wal]
+    #       escalatesTo: [platform]
+    # -------------------------------------------------------------------------
+    # agents: {}
+
+    # -------------------------------------------------------------------------
+    # Scheduled chores. Every shipped chore is OFF and in dry-run, and both are
+    # separate decisions: `enabled: true` starts it running and REPORTING;
+    # `dryRun: false` is what lets it propose. Watch a chore be right for a
+    # fortnight before you let it act.
+    #
+    # `maxProposals` bounds one run. The cap is the difference between a helpful
+    # Monday morning and an unreviewable flood of pull requests, which is how an
+    # automation layer gets switched off permanently.
+    #
+    # A name that is not in the shipped catalogue is IGNORED with a warning rather
+    # than created, so a typo cannot bring unreviewed automation into existence.
+    # Shipped: certificate-expiry, drift-reconciliation, orphaned-resources,
+    # failing-scorecards, cost-outliers, security-findings, runbook-rot.
+    #
+    #   chores:
+    #     certificate-expiry:
+    #       enabled: true          # runs, and reports what it would do
+    #       dryRun: true           # still proposes nothing
+    #       intervalSeconds: 86400
+    #     drift-reconciliation:
+    #       enabled: true
+    #       dryRun: false          # may now open pull requests
+    #       maxProposals: 2
+    # -------------------------------------------------------------------------
+    # chores: {}
 ---
 apiVersion: apps/v1
 kind: Deployment

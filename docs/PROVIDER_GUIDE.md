@@ -125,6 +125,29 @@ watch on that run:
 The autoscaler's own logic is provider-agnostic and unit-tested; on a cloud
 without a CSI driver it simply never sees `exceed max volume count`.
 
+### 2.2 Startup and GitOps-sync parity
+
+Every startup fix measured on the local Kind flow applies to the cloud and
+on-prem providers too, because it lives in the shared layers rather than in a
+provider:
+
+| Fix | Where it lives | Providers it covers |
+| --- | --- | --- |
+| Probe timeouts raised off the 1-second chart defaults (62 probes, 20 packages) | stack packages | all |
+| ExternalSecrets that read `keycloak-clients` refresh at 30s, so a lost race against Keycloak's client provisioning costs seconds | stack packages | all |
+| oauth2-proxy Deployments cap `progressDeadlineSeconds` at 120s instead of 600s | stack packages | all |
+| `ignoreDifferences` for API- and webhook-defaulted fields, plus ArgoCD server-side diff | ApplicationSets + ArgoCD bootstrap | all |
+| ArgoCD reconciliation 120s + 15s jitter (was 300s + 60s, which idled an app needing two passes for up to 12 minutes) | ArgoCD bootstrap | all |
+| GitOps repos seeded from host-packed git bundles; Crossplane core started before seeding | AdharPlatform controller | all |
+| `adhar up` drives Applications to Synced + Healthy and reports `n/m` progress (`--apps-timeout`) | controller + CLI | all (cloud/on-prem logs it, Kind renders it on the checklist) |
+| Cilium data-path images pre-pulled in the background during node prep | `provider.CriticalPathImages` + `KubeadmNodePrepScript` | every kubeadm provider (AWS, Azure, GCP, DigitalOcean, Civo, custom) |
+| Per-registry pull-through image cache | `platform/providers/kind` | Kind only — a cloud node has no host cache to pull from; the node-prep pre-pull is its equivalent |
+
+The one deliberate asymmetry is the last row: on Kind the node shares the
+developer's machine, so a local registry cache serves every run. A cloud node
+is created once and thrown away, so the equivalent win is overlapping the CNI
+image download with the kubeadm join, which is what node prep now does.
+
 ## 3. Node autoscaling
 
 Live-verified in both directions on DigitalOcean. Enable it per environment (or

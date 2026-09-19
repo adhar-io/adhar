@@ -85,7 +85,7 @@ python3 - manifests/install.yaml <<'PYEOF'
 import sys
 path = sys.argv[1]
 docs = open(path).read().split('\n---\n')
-kept = [d for d in docs if not ('kind: Namespace' in d and 'pod-security.kubernetes.io/enforce' in d)]
+kept = [d for d in docs if 'kind: Namespace' not in d]
 open(path, 'w').write('\n---\n'.join(kept))
-print(f"dropped {len(docs) - len(kept)} PSA-labelled Namespace document(s)")
+print(f"dropped {len(docs) - len(kept)} Namespace document(s)")
 PYEOF

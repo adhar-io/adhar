@@ -75414,6 +75414,7 @@ data:
     signout_redirect_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/logout?client_id=grafana&post_logout_redirect_uri=https%3A%2F%2Fgrafana.adhar.localtest.me%3A8443%2Flogin
     [auth.generic_oauth]
     allow_assign_grafana_admin = true
+    auto_login = true
     api_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/userinfo
     auth_url = https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth
     client_id = grafana

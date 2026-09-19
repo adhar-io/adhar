@@ -1,25 +1,4 @@
-# SSO for the RustFS console — SYNC-WAVE 5, deliberately late.
-#
-# The oauth2-proxy reads its client secret from Keycloak, which on a fresh
-# cluster comes up long after the object store has to exist. With the proxy in
-# an early wave, ArgoCD waited on "Deployment/rustfs-oauth2-proxy" and never
-# reached the wave-2 buckets/warehouse Job — so nothing in the platform had a
-# bucket, and every consumer of root-creds sat Degraded behind a login proxy.
-# Observed on the 2026-09-15 bring-up. The store must never wait for its UI.
-apiVersion: generators.external-secrets.io/v1alpha1
-kind: Password
-metadata:
-  name: rustfs-oauth2-cookie
-  namespace: adhar-system
-  annotations:
-    argocd.argoproj.io/sync-wave: '5'
-spec:
-  length: 32
-  digits: 8
-  symbols: 0
-  noUpper: false
-  allowRepeat: true
----
+
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
@@ -40,20 +19,18 @@ spec:
       data:
         OAUTH2_PROXY_CLIENT_SECRET: '{{ .RUSTFS_CLIENT_SECRET }}'
         OAUTH2_PROXY_COOKIE_SECRET: '{{ .COOKIE_SECRET }}'
-  dataFrom:
-  - sourceRef:
-      generatorRef:
-        apiVersion: generators.external-secrets.io/v1alpha1
-        kind: Password
-        name: rustfs-oauth2-cookie
-    rewrite:
-    - transform:
-        template: COOKIE_SECRET
   data:
   - secretKey: RUSTFS_CLIENT_SECRET
     remoteRef:
       key: keycloak-clients
       property: RUSTFS_CLIENT_SECRET
+  # The platform-wide cookie secret (security/keycloak/manifests/sso-cookie.yaml),
+  # shared by every oauth2-proxy so a session one app established is accepted by
+  # all of them instead of bouncing through Keycloak again.
+  - secretKey: COOKIE_SECRET
+    remoteRef:
+      key: adhar-sso-cookie
+      property: COOKIE_SECRET
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -93,6 +70,10 @@ spec:
         - --email-domain=*
         - --scope=openid profile email groups
         - --cookie-secure=true
+        # Parent-domain cookie + the shared secret above = real single sign-on:
+        # another app's proxy accepts this session with no round trip to Keycloak.
+        - --cookie-domain=.adhar.localtest.me
+        - --whitelist-domain=.adhar.localtest.me:8443
         - --skip-provider-button=true
         - --reverse-proxy=true
         envFrom:

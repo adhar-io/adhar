@@ -222,7 +222,7 @@ spec:
             manifestPath: "application/argo-rollout/manifests"
           - name: "buildpack"
             enabled: "true"
-            namespace: "kpack-system"
+            namespace: "adhar-system"
             category: "application"
             manifestPath: "application/buildpack/manifests"
           - name: "chaos-mesh"

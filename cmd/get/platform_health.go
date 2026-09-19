@@ -169,7 +169,7 @@ func displayPlatformHealth(conditions []PlatformConditionInfo, packages *Package
 	}
 
 	if packages != nil && packages.Total > 0 {
-		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📦 Platform Packages"))
+		fmt.Printf("\n%s\n", helpers.TitleStyle.Render(helpers.IconApp+" "+"Platform Packages"))
 
 		var b strings.Builder
 		fmt.Fprintf(&b, "✅ Healthy: %d   🔄 Progressing: %d   ❌ Degraded: %d   (total: %d)\n",
@@ -244,7 +244,7 @@ func displayAccessURLs(urls []AccessURL) {
 		fmt.Fprintf(&b, "%-18s %s\n", u.Name, u.URL)
 	}
 	b.WriteString(strings.Repeat("─", 75) + "\n")
-	b.WriteString("🔑 Credentials: adhar get secrets   ·   📦 Apps: adhar get apps\n")
+	b.WriteString(helpers.IconSecurity + " " + "Credentials: adhar get secrets   ·   " + helpers.IconApp + " " + "Apps: adhar get apps\n")
 	fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))
 }
 

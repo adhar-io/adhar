@@ -57,3 +57,45 @@ func TestWorkerScalePlanEdgeCases(t *testing.T) {
 		t.Errorf("gaps are filled lowest-first and foreign names ignored: %v", add)
 	}
 }
+
+func TestCriticalPathImagesAreTheCiliumDataPathAndPinned(t *testing.T) {
+	if len(CriticalPathImages) != 3 {
+		t.Fatalf("the pre-pull set must stay minimal (it is on the critical path); got %d", len(CriticalPathImages))
+	}
+	for _, img := range CriticalPathImages {
+		if !strings.HasPrefix(img, "quay.io/cilium/") {
+			t.Errorf("only the CNI data path belongs on the pre-pull set: %s", img)
+		}
+		if !strings.Contains(img, ":") || strings.HasSuffix(img, ":latest") {
+			t.Errorf("pre-pulled images must be pinned to an exact tag: %s", img)
+		}
+	}
+}
+
+func TestNodePrepPrePullsTheCriticalPathInTheBackground(t *testing.T) {
+	script := KubeadmNodePrepScript("1.37")
+	for _, want := range []string{
+		"ctr -n k8s.io images pull", "--hosts-dir /etc/containerd/certs.d", "nohup sh -c", "|| true",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("node prep must pre-pull tolerantly through certs.d; missing %q", want)
+		}
+	}
+	for _, img := range CriticalPathImages {
+		if !strings.Contains(script, img) {
+			t.Errorf("node prep does not pre-pull %s", img)
+		}
+	}
+	// The pre-pull must not block node prep, and must run before the
+	// completion marker so the provider's WaitForNodePrep is not delayed.
+	pull := strings.Index(script, "ctr -n k8s.io images pull")
+	marker := strings.Index(script, "touch "+KubeadmCloudInitMarker)
+	if pull < 0 || marker < 0 || pull > marker {
+		t.Errorf("pre-pull must be started before the completion marker (pull=%d marker=%d)", pull, marker)
+	}
+	line := script[strings.LastIndex(script[:pull], "\n")+1:]
+	line = line[:strings.Index(line, "\n")]
+	if !strings.HasSuffix(strings.TrimSpace(line), "&") {
+		t.Errorf("the pre-pull must be backgrounded so node prep returns immediately: %q", line)
+	}
+}

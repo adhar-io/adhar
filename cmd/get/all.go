@@ -267,7 +267,7 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 	platformContent := fmt.Sprintf(
 		"🏥 Platform Status: %s\n"+
 			"💯 Health Score: %d/100\n"+
-			"📦 Version: %s\n"+
+			helpers.IconApp+" "+"Version: %s\n"+
 			"⏱️  Uptime: %s",
 		overview.Platform.Status,
 		overview.Platform.HealthScore,
@@ -281,11 +281,11 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🏗️  Cluster Overview"))
 
 	clusterContent := fmt.Sprintf(
-		"🌐 Context: %s\n"+
+		helpers.IconNetwork+" "+"Context: %s\n"+
 			"☁️  Provider: %s\n"+
 			"⚡ Version: %s\n"+
-			"🖥️  Nodes: %d ready / %d total\n"+
-			"📁 Namespaces: %d",
+			helpers.IconCluster+" "+"Nodes: %d ready / %d total\n"+
+			helpers.IconNamespace+" "+"Namespaces: %d",
 		overview.Cluster.Name,
 		overview.Cluster.Provider,
 		overview.Cluster.Version,
@@ -297,11 +297,11 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 	fmt.Println(clusterBox)
 
 	// Resources Summary
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📊 Resource Summary"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(helpers.IconApp+" "+"Resource Summary"))
 
 	var resourcesTable strings.Builder
 	resourcesTable.WriteString(fmt.Sprintf("%-20s %-15s %-15s\n",
-		"🏷️  RESOURCE TYPE", "📊 COUNT", "🔄 STATUS"))
+		helpers.IconNamespace+" "+"RESOURCE TYPE", helpers.IconApp+" "+"COUNT", "🔄 STATUS"))
 	resourcesTable.WriteString(strings.Repeat("─", 50) + "\n")
 
 	resourceData := []struct {
@@ -312,8 +312,8 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 		{"🚀 Applications", len(overview.Applications), "Running"},
 		{"🌍 Environments", len(overview.Environments), "Active"},
 		{"🏃 Pods", overview.Resources.TotalPods, fmt.Sprintf("%d running", overview.Resources.RunningPods)},
-		{"🌐 Services", overview.Resources.TotalServices, "Available"},
-		{"🔐 Secrets", overview.Resources.TotalSecrets, "Managed"},
+		{helpers.IconNetwork + " " + "Services", overview.Resources.TotalServices, "Available"},
+		{helpers.IconSecurity + " " + "Secrets", overview.Resources.TotalSecrets, "Managed"},
 		{"⚙️ ConfigMaps", overview.Resources.TotalConfigMaps, "Available"},
 	}
 
@@ -332,13 +332,13 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 
 		var appsTable strings.Builder
 		appsTable.WriteString(fmt.Sprintf("%-25s %-15s %-12s %-15s\n",
-			"🏷️  NAME", "📁 NAMESPACE", "📦 TYPE", "📊 STATUS"))
+			helpers.IconNamespace+" "+"NAME", helpers.IconNamespace+" "+"NAMESPACE", helpers.IconApp+" "+"TYPE", helpers.IconApp+" "+"STATUS"))
 		appsTable.WriteString(strings.Repeat("─", 65) + "\n")
 
 		for _, app := range overview.Applications[:min(5, len(overview.Applications))] {
 			row := fmt.Sprintf("%-25s %-15s %-12s %-15s\n",
-				truncateString(app.Name, 23),
-				truncateString(app.Namespace, 13),
+				helpers.TruncateDisplay(app.Name, 23),
+				helpers.TruncateDisplay(app.Namespace, 13),
 				app.Type,
 				app.Status)
 			appsTable.WriteString(row)

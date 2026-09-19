@@ -336,3 +336,48 @@ func TestPackagesDoNotOwnExternalSecretsSourcedFromOtherPackages(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Single sign-on across the platform requires every oauth2-proxy to share ONE
+// cookie secret and scope its cookie to the PARENT domain. Each app used to
+// mint its own secret from its own Password generator with no --cookie-domain,
+// so the session cookie was host-scoped and undecryptable by any sibling:
+// signing in to the console and opening Argo CD or Grafana forced another auth
+// round trip every time (reported 2026-09-19).
+func TestEveryOAuth2ProxySharesTheSSOSessionCookie(t *testing.T) {
+	root := filepath.Join(stackRoot(t), "packages")
+	proxies := 0
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return err
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		body := string(b)
+		if !strings.Contains(body, "--cookie-secure=true") {
+			return nil
+		}
+		proxies++
+		rel, _ := filepath.Rel(root, path)
+		if !strings.Contains(body, "key: adhar-sso-cookie") {
+			t.Errorf("%s: oauth2-proxy does not read the shared cookie secret (adhar-sso-cookie) — its session cannot be shared with other apps", rel)
+		}
+		if strings.Contains(body, "-oauth2-cookie") {
+			t.Errorf("%s: still mints a per-app cookie secret, which breaks single sign-on", rel)
+		}
+		if !strings.Contains(body, "--cookie-domain=.") {
+			t.Errorf("%s: oauth2-proxy sets no parent-domain --cookie-domain, so its cookie is scoped to one host", rel)
+		}
+		if !strings.Contains(body, "--whitelist-domain=.") {
+			t.Errorf("%s: oauth2-proxy has no --whitelist-domain, so redirects to sibling apps are refused", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxies < 20 {
+		t.Errorf("expected the SSO-fronted apps to be found, got %d", proxies)
+	}
+}

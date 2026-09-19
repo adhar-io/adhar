@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/kind/pkg/cluster/nodes"
 	"sigs.k8s.io/kind/pkg/cluster/nodeutils"
 
+	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/utils"
 )
 
@@ -22,11 +23,7 @@ import (
 // (registrycache.go) and needs no host-side handling: the old ~7 GB
 // "core images" save/load that ran here on every `adhar up` cost about three
 // minutes before the first CRD was installed and is gone.
-var criticalPathImages = []string{
-	"quay.io/cilium/cilium:v1.20.0",
-	"quay.io/cilium/cilium-envoy:v1.37.5-1782911245-7cffc778c923f68a77954a53b1a98d6b5353f004",
-	"quay.io/cilium/operator-generic:v1.20.0",
-}
+var criticalPathImages = provider.CriticalPathImages
 
 // preloadImages returns every image the preloader will try to seed.
 func preloadImages() []string {

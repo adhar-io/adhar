@@ -43,6 +43,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -353,16 +354,25 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	}
 
 	// Wait for the bootstrap controller to converge and shut down (ExitOnSync).
+	// It drives the platform Applications to Synced + Healthy before exiting
+	// (bounded by --apps-timeout), so report that progress: on a cloud or
+	// on-prem bring-up this phase is the longest part of `adhar up` and used to
+	// print nothing at all between "Bootstrapping" and "bootstrapped".
+	stopProgress := make(chan struct{})
+	go logAppConvergence(bootstrapCtx, kubeClient, platformName, stopProgress)
 	select {
 	case mgrErr := <-exitCh:
+		close(stopProgress)
 		if mgrErr != nil && !isShutdownError(mgrErr) {
 			return mgrErr
 		}
 	case <-bootstrapCtx.Done():
+		close(stopProgress)
 		if mgrErr := <-exitCh; mgrErr != nil && !isShutdownError(mgrErr) {
 			return mgrErr
 		}
 	}
+	reportPendingApplications(context.Background(), kubeClient, platformName)
 
 	// Production posture: continuous reconciliation via the in-cluster manager.
 	installCtx, installCancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -380,4 +390,38 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 
 	logger.Infof("✅ Platform bootstrapped on cluster %s (HA mode: %t)", result.Cluster.ID, enableHA)
 	return nil
+}
+
+// logAppConvergence reports how far the platform Applications have converged
+// while the bootstrap controller drives them, so a cloud or on-prem `adhar up`
+// shows the same "n/m apps Synced + Healthy" progress the local flow renders on
+// its checklist. Read-only and best effort: it never affects the bootstrap.
+func logAppConvergence(ctx context.Context, c client.Client, name string, stop <-chan struct{}) {
+	defer func() { _ = recover() }()
+	t := time.NewTicker(20 * time.Second)
+	defer t.Stop()
+	last := ""
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			var pl v1alpha1.AdharPlatform
+			if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &pl); err != nil || pl.Status.GitOps == nil {
+				continue
+			}
+			g := pl.Status.GitOps
+			if g.ApplicationsTotal == 0 {
+				continue
+			}
+			msg := fmt.Sprintf("%d/%d platform apps Synced + Healthy", g.ApplicationsHealthy, g.ApplicationsTotal)
+			if msg == last {
+				continue
+			}
+			last = msg
+			logger.Infof("⏳ GitOps sync: %s", msg)
+		}
+	}
 }

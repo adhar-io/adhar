@@ -19,9 +19,11 @@ package get
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 
 	"github.com/charmbracelet/lipgloss"
@@ -107,11 +109,11 @@ func runGetCluster(cmd *cobra.Command, args []string) error {
 
 	// Display cluster overview in a bordered box
 	clusterOverview := fmt.Sprintf(
-		"🌐 Current Context: %s\n"+
-			"⚡ Kubernetes Version: %s\n"+
-			"🖥️  Total Nodes: %d\n"+
-			"📦 Total Pods: %d\n"+
-			"🏷️  Total Namespaces: %d",
+		helpers.IconCluster+" Current Context: %s\n"+
+			helpers.IconBullet+" Kubernetes Version: %s\n"+
+			helpers.IconCluster+" "+"Total Nodes: %d\n"+
+			helpers.IconApp+" "+"Total Pods: %d\n"+
+			helpers.IconNamespace+" "+"Total Namespaces: %d",
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#10b981")).Render(currentContext),
 		version.String(),
 		len(nodes.Items),
@@ -131,7 +133,7 @@ func runGetCluster(cmd *cobra.Command, args []string) error {
 	// Display node information in a bordered table
 	if len(nodes.Items) > 0 {
 		fmt.Println()
-		fmt.Println(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8b5cf6")).Render("🖥️  Cluster Nodes"))
+		fmt.Println(helpers.SectionHeading(helpers.IconCluster, "Cluster Nodes"))
 
 		// Create nodes table with borders
 		nodesTable := createNodesTable(nodes.Items)
@@ -161,7 +163,7 @@ func runGetCluster(cmd *cobra.Command, args []string) error {
 	// Show detailed information if requested
 	if detailedOutput {
 		fmt.Println()
-		fmt.Println(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8b5cf6")).Render("📊 Detailed Cluster Information"))
+		fmt.Println(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8b5cf6")).Render(helpers.IconApp + " " + "Detailed Cluster Information"))
 
 		detailedInfo := getDetailedClusterInfo(clientset, ctx)
 		detailedBox := lipgloss.NewStyle().
@@ -188,82 +190,75 @@ func getCurrentContext() string {
 	return "unknown"
 }
 
-// createNodesTable creates a formatted table string for nodes
+// createNodesTable renders the cluster's nodes through the shared aligned
+// table. It used to separate cells with tabs, which snap to 8-column stops and
+// therefore put the header, the rule and the data on three different offsets as
+// soon as a cell carried an icon or a colour escape.
 func createNodesTable(nodes []corev1.Node) string {
-	var table strings.Builder
-
-	// Add table header
-	table.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8b5cf6")).Render(
-		"NAME\tSTATUS\tROLES\tAGE\tVERSION\n"))
-
-	// Add separator line
-	table.WriteString("─────\t──────\t─────\t───\t───────\n")
-
-	// Add node rows
+	t := helpers.NewTable("NAME", "STATUS", "ROLES", "AGE", "VERSION")
 	for _, node := range nodes {
-		// Get node status with color coding
-		status := "Unknown"
-		statusColor := "#64748b" // Default gray
-		for _, condition := range node.Status.Conditions {
-			if condition.Type == corev1.NodeReady {
-				if condition.Status == corev1.ConditionTrue {
-					status = "✅ Ready"
-					statusColor = "#10b981" // Green
-				} else {
-					status = "❌ NotReady"
-					statusColor = "#ef4444" // Red
-				}
-				break
-			}
-		}
-
-		// Get node roles with icons
-		roles := []string{}
-		for label := range node.Labels {
-			if strings.HasPrefix(label, "node-role.kubernetes.io/") {
-				role := strings.TrimPrefix(label, "node-role.kubernetes.io/")
-				if role == "" {
-					role = "worker"
-				}
-				roles = append(roles, role)
-			}
-		}
-		if len(roles) == 0 {
-			roles = append(roles, "worker")
-		}
-
-		// Add role icons
-		roleIcons := []string{}
-		for _, role := range roles {
-			switch role {
-			case "control-plane":
-				roleIcons = append(roleIcons, "👑")
-			case "worker":
-				roleIcons = append(roleIcons, "⚙️")
-			default:
-				roleIcons = append(roleIcons, "🔧")
-			}
-		}
-		rolesWithIcons := strings.Join(roleIcons, " ")
-
-		// Calculate age
-		age := "unknown"
-		if !node.CreationTimestamp.Time.IsZero() {
-			age = duration.HumanDuration(time.Since(node.CreationTimestamp.Time))
-		}
-
-		// Format the row with proper styling
-		row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\n",
+		t.Row(
 			lipgloss.NewStyle().Bold(true).Render(node.Name),
-			lipgloss.NewStyle().Foreground(lipgloss.Color(statusColor)).Render(status),
-			rolesWithIcons,
-			age,
-			node.Status.NodeInfo.KubeletVersion)
-
-		table.WriteString(row)
+			nodeStatus(node),
+			nodeRoles(node),
+			nodeAge(node),
+			node.Status.NodeInfo.KubeletVersion,
+		)
 	}
+	return t.Render()
+}
 
-	return table.String()
+// nodeStatus is the node's Ready condition as one status cell.
+func nodeStatus(node corev1.Node) string {
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == corev1.NodeReady {
+			if condition.Status == corev1.ConditionTrue {
+				return helpers.StateReady("Ready")
+			}
+			return helpers.StateFailed("NotReady")
+		}
+	}
+	return helpers.StateUnknown("Unknown")
+}
+
+// nodeRoles lists the node's roles with the platform's role icons, naming the
+// role as well as showing its glyph — a bare crown told the reader nothing.
+func nodeRoles(node corev1.Node) string {
+	var roles []string
+	for label := range node.Labels {
+		if !strings.HasPrefix(label, "node-role.kubernetes.io/") {
+			continue
+		}
+		role := strings.TrimPrefix(label, "node-role.kubernetes.io/")
+		if role == "" {
+			role = "worker"
+		}
+		roles = append(roles, role)
+	}
+	if len(roles) == 0 {
+		roles = []string{"worker"}
+	}
+	sort.Strings(roles)
+	out := make([]string, 0, len(roles))
+	for _, role := range roles {
+		switch role {
+		case "control-plane", "master":
+			out = append(out, helpers.IconControlPlane+" "+role)
+		case "worker":
+			out = append(out, helpers.IconWorker+" "+role)
+		default:
+			out = append(out, helpers.IconNodeOther+" "+role)
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
+// nodeAge is the node's age, or "unknown" when it has no creation timestamp.
+func nodeAge(node corev1.Node) string {
+	if node.CreationTimestamp.Time.IsZero() {
+		return "unknown"
+	}
+	return duration.HumanDuration(time.Since(node.CreationTimestamp.Time))
 }
 
 // getProviderInfo returns formatted provider information
@@ -272,9 +267,9 @@ func getProviderInfo(currentContext string) string {
 
 	if strings.Contains(currentContext, "kind-") {
 		clusterName := strings.TrimPrefix(currentContext, "kind-")
-		providerInfo.WriteString("🏠 Provider: Kind (Local Development)\n")
-		providerInfo.WriteString(fmt.Sprintf("📝 Cluster Name: %s\n\n", clusterName))
-		providerInfo.WriteString("🔧 Kind Cluster Details:\n")
+		providerInfo.WriteString(helpers.IconCluster + " " + "Provider: Kind (Local Development)\n")
+		providerInfo.WriteString(fmt.Sprintf(helpers.IconBullet+" "+"Cluster Name: %s\n\n", clusterName))
+		providerInfo.WriteString(helpers.IconBullet + " " + "Kind Cluster Details:\n")
 		providerInfo.WriteString("  • Local development cluster running in Docker\n")
 		providerInfo.WriteString("  • Access services via: https://adhar.localtest.me:8443\n")
 		providerInfo.WriteString("  • Get service passwords with: adhar get secrets -p <provider>")
@@ -308,7 +303,7 @@ func getDetailedClusterInfo(clientset *kubernetes.Clientset, ctx context.Context
 	var detailedInfo strings.Builder
 
 	// Get cluster resource quotas
-	detailedInfo.WriteString("📊 Resource Information:\n")
+	detailedInfo.WriteString(helpers.IconApp + " " + "Resource Information:\n")
 
 	// Get node capacity and allocatable resources
 	nodes, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})

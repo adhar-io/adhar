@@ -256,6 +256,17 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	stopPoll := make(chan struct{})
 	go pollPlatformStages(ctx, kubeClient, lp.options.Name, tracker, stopPoll)
 
+	// The apps budget is enforced HERE as well as in the controller. The
+	// controller checks it once per reconcile, which is fine while reconciles
+	// are quick — but on an exhausted machine a pass took ~15 minutes, so a
+	// 12-minute budget went unhonoured for over an hour. This watchdog does not
+	// depend on reconcile cadence: it starts counting when app convergence
+	// first reports progress and cancels the bootstrap when the budget is
+	// spent, leaving ArgoCD to finish in the background.
+	if lp.options.AppsTimeout > 0 {
+		go watchAppsBudget(ctx, kubeClient, lp.options.Name, lp.options.AppsTimeout, appsBudgetPoll, lp.options.CancelFunc, stopPoll)
+	}
+
 	finish := func(failed bool) {
 		close(stopPoll)
 		if failed {
@@ -300,6 +311,55 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	finish(false)
 	reportPendingApplications(context.Background(), kubeClient, lp.options.Name)
 	return nil
+}
+
+// appsBudgetPoll is how often the watchdog re-reads convergence progress.
+const appsBudgetPoll = 15 * time.Second
+
+// watchAppsBudget cancels the bootstrap once app convergence has had its full
+// budget, independently of how often the controller reconciles. It starts the
+// clock when the platform first publishes convergence progress, so the
+// unbounded foundation phase is never charged against the apps budget.
+func watchAppsBudget(ctx context.Context, c client.Client, name string, budget, interval time.Duration, cancel context.CancelFunc, stop <-chan struct{}) {
+	defer func() { _ = recover() }()
+	if interval <= 0 {
+		interval = appsBudgetPoll
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	var started time.Time
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			var lb v1alpha1.AdharPlatform
+			if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &lb); err != nil {
+				continue
+			}
+			g := lb.Status.GitOps
+			if g == nil || g.ApplicationsTotal == 0 {
+				continue // convergence has not started; the clock is not running
+			}
+			if g.ApplicationsHealthy == g.ApplicationsTotal {
+				return // converged; the controller shuts itself down
+			}
+			if started.IsZero() {
+				started = time.Now()
+				continue
+			}
+			if time.Since(started) >= budget {
+				logger.Infof("apps budget of %s spent with %d/%d Synced + Healthy; finishing and leaving ArgoCD to converge",
+					budget, g.ApplicationsHealthy, g.ApplicationsTotal)
+				if cancel != nil {
+					cancel()
+				}
+				return
+			}
+		}
+	}
 }
 
 // reportPendingApplications names the platform Applications that were not yet

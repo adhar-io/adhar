@@ -76,8 +76,14 @@ spec:
           # env-parsing components must keep enableServiceLinks:false.
           # See platform/stack/packages/CONFLICTS.md before enabling both.
           # Enabled in production for keyless signature verification (ADR-0019).
+          # Retired 2026-09-19: the sigstore policy-controller writes
+          # Secret/webhook-certs under a name compiled into its binary, and so does
+          # kpack — they cannot share adhar-system (ADR-0011, one namespace). Image
+          # signatures are enforced by the supply-chain-kyverno ClusterPolicy
+          # verify-supply-chain-images against the same cosign key, so enforcement is
+          # unchanged; what is lost is the ClusterImagePolicy API.
           - name: "cosign"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/cosign/manifests"
@@ -267,11 +273,11 @@ spec:
           # policy-controller, and both are enabled here; two knative webhooks
           # sharing that Secret leave one without a valid serving cert. The
           # generator drops upstream's Namespace object (pod-security
-          # enforce=restricted) and renders everything into kpack-system, which
+          # enforce=restricted) and renders everything into adhar-system, which
           # ArgoCD creates (CreateNamespace=true). See CONFLICTS.md.
           - name: "buildpack"
             enabled: "true"
-            namespace: "kpack-system"
+            namespace: "adhar-system"
             category: "application"
             manifestPath: "application/buildpack/manifests"
           - name: "chaos-mesh"

@@ -545,12 +545,12 @@ func getWorkloadSummary(clientset *kubernetes.Clientset, ctx context.Context, na
 }
 
 func displayEnvironmentsTable(environments []EnvironmentInfo) error {
-	logger.Info(fmt.Sprintf("📋 Found %d environments", len(environments)))
+	logger.Info(fmt.Sprintf(helpers.IconApp+" "+"Found %d environments", len(environments)))
 
 	// Create table header
 	var table strings.Builder
 	table.WriteString(fmt.Sprintf("%-25s %-12s %-8s %-10s %-10s %-8s\n",
-		"🏷️  NAME", "📊 STATUS", "📅 AGE", "🚀 WORKLOADS", "💾 RESOURCES", "🔐 SECRETS"))
+		helpers.IconNamespace+" "+"NAME", helpers.IconApp+" "+"STATUS", "📅 AGE", "🚀 WORKLOADS", helpers.IconStorage+" "+"RESOURCES", helpers.IconSecurity+" "+"SECRETS"))
 	table.WriteString(strings.Repeat("─", 75) + "\n")
 
 	// Display environments
@@ -559,7 +559,7 @@ func displayEnvironmentsTable(environments []EnvironmentInfo) error {
 		resourceCount := env.ResourceUsage.Services + env.ResourceUsage.ConfigMaps + env.ResourceUsage.PVCs
 
 		row := fmt.Sprintf("%-25s %-12s %-8s %-10d %-10d %-8d\n",
-			truncateString(env.Name, 23),
+			helpers.TruncateDisplay(env.Name, 23),
 			env.Status,
 			env.Age,
 			workloadCount,
@@ -570,13 +570,13 @@ func displayEnvironmentsTable(environments []EnvironmentInfo) error {
 		// Show additional details if requested
 		if showQuotas && len(env.ResourceQuotas) > 0 {
 			for _, quota := range env.ResourceQuotas {
-				quotaLine := fmt.Sprintf("  📊 Quota: %s", quota.Name)
+				quotaLine := fmt.Sprintf(helpers.IconApp+" "+"Quota: %s", quota.Name)
 				table.WriteString(quotaLine + "\n")
 			}
 		}
 
 		if envResources && (env.ResourceUsage.Pods > 0 || env.ResourceUsage.Services > 0) {
-			resourceLine := fmt.Sprintf("  💾 Usage: %d pods, %d services, %d configmaps",
+			resourceLine := fmt.Sprintf(helpers.IconStorage+" "+"Usage: %d pods, %d services, %d configmaps",
 				env.ResourceUsage.Pods, env.ResourceUsage.Services, env.ResourceUsage.ConfigMaps)
 			table.WriteString(resourceLine + "\n")
 		}

@@ -349,14 +349,14 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 	case "argocd":
 		if strings.Contains(secret.Name, "argocd-initial-admin-secret") {
 			return []SecretEntry{{
-				Icon: "🚀", Service: "ArgoCD",
+				Icon: helpers.IconSecurity, Service: "ArgoCD",
 				Username: "admin", Password: string(secret.Data["password"]),
 			}}
 		}
 	case "gitea":
 		if strings.Contains(secret.Name, "gitea-admin") {
 			return []SecretEntry{{
-				Icon: "🦊", Service: "Gitea",
+				Icon: helpers.IconSecurity, Service: "Gitea",
 				Username: string(secret.Data["username"]), Password: string(secret.Data["password"]),
 			}}
 		}
@@ -370,14 +370,14 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 				id = "adhar-console"
 			}
 			return []SecretEntry{{
-				Icon: "🧭", Service: "Adhar Console OIDC client (not a login)",
+				Icon: helpers.IconSecurity, Service: "Adhar Console OIDC client (not a login)",
 				Username: id, Password: string(secret.Data["ADHAR_CONSOLE_CLIENT_SECRET"]),
 			}}
 		}
 	case "keycloak-admin":
 		if strings.Contains(secret.Name, "keycloak-config") {
 			return []SecretEntry{{
-				Icon: "🔑", Service: "Keycloak (admin)",
+				Icon: helpers.IconSecurity, Service: "Keycloak (admin)",
 				Username: "adhar-admin", Password: string(secret.Data["KEYCLOAK_ADMIN_PASSWORD"]),
 			}}
 		}
@@ -389,13 +389,13 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 		// but a looser test would have caught it in the wrong branch.
 		if secret.Name == keycloakUser2Secret {
 			return []SecretEntry{{
-				Icon: "👤", Service: "Keycloak user2 (developer)",
+				Icon: helpers.IconSecurity, Service: "Keycloak user2 (developer)",
 				Username: keycloakSeedUser2, Password: string(secret.Data["USER_PASSWORD"]),
 			}}
 		}
 		if strings.Contains(secret.Name, "keycloak-config") {
 			return []SecretEntry{{
-				Icon: "👤", Service: "Keycloak user1 (admin)",
+				Icon: helpers.IconSecurity, Service: "Keycloak user1 (admin)",
 				Username: keycloakSeedUser1, Password: string(secret.Data["USER_PASSWORD"]),
 			}}
 		}
@@ -404,22 +404,22 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 		var entries []SecretEntry
 		if secret.Name == keycloakUser2Secret {
 			return []SecretEntry{{
-				Icon: "👤", Service: "Keycloak user2 (developer)",
+				Icon: helpers.IconSecurity, Service: "Keycloak user2 (developer)",
 				Username: keycloakSeedUser2, Password: string(secret.Data["USER_PASSWORD"]),
 			}}
 		}
 		if strings.Contains(secret.Name, "keycloak-config") {
 			entries = append(entries, SecretEntry{
-				Icon: "🔑", Service: "Keycloak (admin)",
+				Icon: helpers.IconSecurity, Service: "Keycloak (admin)",
 				Username: "adhar-admin", Password: string(secret.Data["KEYCLOAK_ADMIN_PASSWORD"]),
 			}, SecretEntry{
-				Icon: "👤", Service: "Keycloak user1 (admin)",
+				Icon: helpers.IconSecurity, Service: "Keycloak user1 (admin)",
 				Username: keycloakSeedUser1, Password: string(secret.Data["USER_PASSWORD"]),
 			})
 		}
 		if strings.Contains(secret.Name, "keycloak-clients") {
 			entries = append(entries, SecretEntry{
-				Icon: "⚙️", Service: "Keycloak (adhar-console)",
+				Icon: helpers.IconSecurity, Service: "Keycloak (adhar-console)",
 				Username: string(secret.Data["ADHAR_CONSOLE_CLIENT_ID"]),
 				Password: string(secret.Data["ADHAR_CONSOLE_CLIENT_SECRET"]),
 			})
@@ -427,21 +427,21 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 		return entries
 	case "harbor":
 		if strings.Contains(secret.Name, "harbor-admin") {
-			return []SecretEntry{{Icon: "⚓", Service: "Harbor", Username: "admin", Password: string(secret.Data["HARBOR_ADMIN_PASSWORD"])}}
+			return []SecretEntry{{Icon: helpers.IconSecurity, Service: "Harbor", Username: "admin", Password: string(secret.Data["HARBOR_ADMIN_PASSWORD"])}}
 		}
 		if strings.Contains(secret.Name, "harbor-core") {
-			return []SecretEntry{{Icon: "⚓", Service: "Harbor (core)", Username: "harbor", Password: string(secret.Data["secret"])}}
+			return []SecretEntry{{Icon: helpers.IconSecurity, Service: "Harbor (core)", Username: "harbor", Password: string(secret.Data["secret"])}}
 		}
 	case "rustfs":
 		if strings.Contains(secret.Name, "root-creds") {
 			return []SecretEntry{{
-				Icon: "📦", Service: "RustFS (S3/console)",
+				Icon: helpers.IconSecurity, Service: "RustFS (S3/console)",
 				Username: string(secret.Data["RUSTFS_ACCESS_KEY"]),
 				Password: string(secret.Data["RUSTFS_SECRET_KEY"]),
 			}}
 		}
 	case "postgres":
-		entry := SecretEntry{Icon: "🐘", Service: "PostgreSQL (" + secret.Namespace + ")"}
+		entry := SecretEntry{Icon: helpers.IconSecurity, Service: "PostgreSQL (" + secret.Namespace + ")"}
 		if p, ok := secret.Data["postgres-password"]; ok {
 			entry.Username = "postgres"
 			entry.Password = string(p)
@@ -454,13 +454,13 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 		}
 	case "redis":
 		if p, ok := secret.Data["auth"]; ok {
-			return []SecretEntry{{Icon: "🔴", Service: "Redis", Username: "default", Password: string(p)}}
+			return []SecretEntry{{Icon: helpers.IconSecurity, Service: "Redis", Username: "default", Password: string(p)}}
 		}
 		if p, ok := secret.Data["password"]; ok {
-			return []SecretEntry{{Icon: "🔴", Service: "Redis", Username: "default", Password: string(p)}}
+			return []SecretEntry{{Icon: helpers.IconSecurity, Service: "Redis", Username: "default", Password: string(p)}}
 		}
 	case "vault":
-		entry := SecretEntry{Icon: "🔒", Service: "Vault (root token — UI/CLI 'Token' login)"}
+		entry := SecretEntry{Icon: helpers.IconSecurity, Service: "Vault (root token — UI/CLI 'Token' login)"}
 		if p, ok := secret.Data["root-token"]; ok {
 			entry.Username = "root"
 			entry.Password = string(p)
@@ -482,7 +482,7 @@ func extractEntries(providerName string, secret corev1.Secret) []SecretEntry {
 	}
 
 	// Generic fallback
-	entry := SecretEntry{Icon: "🔐", Service: secret.Name}
+	entry := SecretEntry{Icon: helpers.IconSecurity, Service: secret.Name}
 	for _, k := range []string{"username", "user", "admin-user", "login"} {
 		if v, ok := secret.Data[k]; ok && len(v) > 0 {
 			entry.Username = string(v)
@@ -516,35 +516,30 @@ func displaySecretEntries(entries []SecretEntry, label string) error {
 	fmt.Println()
 	logger.Info(fmt.Sprintf("Found %d credential(s) for %s\n", len(entries), label))
 
-	// Column widths follow the content (display width, so emoji icons and
-	// multi-byte names line up) and nothing is ever truncated: a credential you
-	// cannot read in full is useless.
-	svcW, userW, passW := lipgloss.Width("SERVICE"), lipgloss.Width("USERNAME"), lipgloss.Width("PASSWORD")
+	// The shared aligned table (cmd/helpers/table.go): one implementation for
+	// every table in the CLI, sized by display width. Nothing is truncated here
+	// — a credential you cannot read in full is useless — so the table is given
+	// a budget wide enough for its own content.
+	t := helpers.NewTable("SERVICE", "USERNAME", "PASSWORD")
 	for _, e := range entries {
-		svcW = max(svcW, lipgloss.Width(e.Icon+" "+e.Service))
-		userW = max(userW, lipgloss.Width(orDash(e.Username)))
-		passW = max(passW, lipgloss.Width(orDash(e.Password)))
+		t.Row(helpers.IconSecurity+" "+e.Service, orDash(e.Username), orDash(e.Password))
 	}
-	pad := func(s string, w int) string {
-		if n := w - lipgloss.Width(s); n > 0 {
-			return s + strings.Repeat(" ", n)
-		}
-		return s
-	}
+	t.WithBudget(credentialsBudget(entries))
 
-	totalW := svcW + userW + passW + 10 // padding between columns
-	var tb strings.Builder
-	tb.WriteString(helpers.CreateHighlight("  " + pad("SERVICE", svcW) + "  " + pad("USERNAME", userW) + "  " + pad("PASSWORD", passW)))
-	tb.WriteString("\n")
-	tb.WriteString(strings.Repeat("─", totalW))
-	tb.WriteString("\n")
-	for _, e := range entries {
-		tb.WriteString("  " + pad(e.Icon+" "+e.Service, svcW) + "  " + pad(orDash(e.Username), userW) + "  " + orDash(e.Password) + "\n")
-	}
-
-	fmt.Println(helpers.BorderStyle.Width(totalW + 6).Render(tb.String()))
+	fmt.Println(helpers.BorderStyle.Width(t.Width() + 4).Render(t.Render()))
 	fmt.Println()
 	return nil
+}
+
+// credentialsBudget is wide enough that no credential is ever shortened.
+func credentialsBudget(entries []SecretEntry) int {
+	svc, user, pass := lipgloss.Width("SERVICE"), lipgloss.Width("USERNAME"), lipgloss.Width("PASSWORD")
+	for _, e := range entries {
+		svc = max(svc, lipgloss.Width(helpers.IconSecurity+" "+e.Service))
+		user = max(user, lipgloss.Width(orDash(e.Username)))
+		pass = max(pass, lipgloss.Width(orDash(e.Password)))
+	}
+	return svc + user + pass + 4
 }
 
 // Package-provided credentials: a package ships its admin credentials as a
@@ -601,7 +596,7 @@ func labelledPackageEntries(clientset *kubernetes.Clientset, pkg string) []Secre
 		if len(listLabelledSecretsOf(clientset, name)) > 1 {
 			service = name + " (" + s.Name + ")"
 		}
-		entries = append(entries, SecretEntry{Icon: "🔐", Service: service, Username: user, Password: pass})
+		entries = append(entries, SecretEntry{Icon: helpers.IconSecurity, Service: service, Username: user, Password: pass})
 	}
 	return entries
 }

@@ -110,7 +110,9 @@ func renderCommandRow(b *strings.Builder, off bool, c *cobra.Command, width int)
 	name := c.Name()
 	pad := strings.Repeat(" ", width-utf8.RuneCountInString(name))
 	short := firstLine(c.Short)
-	fmt.Fprintf(b, "      %s%s   %s\n", paint(off, hCommand, name), pad, paint(off, hDesc, short))
+	// 4-space body indent, matching USAGE/FLAGS; the marker gives the list a
+	// scannable left edge instead of a ragged block of names.
+	fmt.Fprintf(b, "    %s %s%s   %s\n", paint(off, hDesc, helpers.IconBullet), paint(off, hCommand, name), pad, paint(off, hDesc, short))
 }
 
 func firstLine(s string) string {
@@ -128,7 +130,9 @@ func bannerBlock(full bool) string {
 	if full && interactive {
 		return "\n" + helpers.RenderBanner() + "\n"
 	}
-	return helpers.RenderBannerLine(globals.Version) + "\n"
+	// Leading blank line: help was printed flush against the command the user
+	// just typed, which left the page with no breathing room at the top.
+	return "\n" + helpers.RenderBannerLine(globals.Version) + "\n"
 }
 
 // styledHelp is the SetHelpFunc handler for the whole command tree; it always

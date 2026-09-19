@@ -3,18 +3,6 @@
 # client (provisioned by the keycloak config job; secret via ESO from
 # keycloak-clients). Same pattern as the Tekton Dashboard gate.
 ---
-apiVersion: generators.external-secrets.io/v1alpha1
-kind: Password
-metadata:
-  name: argo-rollout-oauth2-cookie
-  namespace: adhar-system
-spec:
-  length: 32
-  digits: 8
-  symbols: 0
-  noUpper: false
-  allowRepeat: true
----
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
@@ -33,20 +21,18 @@ spec:
       data:
         OAUTH2_PROXY_CLIENT_SECRET: "{{ .ARGO_ROLLOUT_CLIENT_SECRET }}"
         OAUTH2_PROXY_COOKIE_SECRET: "{{ .COOKIE_SECRET }}"
-  dataFrom:
-    - sourceRef:
-        generatorRef:
-          apiVersion: generators.external-secrets.io/v1alpha1
-          kind: Password
-          name: argo-rollout-oauth2-cookie
-      rewrite:
-        - transform:
-            template: "COOKIE_SECRET"
   data:
     - secretKey: ARGO_ROLLOUT_CLIENT_SECRET
       remoteRef:
         key: keycloak-clients
         property: ARGO_ROLLOUT_CLIENT_SECRET
+    # The platform-wide cookie secret (security/keycloak/manifests/sso-cookie.yaml).
+    # Shared by every oauth2-proxy so a session established by one app is
+    # accepted by all of them.
+    - secretKey: COOKIE_SECRET
+      remoteRef:
+        key: adhar-sso-cookie
+        property: COOKIE_SECRET
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -85,6 +71,12 @@ spec:
             - --email-domain=*
             - --scope=openid profile email groups
             - --cookie-secure=true
+            # Parent-domain cookie + the shared secret above = real single
+            # sign-on: another app's proxy accepts this session without a round
+            # trip to Keycloak. Seed-time host rewriting turns the literal
+            # domain into the platform's own.
+            - --cookie-domain=.adhar.localtest.me
+            - --whitelist-domain=.adhar.localtest.me:8443
             - --skip-provider-button=true
             - --reverse-proxy=true
           envFrom:

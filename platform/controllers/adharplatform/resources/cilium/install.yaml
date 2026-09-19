@@ -1,14 +1,4 @@
 ---
-# Source: cilium/templates/cilium-secrets-namespace.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: "cilium-secrets"
-  labels:
-    app.kubernetes.io/part-of: cilium
-    helm.sh/chart: cilium-1.20.0
-  annotations:
----
 # Source: cilium/templates/cilium-agent/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -154,12 +144,12 @@ data:
   gateway-api-xff-num-trusted-hops: "0"
   gateway-api-use-remote-address: "true"
   gateway-api-service-externaltrafficpolicy: "Cluster"
-  gateway-api-secrets-namespace: "cilium-secrets"
+  gateway-api-secrets-namespace: "adhar-system"
   gateway-api-hostnetwork-enabled: "false"
   gateway-api-hostnetwork-nodelabelselector: ""
   enable-policy-secrets-sync: "true"
   policy-secrets-only-from-secrets-namespace: "true"
-  policy-secrets-namespace: "cilium-secrets"
+  policy-secrets-namespace: "adhar-system"
 
   # Enable IPv4 addressing. If enabled, all endpoints are allocated an IPv4
   # address.
@@ -1029,7 +1019,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: cilium-gateway-secrets
-  namespace: "cilium-secrets"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/part-of: cilium
     helm.sh/chart: cilium-1.20.0
@@ -1048,7 +1038,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: cilium-tlsinterception-secrets
-  namespace: "cilium-secrets"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/part-of: cilium
     helm.sh/chart: cilium-1.20.0
@@ -1067,7 +1057,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: cilium-operator-gateway-secrets
-  namespace: "cilium-secrets"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/part-of: cilium
     helm.sh/chart: cilium-1.20.0
@@ -1087,7 +1077,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: cilium-operator-tlsinterception-secrets
-  namespace: "cilium-secrets"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/part-of: cilium
     helm.sh/chart: cilium-1.20.0
@@ -1157,7 +1147,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: cilium-gateway-secrets
-  namespace: "cilium-secrets"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/part-of: cilium
     helm.sh/chart: cilium-1.20.0
@@ -1175,7 +1165,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: cilium-tlsinterception-secrets
-  namespace: "cilium-secrets"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/part-of: cilium
     helm.sh/chart: cilium-1.20.0
@@ -1193,7 +1183,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: cilium-operator-gateway-secrets
-  namespace: "cilium-secrets"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/part-of: cilium
     helm.sh/chart: cilium-1.20.0
@@ -1211,7 +1201,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: cilium-operator-tlsinterception-secrets
-  namespace: "cilium-secrets"
+  namespace: "adhar-system"
   labels:
     app.kubernetes.io/part-of: cilium
     helm.sh/chart: cilium-1.20.0

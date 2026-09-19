@@ -3,8 +3,14 @@ package up
 import (
 	"testing"
 
+	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
+	"context"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"time"
 )
 
 // The Kubernetes version an environment ends up with has a strict precedence:
@@ -58,4 +64,54 @@ func TestApplyKubeVersionOverride(t *testing.T) {
 			t.Fatalf("platform default moved to %q; update the docs and the kubeadm minor guard with it", got)
 		}
 	})
+}
+
+// The apps budget must not depend on how often the controller reconciles: on an
+// exhausted machine a reconcile pass took ~15 minutes, so the controller's
+// once-per-pass deadline check left a 12-minute budget unhonoured for over an
+// hour. watchAppsBudget therefore starts its clock when convergence first
+// reports progress and cancels on its own schedule.
+func TestWatchAppsBudgetCancelsOnceTheBudgetIsSpent(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	pl := &v1alpha1.AdharPlatform{ObjectMeta: metav1.ObjectMeta{Name: "adhar", Namespace: globals.AdharSystemNamespace}}
+	pl.Status.GitOps = &v1alpha1.GitOpsSyncStatus{ApplicationsTotal: 15, ApplicationsHealthy: 5}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pl).WithStatusSubresource(pl).Build()
+
+	cancelled := make(chan struct{})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	stop := make(chan struct{})
+	defer close(stop)
+
+	// A zero-length budget expires on the tick after the clock starts.
+	go watchAppsBudget(ctx, c, "adhar", time.Nanosecond, 10*time.Millisecond, func() { close(cancelled) }, stop)
+	select {
+	case <-cancelled:
+	case <-ctx.Done():
+		t.Fatal("the watchdog never cancelled despite an expired budget")
+	}
+}
+
+func TestWatchAppsBudgetLeavesAConvergedPlatformAlone(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	pl := &v1alpha1.AdharPlatform{ObjectMeta: metav1.ObjectMeta{Name: "adhar", Namespace: globals.AdharSystemNamespace}}
+	pl.Status.GitOps = &v1alpha1.GitOpsSyncStatus{ApplicationsTotal: 15, ApplicationsHealthy: 15}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pl).WithStatusSubresource(pl).Build()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	stop := make(chan struct{})
+	defer close(stop)
+	cancelled := false
+	go watchAppsBudget(ctx, c, "adhar", time.Nanosecond, 10*time.Millisecond, func() { cancelled = true }, stop)
+	<-ctx.Done()
+	if cancelled {
+		t.Error("a fully converged platform must be left to the controller's own shutdown")
+	}
 }

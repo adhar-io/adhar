@@ -143,7 +143,7 @@ type NetworkStatus struct {
 }
 
 func runGetStatus(cmd *cobra.Command, args []string) error {
-	logger.Info("📊 Retrieving platform status...")
+	logger.Info(helpers.IconApp + " " + "Retrieving platform status...")
 
 	// Get Kubernetes client
 	clientset, err := getKubernetesClient()
@@ -484,7 +484,7 @@ func calculatePlatformUptime(pods []corev1.Pod) time.Duration {
 }
 
 func displayStatusTable(status *PlatformStatus) error {
-	logger.Info("📊 Platform Status Overview")
+	logger.Info(helpers.IconApp + " " + "Platform Status Overview")
 
 	// Display overall status in a header box
 	overallStatusContent := fmt.Sprintf(
@@ -501,11 +501,11 @@ func displayStatusTable(status *PlatformStatus) error {
 	fmt.Println(overallBox)
 
 	// Display core services status
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🔧 Core Services"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(helpers.IconBullet+" "+"Core Services"))
 
 	var servicesTable strings.Builder
 	servicesTable.WriteString(fmt.Sprintf("%-25s %-15s %-20s %-15s\n",
-		"🏷️  SERVICE", "📊 STATUS", "🔄 REPLICAS", "📦 VERSION"))
+		helpers.IconNamespace+" "+"SERVICE", helpers.IconApp+" "+"STATUS", "🔄 REPLICAS", helpers.IconApp+" "+"VERSION"))
 	servicesTable.WriteString(strings.Repeat("─", 75) + "\n")
 
 	for _, service := range status.CoreServices {
@@ -527,14 +527,14 @@ func displayStatusTable(status *PlatformStatus) error {
 	fmt.Println(servicesBox)
 
 	// Display cluster resources
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📊 Cluster Resources"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(helpers.IconApp+" "+"Cluster Resources"))
 
 	resourcesContent := fmt.Sprintf(
-		"🖥️  Nodes: %d ready, %d total\n"+
+		helpers.IconCluster+" "+"Nodes: %d ready, %d total\n"+
 			"🏗️  Workloads: %d deployments, %d pods (%d running)\n"+
-			"📦 Resources: %d namespaces, %d services, %d secrets\n"+
-			"💾 Storage: %d persistent volumes\n"+
-			"🌐 Network: %d service endpoints, %d load balancers",
+			helpers.IconApp+" "+"Resources: %d namespaces, %d services, %d secrets\n"+
+			helpers.IconStorage+" "+"Storage: %d persistent volumes\n"+
+			helpers.IconNetwork+" "+"Network: %d service endpoints, %d load balancers",
 		status.Nodes.Ready, status.Nodes.Total,
 		status.Workloads.Deployments, status.Workloads.TotalPods, status.Workloads.RunningPods,
 		status.Resources.NamespaceCount, status.Resources.ServiceCount, status.Resources.SecretCount,

@@ -469,9 +469,9 @@ configs:
     # -- Number of application status processors
     controller.status.processors: 20
     # -- Number of application operation processors
-    controller.operation.processors: 10
+    controller.operation.processors: 8
     # -- Number of allowed concurrent kubectl fork/execs
-    controller.kubectl.parallelism.limit: 8
+    controller.kubectl.parallelism.limit: 4
     # -- Specifies timeout between application self heal attempts
     controller.self.heal.timeout.seconds: 5
     # -- Repo server RPC call timeout seconds.

@@ -59,6 +59,24 @@ const (
 	// KubeadmCloudInitMarker is touched by the node-preparation script so the
 	// provider knows a VM finished preparing before it drives kubeadm via SSH.
 	KubeadmCloudInitMarker = "/var/lib/adhar/cloud-init-done"
+)
+
+// CriticalPathImages are the images the platform bootstrap needs before ANY
+// workload can schedule: the Cilium CNI and its Envoy/operator. Until they are
+// on the node, every pod stays Pending, so on a cold node their download is
+// pure added latency on `adhar up`.
+//
+// Node prep pre-pulls them in the background (see KubeadmNodePrepScript) so the
+// download overlaps `kubeadm join` instead of following it, and the Kind
+// provider seeds the same set from the host cache. Keep in sync with
+// platform/controllers/adharplatform/resources/cilium/install.yaml.
+var CriticalPathImages = []string{
+	"quay.io/cilium/cilium:v1.20.0",
+	"quay.io/cilium/cilium-envoy:v1.37.5-1782911245-7cffc778c923f68a77954a53b1a98d6b5353f004",
+	"quay.io/cilium/operator-generic:v1.20.0",
+}
+
+const (
 
 	// KubeadmPodCIDR matches the pod network the platform's Cilium install
 	// expects (same value the Kind flow uses). It is only the default: a
@@ -200,9 +218,16 @@ apt-get update
 apt-get install -y kubelet kubeadm kubectl
 apt-mark hold kubelet kubeadm kubectl
 
+# Pre-pull the CNI images the platform bootstrap cannot start without. Detached
+# and best-effort: node prep returns immediately, the download overlaps the
+# kubeadm join and the control plane coming up, and a failure here only means
+# the kubelet pulls them later exactly as before. --hosts-dir keeps the certs.d
+# mirrors (in-cluster Harbor, any registry mirror) in effect.
+nohup sh -c 'for img in %[3]s; do ctr -n k8s.io images pull --hosts-dir /etc/containerd/certs.d "$img" >/dev/null 2>&1 || true; done' >/dev/null 2>&1 &
+
 mkdir -p "$(dirname %[2]s)"
 touch %[2]s
-`, k8sMinor, KubeadmCloudInitMarker)
+`, k8sMinor, KubeadmCloudInitMarker, strings.Join(CriticalPathImages, " "))
 }
 
 // ClusterStateDir returns (creating if needed) the local directory holding

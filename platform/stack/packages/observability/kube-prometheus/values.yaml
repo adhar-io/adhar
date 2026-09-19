@@ -1391,6 +1391,12 @@ grafana:
       serve_from_sub_path: false
     auth.generic_oauth:
       enabled: true
+      # Go straight to Keycloak instead of rendering Grafana's own login page.
+      # Without it, a user who already signed in to the console still had to
+      # click "Sign in with Keycloak" here, which reads as being asked to log in
+      # again. Escape hatch if Keycloak is ever unreachable:
+      # /login?disableAutoLogin=true still shows the local form.
+      auto_login: true
       name: Keycloak
       client_id: grafana
       scopes: openid profile email groups

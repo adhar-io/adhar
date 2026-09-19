@@ -10,7 +10,7 @@ set -e
 # Post-processing (all of it in the python step below, so `install.yaml` is
 # reproducible from upstream):
 #   1. Namespace -- everything moves from the upstream `kpack` namespace into
-#      `kpack-system`. kpack is the ONE sanctioned exception to ADR-0011's
+#      `adhar-system`. kpack is the ONE sanctioned exception to ADR-0011's
 #      "every package in adhar-system": its webhook hardcodes
 #      `Secret/webhook-certs` (cmd/webhook/main.go, webhook.Options{SecretName})
 #      and so does sigstore's policy-controller (security/cosign); two knative
@@ -46,7 +46,7 @@ import sys, yaml
 
 raw, out, version = sys.argv[1], sys.argv[2], sys.argv[3]
 UPSTREAM_NS = "kpack"
-NS = "kpack-system"   # see header: the one package kept out of adhar-system
+NS = "adhar-system"   # see header: the one package kept out of adhar-system
 RENAMED_CONFIGMAPS = {
     "config-logging": "buildpack-config-logging",
     "config-observability": "buildpack-config-observability",
@@ -112,7 +112,7 @@ for d in kept:
 with open(out, "w") as f:
     f.write("# BUILDPACK (kpack) INSTALL RESOURCES\n")
     f.write("# This file is auto-generated with 'platform/stack/packages/application/buildpack/generate-manifests.sh'\n")
-    f.write(f"# kpack {version} (upstream release manifest), post-processed into kpack-system (ADR-0011 exception: hardcoded Secret/webhook-certs)\n")
+    f.write(f"# kpack {version} (upstream release manifest), post-processed into adhar-system (ADR-0011 exception: hardcoded Secret/webhook-certs)\n")
     f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in kept))
 
 print(f"dropped {len(docs) - len(kept)} Namespace object(s); "

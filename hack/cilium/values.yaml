@@ -980,7 +980,7 @@ envoyConfig:
     # -- Create secrets namespace for CiliumEnvoyConfig CRDs.
     create: true
     # -- The name of the secret namespace to which Cilium agents are given read access.
-    name: cilium-secrets
+    name: adhar-system
   # -- Interval in which an attempt is made to reconcile failed EnvoyConfigs. If the duration is zero, the retry is deactivated.
   retryInterval: 15s
 ingressController:
@@ -1025,7 +1025,7 @@ ingressController:
     # -- Create secrets namespace for Ingress.
     create: true
     # -- Name of Ingress secret namespace.
-    name: cilium-secrets
+    name: adhar-system
     # -- Enable secret sync, which will make sure all TLS secrets used by Ingress are synced to secretsNamespace.name.
     # If disabled, TLS secrets must be maintained externally.
     sync: true
@@ -1129,7 +1129,7 @@ gatewayAPI:
     # -- Create secrets namespace for Gateway API.
     create: true
     # -- Name of Gateway API secret namespace.
-    name: cilium-secrets
+    name: adhar-system
     # -- Enable secret sync, which will make sure all TLS secrets used by Ingress are synced to secretsNamespace.name.
     # If disabled, TLS secrets must be maintained externally.
     sync: true
@@ -3143,7 +3143,7 @@ tls:
     # -- Create secrets namespace for TLS Interception secrets.
     create: true
     # -- Name of TLS Interception secret namespace.
-    name: cilium-secrets
+    name: adhar-system
   # -- Configures settings for synchronization of TLS Interception Secrets
   secretSync:
     # @schema

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/k8s"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -26,8 +27,11 @@ var templates embed.FS
 func SetupCoreDNS(ctx context.Context, kubeClient client.Client, scheme *runtime.Scheme, templateData v1alpha1.BuildCustomizationSpec) error {
 	checkCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "coredns-conf-default",
-			Namespace: "kube-system",
+			Name: "coredns-conf-default",
+			// CoreDNS now runs in the platform namespace (ADR-0011); its
+			// projected rewrite ConfigMaps must live alongside it or the mount
+			// fails and the pod never starts.
+			Namespace: globals.AdharSystemNamespace,
 		},
 	}
 	err := kubeClient.Get(ctx, client.ObjectKeyFromObject(checkCM), checkCM)
