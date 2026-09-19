@@ -11,9 +11,12 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"adhar-io/adhar/api/v1alpha1"
@@ -247,7 +250,19 @@ func EnsurePlatformCertificateOnDisk(dir string, sans []string) ([]byte, []byte,
 	cert, cErr := os.ReadFile(certPath)
 	key, kErr := os.ReadFile(keyPath)
 	if cErr == nil && kErr == nil && len(cert) > 0 && len(key) > 0 {
-		return cert, key, nil
+		// The cached pair is only usable if it actually covers the names being
+		// asked for. It used to be returned unconditionally, so a certificate
+		// generated for a previous cluster was installed on the next one whatever
+		// its hostname: a cloud platform on cloud.adhar.io served a certificate
+		// for adhar.localtest.me left behind by a local run. Browsers complain,
+		// but the real damage is server-side — Coder's OIDC discovery against
+		// Keycloak failed with "certificate is valid for adhar.localtest.me, not
+		// keycloak.cloud.adhar.io" and the workspace service never started. A
+		// hostname mismatch cannot be worked around by trusting the CA.
+		if certificateCoversSANs(cert, sans) {
+			return cert, key, nil
+		}
+		log.Printf("cached platform certificate in %s does not cover %v; generating a new one", dir, sans)
 	}
 
 	cert, key, err := createSelfSignedCertificate(sans)
@@ -264,6 +279,50 @@ func EnsurePlatformCertificateOnDisk(dir string, sans []string) ([]byte, []byte,
 		return nil, nil, fmt.Errorf("writing %s: %w", keyPath, err)
 	}
 	return cert, key, nil
+}
+
+// certificateCoversSANs reports whether a PEM certificate is valid for every
+// name required. A wildcard in the certificate satisfies a matching wildcard or
+// a single label beneath it.
+func certificateCoversSANs(pemBytes []byte, sans []string) bool {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return false
+	}
+	parsed, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false
+	}
+	for _, want := range sans {
+		if !certificateHasName(parsed, want) {
+			return false
+		}
+	}
+	return true
+}
+
+// certificateHasName reports whether one required name is covered, checking the
+// IP SANs too so a certificate pinned to an address still matches.
+func certificateHasName(cert *x509.Certificate, want string) bool {
+	if ip := net.ParseIP(want); ip != nil {
+		for _, have := range cert.IPAddresses {
+			if have.Equal(ip) {
+				return true
+			}
+		}
+		return false
+	}
+	// A wildcard request is only satisfied by the same wildcard; verifying a
+	// literal "*.example.com" against Go's hostname matcher would never match.
+	if strings.HasPrefix(want, "*.") {
+		for _, have := range cert.DNSNames {
+			if strings.EqualFold(have, want) {
+				return true
+			}
+		}
+		return false
+	}
+	return cert.VerifyHostname(want) == nil
 }
 
 // PlatformCertificateSANs returns the SANs the platform certificate must carry
