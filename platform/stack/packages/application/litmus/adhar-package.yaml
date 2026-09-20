@@ -1,0 +1,46 @@
+# Adhar marketplace contract for the litmus package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: litmus
+category: application
+version: "3.30.0"
+description: LitmusChaos ChaosCenter — the platform's chaos-engineering engine. Runs chaos experiments and workflows against platform and tenant workloads, with a 29-fault Kubernetes catalogue, probes and recorded results.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://litmuschaos.io
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  # The database comes from the platform's MongoDB operator, not the chart's
+  # bundled subchart (manifests/platform-mongodb.yaml).
+  - name: mongodb
+    category: data
+  # Keycloak SSO in front of the ChaosCenter (manifests/sso.yaml).
+  - name: keycloak
+    category: security
+  # The admin + database credential is minted by ESO Password generators.
+  - name: external-secrets
+    category: security
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  upstreamChart: litmuschaos/litmus 3.30.0 + litmuschaos/litmus-core 3.31.1 + litmuschaos/kubernetes-chaos 3.31.0
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta   # enabled in the production curated set only
+resources:
+  localSafe: false   # a MongoDB replica set plus three control-plane services is too much for one Kind node
+keywords:
+  - chaos
+  - chaos-engineering
+  - resilience
+  - litmus
+  - game-day

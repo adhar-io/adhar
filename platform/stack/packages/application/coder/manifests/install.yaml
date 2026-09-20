@@ -196,12 +196,30 @@ spec:
         # this, `coder server` uses its built-in PostgreSQL inside the container
         # filesystem and loses every user, template and workspace on any pod
         # replacement — see that file's header for the live failure this caused.
-        # CNPG writes a complete libpq URI into <cluster>-app as `uri`.
-        - name: CODER_PG_CONNECTION_URL
+        #
+        # Composed from the parts rather than read from a `<cluster>-app` Secret:
+        # CNPG only generates that Secret when it invents the credentials itself.
+        # This Cluster supplies its own (bootstrap.initdb.secret: coder-db-credentials),
+        # so no `coder-db-app` exists and referencing it left the pod in
+        # CreateContainerConfigError — `secret "coder-db-app" not found` — for 148
+        # minutes. The host/user/password shape below is what data/metabase and the
+        # other CNPG consumers already use.
+        #
+        # Kubernetes expands $(VAR) from env vars declared EARLIER in this same
+        # container, which is what lets a single connection URL be assembled without
+        # putting the password in the manifest.
+        - name: CODER_PG_USER
           valueFrom:
             secretKeyRef:
-              name: coder-db-app
-              key: uri
+              name: coder-db-credentials
+              key: username
+        - name: CODER_PG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: coder-db-credentials
+              key: password
+        - name: CODER_PG_CONNECTION_URL
+          value: "postgres://$(CODER_PG_USER):$(CODER_PG_PASSWORD)@coder-db-rw.adhar-system.svc.cluster.local:5432/coder?sslmode=require"
         - name: SSL_CERT_DIR
           value: /etc/ssl/certs:/etc/adhar-ca
         image: ghcr.io/coder/coder:v2.37.0

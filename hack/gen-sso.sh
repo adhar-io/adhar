@@ -47,8 +47,11 @@
 #                                         exports <PREFIX>_CLIENT_SECRET into the
 #                                         keycloak-clients Secret (PREFIX = APP with
 #                                         '-' -> '_' upper-cased)
-#   - Password   <app>-oauth2-cookie     (ESO generator: cookie secret)
-#   - ExternalSecret <app>-oauth2-proxy   client secret + cookie secret
+#   - ExternalSecret <app>-oauth2-proxy   the client secret, plus COOKIE_SECRET
+#                                         from the PLATFORM-WIDE adhar-sso-cookie
+#                                         (security/keycloak/manifests/sso-cookie.yaml).
+#                                         No per-app cookie generator: see the
+#                                         --cookie-name note in the emitted args.
 #   - Deployment/Service <app>-oauth2-proxy  on port 4180 (sync-wave 5)
 #
 # Then point the package's HTTPRoute backendRefs at <app>-oauth2-proxy:4180
@@ -88,6 +91,10 @@ fi
 OUT="${PKG_DIR}/manifests/sso.yaml"
 HOST="${APP}.adhar.localtest.me"
 PREFIX="$(printf '%s' "${APP}" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
+# The cookie name is the app id with '-' -> '_': a Set-Cookie name may not
+# contain a hyphen in some proxies' parsers, and every existing package spells it
+# this way (_adhar_sso_chaos_mesh, _adhar_sso_argo_workflows).
+COOKIE_ID="$(printf '%s' "${APP}" | tr '-' '_')"
 TITLE="$(printf '%s' "${APP}" | awk -F- '{for(i=1;i<=NF;i++){$i=toupper(substr($i,1,1)) substr($i,2)}; print}' OFS=' ')"
 UPSTREAM_URL="http://${UPSTREAM_SVC}.adhar-system.svc.cluster.local:${UPSTREAM_PORT}"
 
@@ -192,31 +199,18 @@ data:
       "webOrigins": ["https://${HOST}:8443"]${CLIENT_MAPPERS}
     }
 ---
-apiVersion: generators.external-secrets.io/v1alpha1
-kind: Password
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
 metadata:
-  name: ${APP}-oauth2-cookie
+  name: ${APP}-oauth2-proxy
   namespace: adhar-system
   # Wave 5: the SSO front-end deploys AFTER the app core (wave 0-3). Otherwise
   # this oauth2-proxy — which waits on a Keycloak-provisioned ExternalSecret —
   # sits unhealthy at wave 0 and blocks the core from ever deploying.
   annotations: {argocd.argoproj.io/sync-wave: "5"}
 spec:
-  length: 32
-  digits: 8
-  symbols: 0
-  noUpper: false
-  allowRepeat: true
----
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: ${APP}-oauth2-proxy
-  namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "5"}
-spec:
   refreshPolicy: CreatedOnce
-  refreshInterval: 5m
+  refreshInterval: 30s
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore
@@ -227,20 +221,18 @@ spec:
       data:
         OAUTH2_PROXY_CLIENT_SECRET: "{{ .${PREFIX}_CLIENT_SECRET }}"
         OAUTH2_PROXY_COOKIE_SECRET: "{{ .COOKIE_SECRET }}"
-  dataFrom:
-    - sourceRef:
-        generatorRef:
-          apiVersion: generators.external-secrets.io/v1alpha1
-          kind: Password
-          name: ${APP}-oauth2-cookie
-      rewrite:
-        - transform:
-            template: "COOKIE_SECRET"
   data:
     - secretKey: ${PREFIX}_CLIENT_SECRET
       remoteRef:
         key: keycloak-clients
         property: ${PREFIX}_CLIENT_SECRET
+    # The platform-wide cookie secret (security/keycloak/manifests/sso-cookie.yaml).
+    # One secret for every proxy because one secret is easier to operate than 29 —
+    # NOT to share sessions: each proxy sets its own --cookie-name below.
+    - secretKey: COOKIE_SECRET
+      remoteRef:
+        key: adhar-sso-cookie
+        property: COOKIE_SECRET
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -276,6 +268,18 @@ spec:
             - --email-domain=*
             - --scope=openid profile email groups
             - --cookie-secure=true
+            # A cookie name UNIQUE to this app, and deliberately no
+            # --cookie-domain. Every proxy once shared the default name on the
+            # parent domain with a shared secret, which meant each one decrypted
+            # and reused the others' sessions: Argo CD received a token minted for
+            # the tekton client and rejected it with 'expected audience "argocd"
+            # got ["tekton"]', and whichever app you opened last overwrote the
+            # rest. Single sign-on comes from Keycloak's own session instead: with
+            # no cookie of its own this proxy bounces through Keycloak, which
+            # already knows the user and returns a code immediately, so the user
+            # sees no login screen and this app gets a token with its own audience.
+            - --cookie-name=_adhar_sso_${COOKIE_ID}
+            - --whitelist-domain=.adhar.localtest.me:8443
             - --skip-provider-button=true
             - --reverse-proxy=true
             # Forward the authenticated identity (X-Forwarded-User/Email/

@@ -25,6 +25,16 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: credential-rotation
+  # Wave -1 so the RBAC exists BEFORE the Sync hook below. Argo CD orders hooks and
+  # ordinary resources together by wave, and this trio used to sit at the default
+  # wave 0 alongside the hook — so on a freshly created Application the Job was
+  # admitted first and its pod could never start:
+  #     MountVolume.SetUp failed … failed to fetch token:
+  #     serviceaccounts "credential-rotation" not found
+  # The pod stayed in ContainerCreating and the app reported
+  # "waiting for completion of hook" indefinitely (86 minutes on a live cluster).
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
   namespace: adhar-system
   labels:
     app.kubernetes.io/name: credential-rotation
@@ -34,6 +44,16 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: credential-rotation
+  # Wave -1 so the RBAC exists BEFORE the Sync hook below. Argo CD orders hooks and
+  # ordinary resources together by wave, and this trio used to sit at the default
+  # wave 0 alongside the hook — so on a freshly created Application the Job was
+  # admitted first and its pod could never start:
+  #     MountVolume.SetUp failed … failed to fetch token:
+  #     serviceaccounts "credential-rotation" not found
+  # The pod stayed in ContainerCreating and the app reported
+  # "waiting for completion of hook" indefinitely (86 minutes on a live cluster).
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
   namespace: adhar-system
   labels:
     app.kubernetes.io/name: credential-rotation
@@ -50,6 +70,16 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: credential-rotation
+  # Wave -1 so the RBAC exists BEFORE the Sync hook below. Argo CD orders hooks and
+  # ordinary resources together by wave, and this trio used to sit at the default
+  # wave 0 alongside the hook — so on a freshly created Application the Job was
+  # admitted first and its pod could never start:
+  #     MountVolume.SetUp failed … failed to fetch token:
+  #     serviceaccounts "credential-rotation" not found
+  # The pod stayed in ContainerCreating and the app reported
+  # "waiting for completion of hook" indefinitely (86 minutes on a live cluster).
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
   namespace: adhar-system
   labels:
     app.kubernetes.io/name: credential-rotation
@@ -75,6 +105,8 @@ metadata:
     # Re-run on every sync (idempotent via the marker Secret); BeforeHookCreation
     # replaces the previous Job object so immutable-spec conflicts cannot occur.
     argocd.argoproj.io/hook: Sync
+    # After the wave -1 RBAC above.
+    argocd.argoproj.io/sync-wave: "1"
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 3

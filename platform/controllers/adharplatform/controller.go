@@ -536,11 +536,13 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 		return fmt.Errorf("failed to create packages repository: %w", err)
 	}
 
-	// Create templates repository (service/app templates the CLI + Console
-	// instantiate via the CompositeApplication control plane).
-	if err := r.createGiteaRepository(ctx, globals.GitOpsRepoTemplates); err != nil {
-		return fmt.Errorf("failed to create templates repository: %w", err)
-	}
+	// NOTE: there is deliberately no third repo here for templates. The
+	// platform's golden paths live in `adhar/adhar-templates`, mirrored from
+	// github.com/adhar-io/adhar-templates by the `adhar-libraries` package.
+	// Bootstrap used to also create an `adhar/templates` repo seeded from
+	// platform/stack/templates/ — a second, thinner collection in a different
+	// format — and the Console and CLI then disagreed about which was
+	// authoritative. One collection, owned upstream.
 
 	// Populate repositories with content
 	if err := r.populateRepositories(ctx); err != nil {
@@ -829,19 +831,13 @@ func (r *AdharPlatformReconciler) populateRepositories(ctx context.Context) erro
 	}
 	logger.Info("Using Gitea pod", "podName", podName)
 
-	// The three repos are independent (own working dirs in the pod, own
-	// remotes), so they are seeded concurrently: the 62 MB packages repo
-	// dominates, and the small environments/templates repos ride alongside
-	// it instead of queueing behind it.
+	// The two repos are independent (own working dirs in the pod, own remotes),
+	// so they are seeded concurrently: the 62 MB packages repo dominates, and
+	// the small environments repo rides alongside it instead of queueing behind
+	// it. Templates are NOT seeded from the stack — see setupGitOpsRepositories.
 	repos := map[string]string{
 		globals.GitOpsRepoPackages:     filepath.Join(r.StackDir, globals.GitOpsRepoPackages),
 		globals.GitOpsRepoEnvironments: filepath.Join(r.StackDir, globals.GitOpsRepoEnvironments),
-	}
-	templatesDir := filepath.Join(r.StackDir, globals.GitOpsRepoTemplates)
-	if _, statErr := os.Stat(templatesDir); statErr == nil {
-		repos[globals.GitOpsRepoTemplates] = templatesDir
-	} else {
-		logger.Info("No templates directory in stack; skipping templates repo population", "dir", templatesDir)
 	}
 	g, gctx := errgroup.WithContext(ctx)
 	for name, dir := range repos {

@@ -1,0 +1,48 @@
+# LitmusChaos Prometheus ServiceMonitor.
+#
+# Not emitted by the chart. The graphql server serves /metrics on the `metrics`
+# port (8889) already declared on its chart Service.
+#
+# What this actually gives you, verified against the running server rather than
+# assumed: Go runtime and process metrics only — goroutines, heap, GC pauses, FDs,
+# CPU. That makes the ChaosCenter control plane observable (is it up, is it
+# leaking, is it saturated), which is worth scraping and is why this exists.
+#
+# It does NOT give chaos results. `litmuschaos_experiment_verdict` and the rest of
+# the experiment counters come from the chaos-exporter, which belongs to the
+# EXECUTION plane and is started per ChaosEngine by the chaos runner — so a
+# Grafana dashboard of experiment verdicts needs that exporter scraped, not this
+# endpoint. No dashboard is shipped here claiming otherwise; an empty panel is
+# worse than an absent one.
+#
+# One monitor, on that port only: the graphql (9002) and gRPC (8000) ports serve
+# the API, not metrics, and probing them logs errors on every scrape. Prometheus
+# serviceMonitorSelector is empty ({}) on this platform, so this is scraped as-is.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  name: litmus-server
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/component: litmus-server
+    app.kubernetes.io/managed-by: adhar
+spec:
+  jobLabel: app.kubernetes.io/component
+  namespaceSelector:
+    matchNames:
+      - adhar-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litmus
+      app.kubernetes.io/instance: litmus
+      app.kubernetes.io/component: litmus-server
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true

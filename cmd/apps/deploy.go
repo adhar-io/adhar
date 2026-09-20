@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -46,7 +47,7 @@ var deployCmd = &cobra.Command{
 	
 Examples:
   adhar application deploy my-app --file=my-app.yaml
-  adhar application deploy my-app --template=basic-git --namespace=platform-apps
+  adhar application deploy my-app --template=go-web-service --param port=8080 --param withDatabase=true
   adhar application deploy my-app --repo=https://github.com/org/service --path=deploy/overlays/prod --version=main --wait`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDeploy,
@@ -64,6 +65,7 @@ var (
 	destinationNSFlag string
 	destinationSrv    string
 	projectFlag       string
+	paramFlags        []string
 )
 
 func init() {
@@ -77,6 +79,7 @@ func init() {
 	deployCmd.Flags().StringVar(&destinationNSFlag, "dest-namespace", "", "Destination namespace for application workloads")
 	deployCmd.Flags().StringVar(&destinationSrv, "dest-server", "https://kubernetes.default.svc", "Destination cluster API server")
 	deployCmd.Flags().StringVar(&projectFlag, "project", "default", "ArgoCD project to associate with the application")
+	deployCmd.Flags().StringArrayVar(&paramFlags, "param", nil, "Template parameter as key=value (repeatable); see 'adhar application templates'")
 }
 
 func runDeploy(cmd *cobra.Command, args []string) error {
@@ -133,48 +136,64 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// deployFromTemplate instantiates a service/application template from the Gitea
-// `templates` repo (the single source of truth the Console uses too) through the
-// CompositeApplication control-plane layer. It fetches <template>.yaml from
-// Gitea, substitutes ${APP_NAME}/${APP_NAMESPACE}, then hands off to
-// deployFromFile — which normalizes to a CompositeApplication XR and applies it,
-// so a --template deploy takes the exact same control-plane path as --repo and
-// as the Console.
+// deployFromTemplate instantiates one of the platform's golden paths from the
+// curated `adhar/adhar-templates` collection — the same source the Console's
+// Create wizard reads, so both produce the same repository from the same
+// template.
+//
+// These are Backstage software templates, not deployable manifests: the template
+// file declares parameters and a skeleton, and instantiating it means RENDERING
+// that skeleton into the application's own Gitea repository. The rendered repo is
+// then handed to the same CompositeApplication path a --repo deploy takes, so the
+// control-plane behaviour is identical and the generated service is editable in
+// git from its first commit.
 func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, namespace, template string) (string, string, error) {
 	gc, err := newGiteaClient(ctx)
 	if err != nil {
 		return "", "", fmt.Errorf("connecting to the platform Gitea (is the cluster up?): %w", err)
 	}
-
-	raw, _, err := gc.GetFile(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, "main", template+".yaml")
+	giteaURL, err := utils.GiteaBaseUrl(ctx)
 	if err != nil {
-		avail := listGiteaTemplates(gc)
-		if avail != "" {
-			return "", "", fmt.Errorf("template %q not found in gitea %s/%s. Available: %s",
-				template, globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, avail)
+		return "", "", fmt.Errorf("resolving the platform Gitea URL: %w", err)
+	}
+
+	overrides, err := parseTemplateParams(paramFlags)
+	if err != nil {
+		return "", "", err
+	}
+
+	logger.Info(fmt.Sprintf("📐 Rendering template %s into %s/%s", template, globals.GiteaPlatformOrg, appName))
+	scaffolded, err := scaffoldTemplate(ctx, gc, giteaURL, template, appName, namespace, overrides)
+	if err != nil {
+		return "", "", err
+	}
+	logger.Info(fmt.Sprintf("📦 Committed %d files to %s", scaffolded.Files, scaffolded.CloneURL))
+
+	// Point the deploy at the repo just created. An explicit --path still wins:
+	// the template states where its manifests are, but the caller may be
+	// deploying a different overlay out of the same repo.
+	repoFlag = scaffolded.CloneURL
+	if sourcePathFlag == "" {
+		sourcePathFlag = scaffolded.ManifestPath
+	}
+	if versionFlag == "" {
+		versionFlag = "main"
+	}
+	return deployFromRepo(ctx, kubeconfigPath, appName, namespace)
+}
+
+// parseTemplateParams turns repeated --param key=value flags into a map.
+func parseTemplateParams(raw []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, kv := range raw {
+		key, value, found := strings.Cut(kv, "=")
+		key = strings.TrimSpace(key)
+		if !found || key == "" {
+			return nil, fmt.Errorf("--param %q is not key=value", kv)
 		}
-		return "", "", fmt.Errorf("fetching template %q from gitea %s/%s: %w",
-			template, globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, err)
+		out[key] = value
 	}
-
-	// Substitute the placeholders the templates declare.
-	rendered := strings.NewReplacer(
-		"${APP_NAME}", appName,
-		"${APP_NAMESPACE}", namespace,
-	).Replace(string(raw))
-
-	tmp, err := os.CreateTemp("", "adhar-template-*.yaml")
-	if err != nil {
-		return "", "", fmt.Errorf("staging template: %w", err)
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(rendered); err != nil {
-		_ = tmp.Close()
-		return "", "", fmt.Errorf("writing template: %w", err)
-	}
-	_ = tmp.Close()
-
-	return deployFromFile(ctx, kubeconfigPath, appName, namespace, tmp.Name())
+	return out, nil
 }
 
 // newGiteaClient builds an authenticated Gitea SDK client against the platform's
@@ -204,18 +223,21 @@ func newGiteaClient(ctx context.Context) (*gitea.Client, error) {
 }
 
 // listGiteaTemplates returns a comma-separated list of available template names
-// (best-effort, for friendlier "not found" errors).
+// (best-effort, for friendlier "not found" errors). A template is a DIRECTORY
+// under the collection's templates path, holding template.yaml and a skeleton.
 func listGiteaTemplates(gc *gitea.Client) string {
-	entries, _, err := gc.ListContents(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, "main", "")
+	entries, _, err := gc.ListContents(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, "main", globals.GitOpsTemplatesPath)
 	if err != nil {
 		return ""
 	}
 	var names []string
 	for _, e := range entries {
-		if e != nil && e.Type == "file" && strings.HasSuffix(e.Name, ".yaml") {
-			names = append(names, strings.TrimSuffix(e.Name, ".yaml"))
+		// `organization/` carries Backstage User/Group entities, not a template.
+		if e != nil && e.Type == "dir" && e.Name != "organization" {
+			names = append(names, e.Name)
 		}
 	}
+	sort.Strings(names)
 	return strings.Join(names, ", ")
 }
 

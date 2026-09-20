@@ -478,13 +478,22 @@ spec:
         - containerPort: 5601
           name: http
           protocol: TCP
+        # Raised from the chart default of 100m/512M, which CPU-STARVED this
+        # container into a crash loop: measured live at 99m of its 100m limit with
+        # only 109Mi of memory in use, restarting 37 times with exit 137. It is a
+        # Node.js app that compiles its bundles and negotiates with OpenSearch on
+        # startup — at 100m it cannot finish before the tcpSocket probe gives up, so
+        # kubelet kills it and it starts over, forever. Memory was never the problem,
+        # which is why the usual "raise the memory limit" reflex would not have fixed
+        # it. 1 CPU is the whole requirement; the request stays modest so the node can
+        # still be packed.
         resources:
           limits:
-            cpu: 100m
-            memory: 512M
+            cpu: "1"
+            memory: 1Gi
           requests:
             cpu: 100m
-            memory: 512M
+            memory: 512Mi
         volumeMounts:
           - name: config
             mountPath: /usr/share/opensearch-dashboards/config/opensearch_dashboards.yml

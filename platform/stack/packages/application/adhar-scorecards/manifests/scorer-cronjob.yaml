@@ -283,6 +283,54 @@ data:
     kubectl -n "$OUT_NS" annotate configmap "$OUT_CM" \
       adhar.io/scorecard-generated-at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite >/dev/null
 
+    # ── rolling history ────────────────────────────────────────────────────
+    #
+    # Each run overwrites the results ConfigMap, so without this there is no way
+    # to answer "is this getting better?" — the one question a readiness score
+    # is actually for. A single score is a number; a trend is a decision.
+    #
+    # Deliberately COMPACT: one entry per run holding the run's totals, the
+    # grade distribution and a name -> score/grade map. The full per-signal
+    # ledger stays in summary.json for the current run only — keeping 24 of
+    # those would push the ConfigMap past the 1 MiB etcd object limit on a
+    # platform this size, and the object would then fail to write at all,
+    # taking the current results down with it.
+    #
+    # HIST_KEEP entries at ~30 min each is half a day at the default schedule.
+    HIST_CM="${OUT_CM}-history"
+    HIST_KEEP="${HIST_KEEP:-24}"
+
+    jq -c '{
+      at: .generatedAt,
+      serviceCount: .serviceCount,
+      averageScore: .averageScore,
+      grades: ([.services[].grade] | group_by(.) | map({key: .[0], value: length}) | from_entries),
+      services: ([.services[] | {key: .name, value: {score, grade}}] | from_entries)
+    }' "$WORKDIR/summary.json" > "$WORKDIR/entry.json"
+
+    # Read the existing history, append, trim to the last HIST_KEEP. A missing
+    # or corrupt ConfigMap starts a fresh series rather than failing the run:
+    # history is an enhancement, and losing it must never cost the current score.
+    if kubectl -n "$OUT_NS" get configmap "$HIST_CM" -o jsonpath='{.data.history\.json}' \
+         > "$WORKDIR/history-prev.json" 2>/dev/null && [ -s "$WORKDIR/history-prev.json" ]; then
+      jq -e 'type == "array"' "$WORKDIR/history-prev.json" >/dev/null 2>&1 || echo '[]' > "$WORKDIR/history-prev.json"
+    else
+      echo '[]' > "$WORKDIR/history-prev.json"
+    fi
+
+    jq -s --argjson keep "$HIST_KEEP" \
+      '(.[0] + [.[1]]) | unique_by(.at) | sort_by(.at) | .[-$keep:]' \
+      "$WORKDIR/history-prev.json" "$WORKDIR/entry.json" > "$WORKDIR/history.json"
+
+    kubectl create configmap "$HIST_CM" -n "$OUT_NS" \
+      --from-file=history.json="$WORKDIR/history.json" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    kubectl -n "$OUT_NS" label configmap "$HIST_CM" \
+      adhar.io/component=scorecards \
+      app.kubernetes.io/managed-by=adhar-scorecard-scorer \
+      app.kubernetes.io/part-of=adhar --overwrite >/dev/null
+    echo "adhar-scorecard: history now $(jq 'length' "$WORKDIR/history.json") run(s) in ${OUT_NS}/${HIST_CM}."
+
     echo "adhar-scorecard: scored $(jq '.serviceCount' "$WORKDIR/summary.json") services (avg $(jq '.averageScore' "$WORKDIR/summary.json"))."
     jq -r '.services[] | "  \(.grade)  \((.score|tostring) + "    " | .[0:4])  \(.name)"' "$WORKDIR/summary.json" || true
 ---

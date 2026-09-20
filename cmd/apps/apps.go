@@ -38,13 +38,14 @@ This command provides:
 • Monitoring and status tracking
 • Scaling and configuration updates
 
-Templates (basic-git, microservice, frontend) are served from the Gitea
-'templates' repo and instantiated through the CompositeApplication control plane
-— the same path the Adhar Console uses.
+Templates are the platform's golden paths, served from the curated
+adhar/adhar-templates repo in Gitea. Instantiating one renders its skeleton into
+the application's own Gitea repo, then deploys that repo through the
+CompositeApplication control plane — the same path the Adhar Console uses.
 
 Examples:
-  adhar application deploy my-app --template=basic-git
-  adhar application deploy my-svc --template=microservice --namespace=platform-apps
+  adhar application templates
+  adhar application deploy my-svc --template=go-web-service --param port=8080
   adhar application list
   adhar application status my-app
   adhar application scale my-app --replicas=3`,
@@ -77,6 +78,7 @@ func init() {
 func runApps(cmd *cobra.Command, args []string) error {
 	logger.Info("📱 Apps command - use subcommands to manage applications")
 	logger.Info("Available subcommands:")
+	logger.Info("  templates - List the platform's golden-path templates")
 	logger.Info("  deploy  - Deploy applications from templates or Git")
 	logger.Info("  list    - List all applications")
 	logger.Info("  status  - Check application status")

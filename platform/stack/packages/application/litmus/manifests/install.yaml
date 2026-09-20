@@ -1,0 +1,546 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litmus-admin-config
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/part-of: litmus
+    app.kubernetes.io/version: 3.30.0
+    helm.sh/chart: litmus-3.30.0
+    litmuschaos.io/version: 3.30.0
+    app.kubernetes.io/component: litmus-admin-config
+  annotations:
+    argocd.argoproj.io/sync-wave: '3'
+data:
+  DB_SERVER: mongodb://litmus-db-svc.adhar-system.svc.cluster.local:27017/admin
+  VERSION: 3.30.0
+  SKIP_SSL_VERIFY: 'false'
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litmus-frontend-nginx-configuration
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/part-of: litmus
+    app.kubernetes.io/version: 3.30.0
+    helm.sh/chart: litmus-3.30.0
+    litmuschaos.io/version: 3.30.0
+    app.kubernetes.io/component: litmus-admin-config
+  annotations:
+    argocd.argoproj.io/sync-wave: '3'
+data:
+  nginx.conf: "pid /tmp/nginx.pid;\n\nevents {\n  worker_connections  1024;\n}\n\n\
+    http {\n    map $http_upgrade $connection_upgrade {\n        default upgrade;\n\
+    \        '' close;\n    }\n\n    client_body_temp_path /tmp/client_temp;\n   \
+    \ proxy_temp_path       /tmp/proxy_temp_path;\n    fastcgi_temp_path     /tmp/fastcgi_temp;\n\
+    \    uwsgi_temp_path       /tmp/uwsgi_temp;\n    scgi_temp_path        /tmp/scgi_temp;\n\
+    \n    sendfile on;\n    tcp_nopush on;\n    tcp_nodelay on;\n    keepalive_timeout\
+    \ 65;\n    types_hash_max_size 2048;\n    server_tokens off;\n\n    include /etc/nginx/mime.types;\n\
+    \n    gzip on;\n    gzip_disable \"msie6\";\n\n    access_log /var/log/nginx/access.log;\n\
+    \    error_log /var/log/nginx/error.log;\n\n    server {\n        listen 8185;\n\
+    \        server_name  default_server;\n        root   /opt/chaos;\n\n        location\
+    \ /health {\n          return 200;\n        }\n\n        location / {\n      \
+    \      proxy_http_version 1.1;\n            add_header Cache-Control \"no-cache\"\
+    ;\n            try_files $uri /index.html;\n            autoindex on;\n      \
+    \  }\n\n        # redirect server error pages to the static page /50x.html\n \
+    \       #\n        error_page   500 502 503 504  /50x.html;\n        location\
+    \ = /50x.html {\n            root   /usr/share/nginx/html;\n        }\n\n    \
+    \    location /auth/ {\n            proxy_pass \"http://litmus-auth-server-service:9003/\"\
+    ;\n            proxy_http_version 1.1;\n            proxy_set_header   Host  \
+    \               $host;\n            proxy_set_header   X-Real-IP            $remote_addr;\n\
+    \            proxy_set_header   X-Forwarded-For      $proxy_add_x_forwarded_for;\n\
+    \            proxy_set_header   X-Forwarded-Proto    $scheme;\n        }\n\n \
+    \       location /api/ {\n            proxy_pass \"http://litmus-server-service:9002/\"\
+    ;\n            proxy_http_version 1.1;\n            proxy_set_header   Host  \
+    \               $host;\n            proxy_set_header   X-Real-IP            $remote_addr;\n\
+    \            proxy_set_header   X-Forwarded-For      $proxy_add_x_forwarded_for;\n\
+    \            proxy_set_header   X-Forwarded-Proto    $scheme;\n            proxy_set_header\
+    \   Upgrade              $http_upgrade;\n            proxy_set_header   Connection\
+    \           $connection_upgrade;\n        }\n    }\n}\n"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litmus-auth-server-service
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: litmus-auth-server
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/part-of: litmus
+    app.kubernetes.io/version: 3.30.0
+    helm.sh/chart: litmus-3.30.0
+    litmuschaos.io/version: 3.30.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '3'
+spec:
+  type: ClusterIP
+  ports:
+  - name: auth-server
+    port: 9003
+    targetPort: 3000
+  - name: auth-rpc-server
+    port: 3030
+    targetPort: 3030
+  selector:
+    app.kubernetes.io/component: litmus-auth-server
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litmus-frontend-service
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: litmus-frontend
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/part-of: litmus
+    app.kubernetes.io/version: 3.30.0
+    helm.sh/chart: litmus-3.30.0
+    litmuschaos.io/version: 3.30.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '3'
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 9091
+    targetPort: 8185
+  selector:
+    app.kubernetes.io/component: litmus-frontend
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litmus-server-service
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: litmus-server
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/part-of: litmus
+    app.kubernetes.io/version: 3.30.0
+    helm.sh/chart: litmus-3.30.0
+    litmuschaos.io/version: 3.30.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '3'
+spec:
+  type: ClusterIP
+  ports:
+  - name: graphql-server
+    port: 9002
+    targetPort: 8080
+  - name: graphql-rpc-server
+    port: 8000
+    targetPort: 8000
+  - name: metrics
+    port: 8889
+    targetPort: 8889
+  selector:
+    app.kubernetes.io/component: litmus-server
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litmus-auth-server
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: litmus-auth-server
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/part-of: litmus
+    app.kubernetes.io/version: 3.30.0
+    helm.sh/chart: litmus-3.30.0
+    litmuschaos.io/version: 3.30.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '3'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: litmus-auth-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: litmus-auth-server
+        app.kubernetes.io/instance: litmus
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: litmus
+        app.kubernetes.io/part-of: litmus
+        app.kubernetes.io/version: 3.30.0
+        helm.sh/chart: litmus-3.30.0
+        litmuschaos.io/version: 3.30.0
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-mongodb
+        image: litmuschaos.docker.scarf.sh/litmuschaos/mongo:6
+        imagePullPolicy: Always
+        command:
+        - /bin/bash
+        - -c
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: litmus-admin-secret
+              key: DB_PASSWORD
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: litmus-admin-secret
+              key: DB_USER
+        - name: DB_SERVER
+          valueFrom:
+            configMapKeyRef:
+              name: litmus-admin-config
+              key: DB_SERVER
+        args:
+        - until  [[ $(mongosh -u ${DB_USER} -p ${DB_PASSWORD} ${DB_SERVER} --eval
+          'rs.status()' | grep 'ok' | wc -l) -eq 1 ]]; do sleep 5; echo 'Waiting for
+          the MongoDB to be ready...'; done; echo 'Connection with MongoDB established'
+        resources:
+          limits:
+            cpu: 250m
+            ephemeral-storage: 1Gi
+            memory: 256Mi
+          requests:
+            cpu: 25m
+            ephemeral-storage: 500Mi
+            memory: 64Mi
+        securityContext: {}
+      containers:
+      - name: auth-server
+        image: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-auth-server:3.30.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: auth-server
+        - containerPort: 3030
+          name: auth-rpc-server
+        resources:
+          limits:
+            cpu: 500m
+            ephemeral-storage: 1Gi
+            memory: 512Mi
+          requests:
+            cpu: 25m
+            ephemeral-storage: 500Mi
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 2000
+        envFrom:
+        - secretRef:
+            name: litmus-admin-secret
+        - configMapRef:
+            name: litmus-admin-config
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: litmus-admin-secret
+              key: DB_PASSWORD
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: litmus-admin-secret
+              key: DB_USER
+        - name: LITMUS_GQL_GRPC_ENDPOINT
+          value: litmus-server-service
+        - name: LITMUS_GQL_GRPC_PORT
+          value: '8000'
+        - name: ENABLE_INTERNAL_TLS
+          value: 'false'
+        - name: REST_PORT
+          value: '3000'
+        - name: GRPC_PORT
+          value: '3030'
+        - name: ALLOWED_ORIGINS
+          value: .*
+        - name: HTTP_PROXY
+          value: ''
+        - name: HTTPS_PROXY
+          value: ''
+        - name: NO_PROXY
+          value: ''
+        volumeMounts: null
+      volumes: null
+      enableServiceLinks: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litmus-frontend
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: litmus-frontend
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/part-of: litmus
+    app.kubernetes.io/version: 3.30.0
+    helm.sh/chart: litmus-3.30.0
+    litmuschaos.io/version: 3.30.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '3'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: litmus-frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: litmus-frontend
+        app.kubernetes.io/instance: litmus
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: litmus
+        app.kubernetes.io/part-of: litmus
+        app.kubernetes.io/version: 3.30.0
+        helm.sh/chart: litmus-3.30.0
+        litmuschaos.io/version: 3.30.0
+    spec:
+      automountServiceAccountToken: false
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: litmus-frontend-nginx-configuration
+      containers:
+      - name: litmusportal-frontend
+        image: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-frontend:3.30.0
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: 500m
+            ephemeral-storage: 1Gi
+            memory: 512Mi
+          requests:
+            cpu: 25m
+            ephemeral-storage: 500Mi
+            memory: 128Mi
+        securityContext: null
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http
+            scheme: HTTP
+          failureThreshold: 5
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 10
+        ports:
+        - containerPort: 8185
+          name: http
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+      enableServiceLinks: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litmus-server
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/component: litmus-server
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: litmus
+    app.kubernetes.io/part-of: litmus
+    app.kubernetes.io/version: 3.30.0
+    helm.sh/chart: litmus-3.30.0
+    litmuschaos.io/version: 3.30.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '3'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: litmus-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: litmus-server
+        app.kubernetes.io/instance: litmus
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: litmus
+        app.kubernetes.io/part-of: litmus
+        app.kubernetes.io/version: 3.30.0
+        helm.sh/chart: litmus-3.30.0
+        litmuschaos.io/version: 3.30.0
+    spec:
+      automountServiceAccountToken: false
+      volumes:
+      - emptyDir: {}
+        name: gitops-storage
+      - emptyDir: {}
+        name: hub-storage
+      initContainers:
+      - name: wait-for-mongodb
+        image: litmuschaos.docker.scarf.sh/litmuschaos/mongo:6
+        imagePullPolicy: Always
+        command:
+        - /bin/bash
+        - -c
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: litmus-admin-secret
+              key: DB_PASSWORD
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: litmus-admin-secret
+              key: DB_USER
+        - name: DB_SERVER
+          valueFrom:
+            configMapKeyRef:
+              name: litmus-admin-config
+              key: DB_SERVER
+        args:
+        - until [[ $(mongosh -u ${DB_USER} -p ${DB_PASSWORD} ${DB_SERVER} --eval 'rs.status()'
+          | grep 'ok' | wc -l) -eq 1 ]]; do sleep 5; echo 'Waiting for the MongoDB
+          to be ready...'; done; echo 'Connection with MongoDB established'
+        resources:
+          limits:
+            cpu: 250m
+            ephemeral-storage: 1Gi
+            memory: 256Mi
+          requests:
+            cpu: 25m
+            ephemeral-storage: 500Mi
+            memory: 64Mi
+        securityContext: {}
+      containers:
+      - name: graphql-server
+        image: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-server:3.30.0
+        volumeMounts:
+        - mountPath: /tmp/
+          name: gitops-storage
+        - mountPath: /tmp/version
+          name: hub-storage
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: gql-server
+        - containerPort: 8000
+          name: gql-rpc-server
+        - containerPort: 8889
+          name: metrics
+        resources:
+          limits:
+            cpu: '1'
+            ephemeral-storage: 1Gi
+            memory: 1Gi
+          requests:
+            cpu: 50m
+            ephemeral-storage: 500Mi
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 2000
+        envFrom:
+        - secretRef:
+            name: litmus-admin-secret
+        - configMapRef:
+            name: litmus-admin-config
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: litmus-admin-secret
+              key: DB_PASSWORD
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: litmus-admin-secret
+              key: DB_USER
+        - name: LITMUS_AUTH_GRPC_ENDPOINT
+          value: litmus-auth-server-service
+        - name: LITMUS_AUTH_GRPC_PORT
+          value: '3030'
+        - name: ENABLE_INTERNAL_TLS
+          value: 'false'
+        - name: REST_PORT
+          value: '8080'
+        - name: GRPC_PORT
+          value: '8000'
+        - name: ALLOWED_ORIGINS
+          value: .*
+        - name: HTTP_PROXY
+          value: ''
+        - name: HTTPS_PROXY
+          value: ''
+        - name: NO_PROXY
+          value: ''
+        - name: ARGO_WORKFLOW_CONTROLLER_IMAGE
+          value: litmuschaos.docker.scarf.sh/litmuschaos/workflow-controller:v3.3.1
+        - name: ARGO_WORKFLOW_EXECUTOR_IMAGE
+          value: litmuschaos.docker.scarf.sh/litmuschaos/argoexec:v3.3.1
+        - name: EVENT_TRACKER_IMAGE
+          value: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-event-tracker:3.30.0
+        - name: LITMUS_CHAOS_EXPORTER_IMAGE
+          value: litmuschaos.docker.scarf.sh/litmuschaos/chaos-exporter:3.30.0
+        - name: LITMUS_CHAOS_OPERATOR_IMAGE
+          value: litmuschaos.docker.scarf.sh/litmuschaos/chaos-operator:3.30.0
+        - name: LITMUS_CHAOS_RUNNER_IMAGE
+          value: litmuschaos.docker.scarf.sh/litmuschaos/chaos-runner:3.30.0
+        - name: SUBSCRIBER_IMAGE
+          value: litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-subscriber:3.30.0
+        - name: CHAOS_CENTER_UI_ENDPOINT
+          value: ''
+        - name: CONTAINER_RUNTIME_EXECUTOR
+          value: k8sapi
+        - name: DEFAULT_HUB_BRANCH_NAME
+          value: v3.30.x
+        - name: ENABLE_GQL_INTROSPECTION
+          value: 'false'
+        - name: INFRA_COMPATIBLE_VERSIONS
+          value: '["3.30.0"]'
+        - name: INFRA_DEPLOYMENTS
+          value: '["app=chaos-exporter", "name=chaos-operator", "app=event-tracker",
+            "app=workflow-controller"]'
+        - name: METRICS_PORT
+          value: '8889'
+        - name: REMOTE_HUB_MAX_SIZE
+          value: '5000000'
+        - name: TLS_CERT_64
+          value: ''
+        - name: WORKFLOW_HELPER_IMAGE_VERSION
+          value: 3.30.0
+      enableServiceLinks: false

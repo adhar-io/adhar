@@ -1,0 +1,3240 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: chaosexperiments.litmuschaos.io
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  group: litmuschaos.io
+  names:
+    kind: ChaosExperiment
+    listKind: ChaosExperimentList
+    plural: chaosexperiments
+    singular: chaosexperiment
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#resources'
+            type: string
+          description:
+            type: object
+            additionalProperties:
+              type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          status:
+            x-kubernetes-preserve-unknown-fields: true
+            type: object
+          spec:
+            type: object
+            properties:
+              definition:
+                x-kubernetes-preserve-unknown-fields: true
+                type: object
+                properties:
+                  args:
+                    type: array
+                    items:
+                      type: string
+                  command:
+                    type: array
+                    items:
+                      type: string
+                  env:
+                    type: array
+                    items:
+                      type: object
+                      description: EnvVar represents an environment variable present
+                        in a Container.
+                      properties:
+                        name:
+                          description: Name of the environment variable. Must be a
+                            C_IDENTIFIER.
+                          type: string
+                        value:
+                          description: 'Variable references $(VAR_NAME) are expanded
+                            using the previous defined environment variables in the
+                            container and any service environment variables. If a
+                            variable cannot be resolved, the reference in the input
+                            string will be unchanged. The $(VAR_NAME) syntax can be
+                            escaped with a double $$, ie: $$(VAR_NAME). Escaped references
+                            will never be expanded, regardless of whether the variable
+                            exists or not. Defaults to "".'
+                          type: string
+                        valueFrom:
+                          description: Source for the environment variable's value.
+                            Cannot be used if value is not empty.
+                          properties:
+                            configMapKeyRef:
+                              description: Selects a key of a ConfigMap.
+                              properties:
+                                key:
+                                  description: The key to select.
+                                  type: string
+                                name:
+                                  description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    TODO: Add other useful fields. apiVersion, kind,
+                                    uid?'
+                                  type: string
+                                optional:
+                                  description: Specify whether the ConfigMap or its
+                                    key must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                            fieldRef:
+                              description: 'Selects a field of the pod: supports metadata.name,
+                                metadata.namespace, metadata.labels, metadata.annotations,
+                                spec.nodeName, spec.serviceAccountName, status.hostIP,
+                                status.podIP.'
+                              properties:
+                                apiVersion:
+                                  description: Version of the schema the FieldPath
+                                    is written in terms of, defaults to "v1".
+                                  type: string
+                                fieldPath:
+                                  description: Path of the field to select in the
+                                    specified API version.
+                                  type: string
+                              required:
+                              - fieldPath
+                              type: object
+                            resourceFieldRef:
+                              description: 'Selects a resource of the container: only
+                                resources limits and requests (limits.cpu, limits.memory,
+                                limits.ephemeral-storage, requests.cpu, requests.memory
+                                and requests.ephemeral-storage) are currently supported.'
+                              properties:
+                                containerName:
+                                  description: 'Container name: required for volumes,
+                                    optional for env vars'
+                                  type: string
+                                divisor:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: Specifies the output format of the
+                                    exposed resources, defaults to "1"
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                resource:
+                                  description: 'Required: resource to select'
+                                  type: string
+                              required:
+                              - resource
+                              type: object
+                            secretKeyRef:
+                              description: Selects a key of a secret in the pod's
+                                namespace
+                              properties:
+                                key:
+                                  description: The key of the secret to select from.  Must
+                                    be a valid secret key.
+                                  type: string
+                                name:
+                                  description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    TODO: Add other useful fields. apiVersion, kind,
+                                    uid?'
+                                  type: string
+                                optional:
+                                  description: Specify whether the Secret or its key
+                                    must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                          type: object
+                      required:
+                      - name
+                  image:
+                    type: string
+                  imagePullPolicy:
+                    type: string
+                  labels:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  scope:
+                    type: string
+                    pattern: ^(Namespaced|Cluster)$
+                  permissions:
+                    type: array
+                    items:
+                      type: object
+                      minProperties: 3
+                      required:
+                      - apiGroups
+                      - resources
+                      - verbs
+                      properties:
+                        apiGroups:
+                          type: array
+                          items:
+                            type: string
+                        resources:
+                          type: array
+                          items:
+                            type: string
+                        verbs:
+                          type: array
+                          items:
+                            type: string
+                        resourceNames:
+                          type: array
+                          items:
+                            type: string
+                        nonResourceURLs:
+                          type: array
+                          items:
+                            type: string
+                  configMaps:
+                    type: array
+                    items:
+                      type: object
+                      minProperties: 2
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        mountPath:
+                          type: string
+                          minLength: 1
+                  secrets:
+                    type: array
+                    items:
+                      type: object
+                      minProperties: 2
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        mountPath:
+                          type: string
+                          minLength: 1
+                  hostFileVolumes:
+                    type: array
+                    items:
+                      type: object
+                      minProperties: 3
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        mountPath:
+                          type: string
+                          minLength: 1
+                        nodePath:
+                          type: string
+                          minLength: 1
+                  securityContext:
+                    x-kubernetes-preserve-unknown-fields: true
+                    type: object
+                  hostPID:
+                    type: boolean
+    served: true
+    storage: true
+    subresources: {}
+  conversion:
+    strategy: None
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-chaos-admin
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-chaos-admin
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+rules:
+- apiGroups:
+  - ''
+  - apps
+  - batch
+  - extensions
+  - apps.openshift.io
+  - argoproj.io
+  - litmuschaos.io
+  resources:
+  - jobs
+  - pods
+  - pods/exec
+  - pods/log
+  - pods/eviction
+  - daemonsets
+  - replicasets
+  - deployments
+  - statefulsets
+  - services
+  - events
+  - configmaps
+  - secrets
+  - networkpolicies
+  - replicationcontrollers
+  - deploymentconfigs
+  - rollouts
+  - chaosengines
+  - chaosexperiments
+  - chaosresults
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - deletecollection
+- apiGroups:
+  - ''
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-chaos-admin
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8s-chaos-admin
+subjects:
+- kind: ServiceAccount
+  name: k8s-chaos-admin
+  namespace: adhar-system
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: "Kills a container belonging to an application pod \n"
+kind: ChaosExperiment
+metadata:
+  name: container-kill
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - apps
+      - batch
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - events
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - update
+      - patch
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name container-kill
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: RAMP_TIME
+      value: ''
+    - name: CHAOS_INTERVAL
+      value: '10'
+    - name: SIGNAL
+      value: SIGKILL
+    - name: TOTAL_CHAOS_DURATION
+      value: '20'
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: TARGET_PODS
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: container-kill
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Fillup Ephemeral Storage of a Resource
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: disk-fill
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - apps
+      - batch
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/exec
+      - pods/log
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name disk-fill
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: FILL_PERCENTAGE
+      value: '80'
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: DATA_BLOCK_SIZE
+      value: '256'
+    - name: TARGET_PODS
+      value: ''
+    - name: EPHEMERAL_STORAGE_MEBIBYTES
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    labels:
+      name: disk-fill
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/host-path-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Detaching a persistent disk from a node/instance. Supports only for AWS
+    and GCP
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: disk-loss
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Cluster
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - events
+      - pods/log
+      - secrets
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+    image: litmuschaos.docker.scarf.sh/litmuschaos/ansible-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ansible-playbook ./experiments/generic/disk_loss/disk_loss_ansible_logic.yml
+      -i /etc/ansible/hosts -vv; exit 0
+    command:
+    - /bin/bash
+    env:
+    - name: ANSIBLE_STDOUT_CALLBACK
+      value: default
+    - name: TOTAL_CHAOS_DURATION
+      value: '15'
+    - name: RAMP_TIME
+      value: ''
+    - name: APP_CHECK
+      value: 'true'
+    - name: CLOUD_PLATFORM
+      value: GKE
+    - name: PROJECT_ID
+      value: ''
+    - name: LIB
+      value: litmus
+    - name: NODE_NAME
+      value: ''
+    - name: DISK_NAME
+      value: ''
+    - name: ZONE_NAME
+      value: ''
+    - name: DEVICE_NAME
+      value: ''
+    labels:
+      name: disk-loss
+      app.kubernetes.io/part-of: litmus
+    secrets:
+    - name: cloud-secret
+      mountPath: /tmp/
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Kills the docker service on the application node to check the resiliency.
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: docker-service-kill
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Cluster
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+    - apiGroups:
+      - ''
+      resources:
+      - nodes
+      verbs:
+      - get
+      - list
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name docker-service-kill
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '90'
+    - name: RAMP_TIME
+      value: ''
+    - name: NODE_LABEL
+      value: ''
+    - name: LIB_IMAGE
+      value: ubuntu:16.04
+    - name: TARGET_NODE
+      value: ''
+    labels:
+      name: docker-service-kill
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/host-path-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Kills the kubelet service on the application node to check the resiliency.
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: kubelet-service-kill
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Cluster
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - nodes
+      verbs:
+      - get
+      - list
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name kubelet-service-kill
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '90'
+    - name: RAMP_TIME
+      value: ''
+    - name: NODE_LABEL
+      value: ''
+    - name: LIB_IMAGE
+      value: ubuntu:16.04
+    - name: TARGET_NODE
+      value: ''
+    labels:
+      name: kubelet-service-kill
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/host-path-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Give a cpu spike on a node belonging to a deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: node-cpu-hog
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Cluster
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - nodes
+      verbs:
+      - get
+      - list
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name node-cpu-hog
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: NODE_CPU_CORE
+      value: '1'
+    - name: CPU_LOAD
+      value: '0'
+    - name: TARGET_NODES
+      value: ''
+    - name: NODE_LABEL
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: NODES_AFFECTED_PERC
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: node-cpu-hog
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Drain the node where application pod is scheduled
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: node-drain
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Cluster
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - litmuschaos.io
+      - apps
+      resources:
+      - jobs
+      - pods
+      - events
+      - pods/log
+      - pods/exec
+      - daemonsets
+      - pods/eviction
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - nodes
+      verbs:
+      - get
+      - list
+      - patch
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name node-drain
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_NODE
+      value: ''
+    - name: NODE_LABEL
+      value: ''
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    labels:
+      name: node-drain
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Give IO disk stress on a node belonging to a deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: node-io-stress
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Cluster
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - nodes
+      verbs:
+      - get
+      - list
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name node-io-stress
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '120'
+    - name: FILESYSTEM_UTILIZATION_PERCENTAGE
+      value: '10'
+    - name: FILESYSTEM_UTILIZATION_BYTES
+      value: ''
+    - name: CPU
+      value: '1'
+    - name: NUMBER_OF_WORKERS
+      value: '4'
+    - name: VM_WORKERS
+      value: '1'
+    - name: TARGET_NODES
+      value: ''
+    - name: NODE_LABEL
+      value: ''
+    - name: RAMP_TIME
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: NODES_AFFECTED_PERC
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: node-io-stress
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Give a memory hog on a node belonging to a deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: node-memory-hog
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Cluster
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - nodes
+      verbs:
+      - get
+      - list
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name node-memory-hog
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '120'
+    - name: MEMORY_CONSUMPTION_PERCENTAGE
+      value: '0'
+    - name: MEMORY_CONSUMPTION_MEBIBYTES
+      value: '0'
+    - name: NUMBER_OF_WORKERS
+      value: '1'
+    - name: TARGET_NODES
+      value: ''
+    - name: NODE_LABEL
+      value: ''
+    - name: RAMP_TIME
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: NODES_AFFECTED_PERC
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: node-memory-hog
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Taint the node where application pod is scheduled
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: node-taint
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Cluster
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - events
+      - pods/log
+      - pods/exec
+      - daemonsets
+      - pods/eviction
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - nodes
+      verbs:
+      - get
+      - list
+      - patch
+      - update
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name node-taint
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_NODE
+      value: ''
+    - name: NODE_LABEL
+      value: ''
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: TAINTS
+      value: ''
+    labels:
+      name: node-taint
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Scale the application replicas and test the node autoscaling on cluster
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-autoscaler
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Cluster
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - pods/exec
+      - deployments
+      - statefulsets
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - nodes
+      verbs:
+      - get
+      - list
+      - create
+      - patch
+      - update
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-autoscaler
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: REPLICA_COUNT
+      value: '5'
+    labels:
+      name: pod-autoscaler
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Injects cpu consumption on pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-cpu-hog-exec
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - events
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-cpu-hog-exec
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: CPU_CORES
+      value: '1'
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: RAMP_TIME
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    - name: TARGET_PODS
+      value: ''
+    labels:
+      name: pod-cpu-hog-exec
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Injects cpu consumption on pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-cpu-hog
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - events
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-cpu-hog
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: CPU_CORES
+      value: '1'
+    - name: CPU_LOAD
+      value: '100'
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: RAMP_TIME
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: TARGET_PODS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    labels:
+      name: pod-cpu-hog
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Deletes a pod belonging to a deployment/statefulset/daemonset
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-delete
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - batch
+      - litmuschaos.io
+      resources:
+      - deployments
+      - jobs
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-delete
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '15'
+    - name: RAMP_TIME
+      value: ''
+    - name: FORCE
+      value: 'true'
+    - name: CHAOS_INTERVAL
+      value: '5'
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: pod-delete
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Pod DNS Error injects dns failure/error in target pod containers
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-dns-error
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - events
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-dns-error
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: SEQUENCE
+      value: parallel
+    - name: TARGET_HOSTNAMES
+      value: ''
+    - name: MATCH_SCHEME
+      value: exact
+    labels:
+      name: pod-dns-error
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Pod DNS Spoof can spoof particular dns requests in target pod container
+    to desired target hostnames
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-dns-spoof
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - events
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-dns-spoof
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: SEQUENCE
+      value: parallel
+    - name: SPOOF_MAP
+      value: ''
+    labels:
+      name: pod-dns-spoof
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Injects http request latency on pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-http-latency
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      resources:
+      - pods
+      verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - events
+      verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+    - apiGroups:
+      - ''
+      resources:
+      - configmaps
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - ''
+      resources:
+      - pods/log
+      verbs:
+      - get
+      - list
+      - watch
+    - apiGroups:
+      - ''
+      resources:
+      - pods/exec
+      verbs:
+      - get
+      - list
+      - create
+    - apiGroups:
+      - apps
+      resources:
+      - deployments
+      - statefulsets
+      - replicasets
+      - daemonsets
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - apps.openshift.io
+      resources:
+      - deploymentconfigs
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - ''
+      resources:
+      - replicationcontrollers
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - argoproj.io
+      resources:
+      - rollouts
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - batch
+      resources:
+      - jobs
+      verbs:
+      - create
+      - list
+      - get
+      - delete
+      - deletecollection
+    - apiGroups:
+      - litmuschaos.io
+      resources:
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-http-latency
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: LATENCY
+      value: '2000'
+    - name: TARGET_SERVICE_PORT
+      value: '80'
+    - name: PROXY_PORT
+      value: '20000'
+    - name: TOXICITY
+      value: '100'
+    - name: NETWORK_INTERFACE
+      value: eth0
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    - name: NODE_LABEL
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: pod-http-latency
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'It injects the chaos inside the pod which modifies the body of the response
+    from the provided application server to the body string provided by the user and
+    reverts after a specified duration
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-http-modify-body
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      resources:
+      - pods
+      verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - events
+      verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+    - apiGroups:
+      - ''
+      resources:
+      - configmaps
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - ''
+      resources:
+      - pods/log
+      verbs:
+      - get
+      - list
+      - watch
+    - apiGroups:
+      - ''
+      resources:
+      - pods/exec
+      verbs:
+      - get
+      - list
+      - create
+    - apiGroups:
+      - apps
+      resources:
+      - deployments
+      - statefulsets
+      - replicasets
+      - daemonsets
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - apps.openshift.io
+      resources:
+      - deploymentconfigs
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - ''
+      resources:
+      - replicationcontrollers
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - argoproj.io
+      resources:
+      - rollouts
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - batch
+      resources:
+      - jobs
+      verbs:
+      - create
+      - list
+      - get
+      - delete
+      - deletecollection
+    - apiGroups:
+      - litmuschaos.io
+      resources:
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-http-modify-body
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: RESPONSE_BODY
+      value: ''
+    - name: TARGET_SERVICE_PORT
+      value: '80'
+    - name: PROXY_PORT
+      value: '20000'
+    - name: TOXICITY
+      value: '100'
+    - name: CONTENT_ENCODING
+      value: ''
+    - name: CONTENT_TYPE
+      value: text/plain
+    - name: NETWORK_INTERFACE
+      value: eth0
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    - name: NODE_LABEL
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: pod-http-modify-body
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'It injects the chaos inside the pod which modifies the header of the request/response
+    from the provided application server to the headers provided by the user and reverts
+    after a specified duration
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-http-modify-header
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      resources:
+      - pods
+      verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - events
+      verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+    - apiGroups:
+      - ''
+      resources:
+      - configmaps
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - ''
+      resources:
+      - pods/log
+      verbs:
+      - get
+      - list
+      - watch
+    - apiGroups:
+      - ''
+      resources:
+      - pods/exec
+      verbs:
+      - get
+      - list
+      - create
+    - apiGroups:
+      - apps
+      resources:
+      - deployments
+      - statefulsets
+      - replicasets
+      - daemonsets
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - apps.openshift.io
+      resources:
+      - deploymentconfigs
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - ''
+      resources:
+      - replicationcontrollers
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - argoproj.io
+      resources:
+      - rollouts
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - batch
+      resources:
+      - jobs
+      verbs:
+      - create
+      - list
+      - get
+      - delete
+      - deletecollection
+    - apiGroups:
+      - litmuschaos.io
+      resources:
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-http-modify-header
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: HEADERS_MAP
+      value: '{}'
+    - name: HEADER_MODE
+      value: response
+    - name: TARGET_SERVICE_PORT
+      value: '80'
+    - name: PROXY_PORT
+      value: '20000'
+    - name: NETWORK_INTERFACE
+      value: eth0
+    - name: TOXICITY
+      value: '100'
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    - name: NODE_LABEL
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: pod-http-modify-header
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'it injects chaos into the pod which stops outgoing http requests by resetting
+    the TCP connection and then reverts back to the original state after a specified
+    duration
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-http-reset-peer
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      resources:
+      - pods
+      verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - events
+      verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+    - apiGroups:
+      - ''
+      resources:
+      - configmaps
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - ''
+      resources:
+      - pods/log
+      verbs:
+      - get
+      - list
+      - watch
+    - apiGroups:
+      - ''
+      resources:
+      - pods/exec
+      verbs:
+      - get
+      - list
+      - create
+    - apiGroups:
+      - apps
+      resources:
+      - deployments
+      - statefulsets
+      - replicasets
+      - daemonsets
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - apps.openshift.io
+      resources:
+      - deploymentconfigs
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - ''
+      resources:
+      - replicationcontrollers
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - argoproj.io
+      resources:
+      - rollouts
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - batch
+      resources:
+      - jobs
+      verbs:
+      - create
+      - list
+      - get
+      - delete
+      - deletecollection
+    - apiGroups:
+      - litmuschaos.io
+      resources:
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-http-reset-peer
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: RESET_TIMEOUT
+      value: '0'
+    - name: TARGET_SERVICE_PORT
+      value: '80'
+    - name: PROXY_PORT
+      value: '20000'
+    - name: TOXICITY
+      value: '100'
+    - name: NETWORK_INTERFACE
+      value: eth0
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    - name: NODE_LABEL
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: pod-http-reset-peer
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'It injects chaos inside the pod which modifies the status code of the
+    response from the provided application server to desired status code provided
+    by the user and reverts after a specified duration
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-http-status-code
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      resources:
+      - pods
+      verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - deletecollection
+    - apiGroups:
+      - ''
+      resources:
+      - events
+      verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+    - apiGroups:
+      - ''
+      resources:
+      - configmaps
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - ''
+      resources:
+      - pods/log
+      verbs:
+      - get
+      - list
+      - watch
+    - apiGroups:
+      - ''
+      resources:
+      - pods/exec
+      verbs:
+      - get
+      - list
+      - create
+    - apiGroups:
+      - apps
+      resources:
+      - deployments
+      - statefulsets
+      - replicasets
+      - daemonsets
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - apps.openshift.io
+      resources:
+      - deploymentconfigs
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - ''
+      resources:
+      - replicationcontrollers
+      verbs:
+      - get
+      - list
+    - apiGroups:
+      - argoproj.io
+      resources:
+      - rollouts
+      verbs:
+      - list
+      - get
+    - apiGroups:
+      - batch
+      resources:
+      - jobs
+      verbs:
+      - create
+      - list
+      - get
+      - delete
+      - deletecollection
+    - apiGroups:
+      - litmuschaos.io
+      resources:
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-http-status-code
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: STATUS_CODE
+      value: ''
+    - name: MODIFY_RESPONSE_BODY
+      value: 'true'
+    - name: TARGET_SERVICE_PORT
+      value: '80'
+    - name: PROXY_PORT
+      value: '20000'
+    - name: TOXICITY
+      value: '100'
+    - name: NETWORK_INTERFACE
+      value: eth0
+    - name: RESPONSE_BODY
+      value: ''
+    - name: CONTENT_ENCODING
+      value: ''
+    - name: CONTENT_TYPE
+      value: text/plain
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    - name: NODE_LABEL
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: pod-http-status-code
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'IO stress on a app pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-io-stress
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-io-stress
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '120'
+    - name: FILESYSTEM_UTILIZATION_PERCENTAGE
+      value: '10'
+    - name: FILESYSTEM_UTILIZATION_BYTES
+      value: ''
+    - name: NUMBER_OF_WORKERS
+      value: '4'
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: VOLUME_MOUNT_PATH
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: RAMP_TIME
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    labels:
+      name: pod-io-stress
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Injects memory consumption on pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-memory-hog-exec
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-memory-hog-exec
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: MEMORY_CONSUMPTION
+      value: '500'
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: RAMP_TIME
+      value: ''
+    - name: CHAOS_KILL_COMMAND
+      value: kill $(find /proc -name exe -lname '*/dd' 2>&1 | grep -v 'Permission
+        denied' | awk -F/ '{print $(NF-1)}' | head -n 1)
+    - name: TARGET_PODS
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    labels:
+      name: pod-memory-hog-exec
+      app.kubernetes.io/part-of: litmus
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Injects memory consumption on pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-memory-hog
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-memory-hog
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: MEMORY_CONSUMPTION
+      value: '500'
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: RAMP_TIME
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: TARGET_PODS
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    labels:
+      name: pod-memory-hog
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Inject network packet corruption into application pod
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-network-corruption
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - delete
+      - list
+      - patch
+      - update
+      - get
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-network-corruption
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: NETWORK_INTERFACE
+      value: eth0
+    - name: NETWORK_PACKET_CORRUPTION_PERCENTAGE
+      value: '100'
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    - name: DESTINATION_IPS
+      value: ''
+    - name: DESTINATION_HOSTS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    labels:
+      name: pod-network-corruption
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Injects network packet duplication on pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-network-duplication
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - get
+      - list
+      - patch
+      - create
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-network-duplication
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: NETWORK_INTERFACE
+      value: eth0
+    - name: NETWORK_PACKET_DUPLICATION_PERCENTAGE
+      value: '100'
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    - name: DESTINATION_IPS
+      value: ''
+    - name: DESTINATION_HOSTS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    labels:
+      name: pod-network-duplication
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Injects network latency on pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-network-latency
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - create
+      - list
+      - get
+      - patch
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-network-latency
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: NETWORK_INTERFACE
+      value: eth0
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: NETWORK_LATENCY
+      value: '2000'
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: JITTER
+      value: '0'
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    - name: DESTINATION_IPS
+      value: ''
+    - name: DESTINATION_HOSTS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    labels:
+      name: pod-network-latency
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Injects network packet loss on pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-network-loss
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - apps
+      - apps.openshift.io
+      - argoproj.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+      - deploymentconfigs
+      - rollouts
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - get
+      - list
+      - patch
+      - create
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-network-loss
+    command:
+    - /bin/bash
+    env:
+    - name: TARGET_CONTAINER
+      value: ''
+    - name: LIB_IMAGE
+      value: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    - name: NETWORK_INTERFACE
+      value: eth0
+    - name: NETWORK_PACKET_LOSS_PERCENTAGE
+      value: '100'
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: PODS_AFFECTED_PERC
+      value: ''
+    - name: TARGET_PODS
+      value: ''
+    - name: SEQUENCE
+      value: parallel
+    - name: DESTINATION_IPS
+      value: ''
+    - name: DESTINATION_HOSTS
+      value: ''
+    - name: SOCKET_PATH
+      value: /run/containerd/containerd.sock
+    - name: CONTAINER_RUNTIME
+      value: containerd
+    labels:
+      name: pod-network-loss
+      app.kubernetes.io/part-of: litmus
+      app.kubernetes.io/runtime-api-usage: 'true'
+
+---
+apiVersion: litmuschaos.io/v1alpha1
+description:
+  message: 'Injects 100% network packet loss on pods belonging to an app deployment
+
+    '
+kind: ChaosExperiment
+metadata:
+  name: pod-network-partition
+  labels:
+    app.kubernetes.io/component: kubernetes-chaos
+    app.kubernetes.io/instance: litmus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: k8s
+    app.kubernetes.io/part-of: k8s
+    app.kubernetes.io/version: 3.31.0
+    helm.sh/chart: kubernetes-chaos-3.31.0
+    litmuschaos.io/version: 3.31.0
+  annotations:
+    argocd.argoproj.io/sync-wave: '2'
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+    - apiGroups:
+      - ''
+      - batch
+      - networking.k8s.io
+      - litmuschaos.io
+      resources:
+      - jobs
+      - pods
+      - pods/log
+      - networkpolicies
+      - pods/exec
+      - events
+      - chaosengines
+      - chaosexperiments
+      - chaosresults
+      verbs:
+      - get
+      - list
+      - patch
+      - create
+      - update
+      - delete
+      - deletecollection
+    image: litmuschaos.docker.scarf.sh/litmuschaos/go-runner:3.31.0
+    imagePullPolicy: Always
+    args:
+    - -c
+    - ./experiments -name pod-network-partition
+    command:
+    - /bin/bash
+    env:
+    - name: TOTAL_CHAOS_DURATION
+      value: '60'
+    - name: RAMP_TIME
+      value: ''
+    - name: DESTINATION_IPS
+      value: ''
+    - name: DESTINATION_HOSTS
+      value: ''
+    - name: POLICY_TYPES
+      value: all
+    - name: POD_SELECTOR
+      value: ''
+    - name: NAMESPACE_SELECTOR
+      value: ''
+    - name: PORTS
+      value: ''
+    labels:
+      name: pod-network-partition
+      app.kubernetes.io/part-of: litmus

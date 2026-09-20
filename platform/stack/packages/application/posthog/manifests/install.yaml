@@ -1842,6 +1842,7 @@ spec:
                       enum:
                       - ''
                       - merge
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -3687,6 +3688,7 @@ spec:
                       enum:
                       - ''
                       - merge
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -4044,6 +4046,7 @@ spec:
                       be written to the Info log.
 
                       '
+
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -4056,6 +4059,7 @@ metadata:
     helm.sh/chart: redis-16.8.9
     app.kubernetes.io/instance: posthog
     app.kubernetes.io/managed-by: Helm
+
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -4064,6 +4068,7 @@ metadata:
   namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
+
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -4074,6 +4079,7 @@ metadata:
     app.kubernetes.io/instance: posthog
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: posthog-30.46.0
+
 ---
 apiVersion: v1
 kind: Secret
@@ -4088,6 +4094,7 @@ type: Opaque
 data:
   posthog-secret: RDJRUGFvQlRia3lvTkpmd1Q1cENyM3pRWGdpSEFJeUNnaGkydGdpYQ==
   smtp-password: ''
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4131,6 +4138,7 @@ data:
     rename-command FLUSHALL ""
 
     # End of replica configuration'
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4190,6 +4198,7 @@ data:
     "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
 
     exit $exit_status'
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4211,6 +4220,7 @@ data:
     )\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\nARGS+=(\"--maxmemory\
     \ 400mb\")\nARGS+=(\"--maxmemory-policy allkeys-lru\")\nexec redis-server \"${ARGS[@]}\"\
     \n"
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4311,6 +4321,7 @@ data:
     ##\n## Log parameters\n##\n################################################\n\
     logger:\n  logtostderr: \"true\"\n  alsologtostderr: \"false\"\n  v: \"1\"\n \
     \ stderrthreshold: \"\"\n  vmodule: \"\"\n  log_backtrace_at: \"\"\n"
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4321,6 +4332,7 @@ metadata:
     clickhouse.altinity.com/chop: 0.18.4
     app: clickhouse-operator
 data: null
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4351,6 +4363,7 @@ data:
     \ = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + interval\
     \ 30 day</engine>\n        <flush_interval_milliseconds>7500</flush_interval_milliseconds>\n\
     \    </part_log>\n</yandex>\n"
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4393,6 +4406,7 @@ data:
     ''useTemplate''
 
     '
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4419,6 +4433,7 @@ data:
   03-database-ordinary.xml: "<!--  Remove it for ClickHouse versions before 20.4 -->\n\
     <yandex>\n    <profiles>\n        <default>\n            <default_database_engine>Ordinary</default_database_engine>\n\
     \        </default>\n    </profiles>\n</yandex>\n"
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -4574,6 +4589,7 @@ rules:
   verbs:
   - get
   - list
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -4590,6 +4606,7 @@ subjects:
 - kind: ServiceAccount
   name: clickhouse-operator
   namespace: adhar-system
+
 ---
 apiVersion: v1
 kind: Service
@@ -4612,6 +4629,7 @@ spec:
   selector:
     app.kubernetes.io/name: posthog-redis
     app.kubernetes.io/instance: posthog
+
 ---
 apiVersion: v1
 kind: Service
@@ -4636,6 +4654,7 @@ spec:
     app.kubernetes.io/name: posthog-redis
     app.kubernetes.io/instance: posthog
     app.kubernetes.io/component: master
+
 ---
 kind: Service
 apiVersion: v1
@@ -4651,6 +4670,7 @@ spec:
     name: clickhouse-operator-metrics
   selector:
     app: clickhouse-operator
+
 ---
 apiVersion: v1
 kind: Service
@@ -4674,6 +4694,7 @@ spec:
   selector:
     app: posthog
     role: events
+
 ---
 apiVersion: v1
 kind: Service
@@ -4696,6 +4717,7 @@ spec:
   selector:
     app: posthog
     role: pgbouncer
+
 ---
 apiVersion: v1
 kind: Service
@@ -4719,6 +4741,7 @@ spec:
   selector:
     app: posthog
     role: web
+
 ---
 kind: Deployment
 apiVersion: apps/v1
@@ -4831,6 +4854,7 @@ spec:
         ports:
         - containerPort: 8888
           name: metrics
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -5047,6 +5071,7 @@ spec:
           \ \"waiting for PgBouncer\"; sleep 1;\ndone\n\n\n\nuntil (nc -vz \"posthog-posthog-redis-master.$(cat\
           \ /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local\"\
           \ \"6379\"); do\n    echo \"waiting for Redis\"; sleep 1;\ndone\n"
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -5132,6 +5157,7 @@ spec:
               - sh
               - -c
               - sleep 30 && kill -INT 1 && sleep 31
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -5437,6 +5463,7 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -5675,6 +5702,7 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
+
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -5824,6 +5852,7 @@ spec:
       resources:
         requests:
           storage: 5Gi
+
 ---
 apiVersion: batch/v1
 kind: Job
@@ -5982,6 +6011,7 @@ spec:
           \ \"waiting for PgBouncer\"; sleep 1;\ndone\n\n\n\nuntil (nc -vz \"posthog-posthog-redis-master.$(cat\
           \ /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local\"\
           \ \"6379\"); do\n    echo \"waiting for Redis\"; sleep 1;\ndone\n"
+
 ---
 apiVersion: clickhouse.altinity.com/v1
 kind: ClickHouseInstallation
@@ -6148,6 +6178,7 @@ spec:
         resources:
           requests:
             storage: 20Gi
+
 ---
 apiVersion: batch/v1
 kind: Job

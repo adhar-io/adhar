@@ -280,11 +280,25 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/buildpack/manifests"
+          # chaos-mesh disabled: replaced by `litmus` as the platform's chaos
+          # engine. Chaos Mesh's dashboard is a CR editor; ChaosCenter is a
+          # chaos workflow engine with a fault catalogue, probes and recorded
+          # results, which is what resilience testing in CI needs. Running both
+          # would put two fault injectors on the same nodes.
           - name: "chaos-mesh"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/chaos-mesh/manifests"
+          # litmus: the platform's chaos-engineering engine (replaces chaos-mesh).
+          # Three charts in one package — ChaosCenter, the chaos operator + CRDs,
+          # and the 29-fault Kubernetes catalogue — plus its own MongoDB replica
+          # set from the platform operator.
+          - name: "litmus"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/litmus/manifests"
           - name: "external-dns"
             enabled: "true"
             namespace: "adhar-system"

@@ -294,7 +294,20 @@ func cloneGiteaRepo(ctx context.Context, cfg v1alpha1.BuildCustomizationSpec, us
 		User:   url.UserPassword(username, password),
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "-c", "http.sslVerify=false", "clone", "--quiet", "--depth", "1", base.String(), dest)
+	// credential.helper= (empty) disables the DEVELOPER's configured helpers for this
+	// one clone. The URL already carries the platform's credential, and a helper
+	// such as osxkeychain or git-credential-manager can return a STALE entry for the
+	// same host — after the platform rotates the Gitea admin password
+	// (security/adhar-credential-rotation) that cached value is wrong, and the clone
+	// fails with an opaque
+	//     remote: Access denied … 403
+	// that looks like a platform fault and reproduces on one machine but not another.
+	// GIT_TERMINAL_PROMPT=0 keeps a failure a failure instead of a hung prompt.
+	cmd := exec.CommandContext(ctx, "git",
+		"-c", "credential.helper=",
+		"-c", "http.sslVerify=false",
+		"clone", "--quiet", "--depth", "1", base.String(), dest)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Never echo the URL (it embeds credentials).
 		return fmt.Errorf("cloning gitea repo %q: %w: %s", repo, err, sanitize(string(out), password))

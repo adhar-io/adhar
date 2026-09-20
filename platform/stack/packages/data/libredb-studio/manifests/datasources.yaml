@@ -43,13 +43,20 @@ spec:
     template:
       engineVersion: v2
       data:
-        PG_GITEA_USER: '{{ .username }}'
+        # The USER is a literal: Gitea's chart fixes its database account to `gitea`
+        # and publishes no username anywhere, so there is nothing to read it from.
+        PG_GITEA_USER: 'gitea'
         PG_GITEA_PASSWORD: '{{ .password }}'
   data:
-    - secretKey: username
-      remoteRef: {key: gitea-db-credentials, property: username}
+    # `gitea-postgresql` is where the chart actually keeps the database password.
+    # This read used to name `gitea-db-credentials`, a Secret that does not exist on
+    # any profile — so the ExternalSecret sat Ready=False with
+    #     could not get secret data from provider
+    # which failed the whole libredb-studio sync (attempt #67 on a live cluster) even
+    # though every workload in it was running. One missing Secret name, and the app
+    # can never report Synced.
     - secretKey: password
-      remoteRef: {key: gitea-db-credentials, property: password}
+      remoteRef: {key: gitea-postgresql, property: password}
 ---
 # keycloak-db; the keycloak package's own config Secret doubles as the CNPG application account
 apiVersion: external-secrets.io/v1

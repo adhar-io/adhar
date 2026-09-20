@@ -21,6 +21,12 @@
 # routinely, an app with ephemeral state is broken by construction — and the
 # platform's own rule is that applications use the shared CNPG rather than a
 # bundled or embedded database.
+#
+# HOW THE WORKLOAD CONNECTS. Because this Cluster supplies its own credentials
+# (bootstrap.initdb.secret below), CNPG does NOT generate a `coder-db-app` Secret
+# with a ready-made URI — that only happens when CNPG invents the credentials. The
+# Deployment therefore composes the URL from `coder-db-credentials` plus the
+# `coder-db-rw` Service, which is the same shape every other CNPG consumer here uses.
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
 metadata:

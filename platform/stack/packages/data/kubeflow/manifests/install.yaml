@@ -1527,17 +1527,16 @@ metadata:
   namespace: adhar-system
 
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  labels:
-    application-crd-id: kubeflow-pipelines
-  name: mlpipeline-minio-artifact
-  namespace: adhar-system
-stringData:
-  accesskey: minio
-  secretkey: minio123
-
+# The static `mlpipeline-minio-artifact` Secret that upstream ships here has been
+# REMOVED on purpose. This platform's object store is RustFS, not MinIO, and
+# manifests/platform-minio.yaml already owns this Secret through an ExternalSecret
+# that writes the real RustFS credentials.
+#
+# Shipping both made two owners write one Secret: the ExternalSecret set
+# `rustfsadmin`, the static copy said `minio`/`minio123`, and Argo CD saw the live
+# object differ from git forever — kubeflow reported OutOfSync indefinitely while
+# every workload in it was Healthy, which reads as a platform glitch rather than a
+# duplicated resource.
 ---
 apiVersion: v1
 kind: Secret

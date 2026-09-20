@@ -1,0 +1,164 @@
+# Litmus's database, provisioned through the PLATFORM's MongoDB operator
+# (data/mongodb) rather than the Bitnami subchart bundled in the ChaosCenter
+# chart — the same relationship `coder` has with the platform's CNPG operator.
+#
+# The chart's own default is a three-member replica set with persistence, i.e. a
+# second production-sized MongoDB running beside the operator the platform
+# already has. `members: 1` here because ChaosCenter's data is experiment
+# metadata: it must survive a node being replaced (hence a PVC, not emptyDir),
+# but it does not need quorum across three nodes on a management cluster that is
+# CPU-bound.
+#
+# It IS still a ReplicaSet and not a standalone: the chart's `wait-for-mongodb`
+# init container blocks on `rs.status()`, and the graphql server uses
+# transactions, which MongoDB only offers on a replica set. A standalone would
+# leave the init container looping forever with no error.
+---
+# Wave 0: generated before anything reads it.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: litmus-db-password
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  length: 32
+  digits: 6
+  # No symbols: this password is interpolated into a MongoDB connection URI by
+  # the chart's init container (`mongosh -u $DB_USER -p $DB_PASSWORD $DB_SERVER`),
+  # and a '/' or '@' in it would be read as URI structure.
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: litmus-admin-password
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  length: 24
+  digits: 4
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+# The single Secret both Litmus and the MongoDB operator read.
+#
+# One Secret, deliberately: an ESO generator mints a DISTINCT value per
+# ExternalSecret, so a second ExternalSecret pointing at the same Password
+# generator would hand the operator a different password than the one Litmus
+# authenticates with — an authentication failure with no obvious cause. The
+# MongoDBCommunity user below therefore references THIS Secret's DB_PASSWORD key.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: litmus-admin-secret
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  # CreatedOnce: regenerating DB_PASSWORD would not re-create the MongoDB user,
+  # so Litmus would authenticate with a password the database has never seen.
+  refreshPolicy: CreatedOnce
+  refreshInterval: 30s
+  target:
+    name: litmus-admin-secret
+    template:
+      engineVersion: v2
+      data:
+        # The ChaosCenter chart consumes this Secret via `existingSecret`
+        # (values.yaml); these four keys are the contract it expects.
+        DB_USER: "litmus"
+        DB_PASSWORD: "{{ .DB_PASSWORD }}"
+        ADMIN_USERNAME: "admin"
+        ADMIN_PASSWORD: "{{ .ADMIN_PASSWORD }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: litmus-db-password
+      rewrite:
+        - transform: {template: "DB_PASSWORD"}
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: litmus-admin-password
+      rewrite:
+        - transform: {template: "ADMIN_PASSWORD"}
+---
+# Wave 1: after the credential, before the ChaosCenter (wave 3).
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: litmus-db
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    # The operator writes status, the automation config and the generated
+    # connection-string Secrets back onto this resource's own fields. A
+    # client-side apply diffs those away on every sync and fights the operator
+    # for ownership, which is the same failure CNPG Clusters hit here.
+    argocd.argoproj.io/sync-options: ServerSideApply=true
+  labels:
+    app.kubernetes.io/name: litmus-db
+    app.kubernetes.io/part-of: litmus
+spec:
+  members: 1
+  type: ReplicaSet
+  version: "6.0.5"
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    - name: litmus
+      # `admin` is the AUTHENTICATION database — it must match the path segment
+      # of adminConfig.DB_SERVER in values.yaml. Litmus creates and uses its own
+      # `litmus` database for data.
+      db: admin
+      passwordSecretRef:
+        name: litmus-admin-secret
+        key: DB_PASSWORD
+      roles:
+        # readWriteAnyDatabase because Litmus creates its database on first
+        # write; clusterMonitor because the chart's init container calls
+        # rs.status(), which is a cluster-level read and is refused to a user
+        # that only has data roles — the init container then loops forever
+        # reporting "Waiting for the MongoDB to be ready".
+        - {name: readWriteAnyDatabase, db: admin}
+        - {name: dbAdminAnyDatabase, db: admin}
+        - {name: clusterMonitor, db: admin}
+      scramCredentialsSecretName: litmus-db-scram
+  statefulSet:
+    spec:
+      volumeClaimTemplates:
+        - metadata:
+            name: data-volume
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 10Gi
+        - metadata:
+            name: logs-volume
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 2Gi
+      template:
+        spec:
+          # One namespace for every package: a <NAME>_PORT env var per Service
+          # reaches these pods too (CONFLICTS.md).
+          enableServiceLinks: false
+          containers:
+            - name: mongod
+              resources:
+                requests: {cpu: 100m, memory: 512Mi}
+                limits: {cpu: "1", memory: 2Gi}
+            - name: mongodb-agent
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {cpu: 500m, memory: 512Mi}

@@ -1,0 +1,100 @@
+# LitmusChaos ChaosCenter — the platform's chaos-engineering engine.
+#
+# Replaces Chaos Mesh. Both inject faults; Litmus is the CNCF project with a
+# first-class EXPERIMENT model (ChaosExperiment + ChaosEngine + the ChaosHub
+# catalogue of pre-written faults) and a control plane that records runs, so a
+# game day is a reviewable artefact rather than a one-off CR someone applied.
+# Chaos Mesh's dashboard is a CR editor; ChaosCenter is a chaos workflow engine
+# with probes, scheduling and results, which is what "default chaos engine"
+# has to mean for a platform that wants resilience testing in CI.
+#
+# Regenerate manifests/install.yaml with ./generate-manifests.sh after any change
+# here.
+
+# The ChaosCenter is INTERNAL to the cluster and published on the platform
+# Gateway behind the Keycloak oauth2-proxy (manifests/sso.yaml +
+# manifests/httproute.yaml), so no Ingress and no LoadBalancer.
+portal:
+  frontend:
+    service:
+      type: ClusterIP
+    # The chart ships readinessProbe timeoutSeconds: 1, which no package on this
+    # platform may do (TestNoProbeShipsAOneSecondTimeout): a single second is
+    # less than a loaded management-cluster node needs to answer, and kubelet
+    # then kills a healthy pod. Harbor's database shipped the same default and
+    # was killed 29 times before anyone looked at the probe rather than the
+    # database.
+    readinessProbe:
+      timeoutSeconds: 10
+    resources:
+      requests:
+        cpu: 25m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  server:
+    # `mongo:6` running `rs.status()` until the replica set answers. It stays:
+    # the graphql server panics on a half-initialised replica set, and the CR in
+    # manifests/platform-mongodb.yaml is a real ReplicaSet (members: 1), so the
+    # probe this runs is the right one.
+    waitForMongodb:
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi
+    graphqlServer:
+      # Same 1-second readiness timeout as the frontend; see the note above.
+      readinessProbe:
+        timeoutSeconds: 10
+      resources:
+        requests:
+          cpu: 50m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+    authServer:
+      resources:
+        requests:
+          cpu: 25m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+ingress:
+  enabled: false
+
+# MongoDB comes from the PLATFORM's operator, not this chart's Bitnami subchart.
+#
+# Two reasons, and the second is the operational one. Platform convention is that
+# a package consumes a platform-provided capability rather than vendoring its own
+# datastore (see platform/stack/packages/CONFLICTS.md and the `coder` package,
+# which takes a CNPG cluster of its own from the platform's CNPG operator the
+# same way). And the subchart's default is a THREE-member replica set with
+# persistence — a second MongoDB, sized for production, next to the operator the
+# platform already runs.
+#
+# manifests/platform-mongodb.yaml provisions `litmus-db` (MongoDBCommunity,
+# members: 1) and publishes the credential this chart reads.
+mongodb:
+  enabled: false
+
+adminConfig:
+  # Points at the operator-managed replica set. The path segment is the
+  # AUTHENTICATION database, not the data database: the user below is created in
+  # `admin`, and Litmus creates its own `litmus` database on first write. Getting
+  # this wrong fails as an authentication error, which reads like a bad password.
+  DB_SERVER: "mongodb://litmus-db-svc.adhar-system.svc.cluster.local:27017/admin"
+  DB_PORT: "27017"
+  SKIP_SSL_VERIFY: "false"
+
+# The admin + database credentials are owned by External Secrets, not by this
+# chart: `existingSecret` makes the chart REFERENCE the Secret instead of
+# templating one with a literal password in git. See platform-mongodb.yaml.
+existingSecret: "litmus-admin-secret"

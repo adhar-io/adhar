@@ -107,11 +107,22 @@ const (
 	// ClusterSSHSecretKey is the key inside ClusterSSHSecretName.
 	ClusterSSHSecretKey = "id_ed25519"
 
-	// GitOpsRepoTemplates holds the service/application templates the Console and
-	// the `adhar apps deploy --template` CLI both instantiate through the
-	// CompositeApplication control-plane layer — the single source of truth for
-	// templates, served from Gitea (not the local filesystem or a hardcoded set).
-	GitOpsRepoTemplates = "templates"
+	// GitOpsRepoTemplates is the curated golden-path collection both the Console
+	// and `adhar application deploy --template` instantiate — the single source
+	// of truth for templates, served from Gitea rather than the local filesystem
+	// or a hardcoded set.
+	//
+	// It is NOT created by bootstrap: the `adhar-libraries` package mirrors it
+	// from github.com/adhar-io/adhar-templates, so the templates a platform
+	// offers are the upstream ones and stay current without a release. Bootstrap
+	// used to also seed a second, thinner `templates` repo from
+	// platform/stack/templates/, which left the Console and the CLI disagreeing
+	// about which collection was authoritative.
+	GitOpsRepoTemplates = "adhar-templates"
+	// GitOpsTemplatesPath is the directory inside GitOpsRepoTemplates holding one
+	// directory per template (`<id>/template.yaml` plus the `skeleton/` tree it
+	// renders).
+	GitOpsTemplatesPath = "templates"
 )
 
 var (

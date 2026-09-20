@@ -284,11 +284,19 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/buildpack/manifests"
+          # chaos-mesh superseded by `litmus` as the platform's chaos engine;
+          # both are off locally (a fault injector on a single-node Kind
+          # cluster damages the platform under test, not a tenant workload).
           - name: "chaos-mesh"
             enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/chaos-mesh/manifests"
+          - name: "litmus"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/litmus/manifests"
           - name: "external-dns"
             enabled: "false"
             namespace: "adhar-system"
