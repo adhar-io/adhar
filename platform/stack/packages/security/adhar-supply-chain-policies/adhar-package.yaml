@@ -3,7 +3,7 @@
 # (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
 apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
-name: supply-chain-policies
+name: adhar-supply-chain-policies
 category: security
 version: "0.1.0"
 description: 'ADR-0019 supply-chain admission pack: cosign signature verification, no-:latest, registry allowlist — shipped twice, Audit (default) and Enforce (opt-in).'
@@ -18,7 +18,7 @@ adharCompatibility:
 dependencies:
   - name: kyverno
     category: security
-  - name: supply-chain
+  - name: adhar-supply-chain
     category: application
     optional: true   # provides the cosign-key Secret the key attestor reads
 provenance:

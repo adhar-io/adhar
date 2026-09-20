@@ -115,11 +115,11 @@ spec:
             plane: "control"
             manifestPath: "ai/vllm/manifests/gpu"
           # Per-service production-readiness score cards (roadmap Phase 3).
-          - name: "scorecards"
+          - name: "adhar-scorecards"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/scorecards/manifests"
+            manifestPath: "application/adhar-scorecards/manifests"
           - name: "kubescape"
             enabled: "true"
             namespace: "adhar-system"
@@ -305,24 +305,24 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/kyverno/manifests"
-          - name: "kyverno-policies"
+          - name: "adhar-kyverno-policies"
             enabled: "true"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/kyverno-policies/manifests"
+            manifestPath: "security/adhar-kyverno-policies/manifests"
           # ADR-0019 supply-chain admission pack (audit stage; the enforce
           # stage lives in .../manifests/enforce and is opt-in — see the
           # package README).
-          - name: "supply-chain-policies"
+          - name: "adhar-supply-chain-policies"
             enabled: "true"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/supply-chain-policies/manifests/audit"
-          - name: "supply-chain-policies-enforce"
+            manifestPath: "security/adhar-supply-chain-policies/manifests/audit"
+          - name: "adhar-supply-chain-policies-enforce"
             enabled: "false"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/supply-chain-policies/manifests/enforce"
+            manifestPath: "security/adhar-supply-chain-policies/manifests/enforce"
           - name: "jupyterhub"
             enabled: "true"
             namespace: "adhar-system"
@@ -363,11 +363,11 @@ spec:
           # guardrails for preview namespaces. Costs nothing until a repo ships
           # preview/kustomization.yaml and a PR is labelled `preview`, so it is on
           # everywhere.
-          - name: "preview-environments"
+          - name: "adhar-preview-environments"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/preview-environments/manifests"
+            manifestPath: "application/adhar-preview-environments/manifests"
           - name: "minio"
             enabled: "false"
             namespace: "adhar-system"
@@ -500,7 +500,13 @@ spec:
           backoff:
             duration: 5s
             factor: 2
-            maxDuration: 3m0s
+            # 20s, not the 3m it was. Cross-package CRD dependencies make first
+            # syncs fail routinely, and with a 3-minute cap an app that was ready to
+            # succeed waited up to three minutes to find out: a live bring-up had six
+            # apps at retry attempts #6-#9, i.e. ~8 minutes of pure backoff each,
+            # long after the dependency they wanted had appeared. A retry is cheap (a
+            # dry-run and an apply); the wait was the expensive part.
+            maxDuration: 20s
           limit: 30
         syncOptions:
           - CreateNamespace=true

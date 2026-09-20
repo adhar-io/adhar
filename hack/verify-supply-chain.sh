@@ -4,7 +4,7 @@
 # on THIS cluster.
 #
 # The three supply-chain ClusterPolicies ship in Audit mode by default
-# (platform/stack/packages/security/supply-chain-policies/manifests/audit). Audit
+# (platform/stack/packages/security/adhar-supply-chain-policies/manifests/audit). Audit
 # can only ever tell you what it *would* have done — and the parts that silently
 # fail in practice are exactly the parts Audit hides: can Kyverno reach the
 # registry, does it trust the TLS, does it parse a signature made the way the

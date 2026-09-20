@@ -5,7 +5,7 @@
 #
 # Preview environments are now a first-class platform package:
 #
-#     platform/stack/packages/application/preview-environments/
+#     platform/stack/packages/application/adhar-preview-environments/
 #
 # enabled by default in the local, production and gitops ApplicationSets. It runs
 # ONE ApplicationSet for the whole `adhar` org: a matrix of the Gitea scmProvider

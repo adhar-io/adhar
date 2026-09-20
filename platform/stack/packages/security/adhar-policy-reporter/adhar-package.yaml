@@ -5,7 +5,7 @@
 # package changes; the generator never overwrites an existing contract.
 apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
-name: policy-reporter
+name: adhar-policy-reporter
 category: security
 version: "2.20.1"
 appVersion: "2.20.1"

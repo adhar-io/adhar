@@ -5,7 +5,7 @@
 # package changes; the generator never overwrites an existing contract.
 apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
-name: preview-environments
+name: adhar-preview-environments
 category: application
 version: "0.1.0"
 description: 'Guardrails for ephemeral preview namespaces (ADR-0017): Kyverno rules that stamp every preview namespace with a ResourceQuota and a LimitRange.'

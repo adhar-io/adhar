@@ -150,20 +150,20 @@ spec:
             manifestPath: "ai/vllm/manifests/gpu"
           # Per-service production-readiness score cards (roadmap Phase 3), surfaced
           # in the Console. Read-only scorer CronJob → adhar-scorecards ConfigMap.
-          - name: "scorecards"
+          - name: "adhar-scorecards"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/scorecards/manifests"
+            manifestPath: "application/adhar-scorecards/manifests"
           # Rotates gitea_admin/argocd admin bootstrap credentials into
           # break-glass values (Vault-backed when available). Disabled locally
           # so documented dev credentials keep working; enable once SSO login
           # is verified (roadmap P1.4).
-          - name: "credential-rotation"
+          - name: "adhar-credential-rotation"
             enabled: "true"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/credential-rotation/manifests"
+            manifestPath: "security/adhar-credential-rotation/manifests"
           - name: "kubescape"
             enabled: "true"
             namespace: "adhar-system"
@@ -366,16 +366,16 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/kyverno/manifests"
-          - name: "kyverno-policies"
+          - name: "adhar-kyverno-policies"
             enabled: "true"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/kyverno-policies/manifests"
-          - name: "policy-reporter"
+            manifestPath: "security/adhar-kyverno-policies/manifests"
+          - name: "adhar-policy-reporter"
             enabled: "true"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/policy-reporter/manifests"
+            manifestPath: "security/adhar-policy-reporter/manifests"
           # ADR-0019 supply-chain admission pack, shipped in two stages. The
           # AUDIT pack is always on: its findings land in ClusterPolicyReports
           # and predict exactly what Enforce would block. The ENFORCE pack is
@@ -385,11 +385,11 @@ spec:
           # audit pack enabled; the two coexist (policy names differ by an
           # `-enforce` suffix). See the package README for the staging recipe
           # and hack/verify-supply-chain.sh for the drill that proves it works.
-          - name: "supply-chain-policies"
+          - name: "adhar-supply-chain-policies"
             enabled: "true"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/supply-chain-policies/manifests/audit"
+            manifestPath: "security/adhar-supply-chain-policies/manifests/audit"
           # Enforce pack ENABLED (2026-09-13). hack/verify-supply-chain.sh passed
           # twice on a live DigitalOcean cluster before this was flipped: unsigned
           # image DENIED, signed image ADMITTED, against a key-based cosign
@@ -397,17 +397,17 @@ spec:
           # Platform namespaces are excluded twice over (by name and by the
           # adhar.io/plane: control label), so this gates workload and preview
           # namespaces only.
-          - name: "supply-chain-policies-enforce"
+          - name: "adhar-supply-chain-policies-enforce"
             enabled: "true"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/supply-chain-policies/manifests/enforce"
+            manifestPath: "security/adhar-supply-chain-policies/manifests/enforce"
           # Opt-in compliance profiles (CIS / SOC2-oriented), Audit mode.
-          - name: "policy-packs"
+          - name: "adhar-policy-packs"
             enabled: "false"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/policy-packs/manifests"
+            manifestPath: "security/adhar-policy-packs/manifests"
           - name: "jupyterhub"
             enabled: "true"
             namespace: "adhar-system"
@@ -480,35 +480,35 @@ spec:
           # End-to-end software supply chain (kpack build+sign → trivy/cosign gate
           # → kyverno verify → service-from-template). Depends on
           # buildpack/harbor/cosign/kyverno/tekton.
-          - name: "supply-chain"
+          - name: "adhar-supply-chain"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/supply-chain/manifests"
+            manifestPath: "application/adhar-supply-chain/manifests"
           # Kyverno ClusterPolicies of supply-chain, split out so supply-chain itself
           # can run without the kyverno package (off in the local curated core).
-          - name: "supply-chain-kyverno"
+          - name: "adhar-supply-chain-kyverno"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/supply-chain/kyverno"
+            manifestPath: "application/adhar-supply-chain/kyverno"
           # Ephemeral per-PR preview environments (ADR-0017): an ApplicationSet with the
           # Gitea pull-request generator, plus the Kyverno ResourceQuota/LimitRange
           # guardrails for preview namespaces. Costs nothing until a repo ships
           # preview/kustomization.yaml and a PR is labelled `preview`, so it is on
           # everywhere.
-          - name: "preview-environments"
+          - name: "adhar-preview-environments"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/preview-environments/manifests"
+            manifestPath: "application/adhar-preview-environments/manifests"
           # Kyverno ClusterPolicies of preview-environments, split out so preview-environments itself
           # can run without the kyverno package (off in the local curated core).
-          - name: "preview-environments-kyverno"
+          - name: "adhar-preview-environments-kyverno"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/preview-environments/kyverno"
+            manifestPath: "application/adhar-preview-environments/kyverno"
           - name: "adhar-libraries"
             enabled: "true"
             namespace: "adhar-system"
@@ -734,7 +734,13 @@ spec:
           backoff:
             duration: 5s
             factor: 2
-            maxDuration: 3m0s
+            # 20s, not the 3m it was. Cross-package CRD dependencies make first
+            # syncs fail routinely, and with a 3-minute cap an app that was ready to
+            # succeed waited up to three minutes to find out: a live bring-up had six
+            # apps at retry attempts #6-#9, i.e. ~8 minutes of pure backoff each,
+            # long after the dependency they wanted had appeared. A retry is cheap (a
+            # dry-run and an apply); the wait was the expensive part.
+            maxDuration: 20s
           # Unlimited (see adhar-appset-local.yaml): cross-package CRD
           # dependencies make first syncs fail until the provider package has
           # applied its CRDs; a finite limit leaves them Failed forever.

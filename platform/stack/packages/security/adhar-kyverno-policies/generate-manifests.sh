@@ -5,7 +5,7 @@ INSTALL_YAML="manifests/install.yaml"
 CHART_VERSION="3.9.0"
 
 echo "# KYVERNO-POLICIES INSTALL RESOURCES" >${INSTALL_YAML}
-echo "# This file is auto-generated with 'platform/stack/packages/security/kyverno-policies/generate-manifests.sh'" >>${INSTALL_YAML}
+echo "# This file is auto-generated with 'platform/stack/packages/security/adhar-kyverno-policies/generate-manifests.sh'" >>${INSTALL_YAML}
 
 helm repo add kyverno https://kyverno.github.io/kyverno/ --force-update
 helm repo update kyverno

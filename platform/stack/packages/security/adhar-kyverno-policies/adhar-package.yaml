@@ -5,7 +5,7 @@
 # package changes; the generator never overwrites an existing contract.
 apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
-name: kyverno-policies
+name: adhar-kyverno-policies
 category: security
 version: "3.9.0"
 description: 'The always-on Kyverno baseline: pod-security policies plus namespace plane-governance rules, all in Audit mode.'

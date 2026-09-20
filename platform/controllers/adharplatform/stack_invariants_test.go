@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -635,5 +636,213 @@ func TestStatefulPackagesUseThePlatformDatabase(t *testing.T) {
 		if strings.Contains(manifests, "postgresql.cnpg.io") && !strings.Contains(manifests, "ServerSideApply=true") {
 			t.Errorf("%s ships a CNPG Cluster without ServerSideApply=true; the sync force-fails", pkg)
 		}
+	}
+}
+
+// No two packages ENABLED in the same profile may ship an object with the same
+// kind+name.
+//
+// Every package installs into the one shared adhar-system namespace (ADR-0011), so a
+// duplicate name is two Argo CD Applications owning one object. What that looks like
+// in practice, measured on a live cluster:
+//
+//   - DaemonSet/node-agent (velero + kubescape): whichever synced second failed
+//     forever on `spec.selector: field is immutable`, so velero sat Degraded at retry
+//     attempt #9 and its node-agent never ran.
+//   - ConfigMap/adhar-dashboard-opensearch and -external-dns (the component package +
+//     kube-prometheus): SharedResourceWarning on both, and each sync reverted the
+//     other's copy.
+//
+// None of those messages names the real cause, which is why this is a test and not a
+// note in CONFLICTS.md — that file recorded the node-agent collision as
+// "pre-existing" for weeks while velero silently failed.
+//
+// Disabled packages are excluded on purpose: open-function vendors dapr, keda and
+// tekton, and cosign/vault duplicate their replacements. Those are real duplicates
+// that matter only if someone enables them, and the enablement is where the decision
+// belongs (platform/stack/packages/CONFLICTS.md lists them).
+func TestEnabledPackagesDoNotShipDuplicateObjectNames(t *testing.T) {
+	for _, appset := range []string{"adhar-appset-local.yaml", "adhar-appset-production.yaml"} {
+		elements := loadAppSetElements(t, appset)
+
+		// package directory (category/name) -> true, for the enabled ones only
+		enabled := map[string]bool{}
+		for _, e := range elements {
+			if e.Enabled != "true" {
+				continue
+			}
+			parts := strings.Split(filepath.ToSlash(e.ManifestPath), "/")
+			if len(parts) < 2 {
+				continue
+			}
+			enabled[parts[0]+"/"+parts[1]] = true
+		}
+
+		type objKey struct{ kind, name string }
+		owners := map[objKey]map[string]bool{}
+
+		root := filepath.Join(stackRoot(t), "packages")
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+				return err
+			}
+			rel, rerr := filepath.Rel(root, path)
+			if rerr != nil {
+				return nil
+			}
+			parts := strings.Split(filepath.ToSlash(rel), "/")
+			if len(parts) < 2 {
+				return nil
+			}
+			pkg := parts[0] + "/" + parts[1]
+			if !enabled[pkg] {
+				return nil
+			}
+			b, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return nil
+			}
+			for _, doc := range strings.Split(string(b), "\n---") {
+				var obj struct {
+					Kind     string `json:"kind"`
+					Metadata struct {
+						Name string `json:"name"`
+					} `json:"metadata"`
+				}
+				if uerr := yaml.Unmarshal([]byte(doc), &obj); uerr != nil {
+					continue // a template or a non-manifest document
+				}
+				if obj.Kind == "" || obj.Metadata.Name == "" {
+					continue
+				}
+				k := objKey{obj.Kind, obj.Metadata.Name}
+				if owners[k] == nil {
+					owners[k] = map[string]bool{}
+				}
+				owners[k][pkg] = true
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for k, pkgs := range owners {
+			if len(pkgs) < 2 {
+				continue
+			}
+			names := make([]string, 0, len(pkgs))
+			for p := range pkgs {
+				names = append(names, p)
+			}
+			sort.Strings(names)
+			t.Errorf("%s: %s/%s is shipped by %s — in one namespace that is two Applications owning one object; rename it in all but the owning package",
+				appset, k.kind, k.name, strings.Join(names, " and "))
+		}
+	}
+}
+
+// A workload that boots with an EMPTY Keycloak client secret must ship an
+// oidc-reload Job.
+//
+// keycloak-clients is written by Keycloak's realm Job at wave 20, minutes after the
+// consuming workload is already running. Environment variables are injected once at
+// pod creation and never updated, so a pod that started earlier holds an empty secret
+// for its whole life.
+//
+// `optional: true` is the tell, and it is what separates the two cases:
+//
+//   - WITHOUT it, the pod cannot start until the key exists, so it crash-loops and
+//     picks the value up on a later restart. Every oauth2-proxy works this way.
+//   - WITH it, the pod starts happily and silently misconfigured. Nothing ever
+//     restarts it.
+//
+// adhar-ai's runtime is the second kind, and the result was `AI provider error 401:
+// authentication failure: no bearer token found` on every completion: agentgateway
+// runs strict JWT, the runtime mints its own token with that secret, and the secret
+// was empty. The key was present in keycloak-clients and the pod's env was not;
+// nothing in the error points at either.
+func TestWorkloadsThatBootWithoutTheirKeycloakSecretShipAReloadJob(t *testing.T) {
+	root := filepath.Join(stackRoot(t), "packages")
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return err
+		}
+		if strings.Contains(filepath.Base(path), "oidc-reload") {
+			return nil
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil
+		}
+		for _, doc := range strings.Split(string(b), "\n---") {
+			var w struct {
+				Kind     string `json:"kind"`
+				Metadata struct {
+					Name string `json:"name"`
+				} `json:"metadata"`
+				Spec struct {
+					Template struct {
+						Spec struct {
+							Containers []struct {
+								Env []struct {
+									Name      string `json:"name"`
+									ValueFrom struct {
+										SecretKeyRef struct {
+											Name     string `json:"name"`
+											Key      string `json:"key"`
+											Optional *bool  `json:"optional"`
+										} `json:"secretKeyRef"`
+									} `json:"valueFrom"`
+								} `json:"env"`
+							} `json:"containers"`
+						} `json:"spec"`
+					} `json:"template"`
+				} `json:"spec"`
+			}
+			if uerr := yaml.Unmarshal([]byte(doc), &w); uerr != nil {
+				continue
+			}
+			if w.Kind != "Deployment" && w.Kind != "StatefulSet" {
+				continue
+			}
+			// An oauth2-proxy reads the secret WITHOUT optional, so it crash-loops
+			// until the key exists and needs no help.
+			if strings.Contains(w.Metadata.Name, "oauth2-proxy") {
+				continue
+			}
+			for _, c := range w.Spec.Template.Spec.Containers {
+				for _, e := range c.Env {
+					ref := e.ValueFrom.SecretKeyRef
+					if ref.Name != "keycloak-clients" || ref.Optional == nil || !*ref.Optional {
+						continue
+					}
+					rel, _ := filepath.Rel(root, path)
+					parts := strings.Split(filepath.ToSlash(rel), "/")
+					if len(parts) < 2 {
+						continue
+					}
+					entries, derr := os.ReadDir(filepath.Join(root, parts[0], parts[1], "manifests"))
+					if derr != nil {
+						continue
+					}
+					hasReload := false
+					for _, f := range entries {
+						if strings.Contains(f.Name(), "oidc-reload") {
+							hasReload = true
+						}
+					}
+					if !hasReload {
+						t.Errorf("%s/%s: %s reads %s from keycloak-clients with optional: true, so it boots with an empty value and nothing ever restarts it — add an oidc-reload Job (see ai/adhar-ai/manifests/oidc-reload.yaml)",
+							parts[0], parts[1], w.Metadata.Name, e.Name)
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

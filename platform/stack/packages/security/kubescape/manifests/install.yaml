@@ -3058,7 +3058,7 @@ spec:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: node-agent
+  name: kubescape-node-agent
   namespace: adhar-system
   annotations:
     

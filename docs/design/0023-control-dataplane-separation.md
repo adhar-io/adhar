@@ -364,7 +364,7 @@ spec:
   policyRefs: []            # e.g. baseline NetworkPolicies per plane
 ```
 
-## 6. Enforcement (`platform/stack/packages/security/policy-packs/manifests/plane-isolation.yaml`)
+## 6. Enforcement (`platform/stack/packages/security/adhar-policy-packs/manifests/plane-isolation.yaml`)
 
 Kyverno ClusterPolicy on the control plane — reject app workloads in app namespaces:
 
@@ -447,7 +447,7 @@ cmd/migrate/split_planes.go                             (new)
 platform/stack/adhar-appset-control.yaml                (new)
 platform/stack/adhar-appset-workload.yaml               (extend)
 platform/stack/packages/**/ (add adhar.io/plane labels)  (edit)
-platform/stack/packages/security/policy-packs/manifests/plane-isolation.yaml (new)
+platform/stack/packages/security/adhar-policy-packs/manifests/plane-isolation.yaml (new)
 platform/stack/packages/core/sveltos/manifests/clusterprofiles/*.yaml (new)
 platform/stack/environments/*/placement.yaml            (new)
 docs/PRODUCTION.md                                       (split-plane runbook)

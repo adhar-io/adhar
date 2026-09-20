@@ -154,3 +154,39 @@ func GiteaBaseUrlFromConfig(cfg v1alpha1.BuildCustomizationSpec) string {
 	}
 	return fmt.Sprintf(GiteaURLTempl, cfg.Protocol, "gitea.", cfg.Host, cfg.Port, "")
 }
+
+// GiteaAdminCredentials returns the Gitea admin username and password ACTUALLY in
+// force on the cluster.
+//
+// WHY THIS IS NOT globals.GiteaAdminUser/Password. Those constants are the day-0
+// bootstrap values, and the platform rotates them: security/adhar-credential-rotation
+// runs a Job that replaces the Gitea and Argo CD admin passwords and records the new
+// ones in the secrets backend. Anything still authenticating with the constant gets
+//
+//	invalid username, password or token
+//
+// forever after that Job has run — which is exactly what `adhar application deploy`
+// did on a live cluster, so no application could be created from a template at all.
+//
+// `gitea-credential` is authoritative (`adhar get secrets -p gitea` reads the same
+// Secret). The constants remain the fallback for a cluster that has not rotated yet,
+// so a fresh `adhar up` keeps working before the rotation Job exists.
+func GiteaAdminCredentials(ctx context.Context, kubeClient client.Client) (username, password string) {
+	username, password = globals.GiteaAdminUser, globals.GiteaAdminPassword
+	if kubeClient == nil {
+		return username, password
+	}
+	var s corev1.Secret
+	if err := kubeClient.Get(ctx, client.ObjectKey{
+		Namespace: globals.AdharSystemNamespace, Name: "gitea-credential",
+	}, &s); err != nil {
+		return username, password
+	}
+	if u := strings.TrimSpace(string(s.Data["username"])); u != "" {
+		username = u
+	}
+	if p := strings.TrimSpace(string(s.Data["password"])); p != "" {
+		password = p
+	}
+	return username, password
+}

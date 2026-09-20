@@ -5,7 +5,7 @@
 # package changes; the generator never overwrites an existing contract.
 apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
-name: policy-packs
+name: adhar-policy-packs
 category: security
 version: "0.1.0"
 description: Opt-in CIS and SOC2 Kyverno profiles plus the ADR-0023 plane-isolation policy, all shipped in Audit mode.

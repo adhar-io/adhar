@@ -132,20 +132,20 @@ spec:
             manifestPath: "ai/vllm/manifests/gpu"
           # Per-service production-readiness score cards (roadmap Phase 3). Off in
           # the local core; enable to see per-package readiness in the Console.
-          - name: "scorecards"
+          - name: "adhar-scorecards"
             enabled: "false"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/scorecards/manifests"
+            manifestPath: "application/adhar-scorecards/manifests"
           # Rotates gitea_admin/argocd admin bootstrap credentials into
           # break-glass values (Vault-backed when available). Disabled locally
           # so documented dev credentials keep working; enable once SSO login
           # is verified (roadmap P1.4).
-          - name: "credential-rotation"
+          - name: "adhar-credential-rotation"
             enabled: "false"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/credential-rotation/manifests"
+            manifestPath: "security/adhar-credential-rotation/manifests"
           - name: "kubescape"
             enabled: "false"
             namespace: "adhar-system"
@@ -387,16 +387,16 @@ spec:
           # + disallow-:latest / restrict-registries, with exceptions for the
           # platform's own namespaces. Cheap: policies are just CRs, no new pods
           # (the kyverno engine is already enabled above).
-          - name: "kyverno-policies"
+          - name: "adhar-kyverno-policies"
             enabled: "false"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/kyverno-policies/manifests"
-          - name: "policy-reporter"
+            manifestPath: "security/adhar-kyverno-policies/manifests"
+          - name: "adhar-policy-reporter"
             enabled: "false"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/policy-reporter/manifests"
+            manifestPath: "security/adhar-policy-reporter/manifests"
           # ADR-0019 supply-chain admission pack, shipped in two stages. The
           # AUDIT pack is always on: its findings land in ClusterPolicyReports
           # and predict exactly what Enforce would block. The ENFORCE pack is
@@ -406,23 +406,23 @@ spec:
           # audit pack enabled; the two coexist (policy names differ by an
           # `-enforce` suffix). See the package README for the staging recipe
           # and hack/verify-supply-chain.sh for the drill that proves it works.
-          - name: "supply-chain-policies"
+          - name: "adhar-supply-chain-policies"
             enabled: "false"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/supply-chain-policies/manifests/audit"
-          - name: "supply-chain-policies-enforce"
+            manifestPath: "security/adhar-supply-chain-policies/manifests/audit"
+          - name: "adhar-supply-chain-policies-enforce"
             enabled: "false"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/supply-chain-policies/manifests/enforce"
+            manifestPath: "security/adhar-supply-chain-policies/manifests/enforce"
           # Opt-in compliance profiles (CIS / SOC2-oriented) layered on the
           # kyverno-policies baseline; all Audit mode (roadmap Phase 3).
-          - name: "policy-packs"
+          - name: "adhar-policy-packs"
             enabled: "false"
             namespace: "adhar-system"
             category: "security"
-            manifestPath: "security/policy-packs/manifests"
+            manifestPath: "security/adhar-policy-packs/manifests"
           - name: "jupyterhub"
             enabled: "false"
             namespace: "adhar-system"
@@ -469,35 +469,35 @@ spec:
           # → kyverno verify → service-from-template). Opt-in: enable AFTER the core
           # is healthy so the kpack builder's image pulls don't compete with the
           # bootstrap. Depends on buildpack/harbor/cosign/kyverno/tekton (all above).
-          - name: "supply-chain"
+          - name: "adhar-supply-chain"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/supply-chain/manifests"
+            manifestPath: "application/adhar-supply-chain/manifests"
           # Kyverno ClusterPolicies of supply-chain, split out so supply-chain itself
           # can run without the kyverno package (off in the local curated core).
-          - name: "supply-chain-kyverno"
+          - name: "adhar-supply-chain-kyverno"
             enabled: "true"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/supply-chain/kyverno"
+            manifestPath: "application/adhar-supply-chain/kyverno"
           # Ephemeral per-PR preview environments (ADR-0017): an ApplicationSet with the
           # Gitea pull-request generator, plus the Kyverno ResourceQuota/LimitRange
           # guardrails for preview namespaces. Costs nothing until a repo ships
           # preview/kustomization.yaml and a PR is labelled `preview`, so it is on
           # everywhere.
-          - name: "preview-environments"
+          - name: "adhar-preview-environments"
             enabled: "false"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/preview-environments/manifests"
+            manifestPath: "application/adhar-preview-environments/manifests"
           # Kyverno ClusterPolicies of preview-environments, split out so preview-environments itself
           # can run without the kyverno package (off in the local curated core).
-          - name: "preview-environments-kyverno"
+          - name: "adhar-preview-environments-kyverno"
             enabled: "false"
             namespace: "adhar-system"
             category: "application"
-            manifestPath: "application/preview-environments/kyverno"
+            manifestPath: "application/adhar-preview-environments/kyverno"
           # Off in the local core (2026-09-19): its PostSync hook starts Tekton
           # PipelineRuns that build adhar-kit and adhar-ui from source — each measured
           # at ~1 full CPU core on an 11-core box — and the app only reports Healthy

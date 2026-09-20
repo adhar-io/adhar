@@ -30,6 +30,8 @@ import (
 	"adhar-io/adhar/platform/logger"
 	"adhar-io/adhar/platform/utils"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"code.gitea.io/sdk/gitea"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -183,9 +185,20 @@ func newGiteaClient(ctx context.Context) (*gitea.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The credential ACTUALLY in force, not the day-0 constant: the platform rotates
+	// the Gitea admin password (security/adhar-credential-rotation), after which the
+	// constant authenticates nothing and every template fetch fails with "invalid
+	// username, password or token". A cluster that has not rotated yet falls back to
+	// the constant, so a fresh `adhar up` is unaffected.
+	user, pass := globals.GiteaAdminUser, globals.GiteaAdminPassword
+	if cfg, cerr := helpers.GetKubeConfig(); cerr == nil {
+		if kc, kerr := client.New(cfg, client.Options{}); kerr == nil {
+			user, pass = utils.GiteaAdminCredentials(ctx, kc)
+		}
+	}
 	return gitea.NewClient(baseURL,
 		gitea.SetHTTPClient(utils.GetHttpClient()),
-		gitea.SetBasicAuth(globals.GiteaAdminUser, globals.GiteaAdminPassword),
+		gitea.SetBasicAuth(user, pass),
 		gitea.SetContext(ctx),
 	)
 }

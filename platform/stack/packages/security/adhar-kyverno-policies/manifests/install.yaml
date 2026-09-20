@@ -1,5 +1,5 @@
 # KYVERNO-POLICIES INSTALL RESOURCES
-# This file is auto-generated with 'platform/stack/packages/security/kyverno-policies/generate-manifests.sh'
+# This file is auto-generated with 'platform/stack/packages/security/adhar-kyverno-policies/generate-manifests.sh'
 ---
 # Source: kyverno-policies/templates/baseline/disallow-capabilities.yaml
 apiVersion: kyverno.io/v1

@@ -198,8 +198,8 @@ func TestHardConflictsAndAdvisoriesAreDifferentThings(t *testing.T) {
 		{Name: "vault", Enabled: "false"},
 		{Name: "rustfs", Enabled: "true"},
 		{Name: "minio", Enabled: "false"},
-		{Name: "supply-chain-policies", Enabled: "true"},
-		{Name: "supply-chain-policies-enforce", Enabled: "true"},
+		{Name: "adhar-supply-chain-policies", Enabled: "true"},
+		{Name: "adhar-supply-chain-policies-enforce", Enabled: "true"},
 	}
 
 	// A real object collision refuses.
@@ -216,7 +216,7 @@ func TestHardConflictsAndAdvisoriesAreDifferentThings(t *testing.T) {
 	// The audit and enforce packs coexist by design: production ships both, so
 	// treating them as exclusive would make `adhar stack conflicts` report a
 	// violation on a correct platform.
-	if got := conflictsWith("supply-chain-policies-enforce", elements); len(got) != 0 {
+	if got := conflictsWith("adhar-supply-chain-policies-enforce", elements); len(got) != 0 {
 		t.Errorf("the enforce pack must not conflict with the audit pack: %v", got)
 	}
 }

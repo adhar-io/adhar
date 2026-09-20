@@ -5,7 +5,7 @@
 # package changes; the generator never overwrites an existing contract.
 apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
-name: scorecards
+name: adhar-scorecards
 category: application
 version: "0.1.0"
 description: 'Production-readiness scorer: a CronJob grades every service 0-100 from in-cluster signals and publishes the adhar-scorecards ConfigMap the Console reads.'

@@ -45,8 +45,32 @@ spec:
               project: {{ dig "project" "default" $p | quote }}
               source:
                 repoURL: {{ dig "repoURL" "" $src | quote }}
+                {{- /*
+                  A HELM source and a GIT source are mutually exclusive in an Argo CD
+                  Application, and the difference is `chart` vs `path`. This block used
+                  to emit `path` unconditionally with a default of ".", so a Helm
+                  request (the `microservice` template: repoURL
+                  https://charts.bitnami.com/bitnami, chart nginx) produced an
+                  Application with a chart REPOSITORY as its repoURL and no chart at
+                  all. Argo CD then tried to clone it as Git and parked the app at
+                  Unknown with
+                      failed to list refs: empty input
+                  — so the template could never sync, and nothing in that message
+                  points at the missing field.
+                */}}
+                {{- if dig "chart" "" $src }}
+                chart: {{ dig "chart" "" $src | quote }}
+                targetRevision: {{ dig "targetRevision" "*" $src | quote }}
+                {{- if dig "helm" dict $src }}
+                helm:
+                  {{- range $k, $v := dig "helm" dict $src }}
+                  {{ $k }}: {{ $v | toYaml | nindent 20 }}
+                  {{- end }}
+                {{- end }}
+                {{- else }}
                 path: {{ dig "path" "." $src | quote }}
                 targetRevision: {{ dig "targetRevision" "HEAD" $src | quote }}
+                {{- end }}
               destination:
                 server: {{ dig "server" "https://kubernetes.default.svc" $dst | quote }}
                 namespace: {{ dig "namespace" $ns $dst | quote }}

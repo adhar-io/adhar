@@ -99,3 +99,44 @@ func TestNodePrepPrePullsTheCriticalPathInTheBackground(t *testing.T) {
 		t.Errorf("the pre-pull must be backgrounded so node prep returns immediately: %q", line)
 	}
 }
+
+// The image-pull tuning is the biggest single lever on bring-up time, and it is
+// applied by appending to a file kubeadm generated — so the exact quoting matters:
+// it has to survive Go -> ssh -> sh -> printf, and a slip is only discovered on a
+// node that has already been paid for.
+func TestImagePullTuningCommand(t *testing.T) {
+	// The KubeletConfiguration keys must be the config-file spellings, not the
+	// deprecated flag names: there is no flag form of maxParallelImagePulls at all,
+	// and --serialize-image-pulls is on its way out.
+	for _, want := range []string{"serializeImagePulls: false", "maxParallelImagePulls: 5"} {
+		if !strings.Contains(imagePullTuning, want) {
+			t.Errorf("imagePullTuning is missing %q", want)
+		}
+	}
+
+	cmd := imagePullTuningCommand()
+
+	// One line. A real newline in the command would split the ssh script and the
+	// second half would run as its own, meaningless, command.
+	if strings.Contains(cmd, "\n") {
+		t.Errorf("the command must be a single line, got:\n%s", cmd)
+	}
+	// The payload reaches sh as escaped newlines inside quotes, which printf then
+	// expands — that is what turns one shell line into two YAML lines.
+	if !strings.Contains(cmd, `"serializeImagePulls: false\nmaxParallelImagePulls: 5\n"`) {
+		t.Errorf("the payload is not quoted for printf expansion, got: %s", cmd)
+	}
+	// Idempotent: a re-run must neither duplicate the keys nor bounce a healthy
+	// kubelet, which on a converged cluster would evict nothing but would restart
+	// every static pod's probes for no reason.
+	if !strings.Contains(cmd, "grep -q '^serializeImagePulls:'") {
+		t.Errorf("the command is not guarded against a second run: %s", cmd)
+	}
+	if !strings.Contains(cmd, "systemctl restart kubelet") {
+		t.Errorf("the kubelet is never restarted, so the config would not take effect: %s", cmd)
+	}
+	// It writes the file kubeadm generates, not a drop-in kubeadm would overwrite.
+	if !strings.Contains(cmd, "/var/lib/kubelet/config.yaml") {
+		t.Errorf("the command targets the wrong file: %s", cmd)
+	}
+}

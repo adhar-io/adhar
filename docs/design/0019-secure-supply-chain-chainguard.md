@@ -297,22 +297,22 @@ What it proves: **signature enforcement works on this cluster, for a signature o
 
 | Path | Responsibility |
 |---|---|
-| `platform/stack/packages/security/supply-chain-policies/manifests/audit/*` | The 3 supply-chain ClusterPolicies, **Audit** — enabled everywhere |
-| `platform/stack/packages/security/supply-chain-policies/manifests/enforce/*` | The same 3 policies, **Enforce** + digest pinning, `-enforce` names — **the knob**, off by default |
-| `platform/stack/packages/security/supply-chain-policies/README.md` | What the platform signs with, the staging recipe, the excluded namespaces |
-| `platform/stack/packages/security/supply-chain-policies/adhar-package.yaml` | Marketplace contract (depends on `kyverno`; `supply-chain` optional — it provides `cosign-key`) |
-| `platform/stack/packages/application/supply-chain/manifests/00-foundation.yaml` | `cosign-keygen` hook Job → durable `cosign-key` Secret; `adhar-pipeline` SA |
-| `platform/stack/packages/application/supply-chain/manifests/60-build-pipelines.yaml` | The `cosign-sign` Task — `--key=k8s://adhar-system/cosign-key --tlog-upload=false` |
-| `platform/stack/packages/application/supply-chain/manifests/40-verify-images.yaml` | Narrow always-Enforce `verify-supply-chain-images` + `cosign-policy-sync` key-injection Job |
+| `platform/stack/packages/security/adhar-supply-chain-policies/manifests/audit/*` | The 3 supply-chain ClusterPolicies, **Audit** — enabled everywhere |
+| `platform/stack/packages/security/adhar-supply-chain-policies/manifests/enforce/*` | The same 3 policies, **Enforce** + digest pinning, `-enforce` names — **the knob**, off by default |
+| `platform/stack/packages/security/adhar-supply-chain-policies/README.md` | What the platform signs with, the staging recipe, the excluded namespaces |
+| `platform/stack/packages/security/adhar-supply-chain-policies/adhar-package.yaml` | Marketplace contract (depends on `kyverno`; `supply-chain` optional — it provides `cosign-key`) |
+| `platform/stack/packages/application/adhar-supply-chain/manifests/00-foundation.yaml` | `cosign-keygen` hook Job → durable `cosign-key` Secret; `adhar-pipeline` SA |
+| `platform/stack/packages/application/adhar-supply-chain/manifests/60-build-pipelines.yaml` | The `cosign-sign` Task — `--key=k8s://adhar-system/cosign-key --tlog-upload=false` |
+| `platform/stack/packages/application/adhar-supply-chain/manifests/40-verify-images.yaml` | Narrow always-Enforce `verify-supply-chain-images` + `cosign-policy-sync` key-injection Job |
 | `hack/verify-supply-chain.sh` | The enforcement drill (§9.1) |
-| `platform/stack/packages/security/kyverno-policies/manifests/install.yaml` | Baseline PSS `restricted` policies (chart 3.9.0) |
-| `platform/stack/packages/security/kyverno-policies/manifests/exceptions/{kind,argocd,console,crossplane,ingress-nginx}.yaml` | Per-component `PolicyException`s for baseline PSS |
-| `platform/stack/packages/security/kyverno-policies/{values.yaml,generate-manifests.sh}` | Audit + fail-open config; chart render script |
+| `platform/stack/packages/security/adhar-kyverno-policies/manifests/install.yaml` | Baseline PSS `restricted` policies (chart 3.9.0) |
+| `platform/stack/packages/security/adhar-kyverno-policies/manifests/exceptions/{kind,argocd,console,crossplane,ingress-nginx}.yaml` | Per-component `PolicyException`s for baseline PSS |
+| `platform/stack/packages/security/adhar-kyverno-policies/{values.yaml,generate-manifests.sh}` | Audit + fail-open config; chart render script |
 | `platform/stack/packages/security/cosign/manifests/install.yaml` | Sigstore policy-controller 0.10.7 (CIP/TrustRoot CRDs + webhook) in `adhar-system` |
 | `platform/stack/packages/security/cosign/{values.yaml,generate-manifests.sh}` | policy-controller render |
 | `platform/stack/packages/security/trivy/manifests/install.yaml` | trivy-operator 0.33.1 + 12 report CRDs |
 | `platform/stack/packages/security/trivy/{values.yaml,generate-manifests.sh}` | scan limits, TTL, namespace pin |
-| `platform/stack/packages/security/policy-packs/manifests/{cis,soc2}.yaml` | Opt-in CIS (9) / SOC2 (5) profiles, Audit 🔜 |
+| `platform/stack/packages/security/adhar-policy-packs/manifests/{cis,soc2}.yaml` | Opt-in CIS (9) / SOC2 (5) profiles, Audit 🔜 |
 | `platform/stack/packages/application/harbor/values.yaml` | Registry choke point; `trivy.enabled` per environment |
 | `platform/stack/adhar-appset-{local,production,gitops}.yaml` | The two `supply-chain-policies` / `supply-chain-policies-enforce` elements — where the knob lives |
 | `platform/stack/environments/{local,production}/config.yaml` | The mirror of the above; a parity test enforces the match |

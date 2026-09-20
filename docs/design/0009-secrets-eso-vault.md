@@ -249,7 +249,7 @@ Two mechanisms, matching ADR-0009's "rotation happens in the store, ESO propagat
    the core `--enable-operations` flag (see [ADR-0005 design §5](0005-crossplane-v2-namespaced.md)).
 
 2. **Bootstrap-credential rotation (package).**
-   [`security/credential-rotation/manifests/rotate-job.yaml`](../../platform/stack/packages/security/credential-rotation/manifests/rotate-job.yaml)
+   [`security/credential-rotation/manifests/rotate-job.yaml`](../../platform/stack/packages/security/adhar-credential-rotation/manifests/rotate-job.yaml)
    — an idempotent Job (marker `Secret bootstrap-credentials-rotated` short-circuits re-runs) that
    rotates the day-0 `gitea_admin` and ArgoCD `admin` credentials to random values, updates
    `gitea-credential`/`argocd-secret`/`argocd-initial-admin-secret` in place, and **writes the new
@@ -301,7 +301,7 @@ platforms the bootstrap Job's stored-keys mode must be dropped in favour of a `s
 | `platform/stack/packages/security/keycloak/manifests/secret-gen.yaml` | `Password` generator, `keycloak-config` ES, `eso-store` SA/RBAC, `keycloak`+`gitea` stores |
 | `platform/stack/packages/security/keycloak/manifests/{argocd,gitea,grafana}-*-external-secret.yaml` | reflect Keycloak client secrets into chart-owned Secrets (`creationPolicy: Merge`) |
 | `platform/stack/packages/core/adhar-console/manifests/argocd-secrets.yaml` | `argocd` `ClusterSecretStore` (SA `eso-store-argocd`) + ESes |
-| `platform/stack/packages/security/credential-rotation/manifests/rotate-job.yaml` | rotate bootstrap creds → Vault `secret/adhar/bootstrap-credentials` |
+| `platform/stack/packages/security/adhar-credential-rotation/manifests/rotate-job.yaml` | rotate bootstrap creds → Vault `secret/adhar/bootstrap-credentials` |
 | `platform/controlplane/configuration/operations/secret-rotation-cronoperation.yaml` | weekly `force-sync` refresh CronOperation |
 | `platform/stack/adhar-appset-local.yaml` | `external-secrets`/`vault` enabled in curated core; `credential-rotation` disabled |
 | `cmd/secrets/`, `cmd/get/secrets.go` | secrets CLI (rotate/create/… are stubs); `get secrets` reads by service |

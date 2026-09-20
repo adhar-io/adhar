@@ -1,0 +1,140 @@
+# Restarts the Adhar AI runtime once Keycloak has published its client secret.
+#
+# THE FAILURE THIS FIXES, exactly as an operator sees it:
+#
+#   AI provider error 401: authentication failure: no bearer token found
+#
+# agentgateway runs `jwtAuthentication: Strict` across the whole Gateway
+# (ADR-0025), so every completion needs a bearer token — including the ones the
+# runtime makes on its OWN behalf (the drift and cost pollers, Alertmanager
+# webhooks, any request with no caller token to forward). The runtime is built for
+# that: it mints a token by client_credentials with ADHAR_AI_OIDC_CLIENT_SECRET,
+# read from `keycloak-clients`.
+#
+# But `keycloak-clients` is written by Keycloak's realm Job at wave 20 — minutes
+# AFTER the runtime is already running — and the env var is `optional: true` so the
+# runtime still boots without it. Environment variables are injected once, at pod
+# creation, and never updated: the running pod therefore holds an EMPTY client
+# secret forever, calls the gateway with no Authorization header, and every
+# completion is a 401. Measured on a live cluster: the key was present in
+# `keycloak-clients` and the pod's env was still empty.
+#
+# Every other SSO-consuming package already ships this Job (coder, adhar-console,
+# jupyterhub, headlamp, grafana). adhar-ai was the one that did not.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-ai-oidc-reload
+  namespace: adhar-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-ai-oidc-reload
+  namespace: adhar-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-ai-oidc-reload
+  namespace: adhar-system
+subjects:
+  - kind: ServiceAccount
+    name: adhar-ai-oidc-reload
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: adhar-ai-oidc-reload
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adhar-ai-oidc-reload
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    adhar.io/component: ai
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # After the runtime itself (wave 4) and after Keycloak's realm Job has had a
+    # chance to run; the wait loop below covers a cold bootstrap regardless.
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      generateName: adhar-ai-oidc-reload
+      labels:
+        app.kubernetes.io/name: adhar-ai
+        adhar.io/component: ai
+    spec:
+      serviceAccountName: adhar-ai-oidc-reload
+      restartPolicy: Never
+      # One shared namespace means a <NAME>_PORT env var per Service, which breaks
+      # anything that decodes env strictly (packages/CONFLICTS.md).
+      enableServiceLinks: false
+      containers:
+        - name: kubectl
+          image: docker.io/bitnamilegacy/kubectl:1.31
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu -o pipefail
+              NS=adhar-system
+              DEPLOY=adhar-ai-runtime
+              SECRET=keycloak-clients
+              KEY=ADHAR_AI_CLIENT_SECRET
+
+              # 1. Wait (bounded: 240 x 10s = 40 min, the length of a cold
+              #    keycloak-db -> keycloak -> realm Job path) for the client
+              #    secret. A timeout is not a failure: the next sync retries.
+              ok=""
+              for i in $(seq 1 240); do
+                if kubectl -n "$NS" get secret "$SECRET" \
+                     -o "jsonpath={.data.$KEY}" 2>/dev/null | grep -q .; then
+                  ok=1; break
+                fi
+                echo "waiting for $SECRET/$KEY ($i)"
+                sleep 10
+              done
+              if [ -z "$ok" ]; then
+                echo "client secret not published yet; leaving the runtime as-is (next sync retries)"
+                exit 0
+              fi
+
+              # 2. Restart ONLY if the RUNNING pod is actually missing the env, so
+              #    a steady-state sync is a no-op rather than a restart loop.
+              POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=adhar-ai-runtime \
+                      --field-selector=status.phase=Running \
+                      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+              if [ -n "$POD" ]; then
+                if kubectl -n "$NS" exec "$POD" -- \
+                     sh -c 'test -n "$ADHAR_AI_OIDC_CLIENT_SECRET"' 2>/dev/null; then
+                  echo "the runtime already holds its client secret; nothing to do."
+                  exit 0
+                fi
+              fi
+
+              echo "Restarting $DEPLOY so it can mint its own tokens..."
+              kubectl -n "$NS" rollout restart deployment "$DEPLOY"
+              kubectl -n "$NS" rollout status deployment "$DEPLOY" --timeout=300s || true
+              echo "Adhar AI OIDC reload complete."
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}

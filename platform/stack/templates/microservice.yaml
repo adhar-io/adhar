@@ -23,6 +23,20 @@ spec:
       targetRevision: "18.*"
       helm:
         releaseName: ${APP_NAME}
+        # Bitnami retired its free Docker Hub tags in 2025: the chart still resolves,
+        # but the images it references (docker.io/bitnami/nginx:…-r0) answer
+        #   not found
+        # and every pod sits in ImagePullBackOff — which reads as a platform fault
+        # rather than an upstream policy change. The images live under
+        # `bitnamilegacy` now, and the chart refuses a non-bitnami repository unless
+        # allowInsecureImages is set. The platform's own Jobs already pull from
+        # bitnamilegacy for the same reason.
+        values: |
+          global:
+            security:
+              allowInsecureImages: true
+          image:
+            repository: bitnamilegacy/nginx
     destination:
       namespace: ${APP_NAMESPACE}
       server: https://kubernetes.default.svc

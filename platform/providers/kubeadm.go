@@ -14,6 +14,7 @@ import (
 	"crypto/rand"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -206,6 +207,11 @@ sed -i "s|config_path = ''|config_path = '/etc/containerd/certs.d'|" /etc/contai
 # with only the config_path change above, a pull still resolved the original
 # registry host by DNS and ignored the hosts.toml mirror (2026-09-15).
 sed -i 's/use_local_image_pull = false/use_local_image_pull = true/' /etc/containerd/config.toml
+# Concurrent layer downloads: containerd defaults to 3, which becomes the new
+# bottleneck the moment the kubelet stops serialising pulls (TuneImagePulls). A
+# production profile pulls ~70 images per node, so the queue — not the bandwidth —
+# is what makes a bring-up slow.
+sed -i 's/max_concurrent_downloads = 3/max_concurrent_downloads = 8/' /etc/containerd/config.toml
 mkdir -p /etc/containerd/certs.d
 systemctl restart containerd
 systemctl enable containerd
@@ -452,6 +458,12 @@ func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR str
 		return "", fmt.Errorf("kubeadm init failed: %w (output: %s)", err, LastLines(out, 15))
 	}
 
+	// Parallel image pulls (see TuneImagePulls). The control plane pulls the whole
+	// platform's control-plane components, so it benefits as much as a worker.
+	if err := TuneImagePulls(signer, user, publicIP); err != nil {
+		log.Printf("Warning: %v", err)
+	}
+
 	// Cloud node hostnames are generally not DNS-resolvable by the API
 	// server; prefer node IPs so `kubectl logs/exec` work. Static-pod edit is
 	// idempotent (delete + single re-insert).
@@ -519,9 +531,68 @@ func KubeadmJoinedNodes(signer ssh.Signer, user, masterIP string) JoinedNodes {
 	return j
 }
 
+// imagePullTuning is the KubeletConfiguration the platform appends after kubeadm
+// has written /var/lib/kubelet/config.yaml.
+//
+// WHY THIS IS THE BIGGEST SINGLE WIN IN A BRING-UP. The kubelet defaults to
+// serializeImagePulls: true — it pulls ONE image at a time per node, start to
+// finish, however much network and disk are idle. A production Adhar profile is ~80
+// packages, and a live GCP bring-up measured 362 pulls totalling 4,530 seconds of
+// pull time, with individual images waiting up to SEVEN MINUTES in the queue behind
+// others. Nothing about that appears as an error: every app simply sits
+// Progressing, and the platform looks slow rather than serialised.
+//
+// maxParallelImagePulls bounds the parallelism so a node does not thrash: five
+// concurrent pulls saturate a cloud NIC without starving the kubelet's other work.
+// containerd's own max_concurrent_downloads is raised to match in the node-prep
+// script — leaving it at the default 3 would just move the queue one layer down.
+//
+// These are CONFIG fields, not flags: --serialize-image-pulls exists but is
+// deprecated, and there is no flag form of maxParallelImagePulls at all. Writing the
+// config kubeadm generated is the supported path, and it survives a kubelet upgrade
+// that drops the flag.
+const imagePullTuning = "serializeImagePulls: false\nmaxParallelImagePulls: 5\n"
+
+// TuneImagePulls lets the kubelet pull images in parallel. Idempotent: the grep
+// guard means a re-run neither duplicates the keys nor restarts a healthy kubelet.
+//
+// Called AFTER kubeadm init/join, because kubeadm writes
+// /var/lib/kubelet/config.yaml itself and would overwrite anything placed there
+// first. A failure is returned but is never fatal to the caller: a node that pulls
+// serially is slow, not broken.
+func TuneImagePulls(signer ssh.Signer, user, ip string) error {
+	if out, err := SSHRun(signer, user, ip, imagePullTuningCommand(), 2*time.Minute); err != nil {
+		return fmt.Errorf("tuning image pulls on %s: %w (output: %s)", ip, err, LastLines(out, 5))
+	}
+	return nil
+}
+
+// imagePullTuningCommand builds the idempotent one-liner that appends the tuning to
+// the kubelet config and restarts the kubelet.
+//
+// Extracted so it can be unit-tested, like apiServerFlagCommand above and for the
+// same reason: the quoting has to survive Go → ssh → sh → printf, and a slip is only
+// discovered on a node that has already been paid for. %q renders the constant's real
+// newlines as backslash-n inside double quotes, which is exactly what `printf '%b'`
+// expands again on the other side — so the command stays a single line while writing
+// two real ones.
+func imagePullTuningCommand() string {
+	const cfg = "/var/lib/kubelet/config.yaml"
+	return fmt.Sprintf(
+		"grep -q '^serializeImagePulls:' %[1]s 2>/dev/null || "+
+			"{ printf '%%b' %[2]q >> %[1]s && systemctl restart kubelet; }",
+		cfg, imagePullTuning)
+}
+
 func KubeadmJoinWorker(signer ssh.Signer, user, ip, joinCmd string) error {
 	if out, err := SSHRun(signer, user, ip, "test -f /etc/kubernetes/kubelet.conf || "+joinCmd, 10*time.Minute); err != nil {
 		return fmt.Errorf("kubeadm join failed on %s: %w (output: %s)", ip, err, LastLines(out, 15))
+	}
+	// Parallel image pulls, now that kubeadm has written the kubelet config. Slow
+	// is not broken, so a failure here is logged by the caller rather than aborting
+	// a join that otherwise succeeded.
+	if err := TuneImagePulls(signer, user, ip); err != nil {
+		log.Printf("Warning: %v", err)
 	}
 	return nil
 }
