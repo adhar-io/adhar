@@ -183,7 +183,19 @@ spec:
         - name: CODER_OIDC_ALLOW_SIGNUPS
           value: "true"
         - name: CODER_OIDC_SCOPES
-          value: openid,profile,email,groups
+          # `offline_access` is what makes a Coder session survive the day.
+          #
+          # Without it Keycloak binds the refresh token to the SSO SESSION, so
+          # when that session idles out (30 min by default) or hits its max
+          # lifetime, the refresh token dies with it. Coder keeps using the token
+          # it stored at login, and every later request fails with
+          #   Could not refresh expired OpenID Connect token
+          #   oauth2: "invalid_grant" "Token is not active"
+          # which reads as Coder being broken rather than as a token that aged
+          # out. `offline_access` yields an OFFLINE token instead: it outlives the
+          # SSO session, which is the right lifetime for a workspace that is meant
+          # to still be there tomorrow morning.
+          value: openid,profile,email,groups,offline_access
         - name: CODER_OIDC_GROUP_FIELD
           value: groups
         - name: CODER_OIDC_USER_ROLE_FIELD

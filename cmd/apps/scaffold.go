@@ -504,6 +504,19 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 	if _, set := values["namespace"]; !set {
 		values["namespace"] = namespace
 	}
+	// Pin the public hostname to THIS platform's domain.
+	//
+	// The shipped templates compute their hostname as
+	// `<name>.adhar.localtest.me` — the local-development domain. On a real
+	// install that produced an HTTPRoute for a hostname the cluster does not
+	// serve, so the scaffolded service came with a URL that could never resolve.
+	// A template cannot know the domain; the scaffolder can, so it decides. The
+	// Console's scaffolder pins the same two values the same way, which is what
+	// keeps a CLI-scaffolded repo and a Console-scaffolded repo identical.
+	if base := platformBaseDomain(host); base != "" {
+		values["platformBaseDomain"] = base
+		values["hostname"] = appName + "." + base
+	}
 	ctxVals := map[string]any{"values": values, "parameters": params}
 
 	tree, _, err := gc.GetTrees(globals.GiteaPlatformOrg, globals.GitOpsRepoTemplates, gitea.ListTreeOptions{
@@ -615,4 +628,25 @@ func ensureScaffoldRepo(gc *gitea.Client, name, description string) (string, err
 		return "", fmt.Errorf("creating repository %s/%s: %w", globals.GiteaPlatformOrg, name, err)
 	}
 	return repo.Name, nil
+}
+
+// platformBaseDomain derives the platform's base domain from the Gitea host.
+//
+// Gitea is published at `gitea.<base>`, so dropping the first label yields the
+// domain every other platform service is published under. The port is stripped
+// because a Gateway API hostname must not carry one — a laptop install publishes
+// on :8443 and a route declaring it would never match.
+//
+// Returns "" when the host is not of that shape, and the caller then leaves the
+// template's own hostname alone rather than substituting a guess.
+func platformBaseDomain(giteaHost string) string {
+	h := giteaHost
+	if i := strings.LastIndex(h, ":"); i > 0 {
+		h = h[:i]
+	}
+	parts := strings.SplitN(h, ".", 2)
+	if len(parts) != 2 || parts[1] == "" || !strings.Contains(parts[1], ".") {
+		return ""
+	}
+	return parts[1]
 }

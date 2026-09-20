@@ -306,3 +306,25 @@ func TestParseTemplateParams(t *testing.T) {
 		t.Fatal("expected an error for a value without '='")
 	}
 }
+
+func TestPlatformBaseDomainDropsTheGiteaLabelAndPort(t *testing.T) {
+	// The bug this guards: a scaffolded service got
+	// `my-service.adhar.localtest.me` on a cluster serving `cloud.adhar.io`, so
+	// its HTTPRoute declared a hostname the Gateway does not answer on and the
+	// URL could never resolve.
+	for _, tc := range []struct{ in, want string }{
+		{"gitea.cloud.adhar.io", "cloud.adhar.io"},
+		{"gitea.platform.acme.dev", "platform.acme.dev"},
+		// A port is stripped: a Gateway API hostname may not carry one.
+		{"gitea.adhar.localtest.me:8443", "adhar.localtest.me"},
+		// Not of the `gitea.<base>` shape → no guess, so the template's own
+		// hostname is left alone rather than replaced with something wrong.
+		{"localhost", ""},
+		{"gitea.localhost", ""},
+		{"", ""},
+	} {
+		if got := platformBaseDomain(tc.in); got != tc.want {
+			t.Errorf("platformBaseDomain(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
