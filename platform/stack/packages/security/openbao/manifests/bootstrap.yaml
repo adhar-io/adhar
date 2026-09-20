@@ -297,6 +297,43 @@ data:
       log "OIDC prerequisites not ready (openbao-oidc / openbao-ca); skipping for now"
     fi
 
+    # ---------------------------------------------------------------------
+    # Adhar AI: import the credential `adhar up` staged, if there is one.
+    #
+    # SEED-ONCE, DELIBERATELY. The Job re-runs on every sync; if it overwrote the
+    # entry each time, an operator who later rotated the key with `adhar ai key
+    # set` would silently get the original one back on the next Argo CD sync. So
+    # this writes only when the path does not exist yet: `adhar up` initialises,
+    # and every rotation afterwards is authoritative.
+    #
+    # The value travels as JSON on STDIN, never as a command-line argument, so it
+    # does not appear in the container's process list, and nothing here echoes it.
+    SEED_DIR=/etc/adhar-ai-seed
+    if [ -f "$SEED_DIR/PROVIDER" ]; then
+      if bao kv get secret/adhar-ai/llm >/dev/null 2>&1; then
+        log "adhar-ai LLM credential already present; leaving it alone"
+      else
+        log "importing the staged Adhar AI credential into secret/adhar-ai/llm"
+        if {
+          printf '{'
+          first=1
+          for f in PROVIDER MODEL ENDPOINT API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY \
+                   BUDGET_PER_USER_DAILY_TOKENS BUDGET_PER_OP_MAX_TOOL_CALLS; do
+            [ -f "$SEED_DIR/$f" ] || continue
+            v="$(cat "$SEED_DIR/$f")"
+            [ "$first" -eq 1 ] || printf ','
+            first=0
+            printf '"%s":"%s"' "$f" "$v"
+          done
+          printf '}'
+        } | bao kv put secret/adhar-ai/llm - >/dev/null 2>&1; then
+          log "  wrote secret/adhar-ai/llm (Adhar AI is keyed)"
+        else
+          log "  WARNING: could not write secret/adhar-ai/llm; run 'adhar ai key set' after the platform settles"
+        fi
+      fi
+    fi
+
     log "bootstrap complete"
 ---
 apiVersion: batch/v1
@@ -331,8 +368,19 @@ spec:
           volumeMounts:
             - name: script
               mountPath: /scripts
+            - name: ai-llm-seed
+              mountPath: /etc/adhar-ai-seed
+              readOnly: true
       volumes:
         - name: script
           configMap:
             name: openbao-bootstrap
             defaultMode: 0755
+        # The LLM credential `adhar up` stages when the operator exported
+        # ADHAR_AI_LLM_API_KEY (cmd/up/ai_seed.go). Optional: on a platform brought
+        # up without one the Secret simply does not exist and the import below is
+        # skipped, which is the normal case.
+        - name: ai-llm-seed
+          secret:
+            secretName: adhar-ai-llm-seed
+            optional: true

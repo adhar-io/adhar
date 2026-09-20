@@ -21,8 +21,8 @@ var statusCmd = &cobra.Command{
 The name can be supplied as an argument or via --name.
 
 Examples:
-  adhar db status myapp
-  adhar db status --name=myapp --namespace=team-a`,
+  adhar database status myapp
+  adhar database status --name=myapp --namespace=team-a`,
 	RunE: runStatus,
 }
 

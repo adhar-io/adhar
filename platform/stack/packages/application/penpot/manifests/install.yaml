@@ -173,9 +173,45 @@ spec:
             # File Data Store settings
             - name: PENPOT_FILE_DATA_BACKEND
               value: "legacy-db"
-            # OIDC provider settings
+            # OIDC provider settings.
+            #
+            # WHY THE ENDPOINTS ARE SPELLED OUT INSTEAD OF DISCOVERED. Penpot's
+            # backend is a JVM, and the JVM trusts its own bundled keystore — not the
+            # platform CA. Left to discover the provider, it fetches
+            # https://keycloak.<host>/realms/adhar/.well-known/openid-configuration
+            # and, whenever the platform certificate is self-signed (ALWAYS on local
+            # Kind, and on a cloud cluster until ACME succeeds), dies with:
+            #
+            #   W app.auth.oidc - hint="unable to initialize auth provider"
+            #   javax.net.ssl.SSLHandshakeException: PKIX path building failed
+            #
+            # Penpot then starts happily with OIDC switched off, so the only symptom
+            # is a login page with no "Login with OpenID" button — nothing on it
+            # mentions certificates.
+            #
+            # Penpot skips discovery entirely when auth-uri, token-uri and user-uri
+            # are all set (backend/src/app/auth/oidc.clj, prepare-oidc-provider), so
+            # the split below removes TLS from every server-side call:
+            #
+            #   auth-uri  → the PUBLIC host: the browser is redirected there, and a
+            #               browser trusts the platform certificate or is told to.
+            #   token,    → the IN-CLUSTER Service over plain HTTP: server-to-server,
+            #   user,       inside the pod network, where Cilium provides the
+            #   jwks        confidentiality and no certificate is involved.
+            #
+            # base-uri stays the PUBLIC issuer so it still matches the `iss` claim
+            # Keycloak signs into the ID token. This is the same split the adhar-ai
+            # and console packages already use.
             - name: PENPOT_OIDC_BASE_URI
               value: "https://keycloak.adhar.localtest.me:8443/realms/adhar/"
+            - name: PENPOT_OIDC_AUTH_URI
+              value: "https://keycloak.adhar.localtest.me:8443/realms/adhar/protocol/openid-connect/auth"
+            - name: PENPOT_OIDC_TOKEN_URI
+              value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/token"
+            - name: PENPOT_OIDC_USER_URI
+              value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/userinfo"
+            - name: PENPOT_OIDC_JWKS_URI
+              value: "http://keycloak.adhar-system.svc.cluster.local:8080/realms/adhar/protocol/openid-connect/certs"
             - name: PENPOT_OIDC_CLIENT_ID
               valueFrom:
                 secretKeyRef:

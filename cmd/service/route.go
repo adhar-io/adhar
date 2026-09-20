@@ -13,8 +13,9 @@ import (
 )
 
 var routeCmd = &cobra.Command{
-	Use:   "route",
-	Short: "Show ingress routes for a service",
+	Use:     "show",
+	Aliases: []string{"route"},
+	Short:   "Show ingress routes for a service",
 	Long: `List the Ingress rules (host/path) that route traffic to the named
 Service. This is a read-only view of existing routing.
 

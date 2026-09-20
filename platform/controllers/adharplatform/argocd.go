@@ -111,6 +111,19 @@ func (r *AdharPlatformReconciler) reconcileArgoCDSSOProxy(ctx context.Context, r
 		return fmt.Errorf("shared SSO cookie not published yet: %w", err)
 	}
 
+	// The manifest builds absolute URLs from the platform host (the Keycloak
+	// issuer, the OAuth callback, the cookie domain). Rendering it without one
+	// produces "https://keycloak./realms/adhar" — a hostname ending in a bare dot
+	// — and the proxy crash-loops on OIDC discovery with "lookup keycloak. no
+	// such host". That is not hypothetical: the in-cluster controller-manager
+	// reconciles this same manifest, and when it runs without the host configured
+	// it REPLACED a working proxy with a broken one. Refusing to apply is the
+	// safe outcome: a platform with no configured host is not serving Argo CD on
+	// a real name anyway.
+	if r.Config.Host == "" {
+		return fmt.Errorf("no platform host configured; refusing to render the Argo CD SSO proxy with an empty hostname")
+	}
+
 	proxyBytes, err := argoCDFS.ReadFile("resources/argocd/sso-proxy.yaml")
 	if err != nil {
 		return fmt.Errorf("reading the Argo CD SSO proxy manifest: %w", err)

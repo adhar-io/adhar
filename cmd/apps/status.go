@@ -15,8 +15,8 @@ var statusCmd = &cobra.Command{
 	Long: `Check the status of a specific application.
 	
 Examples:
-  adhar apps status my-app
-  adhar apps status my-app --detailed`,
+  adhar application status my-app
+  adhar application status my-app --detailed`,
 	Args: cobra.ExactArgs(1),
 	RunE: runStatus,
 }

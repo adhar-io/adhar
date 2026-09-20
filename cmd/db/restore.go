@@ -24,8 +24,8 @@ into the new cluster; the original is left untouched. Use --target to name the
 restored cluster (defaults to <name>-restored).
 
 Examples:
-  adhar db restore --name=myapp --backup=myapp-20260101-020000
-  adhar db restore --name=myapp --backup=myapp-20260101-020000 --target=myapp-dr --size=2Gi`,
+  adhar database restore --name=myapp --backup=myapp-20260101-020000
+  adhar database restore --name=myapp --backup=myapp-20260101-020000 --target=myapp-dr --size=2Gi`,
 	RunE: runRestore,
 }
 

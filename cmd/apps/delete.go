@@ -44,9 +44,9 @@ Deleting it removes the claim and lets Crossplane/ArgoCD garbage-collect the
 managed workloads.
 
 Examples:
-  adhar apps delete my-app
-  adhar apps delete my-app --namespace=platform-apps
-  adhar apps delete my-app --force`,
+  adhar application delete my-app
+  adhar application delete my-app --namespace=platform-apps
+  adhar application delete my-app --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDelete,
 }

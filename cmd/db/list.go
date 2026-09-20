@@ -20,8 +20,8 @@ var listCmd = &cobra.Command{
 	Long: `List managed databases (Crossplane CompositeDatabase resources).
 
 Examples:
-  adhar db list
-  adhar db list --namespace=team-a`,
+  adhar database list
+  adhar database list --namespace=team-a`,
 	RunE: runList,
 }
 

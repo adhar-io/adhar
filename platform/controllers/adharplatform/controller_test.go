@@ -20,6 +20,8 @@ import (
 	"context"
 	"testing"
 
+	"adhar-io/adhar/api/v1alpha1"
+
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -182,5 +184,46 @@ func TestIsPlatformAlreadyDeployed(t *testing.T) {
 				t.Fatalf("isPlatformAlreadyDeployed() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// The CLI supplies the build customization as flags; the in-cluster manager is
+// started with just ["controller","--leader-elect=true"] and so had an empty
+// host. Every manifest that builds a URL from it then rendered nonsense — the
+// Argo CD SSO proxy became "https://keycloak./realms/adhar" and crash-looped on
+// DNS, replacing a proxy the CLI had rendered correctly. The reconciler must take
+// the host from the resource, which records what the cluster was created with.
+func TestReconcilerAdoptsBuildCustomizationFromTheResource(t *testing.T) {
+	spec := v1alpha1.BuildCustomizationSpec{
+		Protocol: "https",
+		Host:     "cloud.example.com",
+		Port:     "443",
+	}
+
+	// Empty in-process config: the in-cluster case.
+	r := &AdharPlatformReconciler{}
+	if r.Config.Host != "" {
+		t.Fatalf("precondition: expected an empty host, got %q", r.Config.Host)
+	}
+	if r.Config.Host == "" && spec.Host != "" {
+		r.Config = spec
+		r.Config.Normalize()
+	}
+	if r.Config.Host != "cloud.example.com" {
+		t.Errorf("host = %q, want cloud.example.com", r.Config.Host)
+	}
+	// 443 with https is the standard pair, so the suffix must be empty rather
+	// than ":443" — otherwise every rendered URL carries a redundant port.
+	if r.Config.PortSuffix != "" {
+		t.Errorf("PortSuffix = %q, want empty for https/443", r.Config.PortSuffix)
+	}
+
+	// A host given on the command line must win: the operator said it explicitly.
+	explicit := &AdharPlatformReconciler{Config: v1alpha1.BuildCustomizationSpec{Host: "override.example.com"}}
+	if explicit.Config.Host == "" {
+		explicit.Config = spec
+	}
+	if explicit.Config.Host != "override.example.com" {
+		t.Errorf("an explicitly configured host must not be overwritten, got %q", explicit.Config.Host)
 	}
 }

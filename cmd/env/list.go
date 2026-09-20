@@ -26,9 +26,9 @@ default only namespaces labelled ` + "`adhar.io/environment`" + ` are shown; use
 --all to list every namespace, or --label to filter by a custom selector.
 
 Examples:
-  adhar env list                          # Adhar-managed environments
-  adhar env list --all                    # Every namespace
-  adhar env list --label=team=payments    # Custom label selector`,
+  adhar environment list                          # Adhar-managed environments
+  adhar environment list --all                    # Every namespace
+  adhar environment list --label=team=payments    # Custom label selector`,
 	RunE: runList,
 }
 

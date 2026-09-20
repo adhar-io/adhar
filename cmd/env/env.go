@@ -22,10 +22,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// EnvCmd represents the environment command
-var EnvCmd = &cobra.Command{
-	Use:   "env",
-	Short: "Manage platform environments",
+// EnvironmentCmd represents the environment command
+var EnvironmentCmd = &cobra.Command{
+	Use: "environment",
+	// The short forms stay as aliases so existing scripts and muscle memory
+	// keep working after the rename.
+	Aliases: []string{"env", "envs"},
+	Short:   "Manage platform environments",
 	Long: `Manage different environments for the Adhar platform.
 	
 This command provides:
@@ -36,14 +39,14 @@ This command provides:
 • Multi-environment operations
 
 Examples:
-  adhar env create dev              # Create development environment
-  adhar env create staging          # Create staging environment
-  adhar env create prod             # Create production environment
-  adhar env list                    # List all environments
-  adhar env switch dev              # Switch context to dev environment
-  adhar env delete staging          # Delete staging environment
-  adhar env backup prod             # Backup production environment
-  adhar env restore prod backup-2024-01-01 # Restore from backup`,
+  adhar environment create dev              # Create development environment
+  adhar environment create staging          # Create staging environment
+  adhar environment create prod             # Create production environment
+  adhar environment list                    # List all environments
+  adhar environment switch dev              # Switch context to dev environment
+  adhar environment delete staging          # Delete staging environment
+  adhar environment backup prod             # Backup production environment
+  adhar environment restore prod backup-2024-01-01 # Restore from backup`,
 	RunE: runEnv,
 }
 
@@ -57,19 +60,19 @@ var (
 
 func init() {
 	// Environment command flags
-	EnvCmd.PersistentFlags().StringVarP(&environment, "environment", "e", "", "Environment name")
-	EnvCmd.PersistentFlags().StringVarP(&provider, "provider", "p", "", "Cloud provider for environment")
-	EnvCmd.PersistentFlags().StringVarP(&region, "region", "r", "", "Cloud region for environment")
-	EnvCmd.PersistentFlags().StringVarP(&config, "config", "c", "", "Environment configuration file")
+	EnvironmentCmd.PersistentFlags().StringVarP(&environment, "environment", "e", "", "Environment name")
+	EnvironmentCmd.PersistentFlags().StringVarP(&provider, "provider", "p", "", "Cloud provider for environment")
+	EnvironmentCmd.PersistentFlags().StringVarP(&region, "region", "r", "", "Cloud region for environment")
+	EnvironmentCmd.PersistentFlags().StringVarP(&config, "config", "c", "", "Environment configuration file")
 
 	// Add subcommands
-	EnvCmd.AddCommand(createCmd)
-	EnvCmd.AddCommand(listCmd)
-	EnvCmd.AddCommand(switchCmd)
-	EnvCmd.AddCommand(deleteCmd)
-	EnvCmd.AddCommand(backupCmd)
-	EnvCmd.AddCommand(restoreCmd)
-	EnvCmd.AddCommand(configCmd)
+	EnvironmentCmd.AddCommand(createCmd)
+	EnvironmentCmd.AddCommand(listCmd)
+	EnvironmentCmd.AddCommand(switchCmd)
+	EnvironmentCmd.AddCommand(deleteCmd)
+	EnvironmentCmd.AddCommand(backupCmd)
+	EnvironmentCmd.AddCommand(restoreCmd)
+	EnvironmentCmd.AddCommand(configCmd)
 }
 
 func runEnv(cmd *cobra.Command, args []string) error {

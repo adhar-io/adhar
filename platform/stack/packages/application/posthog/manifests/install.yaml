@@ -4989,7 +4989,7 @@ spec:
           initialDelaySeconds: 0
           periodSeconds: 5
           successThreshold: 1
-          timeoutSeconds: 2
+          timeoutSeconds: 5
         readinessProbe:
           httpGet:
             path: /_readyz?role=events
@@ -4999,7 +4999,7 @@ spec:
           initialDelaySeconds: 0
           periodSeconds: 30
           successThreshold: 1
-          timeoutSeconds: 5
+          timeoutSeconds: 15
         startupProbe:
           httpGet:
             path: /_readyz?role=events
@@ -5009,7 +5009,7 @@ spec:
           initialDelaySeconds: 0
           periodSeconds: 10
           successThreshold: 1
-          timeoutSeconds: 5
+          timeoutSeconds: 15
         resources:
           limits:
             memory: 4Gi
@@ -5306,7 +5306,7 @@ spec:
           initialDelaySeconds: 0
           periodSeconds: 5
           successThreshold: 1
-          timeoutSeconds: 2
+          timeoutSeconds: 5
         readinessProbe:
           httpGet:
             path: /_readyz?role=web
@@ -5316,7 +5316,7 @@ spec:
           initialDelaySeconds: 0
           periodSeconds: 30
           successThreshold: 1
-          timeoutSeconds: 5
+          timeoutSeconds: 15
         startupProbe:
           httpGet:
             path: /_readyz
@@ -5326,7 +5326,7 @@ spec:
           initialDelaySeconds: 0
           periodSeconds: 10
           successThreshold: 1
-          timeoutSeconds: 5
+          timeoutSeconds: 15
         resources:
           limits:
             memory: 6Gi

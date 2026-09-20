@@ -129,7 +129,7 @@ adhar get secrets -p <service>    # argocd | gitea | keycloak | adhar-console
 
 ## 3. The CLI
 
-`adhar --help` lists 33 top-level commands grouped as Develop / Observe / Operate / Administer. These are the ones you will reach for.
+`adhar --help` lists 36 top-level commands grouped as Develop / Observe / Operate / Administer / Utilities. These are the ones you will reach for.
 
 ### Lifecycle
 
@@ -151,6 +151,46 @@ adhar get secrets [-p svc]   # credentials
 adhar get dataplanes         # workload clusters registered with the control plane
 adhar health                 # platform health checks
 ```
+
+### Self-service resources
+
+```bash
+adhar cache create sessions            # a Valkey cache, one node
+adhar cache create sessions --replicas 2
+adhar bucket create uploads            # S3 object storage
+adhar database create --name orders --engine postgresql
+adhar cache connection sessions        # where host/port/uri are published
+adhar application bind <app> sessions  # mount that Secret into a workload
+```
+
+Each is a namespaced Crossplane request, so RBAC you already have decides who may
+create one, and the platform publishes the connection details as a Secret.
+
+### The platform's own packages
+
+```bash
+adhar stack list             # the catalogue: enabled or not, and what Argo CD makes of it
+adhar stack status           # how converged the platform is, and what is not ready
+adhar stack describe nexus   # one package: contract, live state, dependencies
+adhar stack enable harbor    # edit the stack (you review and push), then: adhar upgrade
+adhar stack conflicts        # packages that must not both be on
+```
+
+`adhar stack` is the platform's packages; `adhar application` is yours. See
+[Customization §1](CUSTOMIZATION.md#1-enable-or-disable-a-package).
+
+### Ask the platform
+
+```bash
+adhar ai status              # what the AI stack has installed, keyed and reachable
+adhar ai ask "why is keycloak not ready?"      # one question, one answer
+adhar ai diagnose metabase   # agentic triage: reads pods, logs, events on its own
+adhar ai explain certificate/adhar-cert
+adhar ai chat                # interactive, with this cluster in context
+```
+
+Read-only, and routed through the cluster's own AI data plane rather than a vendor
+API — see [§8](#8-use-the-ai-layer).
 
 ### Scripting the CLI
 
@@ -178,14 +218,43 @@ Redirect stderr when you want the payload alone: `adhar get status -o json 2>/de
 ### Applications
 
 ```bash
-adhar apps deploy <name> --template <t> | --repo <url> [--path p] [--wait]
-adhar apps list [-A] [-l <selector>]
-adhar apps status <name> [--detailed]
-adhar apps scale <name> --replicas 3
-adhar apps restart <name>
-adhar apps bind <name> <service>     # mount a backing service's connection Secret
-adhar apps delete <name> [--force]
+adhar application deploy <name> --template <t> | --repo <url> [--path p] [--wait]
+adhar application list [-A] [-l <selector>]
+adhar application status <name> [--detailed]
+adhar application scale <name> --replicas 3
+adhar application restart <name>
+adhar application bind <name> <service>     # mount a backing service's connection Secret
+adhar application delete <name> [--force]
 ```
+
+### The inner loop: `adhar dev`
+
+```bash
+adhar dev                         # infer the name from the directory
+adhar dev api --port 8080         # name it, and say which port the app listens on
+adhar dev api --keep              # leave the dev namespace behind when you stop
+```
+
+`adhar dev` runs the code in front of you on the cluster and re-syncs it on every
+save, usually in about a second. It creates a per-developer namespace, starts your
+source there, then watches the working tree: each save is copied into the running
+container and the process restarts. There is no image build, no registry push and
+no commit in that loop.
+
+The point is the environment, not the speed alone. Your code runs beside the
+platform's own Postgres, Kafka, object store and identity, with the same service
+DNS, NetworkPolicies and admission rules that will apply in production, so "works
+on my machine" and "works on the platform" stop being different questions.
+
+It infers the runtime from a marker file — `go.mod`, `package.json`,
+`pyproject.toml`, `requirements.txt` or `pom.xml` — and you can override with
+`--image` and `--command`. A change to a dependency manifest triggers an install
+rather than just a restart. Large directories (`node_modules`, `.git`, `target`,
+`__pycache__` and friends) are never synced, which is what keeps the loop fast.
+
+Nothing here touches Git. When the change is right, open a pull request and the
+supply chain below takes over. The namespace is disposable and removed when you
+stop unless you pass `--keep`.
 
 ### From source to running, in one command
 
@@ -206,9 +275,9 @@ adhar cluster upgrade prod --version 1.37.0
 adhar cluster kubeconfig prod --print-only > prod.kubeconfig
 adhar cluster delete prod
 
-adhar env create dev --provider digitalocean --region blr1 --tier dev
-adhar env list
-adhar env switch dev
+adhar environment create dev --provider digitalocean --region blr1 --tier dev
+adhar environment list
+adhar environment switch dev
 ```
 
 **Projects** — an organisation → team → project → application hierarchy with a namespace, quota and (optionally) a Gitea repo:
@@ -236,7 +305,7 @@ Four paths, in increasing order of platform integration. Pick the lowest one tha
 ### a) Point ArgoCD at an existing repo
 
 ```bash
-adhar apps deploy my-app --repo https://github.com/org/repo --path manifests/ \
+adhar application deploy my-app --repo https://github.com/org/repo --path manifests/ \
   --dest-namespace my-team --wait
 ```
 
@@ -245,7 +314,7 @@ Fastest way to get something running. The cluster now depends on that repo being
 ### b) Instantiate a CLI template
 
 ```bash
-adhar apps deploy my-app --template microservice --namespace my-app
+adhar application deploy my-app --template microservice --namespace my-app
 ```
 
 Fetches `<template>.yaml` from the Gitea `templates` repo (`basic-git`, `microservice`, `frontend`), substitutes `${APP_NAME}` / `${APP_NAMESPACE}` and creates a `CompositeApplication`. Crossplane expands it into the ArgoCD Application. The Console instantiates the same templates, so CLI and portal agree.
@@ -376,10 +445,29 @@ spec:
 
 Locally this becomes a CNPG PostgreSQL cluster; on AWS the same request becomes RDS. The shipped APIs include `CompositeCluster`, `CompositeApplication`, `CompositeDatabase`, `CompositeNetwork`, `CompositeLogging`, `CompositeEnvironment` and `CompositePlatformConfig`, each backed by one composition per implementation. Working examples are in `examples/`; the full catalogue and conventions are in [Control Plane](CONTROL_PLANE.md).
 
+Or ask through the CLI, which fills in the boilerplate and the composition
+selection for the three requests developers make most:
+
+```bash
+adhar database create --name orders-db --engine postgresql   # durable storage
+adhar cache create sessions --replicas 2                     # Valkey/Redis cache
+adhar bucket create uploads                                  # S3 object storage
+```
+
+`adhar cache` defaults to **Valkey** — the BSD-licensed drop-in for Redis, managed
+here by an operator that handles failover, scaling and metrics — and publishes
+`uri`, `host`, `port` and `engine` in a `<name>-app` Secret. Every standard Redis
+client works unchanged (`valkey://` and `redis://` are interchangeable). Replicas
+are read replicas of one primary, not shards. Unlike `adhar database`, it pins the
+**in-cluster** composition: there is no managed-cache composition yet, so a request
+that inherited a cloud provider would match nothing — `--provider` is the hook for
+when one exists.
+
 Bind the resulting connection Secret into an application:
 
 ```bash
-adhar apps bind my-app orders-db
+adhar application bind my-app orders-db
+adhar application bind my-app sessions
 ```
 
 Workload clusters provisioned this way register themselves with ArgoCD and appear in `adhar get dataplanes`.
@@ -488,10 +576,94 @@ Two caveats worth knowing: masking is **not applied to streamed responses** (the
 
 Traces go to Tempo with OTel GenAI attributes (`gen_ai.request.model`, `gen_ai.usage.*_tokens`, `gen_ai.usage.cost_usd`, `mcp.tool.*`), and a Grafana dashboard *Adhar AI Gateway (agentgateway)* turns AI cost and AI latency into first-class platform signals.
 
+### Using it from the CLI (`adhar ai`)
+
+`adhar ai` is the terminal half of the agentic layer. It holds no provider SDK and
+no key: every completion goes to agentgateway, so the key stays server-side, the
+budget is metered in one place and the call is audited like any other.
+
+```bash
+adhar auth login <you>       # the gateway's JWT policy is strict — no token, no service
+adhar ai key set             # give the platform its provider key (prompted, never echoed)
+adhar ai status              # data plane, key, runtime, MCP servers, inference, autonomy, session
+adhar ai models              # what --model may be set to, and which key slot each needs
+```
+
+| Command | What it does |
+| --- | --- |
+| `adhar ai ask "…"` | One completion. Sends a compact summary of *this* cluster unless `--no-context`. Reads a piped stdin too, so `kubectl get events \| adhar ai ask "explain these"` works |
+| `adhar ai chat` | Interactive session with history; `/model`, `/context`, `/clear`, `/save`, `/exit` |
+| `adhar ai agent "…"` | The tool-calling loop: the model chooses tools, reads the results and keeps going until it can answer |
+| `adhar ai diagnose [app]` | `agent` with the investigation spelled out — unhealthy pods → container states → crashed-container logs → events → Argo CD app |
+| `adhar ai explain kind/name` | What a live resource is for, and what its current status means here |
+| `adhar ai tools` | The tools a run may call, and which are writes |
+| `adhar ai mcp list` / `mcp call` | The federated MCP surface, checked from a terminal with no model in the loop |
+| `adhar ai autonomy` | The ladder, and the ceiling this platform grants |
+| `adhar ai budget` | The ceilings the gateway meters against |
+| `adhar ai key set` / `key status` | Seed the provider key; report which slots are filled without revealing one |
+
+**How the CLI reaches the gateway.** By default it opens a short-lived port-forward
+to the `adhar-ai-gateway` Service, because that Service is a ClusterIP by design —
+no DNS, no ingress and no certificate are involved. Pass `--endpoint https://ai.<host>`
+(or set `ADHAR_AI_ENDPOINT`) to go through the public route instead, and `--insecure`
+with the platform's self-signed development certificate.
+
+**What the CLI agent can and cannot do.** The loop runs locally against *your*
+kubeconfig, so it sees exactly what you can see and Secret values are redacted even
+then — key names and byte counts come back, never a credential. Its tools are
+`kube_get`, `kube_list`, `pod_issues`, `pod_logs`, `k8s_events`, `argo_apps`,
+`platform_status`, `docs_search` and `package_info`: all reads. There is no apply,
+patch, delete, restart, scale or sync tool anywhere in the CLI, so no prompt can
+make a run mutate the cluster. The one write tool, `propose_change`, records a file
+proposal that is printed for you at the end of the run — nothing is written to disk,
+nothing is pushed, nothing is applied.
+
+The autonomy ceiling comes from the cluster's own `adhar-ai-config` ConfigMap, so a
+terminal run has exactly the authority the platform grants the runtime.
+`--autonomy` can only **narrow** it: asking for a rung above the ceiling fails with
+the reason rather than being clamped silently, and at `suggest` the first proposal
+ends the run, which is what that rung means. Every tool call is printed as it
+happens, so a run is an audit trail rather than a black box. Add `--mcp` to also
+offer the federated MCP tools when those servers are installed.
+
+```bash
+# Investigate with no write tool offered at all
+adhar ai diagnose --autonomy read-only
+
+# Let it propose a fix; it will ask before recording one, and stop afterwards
+adhar ai agent "metabase keeps OOMing — propose a fix" --autonomy suggest
+```
+
 ### Turning it on
 
 1. Enable `adhar-ai` **and** `agentgateway` together — see [Customization §1](CUSTOMIZATION.md#1-enable-or-disable-a-package). agentgateway hard-depends on the seven MCP Services; if any is missing, its whole MCP backend is rejected at config-translation time until they appear (LLM routes are unaffected).
-2. Put the keys in the secrets backend. Every property listed must exist — an **absent** property fails the whole ExternalSecret, while an empty string is fine:
+2. Put the keys in the secrets backend. **On a fresh platform, just export the key
+   before `adhar up`** and there is no step 2 at all:
+
+   ```bash
+   export ADHAR_AI_LLM_API_KEY='sk-or-v1-…'     # provider inferred from the key
+   adhar up -f config.yaml --env production
+   ```
+
+   `adhar up` stages it as a single cluster Secret and the OpenBao bootstrap Job
+   imports it into `secret/adhar-ai/llm` the moment the backend initialises — so the
+   platform finishes AI-enabled. The import is **seed-once**: a later `adhar ai key
+   set` is authoritative and will not be overwritten on the next sync.
+
+   On an already-running platform, `adhar ai key set` does this for you — it
+   prompts with echo off, sends the key to OpenBao over stdin (never argv, never a
+   file), patches rather than replaces so a second provider does not erase the
+   first, nudges External Secrets and waits for the Secret to be projected:
+
+   ```bash
+   adhar ai key set --provider anthropic
+   adhar ai key set --provider openrouter --model openai/gpt-4o-mini
+   ADHAR_AI_LLM_API_KEY='sk-…' adhar ai key set --provider openai --from-env   # CI
+   ```
+
+   The equivalent by hand, which is also what the entry looks like. Every property
+   listed must exist — an **absent** property fails the whole ExternalSecret, while
+   an empty string is fine:
 
    ```bash
    bao kv put secret/adhar-ai/llm \

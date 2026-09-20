@@ -43,9 +43,9 @@ var deployCmd = &cobra.Command{
 	Long: `Deploy an application using declarative specifications.
 	
 Examples:
-  adhar apps deploy my-app --file=my-app.yaml
-  adhar apps deploy my-app --template=basic-git --namespace=platform-apps
-  adhar apps deploy my-app --repo=https://github.com/org/service --path=deploy/overlays/prod --version=main --wait`,
+  adhar application deploy my-app --file=my-app.yaml
+  adhar application deploy my-app --template=basic-git --namespace=platform-apps
+  adhar application deploy my-app --repo=https://github.com/org/service --path=deploy/overlays/prod --version=main --wait`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDeploy,
 }

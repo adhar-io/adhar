@@ -12,7 +12,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
+	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/servicequotas"
 
 	provider "adhar-io/adhar/platform/providers"
 	"adhar-io/adhar/platform/types"
@@ -84,6 +87,11 @@ func init() {
 		if region, ok := config["region"].(string); ok {
 			awsConfig.Region = region
 		}
+		// Set by `adhar down --purge-orphaned-volumes` / `adhar cluster delete
+		// --purge-orphaned-volumes`; see sweepOrphanedVolumes.
+		if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
+			awsConfig.PurgeOrphanedVolumes = true
+		}
 
 		// Authentication Method 1: Access Key + Secret Key
 		if accessKey, ok := config["accessKeyId"].(string); ok {
@@ -133,6 +141,15 @@ type Provider struct {
 	ec2Client *ec2.Client
 	eksClient *eks.Client
 	iamClient *iam.Client
+
+	// Teardown and preflight (teardown.go). The load-balancer clients exist
+	// because the in-cluster controllers create load balancers this provider never
+	// recorded, in BOTH AWS flavours: the in-tree provider makes a classic ELB,
+	// the out-of-tree one an NLB through the v2 API. The quota client is read-only
+	// and a credential without access to it does not block a create.
+	elbClient   *elb.Client
+	elbv2Client *elbv2.Client
+	quotaClient *servicequotas.Client
 }
 
 // Config holds AWS provider configuration
@@ -167,6 +184,13 @@ type Config struct {
 
 	VPCConfig    VPCConfig           `json:"vpcConfig"`
 	DomainConfig *types.DomainConfig `json:"domainConfig,omitempty"`
+
+	// PurgeOrphanedVolumes extends teardown to unattached EBS volumes the CSI
+	// driver provisioned that carry no cluster tag at all. Off by default and
+	// never inferred: such a volume looks identical whether its cluster is gone or
+	// is being rebuilt, so deleting one is the operator's call —
+	// `adhar down --purge-orphaned-volumes`.
+	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
 }
 
 // VPCConfig holds VPC-specific configuration
@@ -247,11 +271,14 @@ func NewProvider(config *Config) (*Provider, error) {
 	}
 
 	return &Provider{
-		config:    config,
-		awsConfig: cfg,
-		ec2Client: ec2.NewFromConfig(cfg),
-		eksClient: eks.NewFromConfig(cfg),
-		iamClient: iam.NewFromConfig(cfg),
+		config:      config,
+		awsConfig:   cfg,
+		ec2Client:   ec2.NewFromConfig(cfg),
+		eksClient:   eks.NewFromConfig(cfg),
+		iamClient:   iam.NewFromConfig(cfg),
+		elbClient:   elb.NewFromConfig(cfg),
+		elbv2Client: elbv2.NewFromConfig(cfg),
+		quotaClient: servicequotas.NewFromConfig(cfg),
 	}, nil
 }
 

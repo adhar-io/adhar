@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
 
@@ -60,7 +61,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		},
 		Webhooks: []admissionv1.ValidatingWebhook{
 			{
-				Name: webhookName + ".adhar.io",
+				// A webhook name must be qualified, but it is an IDENTIFIER, not a URL:
+				// qualifying it with the platform API group keeps it stable, while the
+				// hardcoded "adhar.io" it used to carry implied a relationship to a
+				// domain the operator may not own — the platform host comes from
+				// configuration, never from a constant.
+				Name: webhookName + "." + v1alpha1.GroupVersion.Group,
 				ClientConfig: admissionv1.WebhookClientConfig{
 					URL: &url,
 				},

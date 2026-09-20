@@ -71,6 +71,12 @@ spec:
                       type: string
                       description: "Major engine version (e.g. \"16\" for postgresql). Optional for the local provider — defaults to 16."
                       default: "16"
+                    replicas:
+                      type: integer
+                      minimum: 0
+                      maximum: 5
+                      default: 0
+                      description: "Read replicas alongside the primary. Honoured by the local valkey composition (Valkey CR `replicas`); 0 means a single node. This MUST stay declared here: an undeclared field is pruned by the structural schema, so the composition read it as 0 forever and a request for replicas was silently ignored."
                     instanceClass:
                       type: string
                       description: "Cloud only: compute size (e.g. db.t3.micro on AWS). Ignored by the local provider, which runs a single small CNPG instance."

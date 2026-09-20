@@ -153,11 +153,13 @@ rules:
       - mysql.oracle.com
       - networking.k8s.io
       - node.k8s.io
-      - open-cluster-management.io
-      - addon.open-cluster-management.io
-      - cluster.open-cluster-management.io
-      - operator.open-cluster-management.io
-      - work.open-cluster-management.io
+      - cluster.karmada.io
+      - policy.karmada.io
+      - work.karmada.io
+      - config.karmada.io
+      - networking.karmada.io
+      - autoscaling.karmada.io
+      - search.karmada.io
       - ops.crossplane.io
       - pkg.crossplane.io
       - protection.crossplane.io

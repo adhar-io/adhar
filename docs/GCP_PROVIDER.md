@@ -3,10 +3,12 @@
 Adhar on Google Cloud: Compute Engine instances bootstrapped with kubeadm, the
 same code path that is live-verified on DigitalOcean.
 
-> **Status: render-verified, not live-verified.** Provider registration, config
-> validation and `adhar up --dry-run` pass, and the provisioning code is shared
-> with the DigitalOcean path that has run end to end. **No full run on GCP has
-> been completed.** Treat your first use as a bring-up exercise. See
+> **Status: live-verified on 2026-09-19/20.** A full `adhar up` reached a running
+> platform on GCP: kubeadm control plane and workers, Cilium, the Gateway with a
+> real GCP load balancer, Gitea, ArgoCD, and 76 of 80 applications Synced and
+> Healthy. Getting there took **eleven provider defects and three quota traps**,
+> all fixed and covered by tests — they are written up below because each one fails
+> in a way that points somewhere other than its cause. See
 > [PROVIDER_GUIDE.md](PROVIDER_GUIDE.md#2-verification-status-what-is-proven-where)
 > for the matrix, and the [DigitalOcean provider guide](DIGITALOCEAN_PROVIDER.md)
 > for everything that is not cloud-specific.
@@ -181,6 +183,42 @@ If you would rather not delegate, you can skip this section, set
 Gateway has its external IP. You then give up automatic records and wildcard
 certificates, and the platform stays on self-signed TLS.
 
+#### The trap: the APEX must resolve too, even though nothing of yours lives there
+
+Delegate the **subdomain**, and leave the registrable domain (`example.com`) served
+by whoever holds it. Pointing the whole domain at Cloud DNS while only the subdomain
+zone exists there is the one mistake that looks like it worked: every app resolves,
+every URL loads, and certificates can never be issued.
+
+This platform hit it. `cloud.adhar.io` resolved perfectly from the Cloud DNS zone,
+but `adhar.io` had been delegated to the same Google nameservers with no apex zone
+behind them, so the apex had no authoritative server. Let's Encrypt walks **up** the
+tree reading CAA records, so issuing `*.cloud.adhar.io` also queries CAA for
+`cloud.adhar.io` *and* `adhar.io`; the apex lookup returned SERVFAIL and every order
+failed with:
+
+```
+DNS problem: SERVFAIL looking up CAA for adhar.io
+  - the domain's nameservers may be malfunctioning
+```
+
+The message names CAA, so it reads as a certificate fault. It is a delegation fault.
+Either layout is fine as long as the apex is served by *something*:
+
+- apex at the registrar, subdomain delegated to Cloud DNS (the layout above); or
+- an apex zone in Cloud DNS as well, with the registrar pointing at **that zone's**
+  nameservers, and an `NS` record for the label inside it.
+
+A CAA record is not required — no CAA means any CA may issue. Add one only to pin
+issuance (`0 issue "letsencrypt.org"`, `0 issuewild "letsencrypt.org"`).
+
+**If you are moving the apex back to your registrar**, add the delegation `NS`
+records in the registrar's zone *first*, then change the nameservers. The other order
+leaves the platform subdomain unresolvable for the propagation window, and the
+registry itself can lag its own database — check what is actually published with
+`dig +norecurse NS example.com @a0.nic.io` (substitute your TLD's nameserver) rather
+than trusting a resolver's cache.
+
 ### 1.7 Verify readiness
 
 All five must pass before `adhar up`:
@@ -194,7 +232,13 @@ gcloud services list --enabled --project $PROJECT | grep -E 'compute|container|d
 gcloud compute zones list --project $PROJECT --limit 1                      # no SERVICE_DISABLED
 gcloud dns managed-zones list --project $PROJECT                            # your zone
 dig +short NS $HOST                                                          # googledomains
+dig +noall +comment CAA "${HOST#*.}"          # status: NOERROR — NOT SERVFAIL
 ```
+
+That last line is the one that is easy to skip and expensive to miss: it checks the
+REGISTRABLE domain, not the platform host, because Let's Encrypt reads CAA up the
+tree. An empty answer is correct; `SERVFAIL` means the apex is delegated to
+nameservers that hold no zone for it and no certificate can ever be issued.
 
 ## 2. Credentials
 
@@ -428,6 +472,18 @@ reports but does not delete.
   gcloud compute disks list --project <PROJECT> --filter='-users:*'
   ```
 
+- **Teardown removes the load balancer and, on request, the disks.** The cloud
+  controller manager's forwarding rule, target pool and `k8s-*` firewall rules are
+  deleted unconditionally: they hold no data, nothing records them, and the
+  firewall rule pins the VPC so the network cannot be deleted while it exists.
+  Unattached `pvc-*` disks are only deleted with `--purge-orphaned-volumes`,
+  because a disk may still hold data worth keeping; without the flag they are named
+  in the output rather than left silent.
+
+  ```bash
+  adhar down -f config.yaml --env production --purge-orphaned-volumes
+  ```
+
 - **Teardown no longer depends on local state.** A missing
   `~/.adhar/state/gcp/clusters.json` used to abort `adhar down` entirely, which
   left live instances with no supported way to remove them. The provider now
@@ -438,7 +494,115 @@ reports but does not delete.
   `admin_source_ranges` unless you are deliberately leaving SSH and the API
   server open.
 
-## 6. Related
+## 6. What the first live bring-up cost, and why
+
+Every item here failed in a way that pointed somewhere other than its cause, which
+is the only reason they are worth writing down. All are fixed; this is a map for
+reading similar symptoms next time.
+
+### Configuration that was silently ignored
+
+The nested `providers.gcp.config:` block reached the provider for `project_id` and
+`zone` only. Every other key fell back to a built-in default, so a cluster
+configured for 100 GB `pd-balanced` disks on `10.20.0.0/16` quietly got 20 GB
+`pd-standard` on `10.0.0.0/24`, and the VPC was named `default-vpc`. Root-level
+keys now win and both are read.
+
+`clusterConfig` keys matched camelCase literally, so the snake_case spellings used
+in this document and in the shipped test fixtures were dropped and the worker count
+fell back to its default. Keys are now matched ignoring case and separators.
+
+### Firewall rules that matched nothing
+
+The internal rule hardcoded `10.0.0.0/24` as its source range, so any other
+`subnet_cidr` dropped node-to-node traffic and workers never finished joining.
+Rules also targeted the whole network while instances carried a *per-instance* tag,
+so no rule applied to any node. And there were no rules for 80/443 or Google's
+health-check ranges (`130.211.0.0/22`, `35.191.0.0/16`), so a LoadBalancer's
+backends could never turn healthy.
+
+### The cloud-controller-manager needed five separate fixes
+
+This is the one to read before debugging a pending LoadBalancer.
+
+1. **The upstream manifest cannot be applied as published.** It ships
+   `args: [] # args must be replaced by tooling`, so the binary started with no
+   flags and exited printing its usage.
+2. **Nodes had no service account**, so even with flags it had no identity for the
+   GCP API. They now carry one with `cloud-platform` scope.
+3. **`KUBERNETES_SERVICE_HOST` is hardcoded to `127.0.0.1`**, a GKE assumption. A
+   kubeadm apiserver listens on 6443, not 443.
+4. **Its serving certificate does not cover `127.0.0.1`** either, so pointing at
+   the right port then failed TLS. The in-cluster Service address (`10.96.0.1`) is
+   in the certificate by default and is what the manifest is rewritten to.
+5. **`--allocate-node-cidrs=false` is fatal.** The node-ipam controller refuses to
+   start and takes the whole manager down with
+   `the AllocateNodeCIDRs is not enabled`. Disable the controller instead:
+   `--controllers=*,-node-ipam-controller`.
+
+Then a sixth: with all of that fixed it still refused to build the load balancer's
+firewall rule, because the GCE provider needs node tags from a `cloud.config` that
+nothing wrote. The provider writes `/etc/kubernetes/cloud.config` before applying
+the manifest, and grants the extra RBAC the manifest omits — without
+`services/status` patch permission the controller allocates an address and cannot
+write it back, so the Service stays `<pending>` forever.
+
+### A certificate for the wrong hostname
+
+The bootstrap caches a self-signed certificate on disk and returned it whatever
+hostname the new cluster used, so a cloud platform served a certificate generated
+for `adhar.localtest.me` months earlier. Browsers warn, but the damage is
+server-side: Coder's OIDC discovery failed on
+`certificate is valid for adhar.localtest.me, not keycloak.cloud.adhar.io`, and a
+name mismatch cannot be worked around by trusting the CA. The cache is now checked
+against the names being requested.
+
+Separately, cert-manager's `cloudDNS` solver **requires** a `project` field. Without
+it the API server rejects the ClusterIssuer outright, so the DNS-01 issuer never
+applied and the wildcard certificate was never issued.
+
+### Autoscaling that could scale down but never up
+
+The in-cluster controller inherited `serviceAccountKeyFile` — a path on the machine
+that ran `adhar up` — and preferred it over the inline credential it had been given.
+Every scale-up failed with `credentials file not found`, so a cluster could be
+scaled down and never recover. Credential *paths* are now stripped from the
+recorded provider config.
+
+`scaleWorkers` also derived the cluster name by trimming `-master-1` from the first
+master. Masters are numbered from zero, so `production-master-0` was treated as the
+cluster name: the SSH key was looked up in a directory that did not exist, a fresh
+key was generated that no node had seen, and a scale *down* was computed as a scale
+*up*.
+
+### The in-cluster manager had no platform host
+
+The manager reads the platform host from the AdharPlatform resource, but was
+deployed without `--platform-name`, which defaults to `adhar`. On a platform named
+anything else the lookup missed, and not-found is treated as "start with an empty
+build configuration". Every host-derived manifest then rendered nonsense — the Argo
+CD SSO proxy became `https://keycloak./realms/adhar` and crash-looped, *replacing*
+the correct one the CLI had rendered. The install now passes the name, and the
+reconciler falls back to the resource's own build customization.
+
+### Two application-level traps worth knowing
+
+**Nexus serves nothing until its EULA is accepted.** Community Edition answers
+every `/repository/...` request with 403 and the text "You must accept the End User
+License Agreement", while the admin REST API works normally — so repositories are
+created, the instance looks healthy, and builds fail on artifacts that plainly
+exist. The config job accepts it now. It also *upserts* `maven-central` rather than
+creating it, because Nexus pre-creates that repository with a 24-hour negative
+cache, and a create-only call left those defaults in place.
+
+**A `WaitForFirstConsumer` PVC must not be in an earlier sync wave than the
+workload that mounts it.** It cannot bind until a pod mounts it, and Argo CD will
+not apply the next wave until the current one is healthy. The result is a permanent
+deadlock reporting `waiting for healthy state of /PersistentVolumeClaim/<name>`.
+Invisible on clusters whose StorageClass binds immediately, which is why it only
+showed up here. Guarded by a test across every package.
+
+## 7. Related
 
 [Provider guide](PROVIDER_GUIDE.md) ·
 [DigitalOcean provider](DIGITALOCEAN_PROVIDER.md) (the verified reference) ·

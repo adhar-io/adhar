@@ -23,13 +23,17 @@ import (
 	"os/signal"
 	"syscall"
 
+	"adhar-io/adhar/cmd/ai"
 	"adhar-io/adhar/cmd/apps"
 	"adhar-io/adhar/cmd/auth"
 	"adhar-io/adhar/cmd/backup"
+	"adhar-io/adhar/cmd/bucket"
+	"adhar-io/adhar/cmd/cache"
 	"adhar-io/adhar/cmd/cluster"
 	"adhar-io/adhar/cmd/config"
 	controllercmd "adhar-io/adhar/cmd/controller"
 	"adhar-io/adhar/cmd/db"
+	"adhar-io/adhar/cmd/dev"
 	"adhar-io/adhar/cmd/down"
 	"adhar-io/adhar/cmd/env"
 	"adhar-io/adhar/cmd/get"
@@ -49,6 +53,7 @@ import (
 	"adhar-io/adhar/cmd/secrets"
 	"adhar-io/adhar/cmd/security"
 	"adhar-io/adhar/cmd/service"
+	"adhar-io/adhar/cmd/stack"
 	"adhar-io/adhar/cmd/storage"
 	"adhar-io/adhar/cmd/traces"
 	"adhar-io/adhar/cmd/up"
@@ -110,14 +115,16 @@ func init() {
 	// Assign each command to a persona group for a tidy, discoverable help layout.
 	// Develop — build, ship & self-serve resources.
 	project.ProjectCmd.GroupID = GroupDevelop
-	apps.AppsCmd.GroupID = GroupDevelop
+	apps.ApplicationCmd.GroupID = GroupDevelop
 	pipeline.PipelineCmd.GroupID = GroupDevelop
 	gitops.GitOpsCmd.GroupID = GroupDevelop
-	service.ServiceCmd.GroupID = GroupDevelop
-	db.DBCmd.GroupID = GroupDevelop
+	service.RoutesCmd.GroupID = GroupDevelop
+	db.DatabaseCmd.GroupID = GroupDevelop
+	bucket.BucketCmd.GroupID = GroupDevelop
+	cache.CacheCmd.GroupID = GroupDevelop
+	ai.AICmd.GroupID = GroupDevelop
 	storage.StorageCmd.GroupID = GroupDevelop
-	secrets.SecretsCmd.GroupID = GroupDevelop
-	env.EnvCmd.GroupID = GroupDevelop
+	env.EnvironmentCmd.GroupID = GroupDevelop
 
 	// Observe — health, logs, metrics & traces.
 	get.GetCmd.GroupID = GroupObserve
@@ -136,14 +143,24 @@ func init() {
 
 	// Administer — platform lifecycle & governance.
 	up.UpCmd.GroupID = GroupAdminister
+	stack.StackCmd.GroupID = GroupAdminister
 	down.DownCmd.GroupID = GroupAdminister
 	controllercmd.ControllerCmd.GroupID = GroupAdminister
 	config.ConfigCmd.GroupID = GroupAdminister
+	// Secrets sits with config, not with Develop: an application may read or
+	// create either, but WHO may, where they live and how they rotate is a
+	// platform-administration decision.
+	secrets.SecretsCmd.GroupID = GroupAdminister
 	auth.AuthCmd.GroupID = GroupAdminister
 	policy.PolicyCmd.GroupID = GroupAdminister
 	security.SecurityCmd.GroupID = GroupAdminister
 	webhook.WebhookCmd.GroupID = GroupAdminister
-	migrate.MigrateCmd.GroupID = GroupAdminister
+
+	// A migration is a kind of upgrade, so the staged migrations hang off
+	// `adhar upgrade` instead of a separate top-level verb.
+	for _, m := range migrate.Migrations() {
+		upgrade.UpgradeCmd.AddCommand(m)
+	}
 
 	// Utilities.
 	version.VersionCmd.GroupID = GroupUtilities
@@ -152,15 +169,20 @@ func init() {
 	// Add modular commands
 	AddCommand(
 		up.UpCmd,                    // Up command for platform creation
+		stack.StackCmd,              // Stack command: the platform's own packages (list/enable/disable/sync)
 		down.DownCmd,                // Down command for platform teardown
 		controllercmd.ControllerCmd, // Controller command for in-cluster manager mode
 		upgrade.UpgradeCmd,          // Upgrade command: converge foundation + stack diff/sync
 		get.GetCmd,                  // Get command for resource information
-		apps.AppsCmd,                // Apps command for application management
+		apps.ApplicationCmd,         // Apps command for application management
 		push.PushCmd,                // Push command: cf push-style build+deploy from source
+		dev.DevCmd,                  // Dev command: the inner loop — sync the working tree to a dev namespace
+		bucket.BucketCmd,            // Bucket command: self-service S3 object storage
+		cache.CacheCmd,              // Cache command: self-service Valkey/Redis in-memory cache
+		ai.AICmd,                    // AI command: ask, investigate and act through the platform's AI data plane
 		cluster.ClusterCmd,          // Cluster command for cluster management
 		config.ConfigCmd,            // Config command for configuration management
-		env.EnvCmd,                  // Environment command for environment management
+		env.EnvironmentCmd,          // Environment command for environment management
 		health.HealthCmd,            // Health command for platform health monitoring
 		logs.LogsCmd,                // Logs command for centralized logging
 		security.SecurityCmd,        // Security command for security operations
@@ -168,7 +190,7 @@ func init() {
 		auth.AuthCmd,         // Auth command for authentication and authorization
 		gitops.GitOpsCmd,     // GitOps command for GitOps operations
 		network.NetworkCmd,   // Network command for network diagnostics
-		db.DBCmd,             // DB command for database management
+		db.DatabaseCmd,       // DB command for database management
 		metrics.MetricsCmd,   // Metrics command for metrics management
 		traces.TracesCmd,     // Traces command for distributed tracing
 		pipeline.PipelineCmd, // Pipeline command for CI/CD pipelines
@@ -178,7 +200,6 @@ func init() {
 		secrets.SecretsCmd,   // Secrets command for secrets management
 		service.ServiceCmd,   // Service command for service management
 		scale.ScaleCmd,       // Scale command for resource scaling
-		migrate.MigrateCmd,   // Migrate command for staged platform migrations (split-planes)
 		backup.BackupCmd,     // Backup command for backup management
 		restore.RestoreCmd,   // Restore command for restoration
 		policy.PolicyCmd,     // Policy command for policy management

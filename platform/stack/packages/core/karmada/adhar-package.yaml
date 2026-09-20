@@ -1,26 +1,24 @@
-# Adhar marketplace contract for the open-cluster-management package.
+# Adhar marketplace contract for the karmada package.
 # Validated against platform/stack/packages/marketplace.schema.json
 # (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
-# Scaffolded by hack/gen-package-contracts.sh — refine it by hand as the
-# package changes; the generator never overwrites an existing contract.
 apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
-name: open-cluster-management
+name: karmada
 category: core
-version: "1.3.1"
-description: Open Cluster Management cluster-manager (hub) for registering and governing fleets of Kubernetes clusters.
+version: "1.19.0"
+description: Karmada multi-cluster control plane — registers member clusters and propagates workloads across clouds with PropagationPolicy and OverridePolicy.
 maintainer:
   name: Adhar Platform Team
   url: https://github.com/adhar-io/adhar
   firstParty: true
 license: Apache-2.0
-homepage: https://open-cluster-management.io
+homepage: https://karmada.io
 adharCompatibility:
   minVersion: "0.1.0"
 dependencies: []
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
-  upstreamChart: ocm/cluster-manager
+  upstreamChart: karmada-io/karmada (release asset karmada-chart-v1.19.0.tgz)
   signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
   cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
   scanned: true
@@ -29,9 +27,10 @@ provenance:
 planeAffinity: control-plane
 stability: beta   # enabled in the production curated set only
 resources:
-  localSafe: false   # mirrors the enabled gate in adhar-appset-local.yaml
+  localSafe: false   # a full second control plane (apiserver + etcd) does not belong on one Kind node
 keywords:
   - multicluster
+  - multicloud
   - fleet
-  - hub
-  - ocm
+  - karmada
+  - propagation

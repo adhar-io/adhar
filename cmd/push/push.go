@@ -40,7 +40,7 @@ Examples:
   adhar push web --git-url https://gitea.adhar.localtest.me:8443/adhar/web.git --wait
 
 Related:
-  adhar apps deploy <name> --template <t>   deploy from a Gitea template (no build)
+  adhar application deploy <name> --template <t>   deploy from a Gitea template (no build)
   adhar service new ...                      the same build+deploy flow under 'service'`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

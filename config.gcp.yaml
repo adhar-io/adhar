@@ -129,25 +129,31 @@ environments:
       - key: machineType
         value: e2-standard-8
       - key: nodeCount
-        value: "2"
+        value: "4"
       # - key: kubeVersion
       #   value: v1.37.0
       # - key: podCIDR
       #   value: 10.244.0.0/16      # must not overlap subnet_cidr
 
-    # Start at the MINIMUM and let the autoscaler buy capacity only when pods are
-    # actually Pending for it: a 4 vCPU control plane plus 2 workers at 8 vCPU is
-    # 20 vCPU at rest, reaching 60 at maxWorkers inside the 64 vCPU
-    # CPUS_ALL_REGIONS quota. The full catalogue does not fit in 16 worker vCPUs,
-    # so expect the autoscaler to add nodes shortly after a cold start; that is
-    # the intended behaviour rather than paying for idle capacity.
+    # Sized from MEASUREMENT, not guesswork. The full production catalogue is
+    # ~80 applications and 340+ pods. Observed on this cluster:
+    #   2 workers (16 vCPU) — 58 pods unschedulable, platform unusable
+    #   4 workers (32 vCPU) — one node at 88% CPU, a kubelet went NotReady and
+    #                         106 pods lost Ready, so Services lost endpoints
+    #   6 workers (48 vCPU) — stable
+    # So the floor is 3 and the start is 4: enough to bootstrap without a node
+    # falling over, and the autoscaler adds up to 7 (60 vCPU, inside the 64 vCPU
+    # CPUS_ALL_REGIONS quota) when pods actually go Pending, then reclaims down to
+    # 3 once utilisation drops below the threshold. Autoscaling only works because
+    # credential FILE paths are now stripped from the in-cluster provider config;
+    # before that every scale-up failed with "credentials file not found".
     #
     # Start small and let the cluster buy capacity when it actually needs it.
     # The platform's full production catalogue is CPU-bound rather than
     # memory-bound, so the autoscaler reacts to pods pending for capacity.
     autoscaling:
       enabled: true
-      minWorkers: 2
+      minWorkers: 3
       maxWorkers: 7
       nodeGroup: workers
       scaleDownUtilizationThreshold: "50%"
@@ -159,11 +165,29 @@ environments:
 # ---------------------------------------------------------------------------
 # Agentic capabilities (Adhar AI)
 #
-# The LLM key never goes in this file. Enable the packages here, then seed the
-# key straight into the secrets backend after `adhar up`:
+# The LLM key never goes in this file. Export it and `adhar up` stages it for you:
 #
 #   export ADHAR_AI_LLM_API_KEY='sk-or-v1-...'
+#   export ADHAR_AI_LLM_PROVIDER=openrouter        # optional; inferred from the key
+#   adhar up -f config.gcp.yaml --env production
+#
+# The value goes from your environment into ONE cluster Secret, which the OpenBao
+# bootstrap Job imports into secret/adhar-ai/llm as soon as the backend initialises.
+# It never reaches git, argv or a file. The platform finishes AI-enabled with no
+# follow-up command. Rotating later is `adhar ai key set`, which is authoritative —
+# the import is seed-once and will not overwrite it.
+#
+# To key an already-running platform instead — it goes straight into the secrets
+# backend over stdin, never into git, argv or a file:
+#
+#   adhar ai key set --provider openrouter --model openai/gpt-4o-mini
+#
+# or non-interactively (CI), and the shell script it replaces:
+#
+#   ADHAR_AI_LLM_API_KEY='sk-or-v1-...' adhar ai key set --provider openrouter --from-env
 #   ADHAR_AI_LLM_PROVIDER=openrouter hack/seed-adhar-ai-llm.sh
+#
+# Then check it end to end:  adhar ai status  /  adhar ai ask "what is not converged?"
 #
 # Enabling the packages with no key is a supported state: the agent runtime and
 # the MCP tool servers come up and report themselves unkeyed.

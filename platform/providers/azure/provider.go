@@ -92,6 +92,11 @@ func init() {
 		} else if mode, ok := config["cluster_mode"].(string); ok && mode != "" {
 			providerConfig.ClusterMode = mode
 		}
+		// Set by `adhar down --purge-orphaned-volumes` / `adhar cluster delete
+		// --purge-orphaned-volumes`; see sweepSubscriptionOrphanDisks.
+		if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
+			providerConfig.PurgeOrphanedVolumes = true
+		}
 
 		return NewProvider(providerConfig)
 	})
@@ -340,6 +345,11 @@ type Provider struct {
 	loadBalancerClient         *armnetwork.LoadBalancersClient
 	availabilitySetClient      *armcompute.AvailabilitySetsClient
 	diskClient                 *armcompute.DisksClient
+
+	// Quota preflight (teardown.go). Read-only, and a credential that cannot
+	// read them is not a reason to refuse a create — see checkQuota.
+	usageClient   *armcompute.UsageClient
+	vmSizesClient *armcompute.VirtualMachineSizesClient
 }
 
 // Config holds Azure provider configuration for manual clusters
@@ -371,6 +381,13 @@ type Config struct {
 	UseManagedIdentity bool   `json:"useManagedIdentity"`
 	UseAzureCLI        bool   `json:"useAzureCLI"`
 	UseEnvironment     bool   `json:"useEnvironment"`
+
+	// PurgeOrphanedVolumes extends teardown to unattached pvc-* managed disks
+	// that no cluster claims, including ones outside the cluster's resource
+	// group. Off by default and never inferred: an unattached CSI disk looks
+	// identical whether its cluster is gone or is being rebuilt, so deleting one
+	// is the operator's call — `adhar down --purge-orphaned-volumes`.
+	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
 }
 
 // NewProvider creates a new Azure provider instance for manual Kubernetes clusters
@@ -473,6 +490,16 @@ func NewProvider(config *Config) (*Provider, error) {
 		return nil, fmt.Errorf("failed to create disk client: %w", err)
 	}
 
+	usageClient, err := armcompute.NewUsageClient(config.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create usage client: %w", err)
+	}
+
+	vmSizesClient, err := armcompute.NewVirtualMachineSizesClient(config.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create VM sizes client: %w", err)
+	}
+
 	provider := &Provider{
 		config:                     config,
 		cred:                       cred,
@@ -490,6 +517,8 @@ func NewProvider(config *Config) (*Provider, error) {
 		loadBalancerClient:         loadBalancerClient,
 		availabilitySetClient:      availabilitySetClient,
 		diskClient:                 diskClient,
+		usageClient:                usageClient,
+		vmSizesClient:              vmSizesClient,
 	}
 
 	// Load existing state
@@ -635,6 +664,13 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	err := p.validateClusterSpec(spec)
 	if err != nil {
 		return nil, fmt.Errorf("invalid cluster specification: %w", err)
+	}
+
+	// Quota preflight, before a single resource exists. Azure meters vCPU both
+	// per size family and per region, and a create can fail on either — halfway
+	// through, having already provisioned a VNet, an NSG and some of the VMs.
+	if err := p.checkQuota(ctx, plannedNodeCount(spec), plannedVMSize(spec, p.config.VMSize)); err != nil {
+		return nil, err
 	}
 
 	// Create cluster infrastructure
@@ -1357,11 +1393,15 @@ func (p *Provider) createNetworkInterface(ctx context.Context, resourceGroupName
 // DeleteCluster deletes a manual Kubernetes cluster and all associated Azure resources
 func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	log.Printf("Deleting cluster: %s", clusterID)
+	clusterName := extractClusterName(clusterID)
 
-	// Get resource tracker for cleanup
-	resourceTracker, exists := p.resourceTrackers[clusterID]
-	if !exists {
-		return fmt.Errorf("cluster %s not found", clusterID)
+	// Get the resource tracker, rebuilding it from Azure when the local state file
+	// has no record of this cluster — a cluster created on another machine, or one
+	// whose state file was lost, must still be deletable by the CLI rather than by
+	// hand in the portal (trackerFor, teardown.go).
+	resourceTracker, err := p.trackerFor(ctx, clusterID)
+	if err != nil {
+		return err
 	}
 
 	// Remove local per-cluster state (SSH key used to drive kubeadm)
@@ -1382,7 +1422,8 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	log.Printf("Deleting entire resource group: %s", resourceGroupName)
 
 	// Check if the resource group has the managedBy tag indicating it was created by us
-	rg, err := p.resourceGroupClient.Get(ctx, resourceGroupName, nil)
+	rg, rgErr := p.resourceGroupClient.Get(ctx, resourceGroupName, nil)
+	err = rgErr
 	if err != nil {
 		log.Printf("Warning: failed to get resource group %s: %v", resourceGroupName, err)
 	} else {
@@ -1407,11 +1448,22 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 
 			log.Printf("Successfully deleted resource group: %s", resourceGroupName)
 		} else {
-			log.Printf("Resource group %s not managed by adhar-platform, skipping deletion", resourceGroupName)
-			// In this case, we would delete individual resources instead
-			// For now, we'll just log a warning
-			log.Printf("Warning: manual cleanup required for resource group %s", resourceGroupName)
+			// The group is not ours, so it stays — but the cluster's own resources
+			// inside it must still go, or `adhar down` leaves running VMs, a
+			// billing load balancer and every CSI disk behind and says nothing but
+			// "manual cleanup required".
+			log.Printf("Resource group %s was not created by Adhar; deleting only this cluster's resources within it", resourceGroupName)
+			for _, problem := range p.deleteClusterResources(ctx, resourceTracker, clusterName) {
+				log.Printf("Warning: %s", problem)
+			}
 		}
+	}
+
+	// Disks outside the resource group are invisible to the group deletion: a CSI
+	// driver pointed at another group, or a StorageClass left from an earlier
+	// cluster, leaves unattached pvc-* disks that keep billing. Opt-in only.
+	for _, problem := range p.sweepSubscriptionOrphanDisks(ctx, resourceTracker.Location) {
+		log.Printf("Warning: %s", problem)
 	}
 
 	// Clean up tracking

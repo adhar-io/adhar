@@ -30,8 +30,8 @@ var restartCmd = &cobra.Command{
 Pods are recreated one batch at a time so the app stays available.
 
 Examples:
-  adhar apps restart my-app
-  adhar apps restart my-app --namespace=platform-apps`,
+  adhar application restart my-app
+  adhar application restart my-app --namespace=platform-apps`,
 	Args: cobra.ExactArgs(1),
 	RunE: runRestart,
 }

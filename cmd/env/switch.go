@@ -25,9 +25,9 @@ default namespace to the environment's namespace. Optionally switch the
 kube-context as well with --context.
 
 Examples:
-  adhar env switch dev                 # Set current context namespace to "dev"
-  adhar env use staging                # "use" is an alias for "switch"
-  adhar env switch prod --context=eks  # Also switch kube-context to "eks"`,
+  adhar environment switch dev                 # Set current context namespace to "dev"
+  adhar environment use staging                # "use" is an alias for "switch"
+  adhar environment switch prod --context=eks  # Also switch kube-context to "eks"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSwitch,
 }

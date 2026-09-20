@@ -21,8 +21,8 @@ var deleteCmd = &cobra.Command{
 and then deletes the environment's namespace and everything in it.
 
 Examples:
-  adhar env delete staging
-  adhar env delete staging --force   # Skip confirmation`,
+  adhar environment delete staging
+  adhar environment delete staging --force   # Skip confirmation`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDelete,
 }

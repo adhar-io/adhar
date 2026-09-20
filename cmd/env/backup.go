@@ -21,9 +21,9 @@ scoped to the environment namespace. Velero snapshots the namespace's resources
 (and volumes, if a volume snapshotter is configured).
 
 Examples:
-  adhar env backup dev
-  adhar env backup prod --ttl=336h0m0s
-  adhar env backup dev --velero-namespace=velero`,
+  adhar environment backup dev
+  adhar environment backup prod --ttl=336h0m0s
+  adhar environment backup dev --velero-namespace=velero`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBackup,
 }
@@ -80,6 +80,6 @@ func runBackup(cmd *cobra.Command, args []string) error {
 
 	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Backup %s created for environment %q", backupName, envName)))
 	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Track it: kubectl -n %s get backup %s -o wide", backupVeleroNS, backupName)))
-	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Restore:  adhar env restore %s %s", envName, backupName)))
+	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Restore:  adhar environment restore %s %s", envName, backupName)))
 	return nil
 }

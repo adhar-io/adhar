@@ -142,6 +142,21 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.lastFailureReason, r.lastFailureMessage = "", ""
 	defer r.postProcessReconcile(ctx, req, &localBuild)
 
+	// Adopt the platform's own build customization when this process was started
+	// without one. The CLI passes it as flags; the IN-CLUSTER manager is started
+	// with just ["controller","--leader-elect=true"] and therefore had an empty
+	// host, so every manifest that builds a URL from it rendered nonsense — the
+	// Argo CD SSO proxy got "https://keycloak./realms/adhar" and crash-looped on
+	// DNS, REPLACING a working proxy the CLI had rendered correctly. The CR is the
+	// right source: it records the host the cluster was created with, and those
+	// fields cannot change afterwards.
+	if r.Config.Host == "" && localBuild.Spec.BuildCustomization.Host != "" {
+		r.Config = localBuild.Spec.BuildCustomization
+		r.Config.Normalize()
+		logger.V(1).Info("adopted build customization from the AdharPlatform resource",
+			"host", r.Config.Host, "protocol", r.Config.Protocol, "port", r.Config.Port)
+	}
+
 	// If we already decided to shutdown, don't process any more reconciliations
 	if r.shouldShutdown {
 		logger.Info("Shutdown already initiated, skipping reconciliation")

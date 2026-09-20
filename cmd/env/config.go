@@ -24,10 +24,10 @@ and status are shown; passing any setter patches the XR and Crossplane reconcile
 the change (ResourceQuota / LimitRange / NetworkPolicy).
 
 Examples:
-  adhar env config dev                          # Show config
-  adhar env config dev --cpu=8 --memory=16Gi    # Update quotas
-  adhar env config dev --pods=40 --tier=staging
-  adhar env config dev --network-policy=false`,
+  adhar environment config dev                          # Show config
+  adhar environment config dev --cpu=8 --memory=16Gi    # Update quotas
+  adhar environment config dev --pods=40 --tier=staging
+  adhar environment config dev --network-policy=false`,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfig,
 }
@@ -114,7 +114,7 @@ func showEnvironmentConfig(ctx context.Context, envName string) error {
 	xr, err := dyn.Resource(compositeEnvironmentGVR).Namespace(envName).Get(ctx, envName, metav1.GetOptions{})
 	if err != nil {
 		if crdMissing(err) || k8serrors.IsNotFound(err) {
-			return fmt.Errorf("no CompositeEnvironment XR for %q (create it with `adhar env create %s`)", envName, envName)
+			return fmt.Errorf("no CompositeEnvironment XR for %q (create it with `adhar environment create %s`)", envName, envName)
 		}
 		return fmt.Errorf("get environment config: %w", err)
 	}

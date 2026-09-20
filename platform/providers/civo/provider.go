@@ -46,6 +46,11 @@ func init() {
 		if region, ok := config["region"].(string); ok {
 			civoConfig.Region = region
 		}
+		// Set by `adhar down --purge-orphaned-volumes` / `adhar cluster delete
+		// --purge-orphaned-volumes`; see deleteComputeCluster.
+		if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
+			civoConfig.PurgeOrphanedVolumes = true
+		}
 
 		// Parse configuration section
 		if configSection, ok := config["config"].(map[string]interface{}); ok {
@@ -162,6 +167,12 @@ type Config struct {
 	SSHKeyIDs            []string             `json:"sshKeyIds,omitempty"`
 	FirewallRules        []FirewallRuleConfig `json:"firewallRules,omitempty"`
 	Tags                 []string             `json:"tags,omitempty"`
+
+	// PurgeOrphanedVolumes extends teardown to unattached pvc-* volumes that no
+	// other cluster claims. Off by default and never inferred: an unattached CSI
+	// volume looks identical whether its cluster is gone or is being rebuilt, so
+	// deleting one is the operator's call — `adhar down --purge-orphaned-volumes`.
+	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
 }
 
 type FirewallRuleConfig struct {

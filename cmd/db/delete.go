@@ -23,8 +23,8 @@ var deleteCmd = &cobra.Command{
 The name can be supplied as an argument or via --name.
 
 Examples:
-  adhar db delete myapp
-  adhar db delete --name=myapp --namespace=team-a --force`,
+  adhar database delete myapp
+  adhar database delete --name=myapp --namespace=team-a --force`,
 	RunE: runDelete,
 }
 

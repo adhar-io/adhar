@@ -24,6 +24,14 @@ type ManagerConfig struct {
 	Image string
 	// Namespace the manager Deployment and ServiceAccount are created in.
 	Namespace string
+	// PlatformName is the AdharPlatform resource the manager reconciles, and it
+	// MUST be passed. The manager reads the platform host from that resource; when
+	// the name does not match it logs "AdharPlatform resource not found yet" and
+	// carries on with an EMPTY build configuration. Every manifest that builds a
+	// URL from the host then renders nonsense — the Argo CD SSO proxy became
+	// "https://keycloak./realms/adhar" and crash-looped — and because the flag
+	// defaulted to "adhar", this happened on every platform named anything else.
+	PlatformName string
 }
 
 // EnsureControllerManager applies the controller-manager Deployment and RBAC so
@@ -36,6 +44,9 @@ func EnsureControllerManager(ctx context.Context, kubeClient client.Client, cfg 
 	}
 	if cfg.Namespace == "" {
 		return fmt.Errorf("controller manager namespace must not be empty")
+	}
+	if cfg.PlatformName == "" {
+		return fmt.Errorf("controller manager platform name must not be empty: without it the manager cannot read the platform host and renders host-derived manifests with an empty hostname")
 	}
 
 	rawDocs, err := fs.ConvertFSToBytes(managerFS, "resources/manager", cfg)

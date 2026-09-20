@@ -19,6 +19,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -156,6 +157,16 @@ func renderHelp(cmd *cobra.Command, _ []string, withBanner bool) {
 	// Tagline / command summary.
 	if isRoot {
 		fmt.Fprintf(&b, "  %s\n", paint(off, hTagline, cmd.Short))
+		// The root gets a short prose description as well as the tagline: someone
+		// running a bare `adhar` has usually never seen the tool before, and one
+		// line cannot say what it builds, from what, or where it runs. It is the
+		// leading paragraph of Long so there is a single place to edit it.
+		if about := leadParagraph(cmd.Long); about != "" {
+			b.WriteString("\n")
+			for _, line := range wrapText(about, 76) {
+				fmt.Fprintf(&b, "  %s\n", paint(off, hDesc, line))
+			}
+		}
 	} else {
 		fmt.Fprintf(&b, "  %s %s\n", paint(off, hCommand, cmd.CommandPath()), paint(off, hDesc, "· "+firstLine(cmd.Short)))
 	}
@@ -210,6 +221,36 @@ func renderHelp(cmd *cobra.Command, _ []string, withBanner bool) {
 	fmt.Fprint(cmd.OutOrStdout(), b.String())
 }
 
+// leadParagraph returns the first blank-line-delimited paragraph of s as a
+// single line, which is the prose description of a command.
+func leadParagraph(s string) string {
+	para := strings.TrimSpace(strings.SplitN(strings.TrimSpace(s), "\n\n", 2)[0])
+	if para == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(para), " ")
+}
+
+// wrapText greedily wraps s to width columns. Help text is plain prose at this
+// point — no escapes yet, styling is applied per line afterwards — so counting
+// runes is accurate.
+func wrapText(s string, width int) []string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return nil
+	}
+	lines := []string{words[0]}
+	for _, w := range words[1:] {
+		last := len(lines) - 1
+		if utf8.RuneCountInString(lines[last])+1+utf8.RuneCountInString(w) <= width {
+			lines[last] += " " + w
+			continue
+		}
+		lines = append(lines, w)
+	}
+	return lines
+}
+
 // usageLine builds a friendly usage string.
 func usageLine(cmd *cobra.Command) string {
 	if cmd.HasAvailableSubCommands() {
@@ -221,6 +262,17 @@ func usageLine(cmd *cobra.Command) string {
 // renderPersonaGroups renders the root help's persona sections in order, then
 // any commands that were not assigned to a persona group.
 func renderPersonaGroups(b *strings.Builder, off bool, root *cobra.Command, width int) {
+	// Commands with no persona group are shown under Utilities rather than in a
+	// trailing "MORE" bucket. A section called MORE tells the reader nothing about
+	// what is in it, and splitting two or three tool-like commands away from the
+	// tooling section made the last screenful look like an afterthought.
+	ungrouped := map[string][]*cobra.Command{}
+	for _, c := range visibleCommands(root) {
+		if c.GroupID == "" {
+			ungrouped[GroupUtilities] = append(ungrouped[GroupUtilities], c)
+		}
+	}
+
 	seen := map[string]bool{}
 	for _, g := range rootPersonaGroups {
 		var in []*cobra.Command
@@ -230,6 +282,15 @@ func renderPersonaGroups(b *strings.Builder, off bool, root *cobra.Command, widt
 				seen[c.Name()] = true
 			}
 		}
+		for _, c := range ungrouped[g.id] {
+			if !seen[c.Name()] {
+				in = append(in, c)
+				seen[c.Name()] = true
+			}
+		}
+		// Keep each section alphabetical so a merged-in command does not simply
+		// land at the end looking bolted on.
+		sort.Slice(in, func(i, j int) bool { return in[i].Name() < in[j].Name() })
 		if len(in) == 0 {
 			continue
 		}
@@ -239,7 +300,9 @@ func renderPersonaGroups(b *strings.Builder, off bool, root *cobra.Command, widt
 		}
 		b.WriteString("\n")
 	}
-	// Anything without a persona group (e.g. completion).
+	// Nothing should remain: every ungrouped command is folded into Utilities
+	// above. If a future command lands in neither, show it rather than hide it —
+	// a command missing from help is worse than an untidy section.
 	var rest []*cobra.Command
 	for _, c := range visibleCommands(root) {
 		if !seen[c.Name()] {
@@ -247,7 +310,6 @@ func renderPersonaGroups(b *strings.Builder, off bool, root *cobra.Command, widt
 		}
 	}
 	if len(rest) > 0 {
-		fmt.Fprintf(b, "  %s  %s\n", "•", paint(off, hSection, "MORE"))
 		for _, c := range rest {
 			renderCommandRow(b, off, c, width)
 		}

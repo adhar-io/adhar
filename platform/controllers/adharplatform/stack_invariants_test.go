@@ -504,3 +504,136 @@ func mountedClaims(doc map[string]interface{}) []string {
 	}
 	return out
 }
+
+// A controller, webhook, operator or manager container must not ship a memory limit
+// under 256Mi.
+//
+// This is the namespace-consolidation tax (ADR-0011). Upstream charts size these
+// containers for their OWN namespace, holding a handful of objects; on this platform
+// every package installs into adhar-system, which on a production profile holds ~370
+// pods, ~260 Secrets and ~350 ConfigMaps. Anything running informers caches and
+// indexes that whole namespace, so its memory scales with the PLATFORM rather than
+// with the component.
+//
+// kpack's webhook shipped the upstream 200Mi and was OOMKilled 17 times in a row on
+// a live cluster — exit 137, CrashLoopBackOff, so kpack admission was down and every
+// Image and Build went unvalidated while the app still reported Progressing. The
+// failure names memory, not the namespace, so nothing connects it to the cause.
+//
+// A limit is a ceiling, not a reservation: raising it costs nothing on a healthy
+// cluster and removes the cliff. Requests are deliberately not constrained here.
+func TestInformerHoldingContainersHaveMemoryHeadroom(t *testing.T) {
+	const floorMi = 256
+	root := filepath.Join(stackRoot(t), "packages")
+
+	nameRe := regexp.MustCompile(`^\s*-?\s*name:\s*"?([A-Za-z0-9._-]+)"?\s*$`)
+	memRe := regexp.MustCompile(`^\s*memory:\s*"?(\d+)(Mi|Gi|M|G)"?\s*$`)
+	limitsRe := regexp.MustCompile(`^\s*limits:\s*$`)
+	requestsRe := regexp.MustCompile(`^\s*requests:\s*$`)
+	// The roles that run informers. A sidecar, exporter or init container that
+	// legitimately fits in 64Mi is not caught by this.
+	roleRe := regexp.MustCompile(`(?i)webhook|controller|operator|manager`)
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !(strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml")) {
+			return err
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		var container string
+		inLimits := false
+		for i, line := range strings.Split(string(b), "\n") {
+			if m := nameRe.FindStringSubmatch(line); m != nil {
+				container, inLimits = m[1], false
+				continue
+			}
+			switch {
+			case limitsRe.MatchString(line):
+				inLimits = true
+				continue
+			case requestsRe.MatchString(line):
+				inLimits = false
+				continue
+			}
+			m := memRe.FindStringSubmatch(line)
+			if m == nil || !inLimits || container == "" || !roleRe.MatchString(container) {
+				continue
+			}
+			mi, cerr := strconv.Atoi(m[1])
+			if cerr != nil {
+				continue
+			}
+			if m[2] == "Gi" || m[2] == "G" {
+				mi *= 1024
+			}
+			if mi < floorMi {
+				rel, _ := filepath.Rel(root, path)
+				t.Errorf("%s:%d container %q ships a %dMi memory limit; informer-holding containers need at least %dMi in the shared adhar-system namespace",
+					rel, i+1, container, mi, floorMi)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A stateful application must not be left on an embedded or in-container database.
+//
+// Coder shipped with no database configured, so `coder server` silently fell back to
+// its built-in PostgreSQL inside the container filesystem, with no volume mounted.
+// Every user, template and workspace then lived until the next pod replacement — on
+// a live cluster the first-user Job succeeded and a new ReplicaSet wiped it 19
+// seconds later, which surfaced as a 502 from the console's Coder proxy and a seed
+// Job looping on a 404. Nothing in that chain points at storage.
+//
+// The platform's rule is that applications use the shared CNPG operator. This test
+// holds the packages known to need a database to that rule, by name: a generic
+// "does this package have a database" heuristic would be guesswork, while an
+// explicit list is a decision someone made on purpose and can revisit.
+func TestStatefulPackagesUseThePlatformDatabase(t *testing.T) {
+	root := filepath.Join(stackRoot(t), "packages")
+
+	// package directory -> the env var that must carry a real connection string
+	needsDatabase := map[string]string{
+		"application/coder": "CODER_PG_CONNECTION_URL",
+	}
+
+	for pkg, envVar := range needsDatabase {
+		dir := filepath.Join(root, pkg, "manifests")
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Errorf("%s: %v", pkg, err)
+			continue
+		}
+		var body strings.Builder
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+				continue
+			}
+			b, rerr := os.ReadFile(filepath.Join(dir, e.Name()))
+			if rerr != nil {
+				t.Errorf("%s/%s: %v", pkg, e.Name(), rerr)
+				continue
+			}
+			body.Write(b)
+		}
+		manifests := body.String()
+
+		if !strings.Contains(manifests, "kind: Cluster") ||
+			!strings.Contains(manifests, "postgresql.cnpg.io") {
+			t.Errorf("%s declares no CNPG Cluster — it would fall back to an embedded database that any pod replacement destroys", pkg)
+		}
+		if !strings.Contains(manifests, envVar) {
+			t.Errorf("%s never sets %s, so the workload cannot reach the database the package provisions", pkg, envVar)
+		}
+		// A CNPG Cluster without ServerSideApply force-fails its sync and takes the
+		// workload with it (the annotation is load-bearing, not cosmetic).
+		if strings.Contains(manifests, "postgresql.cnpg.io") && !strings.Contains(manifests, "ServerSideApply=true") {
+			t.Errorf("%s ships a CNPG Cluster without ServerSideApply=true; the sync force-fails", pkg)
+		}
+	}
+}

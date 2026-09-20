@@ -422,7 +422,7 @@ Control-plane namespaces (`adhar-system`, the hub, harbor) carry `adhar.io/plane
 - `adhar get dataplanes` — table from `DataPlaneList` (Mode/Provider/Apps/Ready/Age via printcolumns).
 - `adhar dataplane check <name>` — connectivity contract probes (§8).
 - `adhar dataplane logs/describe <name>` — proxied through the control plane.
-- `adhar migrate split-planes [--dry-run]` — drives §7 of the plan: create local/colocated vcluster data plane, re-home app packages by editing placement bindings in Git, wait for ArgoCD, flip Kyverno to Enforce. Each step is a Git commit; `--dry-run` prints the diff.
+- `adhar upgrade split-planes [--dry-run]` — drives §7 of the plan: create local/colocated vcluster data plane, re-home app packages by editing placement bindings in Git, wait for ArgoCD, flip Kyverno to Enforce. Each step is a Git commit; `--dry-run` prints the diff.
 
 ## 10. Tests
 
@@ -466,7 +466,7 @@ tests/e2e/bootstrap/bootstrap_test.go                   (T1 assertions)
 - **M2 — Package split + placement**: `plane` labels, `adhar-appset-control.yaml`, extended workload appset, Sveltos placement, parity tests. Control plane app-free in CI.
 - **M3 — Local vcluster data plane**: T1 provisions a vcluster data plane by default; e2e asserts app placement off the control plane.
 - **M4 — Composite + vcluster infra modes**: controller drives `CompositeCluster`/vcluster; mesh + observability wiring automated; live T3 `DataPlane` reaches `Ready`.
-- **M5 — Migration + enforcement**: `adhar migrate split-planes`, Kyverno Enforce, `adhar dataplane check`; docs + PRODUCTION runbook.
+- **M5 — Migration + enforcement**: `adhar upgrade split-planes`, Kyverno Enforce, `adhar dataplane check`; docs + PRODUCTION runbook.
 
 ## 14. Risks
 

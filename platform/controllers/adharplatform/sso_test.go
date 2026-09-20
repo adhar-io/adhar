@@ -226,3 +226,34 @@ func TestEveryBootstrapManifestRenders(t *testing.T) {
 	})
 	require.NoError(t, err, "walking the embedded resources")
 }
+
+// The SSO proxy manifest builds absolute URLs from the platform host: the
+// Keycloak issuer, the OAuth callback and the cookie domain. Rendered without a
+// host it yields "https://keycloak./realms/adhar" — a name ending in a bare dot —
+// and the proxy crash-loops on OIDC discovery with "lookup keycloak. no such
+// host". The in-cluster controller-manager reconciles the same manifest and,
+// running without a configured host, REPLACED a working proxy with a broken one
+// (2026-09-20).
+func TestSSOProxyManifestDependsOnTheHost(t *testing.T) {
+	raw, err := argoCDFS.ReadFile("resources/argocd/sso-proxy.yaml")
+	require.NoError(t, err)
+
+	// Every host-derived URL must actually interpolate the host, so an empty one
+	// is detectable rather than producing a plausible-looking broken name.
+	body := string(raw)
+	for _, want := range []string{
+		"https://keycloak.{{ .Host }}",
+		"--cookie-name=",
+	} {
+		assert.Contains(t, body, want,
+			"the manifest must build %q from the platform host", want)
+	}
+
+	// Rendering with an empty host must produce the bare-dot hostname this guard
+	// exists to prevent — proving the guard is load-bearing rather than defensive
+	// decoration.
+	broken, err := files.ApplyTemplate(raw, v1alpha1.BuildCustomizationSpec{Protocol: "https"})
+	require.NoError(t, err)
+	assert.Contains(t, string(broken), "https://keycloak./",
+		"an empty host yields a hostname ending in a dot; reconcileArgoCDSSOProxy must refuse to apply that")
+}

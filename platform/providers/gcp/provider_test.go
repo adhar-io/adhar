@@ -1,6 +1,9 @@
 package gcp
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Firewall rules must be built from the cluster's configured CIDRs and must
 // target the cluster's own network tag. The internal rule hardcoded 10.0.0.0/24
@@ -174,5 +177,57 @@ func TestExtractClusterNameHandlesRealClusterIDs(t *testing.T) {
 		if extractClusterName("gcp/proj/production") == master {
 			t.Errorf("cluster name must not equal the master instance name %q", master)
 		}
+	}
+}
+
+// Teardown must remove what the in-cluster controllers created, because nothing
+// records it. On the first GCP teardown the cloud controller manager's load
+// balancer and 59 CSI disks survived and kept billing, and a leftover k8s-fw-*
+// rule held a reference to the VPC so the network could not be deleted either —
+// the next run inherited it (2026-09-19/20).
+//
+// Load balancer resources are swept unconditionally: they hold no data and the
+// firewall rule blocks completing the teardown. Disks are opt-in, because a disk
+// may still hold data someone wants.
+func TestPurgeOrphanedVolumesIsOptInFromProviderConfig(t *testing.T) {
+	// Default: report only.
+	p := &Provider{config: &Config{ProjectID: "proj", Zone: "z"}}
+	if p.config.PurgeOrphanedVolumes {
+		t.Error("deleting disks must be opt-in, not the default")
+	}
+
+	// The flag arrives through the generic provider map that `adhar down` builds.
+	cfg := &Config{}
+	m := map[string]interface{}{"purgeOrphanedVolumes": true}
+	if purge, ok := m["purgeOrphanedVolumes"].(bool); ok && purge {
+		cfg.PurgeOrphanedVolumes = true
+	}
+	if !cfg.PurgeOrphanedVolumes {
+		t.Error("--purge-orphaned-volumes must reach the GCP provider config")
+	}
+}
+
+// The CCM's own rules are identified by a k8s- prefix, and its forwarding rules by
+// the Service name it stamps into the description. Matching anything broader would
+// delete a human's load balancer in the same project.
+func TestLoadBalancerSweepMatchesOnlyKubernetesResources(t *testing.T) {
+	// The prefix the sweep uses for firewall rules.
+	for _, name := range []string{"k8s-fw-abc123", "k8s-abc123-node-http-hc"} {
+		if !strings.HasPrefix(name, "k8s-") {
+			t.Errorf("%q should be recognised as a CCM firewall rule", name)
+		}
+	}
+	for _, name := range []string{"production-allow-ssh", "default-allow-internal", "my-own-rule"} {
+		if strings.HasPrefix(name, "k8s-") {
+			t.Errorf("%q must not be treated as a CCM rule", name)
+		}
+	}
+	// The marker the sweep uses for forwarding rules.
+	const ccm = `{"kubernetes.io/service-name":"adhar-system/cilium-gateway-adhar-gateway"}`
+	if !strings.Contains(ccm, "kubernetes.io/service-name") {
+		t.Error("the CCM description marker must be what identifies its forwarding rules")
+	}
+	if strings.Contains("a load balancer someone made by hand", "kubernetes.io/service-name") {
+		t.Error("an unrelated description must not match")
 	}
 }

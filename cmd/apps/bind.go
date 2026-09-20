@@ -40,8 +40,8 @@ By convention the Secret is '<service>-app' (produced by CompositeDatabase /
 CompositeStorage); override with --secret.
 
 Examples:
-  adhar apps bind my-api my-postgres
-  adhar apps bind my-api cache --secret cache-app --namespace platform-apps`,
+  adhar application bind my-api my-postgres
+  adhar application bind my-api cache --secret cache-app --namespace platform-apps`,
 	Args: cobra.ExactArgs(2),
 	RunE: runBind,
 }

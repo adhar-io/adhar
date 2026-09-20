@@ -58,7 +58,7 @@ var rootCmd = &cobra.Command{
 	Use:     "adhar",
 	Aliases: []string{"a", "ad"},
 	Short:   "The Open Foundation for your Internal Developer Platform",
-	Long: `Adhar streamlines your software development lifecycle with a comprehensive Internal Developer Platform built on Kubernetes and GitOps principles.
+	Long: `Adhar turns an empty cloud account or laptop into a complete, production-grade internal developer platform with one command. It provisions the cluster and then assembles 92 curated CNCF and open-source packages — GitOps delivery, CI, observability, security, data and AI — into a single coherent whole behind one sign-on and one gateway. Everything is declarative and reconciled from Git, so what is running is always what is committed. The same commands work locally on Kind and on AWS, Azure, GCP, DigitalOcean and Civo.
 
 The platform provides unified tools for the complete development journey:
 • Define: Structure projects and requirements with declarative configurations

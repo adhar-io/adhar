@@ -25,9 +25,9 @@ Crossplane provisions quotas and network policies; otherwise a plain namespace
 is created.
 
 Examples:
-  adhar env create dev                      # dev-tier environment
-  adhar env create staging --tier=staging
-  adhar env create prod --tier=prod`,
+  adhar environment create dev                      # dev-tier environment
+  adhar environment create staging --tier=staging
+  adhar environment create prod --tier=prod`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCreate,
 }

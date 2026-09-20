@@ -46,7 +46,7 @@ var dataPlaneGVR = schema.GroupVersionResource{
 	Resource: "dataplanes",
 }
 
-var splitPlanesCmd = &cobra.Command{
+var SplitPlanesCmd = &cobra.Command{
 	Use:   "split-planes",
 	Short: "Migrate a dual-role cluster to control-plane / data-plane separation (ADR-0023)",
 	Long: `Migrate a dual-role cluster to the control-plane / data-plane model (ADR-0023).
@@ -73,9 +73,9 @@ Adhar's GitOps-first, no-surprise-commits workflow.`,
 }
 
 func init() {
-	splitPlanesCmd.Flags().BoolVar(&execute, "execute", false,
+	SplitPlanesCmd.Flags().BoolVar(&execute, "execute", false,
 		"Create the local DataPlane CR (step 1). Without this, dry-run only.")
-	splitPlanesCmd.Flags().StringVar(&dataPlaneName, "name", "local", "Name of the local data plane to create")
+	SplitPlanesCmd.Flags().StringVar(&dataPlaneName, "name", "local", "Name of the local data plane to create")
 }
 
 type step struct {

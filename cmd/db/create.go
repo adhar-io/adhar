@@ -19,8 +19,8 @@ The database engine is taken from --type (or --engine); --version and --size
 configure the engine version and storage size.
 
 Examples:
-  adhar db create --name=myapp --type=postgresql --version=15
-  adhar db create --name=myapp --engine=mysql --version=8.0 --size=50Gi`,
+  adhar database create --name=myapp --type=postgresql --version=15
+  adhar database create --name=myapp --engine=mysql --version=8.0 --size=50Gi`,
 	RunE: runCreate,
 }
 
@@ -72,7 +72,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Provider-aware, engine-discriminated selection — the same contract the
-	// Console uses, so `adhar db create` resolves to exactly one composition
+	// Console uses, so `adhar database create` resolves to exactly one composition
 	// (e.g. local CNPG for postgresql, or AWS RDS on a cloud platform).
 	obj := helpers.NewXR("CompositeDatabase", dbName, ns, "database",
 		map[string]string{"engine": engine},

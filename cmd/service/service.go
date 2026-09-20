@@ -22,27 +22,44 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ServiceCmd represents the service command
-var ServiceCmd = &cobra.Command{
-	Use:   "service",
-	Short: "Manage Kubernetes services and API endpoints",
-	Long: `Manage Kubernetes services, load balancing, and API endpoints for the Adhar platform.
-	
-This command provides:
+// RoutesCmd represents the routes command.
+//
+// Named `routes` rather than `service`: "service" means two unrelated things on a
+// platform like this — a Kubernetes Service, and a thing a team owns and ships —
+// and the ambiguity showed up in the help text, where endpoint inspection sat next
+// to a supply-chain scaffold. `routes` says which one this is. The old name stays
+// as an alias so existing scripts and bookmarks keep working.
+var RoutesCmd = &cobra.Command{
+	Use:     "routes",
+	Aliases: []string{"service", "svc", "route"},
+	Short:   "Inspect and manage Services, endpoints and ingress routes",
+	Long: `Inspect and manage how traffic reaches your workloads.
+
+This is the network edge of an application: the Kubernetes Service in front of it,
+the endpoints behind that Service, and the HTTPRoute that publishes it on the
+platform Gateway. It answers "is this reachable, and by what name".
+
+It provides:
 • Service discovery and load balancing
-• API endpoint management
-• Service mesh configuration
-• Traffic routing and splitting
-• Service health monitoring
-• API documentation and testing
+• Endpoint readiness — whether a Service actually has backends
+• Ingress routes and traffic splitting
+• Connectivity testing from inside the cluster
 
 Examples:
-  adhar service list                    # List all services
-  adhar service create --name=api      # Create new service
-  adhar service route --name=api       # Configure routing
-  adhar service test --name=api        # Test service connectivity`,
+  adhar routes list                    # List all Services
+  adhar routes create --name=api       # Create a Service
+  adhar routes show --name=api         # Show the ingress routes for a Service
+  adhar routes monitor                 # Endpoint readiness across the namespace
+  adhar routes test --name=api         # Test connectivity to a Service
+
+To take an application from source to running, use 'adhar push' — that is the
+supply chain, not a routing concern.`,
 	RunE: runService,
 }
+
+// ServiceCmd is the previous name, kept so callers that reference the exported
+// symbol continue to compile.
+var ServiceCmd = RoutesCmd
 
 var (
 	// Service command flags

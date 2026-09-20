@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"adhar-io/adhar/globals"
 	platformconfig "adhar-io/adhar/platform/config"
 
 	"github.com/spf13/cobra"
@@ -83,12 +84,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 func starterConfig(provider, region, templateName string) *platformconfig.Config {
 	return &platformconfig.Config{
 		GlobalSettings: platformconfig.GlobalSettingsConfig{
-			AdharContext:     "adhar-mgmt",
-			DefaultHost:      "platform.adhar.io",
+			AdharContext: "adhar-mgmt",
+			// The LOCAL default, not a real domain. Every URL, the DNS zone
+			// external-dns manages and the wildcard certificate all derive from
+			// this one value, so a starter file must not name a domain the reader
+			// does not own — they set their own here before the first cloud run.
+			DefaultHost:      globals.DefaultHostName,
 			DefaultHttpPort:  80,
 			DefaultHttpsPort: 8443,
 			EnableHAMode:     false,
-			Email:            "admin@adhar.io",
+			Email:            "you@example.com",
 		},
 		Providers: map[string]platformconfig.ConfigProviderConfig{
 			provider: {

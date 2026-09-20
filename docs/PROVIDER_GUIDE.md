@@ -20,9 +20,10 @@ cluster: [PRODUCTION_ACCESS.md](PRODUCTION_ACCESS.md). Failures:
 4. [Cluster provisioning model: raw compute by default](#4-cluster-provisioning-model-raw-compute-by-default)
 5. [Kubernetes version](#5-kubernetes-version)
 6. [The provider interface](#6-the-provider-interface)
-7. [Provider setup](#7-provider-setup)
-8. [Configuration resolution](#8-configuration-resolution)
-9. [Adding a provider](#9-adding-a-provider)
+7. [DNS: delegate the platform host BEFORE `adhar up`](#7-dns-delegate-the-platform-host-before-adhar-up)
+8. [Provider setup](#8-provider-setup)
+9. [Configuration resolution](#9-configuration-resolution)
+10. [Adding a provider](#10-adding-a-provider)
 
 ---
 
@@ -47,7 +48,8 @@ paths have run against real hardware.
 | **DigitalOcean — droplets + kubeadm** | ✅ **Live-verified end to end** | Cluster creation (~5 min to a serving API), SSH-fetched admin kubeconfig, node registration, Cilium to `Ready`, worker scale-up (join) and scale-down (drain), node autoscaling in both directions, full 76-package production profile, HA mode, `adhar upgrade`, Velero backup+restore, publicly trusted wildcard TLS via DO DNS-01, clean teardown leaving no paid resources |
 | **DigitalOcean — DOKS via `CompositeCluster`** | ✅ **Live-verified** | A `CompositeCluster` XR provisioned a real DOKS cluster in ~11 min, auto-registered it with ArgoCD (`cluster-wl-blr1`, labels `adhar.io/cluster`, `adhar.io/dataplane`, `adhar.io/dataplane-mode`), the thin workload profile landed 5/5 Healthy, teardown left nothing behind |
 | **Cilium Cluster Mesh** | ✅ **Live-verified** | `adhar-mgmt` (id 1, `10.244.0.0/16`) meshed with `adhar-test` (id 2, `10.245.0.0/16`); `clustermesh status` green both sides, bidirectional traffic over a global service. See [PRODUCTION §7](PRODUCTION.md#7-cluster-mesh-t3) for the VPC rule and why SPIFFE/SPIRE is deliberately not deployed |
-| **AWS, Azure, GCP, Civo** | ⚙️ **Built, render-verified only** | Provider registration, config-schema validation and `--dry-run` pass; the kubeadm code path — node prep, join, drain, scale plan, cloud-controller-manager, CSI + default StorageClass, upgrade — is shared with DigitalOcean (see §2.1 for the per-row status), and the managed opt-in (EKS / AKS / GKE / Civo k3s via `useManagedK8s: true`) is implemented end to end (create, kubeconfig, node groups, scale, upgrade, health, delete). **No live run yet** — treat first use on these clouds as a bring-up exercise |
+| **GCP — GCE instances + kubeadm** | ✅ **Live-verified** | Cluster creation on `adhar-cloud` (kubeadm on e2-standard-8, external CCM, PD CSI), a real load balancer for the Gateway, node autoscaling, the 80-package production profile, and a clean `adhar down` that removed every instance, the forwarding rule, the target pool, the `k8s-*` firewall rules and 41 `pvc-*` disks with no manual intervention. See [GCP_PROVIDER.md](GCP_PROVIDER.md) |
+| **AWS, Azure, Civo** | ⚙️ **Built, render-verified only** | Provider registration, config-schema validation and `--dry-run` pass; the kubeadm code path — node prep, join, drain, scale plan, cloud-controller-manager, CSI + default StorageClass, upgrade — is shared with DigitalOcean (see §2.1 for the per-row status), and the managed opt-in (EKS / AKS / GKE / Civo k3s via `useManagedK8s: true`) is implemented end to end (create, kubeconfig, node groups, scale, upgrade, health, delete). **No live run yet** — treat first use on these clouds as a bring-up exercise |
 | **`custom` (bring your own hosts)** | ⚙️ Render-verified | Same kubeadm flow over SSH against machines you own |
 | **Kind (local)** | ✅ Exercised continuously | `make e2e` runs a full `adhar up` → verify → `adhar down` cycle |
 
@@ -84,7 +86,11 @@ unit-tested where it is pure; **live** means it ran on that cloud:
 | Nodes pull kpack-built images from the in-cluster Harbor (containerd certs.d) | ✅ live | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep |
 | Upgrade (`adhar upgrade`, control plane then workers — shared `KubeadmUpgradeCluster`) | ✅ live | ✅ built | ✅ built | ✅ built | ✅ built |
 | Managed-service mode (`useManagedK8s: true`), same operations | ✅ DOKS live (via `CompositeCluster`) | ✅ EKS built | ✅ AKS built (BYO CNI) | ✅ GKE built | ✅ k3s built |
-| Cleanup leaves no billed resources | ✅ live | built | built | built | built |
+| Cleanup leaves no billed resources | ✅ live | ✅ built | ✅ built | ✅ **live** | ✅ built |
+| Teardown sweeps what the IN-CLUSTER controllers created (CCM load balancers, CSI volumes) — invisible to the resource tracker | ✅ live | ✅ built (classic ELB **and** NLB, target groups, `k8s-elb-*` SGs, EBS volumes) | ✅ built (resource-group delete; per-resource when the group is not ours) | ✅ **live** (forwarding rule, target pool, `k8s-*` firewall rules, PD disks) | ✅ built (load balancers by instance identity, volumes detached first) |
+| `--purge-orphaned-volumes` for untagged CSI leftovers | ✅ live | ✅ built | ✅ built (incl. disks outside the resource group) | ✅ **live** (41 disks swept on a real teardown) | ✅ built |
+| Teardown works with NO local state (rediscovers the cluster from the cloud) | ✅ live | ✅ built (tag-based discovery) | ✅ built (VM tag + name) | ✅ **live** | ✅ built (instance tag) |
+| Quota preflight: refuse before provisioning anything, naming the limit | — | ✅ built (Service Quotas `L-1216C47A` vCPU vs running usage) | ✅ built (regional `cores` **and** the size family) | ✅ **live** (`CPUS_ALL_REGIONS` + `SSD_TOTAL_GB`/`DISKS_TOTAL_GB`) | ✅ built (instances, CPU, RAM, disk, networks) |
 
 The `custom` (bring-your-own hosts) provider shares the same rows where they
 apply: create/join, scale by moving the boundary within `workerIPs` (join the
@@ -121,6 +127,15 @@ watch on that run:
   least-verified part of managed mode.
 - **Civo**: CCM + CSI read the API key from kube-system/`civo-api-access`; the
   CSI manifest ships `civo-volume`, which is marked default.
+
+The teardown and quota rows above came out of the GCP bring-up, where each was a
+real bill or a real half-built cluster before it was code: a load balancer and 41
+CSI disks survived the first `adhar down`, and an exhausted regional vCPU quota
+failed a create ten minutes in. AWS, Azure and Civo now carry the same three
+protections — an in-cluster-resource sweep ordered before the network teardown, an
+opt-in orphan-volume purge, and a preflight that refuses a create the account
+cannot hold. The selection rules are unit-tested (`*/teardown_test.go`); the cloud
+calls still await a live run.
 
 The autoscaler's own logic is provider-agnostic and unit-tested; on a cloud
 without a CSI driver it simply never sees `exceed max volume count`.
@@ -317,7 +332,102 @@ own config against `config.schema.json` before any resources are created.
 Implementations: `kind/`, `aws/`, `azure/`, `gcp/`, `digitalocean/`, `civo/`,
 `custom/`.
 
-## 7. Provider setup
+## 7. DNS: delegate the platform host BEFORE `adhar up`
+
+This is manual, it is required on every cloud, and the platform deliberately does
+not do it for you: creating a DNS zone means taking over a name you own, and
+repointing a registrar is not something a provisioning tool should do behind your
+back. Ten minutes here is the difference between a platform on a publicly trusted
+wildcard certificate and one that every browser warns about.
+
+### The model
+
+One value drives everything: `globalSettings.defaultHost`. Every app is published at
+`<app>.<defaultHost>`, the wildcard certificate is `*.<defaultHost>`, and
+external-dns writes one record per app into the zone for that name.
+
+So make `defaultHost` a **subdomain you delegate**, not the domain you registered:
+
+```
+example.com              ← stays wherever it is registered (GoDaddy, Namecheap, …)
+└── platform.example.com ← a PUBLIC zone in your cloud's DNS  ← defaultHost
+    ├── argocd.platform.example.com   ← written by external-dns
+    ├── gitea.platform.example.com
+    └── …
+```
+
+Three steps, in this order:
+
+1. **Create a public zone for exactly `defaultHost`** in your cloud's DNS service.
+   The platform never creates it — `adhar up` fails at `configuring edge DNS` if it
+   is missing, and external-dns has nowhere to write.
+2. **Read that zone's nameservers** (the provider assigns them; they differ per
+   zone on AWS, Azure and GCP).
+3. **At your registrar, add NS records for the label only.** For
+   `platform.example.com`, that is four (or two) NS records named `platform` in the
+   `example.com` zone, pointing at the nameservers from step 2. The apex stays
+   exactly where it is.
+
+Verify before running `adhar up`:
+
+```bash
+HOST=platform.example.com        # your defaultHost
+APEX=example.com                 # the domain you registered
+
+dig +short NS "$HOST"            # → your cloud's nameservers for the zone
+dig +short NS "$APEX"            # → your registrar's nameservers (unchanged)
+dig +noall +comment CAA "$APEX"  # → status: NOERROR  (an EMPTY answer is correct)
+```
+
+### The trap that costs a day
+
+**Do not point the whole registered domain at your cloud unless you also host its
+apex zone there.** It looks equivalent and it is not: Let's Encrypt walks *up* the
+tree reading CAA records, so issuing for `*.platform.example.com` also queries CAA
+for `platform.example.com` **and for `example.com`**. If the apex is delegated to
+nameservers that hold no zone for it, every one of those lookups returns SERVFAIL
+and the order fails with
+
+```
+DNS problem: SERVFAIL looking up CAA for example.com
+  - the domain's nameservers may be malfunctioning
+```
+
+which names CAA, not delegation — so it reads as a certificate problem when it is a
+delegation problem. This happened on the first live GCP bring-up: the platform
+subdomain resolved perfectly, every app was reachable, and issuance could never
+succeed.
+
+A CAA record is **not** required. No CAA means any CA may issue, which is what you
+want. Add one only to pin issuance: `0 issue "letsencrypt.org"` plus
+`0 issuewild "letsencrypt.org"` at the apex.
+
+**If you are moving the apex back to your registrar**, add the delegation NS records
+in the registrar's zone *first*, then change the nameservers. Do it the other way
+round and the platform subdomain stops resolving for the propagation window.
+
+### What each provider needs
+
+| `dnsProvider` | Zone service | Trusted wildcard cert (ACME DNS-01) | Credentials the platform needs |
+| --- | --- | --- | --- |
+| `digitalocean` | DigitalOcean DNS | ✅ | `providers.digitalocean.token` (or `DIGITALOCEAN_TOKEN`) |
+| `aws` | Route 53 | ✅ | **static** `accessKeyId` + `secretAccessKey` (+ region). An instance profile is not enough — the solver reads keys from a Secret |
+| `gcp` | Cloud DNS | ✅ | `serviceAccountKey`/`serviceAccountKeyFile` **and** `projectId`. ADC alone provisions fine but fails here |
+| `azure` | Azure DNS | ✅ | `clientId`, `clientSecret`, `tenantId`, `config.subscriptionId`, `config.dnsResourceGroup` |
+| `cloudflare` | Cloudflare | ✅ | `config.cloudflareApiToken` (or `CLOUDFLARE_API_TOKEN`) |
+| `civo` | Civo DNS | ❌ records only | `providers.civo.token`. cert-manager has no Civo solver, so the platform keeps its self-signed certificate — use `dnsProvider: cloudflare` for the zone if you need a trusted one |
+| `none` / omitted | — | ❌ | none. Self-signed certificate, no DNS automation |
+
+### Skipping it is supported
+
+A platform with no delegated zone still comes up and works — it serves the
+self-signed platform certificate, so browsers warn and strict clients need the
+platform CA. `adhar up` says so in its closing summary, and `adhar get status`
+raises it as a warning quoting cert-manager's own reason, so this is never a silent
+failure. Fix the DNS later and cert-manager issues a trusted certificate on its own
+within minutes.
+
+## 8. Provider setup
 
 ### Kind (local — default)
 
@@ -478,7 +588,7 @@ environments:
 
 Sweet spot: fast, cheap dev/staging. Render-verified only.
 
-## 8. Configuration resolution
+## 9. Configuration resolution
 
 Provider settings resolve through the four config layers
 (`globalSettings` → `providers` → `environmentTemplates` → `environments`); the
@@ -517,7 +627,7 @@ controller logs in `adhar-system`. Provider-level symptoms:
 Everything else: [TROUBLESHOOTING.md](TROUBLESHOOTING.md), which opens with a
 symptom-to-section lookup table.
 
-## 9. Adding a provider
+## 10. Adding a provider
 
 1. Implement the interface in `platform/providers/<name>/` (use `civo/` as the
    compact reference)

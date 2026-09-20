@@ -35,10 +35,10 @@ CNPG secret's "uri" key uses the "postgresql://" scheme. Supply --args and a
 source (baked into your image or mounted) for your tool as needed.
 
 Examples:
-  adhar db migrate --name=myapp --action=up
-  adhar db migrate --name=myapp --action=down
-  adhar db migrate --name=myapp --action=status
-  adhar db migrate --name=myapp --action=up --image=myorg/migrations:1.2 \
+  adhar database migrate --name=myapp --action=up
+  adhar database migrate --name=myapp --action=down
+  adhar database migrate --name=myapp --action=status
+  adhar database migrate --name=myapp --action=up --image=myorg/migrations:1.2 \
       --args=-path,/migrations,-database,$(DATABASE_URL),up`,
 	RunE: runMigrate,
 }

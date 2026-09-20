@@ -22,8 +22,8 @@ Restore (velero.io/v1) that targets the given backup, scoped to the environment
 namespace.
 
 Examples:
-  adhar env restore dev dev-20260101-020000
-  adhar env restore prod prod-20260101-020000 --velero-namespace=velero`,
+  adhar environment restore dev dev-20260101-020000
+  adhar environment restore prod prod-20260101-020000 --velero-namespace=velero`,
 	Args: cobra.ExactArgs(2),
 	RunE: runRestore,
 }

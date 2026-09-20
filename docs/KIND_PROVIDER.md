@@ -132,6 +132,19 @@ https://console.adhar.localtest.me:8443
 added to `/etc/hosts` — but a machine with no DNS egress, or with DNS-rebinding
 protection, will fail to resolve it.
 
+**No DNS setup is required for a local run, and none is possible.** Every cloud
+provider needs a delegated zone configured by hand before `adhar up`
+([Provider guide §7](PROVIDER_GUIDE.md#7-dns-delegate-the-platform-host-before-adhar-up));
+Kind needs nothing, because `localtest.me` is not yours to delegate and the
+certificate is the platform's own self-signed one by design. The browser warning on
+first visit is expected here — trust the platform CA if you want it gone:
+
+```bash
+kubectl -n default get secret adhar-cert -o jsonpath='{.data.ca\.crt}' | base64 -d > adhar-ca.crt
+# macOS: add it to the login keychain as trusted
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain adhar-ca.crt
+```
+
 Teardown:
 
 ```bash

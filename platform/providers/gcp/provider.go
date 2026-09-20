@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	compute "cloud.google.com/go/compute/apiv1"
@@ -255,6 +256,9 @@ func init() {
 		} else if subnetCIDR, ok := config["subnet_cidr"].(string); ok {
 			gcpConfig.SubnetCIDR = subnetCIDR
 		}
+		if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
+			gcpConfig.PurgeOrphanedVolumes = true
+		}
 		for _, key := range []string{"nodeServiceAccount", "node_service_account"} {
 			if sa, ok := config[key].(string); ok && sa != "" {
 				gcpConfig.NodeServiceAccount = sa
@@ -280,6 +284,7 @@ type Provider struct {
 	subnetClient           *compute.SubnetworksClient
 	regionsClient          *compute.RegionsClient
 	projectsClient         *compute.ProjectsClient
+	targetPoolsClient      *compute.TargetPoolsClient
 	firewallClient         *compute.FirewallsClient
 	addressClient          *compute.AddressesClient
 	forwardingRulesClient  *compute.ForwardingRulesClient
@@ -323,6 +328,11 @@ type Config struct {
 	// (6443). Empty means the internet, which is the historical behaviour and is
 	// logged as a warning at provisioning time.
 	AdminSourceRanges []string `json:"adminSourceRanges"`
+
+	// PurgeOrphanedVolumes extends teardown to unattached pvc-* disks the CSI
+	// driver created. Off by default because a disk may still hold data someone
+	// wants; `adhar down --purge-orphaned-volumes` opts in.
+	PurgeOrphanedVolumes bool `json:"purgeOrphanedVolumes,omitempty"`
 
 	// NodeServiceAccount is the service account attached to every node. The
 	// cloud-controller-manager and the PD CSI driver authenticate to the GCP API
@@ -515,6 +525,11 @@ func NewProvider(config *Config) (*Provider, error) {
 	if projectsErr != nil {
 		log.Printf("WARNING: project quota preflight unavailable: %v", projectsErr)
 	}
+	// Target pools back the load balancers the cloud controller manager creates.
+	targetPoolsClient, tpErr := compute.NewTargetPoolsRESTClient(ctx, opts...)
+	if tpErr != nil {
+		log.Printf("WARNING: target pool cleanup unavailable: %v", tpErr)
+	}
 
 	addressClient, err := compute.NewAddressesRESTClient(ctx, opts...)
 	if err != nil {
@@ -587,6 +602,7 @@ func NewProvider(config *Config) (*Provider, error) {
 		subnetClient:           subnetClient,
 		regionsClient:          regionsClient,
 		projectsClient:         projectsClient,
+		targetPoolsClient:      targetPoolsClient,
 		firewallClient:         firewallClient,
 		addressClient:          addressClient,
 		forwardingRulesClient:  forwardingRulesClient,
@@ -1491,6 +1507,154 @@ func clusterNameFromTag(tag string) (string, bool) {
 	return strings.TrimSuffix(tag, suffix), true
 }
 
+// sweepLoadBalancers removes the load balancer the cloud controller manager
+// created for the Gateway Service: the forwarding rule, its target pool, and the
+// k8s-* firewall rules.
+//
+// These are deleted unconditionally, unlike disks. They hold no data, they always
+// leak because nothing records them, and the firewall rule blocks deleting the VPC
+// — so removing them is part of finishing a teardown rather than an optional tidy.
+// Order matters: a forwarding rule pins its target pool, and a target pool pins
+// nothing, so rules go first.
+func (p *Provider) sweepLoadBalancers(ctx context.Context, tracker *ResourceTracker) []string {
+	var errs []string
+
+	targets := map[string]bool{}
+	if p.forwardingRulesClient != nil {
+		it := p.forwardingRulesClient.List(ctx, &computepb.ListForwardingRulesRequest{
+			Project: tracker.ProjectID,
+			Region:  tracker.Region,
+		})
+		for {
+			rule, err := it.Next()
+			if err != nil {
+				break
+			}
+			// The CCM stamps the Service it belongs to into the description; that is
+			// what distinguishes a Kubernetes-created rule from a human's.
+			if !strings.Contains(rule.GetDescription(), "kubernetes.io/service-name") {
+				continue
+			}
+			if t := rule.GetTarget(); t != "" {
+				targets[t[strings.LastIndex(t, "/")+1:]] = true
+			}
+			op, err := p.forwardingRulesClient.Delete(ctx, &computepb.DeleteForwardingRuleRequest{
+				Project: tracker.ProjectID, Region: tracker.Region, ForwardingRule: rule.GetName(),
+			})
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("deleting forwarding rule %s: %v", rule.GetName(), err))
+				continue
+			}
+			name := op.Name()
+			if err := p.waitForRegionalOperation(ctx, &name); err != nil {
+				errs = append(errs, fmt.Sprintf("waiting for forwarding rule %s: %v", rule.GetName(), err))
+				continue
+			}
+			log.Printf("Deleted load balancer forwarding rule: %s", rule.GetName())
+		}
+	}
+
+	if p.targetPoolsClient != nil {
+		for pool := range targets {
+			op, err := p.targetPoolsClient.Delete(ctx, &computepb.DeleteTargetPoolRequest{
+				Project: tracker.ProjectID, Region: tracker.Region, TargetPool: pool,
+			})
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("deleting target pool %s: %v", pool, err))
+				continue
+			}
+			name := op.Name()
+			if err := p.waitForRegionalOperation(ctx, &name); err != nil {
+				errs = append(errs, fmt.Sprintf("waiting for target pool %s: %v", pool, err))
+				continue
+			}
+			log.Printf("Deleted load balancer target pool: %s", pool)
+		}
+	}
+
+	if p.firewallClient != nil {
+		it := p.firewallClient.List(ctx, &computepb.ListFirewallsRequest{Project: tracker.ProjectID})
+		var names []string
+		for {
+			rule, err := it.Next()
+			if err != nil {
+				break
+			}
+			if strings.HasPrefix(rule.GetName(), "k8s-") {
+				names = append(names, rule.GetName())
+			}
+		}
+		for _, n := range names {
+			if err := p.deleteFirewallRule(ctx, n); err != nil {
+				errs = append(errs, fmt.Sprintf("deleting firewall rule %s: %v", n, err))
+				continue
+			}
+			log.Printf("Deleted load balancer firewall rule: %s", n)
+		}
+	}
+	return errs
+}
+
+// sweepOrphanedDisks removes unattached CSI disks, but only when asked.
+//
+// A disk may still hold data someone wants, so deleting it is opt-in through
+// `adhar down --purge-orphaned-volumes`. Without the flag they are named in the
+// output: silence would leave them billing indefinitely, which is how 59 disks
+// survived a teardown once.
+func (p *Provider) sweepOrphanedDisks(ctx context.Context, tracker *ResourceTracker) []string {
+	if p.diskClient == nil {
+		return nil
+	}
+	var orphans []*computepb.Disk
+	it := p.diskClient.List(ctx, &computepb.ListDisksRequest{
+		Project: tracker.ProjectID, Zone: tracker.Zone,
+	})
+	for {
+		disk, err := it.Next()
+		if err != nil {
+			break
+		}
+		// Attached disks belong to instances and go with them.
+		if len(disk.GetUsers()) > 0 {
+			continue
+		}
+		if strings.HasPrefix(disk.GetName(), "pvc-") || strings.Contains(disk.GetDescription(), "storage.gke.io/created-for") {
+			orphans = append(orphans, disk)
+		}
+	}
+	if len(orphans) == 0 {
+		return nil
+	}
+
+	if !p.config.PurgeOrphanedVolumes {
+		log.Printf("WARNING: %d unattached persistent disk(s) remain and keep billing:", len(orphans))
+		for _, d := range orphans {
+			log.Printf("  disk %s (%d GB) in %s", d.GetName(), d.GetSizeGb(), tracker.Zone)
+		}
+		log.Printf("They may still hold data, so they are kept. Remove them with:")
+		log.Printf("  adhar down ... --purge-orphaned-volumes")
+		return nil
+	}
+
+	var errs []string
+	for _, d := range orphans {
+		op, err := p.diskClient.Delete(ctx, &computepb.DeleteDiskRequest{
+			Project: tracker.ProjectID, Zone: tracker.Zone, Disk: d.GetName(),
+		})
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("deleting disk %s: %v", d.GetName(), err))
+			continue
+		}
+		name := op.Name()
+		if err := p.waitForZonalOperation(ctx, &name); err != nil {
+			errs = append(errs, fmt.Sprintf("waiting for disk %s: %v", d.GetName(), err))
+			continue
+		}
+		log.Printf("Deleted orphaned disk: %s (%d GB)", d.GetName(), d.GetSizeGb())
+	}
+	return errs
+}
+
 // findOrphanedResources lists billable resources the in-cluster controllers
 // created, which no tracker records: load balancer forwarding rules from the
 // cloud controller manager, and unattached persistent disks from the CSI driver.
@@ -1515,6 +1679,30 @@ func (p *Provider) findOrphanedResources(ctx context.Context, tracker *ResourceT
 				found = append(found, fmt.Sprintf("forwarding-rule %s (%s) in %s", rule.GetName(), rule.GetIPAddress(), tracker.Region))
 			}
 		}
+	}
+
+	// Firewall rules the cloud controller manager creates for a LoadBalancer.
+	// These were missed, and they MATTER beyond billing: a leftover k8s-fw-* rule
+	// holds a reference to the VPC, so `adhar down` could not delete the network
+	// and the next run had to reuse or work around it.
+	if p.firewallClient != nil {
+		it := p.firewallClient.List(ctx, &computepb.ListFirewallsRequest{Project: tracker.ProjectID})
+		for {
+			rule, err := it.Next()
+			if err != nil {
+				break
+			}
+			// The CCM prefixes every rule it owns with k8s-.
+			if strings.HasPrefix(rule.GetName(), "k8s-") {
+				found = append(found, fmt.Sprintf("firewall-rule %s (blocks deleting the VPC)", rule.GetName()))
+			}
+		}
+	}
+
+	// Target pools backing those load balancers.
+	if p.forwardingRulesClient == nil {
+		// nothing to correlate against; the rules above already flagged the LB
+		_ = found
 	}
 
 	if p.diskClient != nil {
@@ -1983,14 +2171,30 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	var errors []string
 
 	// Delete instances (VMs)
-	log.Printf("Deleting instances for cluster: %s", clusterID)
-	for _, instanceName := range tracker.Instances {
-		err := p.deleteInstance(ctx, instanceName, tracker.Zone)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("failed to delete instance %s: %v", instanceName, err))
-		} else {
-			log.Printf("Deleted instance: %s", instanceName)
+	// Instances go in PARALLEL. Each delete is an asynchronous GCP operation that
+	// takes ~2 minutes to report done, and waiting on them one after another made a
+	// six-node teardown a twelve-minute wait for work the API was happy to do at
+	// once. They are independent — no instance holds a reference to another — so the
+	// only ordering that matters is that all of them finish before the network
+	// cleanup below, which is exactly what the WaitGroup provides.
+	log.Printf("Deleting %d instance(s) for cluster: %s", len(tracker.Instances), clusterID)
+	if len(tracker.Instances) > 0 {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		for _, instanceName := range tracker.Instances {
+			wg.Add(1)
+			go func(name string) {
+				defer wg.Done()
+				if err := p.deleteInstance(ctx, name, tracker.Zone); err != nil {
+					mu.Lock()
+					errors = append(errors, fmt.Sprintf("failed to delete instance %s: %v", name, err))
+					mu.Unlock()
+					return
+				}
+				log.Printf("Deleted instance: %s", name)
+			}(instanceName)
 		}
+		wg.Wait()
 	}
 
 	// Delete firewall rules
@@ -2026,31 +2230,50 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		}
 	}
 
-	// Clean up subnets if they were created for this cluster only
+	// Anything the in-cluster controllers created is invisible to the tracker: the
+	// cloud controller manager provisions a load balancer for the Gateway Service,
+	// and the PD CSI driver provisions a disk per PersistentVolume. Neither is
+	// recorded here, so both used to survive `adhar down` and keep billing.
+	//
+	// These sweeps run BEFORE the subnet and network cleanup below, not after: a
+	// leftover k8s-fw-* rule holds a reference to the VPC, so deleting the network
+	// first fails with "resource in use" and the next run inherits the network.
+	errors = append(errors, p.sweepLoadBalancers(ctx, tracker)...)
+	errors = append(errors, p.sweepOrphanedDisks(ctx, tracker)...)
+
+	// Clean up the subnet and the VPC when Adhar created them and nothing else is
+	// using them.
+	//
+	// The test used to be `strings.Contains(name, clusterName)`, which never fired:
+	// the network and subnet are named from the provider config (adhar-vpc /
+	// adhar-subnet), not from the cluster, so a teardown left the VPC behind on
+	// every run. Presence in this cluster's tracker is the right test — it means
+	// `adhar up` created it — combined with no OTHER tracked cluster claiming it,
+	// so tearing down one environment cannot pull the network out from under
+	// another that shares it.
 	log.Printf("Checking subnets for cleanup for cluster: %s", clusterID)
 	for _, subnetName := range tracker.Subnets {
-		// Only delete subnet if it was created specifically for this cluster
-		if strings.Contains(subnetName, tracker.ClusterName) {
-			err := p.deleteSubnet(ctx, subnetName, tracker.Region)
-			if err != nil {
-				errors = append(errors, fmt.Sprintf("failed to delete subnet %s: %v", subnetName, err))
-			} else {
-				log.Printf("Deleted subnet: %s", subnetName)
-			}
+		if other := p.otherClusterUsingSubnet(clusterID, subnetName); other != "" {
+			log.Printf("Keeping subnet %s: still used by %s", subnetName, other)
+			continue
+		}
+		if err := p.deleteSubnet(ctx, subnetName, tracker.Region); err != nil {
+			errors = append(errors, fmt.Sprintf("failed to delete subnet %s: %v", subnetName, err))
+		} else {
+			log.Printf("Deleted subnet: %s", subnetName)
 		}
 	}
 
-	// Clean up networks if they were created for this cluster only
 	log.Printf("Checking networks for cleanup for cluster: %s", clusterID)
 	for _, networkName := range tracker.Networks {
-		// Only delete network if it was created specifically for this cluster
-		if strings.Contains(networkName, tracker.ClusterName) {
-			err := p.deleteNetwork(ctx, networkName)
-			if err != nil {
-				errors = append(errors, fmt.Sprintf("failed to delete network %s: %v", networkName, err))
-			} else {
-				log.Printf("Deleted network: %s", networkName)
-			}
+		if other := p.otherClusterUsingNetwork(clusterID, networkName); other != "" {
+			log.Printf("Keeping network %s: still used by %s", networkName, other)
+			continue
+		}
+		if err := p.deleteNetwork(ctx, networkName); err != nil {
+			errors = append(errors, fmt.Sprintf("failed to delete network %s: %v", networkName, err))
+		} else {
+			log.Printf("Deleted network: %s", networkName)
 		}
 	}
 
@@ -2063,19 +2286,6 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		log.Printf("Warning: Failed to save provider state after deletion: %v", err)
 	}
 
-	// Anything the in-cluster controllers created is invisible to the tracker:
-	// the cloud controller manager provisions a load balancer for the Gateway
-	// Service, and the PD CSI driver provisions a disk per PersistentVolume.
-	// Neither is recorded here, so both used to survive `adhar down` and keep
-	// billing. Report whatever is left rather than leaving it silent.
-	if leftovers := p.findOrphanedResources(ctx, tracker); len(leftovers) > 0 {
-		log.Printf("WARNING: %d resource(s) created inside the cluster are still present and still billing:", len(leftovers))
-		for _, item := range leftovers {
-			log.Printf("  %s", item)
-		}
-		log.Printf("Remove them with: gcloud compute forwarding-rules list --project %s   /   gcloud compute disks list --project %s", tracker.ProjectID, tracker.ProjectID)
-	}
-
 	if len(errors) > 0 {
 		log.Printf("Cluster deletion completed with some errors: %v", errors)
 		return fmt.Errorf("cluster deletion completed with errors: %s", strings.Join(errors, "; "))
@@ -2083,6 +2293,39 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 
 	log.Printf("Successfully deleted cluster: %s", clusterID)
 	return nil
+}
+
+// otherClusterUsingNetwork returns the id of another tracked cluster that shares
+// a network, or "" when this cluster is the last user. Two environments in one
+// project legitimately share adhar-vpc, and the first teardown must not take the
+// network away from the second.
+func (p *Provider) otherClusterUsingNetwork(selfID, networkName string) string {
+	for id, t := range p.resourceTrackers {
+		if id == selfID || t == nil {
+			continue
+		}
+		for _, n := range t.Networks {
+			if n == networkName {
+				return id
+			}
+		}
+	}
+	return ""
+}
+
+// otherClusterUsingSubnet is the same test for a subnet.
+func (p *Provider) otherClusterUsingSubnet(selfID, subnetName string) string {
+	for id, t := range p.resourceTrackers {
+		if id == selfID || t == nil {
+			continue
+		}
+		for _, sn := range t.Subnets {
+			if sn == subnetName {
+				return id
+			}
+		}
+	}
+	return ""
 }
 
 // deleteInstance deletes a compute instance

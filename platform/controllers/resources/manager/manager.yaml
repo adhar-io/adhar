@@ -66,6 +66,11 @@ spec:
           args:
             - controller
             - --leader-elect=true
+            # Both are required, not cosmetic: the manager reads the platform host
+            # from this resource, and a mismatched name silently yields an empty
+            # build configuration (see ManagerConfig.PlatformName).
+            - --platform-name={{ .PlatformName }}
+            - --namespace={{ .Namespace }}
           env:
             # The node autoscaler drives the cloud provider through the same
             # helpers the CLI uses, and those keep per-cluster state (the

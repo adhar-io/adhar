@@ -107,10 +107,39 @@ firewalls, load balancers, block storage, SSH keys, DNS** and — only if you us
 export DIGITALOCEAN_ACCESS_TOKEN="dop_v1_…"   # DIGITALOCEAN_TOKEN also accepted
 ```
 
-**DNS zone.** The platform domain must be a zone **hosted in DigitalOcean DNS**
-(`platform.adhar.io` in the run). The platform publishes one A record per
-hostname and solves ACME DNS-01 challenges there. Delegate the zone to
-`ns1/2/3.digitalocean.com` at your registrar before you start.
+**DNS zone — do this before anything else.** `globalSettings.defaultHost` drives
+every URL and the wildcard certificate, so it must be a zone **hosted in
+DigitalOcean DNS**. The platform publishes one A record per hostname there and
+solves ACME DNS-01 challenges in it; nothing in Adhar creates the zone.
+
+```bash
+# 1. a zone for exactly your defaultHost
+doctl compute domain create platform.example.com
+
+# 2. DigitalOcean's nameservers are a fixed set:
+#    ns1.digitalocean.com, ns2.digitalocean.com, ns3.digitalocean.com
+```
+
+3. At your registrar, in the `example.com` zone, add **three NS records named
+   `platform`** pointing at those three nameservers. The apex stays where it is.
+
+**Delegate the subdomain, not the whole domain** — unless you also host the apex zone
+in DigitalOcean. Let's Encrypt walks *up* the tree reading CAA, so issuing
+`*.platform.example.com` also queries CAA for `example.com`: if the apex is delegated
+to nameservers that hold no zone for it, every lookup returns SERVFAIL and the order
+fails with a message naming CAA rather than delegation. Every app still resolves and
+works, which is what makes it hard to spot. A CAA record itself is not required; an
+empty answer is correct.
+
+Verify before `adhar up`:
+
+```bash
+dig +short NS platform.example.com      # → ns1/2/3.digitalocean.com
+dig +noall +comment CAA example.com     # → status: NOERROR, NOT SERVFAIL
+```
+
+Full model and the per-provider capability table:
+[Provider guide §7](PROVIDER_GUIDE.md#7-dns-delegate-the-platform-host-before-adhar-up).
 
 **Local tooling.** `adhar` built from this repository (`make build`), `kubectl`,
 and the repository checkout — the GitOps stack is seeded from `platform/stack`.

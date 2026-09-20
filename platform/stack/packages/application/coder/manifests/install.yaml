@@ -192,6 +192,16 @@ spec:
           value: '{"platform-admin":["owner"],"admin":["owner"]}'
         - name: CODER_DISABLE_PASSWORD_AUTH
           value: "false"
+        # The platform CNPG database (manifests/platform-postgres.yaml). WITHOUT
+        # this, `coder server` uses its built-in PostgreSQL inside the container
+        # filesystem and loses every user, template and workspace on any pod
+        # replacement — see that file's header for the live failure this caused.
+        # CNPG writes a complete libpq URI into <cluster>-app as `uri`.
+        - name: CODER_PG_CONNECTION_URL
+          valueFrom:
+            secretKeyRef:
+              name: coder-db-app
+              key: uri
         - name: SSL_CERT_DIR
           value: /etc/ssl/certs:/etc/adhar-ca
         image: ghcr.io/coder/coder:v2.37.0

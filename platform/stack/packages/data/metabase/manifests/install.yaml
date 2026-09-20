@@ -30,6 +30,11 @@ spec:
         - name: http
           containerPort: 3000
         env:
+        # Cap the heap BELOW the container limit. A JVM that sizes its heap to the
+        # whole cgroup has nothing left for metaspace, the code cache and thread
+        # stacks, and gets killed rather than garbage collecting.
+        - name: JAVA_OPTS
+          value: "-Xmx1400m -XX:MaxMetaspaceSize=256m"
         - name: MB_JETTY_PORT
           value: '3000'
         # Host-based route (manifests/httproute.yaml, via the metabase
@@ -71,9 +76,14 @@ spec:
         resources:
           requests:
             cpu: 250m
-            memory: 512Mi
-          limits:
             memory: 1Gi
+          limits:
+            # 2Gi, not 1Gi. Metabase is a JVM application and 1Gi was not enough
+            # to finish starting: it was OOMKilled 90 times in a row while still
+            # registering its JDBC drivers, so the app never reached a state where
+            # its own logs said anything was wrong — the only evidence was
+            # lastState.terminated.reason=OOMKilled. Upstream asks for 2GB.
+            memory: 2Gi
 ---
 apiVersion: v1
 kind: Service

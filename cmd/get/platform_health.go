@@ -13,8 +13,10 @@ import (
 	"adhar-io/adhar/platform/k8s"
 
 	argov1alpha1 "github.com/cnoe-io/argocd-api/api/argo/application/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -258,6 +260,9 @@ func attachPlatformHealth(status *PlatformStatus) {
 	status.Fleet = collectFleet(ctx)
 	status.Packages = collectPackageHealth(ctx)
 	status.URLs = collectAccessURLs(ctx)
+	if w := certificateWarning(ctx); w != "" {
+		status.Warnings = append(status.Warnings, w)
+	}
 }
 
 // collectFleet returns the data-plane roll-up the DataPlane controller keeps
@@ -290,4 +295,89 @@ func displayFleet(fleet *v1alpha1.FleetStatus) {
 		b.WriteString(fmt.Sprintf("  %-24s %-10s %-8s %-6d %s\n", p.Name, p.Mode, ready, p.Apps, orDash(p.KubernetesVersion)))
 	}
 	fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))
+}
+
+// certificateWarning explains an untrusted platform certificate.
+//
+// This exists because the symptom and the cause are far apart: a browser says
+// ERR_CERT_AUTHORITY_INVALID, which reads as "the platform is broken", while the
+// actual fault is almost always in DNS — the ACME DNS-01 challenge could not
+// complete, so cert-manager is still serving the self-signed fallback it starts
+// with. `adhar get status` is where someone looks next, so the reason belongs here,
+// quoted from cert-manager rather than guessed at.
+func certificateWarning(ctx context.Context) string {
+	cfg, err := helpers.GetKubeConfig()
+	if err != nil {
+		return ""
+	}
+	dc, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return ""
+	}
+	certGVR := schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
+	cert, err := dc.Resource(certGVR).Namespace(globals.AdharSystemNamespace).Get(ctx, globals.SelfSignedCertSecretName, metav1.GetOptions{})
+	if err != nil {
+		// No cert-manager Certificate: the platform is on its bootstrap
+		// self-signed certificate by design (no dnsProvider configured), which is
+		// not a warning.
+		return ""
+	}
+	if certificateIsReady(cert.Object) {
+		return ""
+	}
+
+	reason := conditionMessage(cert.Object, "Ready")
+	// The Challenge carries the useful text ("DNS problem: SERVFAIL looking up CAA
+	// for example.com"); the Certificate only says it is waiting.
+	chGVR := schema.GroupVersionResource{Group: "acme.cert-manager.io", Version: "v1", Resource: "challenges"}
+	if list, err := dc.Resource(chGVR).Namespace(globals.AdharSystemNamespace).List(ctx, metav1.ListOptions{}); err == nil {
+		for _, ch := range list.Items {
+			state, _, _ := unstructured.NestedString(ch.Object, "status", "state")
+			msg, _, _ := unstructured.NestedString(ch.Object, "status", "reason")
+			if state == "invalid" && msg != "" {
+				reason = msg
+				break
+			}
+		}
+	}
+	out := "TLS is SELF-SIGNED: the platform certificate has not been issued, so browsers will warn on every platform URL"
+	if reason != "" {
+		out += " — " + strings.TrimSpace(reason)
+	}
+	return out
+}
+
+func certificateIsReady(obj map[string]interface{}) bool {
+	conditions, found, _ := unstructured.NestedSlice(obj, "status", "conditions")
+	if !found {
+		return false
+	}
+	for _, c := range conditions {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cm["type"] == "Ready" {
+			return cm["status"] == "True"
+		}
+	}
+	return false
+}
+
+func conditionMessage(obj map[string]interface{}, condType string) string {
+	conditions, found, _ := unstructured.NestedSlice(obj, "status", "conditions")
+	if !found {
+		return ""
+	}
+	for _, c := range conditions {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cm["type"] == condType {
+			msg, _ := cm["message"].(string)
+			return msg
+		}
+	}
+	return ""
 }

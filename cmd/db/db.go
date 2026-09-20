@@ -22,10 +22,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// DBCmd represents the db command
-var DBCmd = &cobra.Command{
-	Use:   "db",
-	Short: "Database management and operations",
+// DatabaseCmd represents the database command
+var DatabaseCmd = &cobra.Command{
+	Use: "database",
+	// The short forms stay as aliases so existing scripts and muscle memory
+	// keep working after the rename.
+	Aliases: []string{"db"},
+	Short:   "Database management and operations",
 	Long: `Manage databases and perform database operations on the Adhar platform.
 	
 This command provides:
@@ -37,11 +40,11 @@ This command provides:
 • Connection testing and diagnostics
 
 Examples:
-  adhar db list                    # List all databases
-  adhar db create --name=myapp     # Create new database
-  adhar db backup --name=myapp     # Backup database
-  adhar db restore --name=myapp    # Restore database
-  adhar db health --name=myapp     # Check database health`,
+  adhar database list                    # List all databases
+  adhar database create --name=myapp     # Create new database
+  adhar database backup --name=myapp     # Backup database
+  adhar database restore --name=myapp    # Restore database
+  adhar database health --name=myapp     # Check database health`,
 	RunE: runDB,
 }
 
@@ -63,31 +66,31 @@ var (
 func init() {
 	// Identity flags shared across subcommands (create/delete/status/…) that all
 	// operate on a named CompositeDatabase XR, so they are persistent.
-	DBCmd.PersistentFlags().StringVarP(&dbName, "name", "n", "", "Database name")
-	DBCmd.PersistentFlags().StringVarP(&dbType, "type", "t", "", "Database type (postgresql, mysql, mongodb, redis)")
+	DatabaseCmd.PersistentFlags().StringVarP(&dbName, "name", "n", "", "Database name")
+	DatabaseCmd.PersistentFlags().StringVarP(&dbType, "type", "t", "", "Database type (postgresql, mysql, mongodb, redis)")
 
 	// Database command flags
-	DBCmd.Flags().StringVarP(&dbHost, "host", "", "", "Database host")
-	DBCmd.Flags().StringVarP(&dbPort, "port", "", "", "Database port")
-	DBCmd.Flags().StringVarP(&dbUser, "user", "u", "", "Database user")
-	DBCmd.Flags().StringVarP(&dbPassword, "password", "p", "", "Database password")
-	DBCmd.Flags().BoolVar(&backup, "backup", false, "Perform backup operation")
-	DBCmd.Flags().BoolVar(&restore, "restore", false, "Perform restore operation")
-	DBCmd.Flags().BoolVar(&health, "health", false, "Check database health")
+	DatabaseCmd.Flags().StringVarP(&dbHost, "host", "", "", "Database host")
+	DatabaseCmd.Flags().StringVarP(&dbPort, "port", "", "", "Database port")
+	DatabaseCmd.Flags().StringVarP(&dbUser, "user", "u", "", "Database user")
+	DatabaseCmd.Flags().StringVarP(&dbPassword, "password", "p", "", "Database password")
+	DatabaseCmd.Flags().BoolVar(&backup, "backup", false, "Perform backup operation")
+	DatabaseCmd.Flags().BoolVar(&restore, "restore", false, "Perform restore operation")
+	DatabaseCmd.Flags().BoolVar(&health, "health", false, "Check database health")
 
 	// Persistent flags shared across subcommands operating on CompositeDatabase XRs.
-	DBCmd.PersistentFlags().StringVar(&dbNS, "namespace", "default", "Namespace for the database resources")
-	DBCmd.PersistentFlags().StringVarP(&dbOutput, "output", "o", "table", "Output format (table, json, yaml)")
+	DatabaseCmd.PersistentFlags().StringVar(&dbNS, "namespace", "default", "Namespace for the database resources")
+	DatabaseCmd.PersistentFlags().StringVarP(&dbOutput, "output", "o", "table", "Output format (table, json, yaml)")
 
 	// Add subcommands
-	DBCmd.AddCommand(createCmd)
-	DBCmd.AddCommand(listCmd)
-	DBCmd.AddCommand(statusCmd)
-	DBCmd.AddCommand(deleteCmd)
-	DBCmd.AddCommand(backupCmd)
-	DBCmd.AddCommand(restoreCmd)
-	DBCmd.AddCommand(healthCmd)
-	DBCmd.AddCommand(migrateCmd)
+	DatabaseCmd.AddCommand(createCmd)
+	DatabaseCmd.AddCommand(listCmd)
+	DatabaseCmd.AddCommand(statusCmd)
+	DatabaseCmd.AddCommand(deleteCmd)
+	DatabaseCmd.AddCommand(backupCmd)
+	DatabaseCmd.AddCommand(restoreCmd)
+	DatabaseCmd.AddCommand(healthCmd)
+	DatabaseCmd.AddCommand(migrateCmd)
 }
 
 func runDB(cmd *cobra.Command, args []string) error {

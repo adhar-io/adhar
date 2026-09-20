@@ -22,8 +22,8 @@ status together with the composed CloudNativePG Cluster status (phase and ready
 instance count). Read-only.
 
 Examples:
-  adhar db health
-  adhar db health --name=myapp --namespace=team-a`,
+  adhar database health
+  adhar database health --name=myapp --namespace=team-a`,
 	RunE: runHealth,
 }
 

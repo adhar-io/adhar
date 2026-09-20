@@ -243,3 +243,30 @@ func currentSession(ctx context.Context) (*storedSession, error) {
 	}
 	return refreshed, nil
 }
+
+// PlatformToken returns a valid platform access token for the logged-in user,
+// refreshing it first when it has expired.
+//
+// It is exported for the other CLI packages that call platform APIs which
+// validate a Keycloak JWT — `adhar ai` talks to agentgateway, whose
+// jwtAuthentication policy is strict. Those packages must not re-implement the
+// session file format or the refresh dance, and must never see the refresh
+// token, so this hands back the access token only.
+func PlatformToken(ctx context.Context) (string, error) {
+	s, err := currentSession(ctx)
+	if err != nil {
+		return "", err
+	}
+	return s.AccessToken, nil
+}
+
+// PlatformIdentity returns the username and issuer of the current session, for
+// commands that want to show who an action will run as. Empty strings when there
+// is no usable session.
+func PlatformIdentity(ctx context.Context) (username, issuer string) {
+	s, err := currentSession(ctx)
+	if err != nil || s == nil {
+		return "", ""
+	}
+	return s.Username, s.Issuer
+}

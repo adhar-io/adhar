@@ -22,10 +22,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// AppsCmd represents the apps command
-var AppsCmd = &cobra.Command{
-	Use:   "apps",
-	Short: "Manage the application development lifecycle",
+// ApplicationCmd represents the application command
+var ApplicationCmd = &cobra.Command{
+	Use: "application",
+	// The short forms stay as aliases so existing scripts and muscle memory
+	// keep working after the rename.
+	Aliases: []string{"apps", "app"},
+	Short:   "Manage the application development lifecycle",
 	Long: `Manage applications throughout their development lifecycle.
 	
 This command provides:
@@ -40,11 +43,11 @@ Templates (basic-git, microservice, frontend) are served from the Gitea
 — the same path the Adhar Console uses.
 
 Examples:
-  adhar apps deploy my-app --template=basic-git
-  adhar apps deploy my-svc --template=microservice --namespace=platform-apps
-  adhar apps list
-  adhar apps status my-app
-  adhar apps scale my-app --replicas=3`,
+  adhar application deploy my-app --template=basic-git
+  adhar application deploy my-svc --template=microservice --namespace=platform-apps
+  adhar application list
+  adhar application status my-app
+  adhar application scale my-app --replicas=3`,
 	RunE: runApps,
 }
 
@@ -57,18 +60,18 @@ var (
 
 func init() {
 	// Global flags
-	AppsCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "default", "Namespace for the application")
-	AppsCmd.PersistentFlags().StringVarP(&output, "output", "o", "table", "Output format (table, json, yaml)")
+	ApplicationCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "default", "Namespace for the application")
+	ApplicationCmd.PersistentFlags().StringVarP(&output, "output", "o", "table", "Output format (table, json, yaml)")
 	// Verbose flag is handled globally by root command
 
 	// Add subcommands
-	AppsCmd.AddCommand(deployCmd)
-	AppsCmd.AddCommand(listCmd)
-	AppsCmd.AddCommand(statusCmd)
-	AppsCmd.AddCommand(scaleCmd)
-	AppsCmd.AddCommand(restartCmd)
-	AppsCmd.AddCommand(bindCmd)
-	AppsCmd.AddCommand(deleteCmd)
+	ApplicationCmd.AddCommand(deployCmd)
+	ApplicationCmd.AddCommand(listCmd)
+	ApplicationCmd.AddCommand(statusCmd)
+	ApplicationCmd.AddCommand(scaleCmd)
+	ApplicationCmd.AddCommand(restartCmd)
+	ApplicationCmd.AddCommand(bindCmd)
+	ApplicationCmd.AddCommand(deleteCmd)
 }
 
 func runApps(cmd *cobra.Command, args []string) error {

@@ -267,7 +267,7 @@ Categories (count): **ai** (4) · **application** (31) · **core** (7) · **data
 **Observability**: metrics-server, kube-prometheus, loki-stack, alloy, tempo, mimir, opencost, oncall, headlamp, hubble, beyla, faro, fluent-bit, pixie, pyroscope, victoria-metrics
 **Application**: argo-workflows, argo-events, argo-rollout, harbor, kargo, tekton, supply-chain, **preview-environments** (PR-labelled ephemeral environments), adhar-templates (four golden paths: microservice, frontend, data-pipeline, ml), scorecards, coder, n8n, penpot, plane, posthog, nexus, keda, dapr, k6, chaos-mesh, buildpack (the one package outside `adhar-system` — see ADR-0011), external-dns, knative, open-function, baserow, tooljet, adhar-libraries
 **Infrastructure**: crossplane, terraform
-**Core**: adhar-console, velero, vcluster, sveltos, open-cluster-management, Kamaji
+**Core**: adhar-console, velero, vcluster, sveltos, **karmada** (multi-cloud/multi-cluster control plane; replaced open-cluster-management on 2026-09-20 — the fleet hub runs `installMode: host`, member clusters get the agent from the DataPlane controller), Kamaji
 
 ## Important Implementation Notes
 

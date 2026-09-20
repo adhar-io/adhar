@@ -248,6 +248,36 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 			return fmt.Errorf("configuring edge DNS (%s): %w", dnsProvider, err)
 		}
 		logger.Infof("Edge DNS configured: provider=%s zone=%s issuer=%s", dnsProvider, host, templateData.ACMEIssuer())
+
+		// Say so NOW if a publicly trusted certificate cannot be issued. Without
+		// this the ACME order simply goes to "invalid", the Gateway keeps serving
+		// the self-signed fallback, and nothing in the bootstrap output mentions
+		// it — the first symptom is a browser warning, or an in-cluster client
+		// rejecting the certificate hours later, with no obvious connection to
+		// DNS. The platform still comes up: the fallback covers the configured
+		// host, and cert-manager upgrades to Let's Encrypt on its own once the
+		// blocker below is cleared.
+		if templateData.HasDNS01() {
+			if b := checkACMEDNS01Ready(ctx, host); b != nil {
+				logger.Warnf("TLS will stay SELF-SIGNED: %s", b.Reason)
+				logger.Warnf("  to get a publicly trusted certificate: %s", b.Fix)
+				logger.Warnf("  the platform is usable meanwhile; browsers will warn, and clients that verify strictly need the platform CA")
+				// Keep it for the closing summary as well. A warning 60 lines into a
+				// verbose bootstrap is a warning nobody reads: the first thing the
+				// operator actually notices is a browser refusing the certificate
+				// twenty minutes later, with nothing on screen connecting the two.
+				tlsBlocker = b
+			}
+		}
+	}
+
+	// Adhar AI: stage the LLM credential now so the platform finishes AI-enabled
+	// rather than installed-but-unkeyed. Read from the environment only, and never
+	// written to Git — see ensureAILLMSeedSecret.
+	if err := ensureAILLMSeedSecret(ctx, kubeClient); err != nil {
+		// Not fatal: a malformed provider or a missing key should not abort a
+		// platform bring-up over an opt-in capability.
+		logger.Warnf("Adhar AI credential not staged: %v (the AI stack installs unkeyed; run `adhar ai key set` later)", err)
 	}
 
 	// Crossplane cloud credentials: the control plane's ProviderConfig for this
@@ -385,8 +415,9 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		image = defaultControllerImage()
 	}
 	if err := controllers.EnsureControllerManager(installCtx, kubeClient, controllers.ManagerConfig{
-		Image:     image,
-		Namespace: globals.AdharSystemNamespace,
+		Image:        image,
+		Namespace:    globals.AdharSystemNamespace,
+		PlatformName: platformName,
 	}); err != nil {
 		return fmt.Errorf("installing in-cluster controller manager: %w", err)
 	}

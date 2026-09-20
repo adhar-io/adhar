@@ -38,8 +38,8 @@ var scaleCmd = &cobra.Command{
 	Long: `Scale an application's Deployment to the specified number of replicas.
 
 Examples:
-  adhar apps scale my-app --replicas=3
-  adhar apps scale my-app --replicas=0 --namespace=platform-apps`,
+  adhar application scale my-app --replicas=3
+  adhar application scale my-app --replicas=0 --namespace=platform-apps`,
 	Args: cobra.ExactArgs(1),
 	RunE: runScale,
 }

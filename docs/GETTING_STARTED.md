@@ -120,16 +120,16 @@ Kind's own namespaces are left out, because they hold nothing you deployed:
 The quickest real deployment uses a template from the Gitea `templates` repo:
 
 ```bash
-adhar apps deploy hello --template microservice --namespace hello
-adhar apps status hello
+adhar application deploy hello --template microservice --namespace hello
+adhar application status hello
 ```
 
-That fetched `microservice.yaml` from `adhar/templates`, substituted the name and namespace, and created a `CompositeApplication` — the platform's own application API. Crossplane expanded it into an ArgoCD Application, which deployed the manifests. Run `adhar apps deploy` with a bad template name to list what is available.
+That fetched `microservice.yaml` from `adhar/templates`, substituted the name and namespace, and created a `CompositeApplication` — the platform's own application API. Crossplane expanded it into an ArgoCD Application, which deployed the manifests. Run `adhar application deploy` with a bad template name to list what is available.
 
 Already have a repo? Point ArgoCD straight at it:
 
 ```bash
-adhar apps deploy my-app \
+adhar application deploy my-app \
   --repo https://github.com/org/repo \
   --path manifests/ \
   --dest-namespace my-team \

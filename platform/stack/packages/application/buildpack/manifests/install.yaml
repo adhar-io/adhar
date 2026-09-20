@@ -933,13 +933,28 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        # Raised from the upstream 50Mi/200Mi, which OOMKilled this container 17
+        # times in a row on a live cluster (exit 137, CrashLoopBackOff, so kpack
+        # admission was down and every Image/Build went unvalidated).
+        #
+        # The upstream default is sized for kpack's OWN namespace, holding a handful
+        # of objects. On this platform every package installs into adhar-system
+        # (ADR-0011), which on a production profile holds ~370 pods, ~260 Secrets and
+        # ~350 ConfigMaps — close to a megabyte of Secret data before decoding. The
+        # webhook's informers cache and index all of it, so the memory it needs
+        # scales with the whole platform rather than with kpack. The controller next
+        # to it already asks for 1Gi for the same reason; 512Mi is measured headroom
+        # over the ~70Mi the controller settles at, not a guess doubled twice.
+        #
+        # The CPU limit goes up with it: informer resync on a namespace this size is
+        # a burst, and 100m made it slow enough to look hung during startup.
         resources:
           requests:
             cpu: 10m
-            memory: 50Mi
+            memory: 128Mi
           limits:
-            cpu: 100m
-            memory: 200Mi
+            cpu: 500m
+            memory: 512Mi
 
 ---
 apiVersion: v1

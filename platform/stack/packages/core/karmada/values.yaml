@@ -1,0 +1,155 @@
+# Karmada — the platform's multi-cloud, multi-cluster control plane.
+#
+# Replaces Open Cluster Management. Both register and govern fleets of clusters;
+# Karmada is the CNCF project the ecosystem consolidated on, and its propagation
+# model (PropagationPolicy + OverridePolicy over ordinary Kubernetes objects) is
+# a better fit for a GitOps platform than OCM's ManifestWork wrapper: an
+# Application that Argo CD already reconciles can be spread across clusters
+# without being rewritten into a different resource shape.
+#
+# Regenerate manifests/install.yaml with ./generate-manifests.sh after any change
+# here.
+
+# `host` installs a full Karmada control plane in this cluster: its own
+# apiserver, etcd, controller-manager, scheduler, webhook and aggregated
+# apiserver. That is what makes this cluster the FLEET HUB, which is the role
+# Adhar's management cluster plays (see docs/ARCHITECTURE.md).
+#
+# `agent` is the other half, installed on each MEMBER cluster; the data-plane
+# controller handles that when a cluster is registered, so it is not set here.
+installMode: host
+
+# Every platform package lives in adhar-system (ADR-0011). The chart defaults to
+# karmada-system; the namespace comes from `helm template --namespace` in
+# generate-manifests.sh, and these references must agree with it.
+systemNamespace: adhar-system
+
+# Certificates: the chart generates its own CA and serving certificates through a
+# pre-install job. Karmada's apiserver is INTERNAL to the cluster — it is not
+# published on the platform Gateway — so the platform edge certificate
+# (adhar-cert) is deliberately not involved.
+certs:
+  mode: auto
+  auto:
+    expiry: 43800h  # 5 years, matching the chart default
+    hosts:
+      - karmada.adhar-system.svc.cluster.local
+      - karmada.adhar-system.svc
+      - "*.adhar-system.svc.cluster.local"
+      - "*.adhar-system.svc"
+      - localhost
+      - 127.0.0.1
+
+# etcd for the Karmada control plane.
+#
+# `mode` takes "internal" or "external" — NOT a workload kind. Setting it to
+# "StatefulSet" matched neither branch, so the chart rendered no etcd at all and
+# every control-plane pod sat in Init forever with an empty endpoint
+# (`ETCD_ENDPOINT=:`), which reads as a connectivity fault rather than a missing
+# component.
+#
+# storageType is "pvc" rather than the chart default "hostPath": fleet metadata
+# (cluster registrations, propagation policies) is small but must survive a node
+# being replaced, and on a cloud cluster nodes are replaced routinely by the
+# autoscaler. storageClass empty uses the platform default, which the provider
+# points at the same disk type the nodes use.
+etcd:
+  mode: "internal"
+  internal:
+    replicaCount: 1
+    storageType: "pvc"
+    pvc:
+      storageClass: ""
+      size: "5Gi"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# Resource requests are deliberately modest. The management cluster runs the
+# whole platform catalogue and is CPU-bound rather than memory-bound, so a
+# control plane that is idle until clusters are registered should not reserve
+# capacity it will not use.
+apiServer:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+aggregatedApiServer:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+controllerManager:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+scheduler:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+webhook:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+kubeControllerManager:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# The scheduler estimator and descheduler only earn their keep once several
+# member clusters are registered and workloads need rebalancing by real
+# available capacity. Off by default; turn them on with the fleet.
+schedulerEstimator:
+  enable: false
+
+descheduler:
+  enable: false
+
+# NOTE on service links, which is the opposite of the platform's usual posture.
+# Most packages set `enableServiceLinks: false`, because one shared namespace
+# means Kubernetes injects a <NAME>_PORT env var per Service and anything that
+# decodes env strictly breaks (platform/stack/packages/CONFLICTS.md). Karmada
+# MUST NOT do that: its control-plane pods find etcd through exactly those
+# variables — the init container builds
+# `ETCD_ENDPOINT=${ETCD_CLIENT_SERVICE_HOST}:${ETCD_CLIENT_SERVICE_PORT}` — so
+# disabling them leaves the endpoint empty (`ETCD_ENDPOINT=:`) and every pod
+# waits in Init forever. The chart hardcodes `enableServiceLinks: true` for this
+# reason, so there is deliberately no override here; setting one would be a
+# silent no-op that reads as if it had taken effect.

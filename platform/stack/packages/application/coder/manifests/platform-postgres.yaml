@@ -1,0 +1,126 @@
+# Coder's application database, provisioned from the platform CNPG operator (the
+# same pattern as data/metabase and application/posthog).
+#
+# WHY THIS EXISTS. Coder shipped here with NO database configured, so `coder
+# server` fell back to its built-in PostgreSQL:
+#
+#   Using built-in PostgreSQL (/home/coder/.config/coderv2/postgres)
+#
+# That database lives in the container's own filesystem, and the Deployment mounts
+# no volume for it — so the entire Coder state (the first owner, every template,
+# every workspace) is destroyed by any pod replacement. It was not a theoretical
+# risk: on a live cluster the first-user Job succeeded at 02:53:20, a new
+# ReplicaSet rolled out nineteen seconds later at 02:53:39, and the user went with
+# the old pod. What the operator saw afterwards was
+#
+#   * GET /api/v2/users/first  →  404 "The initial user has not been created!"
+#   * the console's Coder proxy →  502 Bad Gateway (its BFF cannot sign in)
+#   * coder-templates-seed      →  looping forever on that same 404
+#
+# none of which points at storage. On a platform whose autoscaler moves nodes
+# routinely, an app with ephemeral state is broken by construction — and the
+# platform's own rule is that applications use the shared CNPG rather than a
+# bundled or embedded database.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: coder-db
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-6"}
+spec:
+  length: 28
+  digits: 5
+  # No symbols: the password is interpolated into a libpq URI
+  # (postgresql://user:pass@host/db), where a stray '@' or '/' would silently
+  # reshape the connection string instead of failing loudly.
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: coder-db-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-6"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: coder-db-credentials
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: coder
+      engineVersion: v2
+      data:
+        username: coder
+        password: '{{ .PASSWORD }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: coder-db
+      rewrite:
+        - transform:
+            template: 'PASSWORD'
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: coder-db
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: coder-db
+    adhar.io/component: coder
+  annotations:
+    # Wave -5: the database must exist before the Deployment in wave 0 reads its
+    # connection Secret. ServerSideApply is not optional for a CNPG Cluster — the
+    # sync force-fails without it and drops the workload.
+    argocd.argoproj.io/sync-wave: "-5"
+    argocd.argoproj.io/sync-options: ServerSideApply=true,SkipDryRunOnMissingResource=true
+spec:
+  instances: 1
+  monitoring:
+    enablePodMonitor: true
+  storage:
+    # Coder's own tables are small — users, templates, workspace metadata and
+    # provisioner job history — but the audit log grows with use.
+    size: 10Gi
+  enableSuperuserAccess: false
+  bootstrap:
+    initdb:
+      database: coder
+      owner: coder
+      secret:
+        name: coder-db-credentials
+  backup:
+    retentionPolicy: 7d
+    barmanObjectStore:
+      destinationPath: s3://adhar-backups/cnpg/coder-db
+      endpointURL: http://rustfs.adhar-system.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId:
+          name: root-creds
+          key: rootUser
+        secretAccessKey:
+          name: root-creds
+          key: rootPassword
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: coder-db-daily
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: coder-db
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  schedule: "0 30 2 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: coder-db

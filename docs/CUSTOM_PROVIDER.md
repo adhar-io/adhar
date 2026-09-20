@@ -118,8 +118,24 @@ The cloud providers get these from the cloud. On your own hosts you supply them:
   for a lab, not replicated. Install a storage provider that suits your
   hardware (Longhorn, Rook/Ceph, your SAN's CSI) before trusting the full
   catalogue with data.
-- **DNS and TLS.** Point `*.<defaultHost>` at your load balancer. ACME HTTP-01
-  needs the zone to resolve publicly; otherwise supply your own certificate.
+- **DNS and TLS.** Point `*.<defaultHost>` at your load balancer. Two routes to a
+  publicly trusted wildcard certificate:
+
+  1. **Delegate the platform host to a DNS service the platform can solve DNS-01
+     with** — `digitalocean`, `aws`, `gcp`, `azure` or `cloudflare` — and set
+     `globalSettings.dnsProvider` to it with that provider's credentials. The
+     cluster stays on your own hosts; only the zone lives there. Cloudflare is the
+     lightest (one API token). This is the only path that works for a host that is
+     not reachable from the internet, because DNS-01 never contacts the cluster.
+  2. **Bring your own certificate**: leave `dnsProvider` unset and replace the
+     platform certificate Secret with yours.
+
+  Either way, create the zone first and delegate **only the platform label** at your
+  registrar — `platform` for `platform.example.com` — leaving the apex where it is.
+  Let's Encrypt reads CAA *up* the tree, so a registrable domain delegated to
+  nameservers that hold no zone for it makes every order fail with a SERVFAIL on CAA
+  while every app still resolves perfectly. Steps, verification and the capability
+  table: [Provider guide §7](PROVIDER_GUIDE.md#7-dns-delegate-the-platform-host-before-adhar-up).
 
 ## 5. Related
 

@@ -25,9 +25,9 @@ control-plane-managed resource the Console/GitOps would create — CNPG performs
 the backup according to the target Cluster's configured backup method.
 
 Examples:
-  adhar db backup --name=myapp
-  adhar db backup --name=myapp --method=volumeSnapshot
-  adhar db backup --name=myapp --namespace=team-a`,
+  adhar database backup --name=myapp
+  adhar database backup --name=myapp --method=volumeSnapshot
+  adhar database backup --name=myapp --namespace=team-a`,
 	RunE: runBackup,
 }
 

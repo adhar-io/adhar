@@ -214,6 +214,14 @@ func (p *Provider) createComputeCluster(ctx context.Context, spec *types.Cluster
 		return nil, fmt.Errorf("compute mode currently supports a single control-plane node; HA control planes require a load balancer and stacked etcd and are not implemented yet")
 	}
 
+	// Quota preflight, before a single instance exists. Civo's limits are
+	// per-account and modest by default; without this the create provisions some
+	// of the nodes, fails on the one that crosses a limit, and leaves a half-built
+	// cluster behind.
+	if err := p.checkQuota(plannedNodeCount(spec, p.config.DefaultNodeCount), plannedSize(spec, p.config.Size)); err != nil {
+		return nil, err
+	}
+
 	k8sMinor := provider.K8sMinorFromVersion(spec.Version)
 	userData := provider.KubeadmNodePrepScript(k8sMinor)
 	tag := computeClusterTag(name)
@@ -470,6 +478,24 @@ func (p *Provider) deleteComputeCluster(ctx context.Context, clusterID string) e
 	if err != nil {
 		return err
 	}
+
+	// Gather the cluster's identity BEFORE deleting the instances: a volume is
+	// matched to this cluster by the instance it is attached to and a load balancer
+	// by the instances it fronts, so once the instances are gone both links are
+	// gone with them — every volume then looks like an orphan and no load balancer
+	// can be attributed at all.
+	identity := p.clusterIdentityFor(name, instances)
+
+	// The in-cluster controllers created resources no tracker knows about. Sweep
+	// them first: a load balancer holds a reference to the network, so leaving one
+	// behind makes the network deletion below fail and the next run inherit it.
+	var sweepProblems []string
+	sweepProblems = append(sweepProblems, p.sweepLoadBalancers(identity)...)
+	sweepProblems = append(sweepProblems, p.sweepClusterVolumes(identity)...)
+	for _, problem := range sweepProblems {
+		log.Printf("Warning: %s", problem)
+	}
+
 	for i := range instances {
 		if _, err := p.client.DeleteInstance(instances[i].ID); err != nil {
 			return fmt.Errorf("failed to delete instance %s: %w", instances[i].Hostname, err)

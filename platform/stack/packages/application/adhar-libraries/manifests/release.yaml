@@ -55,6 +55,37 @@ spec:
           args:
             - |
               set -euo pipefail
+
+              # WAIT FOR NEXUS before queuing anything. The libraries resolve
+              # Maven and npm dependencies through it, and Nexus is a SEPARATE
+              # Argo CD Application — sync waves order resources within one
+              # Application and say nothing across two, so this hook can and did
+              # run first. The cost is not a retry: the proxy caches the failed
+              # lookups, and with Nexus's own default negative-cache TTL of 24
+              # hours the build stayed broken long after Nexus was healthy.
+              #
+              # A known artifact is fetched rather than a health endpoint, because
+              # "Nexus is up" and "Nexus can serve Maven Central" are different
+              # facts and only the second one matters here.
+              NEXUS=http://nexus.adhar-system.svc.cluster.local:8081
+              PROBE="${NEXUS}/repository/maven-public/junit/junit/4.13.2/junit-4.13.2.pom"
+              echo "waiting for Nexus to serve maven-public..."
+              ready=0
+              for i in $(seq 1 60); do
+                code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "${PROBE}" || true)
+                if [ "${code}" = "200" ]; then ready=1; echo "Nexus is serving maven-public"; break; fi
+                echo "  attempt ${i}: HTTP ${code:-000}; retrying in 15s"
+                sleep 15
+              done
+              if [ "${ready}" != "1" ]; then
+                # Deliberately fatal. Queuing the pipelines anyway would poison
+                # the proxy cache and leave the app Degraded with a failure whose
+                # cause is long gone by the time anyone looks.
+                echo "ERROR: Nexus did not serve maven-public within 15 minutes; not queuing library releases" >&2
+                echo "       check the nexus Application and its config Job, then re-run this hook by re-syncing adhar-libraries" >&2
+                exit 1
+              fi
+
               # A library is built and published ONCE. This hook runs on every
               # sync of the Application, and every push to the packages
               # monorepo re-syncs every Application (the sync storm in

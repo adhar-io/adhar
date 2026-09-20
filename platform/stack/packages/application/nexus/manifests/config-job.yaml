@@ -62,6 +62,36 @@ spec:
                 [ "$code" = "200" ] && { echo "Nexus up"; break; }
                 sleep 10
               done
+              # 2) Accept the Community Edition EULA. WITHOUT THIS NEXUS SERVES
+              # NOTHING. Every /repository/... request answers 403 with "You must
+              # accept the End User License Agreement (EULA) through the
+              # onboarding wizard or REST API before proceeding", while the admin
+              # REST API keeps working normally — so repositories are created
+              # successfully and the instance looks healthy right up until a build
+              # tries to resolve a dependency. On the first GCP deployment this
+              # failed both library releases for eight hours, and the symptoms
+              # (403 on artifacts that plainly exist) point at credentials or a
+              # blocked proxy rather than at licensing.
+              #
+              # The disclaimer text must be echoed back verbatim, so it is read
+              # from the API rather than hardcoded: Sonatype revises the wording.
+              echo "accepting the Nexus Community Edition EULA…"
+              eula_state=$(curl -s -m 30 $AUTH "${API}/system/eula" || echo '{}')
+              case "${eula_state}" in
+                *'"accepted" : true'*|*'"accepted":true'*)
+                  echo "EULA already accepted" ;;
+                *)
+                  disclaimer=$(printf '%s' "${eula_state}" | sed -n 's/.*"disclaimer"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p')
+                  if [ -z "${disclaimer}" ]; then
+                    echo "WARNING: could not read the EULA disclaimer; Nexus may refuse to serve repositories" >&2
+                  else
+                    code=$(curl -s -o /dev/null -w "%{http_code}" -m 30 $AUTH \
+                      -H 'Content-Type: application/json' -X POST "${API}/system/eula" \
+                      -d "{\"accepted\":true,\"disclaimer\":\"${disclaimer}\"}")
+                    echo "EULA acceptance -> HTTP ${code}"
+                  fi ;;
+              esac
+
               # helper: create a hosted repo (idempotent — 400/already-exists ok)
               mkrepo() {  # $1=path $2=json
                 code=$(curl -s -o /tmp/r -w "%{http_code}" $AUTH -H 'Content-Type: application/json' \
@@ -105,17 +135,27 @@ spec:
               # transient upstream failure — Nexus restarting mid-build, a network
               # blip — poisons "not found" for a day and every later build fails
               # with "was not found in nexus-public" although the artifact exists.
-              mkrepo npm/proxy    '{"name":"npm-registry","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://registry.npmjs.org","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":true}}'
-              mkrepo pypi/proxy   '{"name":"pypi-proxy","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://pypi.org/","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":true}}'
+              mkrepo npm/proxy    '{"name":"npm-registry","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://registry.npmjs.org","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false}}'
+              mkrepo pypi/proxy   '{"name":"pypi-proxy","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"proxy":{"remoteUrl":"https://pypi.org/","contentMaxAge":1440,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false}}'
               # Maven Central proxy + a public GROUP (maven-hosted + maven-central) so
               # builds resolve deps through Nexus. The release pipeline mirrors
               # * -> maven-public, which 404s (fails all resolution) without this group.
-              mkrepo maven/proxy '{"name":"maven-central","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://repo1.maven.org/maven2/","contentMaxAge":-1,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":true},"maven":{"versionPolicy":"RELEASE","layoutPolicy":"PERMISSIVE"}}'
+              # upsertrepo, NOT mkrepo: Nexus pre-creates maven-central at first
+              # boot (see the note above) with negativeCache ENABLED and a 1440
+              # minute TTL, and a create-only call silently leaves those defaults
+              # in place. That is how a cold cluster poisons its own builds — the
+              # first Maven resolutions run before egress is reliable, every miss
+              # is cached for 24 hours, and afterwards artifacts that plainly
+              # exist keep returning 403 from a proxy that is not even blocked.
+              # Observed on GCP: release-adhar-kit failed on
+              # maven-build-cache-extension:1.2.0 for eight hours while
+              # repo1.maven.org served it fine.
+              upsertrepo maven/proxy maven-central '{"name":"maven-central","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://repo1.maven.org/maven2/","contentMaxAge":-1,"metadataMaxAge":1440},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false},"maven":{"versionPolicy":"RELEASE","layoutPolicy":"PERMISSIVE"}}'
               # Lombok edge-releases proxy: adhar-kit builds on JDK 25 and depends on
               # org.projectlombok:lombok:edge-SNAPSHOT (only the edge channel supports
               # the newest JDKs; it is NOT on Maven Central). versionPolicy MIXED so the
               # -SNAPSHOT resolves. Added to maven-public below so builds see it.
-              mkrepo maven/proxy '{"name":"lombok-edge","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://projectlombok.org/edge-releases/","contentMaxAge":-1,"metadataMaxAge":60},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":true},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
+              mkrepo maven/proxy '{"name":"lombok-edge","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":false},"proxy":{"remoteUrl":"https://projectlombok.org/edge-releases/","contentMaxAge":-1,"metadataMaxAge":60},"negativeCache":{"enabled":false,"timeToLive":5},"httpClient":{"blocked":false,"autoBlock":false},"maven":{"versionPolicy":"MIXED","layoutPolicy":"PERMISSIVE"}}'
               # maven-public pre-exists (Nexus creates it at first boot), so this
               # MUST be an upsert — see upsertrepo. Keep Nexus's own
               # maven-releases/maven-snapshots members so nothing that already

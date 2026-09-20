@@ -827,8 +827,9 @@ func installInClusterController(b *LocalProvisioner) error {
 	}
 
 	return controllers.EnsureControllerManager(ctx, kubeClient, controllers.ManagerConfig{
-		Image:     image,
-		Namespace: globals.AdharSystemNamespace,
+		Image:        image,
+		Namespace:    globals.AdharSystemNamespace,
+		PlatformName: b.options.Name,
 	})
 }
 

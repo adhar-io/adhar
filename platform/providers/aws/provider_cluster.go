@@ -36,6 +36,15 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		return nil, fmt.Errorf("HA control plane not yet supported: self-managed AWS clusters run a single control-plane node")
 	}
 
+	// Quota preflight, before a single resource exists. A new AWS account has a
+	// 5 vCPU default for standard on-demand instances — one node — and without
+	// this the create provisions a VPC, subnets, security groups and some of the
+	// instances before failing with VcpuLimitExceeded, which names neither the
+	// limit nor how much room is left.
+	if err := p.checkQuota(ctx, plannedNodeCount(spec), plannedInstanceType(spec, p.config)); err != nil {
+		return nil, err
+	}
+
 	fmt.Printf("🚀 Creating self-managed Kubernetes cluster '%s' on EC2 instances...\n", spec.Name)
 	fmt.Printf("⏳ This will take several minutes to provision real AWS infrastructure...\n")
 
@@ -387,6 +396,19 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		fmt.Printf("⚠️  Warning: Failed to delete some Network Interfaces: %v\n", err)
 	} else {
 		fmt.Printf("✓ Network Interfaces cleaned up\n")
+	}
+
+	// The in-cluster controllers created resources no tracker knows about: a load
+	// balancer per LoadBalancer Service (in either AWS flavour), the `k8s-elb-*`
+	// security group that goes with it, and an EBS volume per PersistentVolume.
+	// They are swept HERE, before the security groups, subnets and VPC below: an
+	// ELB and its security group each hold a reference to the VPC, so leaving one
+	// behind made step 8 fail with DependencyViolation and the whole network
+	// survive the teardown.
+	fmt.Printf("\n🧹 Sweeping resources created from inside the cluster (load balancers, CSI volumes)...\n")
+	for _, problem := range p.sweepInClusterResources(ctx, clusterName, tracker) {
+		log.Printf("Warning: %s", problem)
+		fmt.Printf("⚠️  %s\n", problem)
 	}
 
 	// Step 5: Delete Security Groups (except default VPC security group)

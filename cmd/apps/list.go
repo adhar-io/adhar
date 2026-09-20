@@ -31,9 +31,9 @@ var listCmd = &cobra.Command{
 	Long: `List all applications in the specified namespace or across all namespaces.
 	
 Examples:
-  adhar apps list
-  adhar apps list --all-namespaces
-  adhar apps list --namespace=production`,
+  adhar application list
+  adhar application list --all-namespaces
+  adhar application list --namespace=production`,
 	RunE: runList,
 }
 

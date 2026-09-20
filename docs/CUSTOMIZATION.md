@@ -43,6 +43,21 @@ Each entry carries an `enabled` gate:
 | Production (any cloud / on-prem) | `platform/stack/adhar-appset-production.yaml` | `platform/stack/environments/production/config.yaml` |
 | Full-enablement reference | `platform/stack/adhar-appset-gitops.yaml` | — |
 
+**Or let the CLI do it.** `adhar stack` performs exactly this edit — both files,
+with the invariants checked — and leaves the diff for you to review:
+
+```bash
+adhar stack list                     # the catalogue: declared vs live state
+adhar stack enable harbor            # edits the appset + the environment config
+adhar stack disable posthog
+adhar stack conflicts                # what must not be on together, and whether any is
+adhar stack describe keycloak        # contract, live state, dependencies
+```
+
+It refuses an edit that would break the two rules below, and enabling in the local
+profile also enables in production (the local core must stay a subset). Nothing is
+committed or pushed: the files change, you review.
+
 Then apply:
 
 ```bash
@@ -166,7 +181,7 @@ For day-to-day deployment (CLI, golden paths, preview environments), see [User G
 
 There are two template systems, and they serve different surfaces.
 
-**CLI / control-plane templates** — `platform/stack/templates/*.yaml`, pushed to the Gitea `templates` repo at bootstrap. Each is a `CompositeApplication` with `${APP_NAME}` / `${APP_NAMESPACE}` placeholders. These are what `adhar apps deploy <name> --template <t>` instantiates. Shipped: `basic-git`, `microservice`, `frontend`. To add one, drop a new `<name>.yaml` in that directory and run `adhar upgrade`.
+**CLI / control-plane templates** — `platform/stack/templates/*.yaml`, pushed to the Gitea `templates` repo at bootstrap. Each is a `CompositeApplication` with `${APP_NAME}` / `${APP_NAMESPACE}` placeholders. These are what `adhar application deploy <name> --template <t>` instantiates. Shipped: `basic-git`, `microservice`, `frontend`. To add one, drop a new `<name>.yaml` in that directory and run `adhar upgrade`.
 
 **Console golden paths** — `platform/stack/packages/application/adhar-templates/`, Backstage `scaffolder.backstage.io/v1beta3` templates. Shipped: `microservice`, `frontend`, `data-pipeline`, `ml` (plus `basic`, `argo-workflows`, `app-with-bucket`). Adding one:
 

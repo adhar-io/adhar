@@ -192,7 +192,22 @@ func printProductionSuccessMsg(envName, host, clusterName string) {
 	fmt.Printf("  2. Platform credentials:  adhar get secrets        (e.g. adhar get secrets -p argocd)\n")
 	fmt.Printf("  3. Console: https://console.%s   ArgoCD: https://argocd.%s   Gitea: https://gitea.%s\n", host, host, host)
 	fmt.Printf("  4. Deploy your applications\n\n")
+
+	// The one thing that will otherwise surprise them. It is printed last, and as
+	// its own block, because a self-signed certificate does not look like a DNS
+	// problem from a browser — it looks like the platform is broken.
+	if tlsBlocker != nil {
+		fmt.Printf("%s\n", helpers.WarningStyle.Render("⚠  TLS is SELF-SIGNED — browsers will warn on every platform URL"))
+		fmt.Printf("   why: %s\n", tlsBlocker.Reason)
+		fmt.Printf("   fix: %s\n", tlsBlocker.Fix)
+		fmt.Printf("   Let's Encrypt is already configured; cert-manager issues a trusted\n")
+		fmt.Printf("   certificate on its own within minutes of that being resolved.\n\n")
+	}
 }
+
+// tlsBlocker records why a publicly trusted certificate cannot be issued, so the
+// closing summary can repeat what the bootstrap found. nil when nothing is wrong.
+var tlsBlocker *acmeDNS01Blocker
 
 // provisionCompletePlatformNew provisions the complete Adhar platform using the new provider system
 func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory.ProviderManager, cfg *config.Config, dryRun bool, force bool) error {
