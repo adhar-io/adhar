@@ -41,3 +41,9 @@ keywords:
   - ui
   - kyverno
   - trivy
+verification:
+  status: verified
+  profile: production
+  verifiedAt: "2026-09-23"
+  platformVersion: "v0.1.22"
+  kubernetesVersion: "v1.37.0"

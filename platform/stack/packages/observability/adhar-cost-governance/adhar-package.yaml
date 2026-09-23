@@ -1,0 +1,48 @@
+# Adhar marketplace contract for the adhar-cost-governance package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: adhar-cost-governance
+category: observability
+version: "0.1.0"
+description: Turns OpenCost's metrics into governance — recorded per-namespace cost, declared budgets, and alerts at 80% and 100% of budget. Read by `adhar cost` so showback and alerting agree on one number.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://github.com/adhar-io/adhar
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  # Publishes node_cpu_hourly_cost / node_ram_hourly_cost.
+  - name: opencost
+    category: observability
+  # Evaluates the recording and alerting rules.
+  - name: kube-prometheus
+    category: observability
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  # Rules only — no workload, so it costs nothing to run the thing that measures cost.
+  localSafe: true
+keywords:
+  - cost
+  - finops
+  - showback
+  - chargeback
+  - budget
+verification:
+  status: verified
+  profile: production
+  verifiedAt: "2026-09-23"
+  platformVersion: "v0.1.22"
+  kubernetesVersion: "v1.37.0"

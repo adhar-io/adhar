@@ -18,7 +18,7 @@ homepage: https://velero.io
 adharCompatibility:
   minVersion: "0.1.0"
 dependencies:
-  - name: minio
+  - name: rustfs
     category: data
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
@@ -36,3 +36,9 @@ keywords:
   - backup
   - restore
   - disaster-recovery
+verification:
+  status: verified
+  profile: production
+  verifiedAt: "2026-09-23"
+  platformVersion: "v0.1.22"
+  kubernetesVersion: "v1.37.0"

@@ -3,6 +3,7 @@ kind: ServiceAccount
 metadata:
   name: console
   namespace: adhar-system
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -15,6 +16,7 @@ rules:
   - workflows
   verbs:
   - create
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -29,28 +31,22 @@ rules:
   - get
   - list
   - watch
+
 ---
-# Interactive session transport for Cloud Shell and the pod terminal.
-#
-# Deliberately a separate, narrow role rather than verbs bolted onto read-all,
-# so opening a shell in a container can be reviewed and revoked on its own.
-#
-# Why the ServiceAccount needs this at all: a WebSocket cannot carry
-# `Impersonate-*` headers, so the exec socket is opened with the console's own
-# SA token. Authorization is still the user's — the BFF first asks the
-# apiserver, as that user, whether they may `create pods/exec` in the namespace
-# and refuses otherwise (apps/console/app/server/k8s/exec.ts), and the audit
-# record names the real user. Only the transport credential differs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: console-exec
 rules:
-- apiGroups: ['']
+- apiGroups:
+  - ''
   resources:
   - pods/exec
   - pods/attach
-  verbs: ['create', 'get']
+  verbs:
+  - create
+  - get
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -64,6 +60,7 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -77,6 +74,7 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -90,27 +88,8 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
+
 ---
-# Tenant provisioner — the ELEVATED grant that lets onboarding create a real,
-# isolated tenant (see adhar-console app/server/tenant-provisioner.ts): a
-# namespace, a RoleBinding of the `org-<slug>` Keycloak group to the namespaced
-# `admin` ClusterRole (the isolation boundary), and a scoped ArgoCD AppProject.
-# Kept as a separate role from console-read-all so it can be reviewed/revoked
-# independently. Without it the provisioner degrades honestly (each step reports
-# "not available") and the org is still created + activated.
-# User impersonation — REQUIRED on managed control planes.
-#
-# The console's security model is "act as the signed-in user". Where the API
-# server is configured with OIDC flags (kind, kubeadm, RKE2) it forwards the
-# user's Keycloak token directly. Managed control planes — DigitalOcean DOKS,
-# EKS, GKE, AKS — do not let you set `--oidc-*` flags, so that token is
-# rejected with 401 Unauthorized and EVERY cluster page fails.
-#
-# With this role the console authenticates as its own ServiceAccount and sets
-# Impersonate-User / Impersonate-Group, so the API server still evaluates the
-# USER's RBAC (the `oidc:` ClusterRoleBindings in the Keycloak package). The
-# console never gains permissions of its own beyond impersonation: it can only
-# act as an already-authenticated user, and only within that user's rights.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -118,9 +97,14 @@ metadata:
   labels:
     adhar.io/component: rbac
 rules:
-- apiGroups: [""]
-  resources: ["users", "groups"]
-  verbs: ["impersonate"]
+- apiGroups:
+  - ''
+  resources:
+  - users
+  - groups
+  verbs:
+  - impersonate
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -136,27 +120,54 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: console-tenant-provisioner
 rules:
-- apiGroups: [""]
-  resources: ["namespaces"]
-  verbs: ["create", "get", "list", "watch", "update", "patch"]
-- apiGroups: ["rbac.authorization.k8s.io"]
-  resources: ["rolebindings", "roles"]
-  verbs: ["create", "get", "list", "update", "patch"]
-- apiGroups: ["argoproj.io"]
-  resources: ["appprojects"]
-  verbs: ["create", "get", "list", "update", "patch"]
-# Required to grant the built-in `admin` ClusterRole via a RoleBinding
-# (Kubernetes privilege-escalation prevention).
-- apiGroups: ["rbac.authorization.k8s.io"]
-  resources: ["clusterroles"]
-  verbs: ["bind"]
-  resourceNames: ["admin"]
+- apiGroups:
+  - ''
+  resources:
+  - namespaces
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+  - patch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - patch
+- apiGroups:
+  - argoproj.io
+  resources:
+  - appprojects
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - patch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterroles
+  verbs:
+  - bind
+  resourceNames:
+  - admin
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -170,6 +181,7 @@ subjects:
 - kind: ServiceAccount
   name: console
   namespace: adhar-system
+
 ---
 apiVersion: v1
 kind: Service
@@ -183,6 +195,7 @@ spec:
     targetPort: http
   selector:
     app: console
+
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -191,23 +204,12 @@ metadata:
   namespace: adhar-system
   annotations:
     argocd.argoproj.io/sync-wave: '5'
-    # CNPG Clusters are large once the operator populates them, so ArgoCD's
-    # client-side apply overflows the 262144-byte last-applied annotation and
-    # falls back to replace(--force). With ServerSideApply globally on, that
-    # yields the invalid "--force cannot be used with --server-side" and the
-    # whole app sync fails (blocking the console Deployment in a later wave).
-    # Pinning ServerSideApply per-resource routes it through SSA/force-conflicts.
     argocd.argoproj.io/sync-options: ServerSideApply=true
 spec:
   instances: 1
-  # Expose the instance exporter to kube-prometheus: CNPG creates a PodMonitor
-  # (skipped gracefully while the monitoring CRDs are absent) so the Platform and
-  # CloudNativePG dashboards show this cluster. Without it no cnpg_* series exist.
   monitoring:
     enablePodMonitor: true
   storage:
-    # 1Gi filled up in a day: WAL is retained locally whenever archiving
-    # to MinIO hiccups (keycloak-db went down with "Not enough disk space").
     size: 5Gi
   bootstrap:
     initdb:
@@ -217,6 +219,21 @@ spec:
         name: console-env-vars
       postInitApplicationSQL:
       - ALTER ROLE console CREATEDB
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://adhar-backups/cnpg/console-db
+      endpointURL: http://rustfs.adhar-system.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId:
+          key: rootUser
+          name: root-creds
+        secretAccessKey:
+          key: rootPassword
+          name: root-creds
+      wal:
+        compression: gzip
+    retentionPolicy: 7d
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -226,9 +243,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: '20'
 spec:
-  # A late SSO secret (this app can sync before Keycloak has written
-  # keycloak-clients) must not hold the rollout Progressing for the default
-  # 10 minutes — surface it fast so ArgoCD retries.
   progressDeadlineSeconds: 120
   replicas: 1
   selector:
@@ -239,239 +253,190 @@ spec:
       labels:
         app: console
     spec:
-      # Build a CA trust bundle = in-cluster API-server CA + the adhar gateway
-      # CA, so the console's Deno runtime trusts BOTH the Kubernetes API (used
-      # by the /api/svc/k8s proxy) and Keycloak's self-signed HTTPS endpoint
-      # (server-side OIDC code exchange + JWKS).
       initContainers:
       - name: ca-bundle
         image: busybox:1.36
         command:
         - sh
         - -c
-        - >-
-          cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt /adhar-cert/ca.crt
-          > /shared/ca-bundle.crt 2>/dev/null ||
-          cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt /adhar-cert/tls.crt
-          > /shared/ca-bundle.crt
+        - cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt /adhar-cert/ca.crt
+          > /shared/ca-bundle.crt 2>/dev/null || cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          /adhar-cert/tls.crt > /shared/ca-bundle.crt
         volumeMounts:
-        - { name: ca-bundle, mountPath: /shared }
-        - { name: adhar-cert, mountPath: /adhar-cert, readOnly: true }
+        - name: ca-bundle
+          mountPath: /shared
+        - name: adhar-cert
+          mountPath: /adhar-cert
+          readOnly: true
       containers:
       - name: adhar-console
-        # Track the latest published console build; Always-pull so pod restarts
-        # pick up new pushes to the mutable :latest tag.
         image: ghcr.io/adhar-io/adhar-console:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
           name: http
         env:
-        - { name: PORT, value: '3000' }
-        # ── The ONE setting an install chooses ───────────────────────────────
-        # The domain this platform is served on. Everything public the console
-        # needs — its own URL, Keycloak, and every tool tile — is derived from
-        # it as `<name>.<domain>`. A cluster on a real domain sets this (and the
-        # matching HTTPRoute hostnames) and nothing else; hardcoding public URLs
-        # below is what previously sent a DigitalOcean install to a
-        # *.localtest.me Keycloak.
-        #
-        # The value below is written in the local-host convention on purpose:
-        # stageStack() rewrites `adhar.localtest.me:8443` to `<host><portSuffix>`
-        # for every file it seeds into Gitea, so a DigitalOcean install receives
-        # `platform.adhar.io` here and a kind install keeps the literal. This is
-        # the same mechanism the HTTPRoute hostnames already rely on.
-        #
-        # NOTE: never `kubectl apply` this file straight from the repo against a
-        # non-local cluster — that skips the rewrite and pins the console to the
-        # local domain. Change it in Git and let Argo CD sync the seeded copy.
-        - { name: ADHAR_DOMAIN, value: 'adhar.localtest.me:8443' }
-        # SSO — dedicated confidential 'adhar-console' Keycloak client. This env
-        # is what flips the console from "Keycloak not configured" to real SSO.
-        # The client's access tokens carry aud=kubernetes + the groups claim, so
-        # per-user kube-apiserver impersonation + RBAC work (see keycloak-config).
-        # KEYCLOAK_URL / AUTH_PUBLIC_URL are intentionally NOT set: the console
-        # derives them from ADHAR_DOMAIN. Set them only to override.
-        # In-cluster backchannel: the public KEYCLOAK_URL isn't routable from
-        # inside the cluster (split-horizon DNS behind the gateway), so the
-        # console does server-side OIDC (discovery/token/JWKS) against the
-        # Keycloak Service directly. Token issuer + browser redirects stay public.
-        - { name: KEYCLOAK_INTERNAL_URL, value: 'http://keycloak.adhar-system.svc.cluster.local:8080' }
-        - { name: KEYCLOAK_REALM, value: 'adhar' }
-        - { name: KEYCLOAK_CLIENT_ID, value: 'adhar-console' }
-        - { name: AUTH_SCOPES, value: 'openid profile email offline_access' }
-        - { name: AUTH_COOKIE_SECURE, value: 'true' }
-        - { name: K8S_API_URL, value: 'https://kubernetes.default.svc' }
-        - { name: DENO_CERT, value: '/shared/ca-bundle.crt' }
-        # AI assistant — point at an in-cluster OpenAI-compatible endpoint to
-        # enable it (leave AI_BASE_URL empty to disable). AI_API_KEY (if needed)
-        # comes from the console-env-vars Secret.
-        - { name: AI_BASE_URL, value: 'http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1' }
-        # The model the console's own agents name on every request — read from
-        # the SAME Secret the AI gateway backends are keyed from, so the console
-        # asks for whatever the platform was seeded for (hack/seed-adhar-ai-llm.sh
-        # writes MODEL and the provider key together). The literal `default` it
-        # replaced matched none of the gateway's model routes, fell through to the
-        # unconditional rule, and on an install without an OpenAI key every one
-        # of the console's agents answered `500 service not found`.
+        - name: PORT
+          value: '3000'
+        - name: ADHAR_DOMAIN
+          value: adhar.localtest.me:8443
+        - name: KEYCLOAK_INTERNAL_URL
+          value: http://keycloak.adhar-system.svc.cluster.local:8080
+        - name: KEYCLOAK_REALM
+          value: adhar
+        - name: KEYCLOAK_CLIENT_ID
+          value: adhar-console
+        - name: AUTH_SCOPES
+          value: openid profile email offline_access
+        - name: AUTH_COOKIE_SECURE
+          value: 'true'
+        - name: K8S_API_URL
+          value: https://kubernetes.default.svc
+        - name: DENO_CERT
+          value: /shared/ca-bundle.crt
+        - name: AI_BASE_URL
+          value: http://adhar-ai-gateway.adhar-system.svc.cluster.local:8080/v1
         - name: AI_MODEL
           valueFrom:
             secretKeyRef:
               name: adhar-ai-llm
               key: MODEL
               optional: true
-        # Adhar AI — the agentic runtime (ADR-0024). Distinct from AI_BASE_URL
-        # above: that is a plain LLM endpoint the console's own tool loop calls,
-        # this is a governed agent with its own MCP tool contract, retrieval
-        # grounding and a write path that ends in a pull request. The console
-        # offers it as an extra agent and hides that agent entirely when this is
-        # empty, so an install without the runtime shows no broken choice.
-        # The SIGNED-IN USER's token is forwarded, so the runtime resolves its
-        # own Principal and pins autonomy per user rather than per console.
-        - { name: ADHAR_AI_URL, value: 'http://adhar-ai-runtime.adhar-system.svc.cluster.local:8080' }
-        # ── Backing platform tools ───────────────────────────────────────────
-        # Each <TOOL>_URL is the tool's IN-CLUSTER Service URL, used by the BFF's
-        # server-side proxy (/api/svc/<tool>) — the public *.localtest.me hosts
-        # resolve to loopback inside the cluster (split-horizon), so a Service URL
-        # is required. The console reports these as "configured" and the app
-        # launcher derives the public browser URL from the cluster base domain,
-        # so tiles both open in the browser AND back real server-side data.
-        # Only tools actually deployed in this cluster are set; the rest stay
-        # unconfigured (honest "not set up" tiles).
-        - { name: GITEA_URL, value: 'http://gitea-http.adhar-system.svc.cluster.local:3000' }
-        # Where the marketplace toggle edits package enablement.
-        #
-        # Without these the console guesses `adhar/registry`, a repo this platform
-        # does not create, and every toggle fails with
-        #   "Could not locate the ApplicationSet YAML containing "<pkg>" in
-        #    adhar/registry. Set ADHAR_APPSET_REPO and ADHAR_APPSET_FILE …"
-        #
-        # Enablement is version-controlled in the `environments` repo, one file
-        # per environment, each holding the same element list as the matching
-        # adhar-appset-<env>.yaml (a parity test keeps the two in step). Cloud and
-        # on-prem clusters run the production set — see appSetFileForProvider in
-        # platform/controllers/adharplatform/controller.go — so that is the file a
-        # toggle must edit here. On a Kind cluster point it at local/config.yaml.
-        - { name: ADHAR_APPSET_REPO, value: 'adhar/environments' }
-        - { name: ADHAR_APPSET_FILE, value: 'production/config.yaml' }
-        - { name: ARGOCD_URL, value: 'http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80' }
-        # ArgoCD runs in adhar-system on this platform (not the default 'argocd'
-        # namespace), so the tenant provisioner creates per-tenant AppProjects
-        # here. See app/server/tenant-provisioner.ts.
-        - { name: ARGOCD_NAMESPACE, value: 'adhar-system' }
-        # ArgoCD admin credentials for the BFF's 'login' auth mode: the console
-        # mints and refreshes its own short-lived ArgoCD session token from these
-        # durable creds, so it never depends on a pre-injected token that expires
-        # (the old 24h ARGOCD_SESSION_TOKEN would 401 after a day). Password comes
-        # from the ArgoCD-managed initial-admin secret in this namespace.
-        - { name: ARGOCD_USERNAME, value: 'admin' }
+        - name: ADHAR_AI_URL
+          value: http://adhar-ai-runtime.adhar-system.svc.cluster.local:8080
+        - name: GITEA_URL
+          value: http://gitea-http.adhar-system.svc.cluster.local:3000
+        - name: ADHAR_APPSET_REPO
+          value: adhar/environments
+        - name: ADHAR_APPSET_FILE
+          value: production/config.yaml
+        - name: ARGOCD_URL
+          value: http://argo-cd-argocd-server.adhar-system.svc.cluster.local:80
+        - name: ARGOCD_NAMESPACE
+          value: adhar-system
+        - name: ARGOCD_USERNAME
+          value: admin
         - name: ARGOCD_PASSWORD
           valueFrom:
             secretKeyRef:
               name: argocd-credentials
               key: ARGOCD_ADMIN_PASSWORD
-        - { name: GRAFANA_URL, value: 'http://prometheus-grafana.adhar-system.svc.cluster.local:80' }
-        # Grafana dashboards need auth — the console uses the chart's admin
-        # secret as HTTP Basic until a service token is minted.
+        # Alertmanager's bearer token for POST /api/alerts/alertmanager — the
+        # same Secret kube-prometheus mounts into Alertmanager. `optional` so a
+        # local profile without kube-prometheus still starts; the receiver then
+        # refuses with 503 rather than accepting unauthenticated alerts.
+        - name: ALERTMANAGER_WEBHOOK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: alertmanager-console-webhook
+              key: token
+              optional: true
+        - name: GRAFANA_URL
+          value: http://prometheus-grafana.adhar-system.svc.cluster.local:80
         - name: GRAFANA_USERNAME
           valueFrom:
-            secretKeyRef: { name: prometheus-grafana, key: admin-user, optional: true }
+            secretKeyRef:
+              name: prometheus-grafana
+              key: admin-user
+              optional: true
         - name: GRAFANA_PASSWORD
           valueFrom:
-            secretKeyRef: { name: prometheus-grafana, key: admin-password, optional: true }
-        # Mimir's gateway is multi-tenant; the console sends this X-Scope-OrgID.
-        - { name: MIMIR_TENANT, value: 'anonymous' }
-        - { name: PROMETHEUS_URL, value: 'http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090' }
-        - { name: LOKI_URL, value: 'http://loki.adhar-system.svc.cluster.local:3100' }
-        - { name: MIMIR_URL, value: 'http://mimir-gateway.adhar-system.svc.cluster.local:80' }
-        - { name: TEMPO_URL, value: 'http://tempo.adhar-system.svc.cluster.local:3200' }
-        - { name: VAULT_URL, value: 'http://vault.adhar-system.svc.cluster.local:8200' }
-        - { name: TEKTON_URL, value: 'http://tekton-dashboard.adhar-system.svc.cluster.local:9097' }
-        - { name: HARBOR_URL, value: 'http://harbor.adhar-system.svc.cluster.local:80' }
-        # Harbor project the platform pushes images to + admin Basic auth so
-        # private projects and scan overviews are visible in the Registry page.
-        - { name: HARBOR_PROJECT, value: 'library' }
-        - { name: HARBOR_USERNAME, value: 'admin' }
+            secretKeyRef:
+              name: prometheus-grafana
+              key: admin-password
+              optional: true
+        - name: MIMIR_TENANT
+          value: anonymous
+        - name: PROMETHEUS_URL
+          value: http://prometheus-kube-prometheus-prometheus.adhar-system.svc.cluster.local:9090
+        - name: LOKI_URL
+          value: http://loki.adhar-system.svc.cluster.local:3100
+        - name: MIMIR_URL
+          value: http://mimir-gateway.adhar-system.svc.cluster.local:80
+        - name: TEMPO_URL
+          value: http://tempo.adhar-system.svc.cluster.local:3200
+        - name: VAULT_URL
+          value: http://vault.adhar-system.svc.cluster.local:8200
+        - name: TEKTON_URL
+          value: http://tekton-dashboard.adhar-system.svc.cluster.local:9097
+        - name: HARBOR_URL
+          value: http://harbor.adhar-system.svc.cluster.local:80
+        - name: HARBOR_PROJECT
+          value: library
+        - name: HARBOR_USERNAME
+          value: admin
         - name: HARBOR_PASSWORD
           valueFrom:
-            secretKeyRef: { name: harbor-core, key: HARBOR_ADMIN_PASSWORD, optional: true }
-        - { name: NEXUS_URL, value: 'http://nexus.adhar-system.svc.cluster.local:8081' }
-        # Nexus REST needs Basic auth for anything past /status.
+            secretKeyRef:
+              name: harbor-core
+              key: HARBOR_ADMIN_PASSWORD
+              optional: true
+        - name: NEXUS_URL
+          value: http://nexus.adhar-system.svc.cluster.local:8081
         - name: NEXUS_USERNAME
           valueFrom:
-            secretKeyRef: { name: nexus-credentials, key: username, optional: true }
+            secretKeyRef:
+              name: nexus-credentials
+              key: username
+              optional: true
         - name: NEXUS_PASSWORD
           valueFrom:
-            secretKeyRef: { name: nexus-credentials, key: password, optional: true }
-        - { name: KAFKA_UI_URL, value: 'http://kafka-ui.adhar-system.svc.cluster.local:80' }
-        - { name: TOOLJET_URL, value: 'http://tooljet.adhar-system.svc.cluster.local:80' }
-        - { name: PENPOT_URL, value: 'http://penpot.adhar-system.svc.cluster.local:8080' }
-        - { name: OPENSEARCH_URL, value: 'http://opensearch-dashboards.adhar-system.svc.cluster.local:5601' }
-        - { name: MINIO_URL, value: 'http://rustfs.adhar-system.svc.cluster.local:9000' }
-        - { name: ARGO_ROLLOUTS_URL, value: 'http://argo-rollouts-dashboard.adhar-system.svc.cluster.local:3100' }
-        # Kyverno + Crossplane have no standalone web UI — their data reaches the
-        # console as CRDs through the kube-apiserver. These URLs point at their
-        # in-cluster services purely so the app launcher reports them as enabled
-        # (they ARE running); the console never proxies them.
-        - { name: KYVERNO_URL, value: 'https://kyverno-svc.adhar-system.svc.cluster.local:443' }
-        - { name: CROSSPLANE_URL, value: 'https://crossplane-webhooks.adhar-system.svc.cluster.local:9443' }
-        # Hubble UI (Cilium network flows) — has its own browser UI.
-        - { name: HUBBLE_URL, value: 'http://hubble-ui.adhar-system.svc.cluster.local:80' }
-        # JupyterHub — the Zero-to-JupyterHub proxy-public service fronts the hub UI.
-        - { name: JUPYTERHUB_URL, value: 'http://proxy-public.adhar-system.svc.cluster.local:80' }
-        # ── tools that were resolving to their PUBLIC hostname ──────────────
-        # Without an explicit URL the console derives `https://<tool>.<domain>`,
-        # which is fronted by that tool's oauth2-proxy: an unauthenticated API
-        # call gets a 302 to Keycloak, never JSON, and the page reports the tool
-        # as unreachable even though it is running. Each of these points at the
-        # in-cluster Service so the BFF talks to the tool directly.
-        - { name: METABASE_URL, value: 'http://metabase.adhar-system.svc.cluster.local:80' }
-        # Metabase authenticates with a session id in X-Metabase-Session, minted
-        # from these admin credentials (set METABASE_API_KEY instead to use a
-        # durable API key).
+            secretKeyRef:
+              name: nexus-credentials
+              key: password
+              optional: true
+        - name: KAFKA_UI_URL
+          value: http://kafka-ui.adhar-system.svc.cluster.local:80
+        - name: TOOLJET_URL
+          value: http://tooljet.adhar-system.svc.cluster.local:80
+        - name: PENPOT_URL
+          value: http://penpot.adhar-system.svc.cluster.local:8080
+        - name: OPENSEARCH_URL
+          value: http://opensearch-dashboards.adhar-system.svc.cluster.local:5601
+        - name: MINIO_URL
+          value: http://rustfs.adhar-system.svc.cluster.local:9000
+        - name: ARGO_ROLLOUTS_URL
+          value: http://argo-rollouts-dashboard.adhar-system.svc.cluster.local:3100
+        - name: KYVERNO_URL
+          value: https://kyverno-svc.adhar-system.svc.cluster.local:443
+        - name: CROSSPLANE_URL
+          value: https://crossplane-webhooks.adhar-system.svc.cluster.local:9443
+        - name: HUBBLE_URL
+          value: http://hubble-ui.adhar-system.svc.cluster.local:80
+        - name: JUPYTERHUB_URL
+          value: http://proxy-public.adhar-system.svc.cluster.local:80
+        - name: METABASE_URL
+          value: http://metabase.adhar-system.svc.cluster.local:80
         - name: METABASE_USERNAME
           valueFrom:
-            secretKeyRef: { name: metabase-admin-credentials, key: username, optional: true }
+            secretKeyRef:
+              name: metabase-admin-credentials
+              key: username
+              optional: true
         - name: METABASE_PASSWORD
           valueFrom:
-            secretKeyRef: { name: metabase-admin-credentials, key: password, optional: true }
-        # OpenCost's allocation API is unauthenticated; 9003 is its API port
-        # (9090 is the bundled Prometheus, 8081 metrics).
-        - { name: OPENCOST_URL, value: 'http://opencost.adhar-system.svc.cluster.local:9003' }
-        - { name: KARGO_URL, value: 'http://kargo-api.adhar-system.svc.cluster.local:80' }
-        - { name: CODER_URL, value: 'http://coder.adhar-system.svc.cluster.local:80' }
-        - { name: AIRBYTE_URL, value: 'http://airbyte-airbyte-server-svc.adhar-system.svc.cluster.local:8001' }
-        # Falcosidekick exposes the Falco event API (2801); 2810 is metrics.
-        - { name: FALCO_URL, value: 'http://falco-falcosidekick.adhar-system.svc.cluster.local:2801' }
-        # PostHog: the web/events Deployments are not part of the current
-        # install (their Services have no endpoints), so this is deliberately
-        # left unset — pointing it at a Service with no backends would turn an
-        # honest "not installed" into a confusing timeout.
-        # Trivy is Harbor's built-in scanner — the registry already falls back to
-        # HARBOR_URL, so setting HARBOR_URL above enables the Trivy tile too.
-        # AUTH_CLIENT_SECRET + AUTH_COOKIE_SECRET come from here (templated by
-        # the console-oidc ExternalSecret from the keycloak-clients secret).
+            secretKeyRef:
+              name: metabase-admin-credentials
+              key: password
+              optional: true
+        - name: OPENCOST_URL
+          value: http://opencost.adhar-system.svc.cluster.local:9003
+        - name: KARGO_URL
+          value: http://kargo-api.adhar-system.svc.cluster.local:80
+        - name: CODER_URL
+          value: http://coder.adhar-system.svc.cluster.local:80
+        - name: AIRBYTE_URL
+          value: http://airbyte-airbyte-server-svc.adhar-system.svc.cluster.local:8001
+        - name: FALCO_URL
+          value: http://falco-falcosidekick.adhar-system.svc.cluster.local:2801
         envFrom:
         - secretRef:
             name: console-env-vars
-        # Gitea admin username/password + API token (GITEA_TOKEN) for the
-        # server-side Gitea proxy. Kept in a separate ExternalSecret because it
-        # syncs from the `gitea` ClusterSecretStore, not `keycloak`.
         - secretRef:
             name: gitea-credentials
-        # Coder bootstrap owner (CODER_USERNAME/CODER_PASSWORD) for the
-        # server-side Coder proxy: the BFF signs in with these and caches the
-        # session token (`login` auth mode). Optional so the console still
-        # boots on a stack without the coder package.
         - secretRef:
             name: coder-credentials
             optional: true
-        # Plane API key + in-cluster API URL + workspace slug, written by the
-        # plane package's instance-setup Job (application/plane/manifests/
-        # instance-setup.yaml). Plane's /api/v1 only accepts X-API-Key and its
-        # public route sits behind oauth2-proxy, so the Define phase needs
-        # exactly this — without it every Plane call is a 503
-        # "tool_service_token_missing". Optional for stacks without Plane.
         - secretRef:
             name: plane-api-token
             optional: true
@@ -483,19 +448,27 @@ spec:
             cpu: '1'
             memory: 768Mi
         startupProbe:
-          httpGet: { path: /healthz, port: http }
+          httpGet:
+            path: /healthz
+            port: http
           periodSeconds: 3
           failureThreshold: 40
         livenessProbe:
-          httpGet: { path: /healthz, port: http }
+          httpGet:
+            path: /healthz
+            port: http
           periodSeconds: 20
           timeoutSeconds: 3
         readinessProbe:
-          httpGet: { path: /readyz, port: http }
+          httpGet:
+            path: /readyz
+            port: http
           periodSeconds: 10
           timeoutSeconds: 5
         volumeMounts:
-        - { name: ca-bundle, mountPath: /shared, readOnly: true }
+        - name: ca-bundle
+          mountPath: /shared
+          readOnly: true
       serviceAccountName: console
       volumes:
       - name: ca-bundle
@@ -503,6 +476,7 @@ spec:
       - name: adhar-cert
         secret:
           secretName: adhar-cert
+
 ---
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
@@ -516,6 +490,7 @@ spec:
   symbolCharacters: /-+
   noUpper: false
   allowRepeat: true
+
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -526,11 +501,6 @@ spec:
   secretStoreRef:
     name: keycloak
     kind: ClusterSecretStore
-  # CreatedOnce + 5m: retry until keycloak-clients exists, then freeze so the
-  # generated Postgres password (which the DB was initialized with) never
-  # rotates. A bare refreshInterval "0" is one attempt with NO retry — any ES
-  # created before the Keycloak realm job finishes stays SecretSyncedError
-  # forever.
   refreshPolicy: CreatedOnce
   refreshInterval: 30s
   target:
@@ -546,26 +516,9 @@ spec:
         username: console
         password: '{{.POSTGRES_PASSWORD}}'
         ARGO_WORKFLOWS_URL: https://argo-workflows.adhar.localtest.me:8443
-        # Adhar Console SSO — dedicated 'adhar-console' Keycloak client
-        # (access token aud=kubernetes + groups for per-user k8s impersonation).
-        # This client also has a service account with realm-management roles
-        # (see keycloak-config.yaml), so the console reflects workspace teams /
-        # org-roles into realm groups for cluster RBAC using AUTH_CLIENT_SECRET —
-        # no separate admin credential needed (keycloak-admin.ts falls back to
-        # the console's own clientId + secret).
         AUTH_CLIENT_SECRET: '{{.ADHAR_CONSOLE_CLIENT_SECRET}}'
-        # Signs the console's HttpOnly session cookie (>=32 chars). Rotate for
-        # a hardened deployment; stable value keeps sessions valid across pod
-        # restarts / replicas.
-        AUTH_COOKIE_SECRET: 'adhar-console-session-signing-key-change-me-please-01'
-        # Console's own relational state (preferences, notification state). Uses
-        # the CNPG 'console' database; the console auto-creates its tables.
-        DATABASE_URL: 'postgres://console:{{.POSTGRES_PASSWORD}}@console-db-rw.adhar-system.svc.cluster.local:5432/console'
-        # The console's BFF proxy reads `ARGOCD_TOKEN` (registry convention) and
-        # sends it as `Authorization: Bearer <token>`, so this must be the RAW
-        # ArgoCD JWT — not the `argocd.token=<jwt>` cookie form (a Bearer with the
-        # cookie prefix fails auth, and the mismatched `ARGOCD_AUTH_TOKEN` name
-        # left the tile 503 "tool_service_token_missing").
+        AUTH_COOKIE_SECRET: adhar-console-session-signing-key-change-me-please-01
+        DATABASE_URL: postgres://console:{{.POSTGRES_PASSWORD}}@console-db-rw.adhar-system.svc.cluster.local:5432/console
         ARGOCD_TOKEN: '{{ .ARGOCD_SESSION_TOKEN }}'
         ARGO_CD_URL: http://argo-cd-argocd-server.adhar-system.svc.cluster.local/api/v1/
   data:
@@ -586,6 +539,7 @@ spec:
     rewrite:
     - transform:
         template: POSTGRES_PASSWORD
+
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -596,8 +550,6 @@ spec:
   secretStoreRef:
     name: gitea
     kind: ClusterSecretStore
-  # 1h, not "0": sync-once is a single attempt with no retry, so a first sync
-  # that races the source secret wedges as SecretSyncedError forever.
   refreshInterval: 1h
   target:
     name: gitea-credentials
@@ -610,11 +562,24 @@ spec:
     remoteRef:
       key: gitea-credential
       property: password
-  # API token for the console's server-side Gitea proxy. The BFF reads
-  # `GITEA_TOKEN` and sends it as a Bearer (Gitea accepts a PAT as Bearer); a
-  # missing token left the tile 503 "tool_service_token_missing". This secret is
-  # added to the console Deployment's envFrom below so the token reaches the pod.
   - secretKey: GITEA_TOKEN
     remoteRef:
       key: gitea-credential
       property: token
+
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: console-db-daily
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: console-db
+  annotations:
+    argocd.argoproj.io/sync-wave: '-4'
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  schedule: 0 40 2 * * *
+  backupOwnerReference: self
+  cluster:
+    name: console-db

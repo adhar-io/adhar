@@ -378,13 +378,22 @@ func runDescribe(cmd *cobra.Command, args []string) error {
 	if contract != nil {
 		t.Row("Version", orDash(contract.Version))
 		t.Row("Stability", orDash(contract.Stability))
+		t.Row("Verified", verifiedCell(contract))
 		t.Row("Licence", orDash(contract.License))
 		t.Row("Homepage", orDash(contract.Homepage))
 		if contract.Maintainer.Name != "" {
 			t.Row("Maintainer", contract.Maintainer.Name)
 		}
 		if len(contract.Dependencies) > 0 {
-			t.Row("Dependencies", strings.Join(contract.Dependencies, ", "))
+			deps := make([]string, 0, len(contract.Dependencies))
+			for _, d := range contract.Dependencies {
+				if d.Optional {
+					deps = append(deps, d.Name+" (optional)")
+				} else {
+					deps = append(deps, d.Name)
+				}
+			}
+			t.Row("Dependencies", strings.Join(deps, ", "))
 		}
 		if contract.Provenance.UpstreamChart != "" {
 			t.Row("Upstream", contract.Provenance.UpstreamChart)
@@ -420,11 +429,52 @@ type contract struct {
 		Name string `json:"name"`
 		URL  string `json:"url"`
 	} `json:"maintainer"`
-	Dependencies []string `json:"dependencies"`
-	Provenance   struct {
+	// Contracts list dependencies as objects ({name, category, optional…});
+	// a []string here made yaml.Unmarshal fail and silently dropped the whole
+	// contract for every package that has one.
+	Dependencies []struct {
+		Name     string `json:"name"`
+		Optional bool   `json:"optional"`
+	} `json:"dependencies"`
+	Provenance struct {
 		UpstreamChart string `json:"upstreamChart"`
 		SourceRepo    string `json:"sourceRepo"`
 	} `json:"provenance"`
+	Verification struct {
+		Status            string `json:"status"`
+		Profile           string `json:"profile"`
+		PlatformVersion   string `json:"platformVersion"`
+		KubernetesVersion string `json:"kubernetesVersion"`
+		VerifiedAt        string `json:"verifiedAt"`
+		Reason            string `json:"reason"`
+	} `json:"verification"`
+}
+
+// verifiedCell renders the ADR-0014 verification block for a terminal row.
+func verifiedCell(c *contract) string {
+	v := c.Verification
+	switch v.Status {
+	case "verified":
+		s := "verified"
+		if v.PlatformVersion != "" || v.KubernetesVersion != "" {
+			s += " on Adhar " + orDash(v.PlatformVersion) + " / Kubernetes " + orDash(v.KubernetesVersion)
+		}
+		if v.VerifiedAt != "" {
+			s += " (" + v.VerifiedAt + ", " + v.Profile + ")"
+		}
+		return s
+	case "known-broken":
+		s := "known-broken"
+		if v.Reason != "" {
+			s += ": " + v.Reason
+		}
+		if v.VerifiedAt != "" {
+			s += " (" + v.VerifiedAt + ")"
+		}
+		return s
+	default:
+		return "unverified — never observed enabled (`adhar stack verify --write` records it)"
+	}
 }
 
 // readContract loads a package's marketplace contract from the stack on disk. The
@@ -432,17 +482,11 @@ type contract struct {
 // its identity, but the ApplicationSet entry name is not always the directory
 // (supply-chain-policies-enforce and vllm-cpu both live elsewhere).
 func readContract(stackDir string, elements []element, name string) *contract {
-	dir := ""
-	for _, e := range elements {
-		if e.Name == name {
-			dir = filepath.Dir(filepath.Join(stackDir, "packages", e.ManifestPath))
-			break
-		}
-	}
-	if dir == "" {
+	path := contractPath(stackDir, elements, name)
+	if path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "adhar-package.yaml")) // #nosec G304 -- resolved from the stack's own ApplicationSet
+	data, err := os.ReadFile(path) // #nosec G304 -- resolved from the stack's own ApplicationSet
 	if err != nil {
 		return nil
 	}

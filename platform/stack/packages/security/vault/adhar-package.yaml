@@ -40,3 +40,5 @@ keywords:
   - vault
   - kms
   - encryption
+verification:
+  status: unverified

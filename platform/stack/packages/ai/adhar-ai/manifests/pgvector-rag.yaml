@@ -71,3 +71,24 @@ spec:
         secretAccessKey:
           name: root-creds
           key: rootPassword
+---
+# The RAG store declared a barmanObjectStore backup (WAL archiving) but no
+# ScheduledBackup, so it had continuous WAL and never a base backup to restore
+# it onto — PITR with no point to recover to. Every other CNPG cluster on the
+# platform pairs the two; this makes the RAG store match.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: adhar-ai-rag-daily
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai-rag
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  # 02:55 — after the other platform databases, which start at 02:30.
+  schedule: "0 55 2 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: adhar-ai-rag

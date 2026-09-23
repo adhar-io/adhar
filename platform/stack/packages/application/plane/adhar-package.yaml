@@ -23,8 +23,8 @@ dependencies:
   - name: keycloak
     category: security
     optional: true
-  - name: minio
-    category: data
+  # No object-store dependency: the upstream chart bundles its own MinIO
+  # (plane-minio) rather than using the platform's RustFS.
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
   upstreamChart: plane/plane-ce
@@ -41,3 +41,9 @@ keywords:
   - project-management
   - issues
   - planning
+verification:
+  status: verified
+  profile: production
+  verifiedAt: "2026-09-23"
+  platformVersion: "v0.1.22"
+  kubernetesVersion: "v1.37.0"

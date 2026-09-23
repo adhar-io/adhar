@@ -1,0 +1,52 @@
+# Policy Reporter — the unified UI over Kyverno's PolicyReports (and any other
+# wgpolicyk8s.io producer).
+#
+# Regenerate manifests/install.yaml with ./generate-manifests.sh after any change
+# here. The manifests used to be hand-written, which is how the deployment ended
+# up with a core and a UI from incompatible major versions — see the script.
+
+# No ingress: the UI is published on the platform Gateway behind the Keycloak
+# oauth2-proxy (manifests/httproute.yaml + manifests/dashboard-sso.yaml).
+ui:
+  enabled: true
+  service:
+    type: ClusterIP
+  resources:
+    requests: {cpu: 25m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  # The cluster label shown in the UI's switcher. The chart's default is
+  # "Default", which is meaningless on a platform that names its cluster.
+  name: adhar
+
+  # The UI renders per SOURCE. With no source declared it loads, queries nothing
+  # and shows an empty dashboard — which is exactly what happened here. `kyverno`
+  # is the source every result in this cluster carries.
+  sources:
+    - name: kyverno
+      type: result
+      exceptions: false
+      # warn/error are execution problems, not policy findings; including them
+      # puts engine noise in a compliance view.
+      excludes:
+        results: [warn, error]
+
+# The core watches report CRs and serves the API the UI reads.
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 512Mi}
+
+service:
+  type: ClusterIP
+
+# Metrics are scraped by the platform Prometheus via manifests/servicemonitor.yaml,
+# which selects on labels — the chart's own ServiceMonitor would be a duplicate.
+metrics:
+  enabled: true
+monitoring:
+  enabled: false
+
+# The Kyverno plugin adds policy detail (rules, categories, severities) to the
+# UI. Without it the dashboard lists results but cannot explain them.
+plugin:
+  kyverno:
+    enabled: true

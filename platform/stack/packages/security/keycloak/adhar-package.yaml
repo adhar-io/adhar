@@ -23,7 +23,7 @@ dependencies:
     category: data
   - name: external-secrets
     category: security
-  - name: minio
+  - name: rustfs
     category: data
 provenance:
   sourceRepo: https://github.com/adhar-io/adhar
@@ -41,3 +41,9 @@ keywords:
   - oidc
   - sso
   - keycloak
+verification:
+  status: verified
+  profile: production
+  verifiedAt: "2026-09-23"
+  platformVersion: "v0.1.22"
+  kubernetesVersion: "v1.37.0"

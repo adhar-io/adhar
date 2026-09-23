@@ -3916,8 +3916,8 @@ metadata:
     helm.sh/chart: velero-12.1.0
 spec:
   credential:
-    name: secret-key
-    key: aws
+    name: velero-s3-credentials
+    key: cloud
   provider: aws
   accessMode: ReadWrite
   objectStorage:

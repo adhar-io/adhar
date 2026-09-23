@@ -34,3 +34,5 @@ keywords:
   - multicluster
   - addons
   - deployment
+verification:
+  status: unverified

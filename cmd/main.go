@@ -30,12 +30,15 @@ import (
 	"adhar-io/adhar/cmd/bucket"
 	"adhar-io/adhar/cmd/cache"
 	"adhar-io/adhar/cmd/cluster"
+	"adhar-io/adhar/cmd/compliance"
 	"adhar-io/adhar/cmd/config"
 	controllercmd "adhar-io/adhar/cmd/controller"
+	"adhar-io/adhar/cmd/cost"
 	"adhar-io/adhar/cmd/db"
 	"adhar-io/adhar/cmd/dev"
 	"adhar-io/adhar/cmd/down"
 	"adhar-io/adhar/cmd/env"
+	"adhar-io/adhar/cmd/fleet"
 	"adhar-io/adhar/cmd/get"
 	"adhar-io/adhar/cmd/gitops"
 	"adhar-io/adhar/cmd/health"
@@ -152,6 +155,9 @@ func init() {
 	// platform-administration decision.
 	secrets.SecretsCmd.GroupID = GroupAdminister
 	auth.AuthCmd.GroupID = GroupAdminister
+	fleet.FleetCmd.GroupID = GroupAdminister
+	cost.CostCmd.GroupID = GroupAdminister
+	compliance.ComplianceCmd.GroupID = GroupAdminister
 	policy.PolicyCmd.GroupID = GroupAdminister
 	security.SecurityCmd.GroupID = GroupAdminister
 	webhook.WebhookCmd.GroupID = GroupAdminister
@@ -181,6 +187,9 @@ func init() {
 		cache.CacheCmd,              // Cache command: self-service Valkey/Redis in-memory cache
 		ai.AICmd,                    // AI command: ask, investigate and act through the platform's AI data plane
 		cluster.ClusterCmd,          // Cluster command for cluster management
+		fleet.FleetCmd,              // Fleet command: operate every registered workload cluster as one
+		cost.CostCmd,                // Cost command: showback per namespace against declared budgets
+		compliance.ComplianceCmd,    // Compliance command: control posture and auditor-ready evidence
 		config.ConfigCmd,            // Config command for configuration management
 		env.EnvironmentCmd,          // Environment command for environment management
 		health.HealthCmd,            // Health command for platform health monitoring

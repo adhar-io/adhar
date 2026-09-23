@@ -1,0 +1,26 @@
+# A team's project: a guard-railed namespace (ResourceQuota + LimitRange +
+# default-deny NetworkPolicy), RBAC bound to the team's Keycloak group, and a
+# Gitea repository. This is the unit of tenancy (docs/adr/0011, ROADMAP tenancy).
+#
+# The team's TOTAL across projects is capped by the hierarchical tenant quota
+# (security/adhar-tenant-quotas) when an allowance is declared for it.
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeProject
+metadata:
+  name: payments-api
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: local
+  parameters:
+    organisation: acme
+    team: payments
+    name: payments-api
+    description: Payment capture and settlement service
+    tier: dev
+    cpuQuota: "4"
+    memoryQuota: 8Gi
+    podQuota: 30
+    createRepository: true

@@ -1,24 +1,21 @@
-apiVersion: platform.adhar.com/v1alpha1
-kind: Environment
+# A named environment (a quota-bounded namespace with a tier) that applications
+# are promoted into. Environments are what Kargo Stages point at.
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeEnvironment
 metadata:
-  name: development
-  labels:
-    platform.adhar.com/env-type: non-prod
+  name: payments-staging
+  namespace: team-payments
 spec:
-  displayName: "Development Environment"
-  type: "development"
-  description: "Development environment for testing and iteration"
-  organizationRef:
-    name: acme-corp
-  namespaceName: "dev-apps"
-  clusterAffinity:
-    clusterName: "dev-cluster"
-  configurations:
-    debugLoggingEnabled: "true"
-    mockExternalServices: "true"
-  resourceQuota:
-    hard:
-      requests.cpu: "50"
-      requests.memory: "256Gi"
-      pods: "200"
-
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: local
+  parameters:
+    name: payments-staging
+    tier: staging
+    cpuQuota: "8"
+    memoryQuota: 16Gi
+    podQuota: 40
+    enableNetworkPolicy: true
+    labels:
+      adhar.io/team: payments

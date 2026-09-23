@@ -39,3 +39,5 @@ keywords:
   - metrics
   - tsdb
   - victoriametrics
+verification:
+  status: unverified

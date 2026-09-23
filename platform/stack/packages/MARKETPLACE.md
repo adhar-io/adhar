@@ -52,6 +52,7 @@ Every `adhar-package.yaml` declares the following. Required fields are marked �
 | `planeAffinity` | ✅ | `control-plane` \| `data-plane` \| `any`. |
 | `stability` | ✅ | `alpha` \| `beta` \| `stable` \| `community` — see §3. |
 | `resources` | | Footprint hints for capacity planning / local gating. |
+| `verification` | | `{ status, profile?, platformVersion?, kubernetesVersion?, verifiedAt?, reason?, slowStart? }` — ADR-0014 verification state, written by `adhar stack verify` from live Argo CD health. See "`verification` — evidence, not folklore". |
 | `keywords` | | Search tags. |
 
 ### Categories (the enum matches the real directory layout)
@@ -69,6 +70,22 @@ lives.
 package is verified against; `maxVersion` is optional and, when omitted, declares
 open-ended forward compatibility. This lets the marketplace hide or warn on packages that
 predate (or postdate) the running platform version.
+
+### `verification` — evidence, not folklore (ADR-0014)
+
+`stability` says how mature a package is meant to be; `verification` says what was
+actually **observed**. It is the record of the last time the package was enabled on a
+real cluster:
+
+- `verified` — Argo CD reported the Application `Healthy` on `profile` at `verifiedAt`
+  (sync status is deliberately not a criterion, per ADR-0014 rule 2)
+- `known-broken` — it was enabled and did not reach `Healthy`; `reason` carries the
+  health message so the failure is triageable from the catalogue
+- `unverified` — never observed enabled on the recorded profile
+
+The block is written by `adhar stack verify` (`--write` updates every contract in place,
+touching only the `verification:` lines) and is what the marketplace and the Console
+show as "verified on Adhar vX / Kubernetes vY". Editing it by hand defeats its purpose.
 
 ### `dependencies` vs. conflicts
 

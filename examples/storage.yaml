@@ -1,0 +1,21 @@
+# An S3 bucket on the platform object store (RustFS). `adhar bucket create`
+# makes this object; the credential arrives as a Secret named after the bucket.
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeStorage
+metadata:
+  name: payments-invoices
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: local
+        type: object
+  name: payments-invoices
+  type: object
+  size: 50Gi
+  backup:
+    enabled: true
+    schedule: "0 4 * * *"
+  encryption:
+    enabled: true

@@ -538,17 +538,33 @@ alertmanager:
       - target_matchers:
           - 'alertname = InfoInhibitor'
     route:
-      group_by: ['namespace']
+      group_by: ['namespace', 'alertname']
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 12h
-      receiver: 'null'
+      # Everything goes to the console's Notification Center. This replaced the
+      # chart default, a receiver named `null`: the rules fired and were dropped,
+      # so "incident response is in the box" was a route to /dev/null.
+      receiver: 'adhar-console'
       routes:
+      # Watchdog is Alertmanager's own heartbeat; it is not an incident.
       - receiver: 'null'
         matchers:
           - alertname = "Watchdog"
     receivers:
     - name: 'null'
+    - name: 'adhar-console'
+      webhook_configs:
+      - url: http://console.adhar-system.svc.cluster.local:80/api/alerts/alertmanager
+        send_resolved: true
+        # The shared token, mounted from the alertmanager-console-webhook Secret
+        # by `alertmanagerSpec.secrets` below. The operator mounts secrets under
+        # /etc/alertmanager/secrets/<name>/<key>.
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager/secrets/alertmanager-console-webhook/token
+        max_alerts: 200
     templates:
     - '/etc/alertmanager/config/*.tmpl'
 
@@ -932,7 +948,9 @@ alertmanager:
     ## Secrets is a list of Secrets in the same namespace as the Alertmanager object, which shall be mounted into the
     ## Alertmanager Pods. The Secrets are mounted into /etc/alertmanager/secrets/.
     ##
-    secrets: []
+    # Mounted at /etc/alertmanager/secrets/<name>/ for the receiver above.
+    secrets:
+      - alertmanager-console-webhook
 
     ## If false then the user will opt out of automounting API credentials.
     ##

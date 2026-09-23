@@ -1,0 +1,48 @@
+# The credential Alertmanager presents to the console's alert receiver.
+#
+# Alertmanager's route used to end in a receiver named `null` — the chart
+# default — so every alert the platform evaluated was delivered nowhere. This
+# token is what lets it deliver to the console's Notification Center instead:
+# Alertmanager reads it from a file mounted by the operator (`alertmanagerSpec.
+# secrets` in values.yaml), the console reads the same Secret through
+# `ALERTMANAGER_WEBHOOK_TOKEN` (core/adhar-console). Both by reference; neither
+# side has the value in git.
+#
+# CreatedOnce: rotating it would need both consumers to restart together, and a
+# window where only one has the new value is a window of silently dropped alerts.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: alertmanager-console-webhook
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 48
+  digits: 10
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: alertmanager-console-webhook
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  refreshPolicy: CreatedOnce
+  refreshInterval: 30s
+  target:
+    name: alertmanager-console-webhook
+    template:
+      engineVersion: v2
+      data:
+        token: "{{ .token }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: alertmanager-console-webhook
+      rewrite:
+        - transform: {template: "token"}

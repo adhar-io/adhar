@@ -43,3 +43,5 @@ keywords:
   - collector
   - forwarder
   - fluent-bit
+verification:
+  status: unverified

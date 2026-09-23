@@ -31,6 +31,7 @@ import (
 	"strings"
 
 	"adhar-io/adhar/api/v1alpha1"
+	"adhar-io/adhar/cmd/version"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/controllers"
 	"adhar-io/adhar/platform/controllers/adharplatform"
@@ -38,6 +39,7 @@ import (
 	"adhar-io/adhar/platform/utils"
 
 	"github.com/spf13/cobra"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -184,6 +186,25 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			if _, err := s.run(ctx, ctrl.Request{}, &platform); err != nil {
 				return fmt.Errorf("converging %s: %w", s.name, err)
 			}
+		}
+
+		// The controller manager is part of the foundation too. It used to be
+		// applied only by `adhar up`, so a release that changed the manager
+		// Deployment (a new port, a volume, a flag) never reached an existing
+		// cluster: the CLI upgraded every component except the one running the
+		// controllers. Converge it here with the same embedded manifest.
+		//
+		// The IMAGE is preserved from the live Deployment rather than reset to
+		// this release's default: an operator who pinned a tag did so on
+		// purpose, and an upgrade should roll the manifest shape, not silently
+		// change which image runs. A missing Deployment gets the release default.
+		fmt.Println("   • controller-manager")
+		if err := controllers.EnsureControllerManager(ctx, kubeClient, controllers.ManagerConfig{
+			Image:        liveControllerImage(ctx, kubeClient, platform.Namespace),
+			Namespace:    platform.Namespace,
+			PlatformName: platform.Name,
+		}); err != nil {
+			return fmt.Errorf("converging controller-manager: %w", err)
 		}
 		fmt.Println("✅ Foundation converged")
 	}
@@ -347,4 +368,24 @@ func sanitize(s, secret string) string {
 		return s
 	}
 	return strings.ReplaceAll(s, secret, "***")
+}
+
+// liveControllerImage returns the image the in-cluster controller manager runs
+// today, or this release's default when none is deployed. See the comment at
+// the call site for why the live value wins.
+func liveControllerImage(ctx context.Context, c client.Client, namespace string) string {
+	var dep appsv1.Deployment
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "adhar-controller-manager"}, &dep); err == nil {
+		for _, ct := range dep.Spec.Template.Spec.Containers {
+			if ct.Name == "manager" && ct.Image != "" {
+				return ct.Image
+			}
+		}
+	}
+	// Same rule as `adhar up`: a dev build has no published tag, so track latest.
+	v := strings.TrimPrefix(version.Version, "v")
+	if v == "" || strings.Contains(v, "-dev") || strings.HasPrefix(v, "0.0.1") {
+		return "ghcr.io/adhar-io/adhar:latest"
+	}
+	return "ghcr.io/adhar-io/adhar:" + v
 }

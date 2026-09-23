@@ -1,0 +1,128 @@
+# Cost governance — recording rules, declared budgets, and budget alerts.
+#
+# OpenCost was installed and published metrics, but nothing consumed them: there
+# was no per-team cost figure, no budget, and no alert. A cost exporter nobody
+# reads is a dashboard, not governance.
+#
+# WHY RECORDING RULES AND NOT AD-HOC QUERIES
+# The namespace-cost expression is a join across three metrics and is easy to get
+# subtly wrong (mixing bytes with GiB, or double-counting a pod that moved node).
+# Defining it once as a recording rule means the alert, the CLI (`adhar cost`)
+# and any dashboard all read the SAME number. Disagreeing cost figures destroy
+# trust in the whole feature faster than having none.
+#
+# WHAT IS ACTUALLY MEASURED
+# Cost of RESOURCE REQUESTS, not of usage. That is deliberate and it is what a
+# team can act on: requests are what the scheduler reserves and therefore what
+# denies capacity to everyone else. A team running at 5% of a large request is
+# costing the platform the full reservation, and a usage-based figure would hide
+# exactly the waste worth reclaiming.
+#
+# The expressions below were verified against a live cluster before being
+# committed — they return real per-namespace figures, not plausible-looking ones.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: adhar-cost-governance
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+  labels:
+    adhar.io/component: cost-governance
+    app.kubernetes.io/part-of: adhar
+spec:
+  groups:
+    # ── what things cost ────────────────────────────────────────────────────
+    - name: adhar.cost.recording
+      interval: 60s
+      rules:
+        # CPU and RAM are recorded under ONE metric name, separated by a
+        # `component` label, so the total is a plain sum over that label.
+        #
+        # The obvious alternative — two differently-named series combined with
+        # `or` — is wrong, and quietly so. `or` is a SET UNION that prefers the
+        # left operand, so a namespace having both CPU and RAM yields only the
+        # CPU sample and the RAM cost vanishes. Measured on a live cluster that
+        # under-reported adhar-system as $1.46/hr against a true $1.95/hr: a 25%
+        # undercount that every dashboard and budget would have inherited.
+        - record: adhar:namespace_cost_usd:hourly
+          labels: {component: cpu}
+          expr: |
+            sum by (namespace) (
+              sum by (namespace, node) (kube_pod_container_resource_requests{resource="cpu"})
+              * on(node) group_left() avg by (node) (node_cpu_hourly_cost)
+            )
+        # Requests are in BYTES; node_ram_hourly_cost is per GiB-hour. Omitting
+        # this conversion misreports memory cost by a factor of ~10^9.
+        - record: adhar:namespace_cost_usd:hourly
+          labels: {component: ram}
+          expr: |
+            sum by (namespace) (
+              sum by (namespace, node) (kube_pod_container_resource_requests{resource="memory"}) / 1024 / 1024 / 1024
+              * on(node) group_left() avg by (node) (node_ram_hourly_cost)
+            )
+        # Correct because the two component series differ by a label: summing
+        # over the label adds them, and a namespace with only one still reports.
+        - record: adhar:namespace_cost_usd:hourly_total
+          expr: sum by (namespace) (adhar:namespace_cost_usd:hourly)
+        # 730 = mean hours per month (8760/12). Using 24*30 understates every
+        # figure by ~1.4% — the kind of quiet error that becomes an argument
+        # with finance.
+        - record: adhar:namespace_cost_usd:monthly_projected
+          expr: adhar:namespace_cost_usd:hourly_total * 730
+
+    # ── what teams are allowed to spend ─────────────────────────────────────
+    #
+    # Budgets are declared HERE rather than in a ConfigMap, because Prometheus
+    # cannot read a ConfigMap: an alert can only compare a series to a series. A
+    # recording rule keeps the budget in git, reviewed like any other change, and
+    # visible in the same place as the rule that uses it.
+    #
+    # EMPTY BY DEFAULT. With no budget declared, nothing alerts — installing this
+    # package cannot start paging anyone. Add a line per namespace to opt in:
+    #
+    #   - record: adhar:namespace_budget_usd:monthly
+    #     labels: {namespace: team-payments}
+    #     expr: vector(500)
+    - name: adhar.cost.budgets
+      interval: 300s
+      rules: []
+
+    # ── alerts ──────────────────────────────────────────────────────────────
+    - name: adhar.cost.alerts
+      rules:
+        # Warning at 80%: far enough ahead of the limit that a team can still act
+        # within the month. Alerting only at 100% tells people after the money is
+        # already spent.
+        - alert: AdharNamespaceBudgetWarning
+          expr: |
+            adhar:namespace_cost_usd:monthly_projected
+            / on(namespace) group_left() adhar:namespace_budget_usd:monthly
+            > 0.8 <= 1
+          for: 30m
+          labels:
+            severity: warning
+            adhar_component: cost-governance
+          annotations:
+            summary: '{{ $labels.namespace }} is projected to use {{ $value | humanizePercentage }} of its monthly budget'
+            description: >-
+              Projected monthly spend for namespace {{ $labels.namespace }} is at
+              {{ $value | humanizePercentage }} of its declared budget, based on
+              current resource REQUESTS. Reduce requests, or raise the budget in
+              the adhar-cost-governance PrometheusRule.
+        - alert: AdharNamespaceBudgetExceeded
+          expr: |
+            adhar:namespace_cost_usd:monthly_projected
+            / on(namespace) group_left() adhar:namespace_budget_usd:monthly
+            > 1
+          # A full hour, because a brief scale-up during a deploy is not a budget
+          # breach and paging on it teaches people to silence the alert.
+          for: 1h
+          labels:
+            severity: critical
+            adhar_component: cost-governance
+          annotations:
+            summary: '{{ $labels.namespace }} is over its monthly budget'
+            description: >-
+              Namespace {{ $labels.namespace }} is projected to spend
+              {{ $value | humanizePercentage }} of its monthly budget at current
+              resource requests.

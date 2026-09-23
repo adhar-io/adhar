@@ -1,0 +1,52 @@
+# Who may talk to the seven MCP servers (ADR-0025 "Required changes", item 6).
+#
+# Per-server token validation was removed from the MCP servers because the
+# gateway validates the Keycloak JWT once for all of them. That decision is only
+# sound if the gateway is the ONLY way in: a server that trusts the network
+# and a Service reachable from every pod on the cluster is an unauthenticated
+# tool API. This policy is what makes "every request arrives through the
+# gateway" a property of the cluster rather than a convention.
+#
+# Three callers are legitimate:
+#   • the agentgateway proxy   — the public LLM/MCP data plane (mcp.<host>)
+#   • adhar-ai-runtime         — mounts the servers directly as tool groups
+#                                (agent-runtime.yaml `mcpServers:`) and forwards
+#                                the user's bearer token for RBAC-scoped reads
+#   • Prometheus               — scrapes :8080/metrics (servicemonitor.yaml)
+#
+# Enforced by Cilium (the platform CNI). Egress is deliberately untouched: the
+# servers call the Kubernetes API, Gitea, Argo CD, Prometheus and the LLM
+# gateway, and that list changes with every tool added.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: adhar-ai-mcp-ingress
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: adhar-ai
+    app.kubernetes.io/part-of: adhar-ai
+    adhar.io/component: ai
+    adhar.io/plane: control
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/part-of
+        operator: In
+        values: [adhar-ai]
+      - key: adhar.io/mcp-domain
+        operator: Exists
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: adhar-ai-gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: adhar-ai-runtime
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 8080
+          protocol: TCP

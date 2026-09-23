@@ -257,6 +257,29 @@
       "description": "Optional search tags for the marketplace listing.",
       "type": "array",
       "items": { "type": "string" }
+    },
+    "verification": {
+      "description": "Verification state (ADR-0014 rule 4): whether this package has been observed Healthy on a real cluster, when, and on which profile. Written by `adhar stack verify` from Argo CD health — never by hand. `known-broken` carries a `reason` so \"enable anytime\" is a checkable claim.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "description": "verified = Healthy on the recorded profile; known-broken = enabled but not Healthy (see reason); unverified = never observed enabled.",
+          "type": "string",
+          "enum": ["verified", "known-broken", "unverified"]
+        },
+        "profile": {
+          "description": "The ApplicationSet profile the observation was made on.",
+          "type": "string",
+          "enum": ["local", "production"]
+        },
+        "platformVersion": { "description": "Adhar version of the platform that ran the check.", "type": "string" },
+        "kubernetesVersion": { "description": "Kubernetes server version at verification time.", "type": "string" },
+        "verifiedAt": { "description": "Date of the observation (YYYY-MM-DD).", "type": "string", "format": "date" },
+        "reason": { "description": "For known-broken: the Argo CD health message or the resource that keeps it from Healthy.", "type": "string" },
+        "slowStart": { "description": "Takes more than one Argo CD sync/health cycle to settle. Advisory for wave sizing.", "type": "boolean" }
+      }
     }
   }
 }

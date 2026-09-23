@@ -39,3 +39,5 @@ keywords:
   - vulnerabilities
   - sbom
   - supply-chain
+verification:
+  status: unverified

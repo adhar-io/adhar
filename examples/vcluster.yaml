@@ -1,0 +1,34 @@
+# A team's own isolated Kubernetes, requested through the platform API
+# (ADR-0016; compositions/cluster/vcluster.yaml).
+#
+# Apply this in the team's namespace. Within a few minutes:
+#   • Secret `vc-payments-dev` in that namespace holds a kubeconfig
+#       kubectl --kubeconfig <(kubectl -n team-payments get secret vc-payments-dev \
+#         -o jsonpath='{.data.config}' | base64 -d) get nodes
+#   • the cluster is registered as a DataPlane — visible in `adhar fleet list`,
+#     in the observability hub, and a target for `adhar fleet upgrade`.
+#
+# No region, no node pools: a virtual cluster runs on the host's nodes under its
+# own API server and etcd. Ask for a different Kubernetes minor than the host
+# with `version`, which is the reason most teams want one.
+apiVersion: platform.adhar.io/v1alpha1
+kind: CompositeCluster
+metadata:
+  name: payments-dev
+  namespace: team-payments
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: vcluster
+  parameters:
+    provider: VCLUSTER
+    displayName: "Payments — development"
+    environmentType: development
+    # The Kubernetes version INSIDE the virtual cluster.
+    version: "v1.31.4"
+    controlPlane: {}
+    providerSettings:
+      vcluster:
+        # etcd + control-plane state for the virtual cluster (default 10Gi).
+        storageSize: 10Gi

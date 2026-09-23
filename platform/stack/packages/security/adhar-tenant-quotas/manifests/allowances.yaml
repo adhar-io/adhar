@@ -1,0 +1,34 @@
+# Tenant allowances — the ceiling per team.
+#
+# EMPTY BY DEFAULT, and that is the point: with no entry here nothing is
+# enforced, so installing this package cannot start rejecting projects on a
+# platform that never asked for quotas. Declare an allowance to opt in.
+#
+# The vocabulary is ResourceQuota's, so there is nothing new to learn. An axis you
+# omit is UNLIMITED rather than zero — that is what lets you cap memory without
+# having to invent a CPU number.
+#
+#   data:
+#     default: |            # any team without its own entry
+#       cpu: "32"
+#       memory: 64Gi
+#       pods: "200"
+#       projects: 10
+#     payments: |           # a team that needs more
+#       cpu: "128"
+#       memory: 256Gi
+#       projects: 40
+#
+# The sum is taken across every CompositeProject owned by the team, so the
+# ceiling constrains the TOTAL rather than each project. A project being updated
+# is not counted twice, so re-applying an unchanged project never trips the limit.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adhar-tenant-quotas
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+  labels:
+    adhar.io/component: tenant-quotas
+    app.kubernetes.io/part-of: adhar
+data: {}

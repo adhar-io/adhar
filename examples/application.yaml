@@ -1,41 +1,24 @@
+# Deploy an application from a Git repository through Argo CD, promoted across
+# the environments the platform defines. `adhar application deploy --repo …`
+# creates exactly this object; the Console's Create wizard does too.
 apiVersion: platform.adhar.io/v1alpha1
-kind: Application
+kind: CompositeApplication
 metadata:
-  name: sample-app
-  namespace: acme-corp
-  labels:
-    platform.adhar.io/organization: acme-corp
-    platform.adhar.io/team: platform-team
+  name: payments-api
+  namespace: team-payments
 spec:
-  displayName: "Sample Application"
-  description: "A simple web application example"
-  organizationRef:
-    name: acme-corp
-  teamRef:
-    name: platform-team
-    namespace: acme-corp
-  sourceCode:
-    repositoryRef:
-      name: sample-app-repo
-      namespace: acme-corp
-    defaultBranch: "main"
-  build:
-    registryOutput:
-      registryRef:
-        name: harbor-registry
-      imageRepositoryName: "acme-corp/sample-app"
-  deployments:
-    - environmentRef:
-        name: development
-      version: "latest"
-      replicas: 1
-      rolloutStrategy: "RollingUpdate"
-      env:
-        - name: "LOG_LEVEL"
-          value: "DEBUG"
-        - name: "DATABASE_URL"
-          valueFrom:
-            secretKeyRef:
-              name: "app-database-conn"
-              key: "url"
-
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: local
+  parameters:
+    displayName: Payments API
+    project: default
+    source:
+      repoURL: https://gitea.cloud.adhar.io/adhar/payments-api.git
+      path: deploy
+      targetRevision: main
+    destination:
+      namespace: team-payments
+    # Omit `environments` to get the platform default (dev auto-syncs;
+    # test and prod are promoted through Kargo).

@@ -79,6 +79,12 @@ spec:
             # emptyDir instead of a non-existent home.
             - name: HOME
               value: /tmp
+          ports:
+            # controller-runtime's default webhook port. Named so the Service in
+            # security/adhar-tenant-quotas can target it by name.
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
           # Probe windows sized for a loaded single-node cluster (ADR-0012):
           # a healthy manager can take seconds to answer under convergence load.
           livenessProbe:
@@ -114,6 +120,22 @@ spec:
             # under /tmp; the root filesystem stays read-only.
             - name: tmp
               mountPath: /tmp
+            # Admission-webhook serving certificate, issued by cert-manager in
+            # security/adhar-tenant-quotas.
+            #
+            # `optional: true` is what keeps this Deployment installable on a
+            # cluster that has not enabled that package: without it the pod would
+            # stay in ContainerCreating waiting for a Secret that will never
+            # appear, taking every controller down to gain one webhook. The
+            # controller checks for the files and simply does not serve webhooks
+            # when they are absent (platform/webhooks/setup.go).
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: webhook-certs
+          secret:
+            secretName: adhar-webhook-serving-cert
+            optional: true

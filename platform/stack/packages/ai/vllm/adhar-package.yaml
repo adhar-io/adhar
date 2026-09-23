@@ -79,3 +79,5 @@ keywords:
   - vllm
   - openai-compatible
   - gpu
+verification:
+  status: unverified

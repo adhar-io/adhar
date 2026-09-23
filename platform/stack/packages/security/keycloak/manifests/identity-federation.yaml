@@ -1,0 +1,177 @@
+# Enterprise identity federation — bring your own directory.
+#
+# An enterprise does not migrate its directory into Keycloak; it federates to it.
+# Each ConfigMap below declares one external identity provider, and the Keycloak
+# config Job reconciles it on every run (see the ensure_idp/reconcile_idps
+# functions in keycloak-config.yaml). Declared in git, so federation survives a
+# realm rebuild and is reviewed like any other change — as opposed to being
+# clicked into the admin console once and lost.
+#
+# ALL OF THESE ARE OFF. Each carries `adhar.io/keycloak-idp: "false"`, and the
+# reconciler only picks up `"true"`. Turn one on by setting the label, filling in
+# your tenant's values, and putting the client secret in the referenced Secret.
+#
+# ── the part people get wrong ───────────────────────────────────────────────
+# Adhar's authorisation keys ENTIRELY on the `groups` claim: Argo CD RBAC, the
+# Gitea team map, Coder's role mapping and the console's persona all read it. An
+# IdP with no group mapper authenticates your users perfectly and then grants
+# them nothing — which reads as a broken platform rather than as missing config.
+# Every example below therefore ships a group mapper in `__mappers`.
+#
+# `__mappers` is an Adhar convention, not a Keycloak field: Keycloak's IdP
+# representation does not include mappers (they are a sub-resource), so the
+# reconciler strips this key and applies each entry separately, matching by name
+# so repeated runs update rather than duplicate. A duplicated group mapper
+# assigns the same group twice on every login.
+---
+# ── Okta ────────────────────────────────────────────────────────────────────
+# In Okta: create an OIDC Web application, set the sign-in redirect URI to
+#   https://keycloak.<your-domain>/realms/adhar/broker/okta/endpoint
+# and add a "groups" claim to the ID token (filter: matches regex .*).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-idp-okta
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-idp: "false"   # ← "true" to enable
+    app.kubernetes.io/part-of: adhar
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  idp.json: |
+    {
+      "alias": "okta",
+      "displayName": "Okta",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "clientId": "REPLACE_WITH_OKTA_CLIENT_ID",
+        "clientSecret": "REPLACE_ME",
+        "authorizationUrl": "https://REPLACE.okta.com/oauth2/v1/authorize",
+        "tokenUrl": "https://REPLACE.okta.com/oauth2/v1/token",
+        "userInfoUrl": "https://REPLACE.okta.com/oauth2/v1/userinfo",
+        "jwksUrl": "https://REPLACE.okta.com/oauth2/v1/keys",
+        "issuer": "https://REPLACE.okta.com",
+        "useJwksUrl": "true",
+        "defaultScope": "openid profile email groups",
+        "syncMode": "FORCE"
+      },
+      "__mappers": [
+        {
+          "__comment": "Okta group -> Keycloak group. Without this, federated users arrive with no groups and every RBAC check denies them.",
+          "name": "okta-groups",
+          "identityProviderMapper": "oidc-advanced-group-idp-mapper",
+          "config": {
+            "syncMode": "FORCE",
+            "claims": "[{\"key\":\"groups\",\"value\":\"platform-admin\"}]",
+            "group": "/platform-admin",
+            "are.claim.values.regex": "false"
+          }
+        }
+      ]
+    }
+---
+# ── Microsoft Entra ID (formerly Azure AD) ──────────────────────────────────
+# In Entra: register an application, add a redirect URI of
+#   https://keycloak.<your-domain>/realms/adhar/broker/entra/endpoint
+# and configure a groups claim (Token configuration → Add groups claim).
+#
+# Entra emits group OBJECT IDs by default, not names. Either switch the claim to
+# emit group names (requires groups to be on-prem synced or assigned), or map the
+# object id — the example maps an id, because that is what an untouched tenant
+# actually sends and a mapper on a name would silently never match.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-idp-entra
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-idp: "false"   # ← "true" to enable
+    app.kubernetes.io/part-of: adhar
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  idp.json: |
+    {
+      "alias": "entra",
+      "displayName": "Microsoft Entra ID",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": true,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "clientId": "REPLACE_WITH_APPLICATION_ID",
+        "clientSecret": "REPLACE_ME",
+        "authorizationUrl": "https://login.microsoftonline.com/REPLACE_TENANT_ID/oauth2/v2.0/authorize",
+        "tokenUrl": "https://login.microsoftonline.com/REPLACE_TENANT_ID/oauth2/v2.0/token",
+        "jwksUrl": "https://login.microsoftonline.com/REPLACE_TENANT_ID/discovery/v2.0/keys",
+        "issuer": "https://login.microsoftonline.com/REPLACE_TENANT_ID/v2.0",
+        "useJwksUrl": "true",
+        "defaultScope": "openid profile email",
+        "syncMode": "FORCE"
+      },
+      "__mappers": [
+        {
+          "__comment": "Entra sends group OBJECT IDs unless the tenant is configured to send names. Map the id you want to grant.",
+          "name": "entra-platform-admins",
+          "identityProviderMapper": "oidc-advanced-group-idp-mapper",
+          "config": {
+            "syncMode": "FORCE",
+            "claims": "[{\"key\":\"groups\",\"value\":\"REPLACE_WITH_GROUP_OBJECT_ID\"}]",
+            "group": "/platform-admin",
+            "are.claim.values.regex": "false"
+          }
+        }
+      ]
+    }
+---
+# ── Generic SAML (ADFS and anything else that speaks SAML 2.0) ──────────────
+# Point entityId/singleSignOnServiceUrl at your IdP's metadata values. The group
+# mapper reads a SAML ATTRIBUTE rather than a claim, which is the one structural
+# difference from the OIDC examples above.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-idp-saml
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-idp: "false"   # ← "true" to enable
+    app.kubernetes.io/part-of: adhar
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  idp.json: |
+    {
+      "alias": "corp-saml",
+      "displayName": "Corporate SSO",
+      "providerId": "saml",
+      "enabled": true,
+      "trustEmail": true,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "entityId": "https://keycloak.REPLACE/realms/adhar",
+        "singleSignOnServiceUrl": "https://adfs.REPLACE/adfs/ls/",
+        "nameIDPolicyFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        "principalType": "SUBJECT",
+        "postBindingResponse": "true",
+        "postBindingAuthnRequest": "true",
+        "wantAssertionsSigned": "true",
+        "validateSignature": "true",
+        "syncMode": "FORCE"
+      },
+      "__mappers": [
+        {
+          "__comment": "SAML carries groups as an ATTRIBUTE, not a claim — this is the one shape difference from OIDC.",
+          "name": "saml-groups",
+          "identityProviderMapper": "saml-advanced-group-idp-mapper",
+          "config": {
+            "syncMode": "FORCE",
+            "attributes": "[{\"key\":\"http://schemas.xmlsoap.org/claims/Group\",\"value\":\"PlatformAdmins\"}]",
+            "group": "/platform-admin",
+            "are.attribute.values.regex": "false"
+          }
+        }
+      ]
+    }

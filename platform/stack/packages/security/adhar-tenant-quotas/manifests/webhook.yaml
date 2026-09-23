@@ -1,0 +1,122 @@
+# Hierarchical tenant quotas — the admission plumbing.
+#
+# The platform already gave every project a namespace ResourceQuota, which stops
+# ONE project exhausting the cluster. It did nothing about a team creating thirty
+# individually-reasonable projects, so on a shared platform the per-namespace
+# quota is a floor-level control with no ceiling above it. This package adds the
+# ceiling: a validating webhook that sums what a team already holds and refuses a
+# project that would take it over its allowance.
+#
+# Three pieces, and each is here for a reason:
+#   • a cert-manager Certificate, because an admission webhook must serve TLS and
+#     the API server must trust it;
+#   • a Service in front of the controller, because the API server calls the
+#     webhook over the network and the controller had no Service at all;
+#   • the ValidatingWebhookConfiguration, with cert-manager's ca-injector filling
+#     in the caBundle so nothing has to copy a CA by hand.
+#
+# failurePolicy is **Ignore**, deliberately. A quota ceiling is a governance
+# control, not a security boundary: if the controller is down, the correct
+# behaviour is to let teams keep working, not to block every project in the
+# cluster. Enforcement resumes the moment the controller is back. (Contrast the
+# supply-chain signature policy, which is a security boundary and fails closed.)
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: adhar-webhook-selfsign
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  selfSigned: {}
+---
+# A self-signed CA, then a leaf from it. Two steps rather than one self-signed
+# leaf because the API server needs a CA to trust, and ca-injector distributes
+# the CA — not the leaf.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: adhar-webhook-ca
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  isCA: true
+  commonName: adhar-webhook-ca
+  secretName: adhar-webhook-ca
+  privateKey: {algorithm: ECDSA, size: 256}
+  issuerRef: {name: adhar-webhook-selfsign, kind: Issuer, group: cert-manager.io}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: adhar-webhook-ca
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  ca: {secretName: adhar-webhook-ca}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: adhar-webhook-serving
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  # The name the controller mounts and the API server dials. Both SAN forms are
+  # listed because the API server resolves the Service by its cluster DNS name.
+  secretName: adhar-webhook-serving-cert
+  dnsNames:
+    - adhar-webhook.adhar-system.svc
+    - adhar-webhook.adhar-system.svc.cluster.local
+  privateKey: {algorithm: ECDSA, size: 256}
+  issuerRef: {name: adhar-webhook-ca, kind: Issuer, group: cert-manager.io}
+---
+# The controller had no Service. Selector matches the labels the manager
+# Deployment already carries (platform/controllers/resources/manager/manager.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: adhar-webhook
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+  labels:
+    app.kubernetes.io/name: adhar-webhook
+    app.kubernetes.io/part-of: adhar
+spec:
+  selector:
+    app.kubernetes.io/name: adhar-controller-manager
+  ports:
+    - name: https
+      port: 443
+      # 9443 is controller-runtime's default webhook port.
+      targetPort: 9443
+      protocol: TCP
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: adhar-tenant-quotas
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # ca-injector writes the CA from the Certificate above into caBundle.
+    cert-manager.io/inject-ca-from: adhar-system/adhar-webhook-serving
+webhooks:
+  - name: tenantquota.platform.adhar.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    # See the header: a governance ceiling must not block the platform when the
+    # controller is unavailable.
+    failurePolicy: Ignore
+    timeoutSeconds: 5
+    clientConfig:
+      service:
+        name: adhar-webhook
+        namespace: adhar-system
+        path: /validate-platform-adhar-io-v1alpha1-compositeproject
+        port: 443
+    rules:
+      - apiGroups: ["platform.adhar.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["compositeprojects"]
+        scope: Namespaced

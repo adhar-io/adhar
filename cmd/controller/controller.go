@@ -32,6 +32,7 @@ import (
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/controllers"
 	"adhar-io/adhar/platform/k8s"
+	"adhar-io/adhar/platform/webhooks"
 
 	"github.com/go-logr/stdr"
 	"github.com/spf13/cobra"
@@ -111,6 +112,21 @@ func runController(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating controller manager: %w", err)
 	}
+	// Admission webhooks, when this cluster has the serving certificate.
+	//
+	// Conditional on purpose: a configured-but-unservable webhook makes the API
+	// server reject the very resources it guards, so a controller that always
+	// served would take tenant self-service down on any cluster without certs.
+	// Absent certs mean "not opted in" — say so once, and carry on.
+	if ok, err := webhooks.Register(mgr, namespace, ""); err != nil {
+		return fmt.Errorf("registering admission webhooks: %w", err)
+	} else if ok {
+		ctrllog.Log.Info("admission webhooks registered", "tenantQuota", webhooks.PathValidateProject)
+	} else {
+		ctrllog.Log.Info("admission webhooks not served: no serving certificate found; tenant quotas are not enforced on this cluster",
+			"certDir", webhooks.DefaultCertDir)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return fmt.Errorf("adding healthz check: %w", err)
 	}

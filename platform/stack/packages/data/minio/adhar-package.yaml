@@ -40,3 +40,5 @@ keywords:
   - s3
   - buckets
   - minio
+verification:
+  status: unverified

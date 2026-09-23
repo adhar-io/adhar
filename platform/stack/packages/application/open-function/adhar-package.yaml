@@ -34,3 +34,5 @@ keywords:
   - faas
   - serverless
   - functions
+verification:
+  status: unverified

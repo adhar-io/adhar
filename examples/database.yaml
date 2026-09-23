@@ -1,34 +1,24 @@
+# A managed PostgreSQL for a team. Locally and on self-managed clusters this is
+# a CloudNativePG cluster with WAL archiving to the platform object store and a
+# daily base backup; on `ADHAR_PROVIDER=aws` the same request becomes RDS — the
+# request does not change, the composition behind it does.
 apiVersion: platform.adhar.io/v1alpha1
-kind: Database
+kind: CompositeDatabase
 metadata:
-  name: app-database
-  namespace: dev-apps
-  labels:
-    platform.adhar.io/environment: development
+  name: payments-db
+  namespace: team-payments
 spec:
-  displayName: "Application Database"
-  type: "postgresql"
-  version: "15.0"
-  environmentRef:
-    name: development
-  teamRef:
-    name: platform-team
-    namespace: acme-corp
-  provisioner:
-    type: "CloudNativePG"
-  cloudNativePGConfig:
-    instances: 1
-    storage:
-      size: "10Gi"
-      storageClass: "standard"
-    resources:
-      requests:
-        memory: "1Gi"
-        cpu: "500m"
-      limits:
-        memory: "2Gi"
-        cpu: "1"
-  backupPolicy:
-    schedule: "0 2 * * *"
-    retentionDays: 7
-
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: local
+        engine: postgresql
+  parameters:
+    engine: postgresql
+    engineVersion: "16"
+    storageSize: 20Gi
+    # 0 = a single instance; 1–5 adds streaming replicas (HA).
+    replicas: 1
+    enableBackup: true
+    backupRetentionDays: 7
+    deletionPolicy: Orphan

@@ -34,3 +34,5 @@ keywords:
   - cis
   - soc2
   - policy-pack
+verification:
+  status: unverified

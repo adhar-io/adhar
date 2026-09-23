@@ -1,0 +1,198 @@
+---
+# vcluster Composition — a team's own isolated Kubernetes, on demand (ADR-0016).
+#
+# ADR-0016 shipped the vcluster PACKAGE and the DataPlane controller could
+# already create a `mode: vcluster` plane — but that is a cluster-scoped,
+# operator-driven object. What was missing is the self-service half: a team
+# asking for `CompositeCluster{provider: VCLUSTER}` inside its own namespace and
+# getting a cluster back, through the same versioned API it uses for a database
+# or a bucket. This is that composition.
+#
+# WHY VCLUSTER IS THE RIGHT TENANT BOUNDARY
+# A namespace (CompositeProject) isolates workloads; it does not isolate
+# CLUSTER-SCOPED things. A team that needs its own CRDs, its own operators, its
+# own admission webhooks, or a different Kubernetes minor cannot have them in a
+# shared cluster without affecting every other tenant. vcluster gives each team
+# a real API server and etcd of their own while the pods still run on the host
+# nodes — a full cluster's isolation at a namespace's cost.
+#
+# The chart, version and values MIRROR the DataPlane controller
+# (platform/controllers/dataplane/infra.go) on purpose: a vcluster reached by
+# self-service and one reached by an operator must be the same vcluster, or the
+# two paths drift and only one of them gets fixed.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: vcluster
+  labels:
+    feature: cluster
+    provider: vcluster
+    cluster.adhar.io/managed: "true"
+    cluster.adhar.io/type: virtual
+spec:
+  compositeTypeRef:
+    apiVersion: platform.adhar.io/v1alpha1
+    kind: CompositeCluster
+
+  mode: Pipeline
+  pipeline:
+    - step: render-templates
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := .observed.composite.resource -}}
+            {{- $name := $xr.metadata.name -}}
+            {{- $ns := $xr.metadata.namespace -}}
+            {{- $params := dig "spec" "parameters" dict $xr -}}
+            {{- $type := dig "environmentType" "development" $params -}}
+            {{- $version := dig "version" "" $params -}}
+            {{- $settings := dig "providerSettings" "vcluster" dict $params -}}
+            {{- $storage := dig "storageSize" "10Gi" $settings -}}
+            {{- $storageClass := dig "storageClass" "" $settings -}}
+            {{- $helmProvider := dig "spec" "helmProviderConfigRef" "name" "helm-provider" $xr -}}
+            {{- $k8sProvider := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
+            {{- /* One vcluster per XR, in the XR's own namespace: a namespaced XR
+                   may not own cluster-scoped objects, and putting the virtual
+                   control plane beside the team's other resources is what keeps
+                   its RBAC and quota inside the team's boundary. */ -}}
+            {{- $svc := printf "%s.%s.svc.cluster.local" $name $ns -}}
+            ---
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: {{ $name }}-info
+              namespace: {{ $ns }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: cluster-info
+                gotemplating.fn.crossplane.io/ready: "True"
+              labels:
+                cluster.adhar.io/name: {{ $name }}
+                cluster.adhar.io/provider: vcluster
+            data:
+              clusterName: {{ $name }}
+              provider: vcluster
+              type: {{ $type }}
+              # How to reach it from inside the host cluster. The kubeconfig
+              # itself is written by vcluster into Secret `vc-{{ $name }}` in
+              # this namespace (exportKubeConfig below) — read that, never this.
+              server: https://{{ $svc }}:443
+              kubeconfigSecret: vc-{{ $name }}
+            ---
+            apiVersion: helm.m.crossplane.io/v1beta1
+            kind: Release
+            metadata:
+              name: {{ $name }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: vcluster
+            spec:
+              providerConfigRef:
+                name: {{ $helmProvider }}
+                kind: ClusterProviderConfig
+              forProvider:
+                chart:
+                  name: vcluster
+                  repository: https://charts.loft.sh
+                  # Pinned to the DataPlane controller's version. Bump both together.
+                  version: "0.36.1"
+                namespace: {{ $ns }}
+                values:
+                  {{- if $version }}
+                  controlPlane:
+                    distro:
+                      k8s:
+                        # The team's requested Kubernetes minor — the reason to
+                        # want a vcluster at all when the host runs another.
+                        image:
+                          tag: {{ $version | quote }}
+                  {{- end }}
+                  exportKubeConfig:
+                    # The Secret the console and CLI read. The server address
+                    # is the in-cluster Service so a kubeconfig exported here
+                    # works from any pod on the host without an ingress.
+                    server: https://{{ $svc }}:443
+                    secret:
+                      name: vc-{{ $name }}
+                  integrations:
+                    # Without this `kubectl top` inside the vcluster is empty
+                    # and every HPA a team creates is inert.
+                    metricsServer:
+                      enabled: true
+                      nodes: true
+                      pods: true
+                  controlPlane:
+                    ingress:
+                      enabled: false
+                    proxy:
+                      extraSANs:
+                        - {{ $svc }}
+                        - {{ $name }}.{{ $ns }}.svc
+                    statefulSet:
+                      persistence:
+                        volumeClaim:
+                          enabled: true
+                          size: {{ $storage | quote }}
+                          {{- if $storageClass }}
+                          storageClass: {{ $storageClass | quote }}
+                          {{- end }}
+                      resources:
+                        requests:
+                          cpu: 200m
+                          memory: 512Mi
+                        limits:
+                          memory: 2Gi
+                  sync:
+                    toHost:
+                      # Pods, Services and PVCs are what the host has to see to
+                      # schedule and expose; everything else stays virtual.
+                      pods: {enabled: true}
+                      services: {enabled: true}
+                      persistentVolumeClaims: {enabled: true}
+                      ingresses: {enabled: false}
+                    fromHost:
+                      nodes: {enabled: true}
+                      storageClasses: {enabled: true}
+            ---
+            # Register it with the platform as a data plane, so it shows up in
+            # `adhar fleet list`, joins the observability hub, and can be a
+            # target for `adhar fleet upgrade` — a self-service cluster is not a
+            # second-class one. The DataPlane controller adopts the vcluster
+            # from the same kubeconfig Secret (mode: adopt).
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
+            metadata:
+              name: {{ $name }}-dataplane
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: dataplane
+            spec:
+              providerConfigRef:
+                name: {{ $k8sProvider }}
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: platform.adhar.io/v1alpha1
+                  kind: DataPlane
+                  metadata:
+                    name: {{ $name }}
+                    labels:
+                      adhar.io/owner-namespace: {{ $ns }}
+                      cluster.adhar.io/provider: vcluster
+                  spec:
+                    infrastructure:
+                      mode: adopt
+                      kubeconfigSecretRef:
+                        name: vc-{{ $name }}
+                        namespace: {{ $ns }}
+                    profile: standard
+                    placement:
+                      labels:
+                        adhar.io/tenant: {{ $ns }}
+                        adhar.io/environment: {{ $type }}
+
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: function-auto-ready

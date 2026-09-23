@@ -23,9 +23,14 @@ configuration:
       # root holds directories it did not create ("Backup store contains
       # invalid top-level directories: [cnpg]" -> BSL Unavailable).
       prefix: velero
+      # The Secret produced by manifests/credentials.yaml (an ExternalSecret over
+      # RustFS's root-creds), holding an AWS-INI profile under the `cloud` key.
+      # Velero's `credential` is {Secret NAME, KEY WITHIN IT}: the earlier value
+      # here named a Secret `secret-key` that nothing ever created, which left
+      # the store Unavailable and every backup in FailedValidation.
       credential:
-        name: secret-key
-        key: aws
+        name: velero-s3-credentials
+        key: cloud
       config:
         region: minio
         s3Url: http://rustfs.adhar-system.svc.cluster.local:9000

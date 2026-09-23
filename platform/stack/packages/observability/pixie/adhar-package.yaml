@@ -35,3 +35,5 @@ keywords:
   - observability
   - tracing
   - pixie
+verification:
+  status: unverified

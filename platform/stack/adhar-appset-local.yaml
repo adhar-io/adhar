@@ -386,6 +386,14 @@ spec:
           # it); the policy sets and policy-reporter are off in the local core
           # (2026-09-18) — they add webhooks and reports without exercising
           # anything the local platform needs. Production keeps them on.
+          # Hierarchical tenant quotas: a per-team ceiling above the
+          # per-namespace ResourceQuota. Certificates + a webhook config only —
+          # the validator runs inside the controller manager already present.
+          - name: "adhar-tenant-quotas"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "security"
+            manifestPath: "security/adhar-tenant-quotas/manifests"
           - name: "kyverno"
             enabled: "true"
             namespace: "adhar-system"
@@ -557,6 +565,13 @@ spec:
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/loki-stack/manifests"
+          # Recording rules + budget alerts over OpenCost's metrics, and the
+          # series `adhar cost` reads. Rules only — no workload.
+          - name: "adhar-cost-governance"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "observability"
+            manifestPath: "observability/adhar-cost-governance/manifests"
           - name: "opencost"
             enabled: "false"
             namespace: "adhar-system"

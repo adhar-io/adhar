@@ -43,12 +43,22 @@ spec:
                       type: string
                 parameters:
                   type: object
+                  # region and nodePools are required for every CLOUD provider,
+                  # not for VCLUSTER: a virtual cluster runs where the host runs
+                  # and shares its nodes, so demanding a region and a node pool
+                  # would force callers to invent fake values. The CEL rules
+                  # below make the requirement conditional on the provider.
                   required:
                     - provider
-                    - region
                     - version
                     - controlPlane
-                    - nodePools
+                  x-kubernetes-validations:
+                    - rule: "self.provider == 'VCLUSTER' || has(self.region)"
+                      message: "region is required for every provider except VCLUSTER"
+                    - rule: "self.provider == 'VCLUSTER' || (has(self.nodePools) && size(self.nodePools) > 0)"
+                      message: "nodePools (at least one) is required for every provider except VCLUSTER"
+                    - rule: "self.provider != 'VCLUSTER' || !has(self.nodePools) || size(self.nodePools) == 0"
+                      message: "a VCLUSTER shares the host's nodes and has no node pools of its own"
                   properties:
                     displayName:
                       type: string
@@ -68,6 +78,11 @@ spec:
                         - DIGITALOCEAN_DOKS
                         - CIVO_K3S
                         - KIND
+                        # An isolated virtual cluster inside this platform for
+                        # the requesting namespace — no cloud account, region or
+                        # node pools; pods run on the host nodes under the team's
+                        # own API server (ADR-0016, compositions/cluster/vcluster.yaml).
+                        - VCLUSTER
                     region:
                       type: string
                     version:
@@ -118,6 +133,17 @@ spec:
                     providerSettings:
                       type: object
                       properties:
+                        vcluster:
+                          type: object
+                          description: Settings for provider VCLUSTER (compositions/cluster/vcluster.yaml).
+                          properties:
+                            storageSize:
+                              type: string
+                              default: 10Gi
+                              description: Persistent volume for the virtual control plane's etcd and state.
+                            storageClass:
+                              type: string
+                              description: StorageClass for that volume; the host default when unset.
                         aws:
                           type: object
                           properties:
@@ -406,7 +432,8 @@ spec:
                                   type: string
                     nodePools:
                       type: array
-                      minItems: 1
+                      # No minItems here: the CEL rule on `parameters` requires
+                      # a pool for cloud providers and forbids one for VCLUSTER.
                       items:
                         type: object
                         required:

@@ -45,6 +45,7 @@ images; this package is the standard manifest set that installs it via the Appli
 | `manifests/namespace-and-rbac.yaml` | `adhar-ai` SA, **read-only** ClusterRole (get/list/watch), namespaced self Role (no cluster-mutating verbs) |
 | `manifests/llm-secret-external.yaml` | ExternalSecrets `adhar-ai-llm` (`API_KEY`/`ANTHROPIC_API_KEY` + `OPENAI_API_KEY`, provider=claude default) + `adhar-ai-bot` (Gitea PR identity) |
 | `manifests/mcp-servers.yaml` | Seven per-domain MCP Deployments+Services (StreamableHTTP `/mcp`:8080); read RBAC-scoped, write = PR-only; no per-server OIDC — the gateway validates |
+| `manifests/mcp-networkpolicy.yaml` | Ingress to the MCP servers only from the agentgateway proxy, the agent runtime and Prometheus — what makes "the gateway validates" true |
 | `manifests/agent-runtime.yaml` | `adhar-ai-runtime` Deployment + `adhar-ai-config` ConfigMap (staged autonomy, default `suggest`) |
 | `manifests/httproute.yaml` | HTTPRoute for `agent.adhar.localtest.me` (the runtime) on `adhar-gateway`. `ai.<host>` and `mcp.<host>` belong to `agentgateway` |
 | `manifests/oidc-client.yaml` | Keycloak `adhar-ai` client payload ConfigMap + registration Job (identity on agent actions) |

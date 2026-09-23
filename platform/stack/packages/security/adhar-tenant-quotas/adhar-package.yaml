@@ -1,0 +1,49 @@
+# Adhar marketplace contract for the adhar-tenant-quotas package.
+# Validated against platform/stack/packages/marketplace.schema.json
+# (run: hack/validate-packages.sh). See MARKETPLACE.md for the contract.
+apiVersion: marketplace.adhar.io/v1alpha1
+kind: AdharPackage
+name: adhar-tenant-quotas
+category: security
+version: "0.1.0"
+description: Hierarchical tenant quotas — a per-team ceiling above the per-namespace ResourceQuota, enforced at admission so one team cannot consume the platform with many individually-reasonable projects.
+maintainer:
+  name: Adhar Platform Team
+  url: https://github.com/adhar-io/adhar
+  firstParty: true
+license: Apache-2.0
+homepage: https://github.com/adhar-io/adhar
+adharCompatibility:
+  minVersion: "0.1.0"
+dependencies:
+  # Issues and rotates the webhook serving certificate, and injects the CA.
+  - name: cert-manager
+    category: security
+  # The ceiling is enforced on CompositeProject, which Crossplane serves.
+  - name: crossplane
+    category: infrastructure
+provenance:
+  sourceRepo: https://github.com/adhar-io/adhar
+  signed: true                 # release artifacts are Cosign-keyless signed by the GoReleaser pipeline
+  cosignKeyless: true          # Sigstore Fulcio + Rekor, ADR-0019
+  scanned: true
+  scanner: trivy
+  sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
+planeAffinity: control-plane
+stability: beta
+resources:
+  # No workload of its own: the validator runs inside the controller manager that
+  # is already present, so this package is certificates and configuration only.
+  localSafe: true
+keywords:
+  - multi-tenancy
+  - quota
+  - governance
+  - admission
+  - fairness
+verification:
+  status: verified
+  profile: production
+  verifiedAt: "2026-09-23"
+  platformVersion: "v0.1.22"
+  kubernetesVersion: "v1.37.0"

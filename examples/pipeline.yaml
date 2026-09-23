@@ -1,38 +1,38 @@
+# A CI pipeline. The platform's golden path is the Tekton `app-ci` pipeline
+# (clone → build → scan → sign → deploy, docs/adr/0018) which every scaffolded
+# repository gets automatically; this object is for a pipeline of your own
+# shape — its stages become Tekton Tasks, its triggers an EventListener.
 apiVersion: platform.adhar.io/v1alpha1
-kind: Pipeline
+kind: CompositePipeline
 metadata:
-  name: sample-app-pipeline
-  namespace: acme-corp
+  name: payments-api-ci
+  namespace: team-payments
 spec:
-  displayName: "Sample App CI/CD Pipeline"
-  applicationRef:
-    name: sample-app
-    namespace: acme-corp
-  repositoryRef:
-    name: sample-app-repo
-    namespace: acme-corp
-  triggers:
-    - type: "push"
-      branches: ["main", "develop"]
-    - type: "pull_request"
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        provider: local
+  name: payments-api-ci
+  namespace: team-payments
+  type: build
+  timeout: 30m
   stages:
-    - name: "build"
+    - name: test
       steps:
-        - name: "install-deps"
-          image: "node:20"
-          command: ["npm", "install"]
-        - name: "test"
-          image: "node:20"
-          command: ["npm", "test"]
-        - name: "build"
-          image: "node:20"
-          command: ["npm", "run", "build"]
-    - name: "docker"
+        - name: unit
+          image: maven:3-eclipse-temurin-25
+          command: ["mvn", "-B", "test"]
+    - name: build
       steps:
-        - name: "build-image"
-          image: "gcr.io/kaniko-project/executor:latest"
-          args:
-            - "--dockerfile=Dockerfile"
-            - "--context=dir://."
-            - "--destination=harbor.adhar.local/acme-corp/sample-app:${GIT_COMMIT}"
-
+        - name: image
+          image: gcr.io/kaniko-project/executor:latest
+          command: ["/kaniko/executor", "--destination=harbor.cloud.adhar.io/adhar/payments-api:$(git.sha)"]
+  triggers:
+    git:
+      enabled: true
+      branch: main
+      events: [push, pull_request]
+    manual: true
+  artifacts:
+    enabled: true
+    retention: 30d

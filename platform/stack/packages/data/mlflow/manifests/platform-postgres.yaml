@@ -6,15 +6,23 @@ kind: Password
 metadata:
   name: mlflow-db
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "-6"}
-spec: {length: 28, digits: 5, symbols: 0, noUpper: false, allowRepeat: true}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-6'
+spec:
+  length: 28
+  digits: 5
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: mlflow-db-credentials
   namespace: adhar-system
-  annotations: {argocd.argoproj.io/sync-wave: "-6"}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-6'
 spec:
   refreshInterval: '0'
   target:
@@ -22,31 +30,75 @@ spec:
     template:
       type: kubernetes.io/basic-auth
       metadata:
-        labels: {adhar.io/cli-secret: 'true', adhar.io/package-name: mlflow}
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: mlflow
       engineVersion: v2
       data:
         username: mlflow
         password: '{{ .PASSWORD }}'
   dataFrom:
-    - sourceRef:
-        generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: mlflow-db}
-      rewrite: [{transform: {template: 'PASSWORD'}}]
+  - sourceRef:
+      generatorRef:
+        apiVersion: generators.external-secrets.io/v1alpha1
+        kind: Password
+        name: mlflow-db
+    rewrite:
+    - transform:
+        template: PASSWORD
+
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: mlflow-db
   namespace: adhar-system
-  labels: {app.kubernetes.io/name: mlflow-db, adhar.io/component: mlflow}
+  labels:
+    app.kubernetes.io/name: mlflow-db
+    adhar.io/component: mlflow
   annotations:
-    argocd.argoproj.io/sync-wave: "-5"
+    argocd.argoproj.io/sync-wave: '-5'
     argocd.argoproj.io/sync-options: ServerSideApply=true,SkipDryRunOnMissingResource=true
 spec:
   instances: 1
-  monitoring: {enablePodMonitor: true}
-  storage: {size: 10Gi}
+  monitoring:
+    enablePodMonitor: true
+  storage:
+    size: 10Gi
   bootstrap:
     initdb:
       database: mlflow
       owner: mlflow
-      secret: {name: mlflow-db-credentials}
+      secret:
+        name: mlflow-db-credentials
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://adhar-backups/cnpg/mlflow-db
+      endpointURL: http://rustfs.adhar-system.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId:
+          key: rootUser
+          name: root-creds
+        secretAccessKey:
+          key: rootPassword
+          name: root-creds
+      wal:
+        compression: gzip
+    retentionPolicy: 7d
+
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: mlflow-db-daily
+  namespace: adhar-system
+  labels:
+    app.kubernetes.io/name: mlflow-db
+  annotations:
+    argocd.argoproj.io/sync-wave: '-4'
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  schedule: 0 50 2 * * *
+  backupOwnerReference: self
+  cluster:
+    name: mlflow-db

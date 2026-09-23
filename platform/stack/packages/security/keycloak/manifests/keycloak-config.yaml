@@ -760,6 +760,82 @@ data:
           && echo "keycloak-clients: ${kp}_CLIENT_SECRET set"; set -x; } 2>/dev/null
     }
 
+    # ── enterprise identity federation ──────────────────────────────────
+    #
+    # ensure_idp <payload.json>: create-or-reconcile one external identity
+    # provider (Okta, Entra ID, ADFS, any OIDC/SAML IdP), plus its group mapper.
+    #
+    # Why this belongs here rather than in a runbook: an enterprise does not move
+    # its directory into Keycloak, it federates to it. Without this, adopting
+    # Adhar meant either hand-clicking an IdP into the admin console — untracked,
+    # unreviewable, and lost on a realm rebuild — or not using the corporate
+    # identity at all. Declaring it as a labelled ConfigMap puts federation in
+    # git with everything else and makes it survive a rebuild.
+    #
+    # The GROUP MAPPER is the part that is easy to miss and the reason this is
+    # not just "create an IdP". Adhar's authorisation keys entirely on the
+    # `groups` claim (Argo CD RBAC, the Gitea team map, Coder's role mapping). An
+    # IdP with no group mapper authenticates people successfully and then grants
+    # them nothing, which reads as a broken platform rather than missing config.
+    ensure_idp() {
+      local pf="$1" alias existing mf mappers i
+      alias=$(jq -r '.alias // empty' "${pf}" 2>/dev/null)
+      if [ -z "${alias}" ]; then echo "skipping ${pf}: no alias"; return 0; fi
+
+      existing=$(kc "${REALM_URL}/identity-provider/instances/${alias}" 2>/dev/null | jq -r '.alias // empty')
+      if [ -n "${existing}" ]; then
+        echo "reconciling identity provider ${alias}"
+        kc -X PUT --data @"${pf}" "${REALM_URL}/identity-provider/instances/${alias}" >/dev/null 2>&1 || true
+      else
+        echo "creating identity provider ${alias}"
+        kc -X POST --data @"${pf}" "${REALM_URL}/identity-provider/instances" >/dev/null 2>&1
+        existing=$(kc "${REALM_URL}/identity-provider/instances/${alias}" 2>/dev/null | jq -r '.alias // empty')
+        if [ -z "${existing}" ]; then
+          echo "WARNING: identity provider ${alias} could not be created (payload ${pf})"; return 0
+        fi
+      fi
+
+      # Mappers are a sub-resource and are NOT part of the instance
+      # representation, so they have to be reconciled separately. Matched by
+      # name: re-POSTing an existing mapper creates a duplicate, and duplicate
+      # group mappers assign the same group twice on every login.
+      mappers=$(jq -c '.__mappers // [] | .[]' "${pf}" 2>/dev/null)
+      [ -z "${mappers}" ] && return 0
+      echo "${mappers}" | while read -r mf; do
+        [ -z "${mf}" ] && continue
+        local mname mid
+        mname=$(echo "${mf}" | jq -r '.name // empty')
+        [ -z "${mname}" ] && continue
+        mid=$(kc "${REALM_URL}/identity-provider/instances/${alias}/mappers" 2>/dev/null \
+              | jq -r --arg n "${mname}" '.[] | select(.name==$n) | .id' | head -n1)
+        echo "${mf}" | jq --arg a "${alias}" '. + {identityProviderAlias: $a} | del(.__comment)' > /tmp/idp-mapper.json
+        if [ -n "${mid}" ]; then
+          kc -X PUT --data @/tmp/idp-mapper.json \
+            "${REALM_URL}/identity-provider/instances/${alias}/mappers/${mid}" >/dev/null 2>&1 || true
+        else
+          kc -X POST --data @/tmp/idp-mapper.json \
+            "${REALM_URL}/identity-provider/instances/${alias}/mappers" >/dev/null 2>&1 || true
+        fi
+      done
+    }
+
+    # reconcile_idps: every ConfigMap labelled adhar.io/keycloak-idp=true with an
+    # `idp.json` key. Same discovery model as clients, so there is one thing to
+    # learn. Absent label = no federation, which is the default.
+    reconcile_idps() {
+      local d=/tmp/idps name b64 f
+      rm -rf "${d}"; mkdir -p "${d}"
+      kubectl -n adhar-system get configmap -l adhar.io/keycloak-idp=true -o json 2>/dev/null \
+        | jq -r '.items[] | select(.data["idp.json"] != null) | "\(.metadata.name) \(.data["idp.json"] | @base64)"' \
+        | while read -r name b64; do
+            echo "${b64}" | base64 -d > "${d}/cm-${name}.json"
+          done
+      for f in "${d}"/*.json; do
+        [ -f "${f}" ] || continue
+        ensure_idp "${f}"
+      done
+    }
+
     # reconcile_clients: gather every client payload from both sources and
     # run ensure_client on each. Idempotent; this is all the CronJob does.
     reconcile_clients() {
@@ -788,6 +864,7 @@ data:
       fi
       ensure_clients_secret
       reconcile_clients
+      reconcile_idps
       exit 0
     fi
 
@@ -979,6 +1056,10 @@ data:
     # packages that are already present) converges on the FIRST run.
     ensure_clients_secret
     reconcile_clients
+    # Federation is reconciled on the full run too, not only on the CronJob:
+    # a fresh realm must come up already federated, or the first person to log
+    # in after a rebuild is told their corporate identity is unknown.
+    reconcile_idps
 
     # Grant the adhar-console client's SERVICE ACCOUNT the realm-management
     # roles the console needs to (a) reflect workspace teams / org-roles into
