@@ -9,7 +9,7 @@
 
 <h1>Open Foundation for Cloud-Native Platform Engineering</h1>
 
-[![Adhar Version](https://img.shields.io/badge/version-0.1.23-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkw0IDhWMTVDNCAxOC4zMSA2LjY5IDIxIDEwIDIxQzEzLjMxIDIxIDE2IDE4LjMxIDE2IDE1VjhMMTIgMloiIGZpbGw9IndoaXRlIi8+PC9zdmc+)](https://github.com/adhar-io/adhar/releases)
+[![Adhar Version](https://img.shields.io/badge/version-0.1.24-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkw0IDhWMTVDNCAxOC4zMSA2LjY5IDIxIDEwIDIxQzEzLjMxIDIxIDE2IDE4LjMxIDE2IDE1VjhMMTIgMloiIGZpbGw9IndoaXRlIi8+PC9zdmc+)](https://github.com/adhar-io/adhar/releases)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.28%2B-blue?logo=kubernetes)](https://kubernetes.io)
 [![Crossplane](https://img.shields.io/badge/crossplane-2.3%2B-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTIgMkwzIDdWMTdMMTIgMjJMMjEgMTdWN0wxMiAyWiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=)](https://www.crossplane.io)
 [![Go Version](https://img.shields.io/badge/go-1.26%2B-blue?logo=go)](https://golang.org)
