@@ -125,11 +125,18 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 
 	// 5. In-cluster inference, which is what makes `local/*` models answerable
 	// with no external key at all.
-	llmdReady, _, llmdFound := p.deploymentReady(ctx, "llm-d-inference-gateway")
+	// llm-d's model server is the `llm-d-decode` Deployment (the vLLM pods),
+	// fronted by `llm-d-epp` (the endpoint picker the gateway routes to). The
+	// check used to look for a "llm-d-inference-gateway" Deployment the package
+	// never creates, and reported "no local/* models" beside a serving cluster.
+	llmdReady, _, llmdFound := p.deploymentReady(ctx, "llm-d-decode")
+	eppReady, _, _ := p.deploymentReady(ctx, "llm-d-epp")
 	vllmReady, _, vllmFound := p.deploymentReady(ctx, "vllm")
 	switch {
-	case llmdFound && llmdReady > 0:
+	case llmdFound && llmdReady > 0 && eppReady > 0:
 		add("In-cluster inference", "ready", "llm-d serving local/* models")
+	case llmdFound && llmdReady > 0:
+		add("In-cluster inference", "degraded", "llm-d model server up but its endpoint picker (llm-d-epp) has no ready replica")
 	case vllmFound && vllmReady > 0:
 		add("In-cluster inference", "ready", "vLLM serving local/* models")
 	case llmdFound || vllmFound:

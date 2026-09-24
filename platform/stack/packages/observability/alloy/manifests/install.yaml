@@ -1,7 +1,3 @@
-# ALLOY INSTALL RESOURCES
-# This file is auto-generated with 'platform/stack/packages/observability/alloy/generate-manifests.sh'
----
-# Source: alloy/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 automountServiceAccountToken: true
@@ -12,12 +8,11 @@ metadata:
     helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.19.2"
+    app.kubernetes.io/version: v1.19.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
 ---
-# Source: alloy/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -27,143 +22,67 @@ metadata:
     helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.19.2"
+    app.kubernetes.io/version: v1.19.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: config
 data:
-  config.alloy: |-
-    logging {
-    	level  = "info"
-    	format = "logfmt"
-    }
-    
-    discovery.kubernetes "pods" {
-    	role = "pod"
-    }
-    
-    discovery.kubernetes "nodes" {
-    	role = "node"
-    }
-    
-    discovery.kubernetes "services" {
-    	role = "service"
-    }
-    
-    discovery.kubernetes "endpoints" {
-    	role = "endpoints"
-    }
-    
-    discovery.kubernetes "endpointslices" {
-    	role = "endpointslice"
-    }
-    
-    discovery.kubernetes "ingresses" {
-    	role = "ingress"
-    }
-    
-    // ---------------------------------------------------------------
-    // Hub shipping (roadmap P2.3): everything collected here is written
-    // to the observability hub. Endpoints come from the observability-hub
-    // ConfigMap (envFrom) — in-cluster service URLs on the hub itself,
-    // external Gateway URLs on workload-cluster spokes. Every sample and
-    // stream carries the cluster label for hub-side separation.
-    // ---------------------------------------------------------------
-    prometheus.scrape "annotated_pods" {
-    	targets    = discovery.relabel.scrape_pods.output
-    	forward_to = [prometheus.remote_write.hub.receiver]
-    }
-    
-    discovery.relabel "scrape_pods" {
-    	targets = discovery.kubernetes.pods.targets
-    	rule {
-    		source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
-    		regex         = "true"
-    		action        = "keep"
-    	}
-    	rule {
-    		source_labels = ["__meta_kubernetes_namespace"]
-    		target_label  = "namespace"
-    	}
-    	rule {
-    		source_labels = ["__meta_kubernetes_pod_name"]
-    		target_label  = "pod"
-    	}
-    }
-    
-    prometheus.remote_write "hub" {
-    	endpoint {
-    		url = sys.env("HUB_MIMIR_URL")
-    	}
-    	external_labels = {
-    		cluster = sys.env("HUB_CLUSTER_NAME"),
-    	}
-    }
-    
-    // Carry the Kubernetes identity of every log stream: without these
-    // relabels Loki only gets job/instance, making namespace/pod filtering
-    // (and Grafana's log volume breakdowns) useless.
-    discovery.relabel "pod_logs" {
-    	targets = discovery.kubernetes.pods.targets
-    	rule {
-    		source_labels = ["__meta_kubernetes_namespace"]
-    		target_label  = "namespace"
-    	}
-    	rule {
-    		source_labels = ["__meta_kubernetes_pod_name"]
-    		target_label  = "pod"
-    	}
-    	rule {
-    		source_labels = ["__meta_kubernetes_pod_container_name"]
-    		target_label  = "container"
-    	}
-    	rule {
-    		source_labels = ["__meta_kubernetes_pod_node_name"]
-    		target_label  = "node"
-    	}
-    	rule {
-    		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
-    		separator     = ""
-    		target_label  = "app"
-    	}
-    }
-    
-    loki.source.kubernetes "pods" {
-    	targets    = discovery.relabel.pod_logs.output
-    	forward_to = [loki.write.hub.receiver]
-    }
-    
-    loki.write "hub" {
-    	endpoint {
-    		url = sys.env("HUB_LOKI_URL")
-    	}
-    	external_labels = {
-    		cluster = sys.env("HUB_CLUSTER_NAME"),
-    	}
-    }
-    
-    otelcol.receiver.otlp "workloads" {
-    	grpc {
-    		endpoint = "0.0.0.0:4317"
-    	}
-    	http {
-    		endpoint = "0.0.0.0:4318"
-    	}
-    	output {
-    		traces = [otelcol.exporter.otlphttp.hub.input]
-    	}
-    }
-    
-    otelcol.exporter.otlphttp "hub" {
-    	client {
-    		endpoint = sys.env("HUB_TEMPO_URL")
-    		tls {
-    			insecure_skip_verify = true
-    		}
-    	}
-    }
+  config.alloy: "logging {\n\tlevel  = \"info\"\n\tformat = \"logfmt\"\n}\n\ndiscovery.kubernetes\
+    \ \"pods\" {\n\trole = \"pod\"\n}\n\ndiscovery.kubernetes \"nodes\" {\n\trole\
+    \ = \"node\"\n}\n\ndiscovery.kubernetes \"services\" {\n\trole = \"service\"\n\
+    }\n\ndiscovery.kubernetes \"endpoints\" {\n\trole = \"endpoints\"\n}\n\ndiscovery.kubernetes\
+    \ \"endpointslices\" {\n\trole = \"endpointslice\"\n}\n\ndiscovery.kubernetes\
+    \ \"ingresses\" {\n\trole = \"ingress\"\n}\n\n// ---------------------------------------------------------------\n\
+    // Hub shipping (roadmap P2.3): everything collected here is written\n// to the\
+    \ observability hub. Endpoints come from the observability-hub\n// ConfigMap (envFrom)\
+    \ \u2014 in-cluster service URLs on the hub itself,\n// external Gateway URLs\
+    \ on workload-cluster spokes. Every sample and\n// stream carries the cluster\
+    \ label for hub-side separation.\n// ---------------------------------------------------------------\n\
+    prometheus.scrape \"annotated_pods\" {\n\ttargets    = discovery.relabel.scrape_pods.output\n\
+    \tforward_to = [prometheus.remote_write.hub.receiver]\n}\n\ndiscovery.relabel\
+    \ \"scrape_pods\" {\n\ttargets = discovery.kubernetes.pods.targets\n\trule {\n\
+    \t\tsource_labels = [\"__meta_kubernetes_pod_annotation_prometheus_io_scrape\"\
+    ]\n\t\tregex         = \"true\"\n\t\taction        = \"keep\"\n\t}\n\trule {\n\
+    \t\tsource_labels = [\"__meta_kubernetes_namespace\"]\n\t\ttarget_label  = \"\
+    namespace\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_name\"\
+    ]\n\t\ttarget_label  = \"pod\"\n\t}\n}\n\nprometheus.remote_write \"hub\" {\n\t\
+    endpoint {\n\t\turl = sys.env(\"HUB_MIMIR_URL\")\n\t}\n\texternal_labels = {\n\
+    \t\tcluster = sys.env(\"HUB_CLUSTER_NAME\"),\n\t}\n}\n\n// Carry the Kubernetes\
+    \ identity of every log stream: without these\n// relabels Loki only gets job/instance,\
+    \ making namespace/pod filtering\n// (and Grafana's log volume breakdowns) useless.\n\
+    discovery.relabel \"pod_logs\" {\n\ttargets = discovery.kubernetes.pods.targets\n\
+    \trule {\n\t\tsource_labels = [\"__meta_kubernetes_namespace\"]\n\t\ttarget_label\
+    \  = \"namespace\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_name\"\
+    ]\n\t\ttarget_label  = \"pod\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_container_name\"\
+    ]\n\t\ttarget_label  = \"container\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_node_name\"\
+    ]\n\t\ttarget_label  = \"node\"\n\t}\n\trule {\n\t\tsource_labels = [\"__meta_kubernetes_pod_label_app_kubernetes_io_name\"\
+    , \"__meta_kubernetes_pod_label_app\"]\n\t\tseparator     = \"\"\n\t\ttarget_label\
+    \  = \"app\"\n\t}\n}\n\nloki.source.kubernetes \"pods\" {\n\ttargets    = discovery.relabel.pod_logs.output\n\
+    \tforward_to = [loki.write.hub.receiver]\n}\n\nloki.write \"hub\" {\n\tendpoint\
+    \ {\n\t\turl = sys.env(\"HUB_LOKI_URL\")\n\t}\n\texternal_labels = {\n\t\tcluster\
+    \ = sys.env(\"HUB_CLUSTER_NAME\"),\n\t}\n}\n\n// The OTLP door for application\
+    \ telemetry. The golden-path templates set\n// OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.adhar-system.svc.cluster.local:4318\n\
+    // on every workload; the SDK pushes traces AND metrics (and logs, when an\n//\
+    \ app chooses to). Every signal must land somewhere \u2014 this receiver used\n\
+    // to forward only traces, so an app's OTLP metrics were silently dropped\n//\
+    \ on the floor while its dashboard stayed empty, and the Service did not\n// even\
+    \ publish the port (see extraPorts below).\notelcol.receiver.otlp \"workloads\"\
+    \ {\n\tgrpc {\n\t\tendpoint = \"0.0.0.0:4317\"\n\t}\n\thttp {\n\t\tendpoint =\
+    \ \"0.0.0.0:4318\"\n\t}\n\toutput {\n\t\ttraces  = [otelcol.processor.batch.workloads.input]\n\
+    \t\tmetrics = [otelcol.processor.batch.workloads.input]\n\t\tlogs    = [otelcol.processor.batch.workloads.input]\n\
+    \t}\n}\n\notelcol.processor.batch \"workloads\" {\n\toutput {\n\t\ttraces  = [otelcol.exporter.otlphttp.hub.input]\n\
+    \t\tmetrics = [otelcol.exporter.prometheus.workloads.input]\n\t\tlogs    = [otelcol.exporter.loki.workloads.input]\n\
+    \t}\n}\n\n// OTLP metrics \u2192 the same remote_write every scrape uses, so an\
+    \ app's\n// metrics sit beside the platform's in Mimir under the same cluster\
+    \ label.\n// Resource attributes become the `target_info` series and service.name\
+    \ is\n// promoted to a label, which is what the dashboards' variables key on.\n\
+    otelcol.exporter.prometheus \"workloads\" {\n\tinclude_target_info      = true\n\
+    \tresource_to_telemetry_conversion = true\n\tforward_to = [prometheus.remote_write.hub.receiver]\n\
+    }\n\n// OTLP logs \u2192 Loki, same stream labels as the pod-log tailer.\notelcol.exporter.loki\
+    \ \"workloads\" {\n\tforward_to = [loki.write.hub.receiver]\n}\n\notelcol.exporter.otlphttp\
+    \ \"hub\" {\n\tclient {\n\t\tendpoint = sys.env(\"HUB_TEMPO_URL\")\n\t\ttls {\n\
+    \t\t\tinsecure_skip_verify = true\n\t\t}\n\t}\n}"
 ---
-# Source: alloy/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -172,126 +91,125 @@ metadata:
     helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.19.2"
+    app.kubernetes.io/version: v1.19.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
 rules:
-  - apiGroups:
-    - ""
-    - discovery.k8s.io
-    - networking.k8s.io
-    resources:
-    - endpoints
-    - endpointslices
-    - ingresses
-    - pods
-    - services
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - ""
-    resources:
-    - pods
-    - pods/log
-    - namespaces
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - monitoring.grafana.com
-    resources:
-    - podlogs
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - monitoring.coreos.com
-    resources:
-    - prometheusrules
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - monitoring.coreos.com
-    resources:
-    - alertmanagerconfigs
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - monitoring.coreos.com
-    resources:
-    - podmonitors
-    - servicemonitors
-    - probes
-    - scrapeconfigs
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - ""
-    resources:
-    - events
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - ""
-    resources:
-    - configmaps
-    - secrets
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - apps
-    - extensions
-    resources:
-    - replicasets
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - ""
-    resources:
-    - nodes
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - ""
-    resources:
-    - nodes/pods
-    verbs:
-    - get
-    - list
-    - watch
-  - apiGroups:
-    - ""
-    resources:
-    - nodes/metrics
-    verbs:
-    - get
-    - list
-    - watch
-  - nonResourceURLs:
-    - /metrics
-    verbs:
-    - get
+- apiGroups:
+  - ''
+  - discovery.k8s.io
+  - networking.k8s.io
+  resources:
+  - endpoints
+  - endpointslices
+  - ingresses
+  - pods
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  - pods/log
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - monitoring.grafana.com
+  resources:
+  - podlogs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - prometheusrules
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - alertmanagerconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - podmonitors
+  - servicemonitors
+  - probes
+  - scrapeconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  - extensions
+  resources:
+  - replicasets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - nodes/pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - nodes/metrics
+  verbs:
+  - get
+  - list
+  - watch
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
 ---
-# Source: alloy/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -300,7 +218,7 @@ metadata:
     helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.19.2"
+    app.kubernetes.io/version: v1.19.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: rbac
@@ -309,11 +227,10 @@ roleRef:
   kind: ClusterRole
   name: alloy
 subjects:
-  - kind: ServiceAccount
-    name: alloy
-    namespace: adhar-system
+- kind: ServiceAccount
+  name: alloy
+  namespace: adhar-system
 ---
-# Source: alloy/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -323,7 +240,7 @@ metadata:
     helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.19.2"
+    app.kubernetes.io/version: v1.19.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
     app.kubernetes.io/component: networking
@@ -334,12 +251,19 @@ spec:
     app.kubernetes.io/instance: alloy
   internalTrafficPolicy: Cluster
   ports:
-    - name: http-metrics
-      port: 12345
-      targetPort: 12345
-      protocol: "TCP"
+  - name: http-metrics
+    port: 12345
+    targetPort: 12345
+    protocol: TCP
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+    protocol: TCP
 ---
-# Source: alloy/templates/controllers/daemonset.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -349,7 +273,7 @@ metadata:
     helm.sh/chart: alloy-1.12.1
     app.kubernetes.io/name: alloy
     app.kubernetes.io/instance: alloy
-    app.kubernetes.io/version: "v1.19.2"
+    app.kubernetes.io/version: v1.19.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: alloy
 spec:
@@ -368,69 +292,75 @@ spec:
     spec:
       serviceAccountName: alloy
       containers:
-        - name: alloy
-          image: docker.io/grafana/alloy:v1.19.2
-          imagePullPolicy: IfNotPresent
-          args:
-            - run
-            - /etc/alloy/config.alloy
-            - --storage.path=/tmp/alloy
-            - --server.http.listen-addr=0.0.0.0:12345
-            - --server.http.ui-path-prefix=/
-            - --stability.level=generally-available
-          env:
-            - name: ALLOY_DEPLOY_MODE
-              value: "helm"
-            - name: HOSTNAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-            - name: K8S_NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-          envFrom:
-            - configMapRef:
-                name: observability-hub
-          ports:
-            - containerPort: 12345
-              name: http-metrics
-          readinessProbe:
-            httpGet:
-              path: /-/ready
-              port: 12345
-              scheme: HTTP
-            initialDelaySeconds: 10
-            timeoutSeconds: 5
-          volumeMounts:
-            - name: config
-              mountPath: /etc/alloy
-        - name: config-reloader
-          image: quay.io/prometheus-operator/prometheus-config-reloader:v0.91.0@sha256:7d9e4eea5f1139e602508871f422b0116c60e87c662f3dcd234d5ab60cd0d8c1
-          imagePullPolicy: IfNotPresent
-          args:
-            - --watched-dir=/etc/alloy
-            - --reload-url=http://localhost:12345/-/reload
-          volumeMounts:
-            - name: config
-              mountPath: /etc/alloy
-          resources:
-            requests:
-              cpu: 10m
-              memory: 50Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-              - ALL
-            readOnlyRootFilesystem: true
-            runAsGroup: 65534
-            runAsNonRoot: true
-            runAsUser: 65534
-            seccompProfile:
-              type: RuntimeDefault
+      - name: alloy
+        image: docker.io/grafana/alloy:v1.19.2
+        imagePullPolicy: IfNotPresent
+        args:
+        - run
+        - /etc/alloy/config.alloy
+        - --storage.path=/tmp/alloy
+        - --server.http.listen-addr=0.0.0.0:12345
+        - --server.http.ui-path-prefix=/
+        - --stability.level=generally-available
+        env:
+        - name: ALLOY_DEPLOY_MODE
+          value: helm
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        envFrom:
+        - configMapRef:
+            name: observability-hub
+        ports:
+        - containerPort: 12345
+          name: http-metrics
+        - containerPort: 4317
+          name: otlp-grpc
+          protocol: TCP
+        - containerPort: 4318
+          name: otlp-http
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 12345
+            scheme: HTTP
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: config
+          mountPath: /etc/alloy
+      - name: config-reloader
+        image: quay.io/prometheus-operator/prometheus-config-reloader:v0.91.0@sha256:7d9e4eea5f1139e602508871f422b0116c60e87c662f3dcd234d5ab60cd0d8c1
+        imagePullPolicy: IfNotPresent
+        args:
+        - --watched-dir=/etc/alloy
+        - --reload-url=http://localhost:12345/-/reload
+        volumeMounts:
+        - name: config
+          mountPath: /etc/alloy
+        resources:
+          requests:
+            cpu: 10m
+            memory: 50Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65534
+          runAsNonRoot: true
+          runAsUser: 65534
+          seccompProfile:
+            type: RuntimeDefault
       dnsPolicy: ClusterFirst
       volumes:
-        - name: config
-          configMap:
-            name: alloy
+      - name: config
+        configMap:
+          name: alloy

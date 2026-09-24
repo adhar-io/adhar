@@ -6,6 +6,18 @@ crds:
 ## chart, this field may also be called "agent". Naming this field "agent" is
 ## deprecated and will be removed in a future release.
 alloy:
+  # The OTLP receiver's ports, on the container AND the Service — the chart
+  # publishes only its own :12345 unless told otherwise, so workloads sending
+  # to alloy.adhar-system.svc:4318 were refused.
+  extraPorts:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
   # Full Alloy config owned by this generator. The leading logging + discovery
   # blocks mirror the chart's default template; the "Hub shipping" section
   # (roadmap P2.3) forwards metrics/logs/traces to the observability hub via
@@ -123,6 +135,13 @@ alloy:
       	}
       }
       
+      // The OTLP door for application telemetry. The golden-path templates set
+      // OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.adhar-system.svc.cluster.local:4318
+      // on every workload; the SDK pushes traces AND metrics (and logs, when an
+      // app chooses to). Every signal must land somewhere — this receiver used
+      // to forward only traces, so an app's OTLP metrics were silently dropped
+      // on the floor while its dashboard stayed empty, and the Service did not
+      // even publish the port (see extraPorts below).
       otelcol.receiver.otlp "workloads" {
       	grpc {
       		endpoint = "0.0.0.0:4317"
@@ -131,8 +150,33 @@ alloy:
       		endpoint = "0.0.0.0:4318"
       	}
       	output {
-      		traces = [otelcol.exporter.otlphttp.hub.input]
+      		traces  = [otelcol.processor.batch.workloads.input]
+      		metrics = [otelcol.processor.batch.workloads.input]
+      		logs    = [otelcol.processor.batch.workloads.input]
       	}
+      }
+      
+      otelcol.processor.batch "workloads" {
+      	output {
+      		traces  = [otelcol.exporter.otlphttp.hub.input]
+      		metrics = [otelcol.exporter.prometheus.workloads.input]
+      		logs    = [otelcol.exporter.loki.workloads.input]
+      	}
+      }
+      
+      // OTLP metrics → the same remote_write every scrape uses, so an app's
+      // metrics sit beside the platform's in Mimir under the same cluster label.
+      // Resource attributes become the `target_info` series and service.name is
+      // promoted to a label, which is what the dashboards' variables key on.
+      otelcol.exporter.prometheus "workloads" {
+      	include_target_info      = true
+      	resource_to_telemetry_conversion = true
+      	forward_to = [prometheus.remote_write.hub.receiver]
+      }
+      
+      // OTLP logs → Loki, same stream labels as the pod-log tailer.
+      otelcol.exporter.loki "workloads" {
+      	forward_to = [loki.write.hub.receiver]
       }
       
       otelcol.exporter.otlphttp "hub" {

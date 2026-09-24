@@ -7,7 +7,7 @@ apiVersion: marketplace.adhar.io/v1alpha1
 kind: AdharPackage
 name: adhar-ai
 category: ai
-version: "0.1.0"
+version: "0.2.0"
 appVersion: latest
 description: 'Agentic control layer (ADR-0024): per-domain MCP tool servers and an agent runtime whose writes land as Gitea PRs; LLM completions and federated MCP are served by the agentgateway data plane (ADR-0025).'
 maintainer:
@@ -57,5 +57,5 @@ verification:
   status: verified
   profile: production
   verifiedAt: "2026-09-23"
-  platformVersion: "v0.1.22"
+  platformVersion: "v0.1.23"
   kubernetesVersion: "v1.37.0"

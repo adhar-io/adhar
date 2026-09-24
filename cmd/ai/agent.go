@@ -228,8 +228,20 @@ func runLoop(cmd *cobra.Command, task string, extraSystem []string) error {
 			fmt.Println(strings.TrimSpace(choice.Message.Content))
 			printProposals(tb)
 			if !agentQuiet {
-				fmt.Printf("\n%s\n\n", helpers.SubtitleStyle.Render(fmt.Sprintf(
+				fmt.Printf("\n%s\n", helpers.SubtitleStyle.Render(fmt.Sprintf(
 					"— %d step(s), %d tool call(s), %s, %d tokens", step, tb.calls, time.Since(start).Round(time.Second), resp.Usage.TotalTokens)))
+				// An answer about THIS cluster that read nothing from it is a
+				// guess. Small models (the CPU-only local/* default) narrate the
+				// tools they would call and then invent the result — "Root
+				// cause: missing keycloak dependency" for an app whose real
+				// failure was a Maven mirror. Say so, in the place the answer is
+				// read, rather than let the summary line carry it quietly.
+				if tb.calls == 0 && len(byName) > 0 {
+					fmt.Printf("%s\n", helpers.WarningStyle.Render(
+						"⚠ no tools were called: this answer was not checked against the cluster. "+
+							"Treat it as a suggestion — a larger model (`adhar ai key set`, or the vllm GPU profile) is what makes the agent read before it answers."))
+				}
+				fmt.Println()
 			}
 			return nil
 		}

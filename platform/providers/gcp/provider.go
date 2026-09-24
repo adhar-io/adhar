@@ -22,6 +22,7 @@ import (
 	"google.golang.org/api/container/v1"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
+	htransport "google.golang.org/api/transport/http"
 	"google.golang.org/protobuf/proto"
 
 	provider "adhar-io/adhar/platform/providers"
@@ -278,17 +279,21 @@ func init() {
 
 // Provider implements the GCP provider for manual Kubernetes clusters using Google Cloud Go SDK
 type Provider struct {
-	config                 *Config
-	computeClient          *compute.InstancesClient
-	networkClient          *compute.NetworksClient
-	subnetClient           *compute.SubnetworksClient
-	regionsClient          *compute.RegionsClient
-	projectsClient         *compute.ProjectsClient
-	targetPoolsClient      *compute.TargetPoolsClient
-	firewallClient         *compute.FirewallsClient
-	addressClient          *compute.AddressesClient
-	forwardingRulesClient  *compute.ForwardingRulesClient
-	healthChecksClient     *compute.HealthChecksClient
+	config                *Config
+	computeClient         *compute.InstancesClient
+	networkClient         *compute.NetworksClient
+	subnetClient          *compute.SubnetworksClient
+	regionsClient         *compute.RegionsClient
+	projectsClient        *compute.ProjectsClient
+	targetPoolsClient     *compute.TargetPoolsClient
+	firewallClient        *compute.FirewallsClient
+	addressClient         *compute.AddressesClient
+	forwardingRulesClient *compute.ForwardingRulesClient
+	healthChecksClient    *compute.HealthChecksClient
+	// The cloud controller manager still builds its target-pool load balancers
+	// on the LEGACY httpHealthChecks resource, which the Go SDK no longer
+	// exposes; this is a credentialed client for that one REST endpoint.
+	legacyHTTPClient       *http.Client
 	backendServicesClient  *compute.BackendServicesClient
 	routersClient          *compute.RoutersClient
 	operationsClient       *compute.GlobalOperationsClient
@@ -551,6 +556,11 @@ func NewProvider(config *Config) (*Provider, error) {
 		return nil, fmt.Errorf("failed to create backend services client: %w", err)
 	}
 
+	legacyHTTPClient, _, lhErr := htransport.NewClient(ctx, append([]option.ClientOption{option.WithScopes(compute.DefaultAuthScopes()...)}, opts...)...)
+	if lhErr != nil {
+		log.Printf("WARNING: legacy health-check cleanup unavailable: %v", lhErr)
+	}
+
 	routersClient, err := compute.NewRoutersRESTClient(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create routers client: %w", err)
@@ -607,6 +617,7 @@ func NewProvider(config *Config) (*Provider, error) {
 		addressClient:          addressClient,
 		forwardingRulesClient:  forwardingRulesClient,
 		healthChecksClient:     healthChecksClient,
+		legacyHTTPClient:       legacyHTTPClient,
 		backendServicesClient:  backendServicesClient,
 		routersClient:          routersClient,
 		operationsClient:       operationsClient,
@@ -1554,8 +1565,19 @@ func (p *Provider) sweepLoadBalancers(ctx context.Context, tracker *ResourceTrac
 		}
 	}
 
+	// A target pool references legacy httpHealthChecks (`k8s-<cluster-id>-node`).
+	// Nothing else does, and nothing deletes them: four survived every teardown
+	// until this was added. Record them before the pool goes, remove them after.
+	healthChecks := map[string]bool{}
 	if p.targetPoolsClient != nil {
 		for pool := range targets {
+			if tp, err := p.targetPoolsClient.Get(ctx, &computepb.GetTargetPoolRequest{
+				Project: tracker.ProjectID, Region: tracker.Region, TargetPool: pool,
+			}); err == nil {
+				for _, hc := range tp.GetHealthChecks() {
+					healthChecks[hc[strings.LastIndex(hc, "/")+1:]] = true
+				}
+			}
 			op, err := p.targetPoolsClient.Delete(ctx, &computepb.DeleteTargetPoolRequest{
 				Project: tracker.ProjectID, Region: tracker.Region, TargetPool: pool,
 			})
@@ -1570,6 +1592,24 @@ func (p *Provider) sweepLoadBalancers(ctx context.Context, tracker *ResourceTrac
 			}
 			log.Printf("Deleted load balancer target pool: %s", pool)
 		}
+	}
+	// Also anything the CCM named for a cluster that no longer has a pool — the
+	// leak predates this sweep, and a check still in use by another cluster's
+	// pool is refused by the API (resourceInUseByAnotherResource) and kept.
+	for _, n := range p.listLegacyHTTPHealthChecks(ctx, tracker.ProjectID) {
+		if strings.HasPrefix(n, "k8s-") {
+			healthChecks[n] = true
+		}
+	}
+	for hc := range healthChecks {
+		if err := p.deleteLegacyHTTPHealthCheck(ctx, tracker.ProjectID, hc); err != nil {
+			if strings.Contains(err.Error(), "resourceInUse") {
+				continue
+			}
+			errs = append(errs, fmt.Sprintf("deleting health check %s: %v", hc, err))
+			continue
+		}
+		log.Printf("Deleted load balancer health check: %s", hc)
 	}
 
 	if p.firewallClient != nil {
@@ -1593,6 +1633,80 @@ func (p *Provider) sweepLoadBalancers(ctx context.Context, tracker *ResourceTrac
 		}
 	}
 	return errs
+}
+
+const legacyHealthChecksURL = "https://compute.googleapis.com/compute/v1/projects/%s/global/httpHealthChecks"
+
+func (p *Provider) listLegacyHTTPHealthChecks(ctx context.Context, project string) []string {
+	if p.legacyHTTPClient == nil {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(legacyHealthChecksURL, project), nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := p.legacyHTTPClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var body struct {
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(body.Items))
+	for _, it := range body.Items {
+		names = append(names, it.Name)
+	}
+	return names
+}
+
+func (p *Provider) deleteLegacyHTTPHealthCheck(ctx context.Context, project, name string) error {
+	if p.legacyHTTPClient == nil {
+		return fmt.Errorf("no credentialed client")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, fmt.Sprintf(legacyHealthChecksURL, project)+"/"+name, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := p.legacyHTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode >= 300 {
+		var e struct {
+			Error struct {
+				Message string `json:"message"`
+				Errors  []struct {
+					Reason string `json:"reason"`
+				} `json:"errors"`
+			} `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		reason := ""
+		if len(e.Error.Errors) > 0 {
+			reason = e.Error.Errors[0].Reason
+		}
+		return fmt.Errorf("HTTP %d %s: %s", resp.StatusCode, reason, e.Error.Message)
+	}
+	var op struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&op); err == nil && op.Name != "" {
+		return p.waitForGlobalOperation(ctx, &op.Name)
+	}
+	return nil
 }
 
 // sweepOrphanedDisks removes unattached CSI disks, but only when asked.

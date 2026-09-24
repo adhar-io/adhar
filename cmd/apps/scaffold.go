@@ -550,6 +550,7 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 	}
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	ops := make([]*gitea.ChangeFileOperation, 0, len(entries))
 	for _, e := range entries {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -571,15 +572,22 @@ func scaffoldTemplate(ctx context.Context, gc *gitea.Client, giteaURL, templateI
 			}
 			content = []byte(rendered)
 		}
-		if _, _, cerr := gc.CreateFile(globals.GiteaPlatformOrg, repo, rel, gitea.CreateFileOptions{
-			FileOptions: gitea.FileOptions{
-				Message:    fmt.Sprintf("scaffold %s from %s", appName, templateID),
-				BranchName: "main",
-			},
-			Content: base64.StdEncoding.EncodeToString(content),
-		}); cerr != nil {
-			return nil, fmt.Errorf("committing %s to %s/%s: %w", rel, globals.GiteaPlatformOrg, repo, cerr)
-		}
+		ops = append(ops, &gitea.ChangeFileOperation{
+			Operation: "create",
+			Path:      rel,
+			Content:   base64.StdEncoding.EncodeToString(content),
+		})
+	}
+	// ONE commit for the whole skeleton. Committing file by file made a
+	// 14-file template 14 commits, and the repository's push webhook started
+	// the app-ci pipeline 14 times in parallel — for a repository that was not
+	// even complete until the last one. A scaffold is one change.
+	if _, _, cerr := gc.ChangeFiles(globals.GiteaPlatformOrg, repo, gitea.ChangeFilesOptions{
+		Files:   ops,
+		Message: fmt.Sprintf("scaffold %s from %s", appName, templateID),
+		Branch:  "main",
+	}); cerr != nil {
+		return nil, fmt.Errorf("committing %d files to %s/%s: %w", len(ops), globals.GiteaPlatformOrg, repo, cerr)
 	}
 
 	return &scaffoldedRepo{

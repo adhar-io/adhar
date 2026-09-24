@@ -24,7 +24,13 @@ metadata:
     app.kubernetes.io/name: observability-hub
     adhar.io/component: observability
 data:
-  HUB_MIMIR_URL: http://mimir-distributor.adhar-system.svc.cluster.local:8080/api/v1/push
+  # Through the mimir-gateway, not the distributor: Mimir runs multi-tenant and
+  # the distributor answers `401 no org id` to a push with no X-Scope-OrgID —
+  # which is every push Alloy makes. The gateway's nginx injects the tenant
+  # (the same path Grafana's datasource uses), so scraped and OTLP metrics
+  # actually land. Verified 2026-09-24: with the distributor URL not one sample
+  # Alloy shipped had ever been accepted.
+  HUB_MIMIR_URL: http://mimir-gateway.adhar-system.svc.cluster.local:8080/api/v1/push
   HUB_LOKI_URL: http://loki.adhar-system.svc.cluster.local:3100/loki/api/v1/push
   HUB_TEMPO_URL: http://tempo.adhar-system.svc.cluster.local:4318
   HUB_CLUSTER_NAME: management

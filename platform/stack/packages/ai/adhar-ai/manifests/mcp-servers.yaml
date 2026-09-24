@@ -39,6 +39,12 @@ metadata:
     adhar.io/component: ai
     adhar.io/mcp-domain: cluster
     adhar.io/plane: control
+    # Makes a rollout targetable. These images are `:latest` with
+    # imagePullPolicy: Always, so a new build is picked up by
+    #   kubectl rollout restart deployment -l adhar.io/origin=adhar-ai
+    # `part-of: adhar-ai` would be wrong here: the vllm package shares it,
+    # and restarting a model server to refresh an agent is not the same job.
+    adhar.io/origin: adhar-ai
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -150,6 +156,12 @@ metadata:
     adhar.io/component: ai
     adhar.io/mcp-domain: gitops
     adhar.io/plane: control
+    # Makes a rollout targetable. These images are `:latest` with
+    # imagePullPolicy: Always, so a new build is picked up by
+    #   kubectl rollout restart deployment -l adhar.io/origin=adhar-ai
+    # `part-of: adhar-ai` would be wrong here: the vllm package shares it,
+    # and restarting a model server to refresh an agent is not the same job.
+    adhar.io/origin: adhar-ai
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -282,6 +294,12 @@ metadata:
     adhar.io/component: ai
     adhar.io/mcp-domain: provision
     adhar.io/plane: control
+    # Makes a rollout targetable. These images are `:latest` with
+    # imagePullPolicy: Always, so a new build is picked up by
+    #   kubectl rollout restart deployment -l adhar.io/origin=adhar-ai
+    # `part-of: adhar-ai` would be wrong here: the vllm package shares it,
+    # and restarting a model server to refresh an agent is not the same job.
+    adhar.io/origin: adhar-ai
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -403,6 +421,12 @@ metadata:
     adhar.io/component: ai
     adhar.io/mcp-domain: observability
     adhar.io/plane: control
+    # Makes a rollout targetable. These images are `:latest` with
+    # imagePullPolicy: Always, so a new build is picked up by
+    #   kubectl rollout restart deployment -l adhar.io/origin=adhar-ai
+    # `part-of: adhar-ai` would be wrong here: the vllm package shares it,
+    # and restarting a model server to refresh an agent is not the same job.
+    adhar.io/origin: adhar-ai
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -536,6 +560,12 @@ metadata:
     adhar.io/component: ai
     adhar.io/mcp-domain: security
     adhar.io/plane: control
+    # Makes a rollout targetable. These images are `:latest` with
+    # imagePullPolicy: Always, so a new build is picked up by
+    #   kubectl rollout restart deployment -l adhar.io/origin=adhar-ai
+    # `part-of: adhar-ai` would be wrong here: the vllm package shares it,
+    # and restarting a model server to refresh an agent is not the same job.
+    adhar.io/origin: adhar-ai
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -657,6 +687,12 @@ metadata:
     adhar.io/component: ai
     adhar.io/mcp-domain: cost
     adhar.io/plane: control
+    # Makes a rollout targetable. These images are `:latest` with
+    # imagePullPolicy: Always, so a new build is picked up by
+    #   kubectl rollout restart deployment -l adhar.io/origin=adhar-ai
+    # `part-of: adhar-ai` would be wrong here: the vllm package shares it,
+    # and restarting a model server to refresh an agent is not the same job.
+    adhar.io/origin: adhar-ai
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
@@ -770,6 +806,12 @@ metadata:
     adhar.io/component: ai
     adhar.io/mcp-domain: catalog
     adhar.io/plane: control
+    # Makes a rollout targetable. These images are `:latest` with
+    # imagePullPolicy: Always, so a new build is picked up by
+    #   kubectl rollout restart deployment -l adhar.io/origin=adhar-ai
+    # `part-of: adhar-ai` would be wrong here: the vllm package shares it,
+    # and restarting a model server to refresh an agent is not the same job.
+    adhar.io/origin: adhar-ai
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:

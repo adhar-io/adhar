@@ -62,6 +62,17 @@ for d in docs:
     if spec is not None and "enableServiceLinks" not in spec:
         spec["enableServiceLinks"] = False
         workloads += 1
+    # The chaos-operator runs a CLUSTER-WIDE Pod informer (it watches every pod
+    # to track runner and experiment pods), so its working set scales with the
+    # cluster, not with the chaos load. The litmus-core chart ships a 128Mi
+    # limit: on this platform's production catalogue (400+ pods) the operator
+    # was OOMKilled during its first real reconcile — every run reported an
+    # unevaluated probe and a deleted engine's finalizer never cleared.
+    if d.get("kind") == "Deployment" and d["metadata"].get("name") == "litmus":
+        for c in spec.get("containers", []):
+            if c.get("name") == "chaos-operator":
+                c["resources"] = {"requests": {"cpu": "50m", "memory": "192Mi"},
+                                  "limits": {"cpu": "500m", "memory": "768Mi"}}
 with open(path, "w") as f:
     f.write("\n---\n".join(yaml.safe_dump(d, sort_keys=False) for d in docs))
 print(f"{path}: wave {wave}, enableServiceLinks=false on {workloads} workload(s)")

@@ -71,7 +71,12 @@ spec:
             # 400 "maximum context length is 4096 tokens" (2026-09-15). Qwen2.5
             # supports 32k; VLLM_CPU_KVCACHE_SPACE below sizes the CPU KV cache.
             - "--max-model-len=32768"
-            - "--dtype=bfloat16"
+            # float32, not bfloat16: the platform's cloud nodes (GCP e2 = AMD
+            # EPYC Zen 2, AVX2 only; no AVX-512 BF16 or AMX) have no native
+            # bf16, so vLLM's CPU backend emulated it — 2–4 tokens/s and
+            # 60-second engine stalls under an agent turn (2026-09-24). fp32 is
+            # native everywhere; a 0.5B model is 2 GB of weights at fp32.
+            - "--dtype=float32"
             # The agent runtime sends tools with every turn (MCP toolbox) and
             # tool_choice=auto; without a tool-call parser vLLM answers 400
             # ("tool_choice=auto requires --enable-auto-tool-choice"), which
@@ -89,6 +94,12 @@ spec:
             - {name: XDG_CACHE_HOME, value: /cache/xdg}
             - {name: VLLM_CPU_KVCACHE_SPACE, value: "4"}
             - {name: VLLM_CPU_NUM_OF_RESERVED_CPU, value: "1"}
+            # Pin the OpenMP workers to as many cores as the CFS quota below
+            # allows. Unset, vLLM binds one thread per VISIBLE core (8 on an
+            # e2-standard-8) inside a 4-CPU quota, so the threads throttle each
+            # other and the engine core misses its shared-memory heartbeat
+            # ("No available shared memory broadcast block found in 60 seconds").
+            - {name: VLLM_CPU_OMP_THREADS_BIND, value: "0-5"}
             - {name: HF_HOME, value: /cache/hf}
             - {name: VLLM_CACHE_ROOT, value: /cache/vllm}
           ports:
@@ -104,8 +115,11 @@ spec:
             httpGet: {path: /health, port: http}
             periodSeconds: 10
           resources:
-            requests: {cpu: "2", memory: 6Gi}
-            limits: {cpu: "4", memory: 10Gi}
+            # Six of the node's eight CPUs: generation speed on CPU is linear
+            # in cores, and this is the only thing on the platform that turns
+            # a question into an answer.
+            requests: {cpu: "3", memory: 6Gi}
+            limits: {cpu: "6", memory: 10Gi}
       volumes:
         - name: cache
           persistentVolumeClaim: {claimName: llm-d-model-cache}

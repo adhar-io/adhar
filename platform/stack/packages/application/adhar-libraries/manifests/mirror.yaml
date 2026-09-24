@@ -13,6 +13,34 @@ metadata:
   namespace: adhar-system
   annotations: {argocd.argoproj.io/sync-wave: "0"}
 ---
+# The mirror push fires the Gitea → Tekton release webhook, and the release
+# pipeline publishes to Nexus with `nexus-credentials` — a Secret the nexus
+# package's config Job creates once Nexus is up. On a fresh cluster the mirror
+# used to win that race, the first release run died with
+# CreateContainerConfigError, and only the retry succeeded. So the mirror waits
+# for the credential before it pushes; this Role lets it look for it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-libraries-wait
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [nexus-credentials]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-libraries-wait
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+subjects:
+  - {kind: ServiceAccount, name: adhar-libraries, namespace: adhar-system}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: adhar-libraries-wait}
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -27,6 +55,18 @@ spec:
     spec:
       serviceAccountName: adhar-libraries
       restartPolicy: Never
+      initContainers:
+        - name: wait-for-nexus
+          image: docker.io/bitnamisecure/kubectl:latest
+          command: [sh, -c]
+          args:
+            - |
+              # See the Role above: the release this push triggers needs Nexus.
+              for i in $(seq 1 120); do
+                kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
+                sleep 10
+              done
+              echo "nexus-credentials not published within 20 minutes"; exit 1
       containers:
         - name: mirror
           image: alpine/git:2.45.2
@@ -69,6 +109,18 @@ spec:
     spec:
       serviceAccountName: adhar-libraries
       restartPolicy: Never
+      initContainers:
+        - name: wait-for-nexus
+          image: docker.io/bitnamisecure/kubectl:latest
+          command: [sh, -c]
+          args:
+            - |
+              # See the Role above: the release this push triggers needs Nexus.
+              for i in $(seq 1 120); do
+                kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
+                sleep 10
+              done
+              echo "nexus-credentials not published within 20 minutes"; exit 1
       containers:
         - name: mirror
           image: alpine/git:2.45.2
@@ -111,6 +163,18 @@ spec:
     spec:
       serviceAccountName: adhar-libraries
       restartPolicy: Never
+      initContainers:
+        - name: wait-for-nexus
+          image: docker.io/bitnamisecure/kubectl:latest
+          command: [sh, -c]
+          args:
+            - |
+              # See the Role above: the release this push triggers needs Nexus.
+              for i in $(seq 1 120); do
+                kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
+                sleep 10
+              done
+              echo "nexus-credentials not published within 20 minutes"; exit 1
       containers:
         - name: mirror
           image: alpine/git:2.45.2

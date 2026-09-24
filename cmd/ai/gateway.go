@@ -97,25 +97,39 @@ func (p *platform) readLLMConfig(ctx context.Context) (*llmConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	get := func(k string) string { return strings.TrimSpace(string(s.Data[k])) }
+	// The ExternalSecret's template projects the Secret with the UPPER_CASE
+	// names the workloads read (PROVIDER, API_KEY, …); the camelCase names are
+	// the raw data keys a hand-made Secret would carry. Accept both — reading
+	// only camelCase reported "every key slot is empty" against a keyed
+	// platform, and made `adhar ai key set` wait two minutes for a projection
+	// that had already happened.
+	get := func(upper, camel string) string {
+		if v := strings.TrimSpace(string(s.Data[upper])); v != "" {
+			return v
+		}
+		return strings.TrimSpace(string(s.Data[camel]))
+	}
 	cfg := &llmConfig{
 		SecretPresent: true,
-		Provider:      get("provider"),
-		Model:         get("model"),
-		Endpoint:      get("endpoint"),
-		DailyTokens:   get("budgetPerUserDailyTokens"),
-		MaxToolCalls:  get("budgetPerOpMaxToolCalls"),
+		Provider:      get("PROVIDER", "provider"),
+		Model:         get("MODEL", "model"),
+		Endpoint:      get("ENDPOINT", "endpoint"),
+		DailyTokens:   get("BUDGET_PER_USER_DAILY_TOKENS", "budgetPerUserDailyTokens"),
+		MaxToolCalls:  get("BUDGET_PER_OP_MAX_TOOL_CALLS", "budgetPerOpMaxToolCalls"),
 	}
 	// "Keyed" is per provider slot: a platform can hold an Anthropic key and no
 	// OpenAI key, and then `--model gpt-4o` will 401 while `claude-*` works. Say
 	// which slots are filled rather than a single yes/no that hides that.
-	for key, name := range map[string]string{"anthropicApiKey": "anthropic", "openaiApiKey": "openai"} {
-		if len(s.Data[key]) > 0 {
-			cfg.KeyedProviders = append(cfg.KeyedProviders, name)
+	for _, slot := range []struct{ upper, camel, name string }{
+		{"ANTHROPIC_API_KEY", "anthropicApiKey", "anthropic"},
+		{"OPENAI_API_KEY", "openaiApiKey", "openai"},
+	} {
+		if get(slot.upper, slot.camel) != "" {
+			cfg.KeyedProviders = append(cfg.KeyedProviders, slot.name)
 			cfg.Keyed = true
 		}
 	}
-	if len(s.Data["apiKey"]) > 0 {
+	if get("API_KEY", "apiKey") != "" {
 		cfg.Keyed = true
 	}
 	return cfg, nil

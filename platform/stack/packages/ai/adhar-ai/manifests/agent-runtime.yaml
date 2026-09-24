@@ -174,6 +174,12 @@ metadata:
     app.kubernetes.io/part-of: adhar-ai
     adhar.io/component: ai
     adhar.io/plane: control
+    # Makes a rollout targetable. These images are `:latest` with
+    # imagePullPolicy: Always, so a new build is picked up by
+    #   kubectl rollout restart deployment -l adhar.io/origin=adhar-ai
+    # `part-of: adhar-ai` would be wrong here: the vllm package shares it,
+    # and restarting a model server to refresh an agent is not the same job.
+    adhar.io/origin: adhar-ai
   annotations:
     argocd.argoproj.io/sync-wave: "7"
 spec:

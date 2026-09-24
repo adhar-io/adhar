@@ -30,56 +30,79 @@ spec:
             {{- $p := dig "spec" "parameters" dict $xr -}}
             {{- $src := dig "source" dict $p -}}
             {{- $dst := dig "destination" dict $p -}}
+            {{- $k8sProvider := dig "spec" "providerConfigRef" "name" "kubernetes-provider" $xr -}}
             ---
-            # ArgoCD watches adhar-system for Application objects.
-            apiVersion: argoproj.io/v1alpha1
-            kind: Application
+            # The Argo CD Application must live where Argo CD watches — the
+            # platform namespace — while this XR lives in the TEAM's namespace.
+            # A namespaced XR's composed resources are forced into its own
+            # namespace by Crossplane v2, so emitting the Application directly
+            # put it in the team namespace, unwatched, with no status forever
+            # (the README said `adhar-system`; the object said otherwise). A
+            # provider-kubernetes Object is the cross-namespace path.
+            apiVersion: kubernetes.m.crossplane.io/v1alpha1
+            kind: Object
             metadata:
-              name: {{ $name }}
-              namespace: adhar-system
+              name: {{ $name }}-argocd-app
               annotations:
                 gotemplating.fn.crossplane.io/composition-resource-name: argocd-app
               labels:
                 platform.adhar.io/self-service: "true"
             spec:
-              project: {{ dig "project" "default" $p | quote }}
-              source:
-                repoURL: {{ dig "repoURL" "" $src | quote }}
-                {{- /*
-                  A HELM source and a GIT source are mutually exclusive in an Argo CD
-                  Application, and the difference is `chart` vs `path`. This block used
-                  to emit `path` unconditionally with a default of ".", so a Helm
-                  request (the `microservice` template: repoURL
-                  https://charts.bitnami.com/bitnami, chart nginx) produced an
-                  Application with a chart REPOSITORY as its repoURL and no chart at
-                  all. Argo CD then tried to clone it as Git and parked the app at
-                  Unknown with
-                      failed to list refs: empty input
-                  — so the template could never sync, and nothing in that message
-                  points at the missing field.
-                */}}
-                {{- if dig "chart" "" $src }}
-                chart: {{ dig "chart" "" $src | quote }}
-                targetRevision: {{ dig "targetRevision" "*" $src | quote }}
-                {{- if dig "helm" dict $src }}
-                helm:
-                  {{- range $k, $v := dig "helm" dict $src }}
-                  {{ $k }}: {{ $v | toYaml | nindent 20 }}
-                  {{- end }}
-                {{- end }}
-                {{- else }}
-                path: {{ dig "path" "." $src | quote }}
-                targetRevision: {{ dig "targetRevision" "HEAD" $src | quote }}
-                {{- end }}
-              destination:
-                server: {{ dig "server" "https://kubernetes.default.svc" $dst | quote }}
-                namespace: {{ dig "namespace" $ns $dst | quote }}
-              syncPolicy:
-                automated:
-                  prune: true
-                  selfHeal: true
-                syncOptions:
-                  - CreateNamespace=true
+              providerConfigRef:
+                name: {{ $k8sProvider }}
+                kind: ClusterProviderConfig
+              forProvider:
+                manifest:
+                  apiVersion: argoproj.io/v1alpha1
+                  kind: Application
+                  metadata:
+                    name: {{ $name }}
+                    namespace: adhar-system
+                    labels:
+                      platform.adhar.io/self-service: "true"
+                      adhar.io/application: {{ $name | quote }}
+                      adhar.io/source-namespace: {{ $ns | quote }}
+                    finalizers:
+                      - resources-finalizer.argocd.argoproj.io
+                  spec:
+                    project: {{ dig "project" "default" $p | quote }}
+                    source:
+                      repoURL: {{ dig "repoURL" "" $src | quote }}
+                      {{- /*
+                        A HELM source and a GIT source are mutually exclusive in an Argo CD
+                        Application, and the difference is `chart` vs `path`. This block used
+                        to emit `path` unconditionally with a default of ".", so a Helm
+                        request (the `microservice` template: repoURL
+                        https://charts.bitnami.com/bitnami, chart nginx) produced an
+                        Application with a chart REPOSITORY as its repoURL and no chart at
+                        all. Argo CD then tried to clone it as Git and parked the app at
+                        Unknown with
+                            failed to list refs: empty input
+                        — so the template could never sync, and nothing in that message
+                        points at the missing field.
+                      */}}
+                      {{- if dig "chart" "" $src }}
+                      chart: {{ dig "chart" "" $src | quote }}
+                      targetRevision: {{ dig "targetRevision" "*" $src | quote }}
+                      {{- if dig "helm" dict $src }}
+                      helm:
+                        {{- range $k, $v := dig "helm" dict $src }}
+                        {{ $k }}: {{ $v | toYaml | nindent 26 }}
+                        {{- end }}
+                      {{- end }}
+                      {{- else }}
+                      path: {{ dig "path" "." $src | quote }}
+                      targetRevision: {{ dig "targetRevision" "HEAD" $src | quote }}
+                      {{- end }}
+                    destination:
+                      server: {{ dig "server" "https://kubernetes.default.svc" $dst | quote }}
+                      namespace: {{ dig "namespace" $ns $dst | quote }}
+                    syncPolicy:
+                      automated:
+                        prune: true
+                        selfHeal: true
+                      syncOptions:
+                        - CreateNamespace=true
     - step: ready
       functionRef:
         name: function-auto-ready

@@ -293,6 +293,41 @@ configs:
     ## The ignoreResourceUpdates list contains K8s resource's properties that are known to be frequently updated
     ## by controllers and operators. These resources, when watched by argo, will cause many unnecessary updates.
 
+    # An ExternalSecret whose remote key is legitimately absent. Some platform
+    # secrets are seeded by an operator later (the Adhar AI LLM key: "enabling
+    # the packages with no key is a supported state"), and Argo CD's built-in
+    # check reports SecretSyncedError as Degraded — which then gates every later
+    # sync wave, so an unkeyed install never reached its Keycloak client
+    # registration Job (seen on a fresh cluster, 2026-09-23). A manifest that
+    # opts in with `adhar.io/optional: "true"` is Healthy while unkeyed, and
+    # says so; every other ExternalSecret keeps the built-in behaviour.
+    resource.customizations.health.external-secrets.io_ExternalSecret: |
+      hs = {}
+      local optional = obj.metadata ~= nil and obj.metadata.annotations ~= nil
+        and obj.metadata.annotations["adhar.io/optional"] == "true"
+      if obj.status ~= nil and obj.status.conditions ~= nil then
+        for _, c in ipairs(obj.status.conditions) do
+          if c.type == "Ready" then
+            if c.status == "True" then
+              hs.status = "Healthy"
+              hs.message = c.message or "secret synced"
+              return hs
+            end
+            if optional and c.reason == "SecretSyncedError" then
+              hs.status = "Healthy"
+              hs.message = "optional secret not seeded yet: " .. (c.message or "")
+              return hs
+            end
+            hs.status = "Degraded"
+            hs.message = c.message or c.reason or "not ready"
+            return hs
+          end
+        end
+      end
+      hs.status = "Progressing"
+      hs.message = "waiting for the ExternalSecret controller"
+      return hs
+
     # CNPG Cluster health: map the operator's phase string to an Argo health
     # status so sync waves gated on a CNPG Cluster (keycloak-db, console-db,
     # gitea-db) resolve deterministically. "Cluster in healthy state" → Healthy,

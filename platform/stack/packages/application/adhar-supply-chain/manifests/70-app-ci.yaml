@@ -3,8 +3,21 @@
 # On every push to an app repo's main branch, a Gitea webhook hits the `app-ci`
 # EventListener, which starts the `app-ci` Pipeline:
 #
-#   clone → buildpacks build (auto-detects Java/Go/Node/Python) → Harbor
-#         → trivy scan → cosign sign → GitOps writeback
+#   clone → build (buildpacks, auto-detects Java/Go/Node/Python) → Harbor
+#             ├─ test (unit tests, toolchain auto-detected)      ┐
+#             ├─ secrets (gitleaks on the source)                │ independent,
+#             ├─ source-scan (trivy: dependency CVEs + deploy/)  │ in parallel
+#             ├─ scan (trivy on the built image)                 │
+#             └─ sbom (syft, CycloneDX)                          ┘
+#           → sign (only when all five passed) → attest SBOM → verify
+#           → GitOps writeback; finally: summary
+#
+# Sequential where there is a real dependency (nothing to judge before the
+# image exists; nothing to sign before every judge agrees; nothing to attest
+# before the signature; nothing to deploy before the proof), parallel
+# everywhere else.
+#
+# Tasks for the new stages live in 72-app-ci-stages.yaml.
 #
 # The writeback stamps the built commit SHA into the app's Deployment annotation
 # and pushes it back with "[skip ci]" (so it does NOT retrigger a build); ArgoCD
@@ -138,6 +151,8 @@ spec:
         - {name: url, value: "http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/$(params.repo-name)"}
         - {name: revision, value: "$(params.git-ref)"}
       workspaces: [{name: output, workspace: shared}]
+
+    # ── build first: the image is the artifact everything else judges ──────
     - name: build
       runAfter: [clone]
       taskRef: {name: buildpacks-build}
@@ -146,26 +161,76 @@ spec:
         # Pushes <image>:latest AND <image>:<revision>.
         - {name: extra-tag, value: "$(params.revision)"}
       workspaces: [{name: source, workspace: shared}]
-    # Scan and sign the exact artifact just built, not whatever :latest happens
-    # to be — on a PR build, :latest is still main's image.
+
+    # ── one fan-out: five independent gates, in parallel ────────────────────
+    # None of these depends on another, so they all start the moment the image
+    # exists. Three judge the source (tests, committed secrets, dependency and
+    # manifest scan); two judge the exact image just built — not whatever
+    # :latest happens to be, which on a PR build is still main's image.
+    - name: test
+      runAfter: [build]
+      taskRef: {name: test-auto}
+      workspaces: [{name: source, workspace: shared}]
+    - name: secrets
+      runAfter: [build]
+      taskRef: {name: gitleaks-scan}
+      workspaces: [{name: source, workspace: shared}]
+    - name: source-scan
+      runAfter: [build]
+      taskRef: {name: source-scan}
+      workspaces: [{name: source, workspace: shared}]
     - name: scan
       runAfter: [build]
       taskRef: {name: trivy-scan}
       params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}]
+    - name: sbom
+      runAfter: [build]
+      taskRef: {name: syft-sbom}
+      params: [{name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}]
+      workspaces: [{name: source, workspace: shared}]
+
+    # ── every gate green → sign, attest, prove, deploy ──────────────────────
+    # The signature is the platform's statement that ALL of the above passed,
+    # so it waits for all of them; an image with a failing test or a leaked
+    # key never gets one, and Kyverno's verify-supply-chain-images policy
+    # never admits it.
     - name: sign
-      runAfter: [scan]
+      runAfter: [test, secrets, source-scan, scan, sbom]
       taskRef: {name: cosign-sign}
       params:
         - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
         - {name: tag, value: "$(params.revision)"}
-    - name: deploy
+    - name: attest
       runAfter: [sign]
+      taskRef: {name: cosign-attest-sbom}
+      params:
+        - {name: image-ref, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}
+        - {name: sbom, value: "sbom.cdx.json"}
+        - {name: type, value: cyclonedx}
+      workspaces: [{name: source, workspace: shared}]
+    # Verify with the same key admission uses. If this fails the deploy never
+    # runs; if it passes, what Argo CD rolls out is exactly what was proven.
+    - name: verify
+      runAfter: [attest]
+      taskRef: {name: cosign-verify-attested}
+      params:
+        - {name: image-ref, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name):$(params.revision)"}
+        - {name: type, value: cyclonedx}
+    - name: deploy
+      runAfter: [verify]
       when:
         - {input: "$(params.writeback)", operator: in, values: ["true"]}
       taskRef: {name: gitops-writeback}
       params:
         - {name: repo-name, value: "$(params.repo-name)"}
         - {name: revision, value: "$(params.revision)"}
+  finally:
+    - name: summary
+      taskRef: {name: ci-summary}
+      params:
+        - {name: image, value: "harbor-core.adhar-system.svc.cluster.local/library/$(params.repo-name)"}
+        - {name: revision, value: "$(params.revision)"}
+        - {name: stages, value: "clone=$(tasks.clone.status) test=$(tasks.test.status) secrets=$(tasks.secrets.status) source-scan=$(tasks.source-scan.status) build=$(tasks.build.status) scan=$(tasks.scan.status) sbom=$(tasks.sbom.status) sign=$(tasks.sign.status) attest=$(tasks.attest.status) verify=$(tasks.verify.status) deploy=$(tasks.deploy.status)"}
 ---
 # Trigger template: turn a push event into an app-ci PipelineRun.
 apiVersion: triggers.tekton.dev/v1beta1

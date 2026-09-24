@@ -1842,7 +1842,6 @@ spec:
                       enum:
                       - ''
                       - merge
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -3688,7 +3687,6 @@ spec:
                       enum:
                       - ''
                       - merge
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -4046,7 +4044,6 @@ spec:
                       be written to the Info log.
 
                       '
-
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -4059,7 +4056,6 @@ metadata:
     helm.sh/chart: redis-16.8.9
     app.kubernetes.io/instance: posthog
     app.kubernetes.io/managed-by: Helm
-
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -4068,7 +4064,6 @@ metadata:
   namespace: adhar-system
   labels:
     clickhouse.altinity.com/chop: 0.18.4
-
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -4079,7 +4074,6 @@ metadata:
     app.kubernetes.io/instance: posthog
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: posthog-30.46.0
-
 ---
 apiVersion: v1
 kind: Secret
@@ -4094,7 +4088,6 @@ type: Opaque
 data:
   posthog-secret: RDJRUGFvQlRia3lvTkpmd1Q1cENyM3pRWGdpSEFJeUNnaGkydGdpYQ==
   smtp-password: ''
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4138,7 +4131,6 @@ data:
     rename-command FLUSHALL ""
 
     # End of replica configuration'
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4198,7 +4190,6 @@ data:
     "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
 
     exit $exit_status'
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4220,7 +4211,6 @@ data:
     )\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\nARGS+=(\"--maxmemory\
     \ 400mb\")\nARGS+=(\"--maxmemory-policy allkeys-lru\")\nexec redis-server \"${ARGS[@]}\"\
     \n"
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4321,7 +4311,6 @@ data:
     ##\n## Log parameters\n##\n################################################\n\
     logger:\n  logtostderr: \"true\"\n  alsologtostderr: \"false\"\n  v: \"1\"\n \
     \ stderrthreshold: \"\"\n  vmodule: \"\"\n  log_backtrace_at: \"\"\n"
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4332,7 +4321,6 @@ metadata:
     clickhouse.altinity.com/chop: 0.18.4
     app: clickhouse-operator
 data: null
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4363,7 +4351,6 @@ data:
     \ = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + interval\
     \ 30 day</engine>\n        <flush_interval_milliseconds>7500</flush_interval_milliseconds>\n\
     \    </part_log>\n</yandex>\n"
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4406,7 +4393,6 @@ data:
     ''useTemplate''
 
     '
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -4433,7 +4419,6 @@ data:
   03-database-ordinary.xml: "<!--  Remove it for ClickHouse versions before 20.4 -->\n\
     <yandex>\n    <profiles>\n        <default>\n            <default_database_engine>Ordinary</default_database_engine>\n\
     \        </default>\n    </profiles>\n</yandex>\n"
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -4589,7 +4574,6 @@ rules:
   verbs:
   - get
   - list
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -4606,7 +4590,6 @@ subjects:
 - kind: ServiceAccount
   name: clickhouse-operator
   namespace: adhar-system
-
 ---
 apiVersion: v1
 kind: Service
@@ -4629,7 +4612,6 @@ spec:
   selector:
     app.kubernetes.io/name: posthog-redis
     app.kubernetes.io/instance: posthog
-
 ---
 apiVersion: v1
 kind: Service
@@ -4654,7 +4636,6 @@ spec:
     app.kubernetes.io/name: posthog-redis
     app.kubernetes.io/instance: posthog
     app.kubernetes.io/component: master
-
 ---
 kind: Service
 apiVersion: v1
@@ -4670,7 +4651,6 @@ spec:
     name: clickhouse-operator-metrics
   selector:
     app: clickhouse-operator
-
 ---
 apiVersion: v1
 kind: Service
@@ -4694,7 +4674,6 @@ spec:
   selector:
     app: posthog
     role: events
-
 ---
 apiVersion: v1
 kind: Service
@@ -4717,7 +4696,6 @@ spec:
   selector:
     app: posthog
     role: pgbouncer
-
 ---
 apiVersion: v1
 kind: Service
@@ -4741,7 +4719,6 @@ spec:
   selector:
     app: posthog
     role: web
-
 ---
 kind: Deployment
 apiVersion: apps/v1
@@ -4854,7 +4831,6 @@ spec:
         ports:
         - containerPort: 8888
           name: metrics
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -4884,7 +4860,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 6130e8d5cf8604b518bde66a56e658dba97a8468ac0de3d0398f4dec394e4ed6
+        checksum/secrets.yaml: d6c78cba55df6207d7427f04ad6015b96ffc52ea1323e72614db899200faa4e6
       labels:
         app: posthog
         release: posthog
@@ -5013,7 +4989,7 @@ spec:
           initialDelaySeconds: 0
           periodSeconds: 5
           successThreshold: 1
-          timeoutSeconds: 5
+          timeoutSeconds: 15
         readinessProbe:
           httpGet:
             path: /_readyz?role=events
@@ -5071,7 +5047,6 @@ spec:
           \ \"waiting for PgBouncer\"; sleep 1;\ndone\n\n\n\nuntil (nc -vz \"posthog-posthog-redis-master.$(cat\
           \ /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local\"\
           \ \"6379\"); do\n    echo \"waiting for Redis\"; sleep 1;\ndone\n"
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -5095,7 +5070,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 53b80d77a52dcd8e87a751fc173f367c5fba80e7e3735e2b979026cde4ae71bf
+        checksum/secrets.yaml: 58e13c04c626af5e40687efc59c6817a9044fdbf09ab500ca1b25c2a1a28a25f
       labels:
         app: posthog
         release: posthog
@@ -5141,7 +5116,7 @@ spec:
           initialDelaySeconds: 10
           periodSeconds: 5
           successThreshold: 1
-          timeoutSeconds: 2
+          timeoutSeconds: 15
         livenessProbe:
           tcpSocket:
             port: 6543
@@ -5149,7 +5124,7 @@ spec:
           initialDelaySeconds: 60
           periodSeconds: 10
           successThreshold: 1
-          timeoutSeconds: 2
+          timeoutSeconds: 15
         lifecycle:
           preStop:
             exec:
@@ -5157,7 +5132,6 @@ spec:
               - sh
               - -c
               - sleep 30 && kill -INT 1 && sleep 31
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -5187,7 +5161,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 2fad722077353c53ba374dc308abb5bee30843f9cded2cd9da0bd821600d39c3
+        checksum/secrets.yaml: ecb9b812647b35d28409aa062fc552d7d722280a466513c7239e05df5dd1c34d
       labels:
         app: posthog
         release: posthog
@@ -5332,7 +5306,7 @@ spec:
           initialDelaySeconds: 0
           periodSeconds: 5
           successThreshold: 1
-          timeoutSeconds: 5
+          timeoutSeconds: 15
         readinessProbe:
           httpGet:
             path: /_readyz?role=web
@@ -5463,7 +5437,6 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -5493,7 +5466,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/secrets.yaml: 5b8e54cfa0cfcb4ce67f05267819f92d6d644e972126ce4a81524506cd4efc57
+        checksum/secrets.yaml: 5b9ce254010f1e306accf935f34a64763fdd2ba6b4ebfc033ec25424023acbfb
       labels:
         app: posthog
         release: posthog
@@ -5702,7 +5675,6 @@ spec:
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-rw.adhar-system.svc.cluster.local:5432/posthog_persons
         - name: PERSONS_DB_READER_URL
           value: postgres://posthog:$(ADHAR_PERSONS_DB_PASSWORD)@posthog-db-ro.adhar-system.svc.cluster.local:5432/posthog_persons
-
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -5787,7 +5759,7 @@ spec:
         livenessProbe:
           initialDelaySeconds: 20
           periodSeconds: 5
-          timeoutSeconds: 6
+          timeoutSeconds: 15
           successThreshold: 1
           failureThreshold: 5
           exec:
@@ -5798,7 +5770,7 @@ spec:
         readinessProbe:
           initialDelaySeconds: 20
           periodSeconds: 5
-          timeoutSeconds: 2
+          timeoutSeconds: 15
           successThreshold: 1
           failureThreshold: 5
           exec:
@@ -5852,12 +5824,11 @@ spec:
       resources:
         requests:
           storage: 5Gi
-
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-migrate-2026-09-12-17-29-35
+  name: posthog-migrate-2026-09-23-14-59-43
   labels:
     app.kubernetes.io/name: posthog
     app.kubernetes.io/instance: posthog
@@ -5870,9 +5841,9 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-migrate-2026-09-12-17-29-35
+      name: posthog-migrate-2026-09-23-14-59-43
       annotations:
-        checksum/secrets.yaml: b0175b8375a5d06b358a9748b4a7f2f8c1a90420c2d2ef1ce184927e75d17e11
+        checksum/secrets.yaml: 89ca735f43c525771381d0ff6cae7cea3617cd6bdd3358f14304adabee4861cc
       labels:
         app: posthog
         release: posthog
@@ -6011,7 +5982,6 @@ spec:
           \ \"waiting for PgBouncer\"; sleep 1;\ndone\n\n\n\nuntil (nc -vz \"posthog-posthog-redis-master.$(cat\
           \ /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local\"\
           \ \"6379\"); do\n    echo \"waiting for Redis\"; sleep 1;\ndone\n"
-
 ---
 apiVersion: clickhouse.altinity.com/v1
 kind: ClickHouseInstallation
@@ -6139,6 +6109,10 @@ spec:
         - name: data-volumeclaim-template
           persistentVolumeClaim:
             claimName: data-volumeclaim-template
+        - name: user-scripts
+          emptyDir: {}
+        - name: udf-config
+          emptyDir: {}
         securityContext:
           fsGroup: 101
           runAsGroup: 101
@@ -6160,6 +6134,38 @@ spec:
           volumeMounts:
           - name: data-volumeclaim-template
             mountPath: /var/lib/clickhouse
+          - name: user-scripts
+            mountPath: /var/lib/clickhouse/user_scripts
+          - name: udf-config
+            mountPath: /etc/clickhouse-server/user_defined_function.xml
+            subPath: user_defined_function.xml
+        initContainers:
+        - name: install-udfs
+          image: posthog/posthog:latest
+          command:
+          - /bin/sh
+          - -ec
+          - 'cp -R /code/posthog/user_scripts/. /udf/scripts/
+
+            cp /code/posthog/user_scripts/latest_user_defined_function.xml /udf/config/user_defined_function.xml
+
+            chmod -R a+rX /udf/scripts/*
+
+            echo "installed $(grep -c ''<function>'' /udf/config/user_defined_function.xml)
+            UDF definitions"
+
+            '
+          volumeMounts:
+          - name: user-scripts
+            mountPath: /udf/scripts
+          - name: udf-config
+            mountPath: /udf/config
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
     serviceTemplates:
     - name: service-template
       generateName: clickhouse-posthog
@@ -6178,12 +6184,11 @@ spec:
         resources:
           requests:
             storage: 20Gi
-
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: posthog-grafana-annotation-job-post-2026-09-12-17-29-35
+  name: posthog-grafana-annotation-job-post-2026-09-23-14-59-43
   labels:
     app.kubernetes.io/name: posthog
     app.kubernetes.io/instance: posthog
@@ -6197,7 +6202,7 @@ metadata:
 spec:
   template:
     metadata:
-      name: posthog-grafana-annotation-job-post-2026-09-12-17-29-35
+      name: posthog-grafana-annotation-job-post-2026-09-23-14-59-43
     spec:
       restartPolicy: Never
       containers:

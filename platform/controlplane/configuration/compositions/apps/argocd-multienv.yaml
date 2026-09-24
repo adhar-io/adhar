@@ -91,7 +91,7 @@ spec:
                   kind: Application
                   metadata:
                     name: {{ quote $appName }}
-                    namespace: argocd
+                    namespace: adhar-system
                     labels:
                       project: {{ quote $project }}
                       adhar.io/application: {{ quote $name }}

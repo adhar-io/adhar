@@ -1,0 +1,54 @@
+# Identity for Console game days (modules/platform/src/data/chaos-scenarios.ts).
+#
+# A game day is an Argo Workflow whose steps each create a ChaosEngine and wait
+# for its ChaosResult (litmus-checker). The workflow's pods therefore need two
+# things at once: the Argo executor's own permissions (report task results back
+# to the controller) and the chaos operator's (create engines, read results,
+# and on the revert step delete the engines it made). `k8s-chaos-admin` has the
+# second; this account adds the first and binds to the second.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adhar-chaos-gameday
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: litmus, adhar.io/component: chaos}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adhar-chaos-gameday-executor
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: litmus, adhar.io/component: chaos}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+rules:
+  # What the Argo Workflows executor (emissary) needs from inside a step pod.
+  - apiGroups: [argoproj.io]
+    resources: [workflowtaskresults]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, patch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adhar-chaos-gameday-executor
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: litmus, adhar.io/component: chaos}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+subjects: [{kind: ServiceAccount, name: adhar-chaos-gameday, namespace: adhar-system}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: adhar-chaos-gameday-executor}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-chaos-gameday-chaos
+  labels: {app.kubernetes.io/name: litmus, adhar.io/component: chaos}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+subjects: [{kind: ServiceAccount, name: adhar-chaos-gameday, namespace: adhar-system}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: k8s-chaos-admin}

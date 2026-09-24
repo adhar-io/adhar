@@ -1,0 +1,231 @@
+# The stages that make `app-ci` a secure supply chain rather than a build script
+# (ADR-0018, ADR-0019). Each is a Task the Pipeline in 70-app-ci.yaml composes:
+#
+#   clone → build, then in parallel   test-auto · gitleaks-scan · source-scan · trivy-scan · syft-sbom
+#   then                              cosign-sign → cosign-attest-sbom → cosign-verify-attested → deploy
+#   finally                    ci-summary
+#
+# Every gate here FAILS the run (exit 1) — a gate that only reports is a
+# dashboard, not a control. Where a scanner finds nothing to scan (a repository
+# with no tests, no lockfile, no manifests) the stage passes and says so.
+---
+# Unit tests, language detected from the checkout. One task instead of one per
+# language so the pipeline does not need to know what it is building — the
+# buildpack does not either. Maven/Gradle resolve through the in-cluster Nexus
+# when the repository ships the platform's settings.xml (the templates do).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-auto
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Run the repository's unit tests, detecting the toolchain from its files.
+  params:
+    - {name: subdirectory, type: string, default: ""}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: runner, description: "Which test runner ran (maven, gradle, npm, go, pytest, none)"}
+  steps:
+    # Tests run on a private COPY of the checkout: `npm ci` / `mvn test` write
+    # node_modules and target/ next to the source, and the shared workspace is
+    # what later stages (and a re-run build) read.
+    - name: detect
+      image: docker.io/library/bash:5.2
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        mkdir -p /workspace/testsrc
+        cp -a "$(workspaces.source.path)/$(params.subdirectory)/." /workspace/testsrc/
+        cd /workspace/testsrc
+        r=none
+        if   [ -f pom.xml ];          then r=maven
+        elif [ -f gradlew ] || [ -f build.gradle ] || [ -f build.gradle.kts ]; then r=gradle
+        elif [ -f package.json ];     then r=npm
+        elif [ -f go.mod ];           then r=go
+        elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then r=pytest
+        fi
+        echo "test runner: $r"
+        printf '%s' "$r" > "$(results.runner.path)"
+    - name: maven
+      image: docker.io/library/maven:3.9-eclipse-temurin-25
+      workingDir: /workspace/testsrc
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        [ "$(cat $(results.runner.path))" = maven ] || { echo "skip (not a Maven project)"; exit 0; }
+        S=""; [ -f settings.xml ] && S="-s settings.xml"
+        mvn -B -q $S -Dmaven.repo.local=/workspace/.m2 test
+        echo "maven tests passed"
+    - name: gradle
+      image: docker.io/library/eclipse-temurin:25-jdk
+      workingDir: /workspace/testsrc
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        [ "$(cat $(results.runner.path))" = gradle ] || { echo "skip (not a Gradle project)"; exit 0; }
+        if [ -x ./gradlew ]; then ./gradlew --no-daemon -q test; else echo "no gradlew wrapper; cannot run tests reproducibly" >&2; exit 1; fi
+        echo "gradle tests passed"
+    - name: npm
+      image: docker.io/library/node:22-bookworm
+      workingDir: /workspace/testsrc
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        [ "$(cat $(results.runner.path))" = npm ] || { echo "skip (not a Node project)"; exit 0; }
+        if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+        npm test --if-present
+        echo "npm tests passed"
+    - name: go
+      image: docker.io/library/golang:1.24-bookworm
+      workingDir: /workspace/testsrc
+      env: [{name: GOFLAGS, value: "-mod=mod"}, {name: GOCACHE, value: /workspace/.gocache}, {name: GOMODCACHE, value: /workspace/.gomod}]
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        [ "$(cat $(results.runner.path))" = go ] || { echo "skip (not a Go module)"; exit 0; }
+        go vet ./... && go test ./...
+        echo "go tests passed"
+    - name: pytest
+      image: docker.io/library/python:3.12-bookworm
+      workingDir: /workspace/testsrc
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        [ "$(cat $(results.runner.path))" = pytest ] || { echo "skip (not a Python project)"; exit 0; }
+        [ -f requirements.txt ] && pip install -q -r requirements.txt
+        [ -f pyproject.toml ] && pip install -q -e . || true
+        pip install -q pytest
+        python -m pytest -q || [ $? -eq 5 ]   # 5 = no tests collected
+        echo "pytest passed"
+---
+# Committed credentials. A key that reaches git is compromised whether or not it
+# reaches an image, so this runs against the SOURCE, before the build.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: gitleaks-scan
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Fail if the checkout contains a committed secret.
+  workspaces:
+    - {name: source}
+  steps:
+    - name: scan
+      image: ghcr.io/gitleaks/gitleaks:v8.21.2
+      workingDir: $(workspaces.source.path)
+      command: [gitleaks]
+      # --no-git: the clone is shallow; scan the tree, not history.
+      args: [detect, --source=., --no-git, --no-banner, --redact, --exit-code=1, --report-format=json, --report-path=/tmp/gitleaks.json]
+---
+# Dependency CVEs and manifest misconfigurations, from the source tree: the
+# lockfile tells trivy what the app ships before the image exists, and `deploy/`
+# is what Argo CD will apply — a privileged container or a missing limit is
+# caught here rather than by Kyverno at admission, with the run still green.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: source-scan
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Trivy filesystem scan — dependency vulnerabilities and Kubernetes manifest misconfiguration.
+  params:
+    - {name: severity, type: string, default: "HIGH,CRITICAL"}
+  workspaces:
+    - {name: source}
+  steps:
+    - name: deps
+      image: aquasec/trivy:0.58.0
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -e
+        trivy fs --scanners vuln --severity "$(params.severity)" --exit-code 1 --no-progress --format table .
+        echo "no $(params.severity) dependency vulnerabilities"
+    - name: manifests
+      image: aquasec/trivy:0.58.0
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -e
+        found=""
+        for d in deploy manifests k8s kubernetes; do [ -d "$d" ] && found="$found $d"; done
+        [ -n "$found" ] || { echo "no Kubernetes manifests in the repository; nothing to check"; exit 0; }
+        trivy config -q --severity "$(params.severity)" --exit-code 1 $found
+        echo "manifests pass $(params.severity) misconfiguration checks"
+---
+# The SBOM of the image that was actually built, as CycloneDX, written into the
+# workspace for cosign-attest-sbom to attach to the image (safe there: the build
+# has already read the source by the time this runs). Whoever pulls the
+# image can then ask what is in it and prove the answer was made at build time.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: syft-sbom
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Generate a CycloneDX SBOM for a built image.
+  params:
+    - {name: image, type: string}
+    - {name: output, type: string, default: "sbom.cdx.json"}
+  workspaces:
+    - {name: source}
+  results:
+    - {name: components, description: "Number of components catalogued"}
+  volumes:
+    - name: harbor-dockercfg
+      secret: {secretName: harbor-dockercfg, items: [{key: .dockerconfigjson, path: config.json}]}
+    - name: harbor-ca
+      secret: {secretName: harbor-core-internal-tls, items: [{key: ca.crt, path: harbor-ca.crt}]}
+  steps:
+    # The syft image is distroless — no shell — so it runs as command+args and
+    # the bookkeeping happens in a separate step.
+    - name: sbom
+      image: docker.io/anchore/syft:v1.18.1
+      workingDir: $(workspaces.source.path)
+      env:
+        - {name: DOCKER_CONFIG, value: /harbor-creds}
+        - {name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/harbor-ca"}
+        - {name: SYFT_CHECK_FOR_APP_UPDATE, value: "false"}
+      volumeMounts:
+        - {name: harbor-dockercfg, mountPath: /harbor-creds}
+        - {name: harbor-ca, mountPath: /etc/harbor-ca}
+      command: [/syft]
+      args: ["registry:$(params.image)", "-o", "cyclonedx-json=$(params.output)", "-q"]
+    - name: record
+      image: docker.io/library/bash:5.2
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        n=$(grep -o '"bom-ref"' "$(params.output)" | wc -l | tr -d ' ')
+        echo "SBOM: $n components → $(params.output)"
+        printf '%s' "$n" > "$(results.components.path)"
+---
+# One line per stage at the end of every run, whatever happened — the run's
+# story in the PipelineRun log, and the place the Console's Deploy tab reads.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: ci-summary
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  description: Print the outcome of every app-ci stage.
+  params:
+    - {name: image, type: string}
+    - {name: revision, type: string}
+    - {name: stages, type: string, description: "name=status pairs, space separated"}
+  steps:
+    - name: summary
+      image: docker.io/library/bash:5.2
+      script: |
+        #!/usr/bin/env bash
+        echo "━━━ app-ci summary ━━━"
+        echo "image     $(params.image):$(params.revision)"
+        for kv in $(params.stages); do printf '%-14s %s\n' "${kv%%=*}" "${kv#*=}"; done
+        echo "━━━━━━━━━━━━━━━━━━━━━━"

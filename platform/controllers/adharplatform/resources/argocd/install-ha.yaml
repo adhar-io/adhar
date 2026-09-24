@@ -1199,6 +1199,32 @@ data:
     health_status.status = "Progressing"
     health_status.message = "Waiting for cluster status"
     return health_status
+  resource.customizations.health.external-secrets.io_ExternalSecret: |
+    hs = {}
+    local optional = obj.metadata ~= nil and obj.metadata.annotations ~= nil
+      and obj.metadata.annotations["adhar.io/optional"] == "true"
+    if obj.status ~= nil and obj.status.conditions ~= nil then
+      for _, c in ipairs(obj.status.conditions) do
+        if c.type == "Ready" then
+          if c.status == "True" then
+            hs.status = "Healthy"
+            hs.message = c.message or "secret synced"
+            return hs
+          end
+          if optional and c.reason == "SecretSyncedError" then
+            hs.status = "Healthy"
+            hs.message = "optional secret not seeded yet: " .. (c.message or "")
+            return hs
+          end
+          hs.status = "Degraded"
+          hs.message = c.message or c.reason or "not ready"
+          return hs
+        end
+      end
+    end
+    hs.status = "Progressing"
+    hs.message = "waiting for the ExternalSecret controller"
+    return hs
   resource.customizations.health.postgresql.cnpg.io_ScheduledBackup: |
     hs = {}
     hs.status = "Healthy"

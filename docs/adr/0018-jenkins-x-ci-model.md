@@ -1,6 +1,6 @@
 # ADR-0018: CI on the platform — Jenkins X pipeline model on Tekton, promotion via GitOps
 
-**Status**: Superseded (2026-09) — the Jenkins X / Lighthouse layer was removed from the platform; the paved-road CI is the Tekton `app-ci` pipeline shipped by the supply-chain package (`.adhar/app.yaml` per service, Gitea webhooks → EventListener → build → sign → scan → GitOps promotion). Kept for the pipeline-model rationale. · **Date**: 2026-07
+**Status**: Superseded (2026-09) — the Jenkins X / Lighthouse layer was removed from the platform; the paved-road CI is the Tekton `app-ci` pipeline shipped by the supply-chain package (Gitea webhooks → EventListener → clone → buildpacks build → {unit tests · gitleaks · trivy source scan · trivy image scan · syft SBOM} in parallel → cosign sign → SBOM attestation → cosign verify → GitOps promotion; every gate fails the run — see `adhar-supply-chain/manifests/70-app-ci.yaml` and `72-app-ci-stages.yaml`). Kept for the pipeline-model rationale. · **Date**: 2026-07
 
 ## Context
 
