@@ -23,8 +23,25 @@ spec:
       - adhar-system
     includeClusterResources: true
     snapshotVolumes: false
-    # PVC file data rides along via the node agent (restic/kopia FSB).
-    defaultVolumesToFsBackup: true
+    # OPT-IN file backup, not opt-out. `true` here made Velero file-copy EVERY
+    # pod volume in the namespace — including the object store's own 100 GiB
+    # `data` volume, INTO the object store it was writing the backup to. One run
+    # wrote 62.8 GB of RustFS into RustFS, filled the disk to 100 %, and then
+    # failed (PartiallyFailed) — taking WAL archiving, Loki, Mimir and the
+    # buckets Job down with it (2026-09-25).
+    #
+    # What Velero is for on this platform is cluster STATE: namespaced objects,
+    # CRs, cluster-scoped resources — the things nothing else records. Bulk DATA
+    # is already covered by the component that owns it: every database is a CNPG
+    # cluster with barman WAL archiving + PITR, and the object store cannot
+    # back itself up. Caches (trivy/grype DBs, registry layers, Prometheus TSDB)
+    # are reconstructible and do not belong in a backup at all.
+    #
+    # A volume that genuinely needs file backup opts in on its POD:
+    #     backup.velero.io/backup-volumes: <volume-name>
+    # Gitea carries exactly that annotation (its `data` volume holds the GitOps
+    # repos and every user repository, which nothing else records).
+    defaultVolumesToFsBackup: false
     storageLocation: default
     ttl: 720h0m0s
 ---
@@ -44,7 +61,24 @@ spec:
       - "*"
     includeClusterResources: true
     snapshotVolumes: false
-    # PVC file data rides along via the node agent (restic/kopia FSB).
-    defaultVolumesToFsBackup: true
+    # OPT-IN file backup, not opt-out. `true` here made Velero file-copy EVERY
+    # pod volume in the namespace — including the object store's own 100 GiB
+    # `data` volume, INTO the object store it was writing the backup to. One run
+    # wrote 62.8 GB of RustFS into RustFS, filled the disk to 100 %, and then
+    # failed (PartiallyFailed) — taking WAL archiving, Loki, Mimir and the
+    # buckets Job down with it (2026-09-25).
+    #
+    # What Velero is for on this platform is cluster STATE: namespaced objects,
+    # CRs, cluster-scoped resources — the things nothing else records. Bulk DATA
+    # is already covered by the component that owns it: every database is a CNPG
+    # cluster with barman WAL archiving + PITR, and the object store cannot
+    # back itself up. Caches (trivy/grype DBs, registry layers, Prometheus TSDB)
+    # are reconstructible and do not belong in a backup at all.
+    #
+    # A volume that genuinely needs file backup opts in on its POD:
+    #     backup.velero.io/backup-volumes: <volume-name>
+    # Gitea carries exactly that annotation (its `data` volume holds the GitOps
+    # repos and every user repository, which nothing else records).
+    defaultVolumesToFsBackup: false
     storageLocation: default
     ttl: 2160h0m0s

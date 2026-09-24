@@ -846,3 +846,133 @@ func TestWorkloadsThatBootWithoutTheirKeycloakSecretShipAReloadJob(t *testing.T)
 		t.Fatal(err)
 	}
 }
+
+// TestNoHTTPRouteRoutesToALaterWaveThanItself keeps a route from being published
+// before the Service it points at exists.
+//
+// Gateway API reports a route's health from its parent's conditions, and a
+// backendRef that does not resolve yet is a FAILURE, not a "not ready":
+//
+//	Parent adhar-gateway: Service "strapi-oauth2-proxy" not found
+//
+// Argo CD fails the wave on that, and every platform Application carries
+// `retry: limit -1`, so the Application retries forever and never reaches the
+// workload in a later wave. A fresh Strapi package shipped its HTTPRoute at
+// wave 3 while its oauth2-proxy Service was at wave 5 and produced exactly that
+// loop (2026-09-25) — three sync attempts a second, no pod, and a message that
+// blamed health rather than ordering.
+//
+// Scope is the package: a route and its backend are declared together, and only
+// waves inside one Application are comparable.
+func TestNoHTTPRouteRoutesToALaterWaveThanItself(t *testing.T) {
+	root := filepath.Join(stackRoot(t), "packages")
+	const waveKey = "argocd.argoproj.io/sync-wave"
+
+	type pkg struct {
+		serviceWave map[string]int
+		routeWave   map[string]int
+		routeRefs   map[string][]string
+	}
+	pkgs := map[string]*pkg{}
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return err
+		}
+		rel, rerr := filepath.Rel(root, path)
+		if rerr != nil {
+			return rerr
+		}
+		// category/package/... — group by the package directory.
+		parts := strings.Split(rel, string(filepath.Separator))
+		if len(parts) < 2 {
+			return nil
+		}
+		key := filepath.Join(parts[0], parts[1])
+		raw, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		if !strings.Contains(string(raw), waveKey) {
+			return nil
+		}
+		p := pkgs[key]
+		if p == nil {
+			p = &pkg{serviceWave: map[string]int{}, routeWave: map[string]int{}, routeRefs: map[string][]string{}}
+			pkgs[key] = p
+		}
+		decoder := yaml.NewDecoder(strings.NewReader(string(raw)))
+		for {
+			var doc map[string]interface{}
+			if derr := decoder.Decode(&doc); derr != nil {
+				break
+			}
+			if len(doc) == 0 {
+				continue
+			}
+			meta, _ := doc["metadata"].(map[string]interface{})
+			name, _ := meta["name"].(string)
+			if name == "" {
+				continue
+			}
+			wave, hasWave := syncWave(doc, waveKey)
+			switch doc["kind"] {
+			case "Service":
+				if hasWave {
+					p.serviceWave[name] = wave
+				}
+			case "HTTPRoute":
+				if !hasWave {
+					continue
+				}
+				p.routeWave[name] = wave
+				p.routeRefs[name] = httpRouteBackends(doc)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for key, p := range pkgs {
+		for route, rw := range p.routeWave {
+			for _, ref := range p.routeRefs[route] {
+				sw, ok := p.serviceWave[ref]
+				if !ok {
+					continue // the backend lives elsewhere; not ours to order
+				}
+				if rw < sw {
+					t.Errorf("%s: HTTPRoute %q is in wave %d but its backend Service %q is in wave %d — the route's parent reports \"Service not found\", which FAILS the wave and (with retry limit -1) loops the Application forever; publish the route at or after its backend",
+						key, route, rw, ref, sw)
+				}
+			}
+		}
+	}
+}
+
+// httpRouteBackends lists the Service names an HTTPRoute forwards to. A
+// backendRef with an explicit non-core group (an AgentgatewayBackend, say) is
+// not a Service and is skipped.
+func httpRouteBackends(doc map[string]interface{}) []string {
+	spec, _ := doc["spec"].(map[string]interface{})
+	rules, _ := spec["rules"].([]interface{})
+	var out []string
+	for _, r := range rules {
+		rule, _ := r.(map[string]interface{})
+		refs, _ := rule["backendRefs"].([]interface{})
+		for _, b := range refs {
+			ref, _ := b.(map[string]interface{})
+			if g, ok := ref["group"].(string); ok && g != "" && g != "core" {
+				continue
+			}
+			if k, ok := ref["kind"].(string); ok && k != "" && k != "Service" {
+				continue
+			}
+			if name, ok := ref["name"].(string); ok && name != "" {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}

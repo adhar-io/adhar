@@ -5,7 +5,9 @@ snapshotsEnabled: false
 # File-system backups: without the node agent Velero only backs up Kubernetes
 # objects — PVC file data was silently excluded from the DR story.
 deployNodeAgent: true
-defaultVolumesToFsBackup: true
+# Opt-in file backup (see manifests/schedules.yaml for the full reasoning): the
+# opt-out default had Velero copy the object store into itself and fill the disk.
+defaultVolumesToFsBackup: false
 initContainers:
   - name: velero-plugin-for-aws
     image: velero/velero-plugin-for-aws:v1.8.2

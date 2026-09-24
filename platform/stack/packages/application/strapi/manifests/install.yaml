@@ -1,0 +1,168 @@
+# Strapi — the platform's headless CMS.
+#
+# HOW THIS IMAGE BOOTS (read from its own docker-entrypoint.sh, not assumed):
+#   • /srv/app empty  → `strapi new .` scaffolds a project using the DATABASE_*
+#     env below, so the PVC becomes the project. First boot therefore runs an
+#     npm install and an admin build: minutes, not seconds — hence the very
+#     patient startupProbe.
+#   • NODE_ENV=production → `strapi start`, which REQUIRES an already-built
+#     admin panel and so cannot work on a freshly scaffolded project.
+#     NODE_ENV=development → `strapi develop`, which builds the admin itself.
+#     That is why this runs in development mode: it is the only mode in which a
+#     self-scaffolding CMS can come up unattended. A production CMS with your own
+#     content types is the golden path instead — scaffold a repo, let app-ci
+#     build your image — and the package contract says so.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: strapi-app
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: strapi}
+  # SAME wave as the Deployment that mounts it, never earlier: the platform's
+  # StorageClass binds WaitForFirstConsumer, so a PVC alone never becomes Bound
+  # and Argo CD would wait on its health forever without ever creating the pod
+  # that would bind it (TestNoPVCWaitsInAnEarlierWaveThanItsConsumer).
+  annotations: {argocd.argoproj.io/sync-wave: "7"}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: strapi
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: strapi, adhar.io/component: cms}
+  annotations: {argocd.argoproj.io/sync-wave: "7"}
+spec:
+  selector: {app.kubernetes.io/name: strapi}
+  ports:
+    - name: http
+      port: 1337
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: strapi
+  namespace: adhar-system
+  labels: {app.kubernetes.io/name: strapi, adhar.io/component: cms, adhar.io/plane: control}
+  annotations: {argocd.argoproj.io/sync-wave: "7"}
+spec:
+  replicas: 1
+  strategy:
+    # The project lives on a ReadWriteOnce PVC, so two pods cannot both mount it
+    # — a rolling update would deadlock on the volume.
+    type: Recreate
+  selector:
+    matchLabels: {app.kubernetes.io/name: strapi}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: strapi, adhar.io/component: cms, adhar.io/plane: control}
+    spec:
+      # One namespace for every package (ADR-0011) means Kubernetes injects a
+      # <NAME>_PORT env var per Service, and Strapi reads its whole configuration
+      # from the environment — exactly the shape that has crashed other packages
+      # here (see packages/CONFLICTS.md).
+      enableServiceLinks: false
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        # `strapi new` connects to Postgres while it scaffolds, so the database
+        # must already answer — wave ordering gets this right on a fresh install,
+        # but a node reschedule does not. Same image, so nothing extra to pull;
+        # `command` bypasses the entrypoint's `strapi` branch.
+        - name: wait-for-db
+          image: docker.io/naskio/strapi:5.30.1-alpine
+          command: [sh, -c]
+          args:
+            - |
+              until nc -z strapi-db-rw.adhar-system.svc.cluster.local 5432; do
+                echo "waiting for strapi-db"; sleep 3
+              done
+              echo "strapi-db is accepting connections"
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+      containers:
+        - name: strapi
+          image: docker.io/naskio/strapi:5.30.1-alpine
+          ports:
+            - {name: http, containerPort: 1337}
+          env:
+            - {name: HOST, value: "0.0.0.0"}
+            - {name: PORT, value: "1337"}
+            # See the header: `start` cannot build the admin panel, `develop` can.
+            - {name: NODE_ENV, value: development}
+            - {name: DATABASE_CLIENT, value: postgres}
+            - {name: DATABASE_HOST, value: strapi-db-rw.adhar-system.svc.cluster.local}
+            - {name: DATABASE_PORT, value: "5432"}
+            - {name: DATABASE_NAME, value: strapi}
+            - {name: DATABASE_SSL, value: "false"}
+            - name: DATABASE_USERNAME
+              valueFrom: {secretKeyRef: {name: strapi-db-credentials, key: username}}
+            - name: DATABASE_PASSWORD
+              valueFrom: {secretKeyRef: {name: strapi-db-credentials, key: password}}
+            # Generated once (platform-postgres.yaml). Strapi v5 refuses to boot
+            # without any of them.
+            - name: APP_KEYS
+              valueFrom: {secretKeyRef: {name: strapi-secrets, key: APP_KEYS}}
+            - name: API_TOKEN_SALT
+              valueFrom: {secretKeyRef: {name: strapi-secrets, key: API_TOKEN_SALT}}
+            - name: ADMIN_JWT_SECRET
+              valueFrom: {secretKeyRef: {name: strapi-secrets, key: ADMIN_JWT_SECRET}}
+            - name: TRANSFER_TOKEN_SALT
+              valueFrom: {secretKeyRef: {name: strapi-secrets, key: TRANSFER_TOKEN_SALT}}
+            - name: JWT_SECRET
+              valueFrom: {secretKeyRef: {name: strapi-secrets, key: JWT_SECRET}}
+            - name: ENCRYPTION_KEY
+              valueFrom: {secretKeyRef: {name: strapi-secrets, key: ENCRYPTION_KEY}}
+            # Strapi builds absolute URLs (admin assets, media) from this.
+            - {name: STRAPI_URL, value: "https://strapi.adhar.localtest.me:8443"}
+            - {name: PUBLIC_URL, value: "https://strapi.adhar.localtest.me:8443"}
+            # Telemetry off: a platform component does not phone home
+            # (ARCHITECTURE.md §1).
+            - {name: STRAPI_TELEMETRY_DISABLED, value: "true"}
+            - {name: STRAPI_DISABLE_UPDATE_NOTIFICATION, value: "true"}
+          volumeMounts:
+            - {name: app, mountPath: /srv/app}
+          # `/_health` answers 204 as soon as the HTTP server is listening.
+          # No probe on this platform may ship timeoutSeconds: 1 — a loaded node
+          # needs longer than a second and kubelet then kills a healthy pod
+          # (enforced by TestNoProbeShipsAOneSecondTimeout).
+          startupProbe:
+            httpGet: {path: /_health, port: http}
+            periodSeconds: 15
+            timeoutSeconds: 10
+            # First boot = scaffold + npm install + admin build. 80 × 15s = 20
+            # minutes, which is the honest budget for that on a shared node.
+            failureThreshold: 80
+          readinessProbe:
+            httpGet: {path: /_health, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /_health, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 6
+          resources:
+            # The admin build is the peak, not steady state.
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "2", memory: 3Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # Left as the image's own user (root): `strapi new` writes a whole
+            # project tree plus node_modules onto the PVC, and pinning a
+            # different uid makes that fail on the first write instead of the
+            # tenth. Hardening one half of a filesystem contract hardens neither.
+      volumes:
+        - name: app
+          persistentVolumeClaim:
+            claimName: strapi-app

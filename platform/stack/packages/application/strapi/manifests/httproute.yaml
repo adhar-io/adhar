@@ -1,0 +1,37 @@
+# Published at strapi.<host>. The generator (hack/gen-sso.sh) repoints this at
+# the oauth2-proxy in front of Strapi — the backendRef below is the pre-SSO
+# shape, kept so the route is readable on its own.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: strapi
+  namespace: adhar-system
+  # Wave 6: AFTER the oauth2-proxy it points at (wave 5, manifests/sso.yaml).
+  # At wave 3 the route's backendRef did not exist yet, so its health never
+  # resolved — "Parent adhar-gateway: Service \"strapi-oauth2-proxy\" not found"
+  # failed the wave, and with retry limit -1 the Application retried forever
+  # without ever reaching the workload in wave 7 (seen live, 2026-09-25).
+  annotations: {argocd.argoproj.io/sync-wave: "6"}
+  labels:
+    app.kubernetes.io/name: strapi
+    app.kubernetes.io/part-of: adhar-application
+spec:
+  parentRefs:
+    - name: adhar-gateway
+      namespace: adhar-system
+  hostnames:
+    - strapi.adhar.localtest.me
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        # The oauth2-proxy, not Strapi: Strapi Community Edition has no OIDC
+        # (admin SSO is an Enterprise feature), so Keycloak is enforced in front
+        # of it — the same pattern every non-OIDC platform UI uses. Each proxy
+        # keeps its OWN cookie name (see hack/gen-sso.sh): one shared cookie made
+        # proxies reuse each other's sessions and Argo CD rejected a token minted
+        # for another audience.
+        - name: strapi-oauth2-proxy
+          port: 4180

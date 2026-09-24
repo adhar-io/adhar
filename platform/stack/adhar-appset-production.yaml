@@ -492,6 +492,14 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/prefect/manifests"
+          # Strapi headless CMS, CNPG-backed, behind Keycloak SSO. Opt-in: the
+          # community image is amd64-only and first boot is an npm install plus
+          # an admin build, so it is not something to switch on unattended.
+          - name: "strapi"
+            enabled: "true"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/strapi/manifests"
           # tooljet disabled: low-code app builder, not part of the paved road;
           # its container crash-loops on startup and nothing else depends on it.
           - name: "tooljet"

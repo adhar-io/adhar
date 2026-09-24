@@ -60,7 +60,7 @@ spec:
             # between "leave the operator's template alone" and "push a new
             # version because the platform now ships more IDEs".
             - name: IDE_REVISION
-              value: adhar-ide-v2
+              value: adhar-ide-v3
           command: [/bin/sh, -c]
           args:
             - |
@@ -125,6 +125,62 @@ spec:
               #    Job crash-looped and a fresh platform had NO template, i.e.
               #    no Cloud Dev Environment at all (2026-09-15). External apps
               #    are deep links, so the owner-only sharing is implicit.
+              # 5a. One workspace per repository.
+              #
+              #    The Console's "open this repo in an IDE" used to append
+              #    `?folder=/home/coder/<repo>` to whatever workspace was
+              #    running, and nothing had ever cloned the repo there — so
+              #    code-server answered "Workspace does not exist". Now a
+              #    workspace KNOWS its repository: the `git_repo` parameter is
+              #    cloned into /home/coder/<name> on every start (idempotent),
+              #    and both IDE apps open that folder. An empty parameter is
+              #    the plain home-directory workspace it always was.
+              cat > /tmp/tpl/${TEMPLATE_NAME}/adhar-repo.tf <<'TF'
+              # ─── Added by the Adhar platform: the repository this workspace is for ───
+
+              data "coder_parameter" "git_repo" {
+                name         = "git_repo"
+                display_name = "Repository"
+                description  = "HTTPS clone URL. Checked out into /home/coder/<name> on every start; leave empty for a plain workspace."
+                type         = "string"
+                default      = ""
+                mutable      = true
+                order        = 10
+              }
+
+              locals {
+                repo_name        = data.coder_parameter.git_repo.value == "" ? "" : basename(trimsuffix(data.coder_parameter.git_repo.value, ".git"))
+                workspace_folder = local.repo_name == "" ? "/home/coder" : "/home/coder/${local.repo_name}"
+              }
+
+              resource "coder_script" "clone_repo" {
+                agent_id           = coder_agent.main.id
+                display_name       = "Clone repository"
+                icon               = "/icon/git.svg"
+                run_on_start       = true
+                start_blocks_login = false
+                script             = <<-EOT
+                  #!/bin/sh
+                  set -eu
+                  REPO='${data.coder_parameter.git_repo.value}'
+                  [ -n "$REPO" ] || exit 0
+                  DEST='${local.workspace_folder}'
+                  if [ -d "$DEST/.git" ]; then
+                    echo "repository already checked out at $DEST"
+                    exit 0
+                  fi
+                  echo "cloning $REPO into $DEST"
+                  git clone "$REPO" "$DEST"
+                EOT
+              }
+              TF
+              sed -i 's/^              //' /tmp/tpl/${TEMPLATE_NAME}/adhar-repo.tf
+              # The starter's code-server app opens /home/coder; point it at the
+              # repository folder instead (a locals reference, so an empty
+              # parameter still opens home).
+              sed -i 's|url          = "http://localhost:13337?folder=/home/coder"|url          = "http://localhost:13337?folder=${local.workspace_folder}"|' /tmp/tpl/${TEMPLATE_NAME}/main.tf
+              grep -q 'folder=${local.workspace_folder}' /tmp/tpl/${TEMPLATE_NAME}/main.tf || { echo "starter changed shape: code-server url not patched"; exit 1; }
+
               cat > /tmp/tpl/${TEMPLATE_NAME}/adhar-ide-apps.tf <<'TF'
               # ─── Added by the Adhar platform: desktop IDE entry points ───
 
@@ -147,6 +203,7 @@ spec:
                   "&url=", data.coder_workspace.me.access_url,
                   "&token=$SESSION_TOKEN",
                   "&ide_product_code=IU",
+                  "&folder=", local.workspace_folder,
                 ])
               }
 
@@ -164,6 +221,7 @@ spec:
                   "&agent=main",
                   "&url=", data.coder_workspace.me.access_url,
                   "&token=$SESSION_TOKEN",
+                  "&folder=", local.workspace_folder,
                 ])
               }
               TF
@@ -176,7 +234,7 @@ spec:
                 --directory "/tmp/tpl/${TEMPLATE_NAME}" \
                 --variable "namespace=${WORKSPACE_NAMESPACE}" \
                 --variable "use_kubeconfig=false" \
-                --message "Adhar platform ${IDE_REVISION}: code-server + IntelliJ IDEA + VS Code Desktop" \
+                --message "Adhar platform ${IDE_REVISION}: per-repository workspaces (git_repo) + code-server + IntelliJ IDEA + VS Code Desktop" \
                 --yes
               /opt/coder templates edit "${TEMPLATE_NAME}" \
                 --description "Adhar cloud development environment (${IDE_REVISION})" \

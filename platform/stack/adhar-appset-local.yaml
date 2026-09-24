@@ -327,6 +327,14 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/penpot/manifests"
+          # Strapi headless CMS, CNPG-backed, behind Keycloak SSO. Opt-in: the
+          # community image is amd64-only and first boot is an npm install plus
+          # an admin build, so it is not something to switch on unattended.
+          - name: "strapi"
+            enabled: "false"
+            namespace: "adhar-system"
+            category: "application"
+            manifestPath: "application/strapi/manifests"
           - name: "tooljet"
             enabled: "false"
             namespace: "adhar-system"

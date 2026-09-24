@@ -1,0 +1,169 @@
+# Strapi's database and its generated secrets.
+#
+# Strapi is a framework, not a finished product: its deployable artifact is
+# normally an application YOU scaffold and build. This package runs the
+# maintained community image (`naskio/strapi`, the only one still published —
+# upstream retired `strapi/strapi`), which scaffolds a project into /srv/app on
+# first boot and keeps it on the PVC. That makes "give me a CMS" one click; a
+# production CMS with custom content types is the golden path instead (scaffold a
+# repo, app-ci builds your own image), and the contract says so.
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: strapi-db
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 28
+  digits: 5
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+# The database credential. `refreshInterval: '0'` generates it once: a rotating
+# password would break a running Strapi, whose pool holds it for the process's
+# life.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: strapi-db-credentials
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: strapi-db-credentials
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          adhar.io/cli-secret: 'true'
+          adhar.io/package-name: strapi
+      engineVersion: v2
+      data:
+        username: strapi
+        password: '{{ .PASSWORD }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: strapi-db
+      rewrite:
+        - transform: {template: PASSWORD}
+---
+# Strapi's six application secrets. Every one is REQUIRED: with any of them
+# missing or empty Strapi v5 refuses to boot (`Missing APP_KEYS`,
+# `Missing encryption key`), and a value that changes between restarts
+# invalidates every admin session, API token and encrypted field — so these are
+# generated once and never rotated in place.
+#
+# One generator, six `dataFrom` entries: ESO calls the generator per entry, so
+# each key gets its own value.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: strapi-app
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+spec:
+  length: 32
+  digits: 6
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: strapi-secrets
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  refreshInterval: '0'
+  target:
+    name: strapi-secrets
+    template:
+      engineVersion: v2
+      metadata:
+        labels:
+          adhar.io/package-name: strapi
+      data:
+        # APP_KEYS is a comma-separated LIST (session signing keys, rotated by
+        # position); four is what `create-strapi-app` generates.
+        APP_KEYS: '{{ .k1 }},{{ .k2 }},{{ .k3 }},{{ .k4 }}'
+        API_TOKEN_SALT: '{{ .k5 }}'
+        ADMIN_JWT_SECRET: '{{ .k6 }}'
+        TRANSFER_TOKEN_SALT: '{{ .k7 }}'
+        JWT_SECRET: '{{ .k8 }}'
+        ENCRYPTION_KEY: '{{ .k9 }}'
+  dataFrom:
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
+      rewrite: [{transform: {template: k1}}]
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
+      rewrite: [{transform: {template: k2}}]
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
+      rewrite: [{transform: {template: k3}}]
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
+      rewrite: [{transform: {template: k4}}]
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
+      rewrite: [{transform: {template: k5}}]
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
+      rewrite: [{transform: {template: k6}}]
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
+      rewrite: [{transform: {template: k7}}]
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
+      rewrite: [{transform: {template: k8}}]
+    - sourceRef: {generatorRef: {apiVersion: generators.external-secrets.io/v1alpha1, kind: Password, name: strapi-app}}
+      rewrite: [{transform: {template: k9}}]
+---
+# CNPG, like every other platform database (ADR-0011): one Postgres operator,
+# one backup story. ServerSideApply is mandatory on CNPG Clusters or the sync
+# force-fails and drops the workload.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: strapi-db
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-options: ServerSideApply=true
+spec:
+  instances: 1
+  monitoring:
+    enablePodMonitor: true
+  storage:
+    size: 5Gi
+  bootstrap:
+    initdb:
+      database: strapi
+      owner: strapi
+      secret:
+        name: strapi-db-credentials
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://adhar-backups/cnpg/strapi-db
+      endpointURL: http://rustfs.adhar-system.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId: {name: root-creds, key: rootUser}
+        secretAccessKey: {name: root-creds, key: rootPassword}
+      wal:
+        compression: gzip
+    retentionPolicy: 7d
+---
+# After the Cluster it schedules (wave 5) — a ScheduledBackup that lands first
+# has no cluster to back up.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: strapi-db-daily
+  namespace: adhar-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  schedule: "0 20 3 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: strapi-db

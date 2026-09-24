@@ -173,35 +173,19 @@ spec:
             # File Data Store settings
             - name: PENPOT_FILE_DATA_BACKEND
               value: "legacy-db"
-            # OIDC provider settings.
-            #
-            # PENPOT MUST TALK TO KEYCLOAK OVER ITS PUBLIC HTTPS URL, and both of the
-            # obvious alternatives are dead ends — recorded here because each cost a
-            # debugging cycle:
-            #
-            #  1. In-cluster HTTP endpoints (http://keycloak.adhar-system.svc…). This is
-            #     the split the console and adhar-ai use, and Penpot REJECTS it: its HTTP
-            #     client validates every outbound URI against an SSRF blocklist and only
-            #     exempts calls that pass `skip-ssrf-check?`, which the OIDC provider
-            #     path does not. The login page then fails with
-            #         error=unable-to-auth&hint=uri+target+is+not+allowed
-            #     which names a URI, not a security policy.
-            #
-            #  2. The public URL while the platform certificate is SELF-SIGNED. Penpot's
-            #     backend is a JVM and trusts only its bundled keystore, so provider
-            #     discovery dies with
-            #         javax.net.ssl.SSLHandshakeException: PKIX path building failed
-            #     and Penpot then starts happily with OIDC switched OFF — the only
-            #     symptom being a login page with no "Login with OpenID" button.
-            #
-            # So: public URL, and the platform certificate must be publicly trusted
-            # (cloud with ACME succeeded — see cmd/up/acme_preflight.go, which warns at
-            # bring-up when it will not be). On a self-signed platform — local Kind
-            # always, cloud until the DNS-01 challenge passes — Penpot OIDC stays off by
-            # design; password login remains, and the fix is to trust the platform CA in
-            # the JVM, not to reach for an in-cluster URL.
+            # OIDC provider settings
             - name: PENPOT_OIDC_BASE_URI
               value: "https://keycloak.adhar.localtest.me:8443/realms/adhar/"
+            - name: PENPOT_OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: penpot-oidc
+                  key: clientID
+            - name: PENPOT_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: penpot-oidc
+                  key: clientSecret
             - name: PENPOT_OIDC_SCOPES
               value: "openid profile email"
             - name: PENPOT_OIDC_NAME_ATTR

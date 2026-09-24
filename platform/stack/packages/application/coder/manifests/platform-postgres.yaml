@@ -114,6 +114,14 @@ spec:
         secretAccessKey:
           name: root-creds
           key: rootPassword
+      # gzip, always. Every CNPG cluster archives a WAL segment every
+      # `archive_timeout` (5 min by default) whether or not anything changed, so
+      # an idle database still ships 288 × 16 MiB = 4.6 GiB/day UNCOMPRESSED.
+      # Eight clusters doing that filled the 100 GiB object store to 100 % and
+      # took WAL archiving, Loki, Mimir and the buckets Job down with it
+      # (2026-09-25). A near-empty segment gzips to a few KB.
+      wal:
+        compression: gzip
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup

@@ -908,6 +908,13 @@ spec:
     metadata:
       annotations:
         checksum/config: 1ac131942801038ca161afe4ee96f52bfcb2e5ab8c0f3e02c3964fc3529457b0
+        # Velero file-backup, opt in. The platform's schedules are opt-OUT-free
+        # (core/velero/manifests/schedules.yaml explains why: the opt-out default
+        # copied the object store into itself and filled the disk), so a volume
+        # that must be captured names itself here. Gitea's `data` volume holds
+        # the GitOps repositories and every user repository — the one piece of
+        # platform state no other component records.
+        backup.velero.io/backup-volumes: data
       labels:
         helm.sh/chart: gitea-12.7.0
         app: gitea

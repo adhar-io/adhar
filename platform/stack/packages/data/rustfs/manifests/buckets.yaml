@@ -52,7 +52,7 @@ spec:
             # One line per bucket. Mimir's three are here because Mimir now
             # writes to RustFS instead of its own bundled MinIO.
             - name: BUCKETS
-              value: "adhar-backups mlpipeline penpot loki airbyte mlflow mimir-blocks mimir-ruler mimir-alertmanager lakehouse"
+              value: "adhar-backups mlpipeline penpot loki airbyte mlflow mimir-blocks mimir-ruler mimir-alertmanager lakehouse strapi"
             - name: WAREHOUSES
               value: "lakehouse"
           command: ["/bin/bash", "-c"]
