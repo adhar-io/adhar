@@ -43,6 +43,10 @@ provenance:
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
 planeAffinity: control-plane
+# alpha AND disabled everywhere: see README.md — the only published
+# general-purpose Strapi image (`naskio/strapi`) crashes with MODULE_NOT_FOUND
+# before it can scaffold or start, verified on four tags. The database, secrets,
+# SSO and route here are built and tested; the image is the blocker.
 stability: alpha
 resources:
   cpu: "250m"

@@ -42,7 +42,16 @@ spec:
       # 2026-09-15 bring-up (Loki 3.2G + backups 1.5G) and every write — the
       # lakehouse included — failed with "Disk full". do-block-storage expands
       # online, so a larger request rolls out without recreating the volume.
-      storage: 100Gi
+      # 150Gi. 100Gi hit 100 % on 2026-09-25 and took WAL archiving, Loki,
+      # Mimir and the buckets Job down with it — see core/velero (the opt-out
+      # file backup was copying THIS volume into this volume) and the CNPG
+      # `wal.compression` comments for the two causes that were fixed at the
+      # same time. Grown rather than left at the edge: `adhar-block` sets
+      # allowVolumeExpansion, so this resizes online, and git has to carry the
+      # size or Argo CD cannot even diff it (a PVC may never shrink, so a
+      # smaller value here fails the server-side dry-run with a
+      # ComparisonError).
+      storage: 150Gi
 ---
 apiVersion: apps/v1
 kind: Deployment

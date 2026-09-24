@@ -492,11 +492,18 @@ spec:
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/prefect/manifests"
-          # Strapi headless CMS, CNPG-backed, behind Keycloak SSO. Opt-in: the
-          # community image is amd64-only and first boot is an npm install plus
-          # an admin build, so it is not something to switch on unattended.
+          # Strapi headless CMS, CNPG-backed, behind Keycloak SSO. OFF, and it
+          # cannot be switched on yet: the only published general-purpose image
+          # (`naskio/strapi`, since upstream retired `strapi/strapi`) is BROKEN —
+          # its globally installed CLI crashes with MODULE_NOT_FOUND before it
+          # can scaffold or start, verified on 5.30.1, 5.30.1-alpine, 5.28.0 and
+          # 5.26.0 (`strapi version` alone is enough to reproduce). The database,
+          # secrets, SSO and route in this package are correct and tested; when a
+          # working image exists this is a one-line flip. Until then a CMS belongs
+          # on the golden path: scaffold a Strapi repo and let app-ci build YOUR
+          # image, which is Strapi's own supported production model.
           - name: "strapi"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/strapi/manifests"
