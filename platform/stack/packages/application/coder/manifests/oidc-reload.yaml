@@ -1,4 +1,7 @@
-# Restarts Coder once the Keycloak OIDC client secret is available.
+# Restarts Coder once its two late-arriving secrets are available:
+#   • coder-oidc        — the Keycloak OIDC client secret ("Sign in with Keycloak")
+#   • coder-gitea-oauth — the Gitea OAuth2 app (git push from inside workspaces,
+#                         see manifests/gitea-external-auth.yaml)
 #
 # Problem: Coder reads CODER_OIDC_CLIENT_SECRET from the `coder-oidc` Secret at
 # container start. That Secret is produced by an ExternalSecret that depends on
@@ -9,9 +12,16 @@
 # so Coder still boots (with the generated `adhar-admin` password login as
 # break-glass) before Keycloak exists.
 #
-# Fix: a PostSync hook that waits for the secret, then restarts the Deployment
+# The Gitea OAuth2 credentials have the same shape of problem: they are created
+# by a PostSync hook (wave 11), so the running server started without them and
+# `git push` inside every workspace stayed anonymous until something restarted it.
+#
+# Fix: a PostSync hook that waits for the secrets, then restarts the Deployment
 # ONLY if the running pod is actually missing the env — idempotent, so steady
-# state syncs are a no-op and there is no restart loop.
+# state syncs are a no-op and there is no restart loop. Runs at wave 13, i.e.
+# AFTER the template seed (12): at the same wave as the seed its 40-minute wait
+# for Keycloak would have delayed the template, leaving a fresh platform with no
+# Cloud Dev Environment to offer for the better part of an hour.
 # Same shape as observability/kube-prometheus/manifests/grafana-oidc-reload.yaml.
 ---
 apiVersion: v1
@@ -61,7 +71,7 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "11"
+    argocd.argoproj.io/sync-wave: "13"
 spec:
   backoffLimit: 2
   template:
@@ -80,6 +90,7 @@ spec:
               NS=adhar-system
               DEPLOY=coder
               SECRET=coder-oidc
+              GITEA_SECRET=coder-gitea-oauth
 
               # 1. Wait (bounded, 240 x 10s = 40 min — a cold bootstrap has to
               #    get through keycloak-db -> keycloak -> realm job ->
@@ -98,22 +109,37 @@ spec:
                 exit 0
               fi
 
+              # 1b. The Gitea OAuth2 app is produced one wave earlier by a Job
+              #     that only has to talk to Gitea, so it is normally already
+              #     there. Short, non-fatal wait: a platform where Gitea external
+              #     auth is missing should still get its Keycloak restart.
+              for i in $(seq 1 30); do
+                kubectl -n "$NS" get secret "$GITEA_SECRET" \
+                  -o jsonpath='{.data.CODER_EXTERNAL_AUTH_0_CLIENT_SECRET}' 2>/dev/null | grep -q . && break
+                echo "waiting for $GITEA_SECRET clientSecret ($i)"
+                sleep 10
+              done
+
               # 2. Only restart if the RUNNING pod lacks the client secret env.
               POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=coder \
                       --field-selector=status.phase=Running \
                       -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
               if [ -n "$POD" ]; then
+                # Both must be present. Checking only the OIDC secret was enough
+                # while that was the only late arrival; with Gitea external auth
+                # added, a pod that already had OIDC would have been declared
+                # fine and never picked up its git credentials.
                 if kubectl -n "$NS" exec "$POD" -c coder -- \
-                     sh -c 'test -n "$CODER_OIDC_CLIENT_SECRET"' 2>/dev/null; then
-                  echo "Coder already has the OIDC client secret; nothing to do."
+                     sh -c 'test -n "$CODER_OIDC_CLIENT_SECRET" && test -n "$CODER_EXTERNAL_AUTH_0_CLIENT_SECRET"' 2>/dev/null; then
+                  echo "Coder already has the OIDC and Gitea client secrets; nothing to do."
                   exit 0
                 fi
               fi
 
-              echo "Restarting $DEPLOY to load Keycloak OIDC env..."
+              echo "Restarting $DEPLOY to load Keycloak OIDC + Gitea external auth env..."
               kubectl -n "$NS" rollout restart deployment "$DEPLOY"
               kubectl -n "$NS" rollout status deployment "$DEPLOY" --timeout=300s || true
-              echo "Coder OIDC reload complete."
+              echo "Coder OIDC + Gitea external auth reload complete."
           resources:
             requests: {cpu: 20m, memory: 64Mi}
             limits: {memory: 256Mi}

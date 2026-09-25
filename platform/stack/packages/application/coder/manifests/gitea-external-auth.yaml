@@ -1,0 +1,279 @@
+# Git credentials inside Cloud Dev Environments — the thing that turns a
+# read-only checkout into a place you can actually work.
+#
+# WHAT WAS BROKEN (verified 2026-09-25 on the GCP cluster)
+# --------------------------------------------------------
+# A workspace could `git clone` its repo only because every repo in the `adhar`
+# Gitea org happens to be public. Inside the IDE:
+#   • `git push`  -> no credentials, Gitea rejects the write (public repos are
+#                    world-READABLE, never world-writable);
+#   • `git commit`-> "Author identity unknown. *** Please tell me who you are."
+#   • a PRIVATE repo could not even be cloned.
+# So both IDEs opened a directory you could look at and not use.
+#
+# The Coder agent already does the hard half: every IDE session it spawns has
+#     GIT_ASKPASS=/tmp/coder.XXXX/coder
+#     GIT_SSH_COMMAND=/tmp/coder.XXXX/coder gitssh --
+# i.e. git asks Coder for a credential on every fetch/push. Coder answers from
+# its EXTERNAL AUTH providers — and this deployment had none configured
+# (`CODER_EXTERNAL_AUTH_*` absent from the Deployment), so the askpass helper
+# had nothing to return and git fell through to an anonymous request.
+#
+# WHAT THIS DOES
+# --------------
+# Registers Gitea as Coder external auth provider id `gitea`:
+#   1. this Job creates an OAuth2 application in Gitea (idempotently) and
+#      publishes the WHOLE provider configuration as Secret `coder-gitea-oauth`
+#      — every key is already named CODER_EXTERNAL_AUTH_0_*;
+#   2. values.yaml mounts that Secret with `envFrom` + `optional: true`, so the
+#      server either sees a COMPLETE provider or none at all;
+#   3. manifests/oidc-reload.yaml restarts Coder once the Secret exists.
+#
+# Why the whole block and not just the credentials: Coder validates the provider
+# eagerly. Setting CODER_EXTERNAL_AUTH_0_ID inline while the client id was still
+# missing made it refuse to boot —
+#     error: convert external auth config: "gitea" external auth provider:
+#            client_id must be provided
+# — so Coder crash-looped and the Argo app went Degraded until the id moved in
+# here alongside the secret (2026-09-25). All-or-nothing is the invariant.
+# After that GIT_ASKPASS resolves to a real per-user Gitea token: clone AND
+# push work for public and private repos, in code-server, VS Code Desktop and
+# IntelliJ alike, as the person — not as a shared robot account.
+#
+# Each person authorises Gitea once ("Login with Gitea" on first push, or from
+# Coder's Account -> External Authentication page). Tokens are per user, which
+# is the point: pushes are attributable, and revoking someone in Gitea revokes
+# their workspace access too. The template does NOT declare a
+# `coder_external_auth` data source on purpose — that would make every
+# workspace BUILD fail until its owner had authorised, turning a one-click
+# "open my repo" into a dead end. Credentials arrive on demand instead.
+#
+# WHY THE TOKEN URL IS INTERNAL AND THE AUTH URL IS NOT
+# -----------------------------------------------------
+# AUTH_URL is opened in the person's BROWSER, so it must be the public host.
+# TOKEN_URL / VALIDATE_URL are called by the Coder pod; pointing those at the
+# public host would send them out through the Gateway and back, depending on
+# split-horizon DNS and on the Gateway certificate being trusted by Coder's Go
+# HTTP client. The in-cluster Service has neither problem. Gitea validates the
+# `redirect_uri` from the request body, not from the Host header, so the
+# internal endpoint accepts a code minted against the public one.
+#
+# Host convention: https://*.adhar.localtest.me:8443 is rewritten to the real
+# platform domain by the controller when seeding cloud clusters.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: coder-gitea-external-auth
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: coder-gitea-external-auth
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+rules:
+  # Reads gitea-credential (the admin token), writes coder-gitea-oauth.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: coder-gitea-external-auth
+  namespace: adhar-system
+  annotations: {argocd.argoproj.io/sync-wave: "10"}
+subjects:
+  - kind: ServiceAccount
+    name: coder-gitea-external-auth
+    namespace: adhar-system
+roleRef:
+  kind: Role
+  name: coder-gitea-external-auth
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: coder-gitea-oauth-app
+  namespace: adhar-system
+  annotations:
+    # Wave 11: after the first user (10), before the template seed (12) and the
+    # reload that picks the Secret up (13).
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      generateName: coder-gitea-oauth-app
+    spec:
+      serviceAccountName: coder-gitea-external-auth
+      restartPolicy: OnFailure
+      # One Service per package in a shared namespace means Kubernetes injects a
+      # <NAME>_PORT env var for each; harmless here but kept off for parity with
+      # the other Coder Jobs (see packages/CONFLICTS.md).
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: register
+          # The Coder server image, same as every other Job in this package: it
+          # ships curl and base64, which is all this needs. Using it avoids
+          # pulling a second image just to POST twice.
+          image: ghcr.io/coder/coder:v2.37.0
+          env:
+            - name: HOME
+              value: /tmp
+            # In-cluster Gitea (gitea-http:3000). Deliberately not the public
+            # host: DNS and TLS for the platform domain may not be usable from
+            # inside the cluster yet on a cold bootstrap.
+            - name: GITEA_API
+              value: http://gitea-http.adhar-system.svc.cluster.local:3000
+            # Browser-facing Gitea, rewritten to the platform domain at seed
+            # time. Only used to build the registered redirect URI's sibling.
+            - name: CODER_PUBLIC_URL
+              value: https://coder.adhar.localtest.me:8443
+            # Browser-facing Gitea, rewritten to the platform domain at seed
+            # time. This one MUST be public: it is the URL the person's browser
+            # is sent to in order to authorise.
+            - name: GITEA_PUBLIC_URL
+              value: https://gitea.adhar.localtest.me:8443
+            - name: OAUTH_APP_NAME
+              value: Coder Cloud Dev Environments
+            - name: TARGET_SECRET
+              value: coder-gitea-oauth
+            - name: GITEA_TOKEN
+              valueFrom: {secretKeyRef: {name: gitea-credential, key: token}}
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+
+              NS=adhar-system
+              K8S=https://kubernetes.default.svc
+              SA=/var/run/secrets/kubernetes.io/serviceaccount
+              KTOK=$(cat "${SA}/token")
+              REDIRECT="${CODER_PUBLIC_URL}/external-auth/gitea/callback"
+
+              # Small helper: JSON string field out of a flat object. Good
+              # enough here and avoids depending on jq being in the image.
+              field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" | head -1; }
+
+              # ---- 1. Wait for the Gitea API -------------------------------
+              ok=""
+              for i in $(seq 1 60); do
+                if curl -sf --max-time 10 -H "Authorization: token ${GITEA_TOKEN}" \
+                     "${GITEA_API}/api/v1/version" >/dev/null 2>&1; then ok=1; break; fi
+                echo "waiting for the Gitea API (${i})"
+                sleep 5
+              done
+              [ -n "${ok}" ] || { echo "Gitea API not reachable; failing so the Job retries"; exit 1; }
+
+              # ---- 2. Already done? ----------------------------------------
+              # Idempotency has to hold on BOTH sides: the Secret must exist and
+              # the app it names must still be registered in Gitea. Checking
+              # only the Secret would leave Coder pointing at an application
+              # someone deleted; checking only Gitea would re-create the app on
+              # every sync and invalidate everyone's tokens (the secret is
+              # returned once, at creation, and never again).
+              EXISTING=$(curl -s --max-time 10 --cacert "${SA}/ca.crt" \
+                           -H "Authorization: Bearer ${KTOK}" \
+                           "${K8S}/api/v1/namespaces/${NS}/secrets/${TARGET_SECRET}" 2>/dev/null || true)
+              HAVE_ID=$(printf '%s' "${EXISTING}" | sed -n 's/.*"CODER_EXTERNAL_AUTH_0_CLIENT_ID":"\([^"]*\)".*/\1/p' | head -1)
+              if [ -n "${HAVE_ID}" ]; then
+                HAVE_ID=$(printf '%s' "${HAVE_ID}" | base64 -d 2>/dev/null || true)
+              fi
+              APPS=$(curl -s --max-time 15 -H "Authorization: token ${GITEA_TOKEN}" \
+                       "${GITEA_API}/api/v1/user/applications/oauth2" 2>/dev/null || echo '[]')
+              if [ -n "${HAVE_ID}" ] && printf '%s' "${APPS}" | grep -q "\"${HAVE_ID}\""; then
+                echo "Gitea OAuth2 application ${HAVE_ID} already registered and published; nothing to do"
+                exit 0
+              fi
+
+              # ---- 3. Remove a stale application of the same name -----------
+              # Only reached when the Secret is missing or dangling, so no
+              # working token is being thrown away.
+              printf '%s' "${APPS}" \
+                | tr '}' '\n' \
+                | grep -F "\"${OAUTH_APP_NAME}\"" \
+                | sed -n 's/.*"id":\([0-9]*\).*/\1/p' \
+                | while read -r id; do
+                    [ -n "${id}" ] || continue
+                    echo "deleting stale Gitea OAuth2 application ${id}"
+                    curl -s -X DELETE --max-time 15 -H "Authorization: token ${GITEA_TOKEN}" \
+                      "${GITEA_API}/api/v1/user/applications/oauth2/${id}" >/dev/null 2>&1 || true
+                  done
+
+              # ---- 4. Register the application -----------------------------
+              echo "registering Gitea OAuth2 application for Coder (redirect ${REDIRECT})"
+              APP=$(curl -sf --max-time 20 -X POST \
+                      -H "Authorization: token ${GITEA_TOKEN}" \
+                      -H 'content-type: application/json' \
+                      -d "{\"name\":\"${OAUTH_APP_NAME}\",\"redirect_uris\":[\"${REDIRECT}\"],\"confidential_client\":true}" \
+                      "${GITEA_API}/api/v1/user/applications/oauth2") || {
+                echo "could not create the OAuth2 application; failing so the Job retries"; exit 1; }
+
+              CID=$(printf '%s' "${APP}" | field client_id)
+              CSEC=$(printf '%s' "${APP}" | field client_secret)
+              if [ -z "${CID}" ] || [ -z "${CSEC}" ]; then
+                echo "Gitea did not return client_id/client_secret; response shape changed"
+                exit 1
+              fi
+
+              # ---- 5. Publish the COMPLETE provider config -----------------
+              # Every key is an env var name, because values.yaml consumes this
+              # Secret with `envFrom`. Nothing about the provider lives in the
+              # Deployment, so Coder never sees a half-configured one.
+              b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+
+              # TOKEN_URL / VALIDATE_URL are called by the Coder POD, so they use
+              # the in-cluster Service: the public host would leave the cluster
+              # and come back through the Gateway, and would need Coder's Go HTTP
+              # client to trust the Gateway certificate. Gitea validates
+              # `redirect_uri` from the request body rather than the Host header,
+              # so a code minted against the public AUTH_URL redeems here fine.
+              #
+              # REGEX is matched against the git remote URL and must cover BOTH
+              # spellings in use: workspaces clone over the in-cluster Service,
+              # while a desktop IDE or a pasted URL uses the public host. The
+              # bare word `gitea` covers both and cannot go stale when the
+              # platform domain changes.
+              BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s","labels":{"app.kubernetes.io/part-of":"coder"}},"type":"Opaque","data":{"CODER_EXTERNAL_AUTH_0_ID":"%s","CODER_EXTERNAL_AUTH_0_TYPE":"%s","CODER_EXTERNAL_AUTH_0_DISPLAY_NAME":"%s","CODER_EXTERNAL_AUTH_0_DISPLAY_ICON":"%s","CODER_EXTERNAL_AUTH_0_CLIENT_ID":"%s","CODER_EXTERNAL_AUTH_0_CLIENT_SECRET":"%s","CODER_EXTERNAL_AUTH_0_AUTH_URL":"%s","CODER_EXTERNAL_AUTH_0_TOKEN_URL":"%s","CODER_EXTERNAL_AUTH_0_VALIDATE_URL":"%s","CODER_EXTERNAL_AUTH_0_SCOPES":"%s","CODER_EXTERNAL_AUTH_0_REGEX":"%s"}}' \
+                       "${TARGET_SECRET}" "${NS}" \
+                       "$(b64 gitea)" \
+                       "$(b64 gitea)" \
+                       "$(b64 Gitea)" \
+                       "$(b64 /icon/gitea.svg)" \
+                       "$(b64 "${CID}")" \
+                       "$(b64 "${CSEC}")" \
+                       "$(b64 "${GITEA_PUBLIC_URL}/login/oauth/authorize")" \
+                       "$(b64 "${GITEA_API}/login/oauth/access_token")" \
+                       "$(b64 "${GITEA_API}/api/v1/user")" \
+                       "$(b64 'read:user,write:repository')" \
+                       "$(b64 gitea)")
+
+              code=$(curl -s -o /tmp/out -w '%{http_code}' --max-time 20 --cacert "${SA}/ca.crt" \
+                       -H "Authorization: Bearer ${KTOK}" -H 'content-type: application/json' \
+                       -X POST -d "${BODY}" "${K8S}/api/v1/namespaces/${NS}/secrets")
+              if [ "${code}" = "409" ]; then
+                # Replace the dangling Secret from step 2.
+                code=$(curl -s -o /tmp/out -w '%{http_code}' --max-time 20 --cacert "${SA}/ca.crt" \
+                         -H "Authorization: Bearer ${KTOK}" -H 'content-type: application/json' \
+                         -X PUT -d "${BODY}" "${K8S}/api/v1/namespaces/${NS}/secrets/${TARGET_SECRET}")
+              fi
+              case "${code}" in
+                20*) echo "published ${TARGET_SECRET} (client id ${CID})" ;;
+                *)   echo "could not write ${TARGET_SECRET} (http ${code})"; head -c 400 /tmp/out; exit 1 ;;
+              esac
+
+              echo "Gitea external auth registered; manifests/oidc-reload.yaml will restart Coder to load it"
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}

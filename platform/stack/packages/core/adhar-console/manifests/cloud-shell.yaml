@@ -1,9 +1,53 @@
-# Cloud Shell tools pod — a long-lived container the console execs into for the
-# "Cluster shell" mode (kubectl + k9s + helm + kubectx/kubens). The console finds
-# it by the `app=cloud-shell` label in adhar-system and opens an interactive
-# shell. Runs under a read-only `view` service account (no secrets), so an
-# exec session can inspect the cluster but not mutate or read secrets; exec
-# itself is RBAC-gated per user by the console's k8s gateway.
+# Cloud Shell tools pod — the long-lived container the console execs into for
+# "Cluster shell" mode (kubectl + helm + k9s + kustomize + jq/yq).
+#
+# The console finds it by the `app=cloud-shell` label in adhar-system and opens
+# an interactive shell over the Kubernetes exec API (websocket, xterm.js in the
+# browser — see modules/platform/src/views/pod-terminal.tsx).
+#
+# WHAT A BARE `kubectl exec` GIVES YOU, AND WHY IT IS NOT A USABLE TERMINAL
+# ------------------------------------------------------------------------
+# Kubernetes allocates a PTY when `tty=true`, and stops there. It sets no TERM,
+# no locale, and no shell configuration, which on this image produced
+# (measured 2026-09-25 in the live pod):
+#
+#   TERM=[]  LANG=[]  SHELL=[]  PS1='\w \$'
+#
+#   • TERM empty  — nothing can address the cursor. Full-screen tools (k9s,
+#     less, vim) draw over themselves, and colour is off everywhere.
+#   • LANG empty  — musl falls back to ASCII, so every box-drawing glyph in
+#     k9s and every tree character in `kubectl tree` renders as a blob.
+#   • PS1 '\w \$' — a prompt of nothing but the working directory. In `/` it
+#     reads as `/ #`, with no hint of which cluster, which namespace, or even
+#     which identity you are about to run a command as. This is the "prompt
+#     not showing correctly" report: the prompt is drawn, it just says nothing.
+#   • KUBECONFIG=/dev/null (the previous setting) left kubectl with NO
+#     current-context: `kubectl config current-context` errored, there was no
+#     default namespace so every command needed an explicit `-n`, and helm
+#     prefixed EVERY invocation with two lines of
+#         WARNING: Kubernetes configuration file is world-readable …/dev/null
+#
+# All four are fixed below: real env, a real kubeconfig written from the pod's
+# service-account token with a current context and a default namespace, and an
+# rc file that gives a context-aware prompt plus the shortcuts an operator
+# expects.
+#
+# IDENTITY — READ THIS BEFORE WIDENING THE ROLE
+# ---------------------------------------------
+# This pod has ONE service account for everybody. The console's exec gateway
+# decides WHETHER a given person may open a session (per-user RBAC, audited),
+# but once inside, kubectl acts as `system:serviceaccount:adhar-system:cloud-shell`
+# — not as that person. So the binding below is the ceiling for every operator
+# who can reach the shell, which is why it is the built-in `view` ClusterRole
+# and why it must stay read-only and secret-free.
+#
+# The visible consequence is that `helm list` cannot work: Helm keeps release
+# state in Secrets, and `view` deliberately excludes Secrets. That is the
+# correct trade here — granting secret reads would hand every shell user the
+# platform's credentials — so helm is present for `helm template`/`helm show`
+# and the banner says so rather than letting someone discover it by failing.
+# Per-user privileges would need a per-user ephemeral pod carrying that person's
+# impersonation kubeconfig; it is not what this shared pod does.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -18,11 +62,143 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
+  # Read-only and secret-free by design — see the IDENTITY note above.
   name: view
 subjects:
   - kind: ServiceAccount
     name: cloud-shell
     namespace: adhar-system
+---
+# Shell configuration. Kept in a ConfigMap rather than baked into the command so
+# it can be read (and edited) without decoding a Deployment, and so the same
+# file serves bash (~/.bashrc) and ash ($ENV).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloud-shell-rc
+  namespace: adhar-system
+  labels:
+    app: cloud-shell
+data:
+  # POSIX sh on purpose: the console offers `/bin/bash`, `/bin/sh` and an
+  # auto mode that prefers bash, and busybox ash sources this same file via
+  # $ENV. Anything bash-only is guarded by a $BASH_VERSION test.
+  shellrc: |
+    # ── Adhar Cloud Shell ────────────────────────────────────────────────────
+    # Sourced by every interactive shell in this pod (bash via ~/.bashrc, ash
+    # via $ENV). Generated from ConfigMap cloud-shell-rc.
+
+    # Re-entry guard: the console can open a bash that sources this, which then
+    # execs an ash that sources it again.
+    [ -n "${ADHAR_SHELL_RC:-}" ] && return 0 2>/dev/null
+    ADHAR_SHELL_RC=1
+
+    # ── Per-session kubeconfig ──
+    # The tools pod is SHARED: every Cloud Shell session execs into the same
+    # container. `kns` switches namespace by editing the current context, so with
+    # a single kubeconfig one person's `kns` would move the namespace under
+    # everyone else mid-command — and nothing would tell them it had happened.
+    # Each interactive shell therefore works on its own copy, keyed by PID.
+    if [ -n "${ADHAR_SHARED_KUBECONFIG:-}" ] && [ -r "${ADHAR_SHARED_KUBECONFIG}" ]; then
+      ADHAR_SESSION_KUBECONFIG="/tmp/kubeconfig.$$"
+      if cp "${ADHAR_SHARED_KUBECONFIG}" "${ADHAR_SESSION_KUBECONFIG}" 2>/dev/null; then
+        chmod 600 "${ADHAR_SESSION_KUBECONFIG}" 2>/dev/null || true
+        export KUBECONFIG="${ADHAR_SESSION_KUBECONFIG}"
+        # Don't leave a copy per session behind for the life of the pod.
+        trap 'rm -f "${ADHAR_SESSION_KUBECONFIG}"' EXIT 2>/dev/null || true
+      fi
+    fi
+
+    export PAGER='less -FRX'
+    export LESS='-FRX'
+    export EDITOR="${EDITOR:-vi}"
+    # Colour `ls` and `grep` without depending on a dircolors database.
+    alias ls='ls --color=auto' 2>/dev/null || true
+    alias grep='grep --color=auto' 2>/dev/null || true
+    alias ll='ls -alh'
+
+    # ── kubectl shortcuts ──
+    alias k='kubectl'
+    alias kg='kubectl get'
+    alias kd='kubectl describe'
+    alias kl='kubectl logs'
+    alias kgp='kubectl get pods -o wide'
+    alias kga='kubectl get pods -A -o wide'
+    alias kgn='kubectl get nodes -o wide'
+    alias kge='kubectl get events --sort-by=.lastTimestamp'
+    alias kctx='kubectl config get-contexts'
+
+    # Default namespace for this session. `kns` replaces kubectx/kubens, which
+    # this image does not ship: it edits the current context, so kubectl, helm
+    # and k9s all follow it in the same shell and in every new one.
+    kns() {
+      if [ -z "${1:-}" ]; then
+        kubectl config view --minify -o jsonpath='{..namespace}' 2>/dev/null
+        echo
+        return 0
+      fi
+      # Edits THIS session's kubeconfig copy only (see Per-session kubeconfig).
+      kubectl config set-context --current --namespace="$1" >/dev/null 2>&1 \
+        && echo "namespace → $1 (this session)" \
+        || echo "could not switch namespace to $1"
+    }
+    # Bash-only extras.
+    #
+    # ALL of it goes through `eval` on a single-quoted string. POSIX sh parses a
+    # whole file before running any of it, so bash syntax — an array
+    # assignment, `shopt`, process substitution — is a SYNTAX ERROR in ash even
+    # when it sits inside `if [ -n "$BASH_VERSION" ]`. That made this file
+    # unsourceable in the console's `/bin/sh` mode, i.e. no prompt at all.
+    # Quoting it defers parsing to the shell that can actually read it.
+    if [ -n "${BASH_VERSION:-}" ]; then
+      export HISTFILE="$HOME/.bash_history"
+      export HISTSIZE=5000 HISTFILESIZE=5000 HISTCONTROL=ignoreboth
+      eval '
+        shopt -s histappend checkwinsize 2>/dev/null || true
+        # kubectl completion, and the same completion for the `k` alias.
+        eval "$(kubectl completion bash 2>/dev/null)" >/dev/null 2>&1 || true
+        complete -o default -F __start_kubectl k 2>/dev/null || true
+        # Tab-complete `kns` from the namespaces this token can really list.
+        _adhar_kns() {
+          COMPREPLY=( $(compgen -W "$(kubectl get ns -o name 2>/dev/null | sed "s|namespace/||")" -- "${COMP_WORDS[1]}") )
+        }
+        complete -F _adhar_kns kns 2>/dev/null || true
+      ' 2>/dev/null || true
+    fi
+
+    # ── Prompt ──
+    # Shows identity, cluster and the ACTIVE NAMESPACE, because the most
+    # expensive mistake in a cluster terminal is running a correct command in
+    # the wrong namespace. Recomputed per prompt (kns changes it mid-session)
+    # from the local kubeconfig only — no API call, so the prompt never hangs
+    # when the control plane is slow.
+    _adhar_ns() {
+      sed -n 's/^ *namespace: *//p' "${KUBECONFIG:-$HOME/.kube/config}" 2>/dev/null | head -1
+    }
+    if [ -n "${BASH_VERSION:-}" ]; then
+      # \[...\] marks non-printing bytes so readline computes the line width
+      # correctly; without it, recalling a long command smears the prompt.
+      PS1='\[\e[38;5;39m\]⎈ \[\e[38;5;250m\]adhar\[\e[38;5;244m\]/\[\e[38;5;208m\]$(_adhar_ns)\[\e[0m\] \[\e[38;5;244m\]\w\[\e[0m\]
+    \[\e[38;5;39m\]❯\[\e[0m\] '
+    else
+      # ash has no \[ \] escape, and colouring a prompt it cannot measure
+      # corrupts line editing — so this one is plain text.
+      PS1='⎈ adhar/$(_adhar_ns) ❯ '
+    fi
+    export PS1
+
+    # ── Banner ──
+    # Printed once per session. Says what the tools are AND what this identity
+    # can do, so nobody has to discover `helm list`'s limits by hitting them.
+    if [ -z "${ADHAR_SHELL_BANNER:-}" ]; then
+      ADHAR_SHELL_BANNER=1
+      printf '\033[38;5;39m⎈ Adhar Cloud Shell\033[0m — read-only cluster inspector\n'
+      printf '  identity   \033[38;5;244msystem:serviceaccount:adhar-system:cloud-shell (ClusterRole view)\033[0m\n'
+      printf '  tools      kubectl · k9s · kustomize · helm (template/show) · jq · yq · kubeconform\n'
+      printf '  shortcuts  \033[38;5;250mk\033[0m=kubectl  \033[38;5;250mkgp\033[0m/\033[38;5;250mkga\033[0m=pods  \033[38;5;250mkgn\033[0m=nodes  \033[38;5;250mkge\033[0m=events  \033[38;5;250mkns <ns>\033[0m=switch namespace\n'
+      printf '  note       \033[38;5;244mSecrets are not readable, so `helm list` will not work — by design.\033[0m\n'
+      printf '\n'
+    fi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -40,11 +216,16 @@ spec:
     metadata:
       labels:
         app: cloud-shell
+      annotations:
+        # Roll the pod when the shell configuration changes; a ConfigMap edit is
+        # otherwise invisible to an already-running container (it is mounted,
+        # but existing sessions and the generated kubeconfig are not redone).
+        adhar.io/shellrc-revision: "3"
     spec:
       serviceAccountName: cloud-shell
-      # Fetch the k9s binary (arch-aware) into a shared volume. Best-effort:
-      # if the download is blocked the shell still ships kubectl/helm/kubectx.
       initContainers:
+        # 1. k9s (arch-aware) into the shared volume. Best-effort: if the
+        #    download is blocked the shell still has kubectl/helm/kustomize.
         - name: install-k9s
           image: curlimages/curl:8.10.1
           command: [sh, -c]
@@ -63,24 +244,158 @@ spec:
               fi
           volumeMounts:
             - { name: tools, mountPath: /shared }
-      containers:
-        - name: shell
-          # alpine/k8s ships kubectl, helm, kustomize, kubectx, kubens, jq, yq, bash.
-          image: alpine/k8s:1.31.1
-          command: [sh, -c, 'exec sleep infinity']
-          env:
-            # /shared first so k9s (installed by the init container) is on PATH.
-            - name: PATH
-              value: /shared:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-            - { name: KUBECONFIG, value: /dev/null } # use in-cluster SA, not a file
+        # 2. A terminfo database. alpine/k8s ships none at all (verified: no
+        #    /usr/share/terminfo), so TERM=xterm-256color alone still leaves
+        #    ncurses programs guessing. k9s happens to survive because tcell
+        #    embeds its own entries, but `less`, `vi` and readline's redraw do
+        #    not. Best-effort exactly like k9s above: on failure the shell is
+        #    still colour-capable, it just loses full-screen redraw fidelity.
+        - name: install-terminfo
+          image: alpine:3.21
+          command: [sh, -c]
+          args:
+            - |
+              set -u
+              if apk add --no-cache ncurses-terminfo >/dev/null 2>&1 || apk add --no-cache ncurses >/dev/null 2>&1; then
+                if [ -d /usr/share/terminfo ]; then
+                  cp -a /usr/share/terminfo /shared/terminfo && echo "terminfo installed"
+                  exit 0
+                fi
+              fi
+              echo "terminfo unavailable — continuing without it"
           volumeMounts:
             - { name: tools, mountPath: /shared }
+      containers:
+        - name: shell
+          # alpine/k8s ships kubectl, helm, kustomize, jq, yq, kubeconform and
+          # bash 5.2. NOTE: it does NOT ship kubectx/kubens (an earlier version
+          # of this comment claimed it did) — the rc file's `kns` function
+          # covers that need without another download.
+          image: alpine/k8s:1.31.1
+          env:
+            # /shared first so k9s (init container 1) is on PATH.
+            - name: PATH
+              value: /shared:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            # The single most important line in this file. Without TERM nothing
+            # can address the cursor and every full-screen tool corrupts the
+            # view; xterm-256color is what xterm.js in the console emulates.
+            - name: TERM
+              value: xterm-256color
+            - name: COLORTERM
+              value: truecolor
+            # musl's only real UTF-8 locale. Needed for k9s's box drawing and
+            # for the ⎈ in the prompt to be one glyph rather than three bytes.
+            - name: LANG
+              value: C.UTF-8
+            - name: LC_ALL
+              value: C.UTF-8
+            # From init container 2; harmless when that step could not run.
+            - name: TERMINFO
+              value: /shared/terminfo
+            - name: TERMINFO_DIRS
+              value: /shared/terminfo:/usr/share/terminfo
+            - name: HOME
+              value: /root
+            - name: SHELL
+              value: /bin/bash
+            # Interactive ash sources $ENV; bash picks the same file up through
+            # the ~/.bashrc written at startup.
+            - name: ENV
+              value: /root/.shellrc
+            # A REAL kubeconfig, written by the startup script below from the
+            # service-account token. Replaces KUBECONFIG=/dev/null, which gave
+            # kubectl no current-context (so no default namespace, and
+            # `kubectl config` errored) and made helm warn about a
+            # world-readable config on every single invocation.
+            - name: KUBECONFIG
+              value: /root/.kube/config
+            # The template every interactive shell copies for itself, so one
+            # person's `kns` cannot move another person's namespace.
+            - name: ADHAR_SHARED_KUBECONFIG
+              value: /root/.kube/config
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+          command: [/bin/bash, -c]
+          args:
+            - |
+              set -u
+
+              # ── Shell configuration ──
+              # Copied rather than symlinked: bash follows a symlink fine, but a
+              # copy lets someone append a personal tweak for the session.
+              cp /etc/adhar/shellrc /root/.shellrc 2>/dev/null || true
+              # bash reads ~/.bashrc for interactive non-login shells, which is
+              # exactly how the console starts it (`/bin/bash`, no -l).
+              printf '. /root/.shellrc\n' > /root/.bashrc
+              # …and ~/.profile for the login case, so `bash -l` behaves too.
+              printf '. /root/.shellrc\n' > /root/.profile
+
+              # ── kubeconfig from the service-account token ──
+              # Gives kubectl a current-context (so `kubectl config` works and
+              # `kns` can switch namespaces) and a default namespace (so plain
+              # `kubectl get pods` means something). 0600 so helm stops warning
+              # that the file is world-readable.
+              SA=/var/run/secrets/kubernetes.io/serviceaccount
+              mkdir -p /root/.kube
+              if [ -r "${SA}/token" ]; then
+                cat > /root/.kube/config <<EOF
+              apiVersion: v1
+              kind: Config
+              current-context: adhar
+              clusters:
+                - name: adhar
+                  cluster:
+                    server: https://kubernetes.default.svc
+                    certificate-authority: ${SA}/ca.crt
+              users:
+                - name: cloud-shell
+                  user:
+                    tokenFile: ${SA}/token
+              contexts:
+                - name: adhar
+                  context:
+                    cluster: adhar
+                    user: cloud-shell
+                    namespace: ${POD_NAMESPACE}
+              EOF
+                # The heredoc is indented for readability; strip it so YAML
+                # parses at column 0.
+                sed -i 's/^              //' /root/.kube/config
+                chmod 600 /root/.kube/config
+                echo "kubeconfig written (context adhar, namespace ${POD_NAMESPACE})"
+              else
+                echo "no service-account token; leaving kubectl on in-cluster defaults"
+              fi
+
+              # Per-session kubeconfig copies from a previous container life.
+              rm -f /tmp/kubeconfig.* 2>/dev/null || true
+
+              # k9s writes config/logs under these; without them it falls back
+              # to a read-only path and logs a warning over the UI on startup.
+              mkdir -p /root/.config/k9s /root/.local/state/k9s /tmp/k9s
+              export K9S_LOGS_DIR=/tmp/k9s
+
+              exec sleep infinity
+          volumeMounts:
+            - { name: tools, mountPath: /shared }
+            - { name: shellrc, mountPath: /etc/adhar }
+          # A terminal is idle almost all the time and then runs someone's
+          # `kubectl get pods -A`; k9s on a 400-pod cluster is the real peak.
+          # 256Mi was enough for sleep, not for k9s plus a kubectl.
           resources:
-            requests: { cpu: 20m, memory: 64Mi }
-            limits: { memory: 256Mi }
+            requests: { cpu: 20m, memory: 96Mi }
+            limits: { memory: 512Mi }
           securityContext:
             allowPrivilegeEscalation: false
+            # root inside the container: the image's tools live under /root and
+            # the startup script writes there. The SA is read-only `view`, so
+            # this buys no cluster privilege.
             runAsNonRoot: false
       volumes:
         - name: tools
           emptyDir: {}
+        - name: shellrc
+          configMap:
+            name: cloud-shell-rc
+            items:
+              - { key: shellrc, path: shellrc }

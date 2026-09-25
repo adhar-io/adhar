@@ -44,8 +44,20 @@ coder:
     # account on first login (the realm itself is the gate).
     - name: CODER_OIDC_ALLOW_SIGNUPS
       value: "true"
+    # `offline_access` is what makes a Coder session survive the day.
+    #
+    # Without it Keycloak binds the refresh token to the SSO SESSION, so when
+    # that session idles out (30 min by default) or hits its max lifetime, the
+    # refresh token dies with it. Coder keeps using the token it stored at login
+    # and every later request fails with
+    #   Could not refresh expired OpenID Connect token
+    #   oauth2: "invalid_grant" "Token is not active"
+    # which reads as Coder being broken rather than as a token that aged out.
+    # `offline_access` yields an OFFLINE token instead: it outlives the SSO
+    # session, which is the right lifetime for a workspace that is meant to
+    # still be there tomorrow morning.
     - name: CODER_OIDC_SCOPES
-      value: "openid,profile,email,groups"
+      value: "openid,profile,email,groups,offline_access"
     # Group/role sync from the realm's `groups` claim (platform-admin, admin,
     # developer, ...). NOTE: group and role sync are licensed Coder features —
     # on the OSS build these settings are parsed and then ignored, they do NOT
@@ -62,6 +74,41 @@ coder:
     # way in if Keycloak is down.
     - name: CODER_DISABLE_PASSWORD_AUTH
       value: "false"
+    # --- Database -----------------------------------------------------------
+    # The platform CNPG database (manifests/platform-postgres.yaml). WITHOUT
+    # this, `coder server` uses its built-in PostgreSQL inside the container
+    # filesystem and loses every user, template and workspace on any pod
+    # replacement — see that file's header for the live failure this caused.
+    #
+    # Composed from the parts rather than read from a `<cluster>-app` Secret:
+    # CNPG only generates that Secret when it invents the credentials itself.
+    # This Cluster supplies its own (bootstrap.initdb.secret:
+    # coder-db-credentials), so no `coder-db-app` exists and referencing it left
+    # the pod in CreateContainerConfigError — `secret "coder-db-app" not found`
+    # — for 148 minutes. The host/user/password shape below is what
+    # data/metabase and the other CNPG consumers already use.
+    #
+    # Kubernetes expands $(VAR) from env vars declared EARLIER in this same
+    # container, which is what lets a single connection URL be assembled
+    # without putting the password in the manifest.
+    #
+    # Lives HERE rather than only in the generated manifest: it began as a hand
+    # edit to manifests/install.yaml, and regenerating that file from the chart
+    # silently dropped it — which would have sent Coder back to its ephemeral
+    # built-in database on the next pod replacement.
+    - name: CODER_PG_USER
+      valueFrom:
+        secretKeyRef:
+          name: coder-db-credentials
+          key: username
+    - name: CODER_PG_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: coder-db-credentials
+          key: password
+    - name: CODER_PG_CONNECTION_URL
+      value: "postgres://$(CODER_PG_USER):$(CODER_PG_PASSWORD)@coder-db-rw.adhar-system.svc.cluster.local:5432/coder?sslmode=require"
+
     # Coder performs OIDC discovery/token exchange against the issuer over TLS.
     # The platform Gateway certificate (Secret adhar-cert: self-signed locally,
     # Let's Encrypt on cloud) is mounted below and added as an extra trust
@@ -69,6 +116,34 @@ coder:
     # mechanism as Kargo (application/kargo/values.yaml).
     - name: SSL_CERT_DIR
       value: "/etc/ssl/certs:/etc/adhar-ca"
+  # --- Gitea external auth (git credentials inside workspaces) --------------
+  # Makes `git push` work in code-server, VS Code Desktop and IntelliJ. The
+  # Coder agent already exports GIT_ASKPASS/GIT_SSH_COMMAND into every IDE
+  # session; without a provider registered here the helper has no token to
+  # return, so a workspace can only read PUBLIC repos anonymously and every push
+  # is rejected. Credentials are per person, so pushes stay attributable.
+  #
+  # Delivered as envFrom rather than as individual env entries, and that is not
+  # a style choice — it is the only shape that survives a cold bootstrap. The
+  # OAuth2 application is created in Gitea by a PostSync hook
+  # (manifests/gitea-external-auth.yaml), so on first boot the Secret does not
+  # exist yet. Declaring CODER_EXTERNAL_AUTH_0_ID inline with an
+  # `optional: true` secretKeyRef for the client id was tried and took Coder
+  # DOWN: an absent optional key means the env var is simply missing, Coder sees
+  # a provider whose id is set and whose credentials are not, and refuses to
+  # start at all —
+  #     error: convert external auth config: "gitea" external auth provider:
+  #            client_id must be provided
+  # (CrashLoopBackOff, 7 restarts, "Deployment coder exceeded its progress
+  # deadline", 2026-09-25). Keeping EVERY CODER_EXTERNAL_AUTH_0_* key inside the
+  # Secret makes it all-or-nothing: before the hook runs Coder sees no provider
+  # and serves normally; afterwards it sees a complete one.
+  # manifests/oidc-reload.yaml restarts the Deployment once the Secret lands.
+  envFrom:
+    - secretRef:
+        name: coder-gitea-oauth
+        optional: true
+
   volumes:
     - name: adhar-ca
       secret:

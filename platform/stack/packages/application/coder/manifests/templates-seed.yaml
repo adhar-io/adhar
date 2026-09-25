@@ -60,7 +60,7 @@ spec:
             # between "leave the operator's template alone" and "push a new
             # version because the platform now ships more IDEs".
             - name: IDE_REVISION
-              value: adhar-ide-v3
+              value: adhar-ide-v5
           command: [/bin/sh, -c]
           args:
             - |
@@ -162,6 +162,50 @@ spec:
                 script             = <<-EOT
                   #!/bin/sh
                   set -eu
+
+                  # Git identity, from the person who owns this workspace.
+                  #
+                  # Without it the very first `git commit` in the IDE dies with
+                  # "Author identity unknown. *** Please tell me who you are."
+                  # — a dead end inside a freshly-created environment, and one
+                  # nobody should have to fix by hand every time. Set, not
+                  # forced: --global writes ~/.gitconfig on the persistent home
+                  # volume, so anyone who prefers a different name or e-mail
+                  # edits it once and it survives every later start (the
+                  # guards below never overwrite an existing value).
+                  # The username comes from the AGENT'S ENVIRONMENT, not from
+                  # HCL.
+                  #
+                  # An HCL conditional picking full_name over name was tried and
+                  # wrote the literal string `default` into ~/.gitconfig
+                  # (verified 2026-09-25) — every commit in every cloud
+                  # environment would have been authored by "default". The same
+                  # `.name` attribute renders correctly OUTSIDE a ternary (the
+                  # IDE deep links below prove it: owner=adhar-admin), so the
+                  # conditional is what misrendered.
+                  #
+                  # CODER_WORKSPACE_OWNER_NAME is exported by the agent into
+                  # every session it starts and was verified to hold the real
+                  # username. A bare $VAR also passes through HCL untouched
+                  # (only a dollar-brace sequence interpolates), so there is
+                  # nothing left to escape and nothing left to get wrong.
+                  OWNER="$CODER_WORKSPACE_OWNER_NAME"
+                  [ -n "$OWNER" ] || OWNER=coder
+                  git config --global --get user.name  >/dev/null 2>&1 || \
+                    git config --global user.name "$OWNER"
+                  git config --global --get user.email >/dev/null 2>&1 || \
+                    git config --global user.email '${data.coder_workspace_owner.me.email}'
+                  # No credential helper is configured on purpose. git falls
+                  # back to GIT_ASKPASS, which the agent points at Coder — so
+                  # each fetch/push is answered with the person's own live Gitea
+                  # token instead of a copy cached on the volume. A `store`
+                  # helper would write that token to disk in plain text and keep
+                  # serving it after the person's access was revoked.
+                  #
+                  # Stop git from refusing the checkout when the home volume's
+                  # ownership does not match (a restored PVC, a changed fsGroup).
+                  git config --global --add safe.directory '*'
+
                   REPO='${data.coder_parameter.git_repo.value}'
                   [ -n "$REPO" ] || exit 0
                   DEST='${local.workspace_folder}'
@@ -169,8 +213,19 @@ spec:
                     echo "repository already checked out at $DEST"
                     exit 0
                   fi
+                  # GIT_ASKPASS is exported into this session by the agent and
+                  # resolves to the person's Gitea token via Coder's external
+                  # auth provider (values.yaml CODER_EXTERNAL_AUTH_0_*), so a
+                  # PRIVATE repository clones here too. A public one still
+                  # clones when nobody has authorised Gitea yet, which is why
+                  # this is not fatal on failure: the workspace must come up
+                  # either way so the person can fix it from the terminal.
                   echo "cloning $REPO into $DEST"
-                  git clone "$REPO" "$DEST"
+                  if ! git clone "$REPO" "$DEST"; then
+                    echo "clone failed — if $REPO is private, authorise Gitea"
+                    echo "once under Coder -> Account -> External Authentication,"
+                    echo "then re-run: git clone $REPO $DEST"
+                  fi
                 EOT
               }
               TF
@@ -234,7 +289,7 @@ spec:
                 --directory "/tmp/tpl/${TEMPLATE_NAME}" \
                 --variable "namespace=${WORKSPACE_NAMESPACE}" \
                 --variable "use_kubeconfig=false" \
-                --message "Adhar platform ${IDE_REVISION}: per-repository workspaces (git_repo) + code-server + IntelliJ IDEA + VS Code Desktop" \
+                --message "Adhar platform ${IDE_REVISION}: per-repository workspaces (git_repo), git identity + Gitea push credentials, code-server + IntelliJ IDEA + VS Code Desktop" \
                 --yes
               /opt/coder templates edit "${TEMPLATE_NAME}" \
                 --description "Adhar cloud development environment (${IDE_REVISION})" \

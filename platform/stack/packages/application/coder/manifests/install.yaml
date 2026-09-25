@@ -183,18 +183,6 @@ spec:
         - name: CODER_OIDC_ALLOW_SIGNUPS
           value: "true"
         - name: CODER_OIDC_SCOPES
-          # `offline_access` is what makes a Coder session survive the day.
-          #
-          # Without it Keycloak binds the refresh token to the SSO SESSION, so
-          # when that session idles out (30 min by default) or hits its max
-          # lifetime, the refresh token dies with it. Coder keeps using the token
-          # it stored at login, and every later request fails with
-          #   Could not refresh expired OpenID Connect token
-          #   oauth2: "invalid_grant" "Token is not active"
-          # which reads as Coder being broken rather than as a token that aged
-          # out. `offline_access` yields an OFFLINE token instead: it outlives the
-          # SSO session, which is the right lifetime for a workspace that is meant
-          # to still be there tomorrow morning.
           value: openid,profile,email,groups,offline_access
         - name: CODER_OIDC_GROUP_FIELD
           value: groups
@@ -204,36 +192,24 @@ spec:
           value: '{"platform-admin":["owner"],"admin":["owner"]}'
         - name: CODER_DISABLE_PASSWORD_AUTH
           value: "false"
-        # The platform CNPG database (manifests/platform-postgres.yaml). WITHOUT
-        # this, `coder server` uses its built-in PostgreSQL inside the container
-        # filesystem and loses every user, template and workspace on any pod
-        # replacement — see that file's header for the live failure this caused.
-        #
-        # Composed from the parts rather than read from a `<cluster>-app` Secret:
-        # CNPG only generates that Secret when it invents the credentials itself.
-        # This Cluster supplies its own (bootstrap.initdb.secret: coder-db-credentials),
-        # so no `coder-db-app` exists and referencing it left the pod in
-        # CreateContainerConfigError — `secret "coder-db-app" not found` — for 148
-        # minutes. The host/user/password shape below is what data/metabase and the
-        # other CNPG consumers already use.
-        #
-        # Kubernetes expands $(VAR) from env vars declared EARLIER in this same
-        # container, which is what lets a single connection URL be assembled without
-        # putting the password in the manifest.
         - name: CODER_PG_USER
           valueFrom:
             secretKeyRef:
-              name: coder-db-credentials
               key: username
+              name: coder-db-credentials
         - name: CODER_PG_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: coder-db-credentials
               key: password
+              name: coder-db-credentials
         - name: CODER_PG_CONNECTION_URL
-          value: "postgres://$(CODER_PG_USER):$(CODER_PG_PASSWORD)@coder-db-rw.adhar-system.svc.cluster.local:5432/coder?sslmode=require"
+          value: postgres://$(CODER_PG_USER):$(CODER_PG_PASSWORD)@coder-db-rw.adhar-system.svc.cluster.local:5432/coder?sslmode=require
         - name: SSL_CERT_DIR
           value: /etc/ssl/certs:/etc/adhar-ca
+        envFrom:
+        - secretRef:
+            name: coder-gitea-oauth
+            optional: true
         image: ghcr.io/coder/coder:v2.37.0
         imagePullPolicy: IfNotPresent
         lifecycle: {}
