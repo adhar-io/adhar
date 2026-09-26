@@ -203,9 +203,13 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 	// *.<host> wildcard — only for a real domain; the default host stays local-only.
 	dnsProvider := ""
 	dnsProject := ""
+	var azSub, azTenant, azClient, azRG string
 	if host != globals.DefaultHostName {
 		dnsProvider = resolveDNSProvider(cfg, providerName)
 		dnsProject = resolveDNSProject(cfg, dnsProvider)
+		// cert-manager's azureDNS solver needs these inline or it rejects the
+		// ClusterIssuer outright — see resolveAzureDNSIdentifiers.
+		azSub, azTenant, azClient, azRG = resolveAzureDNSIdentifiers(cfg, dnsProvider)
 	}
 	templateData := v1alpha1.BuildCustomizationSpec{
 		Protocol:     "https",
@@ -217,6 +221,11 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		Email:        email,
 		DNSProvider:  dnsProvider,
 		DNSProject:   dnsProject,
+
+		DNSAzureSubscriptionID: azSub,
+		DNSAzureTenantID:       azTenant,
+		DNSAzureClientID:       azClient,
+		DNSAzureResourceGroup:  azRG,
 	}
 	// Derive PortSuffix ("" for the standard 443 behind a cloud LB) so foundation
 	// manifests render clean URLs/issuers with no hardcoded host or port.

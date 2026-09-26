@@ -90,6 +90,19 @@ spec:
                     description: ScaleUpCooldown is the minimum gap between two node
                       additions.
                     type: string
+                  scaleUpUtilizationThreshold:
+                    default: 90%
+                    description: |-
+                      ScaleUpUtilizationThreshold is the requested-vs-allocatable share (e.g.
+                      "90%", or a bare fraction "0.9") at which a worker is added BEFORE anything
+                      becomes unschedulable.
+
+                      Waiting for Pending pods — the only scale-up signal there used to be — means
+                      the cluster grows only after work has already stopped: a pod that cannot be
+                      placed has to wait out a node create, which is minutes. Reacting at high
+                      utilisation instead buys capacity while the cluster is merely busy, and the
+                      Pending-pod path stays as the backstop for a burst too large to anticipate.
+                    type: string
                 type: object
               buildCustomization:
                 description: BuildCustomizationSpec fields cannot change once a cluster
@@ -100,6 +113,29 @@ spec:
                       ClusterName identifies this platform in shared external systems, e.g.
                       as the external-dns TXT owner id so several clusters can publish into
                       the same DNS zone without stealing each other's records.
+                    type: string
+                  dnsAzureClientId:
+                    type: string
+                  dnsAzureResourceGroup:
+                    type: string
+                  dnsAzureSubscriptionId:
+                    description: |-
+                      DNSAzure* are the identifiers cert-manager's azureDNS solver requires as
+                      PLAIN VALUES — only the client secret may be a secretRef. Leaving them out
+                      is the same failure DNSProject exists for, one cloud over:
+
+                        ClusterIssuer "adhar-letsencrypt-dns" is invalid:
+                          spec.acme.solvers[0].dns01.azureDNS.resourceGroupName: Required value
+
+                      The issuer is then rejected, the platform wildcard certificate sits at
+                      Ready=False with no Order or Challenge ever created, and the Gateway keeps
+                      serving self-signed TLS with nothing saying why (Azure, 2026-09-26).
+
+                      They are the same four values the adhar-dns-provider Secret carries; the
+                      secret cannot be referenced for them because the solver schema takes them
+                      inline.
+                    type: string
+                  dnsAzureTenantId:
                     type: string
                   dnsProject:
                     description: |-

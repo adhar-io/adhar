@@ -566,7 +566,28 @@ func KubeadmJoinedNodes(signer ssh.Signer, user, masterIP string) JoinedNodes {
 // deprecated, and there is no flag form of maxParallelImagePulls at all. Writing the
 // config kubeadm generated is the supported path, and it survives a kubelet upgrade
 // that drops the flag.
-const imagePullTuning = "serializeImagePulls: false\nmaxParallelImagePulls: 5\n"
+// kubeletTuning is appended to the kubelet's own config after kubeadm has written
+// it. Each key is guarded separately by kubeletTuningCommand, so a node that
+// already has some of them gains only what it is missing.
+var kubeletTuning = []struct{ Key, Line string }{
+	// Parallel image pulls: the kubelet serialises by default, and a production
+	// profile fetches ~70 images per node.
+	{"serializeImagePulls", "serializeImagePulls: false"},
+	{"maxParallelImagePulls", "maxParallelImagePulls: 5"},
+	// maxPods: the kubelet's default of 110 is a HARD scheduling ceiling, and the
+	// platform's catalogue is several hundred small pods. The Kind provider has
+	// raised this to 250 for exactly this reason since it shipped; cloud nodes did
+	// not, so every kubeadm cluster was capped at 110 per node however large the
+	// machine.
+	//
+	// Measured on Azure (2026-09-26): of 113 pods that could not run, **96 were
+	// blocked by the pod ceiling and only 1 by CPU**. The node had CPU to spare and
+	// still could not place anything, and the symptom — FailedScheduling
+	// "Too many pods" — reads as a capacity problem that adding CPU does not fix.
+	// A platform component that cannot reschedule after a restart for this reason
+	// looks like an unrelated outage.
+	{"maxPods", "maxPods: 250"},
+}
 
 // TuneImagePulls lets the kubelet pull images in parallel. Idempotent: the grep
 // guard means a re-run neither duplicates the keys nor restarts a healthy kubelet.
@@ -593,10 +614,23 @@ func TuneImagePulls(signer ssh.Signer, user, ip string) error {
 // two real ones.
 func imagePullTuningCommand() string {
 	const cfg = "/var/lib/kubelet/config.yaml"
-	return fmt.Sprintf(
-		"grep -q '^serializeImagePulls:' %[1]s 2>/dev/null || "+
-			"{ printf '%%b' %[2]q >> %[1]s && systemctl restart kubelet; }",
-		cfg, imagePullTuning)
+	// One guarded append per key, then a single restart if anything changed.
+	//
+	// Guarding the whole block on one key (it used to test only
+	// `serializeImagePulls`) meant a node written by an older release could never
+	// gain a key added later: the guard matched, and the append was skipped. Each
+	// key now carries its own test, so an existing node picks up exactly what it
+	// lacks.
+	var b strings.Builder
+	b.WriteString("changed=0; ")
+	for _, t := range kubeletTuning {
+		b.WriteString(fmt.Sprintf(
+			"grep -q '^%[1]s:' %[2]s 2>/dev/null || "+
+				"{ printf '%%b' %[3]q >> %[2]s; changed=1; }; ",
+			t.Key, cfg, t.Line+"\n"))
+	}
+	b.WriteString("[ \"$changed\" = 1 ] && systemctl restart kubelet || true")
+	return b.String()
 }
 
 func KubeadmJoinWorker(signer ssh.Signer, user, ip, joinCmd string) error {

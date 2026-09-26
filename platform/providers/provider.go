@@ -539,10 +539,20 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 		Replicas: 1,
 	}
 
-	// Configure node groups
-	workerReplicas := 0 // Single-node cluster for local development
+	// Configure node groups: one control plane and TWO workers to start with.
+	//
+	// Two, not three: it is the smallest shape that is actually a cluster — a
+	// single worker means every eviction, drain or node replacement has nowhere to
+	// put the pods, and a one-worker cluster also hits the kubelet's 110-pod
+	// ceiling long before it runs out of CPU. Three was more capacity than a start
+	// needs now that the autoscaler adds workers at the scale-up utilisation
+	// threshold rather than waiting for pods to go Pending.
+	//
+	// Local stays at zero: the control plane runs untainted there, so a Kind
+	// cluster needs no separate worker.
+	workerReplicas := 0
 	if isProduction {
-		workerReplicas = 3 // More workers for production
+		workerReplicas = 2
 	}
 	spec.NodeGroups = []types.NodeGroupSpec{
 		{

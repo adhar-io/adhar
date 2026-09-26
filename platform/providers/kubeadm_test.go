@@ -108,9 +108,13 @@ func TestImagePullTuningCommand(t *testing.T) {
 	// The KubeletConfiguration keys must be the config-file spellings, not the
 	// deprecated flag names: there is no flag form of maxParallelImagePulls at all,
 	// and --serialize-image-pulls is on its way out.
+	tuning := ""
+	for _, t := range kubeletTuning {
+		tuning += t.Line + "\n"
+	}
 	for _, want := range []string{"serializeImagePulls: false", "maxParallelImagePulls: 5"} {
-		if !strings.Contains(imagePullTuning, want) {
-			t.Errorf("imagePullTuning is missing %q", want)
+		if !strings.Contains(tuning, want) {
+			t.Errorf("kubeletTuning is missing %q", want)
 		}
 	}
 
@@ -121,10 +125,17 @@ func TestImagePullTuningCommand(t *testing.T) {
 	if strings.Contains(cmd, "\n") {
 		t.Errorf("the command must be a single line, got:\n%s", cmd)
 	}
-	// The payload reaches sh as escaped newlines inside quotes, which printf then
-	// expands — that is what turns one shell line into two YAML lines.
-	if !strings.Contains(cmd, `"serializeImagePulls: false\nmaxParallelImagePulls: 5\n"`) {
-		t.Errorf("the payload is not quoted for printf expansion, got: %s", cmd)
+	// Each payload reaches sh as an escaped newline inside quotes, which printf then
+	// expands — that is what appends a real YAML line. One payload per key now, so
+	// a node missing only some keys gains only those.
+	for _, want := range []string{
+		`"serializeImagePulls: false\n"`,
+		`"maxParallelImagePulls: 5\n"`,
+		`"maxPods: 250\n"`,
+	} {
+		if !strings.Contains(cmd, want) {
+			t.Errorf("payload %s is not quoted for printf expansion, got: %s", want, cmd)
+		}
 	}
 	// Idempotent: a re-run must neither duplicate the keys nor bounce a healthy
 	// kubelet, which on a converged cluster would evict nothing but would restart
@@ -138,5 +149,49 @@ func TestImagePullTuningCommand(t *testing.T) {
 	// It writes the file kubeadm generates, not a drop-in kubeadm would overwrite.
 	if !strings.Contains(cmd, "/var/lib/kubelet/config.yaml") {
 		t.Errorf("the command targets the wrong file: %s", cmd)
+	}
+}
+
+// maxPods must be raised on CLOUD nodes too, not only on Kind.
+//
+// The kubelet's default of 110 is a hard scheduling ceiling, and the Kind provider
+// has set 250 since it shipped. Cloud nodes did not, so every kubeadm cluster was
+// capped at 110 per node however large the machine. Measured on Azure
+// (2026-09-26): of 113 pods that could not run, 96 were blocked by the pod ceiling
+// and only 1 by CPU — the node had CPU to spare and still could place nothing.
+func TestKubeletTuningRaisesMaxPods(t *testing.T) {
+	var line string
+	for _, t := range kubeletTuning {
+		if t.Key == "maxPods" {
+			line = t.Line
+		}
+	}
+	if line == "" {
+		t.Fatal("kubeletTuning does not set maxPods; cloud nodes stay at the 110 default")
+	}
+	if !strings.Contains(line, "250") {
+		t.Errorf("maxPods = %q, want 250 to match the Kind provider", line)
+	}
+	if !strings.Contains(imagePullTuningCommand(), "maxPods") {
+		t.Error("the applied command does not mention maxPods")
+	}
+}
+
+// Each key is guarded on its own, so a node written by an older release gains a key
+// added later. Guarding the whole block on one key meant the append was skipped
+// entirely once that key was present.
+func TestKubeletTuningGuardsEachKeySeparately(t *testing.T) {
+	cmd := imagePullTuningCommand()
+	for _, k := range []string{"serializeImagePulls", "maxParallelImagePulls", "maxPods"} {
+		if !strings.Contains(cmd, "grep -q '^"+k+":'") {
+			t.Errorf("no separate guard for %q; an existing node would never gain it", k)
+		}
+	}
+	// Exactly one restart, and only when something actually changed.
+	if strings.Count(cmd, "systemctl restart kubelet") != 1 {
+		t.Errorf("expected exactly one kubelet restart, got %d", strings.Count(cmd, "systemctl restart kubelet"))
+	}
+	if !strings.Contains(cmd, "changed=1") {
+		t.Error("the restart must be conditional on a change, or every run bounces the kubelet")
 	}
 }

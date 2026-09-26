@@ -189,19 +189,39 @@ environments:
 | `minWorkers` | `1` | Floor |
 | `maxWorkers` | `5` | Ceiling — the spend limit |
 | `nodeGroup` | `workers` | Provider node group to scale |
+| `scaleUpUtilizationThreshold` | `"90%"` | CPU **or** memory at or above this adds a worker, before anything is Pending |
 | `scaleDownUtilizationThreshold` | `"50%"` | CPU **and** memory must both stay under this |
 | `scaleDownDelay` | `"10m"` | Time under the threshold before a node is drained |
 | `scaleUpCooldown` | `"3m"` | Minimum gap between two additions |
 
-The cluster is still created with `nodeCount`; autoscaling turns that into a
-range. A node it adds takes its Kubernetes version from the running control
+A cloud platform is created with **1 control plane and 2 workers** by default, and
+`nodeCount` overrides that. Two is the smallest shape that is really a cluster: one
+worker leaves evictions, drains and node replacements nowhere to put the pods, and a
+single worker reaches the kubelet's 110-pod ceiling well before it runs out of CPU.
+Autoscaling then turns that starting size into a range. A node it adds takes its Kubernetes version from the running control
 plane ([§5](#5-kubernetes-version)), so a scaled cluster cannot skew.
 
-**Scale-up** triggers on pods unschedulable *for capacity* — `insufficient
-cpu`/`memory`/`pods`/`ephemeral-storage`, `too many pods`, and
-`exceed max volume count`. It is evaluated before scale-down. Taints, unsatisfiable
-node affinity and `volume node affinity conflict` are deliberately not triggers:
-a new worker is a clone of the existing ones.
+**Scale-up has two triggers, and the first is the one that matters.**
+
+1. **Utilisation**, at or above `scaleUpUtilizationThreshold` (90% by default) on
+   CPU **or** memory. Either dimension counts: a cluster at 95% CPU and 40% memory
+   cannot place another CPU-bound pod, and the platform's catalogue is CPU-bound.
+   This adds a worker while the cluster is merely *busy*.
+2. **Pods unschedulable for capacity** — `insufficient cpu`/`memory`/`pods`/
+   `ephemeral-storage`, `too many pods`, `exceed max volume count`. This is the
+   backstop for a burst too large to anticipate, and it can add several workers at
+   once.
+
+Waiting only for trigger 2 meant the cluster grew after work had already stopped:
+an unschedulable pod has to wait out a node create, which is minutes on every
+cloud. Trigger 1 exists so that does not happen in the ordinary case.
+
+Both are evaluated before scale-down, and a `scaleUpUtilizationThreshold` below
+`scaleDownUtilizationThreshold` is clamped up to it — otherwise the autoscaler
+would add a node and immediately qualify to remove it.
+
+Taints, unsatisfiable node affinity and `volume node affinity conflict` are
+deliberately not triggers: a new worker is a clone of the existing ones.
 
 **Two guards refuse a scale-down:** a recent move in either direction (one node
 per `scaleDownDelay` window, so the cluster settles), and a node hosting a pod

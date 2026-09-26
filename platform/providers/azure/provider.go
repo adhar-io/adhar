@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -135,6 +136,21 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 		azureConfig.VNetCIDR = get("vnetCidr", "vnetCIDR")
 		azureConfig.SubnetCIDR = get("subnetCidr", "subnetCIDR")
 		azureConfig.DiskType = get("diskType")
+		// Disk size was never read from configuration at all, so every node got the
+		// 50 GiB default however large a value the file asked for. That is not
+		// enough: the platform pulls ~70 images and the containerd cache alone
+		// reached 35 GiB, the node crossed the kubelet's disk-eviction threshold,
+		// and the resulting `node.kubernetes.io/disk-pressure:NoSchedule` taint
+		// stopped EVERY pod from scheduling — 80 of them, on a node with CPU to
+		// spare (Azure, 2026-09-26). A full disk reads as a capacity problem that
+		// adding CPU does not fix.
+		if v := get("diskSizeGb", "diskSizeGB", "diskSize"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				azureConfig.DiskSizeGB = int32(n)
+			} else {
+				log.Printf("Azure config: WARNING diskSizeGb=%q is not a positive number; ignoring", v)
+			}
+		}
 
 		// Report what was UNDERSTOOD, and name anything that was not. A key that
 		// goes nowhere has to say so: the whole failure above was silent.
@@ -456,7 +472,11 @@ func NewProvider(config *Config) (*Provider, error) {
 		config.VMSize = "Standard_D2s_v3"
 	}
 	if config.DiskSizeGB == 0 {
-		config.DiskSizeGB = 50
+		// 100 GiB, matching the GCP provider. 50 was too small for this platform:
+		// the containerd image cache alone measured 35 GiB on a worker, which took
+		// the node over the disk-eviction threshold and tainted it
+		// NoSchedule — see the parsing note above.
+		config.DiskSizeGB = 100
 	}
 	if config.ImagePublisher == "" {
 		config.ImagePublisher = "Canonical"
@@ -736,7 +756,10 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	// Quota preflight, before a single resource exists. Azure meters vCPU both
 	// per size family and per region, and a create can fail on either — halfway
 	// through, having already provisioned a VNet, an NSG and some of the VMs.
-	if err := p.checkQuota(ctx, plannedNodeCount(spec), plannedVMSize(spec, p.config.VMSize)); err != nil {
+	// Cost the cluster with each node group's OWN size; plannedVCPUs handles the
+	// control plane being deliberately smaller than the workers.
+	needVCPU, shape := p.plannedVCPUs(ctx, spec)
+	if err := p.checkQuota(ctx, needVCPU, plannedVMSize(spec, p.config.VMSize), shape); err != nil {
 		return nil, err
 	}
 

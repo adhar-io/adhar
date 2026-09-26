@@ -155,6 +155,10 @@ const (
 	// grows and shrinks — the same name `adhar cluster scale --node-group`
 	// uses and the one every provider creates by default.
 	DefaultAutoscalingNodeGroup = "workers"
+	// DefaultScaleUpUtilizationThreshold is where a worker is added before
+	// anything goes Pending. 90% leaves a node's worth of headroom on a small
+	// cluster while not growing on ordinary variation.
+	DefaultScaleUpUtilizationThreshold = "90%"
 	// DefaultScaleDownUtilizationThreshold is the cluster-wide requested
 	// CPU/memory share below which workers are considered removable.
 	DefaultScaleDownUtilizationThreshold = "50%"
@@ -219,6 +223,19 @@ type AutoscalingSpec struct {
 	// +kubebuilder:default="3m"
 	// +optional
 	ScaleUpCooldown metav1.Duration `json:"scaleUpCooldown,omitempty"`
+
+	// ScaleUpUtilizationThreshold is the requested-vs-allocatable share (e.g.
+	// "90%", or a bare fraction "0.9") at which a worker is added BEFORE anything
+	// becomes unschedulable.
+	//
+	// Waiting for Pending pods — the only scale-up signal there used to be — means
+	// the cluster grows only after work has already stopped: a pod that cannot be
+	// placed has to wait out a node create, which is minutes. Reacting at high
+	// utilisation instead buys capacity while the cluster is merely busy, and the
+	// Pending-pod path stays as the backstop for a burst too large to anticipate.
+	// +kubebuilder:default="90%"
+	// +optional
+	ScaleUpUtilizationThreshold string `json:"scaleUpUtilizationThreshold,omitempty"`
 }
 
 // WithDefaults returns a copy with every unset field filled in, so callers can
@@ -233,6 +250,9 @@ func (a *AutoscalingSpec) WithDefaults() AutoscalingSpec {
 	}
 	if out.ScaleDownUtilizationThreshold == "" {
 		out.ScaleDownUtilizationThreshold = DefaultScaleDownUtilizationThreshold
+	}
+	if out.ScaleUpUtilizationThreshold == "" {
+		out.ScaleUpUtilizationThreshold = DefaultScaleUpUtilizationThreshold
 	}
 	if out.MinWorkers <= 0 {
 		out.MinWorkers = DefaultMinWorkers
@@ -259,11 +279,31 @@ func (a *AutoscalingSpec) WithDefaults() AutoscalingSpec {
 // failing the reconcile — a typo must not silently disable the floor/ceiling
 // logic, and the reason is surfaced in status.
 func (a AutoscalingSpec) ScaleDownThreshold() float64 {
-	v := strings.TrimSpace(a.ScaleDownUtilizationThreshold)
+	return parseUtilization(a.ScaleDownUtilizationThreshold, 0.5)
+}
+
+// ScaleUpThreshold is the utilisation at or above which a worker is added
+// proactively. Clamped to be at least the scale-down threshold: a scale-up
+// threshold below it would add a node and then immediately qualify to remove it.
+func (a AutoscalingSpec) ScaleUpThreshold() float64 {
+	up := parseUtilization(a.ScaleUpUtilizationThreshold, 0.9)
+	if down := a.ScaleDownThreshold(); up < down {
+		return down
+	}
+	return up
+}
+
+// parseUtilization reads "90%", "0.9" or "" into a 0..1 share, falling back to
+// def for anything it cannot make sense of.
+func parseUtilization(v string, def float64) float64 {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return def
+	}
 	pct := strings.HasSuffix(v, "%")
 	f, err := strconv.ParseFloat(strings.TrimSuffix(v, "%"), 64)
 	if err != nil || f < 0 {
-		return 0.5
+		return def
 	}
 	if pct {
 		f /= 100
@@ -360,6 +400,25 @@ type BuildCustomizationSpec struct {
 	// the platform wildcard certificate could never be issued — the Gateway kept
 	// serving its self-signed fallback with nothing in the logs to say why.
 	DNSProject string `json:"dnsProject,omitempty"`
+
+	// DNSAzure* are the identifiers cert-manager's azureDNS solver requires as
+	// PLAIN VALUES — only the client secret may be a secretRef. Leaving them out
+	// is the same failure DNSProject exists for, one cloud over:
+	//
+	//   ClusterIssuer "adhar-letsencrypt-dns" is invalid:
+	//     spec.acme.solvers[0].dns01.azureDNS.resourceGroupName: Required value
+	//
+	// The issuer is then rejected, the platform wildcard certificate sits at
+	// Ready=False with no Order or Challenge ever created, and the Gateway keeps
+	// serving self-signed TLS with nothing saying why (Azure, 2026-09-26).
+	//
+	// They are the same four values the adhar-dns-provider Secret carries; the
+	// secret cannot be referenced for them because the solver schema takes them
+	// inline.
+	DNSAzureSubscriptionID string `json:"dnsAzureSubscriptionId,omitempty"`
+	DNSAzureTenantID       string `json:"dnsAzureTenantId,omitempty"`
+	DNSAzureClientID       string `json:"dnsAzureClientId,omitempty"`
+	DNSAzureResourceGroup  string `json:"dnsAzureResourceGroup,omitempty"`
 }
 
 // Normalize derives computed fields (PortSuffix) from Port/Protocol so that

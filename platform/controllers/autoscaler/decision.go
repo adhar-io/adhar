@@ -182,6 +182,34 @@ func Decide(s Snapshot) Decision {
 		}
 	}
 
+	// --- Scale up before anything becomes unschedulable ---------------------
+	//
+	// Pending pods (above) are the backstop, not the goal. By the time a pod
+	// cannot be placed, work has already stopped and it must wait out a node
+	// create — minutes on every cloud. Adding a worker while the cluster is merely
+	// busy keeps that from happening at all.
+	//
+	// Either dimension triggers: a cluster at 95% CPU and 40% memory cannot place
+	// another CPU-bound pod, and the platform's catalogue is CPU-bound.
+	if upThreshold := spec.ScaleUpThreshold(); util.CPU >= upThreshold || util.Memory >= upThreshold {
+		switch {
+		case int32(len(workers)) >= spec.MaxWorkers:
+			d.Reason = fmt.Sprintf("utilization cpu=%.0f%% memory=%.0f%% at or above the %.0f%% scale-up threshold but maxWorkers=%d reached",
+				util.CPU*100, util.Memory*100, upThreshold*100, spec.MaxWorkers)
+			return d
+		case !cooledDown(s.Status.LastScaleUp, s.Now, spec.ScaleUpCooldown.Duration):
+			d.Reason = fmt.Sprintf("utilization cpu=%.0f%% memory=%.0f%% at or above the %.0f%% scale-up threshold; waiting out the %s cooldown",
+				util.CPU*100, util.Memory*100, upThreshold*100, spec.ScaleUpCooldown.Duration)
+			return d
+		default:
+			d.Action = ActionScaleUp
+			d.ScaleUpBy = 1
+			d.Reason = fmt.Sprintf("utilization cpu=%.0f%% memory=%.0f%% at or above the %.0f%% scale-up threshold; adding a worker (%d/%d)",
+				util.CPU*100, util.Memory*100, upThreshold*100, len(workers)+1, spec.MaxWorkers)
+			return d
+		}
+	}
+
 	// --- Scale down ---------------------------------------------------------
 	threshold := spec.ScaleDownThreshold()
 	if util.CPU >= threshold || util.Memory >= threshold {

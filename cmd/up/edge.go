@@ -60,6 +60,87 @@ func canonicalProvider(name string) string {
 	return ""
 }
 
+// resolveAzureDNSIdentifiers returns the four values cert-manager's azureDNS
+// solver requires inline: subscription, tenant, client id and the resource group
+// holding the zone.
+//
+// Same reason resolveDNSProject exists. cert-manager rejects an azureDNS solver
+// without resourceGroupName, so the ClusterIssuer never applies, the wildcard
+// certificate stays Ready=False with no Order created, and the Gateway silently
+// keeps its self-signed certificate.
+//
+// The lookups mirror the DNS secret's: provider config first, then the standard
+// AZURE_* environment variables, and keys are matched ignoring case and separators
+// because the provider config map arrives lower-cased.
+func resolveAzureDNSIdentifiers(cfg *config.Config, dnsProvider string) (subscription, tenant, clientID, resourceGroup string) {
+	if dnsProvider != dnsAzure || cfg == nil {
+		return "", "", "", ""
+	}
+	normalise := func(k string) string {
+		out := make([]rune, 0, len(k))
+		for _, r := range strings.ToLower(k) {
+			if r == '_' || r == '-' || r == ' ' || r == '.' {
+				continue
+			}
+			out = append(out, r)
+		}
+		return string(out)
+	}
+	for name, pc := range cfg.Providers {
+		if !strings.EqualFold(name, "azure") {
+			continue
+		}
+		m := pc.ToProviderMap()
+		top := func(key string) string {
+			if v, ok := m[key].(string); ok {
+				return strings.TrimSpace(v)
+			}
+			return ""
+		}
+		clientID = top("clientId")
+		tenant = top("tenantId")
+		if section, ok := m["config"].(map[string]interface{}); ok {
+			want := map[string]*string{
+				"subscriptionid":   &subscription,
+				"dnsresourcegroup": &resourceGroup,
+				"tenantid":         &tenant,
+				"clientid":         &clientID,
+			}
+			for k, v := range section {
+				if target, ok := want[normalise(k)]; ok {
+					if sv, ok := v.(string); ok && strings.TrimSpace(sv) != "" && *target == "" {
+						*target = strings.TrimSpace(sv)
+					}
+				}
+			}
+			// The cluster's own resource group is the sensible fallback for the zone.
+			if resourceGroup == "" {
+				for k, v := range section {
+					if normalise(k) == "resourcegroup" {
+						if sv, ok := v.(string); ok {
+							resourceGroup = strings.TrimSpace(sv)
+						}
+					}
+				}
+			}
+		}
+		break
+	}
+	if subscription == "" {
+		subscription = strings.TrimSpace(os.Getenv("AZURE_SUBSCRIPTION_ID"))
+	}
+	if tenant == "" {
+		tenant = strings.TrimSpace(os.Getenv("AZURE_TENANT_ID"))
+	}
+	if clientID == "" {
+		clientID = strings.TrimSpace(os.Getenv("AZURE_CLIENT_ID"))
+	}
+	if resourceGroup == "" {
+		resourceGroup = strings.TrimSpace(os.Getenv("AZURE_DNS_RESOURCE_GROUP"))
+	}
+	return subscription, tenant, clientID, resourceGroup
+}
+
 // resolveDNSProject returns the cloud project that owns the DNS zone. Only
 // Google Cloud needs it, and cert-manager's cloudDNS solver REQUIRES it — a
 // ClusterIssuer without `project` is rejected by the API server, so the DNS-01

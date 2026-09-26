@@ -120,9 +120,18 @@ spec:
               key: credentials.json
 {{- else if eq .DNSProvider "azure" }}
           azureDNS:
+            # All four are REQUIRED by the solver schema and must be inline — only
+            # the client secret may be a secretRef. Omitting resourceGroupName had
+            # the API server reject this whole ClusterIssuer, so the wildcard
+            # certificate could never be issued.
+            clientID: {{ .DNSAzureClientID }}
             clientSecretSecretRef:
               name: adhar-dns-provider
               key: client-secret
+            subscriptionID: {{ .DNSAzureSubscriptionID }}
+            tenantID: {{ .DNSAzureTenantID }}
+            resourceGroupName: {{ .DNSAzureResourceGroup }}
+            hostedZoneName: {{ .Host }}
             environment: AzurePublicCloud
 {{- else if eq .DNSProvider "cloudflare" }}
           cloudflare:

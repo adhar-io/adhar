@@ -731,6 +731,35 @@ func (r *AdharPlatformReconciler) giteaAdminRepoURL(ctx context.Context, repoNam
 	}).String()
 }
 
+// httpStatusFromOutput extracts the trailing HTTP status code that curl's
+// `-w "%{http_code}"` prints, ignoring anything a merged stderr put in front of it.
+//
+// Returns the whole trimmed output when no trailing code is found, so an error
+// message still carries whatever context there was.
+func httpStatusFromOutput(out string) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		// curl may print the code with no newline after other output, so take the
+		// trailing run of digits on the last non-empty line.
+		digits := ""
+		for j := len(line) - 1; j >= 0; j-- {
+			if line[j] < '0' || line[j] > '9' {
+				break
+			}
+			digits = string(line[j]) + digits
+		}
+		if len(digits) == 3 {
+			return digits
+		}
+		return line
+	}
+	return strings.TrimSpace(out)
+}
+
 // createGiteaOrg creates the platform org (globals.GiteaPlatformOrg) and its
 // group-mapped teams so Keycloak group membership grants repo access without
 // per-user collaborators (see the constant's doc in globals/project.go).
@@ -751,11 +780,38 @@ func (r *AdharPlatformReconciler) createGiteaOrg(ctx context.Context) error {
 				`-d '%s' `+
 				`-u `+r.giteaAdminCurlCred(ctx)+` -o /dev/null -w "%%{http_code}"`,
 			path, payload)
-		out, err := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", cmd).CombinedOutput()
+		// STDOUT ONLY. curl's -w "%{http_code}" writes the code to stdout and
+		// nothing else does, so separating the streams is what makes the code
+		// readable at all. CombinedOutput glued kubectl's own
+		// "command terminated with exit code 22" onto the same line, and before
+		// that a discovery warning per unavailable aggregated API — leaving the
+		// status unparseable and an already-existing org looking like a failure.
+		c := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", cmd)
+		var stdout, stderr bytes.Buffer
+		c.Stdout = &stdout
+		c.Stderr = &stderr
+		err := c.Run()
 		if err != nil {
-			status := strings.TrimSpace(string(out))
+			raw := strings.TrimSpace(stdout.String())
+			if raw == "" {
+				raw = strings.TrimSpace(stderr.String())
+			}
+			// The HTTP code is the LAST thing printed, not the first.
+			//
+			// CombinedOutput merges kubectl's stderr, and a cluster with any
+			// unavailable aggregated API prints a discovery warning per call:
+			//
+			//   E... couldn't get resource list for spdx.softwarecomposition.kubescape.io/v1beta1
+			//   E... couldn't get resource list for ...
+			//   422
+			//
+			// A HasPrefix test against that never matched, so an org that already
+			// existed — the normal case on every re-run — was reported as a failure
+			// and `adhar upgrade` could not push anything to an established cluster
+			// (2026-09-26).
+			status := httpStatusFromOutput(raw)
 			// 409 (conflict) and 422 (validation: name taken) mean it exists.
-			if strings.HasPrefix(status, "409") || strings.HasPrefix(status, "422") {
+			if status == "409" || status == "422" {
 				logger.Info("Already exists, continuing", "resource", what)
 				return nil
 			}
@@ -803,13 +859,24 @@ func (r *AdharPlatformReconciler) createGiteaRepository(ctx context.Context, nam
 		globals.GiteaPlatformOrg, name, name)
 
 	cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", globals.AdharSystemNamespace, podName, "-c", "gitea", "--", "sh", "-c", createCmd)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		statusCode := strings.TrimSpace(string(output))
-		// 409 means repository already exists - that's fine. The combined
-		// output also carries kubectl's own stderr (e.g. "command terminated
-		// with exit code 22"), so match by prefix, not equality.
-		if strings.HasPrefix(statusCode, "409") {
+	// STDOUT ONLY, for the same reason as createGiteaOrg: curl's
+	// -w "%{http_code}" is the only thing writing to stdout, while kubectl adds
+	// "command terminated with exit code 22" and one discovery warning per
+	// unavailable aggregated API to stderr. A prefix match against the combined
+	// stream could not find the code — on a cluster with any broken APIService the
+	// warnings come FIRST — so an existing repository read as a failure and
+	// `adhar upgrade` could not push to an established cluster (2026-09-26).
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		raw := strings.TrimSpace(stdout.String())
+		if raw == "" {
+			raw = strings.TrimSpace(stderr.String())
+		}
+		statusCode := httpStatusFromOutput(raw)
+		// 409 (conflict) and 422 (name taken) both mean it already exists.
+		if statusCode == "409" || statusCode == "422" {
 			logger.Info("Repository already exists, continuing", "name", name)
 			return nil
 		}

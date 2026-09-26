@@ -120,8 +120,15 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/adhar-scorecards/manifests"
+          # kubescape disabled by default: opt-in. It registers an AGGREGATED APIServer
+          # (spdx.softwarecomposition.kubescape.io), and whenever its pod cannot run the
+          # API becomes unavailable and EVERY kubectl call in the cluster then prints
+          # "couldn't get resource list for spdx.softwarecomposition.kubescape.io/v1beta1".
+          # That noise goes to stderr and contaminates anything capturing command output —
+          # it is what made `adhar upgrade` misread a Gitea 409 as a failure (2026-09-26).
+          # A scanner should not be able to break unrelated tooling by being unschedulable.
           - name: "kubescape"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/kubescape/manifests"
@@ -130,8 +137,9 @@ spec:
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/tetragon/manifests"
+          # beyla disabled by default: eBPF auto-instrumentation, opt-in per cluster.
           - name: "beyla"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/beyla/manifests"
@@ -245,8 +253,9 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/coder/manifests"
+          # n8n disabled by default: a workflow-automation tool, not part of the paved road.
           - name: "n8n"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/n8n/manifests"

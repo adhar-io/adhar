@@ -679,14 +679,20 @@ func toUpper(r rune) rune {
 // exists. A quota the API will not report is logged and skipped rather than
 // treated as a failure: a credential without Microsoft.Compute/locations/usages
 // read should still be able to build a cluster.
-func (p *Provider) checkQuota(ctx context.Context, nodes int, vmSize string) error {
-	if p.usageClient == nil || p.vmSizesClient == nil || nodes <= 0 {
+// checkQuota costs a cluster against the subscription's vCPU limits.
+//
+// `need` is supplied by the caller rather than derived from one VM size here,
+// because the control plane and the workers may deliberately be different sizes —
+// a small control plane is how a tight quota is made to fit. Multiplying every node
+// by the worker size refused a create that would have succeeded: 1×2 + 2×4 = 10
+// against a 10 vCPU quota was costed as 3×4 = 12 (centralindia, 2026-09-26).
+func (p *Provider) checkQuota(ctx context.Context, need int, vmSize, shape string) error {
+	if p.usageClient == nil || p.vmSizesClient == nil || need <= 0 {
 		return nil
 	}
 	location := p.config.Location
-	cores := p.vmSizeCores(ctx, location, vmSize)
-	if cores == 0 {
-		log.Printf("Warning: VM size %q not found in %s; skipping the quota preflight", vmSize, location)
+	if need <= 0 {
+		log.Printf("Warning: could not cost this cluster in %s; skipping the quota preflight", location)
 		return nil
 	}
 
@@ -701,14 +707,14 @@ func (p *Provider) checkQuota(ctx context.Context, nodes int, vmSize string) err
 		usages = append(usages, page.Value...)
 	}
 
-	shortfalls := quotaShortfall(usages, vmSizeFamilyQuotaName(vmSize), nodes, cores)
+	shortfalls := quotaShortfall(usages, vmSizeFamilyQuotaName(vmSize), need, 1)
 	if len(shortfalls) == 0 {
-		log.Printf("Quota preflight passed: %d × %s (%d vCPU) fits in %s", nodes, vmSize, nodes*cores, location)
+		log.Printf("Quota preflight passed: %s = %d vCPU fits in %s", shape, need, location)
 		return nil
 	}
-	return fmt.Errorf("subscription %s cannot hold this cluster in %s (%d × %s = %d vCPU):\n  %s\n"+
+	return fmt.Errorf("subscription %s cannot hold this cluster in %s (%s = %d vCPU):\n  %s\n"+
 		"Request an increase in the Azure portal (Subscriptions → Usage + quotas), or lower nodeCount / choose a smaller vmSize",
-		p.config.SubscriptionID, location, nodes, vmSize, nodes*cores, strings.Join(shortfalls, "\n  "))
+		p.config.SubscriptionID, location, shape, need, strings.Join(shortfalls, "\n  "))
 }
 
 // vmSizeCores returns the vCPU count of a VM size in a location, or 0 when the

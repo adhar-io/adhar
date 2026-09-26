@@ -228,18 +228,17 @@ func (p *Provider) skuRestriction(ctx context.Context, size string) string {
 // Azure enforces a per-family limit AND a region-wide total, and a create can fail
 // on either, so both are reported.
 func (p *Provider) preflightQuota(ctx context.Context, spec *types.ClusterSpec) provider.Check {
+	need, detail := p.plannedVCPUs(ctx, spec)
 	size := plannedVMSize(spec, p.config.VMSize)
-	cores := p.vmSizeCores(ctx, p.config.Location, size)
-	if cores == 0 {
-		// preflightVMSize already reported this; do not fail twice for one cause.
+	if need == 0 {
+		// preflightVMSize already reported an unresolvable size; do not fail twice
+		// for one cause.
 		return provider.Check{
 			Name:   "vCPU quota",
 			Status: provider.CheckWarn,
-			Detail: "skipped: the VM size could not be resolved",
+			Detail: "skipped: no VM size could be resolved",
 		}
 	}
-	nodes := maxNodeCount(spec)
-	need := nodes * cores
 	raise := fmt.Sprintf("Raise BOTH \"Total Regional vCPUs\" and \"%s\" for %s "+
 		"(Azure portal → Subscriptions → Usage + quotas). Check with: "+
 		"az vm list-usage --location %s -o table",
@@ -260,20 +259,17 @@ func (p *Provider) preflightQuota(ctx context.Context, spec *types.ClusterSpec) 
 		usages = append(usages, page.Value...)
 	}
 
-	// The tightest of the two limits that apply is what actually stops a create.
+	// The tightest of the limits that apply is what actually stops a create.
 	var limit int64 = -1
 	var limiting string
 	for _, u := range usages {
-		if u == nil || u.Name == nil || u.Name.LocalizedValue == nil {
+		if u == nil || u.Name == nil || u.Name.LocalizedValue == nil || u.Limit == nil {
 			continue
 		}
 		name := *u.Name.LocalizedValue
 		relevant := strings.Contains(name, "Total Regional vCPUs") ||
 			(vmSizeFamilyQuotaName(size) != "" && strings.EqualFold(name, vmSizeFamilyQuotaName(size)))
 		if !relevant {
-			continue
-		}
-		if u.Limit == nil {
 			continue
 		}
 		if limit < 0 || *u.Limit < limit {
@@ -286,34 +282,64 @@ func (p *Provider) preflightQuota(ctx context.Context, spec *types.ClusterSpec) 
 	}
 	c := provider.QuotaCheck("vCPU quota", float64(limit), float64(need), "vCPU", raise)
 	c.Name = "vCPU quota (" + limiting + ")"
-	c.Detail = fmt.Sprintf("%s: limit %d, cluster needs %d at full size (%d × %s at %d vCPU)",
-		limiting, limit, need, nodes, size, cores)
+	c.Detail = fmt.Sprintf("%s: limit %d, cluster needs %d at full size (%s)",
+		limiting, limit, need, detail)
 	if limit < int64(need) {
 		c.Status = provider.CheckFail
 	}
 	return c
 }
 
-// maxNodeCount is the cluster at FULL size: the control plane plus each node
-// group's autoscaling maximum, falling back to its replica count when autoscaling
-// is not configured.
-func maxNodeCount(spec *types.ClusterSpec) int {
+// plannedVCPUs is the cluster's vCPU appetite at FULL size, counting the control
+// plane and each node group with THEIR OWN VM size.
+//
+// Sizing every node at the worker's size was wrong in both directions. It refused a
+// create that would have succeeded: a control plane deliberately made smaller than
+// the workers (2 vCPU + 2×4 = 10, exactly a 10 vCPU quota) was costed as 3×4 = 12
+// and the whole create was blocked (centralindia, 2026-09-26). It would equally
+// under-count a control plane LARGER than the workers.
+//
+// The provider already supports the distinction — `spec.ControlPlane.InstanceType`
+// falls back to `config.vmSize` while node groups carry their own — so the check has
+// to honour it too.
+func (p *Provider) plannedVCPUs(ctx context.Context, spec *types.ClusterSpec) (int, string) {
 	if spec == nil {
-		return 0
+		return 0, ""
 	}
-	masters := spec.ControlPlane.Replicas
-	if masters <= 0 {
-		masters = 1
+	cores := func(size string) int {
+		if size == "" {
+			return 0
+		}
+		return p.vmSizeCores(ctx, p.config.Location, size)
 	}
-	workers := 0
+
+	cpSize := spec.ControlPlane.InstanceType
+	if cpSize == "" {
+		cpSize = p.config.VMSize
+	}
+	cpReplicas := spec.ControlPlane.Replicas
+	if cpReplicas <= 0 {
+		cpReplicas = 1
+	}
+	cpCores := cores(cpSize)
+	total := cpReplicas * cpCores
+	parts := []string{fmt.Sprintf("%d × %s at %d vCPU", cpReplicas, cpSize, cpCores)}
+
 	for _, ng := range spec.NodeGroups {
 		n := ng.Replicas
 		if m := ng.AutoScaling.MaxReplicas; m > n {
 			n = m
 		}
-		if n > 0 {
-			workers += n
+		if n <= 0 {
+			continue
 		}
+		size := ng.InstanceType
+		if size == "" {
+			size = p.config.VMSize
+		}
+		c := cores(size)
+		total += n * c
+		parts = append(parts, fmt.Sprintf("%d × %s at %d vCPU", n, size, c))
 	}
-	return masters + workers
+	return total, strings.Join(parts, " + ")
 }

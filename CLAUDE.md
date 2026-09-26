@@ -136,7 +136,7 @@ adhar/
 │   │   └── kind/                  # Local Kind cluster (cluster.go, config.go, coredns.go, tls.go)
 │   ├── config/                    # Multi-layered config (global, provider, template, environment)
 │   ├── stack/                     # GitOps content pushed to Gitea repos
-│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (101 elements / 96 packages, enabled-gated; 17 enabled locally; adhar-appset-production.yaml: 83 enabled)
+│   │   ├── adhar-appset-local.yaml  # ArgoCD ApplicationSet (101 elements / 96 packages, enabled-gated; 17 enabled locally; adhar-appset-production.yaml: 80 enabled)
 │   │   ├── argocd-auth.yaml         # ArgoCD repo secrets + gitea-argocd service
 │   │   ├── packages/                # 96 packages, each with an adhar-package.yaml contract (ai/, application/, core/, data/, infrastructure/, observability/, security/)
 │   │   └── environments/            # Environment configs (local, dev, staging, prod)
@@ -258,7 +258,15 @@ Cilium (with Gateway API), Cilium Gateway, ArgoCD, Gitea, Crossplane
 - **Package .xpkg** built via `crossplane xpkg build` (`make build-control-plane`) into the gitignored `platform/controlplane/dist/adhar-control-plane-<version>.xpkg`, versioned from the latest git tag (Makefile `VERSION`) and uploaded as a release asset by GoReleaser; the controller applies the embedded `configuration/` tree directly, so the file is not tracked in git.
 - Install order: Crossplane core → wait for ready → XRDs → Compositions → Functions → ProviderConfigs → Operations
 
-### GitOps Phase (96 packages / 101 ApplicationSet elements; 83 enabled in production, 17 in the local development core)
+### GitOps Phase (96 packages / 101 ApplicationSet elements; 80 enabled in production, 17 in the local development core)
+
+**Off by default in EVERY profile, opt-in:** `kubescape`, `n8n`, `beyla`. kubescape
+is the one with an operational reason rather than a scope one — it registers an
+aggregated APIServer (`spdx.softwarecomposition.kubescape.io`), and while its pod
+cannot run that API is unavailable, so every `kubectl` call in the cluster prints a
+discovery warning to stderr. That contaminates anything capturing command output:
+it is what made `adhar upgrade` read a Gitea 409 "already exists" as a failure and
+refuse to push to an established cluster (2026-09-26).
 Categories (count, packages carrying a contract): **ai** (4) · **application** (28) · **core** (6) · **data** (22) · **infrastructure** (2) · **observability** (17) · **security** (17). Six directories under `packages/` are empty or stubs and are NOT packages (`application/{tldraw,webstudio,pyroscope,adhar-templates}`, `backup/velero`, `data/dbt`) — `adhar-templates` holds the golden-path skeletons, and the real pyroscope/velero live under observability/ and core/.
 
 **ai**: adhar-ai (agent runtime; images from the separate `adhar-io/adhar-ai` repo), agentgateway (the AI data plane — LLM routing by model name, federated MCP, JWT/CEL/guardrails/budgets), llm-d (distributed inference: endpoint-picker router + agentgateway sidecar in front of vLLM, serves `local/*` models), vllm (bare vLLM, GPU profile). Opt-in; llm-d/adhar-ai/agentgateway on in production.

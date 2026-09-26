@@ -26,7 +26,12 @@
 #   ✓ DNS. The `test.adhar.io` zone exists in resource group `adhar-rg` and its four
 #     Azure nameservers match what public DNS returns, so delegation is live.
 #     Nothing in the platform creates the zone.
-#   ~ QUOTA — RAISED TO 10, still below what the platform needs. Originally 4 in
+#   ~ QUOTA — 10 vCPU in centralindia, still below what the platform needs.
+#     Budgeted exactly: control plane Standard_E2bds_v5 (2) + 2 workers
+#     Standard_E4bds_v5 (4 each) = 10 of 10. Both SKUs verified unrestricted in
+#     centralindia and both are standardEBDSv5Family, so they draw on one family
+#     quota (also 10). maxWorkers cannot rise above 2 until the quota does.
+#     Historic note: Originally 4 in
 #     every region checked. At 10 this file runs a control plane + 1 worker on
 #     Standard_E4bds_v5 (8 vCPU) to verify the PROVIDER path; the full catalogue needs
 #     ~56. Historic note: "Total Regional vCPUs" was **4** in every region
@@ -35,8 +40,8 @@
 #     default on a new subscription and it cannot host this platform: measured on
 #     GCP, 2 workers (16 vCPU) left 58 pods unschedulable and stability needed
 #     ~48 vCPU. Request an increase for BOTH "Total Regional vCPUs" and the
-#     "Standard DSv3 Family vCPUs" quota in this region before running `adhar up`:
-#       az vm list-usage --location malaysiawest -o table
+#     "Standard EBDSv5 Family vCPUs" quota in this region before running `adhar up`:
+#       az vm list-usage --location centralindia -o table
 #     Ask for at least 48, ideally 64, to leave the autoscaler room.
 
 apiVersion: v1alpha1
@@ -67,7 +72,7 @@ globalSettings:
 providers:
   azure:
     type: azure
-    region: malaysiawest
+    region: centralindia
     primary: true
 
     # Uses the signed-in `az login` session. No secret in this file, and nothing to
@@ -110,7 +115,7 @@ providers:
       # The existing group that already holds the DNS zone, so the cluster and its
       # zone stay together and one delete removes both.
       resourceGroup: adhar-rg
-      location: malaysiawest
+      location: centralindia
 
       # Standard_D4s_v3 = 4 vCPU / 16 GiB, chosen to FIT THE QUOTA, not because it
       # is the right size for the platform.
@@ -138,11 +143,29 @@ providers:
       # with NO restrictions, which is the only list that reflects what this
       # subscription can actually launch. It also has more memory (32 GiB against
       # 16) at the same 4 vCPU, and its family quota is present at 10.
-      vmSize: Standard_E4bds_v5
+      # This is the CONTROL PLANE size.
+      #
+      # `vmSize` here is the provider fallback, and buildClusterSpec only ever sets
+      # the WORKER size (from clusterConfig.machineType below). So the two are sized
+      # independently, which is what makes a 10 vCPU budget usable: 2 for the control
+      # plane leaves 8 for the workers instead of 4.
+      #
+      # 2 vCPU / 16 GiB is enough for a single-control-plane cluster's API server and
+      # etcd at this scale, and the control plane carries no workload — it stays
+      # tainted NoSchedule.
+      vmSize: Standard_E2bds_v5
 
       # Premium SSD. StandardSSD_LRS is cheaper but its IOPS ceiling shows up as
       # etcd latency on a control plane.
       diskType: Premium_LRS
+
+      # 100 GiB, not the provider's old 50. The containerd image cache alone
+      # measured 35 GiB on a worker here; at 50 the node crossed the kubelet's
+      # disk-eviction threshold, took a `disk-pressure:NoSchedule` taint, and then
+      # NOTHING could schedule on it — which looks like a CPU shortage and is not.
+      # This key used to be ignored entirely (clusterConfig's diskSizeGb never
+      # reached the provider), so the value here is now actually honoured.
+      diskSizeGb: 100
 
       # Must not overlap the pod CIDR.
       vnetCidr: 10.30.0.0/16
@@ -169,19 +192,25 @@ environments:
     # The schema allows only `production` or `non-production`.
     type: non-production
     provider: azure
-    region: malaysiawest
+    region: centralindia
     template: dev-defaults
 
     clusterConfig:
       - key: name
         value: adhar-mgmt
       # Keys match ignoring case and separators.
+      # WORKER size. 4 vCPU / 32 GiB each.
       - key: machineType
         value: Standard_E4bds_v5
-      # One worker: the 10 vCPU ceiling leaves room for exactly one alongside the
-      # control plane.
+      # Two workers is the platform default and the smallest shape that is really a
+      # cluster: one worker leaves evictions and drains nowhere to go, and it hits
+      # the kubelet's 110-pod ceiling before it runs out of CPU (measured here —
+      # "Too many pods" with 105 pods Pending on a single 4-vCPU worker).
+      #
+      # 1 control plane + 2 workers at 4 vCPU each = 12 vCPU, so this needs the
+      # quota above 10. At exactly 10, drop to "1" and expect a partial catalogue.
       - key: nodeCount
-        value: "1"
+        value: "2"
       - key: diskSizeGb
         value: "100"
       # - key: kubeVersion
@@ -195,14 +224,23 @@ environments:
     # maxWorkers is a quota ceiling as much as a spend ceiling: 1 control plane +
     # 6 workers at 8 vCPU each is 56 vCPU, which must fit inside BOTH the regional
     # total and the DSv3 family quota.
-    # Autoscaling is configured but cannot grow: 1 control plane + 1 worker at
-    # 4 vCPU each is 8 of the 10 vCPU available, and a second worker would need 12.
-    # Raise the quota and this becomes minWorkers 2 / maxWorkers 6 on D8s_v3.
+    # Grow BEFORE anything is stuck, shrink slowly.
+    #
+    # scaleUpUtilizationThreshold adds a worker at 90% requested CPU or memory,
+    # rather than waiting for pods to go Pending — by then work has already stopped
+    # and the pod must wait out a node create. The Pending-pod path remains as the
+    # backstop for a burst too large to anticipate.
     autoscaling:
       enabled: true
-      minWorkers: 1
-      maxWorkers: 1
+      minWorkers: 2
+      # 2, not 6: a third worker would need 14 vCPU against a 10 vCPU quota, and the
+      # preflight would (correctly) refuse the whole create. Raise the quota, then
+      # raise this.
+      maxWorkers: 2
       nodeGroup: workers
+      # Add a worker at 90% of allocatable CPU or memory.
+      scaleUpUtilizationThreshold: "90%"
+      # Remove one only when BOTH stay under 50% for scaleDownDelay.
       scaleDownUtilizationThreshold: "50%"
       scaleDownDelay: 10m
       scaleUpCooldown: 3m
