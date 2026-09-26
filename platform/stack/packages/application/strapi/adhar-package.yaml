@@ -20,13 +20,17 @@ homepage: https://strapi.io
 adharCompatibility:
   minVersion: "0.1.0"
   notes: >-
-    Upstream retired the `strapi/strapi` image, so this runs the maintained
-    community image `naskio/strapi`. It is published for linux/amd64 ONLY — it
-    cannot run on an arm64 local Kind node, which is one reason localSafe is
-    false. Strapi is a framework whose real deployable artifact is an
-    application you build; this package exists so "give me a CMS" is one click,
-    and it runs `strapi develop` because that is the only mode in which a
-    self-scaffolding project can build its own admin panel.
+    Runs the OFFICIAL Node image and scaffolds the project with upstream
+    `create-strapi`, because there is no usable Strapi server image: upstream
+    retired `strapi/strapi` and the only maintained replacement
+    (`naskio/strapi`) ships a CLI that crashes with MODULE_NOT_FOUND on
+    `strapi version` alone, on every tag through 5.30.1. First boot therefore
+    scaffolds, installs ~700 MiB of node_modules and builds the admin panel —
+    four to six minutes — and later starts take seconds. Off in the local
+    profile because that build is too heavy for a Kind node. Runs in
+    development mode so the Content-Type Builder stays available; a production
+    CMS with custom content types is still better built as your own image on
+    the golden path.
 dependencies:
   - name: cnpg
     category: data
@@ -43,10 +47,10 @@ provenance:
   scanner: trivy
   sbom: https://github.com/adhar-io/adhar/releases  # SPDX SBOMs are attached to every release
 planeAffinity: control-plane
-# alpha AND disabled everywhere: see README.md — the only published
-# general-purpose Strapi image (`naskio/strapi`) crashes with MODULE_NOT_FOUND
-# before it can scaffold or start, verified on four tags. The database, secrets,
-# SSO and route here are built and tested; the image is the blocker.
+# alpha: the whole path — scaffold, admin build, serve, CNPG schema — was
+# verified end to end on amd64 nodes (see README.md), but a CMS that builds
+# itself on first boot has more moving parts than a package that just starts a
+# container, and the first administrator is still created in the browser.
 stability: alpha
 resources:
   cpu: "250m"

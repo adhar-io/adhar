@@ -24,6 +24,7 @@ import (
 	"adhar-io/adhar/platform/providers/kind"
 	"adhar-io/adhar/platform/utils"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -169,6 +170,27 @@ func init() {
 	DownCmd.Flags().BoolVar(&noAnimation, "no-animation", false, "Disable animations")
 }
 
+// teardownOutcome reports what a teardown ACTUALLY did, so the final screen can
+// distinguish "removed" from "found nothing to remove".
+//
+// Without this the success box said "Cloud resources for production have been
+// removed" whenever no error was raised — including the case where no provider
+// capable of seeing those resources was configured at all. That is how a
+// teardown reported success while an entire GCP cluster kept running
+// (2026-09-25); see helpers.NotFoundError.
+type teardownOutcome struct {
+	// Deleted are environments whose cluster was located and deleted.
+	Deleted []string
+	// Absent are environments where every configured provider was consulted and
+	// none had the cluster. Nothing was deleted, and nothing needed to be.
+	Absent []string
+	// Searched are the providers that actually answered, across all environments.
+	Searched []string
+	// PurgedVolumes counts orphaned volumes removed by --purge-orphaned-volumes,
+	// including sweeps that ran when no cluster was left to delete.
+	PurgedVolumes int
+}
+
 // downModel is the Bubble Tea model for the down command
 type downModel struct {
 	spinner       spinner.Model
@@ -182,6 +204,7 @@ type downModel struct {
 	outputLines   []string // accumulated detail lines (shown when toggled with 'i')
 	showExtraInfo bool
 	sub           chan tea.Msg // teardown goroutine -> UI message stream
+	outcome       teardownOutcome
 }
 
 // maxDetailLines caps how many detail lines are retained/shown so the pane
@@ -242,12 +265,15 @@ func (m downModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		return m, tea.Quit
 
+	case teardownOutcome:
+		m.outcome = msg
+		return m, listenForActivity(m.sub)
+
 	case logger.DoneMsg:
 		m.done = true
 		return m, tea.Quit
 
 	case logger.ElapsedTimeMsg:
-		// Use String() method for duration formatting
 		m.elapsedTime = time.Since(m.startTime).Round(time.Second).String()
 		return m, updateElapsedTime()
 
@@ -280,22 +306,68 @@ func (m downModel) View() string {
 	}
 
 	if m.done {
-		// Name what was actually removed: saying "Kind cluster" after a cloud
-		// teardown is the kind of wrong detail that makes someone re-check
-		// their account to be sure anything happened.
-		removed := "Kind cluster and resources have been removed"
-		if downConfigFile != "" {
-			target := downEnv
-			if target == "" {
-				target = "every environment in " + downConfigFile
-			}
-			removed = "Cloud resources for " + target + " have been removed"
+		target := downEnv
+		if target == "" && downConfigFile != "" {
+			target = "every environment in " + downConfigFile
 		}
-		successBox := helpers.BorderStyle.Width(boxWidth).Render(
-			fmt.Sprintf("%s %s\n\n%s\n",
-				helpers.SuccessStyle.Render("✓"),
-				helpers.SuccessStyle.Render("Successfully tore down Adhar platform!"),
-				helpers.SubtitleStyle.Render(wrapText(removed, boxTextWidth))))
+
+		// THREE outcomes, never collapsed into one. "Nothing was found" is not
+		// "it has been removed": reporting the second when the first happened is
+		// what let a whole GCP cluster survive a teardown that printed a green
+		// tick (2026-09-25). See teardownOutcome.
+		var successBox string
+		switch {
+		case downConfigFile != "" && len(m.outcome.Deleted) == 0 && m.outcome.PurgedVolumes > 0:
+			// A volume sweep with no cluster left to delete is a real result, not
+			// "nothing happened".
+			successBox = helpers.BorderStyle.Width(boxWidth).Render(
+				fmt.Sprintf("%s %s\n\n%s\n",
+					helpers.SuccessStyle.Render("✓"),
+					helpers.SuccessStyle.Render("Orphaned storage removed"),
+					helpers.SubtitleStyle.Render(wrapText(fmt.Sprintf(
+						"%d orphaned volume(s) deleted. No cluster for %s remained to delete.",
+						m.outcome.PurgedVolumes, target), boxTextWidth))))
+
+		case downConfigFile != "" && len(m.outcome.Deleted) == 0:
+			// Nothing was deleted. Say exactly that, and say where we looked so a
+			// wrong config file — the actual cause of that incident — is obvious
+			// at a glance rather than after a trip to the cloud console.
+			searched := "no provider could be searched"
+			if len(m.outcome.Searched) > 0 {
+				searched = "searched: " + strings.Join(m.outcome.Searched, ", ")
+			}
+			body := fmt.Sprintf("%s %s\n\n%s\n\n%s\n",
+				helpers.WarningStyle.Render("!"),
+				helpers.WarningStyle.Render("Nothing was deleted"),
+				helpers.SubtitleStyle.Render(wrapText(
+					"No cluster for "+target+" was found in any provider that "+
+						downConfigFile+" configures, so nothing was removed.", boxTextWidth)),
+				helpers.InfoStyle.Render(wrapText(searched+
+					". If the environment is running in a cloud, check that this file "+
+					"defines that provider — a file that only configures `kind` can "+
+					"never see a cloud cluster.", boxTextWidth)))
+			successBox = helpers.BorderStyle.Width(boxWidth).Render(body)
+
+		case downConfigFile != "":
+			removed := "Cloud resources for " + strings.Join(m.outcome.Deleted, ", ") + " have been removed"
+			if m.outcome.PurgedVolumes > 0 {
+				removed += fmt.Sprintf(", including %d orphaned volume(s)", m.outcome.PurgedVolumes)
+			}
+			successBox = helpers.BorderStyle.Width(boxWidth).Render(
+				fmt.Sprintf("%s %s\n\n%s\n",
+					helpers.SuccessStyle.Render("✓"),
+					helpers.SuccessStyle.Render("Successfully tore down Adhar platform!"),
+					helpers.SubtitleStyle.Render(wrapText(removed, boxTextWidth))))
+
+		default:
+			// Local Kind path: naming "Kind cluster" after a cloud teardown is the
+			// kind of wrong detail that sends someone to re-check their account.
+			successBox = helpers.BorderStyle.Width(boxWidth).Render(
+				fmt.Sprintf("%s %s\n\n%s\n",
+					helpers.SuccessStyle.Render("✓"),
+					helpers.SuccessStyle.Render("Successfully tore down Adhar platform!"),
+					helpers.SubtitleStyle.Render(wrapText("Kind cluster and resources have been removed", boxTextWidth))))
+		}
 
 		// Next steps
 		nextSteps := fmt.Sprintf(`
@@ -311,7 +383,10 @@ func (m downModel) View() string {
 			helpers.HighlightStyle.Render("adhar version"),
 			helpers.HighlightStyle.Render("adhar help"),
 			helpers.InfoStyle.Render("Teardown completed in:"),
-			helpers.SuccessStyle.Render(m.elapsedTime))
+			// Computed here rather than read from the 1-second ticker: a teardown
+			// that found nothing finishes in milliseconds, so the first tick never
+			// arrived and this printed an empty string.
+			helpers.SuccessStyle.Render(time.Since(m.startTime).Round(time.Millisecond).String()))
 
 		return fmt.Sprintf("%s\n%s", successBox, nextSteps)
 	}
@@ -634,6 +709,8 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 
 	ctx := context.Background()
 	var failures []string
+	outcome := teardownOutcome{}
+	seenProvider := map[string]bool{}
 	for _, envName := range envNames {
 		env := cfg.ResolvedEnvironments[envName]
 		clusterName := helpers.EnvironmentClusterName(env)
@@ -642,12 +719,59 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		emit(logger.StatusMsg(fmt.Sprintf("Locating cluster '%s'...", clusterName)))
 		detail("→ environment %s: provider=%s cluster=%s", envName, env.ResolvedProvider, clusterName)
 
+		// The environment's provider must actually be configured in this file.
+		// When it is not, ResolveEnvironments quietly falls back to whichever
+		// provider IS configured — so a cloud environment in a kind-only file
+		// resolves to `kind`, the cloud is never queried, and the teardown finds
+		// nothing. Say so instead of searching for a cloud cluster locally.
+		if _, ok := cfg.Providers[env.ResolvedProvider]; !ok {
+			detail("  ✗ provider %q is not configured in %s", env.ResolvedProvider, downConfigFile)
+			failures = append(failures, fmt.Sprintf(
+				"%s: environment resolves to provider %q, which %s does not configure",
+				envName, env.ResolvedProvider, downConfigFile))
+			continue
+		}
+
 		found, err := helpers.FindCluster(ctx, cfg, clusterName, providerOpts, func(w string) { detail("  ! %s", w) })
 		if err != nil {
-			// Already gone is a success for a teardown, not a failure.
-			detail("  %v", err)
-			emit(logger.StatusMsg(fmt.Sprintf("Nothing to remove for '%s'", envName)))
+			var nf *helpers.NotFoundError
+			switch {
+			case errors.As(err, &nf) && nf.Conclusive():
+				// Every configured provider answered and none had it. Already gone
+				// IS a success for a teardown.
+				detail("  %v", err)
+				for _, prov := range nf.Searched {
+					if !seenProvider[prov] {
+						seenProvider[prov] = true
+						outcome.Searched = append(outcome.Searched, prov)
+					}
+				}
+				outcome.Absent = append(outcome.Absent, envName)
+				emit(logger.StatusMsg(fmt.Sprintf("Nothing to remove for '%s'", envName)))
+
+				// The cluster is gone, but its CSI volumes may not be — and they
+				// keep billing. Deleting the cluster is what USED to be the only
+				// way to reach the purge, which made the warning the teardown
+				// prints impossible to act on afterwards. Sweep here too.
+				if purgeVolumes {
+					n := purgeOrphanedVolumesFor(ctx, cfg, env.ResolvedProvider, providerOpts, emit, detail)
+					outcome.PurgedVolumes += n
+				}
+			case errors.As(err, &nf):
+				// A provider could not be consulted, so "not found" proves nothing.
+				// Treating this as success is exactly how live infrastructure
+				// survives a teardown that prints a green tick.
+				detail("  ✗ %v", err)
+				failures = append(failures, fmt.Sprintf("%s: %v", envName, err))
+			default:
+				detail("  ✗ %v", err)
+				failures = append(failures, fmt.Sprintf("%s: %v", envName, err))
+			}
 			continue
+		}
+		if !seenProvider[found.ProviderName] {
+			seenProvider[found.ProviderName] = true
+			outcome.Searched = append(outcome.Searched, found.ProviderName)
 		}
 
 		detail("  found in provider %s (id %s, status %s)", found.ProviderName, found.Cluster.ID, found.Cluster.Status)
@@ -662,7 +786,11 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 			continue
 		}
 		detail("  ✓ deleted %s", clusterName)
+		outcome.Deleted = append(outcome.Deleted, envName)
 	}
+	// Reaches the UI before DoneMsg, so the final screen knows whether anything
+	// was actually removed.
+	emit(outcome)
 
 	emit(logger.StepMsg("Cleaning up"))
 	emit(logger.StatusMsg("Removing leftover kubeconfig files..."))
@@ -684,6 +812,46 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 	detail("✓ Teardown complete")
 	detail("  Verify with: adhar cluster list --file %s", downConfigFile)
 	emit(logger.DoneMsg{})
+}
+
+// purgeOrphanedVolumesFor removes leaked CSI volumes through a provider that
+// supports doing so without a live cluster.
+//
+// Providers that do not implement helpers.OrphanVolumeSweeper are reported
+// plainly rather than silently skipped: "nothing happened" and "this provider
+// cannot do that yet" must not look the same, which is the mistake that let a
+// whole cluster survive a teardown in the first place.
+func purgeOrphanedVolumesFor(
+	ctx context.Context,
+	cfg *config.Config,
+	providerName string,
+	providerOpts map[string]interface{},
+	emit func(tea.Msg),
+	detail func(string, ...interface{}),
+) int {
+	emit(logger.StatusMsg(fmt.Sprintf("Sweeping orphaned volumes in %s...", providerName)))
+
+	p, err := helpers.BuildProvider(cfg, providerName, providerOpts)
+	if err != nil {
+		detail("  ! could not build provider %s to sweep volumes: %v", providerName, err)
+		return 0
+	}
+	sweeper, ok := p.(helpers.OrphanVolumeSweeper)
+	if !ok {
+		detail("  ! provider %s cannot sweep orphaned volumes without a cluster yet", providerName)
+		return 0
+	}
+	deleted, errs := sweeper.PurgeOrphanedVolumes(ctx)
+	for _, e := range errs {
+		detail("  ! %s", e)
+	}
+	switch deleted {
+	case 0:
+		detail("  → no orphaned volumes to remove in %s", providerName)
+	default:
+		detail("  ✓ removed %d orphaned volume(s) in %s", deleted, providerName)
+	}
+	return deleted
 }
 
 // Box geometry. Every frame this command renders uses the same width, so the
@@ -748,8 +916,15 @@ func runTeardownPlain() {
 	sub := make(chan tea.Msg)
 	go teardown(sub)
 
+	// Same honesty requirement as the interactive final screen: a run that
+	// deleted nothing must not sign off with a bare "Teardown complete." This is
+	// the path a pipe or CI takes, so it is the one most likely to be trusted
+	// without a human reading the detail lines.
+	var outcome teardownOutcome
 	for msg := range sub {
 		switch m := msg.(type) {
+		case teardownOutcome:
+			outcome = m
 		case logger.StepMsg:
 			fmt.Printf("\n==> %s\n", string(m))
 		case logger.StatusMsg:
@@ -770,6 +945,37 @@ func runTeardownPlain() {
 			}
 			os.Exit(1)
 		case logger.DoneMsg:
+			if downConfigFile != "" && len(outcome.Deleted) == 0 {
+				target := downEnv
+				if target == "" {
+					target = "every environment in " + downConfigFile
+				}
+				searched := "no provider could be searched"
+				if len(outcome.Searched) > 0 {
+					searched = "searched: " + strings.Join(outcome.Searched, ", ")
+				}
+				if outcome.PurgedVolumes > 0 {
+					// A sweep that removed volumes did real work; do not file it
+					// under "nothing was deleted".
+					fmt.Printf("\nRemoved %d orphaned volume(s). No cluster for %s remained to delete.\n",
+						outcome.PurgedVolumes, target)
+					return
+				}
+				fmt.Printf("\n! Nothing was deleted.\n")
+				fmt.Printf("  No cluster for %s was found in any provider that %s configures (%s).\n",
+					target, downConfigFile, searched)
+				fmt.Printf("  If that environment is running in a cloud, check that this file defines\n")
+				fmt.Printf("  that provider — a file configuring only `kind` can never see a cloud cluster.\n")
+				return
+			}
+			if len(outcome.Deleted) > 0 {
+				msg := "\nTeardown complete — removed: " + strings.Join(outcome.Deleted, ", ")
+				if outcome.PurgedVolumes > 0 {
+					msg += fmt.Sprintf(" (plus %d orphaned volume(s))", outcome.PurgedVolumes)
+				}
+				fmt.Printf("%s\n", msg)
+				return
+			}
 			fmt.Printf("\nTeardown complete.\n")
 			return
 		}

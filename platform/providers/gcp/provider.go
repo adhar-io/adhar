@@ -1709,6 +1709,75 @@ func (p *Provider) deleteLegacyHTTPHealthCheck(ctx context.Context, project, nam
 	return nil
 }
 
+// PurgeOrphanedVolumes removes unattached CSI disks WITHOUT needing a live
+// cluster, which is what makes the advice the teardown prints actually usable.
+//
+// sweepOrphanedDisks only runs inside DeleteCluster, off a ResourceTracker. So
+// once the cluster was deleted, the very command the teardown told the operator
+// to run —
+//
+//	WARNING: 74 unattached persistent disk(s) remain and keep billing:
+//	They may still hold data, so they are kept. Remove them with:
+//	  adhar down ... --purge-orphaned-volumes
+//
+// — could not work: the cluster is gone, so the lookup finds nothing and the
+// sweep is never reached. 74 disks / 771 GB sat billing behind a hint that
+// pointed at a no-op (2026-09-26). This entry point takes the project and zone
+// from the provider's own configuration instead of from a tracker.
+//
+// It reports what it deleted rather than returning a single error, because one
+// disk refusing to go is not a reason to abandon the other seventy-three.
+func (p *Provider) PurgeOrphanedVolumes(ctx context.Context) (deleted int, errs []string) {
+	if p.diskClient == nil {
+		return 0, []string{"compute disk client is not initialised"}
+	}
+	// A synthetic tracker: the sweep only ever reads ProjectID and Zone from it,
+	// and both are known from the provider config without any cluster state.
+	tracker := &ResourceTracker{
+		ProjectID: p.config.ProjectID,
+		Zone:      p.config.Zone,
+		Region:    p.config.Region,
+	}
+	before := p.countOrphanedDisks(ctx, tracker)
+	if before == 0 {
+		return 0, nil
+	}
+	// The caller reaching this method IS the opt-in, so purging is forced here
+	// rather than depending on how the provider happened to be constructed.
+	prev := p.config.PurgeOrphanedVolumes
+	p.config.PurgeOrphanedVolumes = true
+	errs = p.sweepOrphanedDisks(ctx, tracker)
+	p.config.PurgeOrphanedVolumes = prev
+
+	after := p.countOrphanedDisks(ctx, tracker)
+	return before - after, errs
+}
+
+// countOrphanedDisks counts what PurgeOrphanedVolumes would act on, so the
+// caller can report a real number instead of "done".
+func (p *Provider) countOrphanedDisks(ctx context.Context, tracker *ResourceTracker) int {
+	if p.diskClient == nil {
+		return 0
+	}
+	n := 0
+	it := p.diskClient.List(ctx, &computepb.ListDisksRequest{
+		Project: tracker.ProjectID, Zone: tracker.Zone,
+	})
+	for {
+		disk, err := it.Next()
+		if err != nil {
+			break
+		}
+		if len(disk.GetUsers()) > 0 {
+			continue
+		}
+		if strings.HasPrefix(disk.GetName(), "pvc-") || strings.Contains(disk.GetDescription(), "storage.gke.io/created-for") {
+			n++
+		}
+	}
+	return n
+}
+
 // sweepOrphanedDisks removes unattached CSI disks, but only when asked.
 //
 // A disk may still hold data someone wants, so deleting it is opt-in through
@@ -1746,7 +1815,8 @@ func (p *Provider) sweepOrphanedDisks(ctx context.Context, tracker *ResourceTrac
 			log.Printf("  disk %s (%d GB) in %s", d.GetName(), d.GetSizeGb(), tracker.Zone)
 		}
 		log.Printf("They may still hold data, so they are kept. Remove them with:")
-		log.Printf("  adhar down ... --purge-orphaned-volumes")
+		log.Printf("  adhar down -f <config> --env <env> --purge-orphaned-volumes")
+		log.Printf("which works whether or not the cluster still exists.")
 		return nil
 	}
 

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"adhar-io/adhar/platform/config"
 	pfactory "adhar-io/adhar/platform/providers"
@@ -42,6 +43,92 @@ func (r ResolvedCluster) IsAdharManaged() bool {
 	}
 	return r.Cluster.Tags["adhar.io/managed-by"] == "adhar"
 }
+
+// OrphanVolumeSweeper is implemented by providers that can remove unattached,
+// PersistentVolume-shaped storage WITHOUT a live cluster to hang it off.
+//
+// It is an OPTIONAL capability rather than part of the Provider interface: only
+// the providers whose CSI driver leaves disks behind need it, and adding a method
+// to the interface would force six other providers to grow a stub.
+//
+// It exists because `--purge-orphaned-volumes` used to be reachable only from
+// inside cluster deletion. That made the warning a teardown prints —
+// "they are kept, remove them with adhar down ... --purge-orphaned-volumes" —
+// impossible to act on: by the time you read it the cluster is gone, so the
+// lookup finds nothing and the sweep never runs. 74 GCP disks (771 GB) were left
+// billing behind that hint on 2026-09-26.
+type OrphanVolumeSweeper interface {
+	// PurgeOrphanedVolumes deletes detached pvc-* volumes that no surviving
+	// cluster claims, and reports how many went and what refused. One volume
+	// failing is not a reason to abandon the rest, so errors are collected
+	// rather than returned as a single failure.
+	PurgeOrphanedVolumes(ctx context.Context) (deleted int, errs []string)
+}
+
+// BuildProvider constructs one configured provider by name, applying the same
+// per-run options (`purgeOrphanedVolumes`, …) that FindCluster applies.
+//
+// FindCluster builds providers internally and throws them away when it does not
+// find the cluster, which left a caller that still needs to talk to that
+// provider — to sweep leaked volumes, say — with nothing to talk to.
+func BuildProvider(cfg *config.Config, providerName string, providerOpts map[string]interface{}) (pfactory.Provider, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("no configuration loaded")
+	}
+	providerCfg, ok := cfg.Providers[providerName]
+	if !ok {
+		return nil, fmt.Errorf("provider %q is not configured", providerName)
+	}
+	providerMap := providerCfg.ToProviderMap()
+	for k, v := range providerOpts {
+		providerMap[k] = v
+	}
+	return pfactory.DefaultFactory.CreateProvider(providerName, providerMap)
+}
+
+// LookupFailure records a provider that could not be consulted at all, and why.
+// A provider in this list has told us NOTHING about whether the cluster exists.
+type LookupFailure struct {
+	Provider string
+	Reason   string
+}
+
+// NotFoundError says the cluster was not located. It carries WHICH providers
+// were actually consulted and which could not be, because those two cases look
+// identical from the outside and must not be treated the same way.
+//
+// This type exists because of a real incident (2026-09-25): `adhar down -f
+// config.yaml --env production` printed "✓ Successfully tore down Adhar
+// platform! Cloud resources for production have been removed" while five GCE
+// instances, 79 disks, a VPC, 11 firewall rules and a load balancer kept running
+// and billing. That config file defines only the `kind` provider, so the GCP
+// project was never queried — and a bare `error` meant the caller could not tell
+// "I looked everywhere and it is gone" from "I never looked".
+type NotFoundError struct {
+	Name string
+	// Searched are providers that answered a list request successfully.
+	Searched []string
+	// Failures are providers that could not be consulted.
+	Failures []LookupFailure
+}
+
+func (e *NotFoundError) Error() string {
+	msg := fmt.Sprintf("cluster %q not found", e.Name)
+	if len(e.Searched) > 0 {
+		msg += fmt.Sprintf(" (searched: %s)", strings.Join(e.Searched, ", "))
+	} else {
+		msg += " (no provider could be searched)"
+	}
+	for _, f := range e.Failures {
+		msg += fmt.Sprintf("; %s could not be consulted: %s", f.Provider, f.Reason)
+	}
+	return msg
+}
+
+// Conclusive reports whether "not found" can be trusted to mean "not there".
+// It is false when any provider could not be consulted, because then the
+// cluster may well exist somewhere we failed to look.
+func (e *NotFoundError) Conclusive() bool { return len(e.Failures) == 0 && len(e.Searched) > 0 }
 
 // FindCluster locates a cluster by name across every configured provider, and
 // falls back to Kind when the config does not mention it.
@@ -74,6 +161,9 @@ func FindCluster(ctx context.Context, cfg *config.Config, name string, providerO
 	sort.Strings(providerNames)
 
 	kindConfigured := false
+	// Recorded so a caller can tell "searched and absent" from "never asked".
+	var searched []string
+	var failures []LookupFailure
 	for _, providerName := range providerNames {
 		if providerName == "kind" {
 			kindConfigured = true
@@ -87,13 +177,16 @@ func FindCluster(ctx context.Context, cfg *config.Config, name string, providerO
 		p, err := pfactory.DefaultFactory.CreateProvider(providerName, providerMap)
 		if err != nil {
 			warn(fmt.Sprintf("provider %s could not be initialised: %v", providerName, err))
+			failures = append(failures, LookupFailure{Provider: providerName, Reason: err.Error()})
 			continue
 		}
 		clusters, err := p.ListClusters(ctx)
 		if err != nil {
 			warn(fmt.Sprintf("provider %s could not be queried: %v", providerName, err))
+			failures = append(failures, LookupFailure{Provider: providerName, Reason: err.Error()})
 			continue
 		}
+		searched = append(searched, providerName)
 		for _, c := range clusters {
 			if c.Name == name {
 				return &ResolvedCluster{Cluster: c, Provider: p, ProviderName: providerName}, nil
@@ -109,17 +202,20 @@ func FindCluster(ctx context.Context, cfg *config.Config, name string, providerO
 			"kubectlPath": "kubectl",
 		})
 		if err == nil {
-			if clusters, err := p.ListClusters(ctx); err == nil {
+			if clusters, listErr := p.ListClusters(ctx); listErr == nil {
+				searched = append(searched, "kind (implicit)")
 				for _, c := range clusters {
 					if c.Name == name {
 						return &ResolvedCluster{Cluster: c, Provider: p, ProviderName: "kind"}, nil
 					}
 				}
 			}
+			// A missing local Kind is not a failure to report: it is the normal
+			// state on a machine that only ever ran cloud environments.
 		}
 	}
 
-	return nil, fmt.Errorf("cluster %q not found in any configured provider", name)
+	return nil, &NotFoundError{Name: name, Searched: searched, Failures: failures}
 }
 
 // EnvironmentClusterName returns the name under which an environment's cluster

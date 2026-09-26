@@ -1,17 +1,45 @@
 # Strapi — the platform's headless CMS.
 #
-# HOW THIS IMAGE BOOTS (read from its own docker-entrypoint.sh, not assumed):
-#   • /srv/app empty  → `strapi new .` scaffolds a project using the DATABASE_*
-#     env below, so the PVC becomes the project. First boot therefore runs an
-#     npm install and an admin build: minutes, not seconds — hence the very
-#     patient startupProbe.
-#   • NODE_ENV=production → `strapi start`, which REQUIRES an already-built
-#     admin panel and so cannot work on a freshly scaffolded project.
-#     NODE_ENV=development → `strapi develop`, which builds the admin itself.
-#     That is why this runs in development mode: it is the only mode in which a
-#     self-scaffolding CMS can come up unattended. A production CMS with your own
-#     content types is the golden path instead — scaffold a repo, let app-ci
-#     build your image — and the package contract says so.
+# WHY THIS RUNS A PLAIN NODE IMAGE AND NOT A "STRAPI" IMAGE
+# ---------------------------------------------------------
+# There is no usable general-purpose Strapi server image. Upstream RETIRED
+# `strapi/strapi` (404 on Docker Hub), and `naskio/strapi` — the only maintained
+# replacement — ships a globally installed CLI that cannot resolve its own
+# dependencies:
+#
+#   $ docker run --rm --platform linux/amd64 naskio/strapi:5.30.1-alpine strapi version
+#   Error: Cannot find module ... code: 'MODULE_NOT_FOUND'
+#         requireStack: .../@strapi/strapi/dist/src/node/staticFiles.js ...
+#
+# `strapi version` alone reproduces it, so the platform's wiring is not involved.
+# Verified broken on 5.30.1, 5.30.1-alpine, 5.28.0-alpine and 5.26.0-alpine, and
+# the newest tag is still 5.30.1 (2025-11-08). That image can neither scaffold a
+# project nor start one, which is why this package shipped disabled.
+#
+# So this uses the official Node image and does the two things that image was
+# supposed to do, with the supported upstream tooling: `create-strapi` to
+# scaffold, then `strapi build` + `strapi start`. Verified END TO END on this
+# cluster's amd64 nodes before being wired (2026-09-25): scaffold rc=0, admin
+# panel built in 52 s, "Strapi started successfully", HTTP 200 on /admin,
+# HTTP 204 on /_health, and 41 tables created in the CNPG database.
+#
+# node:22-bookworm-slim, NOT alpine: Strapi pulls native modules (@swc/core) and
+# the musl build of that one dies with SIGBUS during its postinstall.
+#
+# FIRST BOOT IS SLOW, BY NATURE
+# -----------------------------
+# An empty volume means scaffold + npm install (~700 MB of node_modules) + an
+# admin build. Measured at roughly four to six minutes on a shared node, which
+# is what the very patient startupProbe below is for. Every later start finds the
+# project already on the volume and comes up in seconds.
+#
+# MODE: development, deliberately
+# ------------------------------
+# `NODE_ENV=production` disables Strapi's Content-Type Builder, so an operator
+# could not define a single content type through the UI — a CMS nobody can model
+# content in. Development mode keeps the builder available. `strapi start` (not
+# `develop`) is still used: no file watcher, so it does not rebuild itself under
+# a running site.
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -28,6 +56,11 @@ spec:
   accessModes: [ReadWriteOnce]
   resources:
     requests:
+      # Measured: the scaffolded project is 731 MiB, essentially all
+      # node_modules. The npm CACHE is another ~1 GiB and is deliberately kept
+      # OFF this volume (emptyDir, see npm_config_cache below) — it is
+      # reconstructible and does not belong in a backup. The rest is headroom for
+      # uploaded media, which is the only part that grows.
       storage: 10Gi
 ---
 apiVersion: v1
@@ -71,16 +104,16 @@ spec:
       securityContext:
         fsGroup: 1000
       initContainers:
-        # `strapi new` connects to Postgres while it scaffolds, so the database
-        # must already answer — wave ordering gets this right on a fresh install,
-        # but a node reschedule does not. Same image, so nothing extra to pull;
-        # `command` bypasses the entrypoint's `strapi` branch.
+        # The scaffold step connects to Postgres, so the database must already
+        # answer. Wave ordering gets this right on a fresh install; a node
+        # reschedule does not. Same image as the app, so nothing extra to pull.
+        # bash's /dev/tcp is used because node:*-slim ships no `nc`.
         - name: wait-for-db
-          image: docker.io/naskio/strapi:5.30.1-alpine
-          command: [sh, -c]
+          image: docker.io/library/node:22-bookworm-slim
+          command: [bash, -c]
           args:
             - |
-              until nc -z strapi-db-rw.adhar-system.svc.cluster.local 5432; do
+              until (echo > /dev/tcp/strapi-db-rw.adhar-system.svc.cluster.local/5432) 2>/dev/null; do
                 echo "waiting for strapi-db"; sleep 3
               done
               echo "strapi-db is accepting connections"
@@ -89,14 +122,24 @@ spec:
             limits: {memory: 128Mi}
       containers:
         - name: strapi
-          image: docker.io/naskio/strapi:5.30.1-alpine
+          image: docker.io/library/node:22-bookworm-slim
+          workingDir: /srv
           ports:
             - {name: http, containerPort: 1337}
           env:
             - {name: HOST, value: "0.0.0.0"}
             - {name: PORT, value: "1337"}
-            # See the header: `start` cannot build the admin panel, `develop` can.
+            # See the header: production mode would hide the Content-Type Builder.
             - {name: NODE_ENV, value: development}
+            # HOME and the npm cache must NOT land on the PVC: the cache measured
+            # ~1 GiB, which would otherwise be backed up and would crowd out the
+            # space meant for uploaded media.
+            - {name: HOME, value: /tmp}
+            - {name: npm_config_cache, value: /tmp/npm-cache}
+            # create-strapi and npm are interactive by default; this is what makes
+            # an unattended scaffold possible.
+            - {name: CI, value: "true"}
+            - {name: npm_config_yes, value: "true"}
             - {name: DATABASE_CLIENT, value: postgres}
             - {name: DATABASE_HOST, value: strapi-db-rw.adhar-system.svc.cluster.local}
             - {name: DATABASE_PORT, value: "5432"}
@@ -120,25 +163,101 @@ spec:
               valueFrom: {secretKeyRef: {name: strapi-secrets, key: JWT_SECRET}}
             - name: ENCRYPTION_KEY
               valueFrom: {secretKeyRef: {name: strapi-secrets, key: ENCRYPTION_KEY}}
-            # Strapi builds absolute URLs (admin assets, media) from this.
-            - {name: STRAPI_URL, value: "https://strapi.adhar.localtest.me:8443"}
+            # The public origin. The scaffolded config/server.js does NOT read any
+            # URL variable — the previous manifest set STRAPI_URL/PUBLIC_URL and
+            # neither had any effect — so the boot script writes a server.js that
+            # honours this one. Rewritten to the platform domain at seed time.
             - {name: PUBLIC_URL, value: "https://strapi.adhar.localtest.me:8443"}
             # Telemetry off: a platform component does not phone home
             # (ARCHITECTURE.md §1).
             - {name: STRAPI_TELEMETRY_DISABLED, value: "true"}
+            - {name: STRAPI_DISABLE_TELEMETRY, value: "true"}
             - {name: STRAPI_DISABLE_UPDATE_NOTIFICATION, value: "true"}
+          command: [bash, -c]
+          args:
+            - |
+              set -eu
+              APP=/srv/app
+              mkdir -p "$npm_config_cache"
+
+              # ── 1. Scaffold, once per volume ──
+              if [ ! -f "$APP/package.json" ]; then
+                echo "==> no project on the volume; scaffolding Strapi"
+                cd /srv
+                # --dbclient postgres matters even though every value below is
+                # overridden by the environment at runtime: it is what makes
+                # create-strapi install the `pg` driver. Scaffolding with sqlite
+                # would omit it and the app could never reach Postgres.
+                # The generated config/database.js switches on DATABASE_CLIENT,
+                # so the real credentials come from the environment, not from here.
+                npx -y create-strapi@latest app \
+                  --no-run --skip-cloud --use-npm --javascript \
+                  --no-example --no-git-init --install \
+                  --dbclient postgres \
+                  --dbhost "$DATABASE_HOST" --dbport "$DATABASE_PORT" \
+                  --dbname "$DATABASE_NAME" \
+                  --dbusername "$DATABASE_USERNAME" --dbpassword "$DATABASE_PASSWORD"
+                echo "==> scaffold complete"
+              else
+                echo "==> existing project found on the volume"
+              fi
+
+              cd "$APP"
+
+              # ── 2. Teach the project about its public origin ──
+              # Rewritten every start so a changed platform domain takes effect,
+              # and so an operator who edits it knows it is managed.
+              cat > config/server.js <<'JS'
+              // Managed by the Adhar platform (packages/application/strapi).
+              // The scaffolded default reads no URL variable, which left Strapi
+              // building absolute links against localhost from behind the
+              // Gateway. `url` is what fixes admin assets, media URLs and
+              // webhook payloads.
+              module.exports = ({ env }) => ({
+                host: env('HOST', '0.0.0.0'),
+                port: env.int('PORT', 1337),
+                url: env('PUBLIC_URL', undefined),
+                app: {
+                  keys: env.array('APP_KEYS'),
+                },
+                webhooks: {
+                  populateRelations: env.bool('WEBHOOKS_POPULATE_RELATIONS', false),
+                },
+              });
+              JS
+              sed -i 's/^              //' config/server.js
+
+              # ── 3. Build the admin panel when it is missing ──
+              # A sentinel rather than a guess at Strapi's internal output paths,
+              # and it carries the version so an image bump rebuilds instead of
+              # serving an admin built against different code.
+              WANT="$(node -p "require('@strapi/strapi/package.json').version" 2>/dev/null || echo unknown)"
+              HAVE="$(cat /srv/.admin-built 2>/dev/null || echo none)"
+              if [ "$WANT" != "$HAVE" ]; then
+                echo "==> building admin panel (have=$HAVE want=$WANT)"
+                npm run build
+                echo "$WANT" > /srv/.admin-built
+              else
+                echo "==> admin panel already built for $HAVE"
+              fi
+
+              # ── 4. Serve ──
+              echo "==> starting Strapi"
+              exec npm run start
           volumeMounts:
-            - {name: app, mountPath: /srv/app}
-          # `/_health` answers 204 as soon as the HTTP server is listening.
-          # No probe on this platform may ship timeoutSeconds: 1 — a loaded node
-          # needs longer than a second and kubelet then kills a healthy pod
-          # (enforced by TestNoProbeShipsAOneSecondTimeout).
+            - {name: app, mountPath: /srv}
+            - {name: tmp, mountPath: /tmp}
+          # `/_health` answers 204 as soon as the HTTP server is listening
+          # (verified). No probe on this platform may ship timeoutSeconds: 1 — a
+          # loaded node needs longer than a second and kubelet then kills a
+          # healthy pod (enforced by TestNoProbeShipsAOneSecondTimeout).
           startupProbe:
             httpGet: {path: /_health, port: http}
             periodSeconds: 15
             timeoutSeconds: 10
-            # First boot = scaffold + npm install + admin build. 80 × 15s = 20
-            # minutes, which is the honest budget for that on a shared node.
+            # First boot = scaffold + npm install + admin build, measured at four
+            # to six minutes. 80 × 15 s = 20 minutes, an honest budget for that on
+            # a shared node with a cold npm cache.
             failureThreshold: 80
           readinessProbe:
             httpGet: {path: /_health, port: http}
@@ -151,18 +270,24 @@ spec:
             timeoutSeconds: 15
             failureThreshold: 6
           resources:
-            # The admin build is the peak, not steady state.
+            # The admin build is the peak, not steady state; the verification run
+            # completed inside these limits.
             requests: {cpu: 250m, memory: 1Gi}
             limits: {cpu: "2", memory: 3Gi}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-            # Left as the image's own user (root): `strapi new` writes a whole
-            # project tree plus node_modules onto the PVC, and pinning a
-            # different uid makes that fail on the first write instead of the
+            # Left as the image's own user (root): the scaffold writes a whole
+            # project tree plus ~700 MiB of node_modules onto the PVC, and pinning
+            # a different uid makes that fail on the first write instead of the
             # tenth. Hardening one half of a filesystem contract hardens neither.
       volumes:
         - name: app
           persistentVolumeClaim:
             claimName: strapi-app
+        # HOME, the npm cache and Strapi's own scratch space. Sized so a cold
+        # npm cache (~1 GiB) plus build temporaries fit without touching the PVC.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 4Gi

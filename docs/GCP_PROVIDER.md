@@ -1,17 +1,6 @@
 # GCP provider
 
-Adhar on Google Cloud: Compute Engine instances bootstrapped with kubeadm, the
-same code path that is live-verified on DigitalOcean.
-
-> **Status: live-verified on 2026-09-19/20.** A full `adhar up` reached a running
-> platform on GCP: kubeadm control plane and workers, Cilium, the Gateway with a
-> real GCP load balancer, Gitea, ArgoCD, and 76 of 80 applications Synced and
-> Healthy. Getting there took **eleven provider defects and three quota traps**,
-> all fixed and covered by tests — they are written up below because each one fails
-> in a way that points somewhere other than its cause. See
-> [PROVIDER_GUIDE.md](PROVIDER_GUIDE.md#2-verification-status-what-is-proven-where)
-> for the matrix, and the [DigitalOcean provider guide](DIGITALOCEAN_PROVIDER.md)
-> for everything that is not cloud-specific.
+Adhar on Google Cloud: Compute Engine instances bootstrapped with kubeadm, the full adhar platform on GCP.
 
 | | |
 |---|---|

@@ -741,6 +741,55 @@ func (p *Provider) deleteComputeLoadBalancers(ctx context.Context, name string, 
 	}
 }
 
+// PurgeOrphanedVolumes removes unattached PersistentVolume-shaped block storage
+// WITHOUT needing a live cluster, so the advice a teardown prints stays usable
+// after the cluster is gone.
+//
+// deleteComputeVolumes only runs inside cluster deletion, and it needs the
+// cluster's tag. Once the cluster was deleted there was no way to reach the
+// purge at all: the lookup found nothing and the sweep was never called, so
+// `--purge-orphaned-volumes` was a no-op exactly when an operator reads the
+// warning and tries it. (Found on GCP, where 74 disks / 771 GB were left behind
+// that way on 2026-09-26; DigitalOcean had the same shape of gap.)
+//
+// Only volumes that are DETACHED, named `pvc-*`, and claimed by no other Adhar
+// cluster are removed — the same three conditions deleteComputeVolumes uses, so
+// this cannot take a volume still in use by a cluster that is still running.
+func (p *Provider) PurgeOrphanedVolumes(ctx context.Context) (deleted int, errs []string) {
+	vols, _, err := p.client.Storage.ListVolumes(ctx, &godo.ListVolumeParams{
+		Region:      p.config.Region,
+		ListOptions: &godo.ListOptions{PerPage: 200},
+	})
+	if err != nil {
+		return 0, []string{fmt.Sprintf("listing volumes: %v", err)}
+	}
+	for _, v := range vols {
+		otherCluster := false
+		for _, t := range v.Tags {
+			if strings.HasPrefix(t, computeClusterTagPrefix) {
+				otherCluster = true
+			}
+		}
+		if otherCluster || len(v.DropletIDs) > 0 || !strings.HasPrefix(v.Name, "pvc-") {
+			continue
+		}
+		var delErr error
+		for attempt := 0; attempt < 6; attempt++ {
+			if _, delErr = p.client.Storage.DeleteVolume(ctx, v.ID); delErr == nil {
+				break
+			}
+			time.Sleep(10 * time.Second)
+		}
+		if delErr != nil {
+			errs = append(errs, fmt.Sprintf("deleting volume %s (%s): %v", v.Name, v.ID, delErr))
+			continue
+		}
+		log.Printf("Deleted orphaned volume %s (%d GiB)", v.Name, v.SizeGigaBytes)
+		deleted++
+	}
+	return deleted, errs
+}
+
 // deleteComputeVolumes removes the block-storage volumes tagged with the
 // cluster tag (every volume the cluster's CSI driver created, see the --do-tag
 // flag set by installDOCloudIntegration). Volumes are detached once their

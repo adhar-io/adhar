@@ -350,6 +350,68 @@ func (p *Provider) sweepClusterDisks(ctx context.Context, rg, clusterName string
 	return problems
 }
 
+// PurgeOrphanedVolumes removes unattached CSI managed disks WITHOUT needing a
+// live cluster, so the advice a teardown prints stays usable after the cluster
+// is gone.
+//
+// sweepSubscriptionOrphanDisks runs only inside DeleteCluster and takes its
+// location from that cluster's ResourceTracker. Once the cluster was deleted
+// there was no path to the purge at all: the lookup found nothing and the sweep
+// was never called, so `--purge-orphaned-volumes` did nothing at exactly the
+// moment an operator reads the warning and tries it. Found on GCP, where 74
+// disks / 771 GB were left billing behind that hint (2026-09-26); Azure and
+// DigitalOcean had the same gap and are fixed the same way.
+//
+// Location comes from the provider's own configuration. It reports a count and
+// collected problems rather than one error, because a single disk refusing to go
+// is not a reason to abandon the rest.
+func (p *Provider) PurgeOrphanedVolumes(ctx context.Context) (deleted int, errs []string) {
+	if p.diskClient == nil {
+		return 0, []string{"azure disk client is not initialised"}
+	}
+	before := p.countOrphanedDisks(ctx, p.config.Location)
+	if before == 0 {
+		return 0, nil
+	}
+	// Reaching this method IS the opt-in, so purging is forced rather than left
+	// to depend on how the provider happened to be constructed.
+	prev := p.config.PurgeOrphanedVolumes
+	p.config.PurgeOrphanedVolumes = true
+	errs = p.sweepSubscriptionOrphanDisks(ctx, p.config.Location)
+	p.config.PurgeOrphanedVolumes = prev
+
+	after := p.countOrphanedDisks(ctx, p.config.Location)
+	return before - after, errs
+}
+
+// countOrphanedDisks counts what PurgeOrphanedVolumes would act on, so the
+// caller can report a real number instead of "done".
+func (p *Provider) countOrphanedDisks(ctx context.Context, location string) int {
+	if p.diskClient == nil {
+		return 0
+	}
+	n := 0
+	pager := p.diskClient.NewListPager(nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return n
+		}
+		for _, d := range page.Value {
+			if d == nil || d.Name == nil || d.ID == nil {
+				continue
+			}
+			if location != "" && d.Location != nil && !strings.EqualFold(*d.Location, location) {
+				continue
+			}
+			if orphan, _ := diskIsOrphan(d, "", true); orphan {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // sweepSubscriptionOrphanDisks looks beyond the cluster's resource group.
 //
 // Only with the purge flag, and only in the cluster's own location: a CSI driver
