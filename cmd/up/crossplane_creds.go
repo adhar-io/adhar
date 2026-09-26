@@ -57,14 +57,14 @@ func crossplaneCredentialData(provider string, pc *config.ConfigProviderConfig) 
 	if pc != nil {
 		pcv = *pc
 	}
+	// Case- and separator-insensitive, because the map's keys arrive
+	// lower-cased: the exact-case lookup this used to do meant
+	// `config.subscriptionId` was never found, `azure-credentials` was never
+	// written, and the node autoscaler then could not add a worker at all
+	// ("reading azure-credentials: Secret not found") on a cluster whose pods
+	// were Pending for capacity.
 	extra := func(key string) string {
-		if pcv.Config == nil {
-			return ""
-		}
-		if v, ok := pcv.Config[key].(string); ok {
-			return strings.TrimSpace(v)
-		}
-		return ""
+		return providerConfigString(pcv.Config, key)
 	}
 
 	switch provider {

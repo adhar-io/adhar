@@ -597,7 +597,7 @@ the whole plane is being destroyed.
 
 ## 5. Capacity and cloud provider
 
-### 5.1 `exceed max volume count` — the DigitalOcean 7-volume wall
+### 5.1 `exceed max volume count` — the per-VM volume attach wall
 
 **Symptom:**
 
@@ -608,12 +608,42 @@ the whole plane is being destroyed.
 Pods stay `Pending`; new StatefulSets never start. You check CPU and memory and
 they look fine — that is the point.
 
-**Root cause** — **DigitalOcean attaches at most 7 block volumes per droplet.**
-The full package catalogue needs 50+ PVCs, so the cluster runs out of *attachment
-slots* long before it runs out of CPU or memory. **This is the platform's first
-capacity wall on DigitalOcean**, not `Insufficient cpu`.
+**Root cause** — **every cloud caps how many block volumes one VM can attach,**
+and the cap is small: 7 per DigitalOcean droplet, 4 on an Azure
+`Standard_E2bds_v5`, 8 on a `Standard_E4bds_v5`, 16 only from 8 vCPU up. The
+enabled packages ask for ~90 PersistentVolumeClaims, so if block storage is the
+default class the cluster runs out of *attachment slots* long before CPU or
+memory. **This is the platform's first capacity wall on every cloud**, and it
+does not look like one: an Azure 1 + 4 cluster stalled here at 39 of 75 apps
+while the unschedulable pods asked for 1.6 CPU cores between them.
 
-**Fix** — add workers. Each new droplet brings 7 more attachment slots.
+**First check whether it should be happening at all.** Since the default
+StorageClass became node-local this should be rare:
+
+```bash
+kubectl get sc                        # adhar-local must be the default
+kubectl get pvc -A -o custom-columns='NAME:.metadata.name,SC:.spec.storageClassName,PHASE:.status.phase'
+```
+
+A Pending claim on `adhar-block` that did not ask for block storage means the
+default was wrong when the claim was created. `spec.storageClassName` is
+**immutable**, so such a claim has to be deleted to move — its controller
+recreates it on the current default. On a cluster where many claims are already on
+block, a fresh `adhar up` is cleaner than a half-migration.
+
+**To see the real ceiling and how much of it is used:**
+
+```bash
+kubectl get csinodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.drivers[0].allocatable.count}{"\n"}{end}'
+kubectl get volumeattachments -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' | sort | uniq -c
+```
+
+If attachments equal the allocatable count, stop looking at CPU. Note the Azure
+disk CSI node plugin **caches the limit at startup**: after resizing a VM you must
+delete its `csi-azuredisk-node` pod or CSINode keeps reporting the old number.
+
+**Fix** — for volumes that genuinely need block storage, add workers; each new
+machine brings its own slots.
 
 ```bash
 adhar cluster scale <cluster> --workers 10 -p digitalocean -f config.yaml
@@ -621,11 +651,9 @@ adhar cluster scale <cluster> --workers 10 -p digitalocean -f config.yaml
 
 Or let the node autoscaler do it: `exceed max volume count` is in the
 autoscaler's `capacityShortageMarkers`, so it is treated as a scale-up trigger.
-
-**Sizing rule:** the full production profile (~55–60 PVCs, ~300 pods against a
-110-pods-per-node kubelet default) needs **at least 10 workers on DigitalOcean
-regardless of droplet size**. A curated ~30-package profile runs comfortably on
-3–4 × `s-8vcpu-16gb`.
+Growing out of it with block storage alone is expensive, though — 90 attach slots
+on four nodes means 16-vCPU machines bought for their disk slots, ~64 vCPU for a
+workload whose pods fit in 18. That is why the default class is node-local.
 
 ### 5.2 `volume node affinity conflict` — not a capacity problem
 

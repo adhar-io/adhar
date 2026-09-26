@@ -1105,7 +1105,21 @@ func (p *Provider) installDOCloudIntegration(signer ssh.Signer, masterIP, vpcUUI
 		// Without the cluster VPC pin the CCM creates load balancers in the
 		// region's default VPC and droplet targeting fails with 422.
 		{"CCM cluster VPC", kubectlAdminBase + " -n kube-system set env deploy/digitalocean-cloud-controller-manager DO_CLUSTER_VPC_ID=" + vpcUUID},
-		{"default StorageClass", kubectlAdminBase + ` patch storageclass do-block-storage -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'`},
+		// do-block-storage is demoted, NOT made the default. A droplet accepts
+		// only 7 attached block volumes, which is the wall this provider has
+		// hit since it was first verified: the stack asks for ~90
+		// PersistentVolumeClaims, so past ~28 volumes on four workers every
+		// remaining stateful pod stayed Pending on "exceed max volume count"
+		// with the nodes barely half used. Node-local volumes have no attach
+		// limit and are the default now; anything that must outlive its node
+		// names do-block-storage explicitly.
+		{"do-block-storage is not the default", kubectlAdminBase + ` patch storageclass do-block-storage -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'`},
+	}
+	for _, st := range provider.StepNodeLocalStorageClass(globals.DefaultStorageClass) {
+		steps = append(steps, struct {
+			desc string
+			cmd  string
+		}{st.Desc, st.Cmd})
 	}
 	for _, st := range steps {
 		if out, err := provider.SSHRun(signer, computeSSHUser, masterIP, st.cmd, 5*time.Minute); err != nil {

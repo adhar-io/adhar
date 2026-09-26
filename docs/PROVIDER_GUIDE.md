@@ -80,7 +80,8 @@ unit-tested where it is pure; **live** means it ran on that cloud:
 | Scale down: drain + delete Node, then delete the instance | ✅ live | ✅ built (terminated without draining before) | ✅ built | ✅ built | ✅ built |
 | `GetNodeGroup` / `ListNodeGroups` report real members | ✅ | ✅ (by tag) | ✅ (by VM prefix) | ✅ (by instance prefix) | managed pools only |
 | Cloud-controller-manager (`--cloud-provider=external`) | ✅ DO CCM | ✅ built (`aws-cloud-controller-manager` chart) | ✅ built (`cloud-provider-azure` chart) | ✅ built (`cloud-provider-gcp` manifest) | ✅ built (Civo CCM manifest) |
-| CSI driver + default StorageClass | ✅ DO CSI | ✅ built (EBS CSI chart, `adhar-block` gp3) | ✅ built (Azure Disk CSI chart, `adhar-block` StandardSSD) | ✅ built (PD CSI kustomize, `adhar-block` pd-balanced) | ✅ built (Civo CSI kustomize, `civo-volume` marked default) |
+| CSI driver + block StorageClass (not default) | ✅ DO CSI | ✅ built (EBS CSI chart, `adhar-block` gp3) | ✅ Azure Disk CSI chart, `adhar-block` StandardSSD | ✅ built (PD CSI kustomize, `adhar-block` pd-balanced) | ✅ built (Civo CSI kustomize, `civo-volume`) |
+| Default StorageClass `adhar-local` (node-local, no attach limit) | ✅ | ✅ built | ✅ live-verified | ✅ built | ✅ built |
 | CSI startup taint (`node.adhar.io/csi-not-ready`, lifted by the autoscaler; CSI node DaemonSet tolerates it) | ✅ live | ✅ built | ✅ built | ✅ built | ✅ built |
 | Node autoscaler (needs the two rows above) | ✅ live | built, unverified | built, unverified | built, unverified | built, unverified |
 | Nodes pull kpack-built images from the in-cluster Harbor (containerd certs.d) | ✅ live | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep | ✅ shared node-prep |
@@ -96,6 +97,31 @@ The `custom` (bring-your-own hosts) provider shares the same rows where they
 apply: create/join, scale by moving the boundary within `workerIPs` (join the
 next host, or drain + `kubeadm reset` the last one), upgrade, and — since there
 is no cloud storage — the local-path provisioner as the default StorageClass.
+
+### Storage: node-local by default
+
+Every self-managed cloud installs **two** StorageClasses, and the default is the
+node-local one:
+
+| Class | Provisioner | Default | For |
+|---|---|---|---|
+| `adhar-local` | `rancher.io/local-path` | ✅ | everything that does not ask otherwise |
+| `adhar-block` | the cloud's CSI driver | — | volumes that must outlive their node, or exceed a node's filesystem |
+
+The reason is arithmetic. A block volume occupies one of the VM's data-disk
+attach slots, that budget scales with machine size and is small at every size a
+platform cluster would sensibly use, and the enabled packages ask for ~90
+claims. Reaching 90 attach slots on four workers means buying 16-vCPU machines
+purely for disk slots — roughly 64 vCPU for a workload whose pods fit in 18. A
+node-local PersistentVolume is a directory, so there is no attach limit and no
+per-claim cloud API call.
+
+What that costs: a node-local volume **does not survive losing its node**, and it
+cannot be expanded in place. Durability is the data owner's job — CNPG streaming
+replication plus barman base backups into the object store — and a workload that
+genuinely needs a network block device names `adhar-block` (RustFS's 150 GiB
+volume is the one package in the stack that does). Worker disks are sized for
+this: 256 GiB, shared with the containerd image cache.
 
 The integration itself is one shared runner (`platform/providers/cloudintegration.go`):
 each provider lists idempotent steps (`helm upgrade --install` with pinned chart
@@ -488,14 +514,21 @@ environments:
       - { key: nodeCount, value: "10" }
 ```
 
-**Sizing — volumes, not CPU.** DigitalOcean attaches at most **7 block volumes
-per droplet**, and the kubelet defaults to 110 pods per node. The full
-production profile creates ~55–60 PersistentVolumes and ~300 pods, so it needs
-**at least 10 workers regardless of droplet size** — pods otherwise stay
-`Pending` with `node(s) exceed max volume count` (8 workers hit the ceiling in
-the verified run). A curated ~30-package profile runs comfortably on 3–4 ×
-`s-8vcpu-16gb`. Details:
-[TROUBLESHOOTING §5.1](TROUBLESHOOTING.md#51-exceed-max-volume-count--the-digitalocean-7-volume-wall).
+**Sizing — volumes, not CPU.** This used to be the binding constraint on every
+cloud and it is worth understanding even though the default no longer hits it.
+A DigitalOcean droplet attaches at most **7 block volumes**; an Azure
+`Standard_E4bds_v5` takes 8, an `E2bds_v5` only 4, and 16 arrives only at 8 vCPU.
+The full profile asks for **~90 PersistentVolumeClaims**, so with block storage as
+the default class a cluster ran out of *attach slots* long before CPU: the
+verified DigitalOcean run needed ≥ 10 workers whatever their size, and an Azure
+1 + 4 cluster stalled at 39 of 75 apps with every worker at its ceiling while the
+unschedulable pods asked for 1.6 cores between them.
+
+**Since then the default StorageClass is node-local** (`adhar-local`,
+`local-path-provisioner`, see [§ Storage](#storage-node-local-by-default)), so the
+attach limit no longer sizes the cluster and 1 + 4 workers hosts the full profile.
+The pod ceiling is still real — the kubeadm path raises kubelet `maxPods` to 250.
+Details: [TROUBLESHOOTING §5.1](TROUBLESHOOTING.md#51-exceed-max-volume-count--the-digitalocean-7-volume-wall).
 
 **Token gotchas.** A *scoped* DO token returns 401 on `/v2/account` and
 `/v2/projects` while working fine for droplets, volumes, LBs, VPCs, DNS and

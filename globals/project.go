@@ -130,3 +130,18 @@ var (
 	GitCommit string = "unknown" // Default git commit, set at build time
 	BuildDate string = "unknown" // Default build date, set at build time
 )
+
+// DefaultStorageClass is the platform's default StorageClass on self-managed
+// cloud clusters: node-local volumes provisioned by local-path-provisioner.
+//
+// It is deliberately not the cloud's block class. A block volume occupies one
+// of the VM's data-disk attach slots — 8 on an Azure Standard_E4bds_v5, 7 on a
+// DigitalOcean droplet — and the enabled packages ask for roughly ninety
+// PersistentVolumeClaims, so a four-worker cluster exhausts attach slots while
+// still under half its CPU. `adhar-block` stays installed for the workloads
+// that pin it.
+const DefaultStorageClass = "adhar-local"
+
+// BlockStorageClass is the cloud block-storage class, available but not the
+// default. Workloads that need a volume to outlive its node ask for it by name.
+const BlockStorageClass = "adhar-block"

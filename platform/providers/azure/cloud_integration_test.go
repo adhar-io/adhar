@@ -59,3 +59,43 @@ func TestAKSPoolNameFitsAgentPoolRules(t *testing.T) {
 		t.Error("clusterMode must default to kubeadm and opt into AKS with \"aks\"")
 	}
 }
+
+// cloud-provider-azure does not validate its own config: with an aadClientId but
+// an EMPTY aadClientSecret and no managed identity it falls back to
+// DefaultAzureCredential, finds nothing on a plain VM, and dies on a nil-pointer
+// panic inside azidentity. Nothing in that panic mentions credentials; what an
+// operator sees is that no Azure load balancer is ever created, the Gateway
+// Service stays at EXTERNAL-IP <pending>, and every platform URL is unreachable.
+// It happens to anyone who creates the cluster with `az login` and no service
+// principal in the environment. So the step list must refuse to be built.
+func TestCloudConfigRefusesToBeWrittenWithNoUsableCredential(t *testing.T) {
+	p := &Provider{config: &Config{
+		SubscriptionID: "sub", TenantID: "tenant", ClientID: "client",
+		ClientSecret: "", UseManagedIdentity: false, Location: "centralindia",
+	}}
+	_, err := p.azureCloudConfig("adhar-rg", "vnet", "subnet", "nsg")
+	if err == nil {
+		t.Fatal("an azure.json with no client secret and no managed identity must be refused")
+	}
+	for _, want := range []string{"clientSecret", "AZURE_CLIENT_SECRET", "useManagedIdentity", "load balancer"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error must say how to fix it and what breaks; missing %q in: %v", want, err)
+		}
+	}
+}
+
+func TestCloudConfigAcceptsAServicePrincipalOrManagedIdentity(t *testing.T) {
+	base := Config{SubscriptionID: "sub", TenantID: "tenant", Location: "centralindia"}
+
+	sp := base
+	sp.ClientID, sp.ClientSecret = "client", "secret"
+	if _, err := (&Provider{config: &sp}).azureCloudConfig("rg", "v", "s", "n"); err != nil {
+		t.Errorf("a service principal must be accepted: %v", err)
+	}
+
+	mi := base
+	mi.UseManagedIdentity = true
+	if _, err := (&Provider{config: &mi}).azureCloudConfig("rg", "v", "s", "n"); err != nil {
+		t.Errorf("managed identity must be accepted without a client secret: %v", err)
+	}
+}

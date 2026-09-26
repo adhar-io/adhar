@@ -81,8 +81,12 @@ packages:
     namespace: adhar-system
     category: data
     manifestPath: data/minio
+  # redis disabled by default: valkey is the platform's primary key-value store and
+  # is what every package wires to. redis remains as the drop-in alternative for a
+  # workload that needs it; the only package declaring it is libredb-studio, and
+  # that dependency is optional.
   - name: redis
-    enabled: true
+    enabled: "false"
     namespace: adhar-system
     category: data
     manifestPath: data/redis
@@ -91,8 +95,9 @@ packages:
     namespace: adhar-system
     category: data
     manifestPath: data/jupyterhub
+  # argo-workflows disabled by default: a workflow engine, opt-in per cluster.
   - name: argo-workflows
-    enabled: true
+    enabled: "false"
     namespace: adhar-system
     category: application
     manifestPath: application/argo-workflows

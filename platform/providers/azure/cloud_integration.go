@@ -3,10 +3,13 @@ package azure
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 
 	provider "adhar-io/adhar/platform/providers"
+
+	"adhar-io/adhar/globals"
 )
 
 // Cloud integration for a self-managed (kubeadm on Azure VMs) cluster:
@@ -51,6 +54,23 @@ func (p *Provider) azureCloudConfig(resourceGroup, vnet, subnet, nsg string) (st
 		"useInstanceMetadata":         true,
 		"useManagedIdentityExtension": p.config.UseManagedIdentity,
 	}
+	// Refuse to write a config that cannot authenticate. cloud-provider-azure
+	// does not validate this: given an aadClientId with an EMPTY aadClientSecret
+	// and no managed identity it silently falls back to DefaultAzureCredential,
+	// finds no identity on a plain VM, and dies on a nil-pointer panic deep in
+	// azidentity that never mentions credentials. The visible symptom is that no
+	// Azure load balancer is ever created — the Gateway Service sits at
+	// EXTERNAL-IP <pending> and every platform hostname is unreachable, which
+	// looks like a networking or DNS fault. It happens whenever the cluster is
+	// created with `az login` credentials and no service principal in the
+	// environment, because ClientSecret is then empty.
+	if !p.config.UseManagedIdentity && strings.TrimSpace(p.config.ClientSecret) == "" {
+		return "", fmt.Errorf("azure.json would have no usable credential: cloud-provider-azure needs a service principal " +
+			"(set providers.azure.clientSecret, or AZURE_CLIENT_SECRET with AZURE_CLIENT_ID and AZURE_TENANT_ID) " +
+			"or managed identity (useManagedIdentity: true). Azure CLI login is enough to CREATE the cluster but the " +
+			"in-cluster controllers cannot use it, and without this the cloud-controller-manager crash-loops and no " +
+			"load balancer is created")
+	}
 	b, err := json.Marshal(cfg)
 	if err != nil {
 		return "", err
@@ -63,7 +83,7 @@ func (p *Provider) cloudIntegrationSteps(clusterName, resourceGroup, vnet, subne
 	if err != nil {
 		return nil, err
 	}
-	return []provider.IntegrationStep{
+	return append([]provider.IntegrationStep{
 		provider.StepEnsureHelm(),
 		// BOTH, because the two consumers read it differently: the CSI driver takes
 		// the Secret, while the cloud-provider chart mounts /etc/kubernetes by
@@ -94,8 +114,13 @@ func (p *Provider) cloudIntegrationSteps(clusterName, resourceGroup, vnet, subne
 			}),
 		provider.StepWaitDaemonSet("kube-system", "csi-azuredisk-node"),
 		provider.StepTolerateCSIStartupTaint("kube-system", "csi-azuredisk-node"),
-		provider.StepDefaultStorageClass("adhar-block", "disk.csi.azure.com", map[string]string{"skuName": "StandardSSD_LRS"}),
-	}, nil
+		// Block storage stays available but is NOT the default: an
+		// E4bds_v5 accepts 8 data disks and an E2bds_v5 only 4, so four
+		// workers offer ~32 attach slots against the ~90 claims the stack
+		// makes. Node-local storage carries the rest.
+		provider.StepStorageClass("adhar-block", "disk.csi.azure.com", map[string]string{"skuName": "StandardSSD_LRS"}, false),
+		provider.StepClearDefaultStorageClass("adhar-block"),
+	}, provider.StepNodeLocalStorageClass(globals.DefaultStorageClass)...), nil
 }
 
 func (p *Provider) installCloudIntegration(signer ssh.Signer, masterIP, clusterName, resourceGroup, vnet, subnet, nsg string) error {

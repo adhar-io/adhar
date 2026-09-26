@@ -1,6 +1,10 @@
 package azure
 
-import "testing"
+import (
+	"log"
+	"strings"
+	"testing"
+)
 
 // The provider's `config:` block must be read whatever spelling it uses.
 //
@@ -67,6 +71,57 @@ func TestNormaliseKey(t *testing.T) {
 	} {
 		if got := normaliseKey(in); got != want {
 			t.Errorf("normaliseKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A config file's numbers arrive as int, not string. A string-only lookup
+// dropped every numeric setting and fell back to the built-in default while the
+// log said the key had been read — `diskSizeGb: 256` silently stayed at the
+// default, and on this platform the node disk is where node-local volumes live.
+func TestNumericConfigValuesAreHonoured(t *testing.T) {
+	for name, raw := range map[string]interface{}{
+		"int":     256,
+		"int64":   int64(256),
+		"float64": float64(256),
+		"string":  "256",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := parseProviderConfig(map[string]interface{}{
+				"config": map[string]interface{}{
+					"subscriptionId": "sub", "resourceGroup": "rg", "location": "centralindia",
+					"diskSizeGb": raw,
+				},
+			})
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if cfg.DiskSizeGB != 256 {
+				t.Fatalf("diskSizeGb from %T = %d, want 256", raw, cfg.DiskSizeGB)
+			}
+		})
+	}
+}
+
+// A key that IS acted on must not be reported as ignored: the warning sends you
+// hunting for a bug in the setting that works.
+func TestKnownKeysAreNotReportedAsIgnored(t *testing.T) {
+	var logged strings.Builder
+	old := log.Writer()
+	log.SetOutput(&logged)
+	defer log.SetOutput(old)
+
+	if _, err := parseProviderConfig(map[string]interface{}{
+		"config": map[string]interface{}{
+			"subscriptionId": "sub", "resourceGroup": "rg", "location": "centralindia",
+			"diskSizeGb": 256, "dnsResourceGroup": "dns-rg",
+		},
+	}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, k := range []string{"disksizegb", "dnsresourcegroup"} {
+		if strings.Contains(logged.String(), `key "`+k+`" is not recognised`) {
+			t.Errorf("%s is read by the provider but reported as ignored:\n%s", k, logged.String())
 		}
 	}
 }

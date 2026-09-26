@@ -130,8 +130,11 @@ spec:
             category: "ai"
             plane: "control"
             manifestPath: "ai/vllm/manifests"
+          # llm-d disabled by default: distributed LLM inference. It runs vLLM model
+          # servers, which are the heaviest workload in the catalogue, so it is opt-in
+          # per cluster rather than something every platform pays for.
           - name: "llm-d"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "ai"
             plane: "control"
@@ -459,8 +462,9 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/tekton/manifests"
+          # argo-workflows disabled by default: a workflow engine, opt-in per cluster.
           - name: "argo-workflows"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/argo-workflows/manifests/dev"
@@ -579,8 +583,9 @@ spec:
             namespace: "adhar-system"
             category: "core"
             manifestPath: "core/velero/manifests"
+          # spark-operator disabled by default: batch compute, opt-in per cluster.
           - name: "spark-operator"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/spark-operator/manifests"
@@ -626,8 +631,9 @@ spec:
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/tempo/manifests"
+          # pyroscope disabled by default: continuous profiling, opt-in per cluster.
           - name: "pyroscope"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/pyroscope/manifests"
@@ -659,8 +665,12 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/dapr/manifests"
+          # redis disabled by default: valkey is the platform's primary key-value store and
+          # is what every package wires to. redis remains as the drop-in alternative for a
+          # workload that needs it; the only package declaring it is libredb-studio, and
+          # that dependency is optional.
           - name: "redis"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "data"
             manifestPath: "data/redis/manifests"

@@ -148,7 +148,7 @@ and the repository checkout — the GitOps stack is seeded from `platform/stack`
 
 | Limit | Value | Consequence |
 |---|---|---|
-| Block volumes attached per droplet | **7** | The real capacity ceiling. The full profile creates ~55 PersistentVolumes, so it needs **≥ 9 workers**; below that, StatefulSet pods sit Pending with `node(s) exceed max volume count` long before CPU or memory runs out. The autoscaler treats that message as a scale-up trigger. |
+| Block volumes attached per droplet | **7** | This *was* the real capacity ceiling: with block storage as the default class the ~90 PersistentVolumeClaims the profile makes needed **≥ 10 workers** whatever their size, and StatefulSet pods sat Pending on `node(s) exceed max volume count` long before CPU or memory ran out. The default StorageClass is now node-local (`adhar-local`), which has no attach limit, so the 7-volume budget only applies to volumes that explicitly ask for `do-block-storage`. The autoscaler still treats the message as a scale-up trigger. |
 | Droplet limit | account-specific | Must cover control plane + workers + any other cluster. A create failing with `422` usually means this; ask DigitalOcean to raise it. |
 | Volumes per region | account-specific | ~55–60 per full platform. |
 

@@ -121,9 +121,13 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	// nothing reported that the file had been ignored.
 	if configSection, ok := config["config"].(map[string]interface{}); ok {
 		norm := normaliseKeys(configSection)
+		// Values are read as scalars, not only as strings: YAML parses
+		// `diskSizeGb: 256` as an int, so a string-only lookup silently dropped
+		// every numeric setting in the file and fell back to the built-in
+		// default while the log claimed the key was honoured.
 		get := func(aliases ...string) string {
 			for _, a := range aliases {
-				if v, ok := norm[normaliseKey(a)].(string); ok && v != "" {
+				if v := scalarString(norm[normaliseKey(a)]); v != "" {
 					return v
 				}
 			}
@@ -155,13 +159,20 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 		// Report what was UNDERSTOOD, and name anything that was not. A key that
 		// goes nowhere has to say so: the whole failure above was silent.
 		log.Printf("Azure config: subscriptionId=%q resourceGroup=%q location=%q vmSize=%q "+
-			"vnetCidr=%q subnetCidr=%q diskType=%q",
+			"vnetCidr=%q subnetCidr=%q diskType=%q diskSizeGb=%d",
 			azureConfig.SubscriptionID, azureConfig.ResourceGroup, azureConfig.Location,
-			azureConfig.VMSize, azureConfig.VNetCIDR, azureConfig.SubnetCIDR, azureConfig.DiskType)
+			azureConfig.VMSize, azureConfig.VNetCIDR, azureConfig.SubnetCIDR, azureConfig.DiskType,
+			azureConfig.DiskSizeGB)
 		known := map[string]bool{}
 		for _, k := range []string{"subscriptionId", "subscription", "resourceGroup", "rg",
 			"location", "region", "vmSize", "machineType", "vnetCidr", "vnetCIDR",
-			"subnetCidr", "subnetCIDR", "diskType"} {
+			"subnetCidr", "subnetCIDR", "diskType",
+			// Read above, and read by `adhar up`'s edge/DNS wiring. Missing from
+			// this list they were reported as ignored while being acted on, which
+			// is worse than no warning at all — it sends you looking for a bug in
+			// the setting that works.
+			"diskSizeGb", "diskSizeGB", "diskSize",
+			"dnsResourceGroup", "dnsZone", "dnsSubscriptionId", "dnsTenantId", "dnsClientId"} {
 			known[normaliseKey(k)] = true
 		}
 		for k := range norm {
@@ -229,6 +240,35 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	}
 
 	return azureConfig, nil
+}
+
+// scalarString renders a YAML scalar as a string. A config file's numbers and
+// booleans arrive as int/float64/bool, never as string, so a type assertion to
+// string alone discards them.
+func scalarString(v interface{}) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case int:
+		return strconv.Itoa(t)
+	case int32:
+		return strconv.FormatInt(int64(t), 10)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case float64:
+		// YAML gives 256 as float64 through some decoders; keep it integral so
+		// strconv.Atoi on the way back out still succeeds.
+		if t == float64(int64(t)) {
+			return strconv.FormatInt(int64(t), 10)
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(t)
+	default:
+		return ""
+	}
 }
 
 // normaliseKey strips case and separators so machineType, machine_type,
@@ -472,11 +512,16 @@ func NewProvider(config *Config) (*Provider, error) {
 		config.VMSize = "Standard_D2s_v3"
 	}
 	if config.DiskSizeGB == 0 {
-		// 100 GiB, matching the GCP provider. 50 was too small for this platform:
-		// the containerd image cache alone measured 35 GiB on a worker, which took
-		// the node over the disk-eviction threshold and tainted it
-		// NoSchedule — see the parsing note above.
-		config.DiskSizeGB = 100
+		// 256 GiB. Two things share this disk. The containerd image cache alone
+		// measured 35 GiB on a worker, which at 50 took the node over the
+		// disk-eviction threshold and tainted it NoSchedule — that is why it
+		// was raised to 100. It is 256 now because the platform's default
+		// StorageClass is node-local (globals.DefaultStorageClass): every
+		// PersistentVolume that does not explicitly ask for block storage is a
+		// directory on THIS disk. A cloud block volume would cost one of the
+		// VM's data-disk attach slots, and 8 slots per Standard_E4bds_v5 does
+		// not go far against the ~90 claims the enabled packages make.
+		config.DiskSizeGB = 256
 	}
 	if config.ImagePublisher == "" {
 		config.ImagePublisher = "Canonical"
@@ -2042,6 +2087,40 @@ func (p *Provider) RemoveNodeGroup(ctx context.Context, clusterID string, nodeGr
 }
 
 // ScaleNodeGroup scales a node group
+// workerVMSize reports the VM size a new member of a node group should take:
+// whatever its existing members run. Falls back to the configured size only
+// when the group is empty (a group scaled to zero and back).
+func (p *Provider) workerVMSize(ctx context.Context, tracker *ResourceTracker, prefix string) string {
+	return pickWorkerVMSize(tracker.VirtualMachines, prefix, p.config.VMSize, func(vmName string) string {
+		vm, err := p.virtualMachineClient.Get(ctx, tracker.ResourceGroup, vmName, nil)
+		if err != nil || vm.Properties == nil || vm.Properties.HardwareProfile == nil || vm.Properties.HardwareProfile.VMSize == nil {
+			return ""
+		}
+		return string(*vm.Properties.HardwareProfile.VMSize)
+	})
+}
+
+// pickWorkerVMSize is the size choice on its own, so it can be tested without
+// the Azure API: the first existing member of the group that reports a size
+// wins, and only a group with no readable member falls back.
+//
+// The fallback used to be the only path, which is the bug this exists to close:
+// p.config.VMSize describes the CONTROL PLANE, so a cluster whose workers were
+// Standard_E4bds_v5 grew Standard_E2bds_v5 nodes — half the vCPU and, because
+// an Azure VM's data-disk budget scales with its size, half the volume attach
+// slots (4 instead of 8) the new node was supposed to bring.
+func pickWorkerVMSize(vms []string, prefix, fallback string, sizeOf func(string) string) string {
+	for _, vmName := range vms {
+		if !strings.HasPrefix(vmName, prefix) {
+			continue
+		}
+		if size := sizeOf(vmName); size != "" {
+			return size
+		}
+	}
+	return fallback
+}
+
 func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGroupName string, replicas int) error {
 	if p.isManagedCluster(ctx, clusterID) {
 		return p.managedScaleNodeGroup(ctx, clusterID, nodeGroupName, replicas)
@@ -2083,7 +2162,15 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 			return err
 		}
 		startupScript := provider.KubeadmNodePrepScript(provider.K8sMinorFromVersion(cluster.Version))
-		vmSize := p.config.VMSize
+		// The new worker must match the node group it joins, not the
+		// provider-level VMSize — that one describes the CONTROL PLANE, which
+		// is routinely smaller. Reading it here gave every autoscaled worker
+		// the control plane's size: a cluster created with 4-vCPU
+		// Standard_E4bds_v5 workers grew 2-vCPU Standard_E2bds_v5 ones, so it
+		// gained half the CPU and half the data-disk slots the autoscaler had
+		// counted on, and the preflight's quota budget no longer matched what
+		// was built.
+		vmSize := p.workerVMSize(ctx, tracker, prefix)
 		if len(tracker.VirtualNetworks) == 0 || len(tracker.Subnets) == 0 || len(tracker.NetworkSecurityGroups) == 0 {
 			return fmt.Errorf("cluster %s tracker lacks network resources; cannot add workers", clusterID)
 		}

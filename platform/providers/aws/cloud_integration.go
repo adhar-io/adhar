@@ -6,6 +6,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	provider "adhar-io/adhar/platform/providers"
+
+	"adhar-io/adhar/globals"
 )
 
 // Cloud integration for a self-managed (kubeadm on EC2) cluster: the AWS
@@ -61,8 +63,14 @@ func (p *Provider) cloudIntegrationSteps(clusterName string) []provider.Integrat
 			"https://kubernetes-sigs.github.io/aws-ebs-csi-driver", "aws-ebs-csi-driver", awsEBSCSIChartVersion, "kube-system", csiSets),
 		provider.StepWaitDaemonSet("kube-system", "ebs-csi-node"),
 		provider.StepTolerateCSIStartupTaint("kube-system", "ebs-csi-node"),
-		provider.StepDefaultStorageClass("adhar-block", "ebs.csi.aws.com", map[string]string{"type": "gp3", "encrypted": "true"}),
+		// Not the default: EBS attachments are capped per instance (~26 on
+		// nitro, fewer once ENIs are counted) and the stack asks for ~90
+		// volumes. Node-local storage is the default; see
+		// provider.StepNodeLocalStorageClass.
+		provider.StepStorageClass("adhar-block", "ebs.csi.aws.com", map[string]string{"type": "gp3", "encrypted": "true"}, false),
+		provider.StepClearDefaultStorageClass("adhar-block"),
 	)
+	steps = append(steps, provider.StepNodeLocalStorageClass(globals.DefaultStorageClass)...)
 	return steps
 }
 

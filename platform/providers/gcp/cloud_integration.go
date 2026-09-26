@@ -8,6 +8,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	provider "adhar-io/adhar/platform/providers"
+
+	"adhar-io/adhar/globals"
 )
 
 // Cloud integration for a self-managed (kubeadm on Compute Engine) cluster:
@@ -227,8 +229,13 @@ func (p *Provider) cloudIntegrationSteps(clusterName string) ([]provider.Integra
 		// PersistentVolume as pd-balanced, exhausted that 250 GB after ~35
 		// volumes, and left every remaining stateful app Pending on
 		// "binding volumes: context deadline exceeded" with nothing naming quota.
-		provider.StepDefaultStorageClass("adhar-block", "pd.csi.storage.gke.io", map[string]string{"type": p.persistentVolumeDiskType()}),
+		// Not the default: a persistent disk costs an attach slot (and GCP
+		// also meters SSD_TOTAL_GB), and the stack asks for ~90 volumes.
+		// Node-local storage is the default; see StepNodeLocalStorageClass.
+		provider.StepStorageClass("adhar-block", "pd.csi.storage.gke.io", map[string]string{"type": p.persistentVolumeDiskType()}, false),
+		provider.StepClearDefaultStorageClass("adhar-block"),
 	)
+	steps = append(steps, provider.StepNodeLocalStorageClass(globals.DefaultStorageClass)...)
 	return steps, nil
 }
 

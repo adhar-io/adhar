@@ -24,6 +24,20 @@ that is live-verified on DigitalOcean.
 >   Azure check reported "needs 24 vCPU" for a cluster configured to reach 56.
 > - `Microsoft.Compute` and `Microsoft.Storage` needed registering first; see
 >   [0.1](#01-register-the-resource-providers).
+>
+> The run that followed reached a working cluster on `test.adhar.io` (real Let's
+> Encrypt TLS, CCM load balancer, CSI provisioning, a 1 + 2 shape that autoscaled
+> to 1 + 4) and then stalled at 39 of 75 apps — **not on CPU, on the per-VM
+> data-disk attach limit**. Two more changes came out of that:
+>
+> - **The default StorageClass is now node-local** (`adhar-local`), because ~90
+>   claims cannot attach to four VMs however large they are. See
+>   [Storage](#storage-why-the-default-class-is-node-local-not-azure-disk).
+> - **An autoscaled worker now takes its node group's VM size.** It was reading
+>   the provider-level `vmSize`, which describes the CONTROL PLANE: a cluster with
+>   4-vCPU `Standard_E4bds_v5` workers grew 2-vCPU `Standard_E2bds_v5` ones, so
+>   each new node arrived with half the CPU and half the disk slots the scale-up
+>   had counted on.
 
 | | |
 |---|---|
@@ -245,8 +259,45 @@ resource group when Adhar created it.
 What compute mode installs on the control plane after the first joins
 (`azure/cloud_integration.go`): `kube-system/azure-cloud-provider` (`azure.json`
 from the service-principal fields), the `cloud-provider-azure` chart, the
-`azuredisk-csi-driver` chart, the default `adhar-block` StandardSSD
-StorageClass and the CSI startup-taint toleration.
+`azuredisk-csi-driver` chart, the `adhar-block` StandardSSD StorageClass, the CSI
+startup-taint toleration, and `local-path-provisioner` with the **default**
+`adhar-local` StorageClass.
+
+### Storage: why the default class is node-local, not Azure Disk
+
+An Azure VM accepts a fixed number of attached data disks and that number scales
+with the VM size — **4 on a `Standard_E2bds_v5`, 8 on a `Standard_E4bds_v5`, 16
+only from 8 vCPU up**. The enabled packages ask for roughly **90
+PersistentVolumeClaims**. One `adhar-block` volume costs one attach slot, so a
+1 + 4 cluster of `Standard_E4bds_v5` workers offers 32 slots against ~90 claims.
+
+This is what that looks like if block storage is the default, and it is worth
+recognising because it reads exactly like a CPU shortage and is not:
+
+```
+0/5 nodes are available: 1 node(s) had untolerated taint(s),
+                         4 node(s) exceed max volume count.
+```
+
+A live bring-up stalled at **39 of 75 apps** this way, with 27 claims Pending,
+every worker at its attach ceiling — and the unschedulable pods between them
+asking for **1.6 CPU cores**. Growing out of it is not possible inside a sane
+quota either: 90 attach slots on four nodes needs 16-vCPU machines bought purely
+for disk slots, ~64 vCPU for a platform that fits in 18.
+
+So the default StorageClass is `adhar-local`: node-local directories provisioned
+by `local-path-provisioner` under `/opt/adhar-local-path`. There is no attach
+limit, no per-claim Azure API call, and no quota to raise. Consequences to know:
+
+- **Worker disks are 256 GiB** (`diskSizeGb`), because platform volumes now live
+  on the node filesystem alongside the containerd image cache.
+- **A node-local volume does not survive losing its node.** Durability comes from
+  the layer that owns the data — CNPG streaming replication plus barman base
+  backups into the object store — not from the disk.
+- **`adhar-block` is still installed**, just not the default. A workload that
+  needs a network block device, or a volume larger than a node's filesystem, names
+  it: `storageClassName: adhar-block` (RustFS's 150 GiB volume does exactly this,
+  and it is the one class that supports online expansion).
 
 ## 3. Run it
 

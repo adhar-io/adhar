@@ -26,11 +26,12 @@
 #   ✓ DNS. The `test.adhar.io` zone exists in resource group `adhar-rg` and its four
 #     Azure nameservers match what public DNS returns, so delegation is live.
 #     Nothing in the platform creates the zone.
-#   ~ QUOTA — 10 vCPU in centralindia, still below what the platform needs.
-#     Budgeted exactly: control plane Standard_E2bds_v5 (2) + 2 workers
-#     Standard_E4bds_v5 (4 each) = 10 of 10. Both SKUs verified unrestricted in
+#   ~ QUOTA — 20 vCPU in centralindia, still below what the platform needs.
+#     Budgeted: control plane Standard_E2bds_v5 (2) + up to 4 workers
+#     Standard_E4bds_v5 (4 each) = 18 of 20. Both SKUs verified unrestricted in
 #     centralindia and both are standardEBDSv5Family, so they draw on one family
-#     quota (also 10). maxWorkers cannot rise above 2 until the quota does.
+#     quota (also 20). 16 vCPU of worker capacity; the full catalogue wants ~48, so
+#     expect the autoscaler to reach its ceiling and some apps to stay Pending.
 #     Historic note: Originally 4 in
 #     every region checked. At 10 this file runs a control plane + 1 worker on
 #     Standard_E4bds_v5 (8 vCPU) to verify the PROVIDER path; the full catalogue needs
@@ -159,13 +160,21 @@ providers:
       # etcd latency on a control plane.
       diskType: Premium_LRS
 
-      # 100 GiB, not the provider's old 50. The containerd image cache alone
-      # measured 35 GiB on a worker here; at 50 the node crossed the kubelet's
-      # disk-eviction threshold, took a `disk-pressure:NoSchedule` taint, and then
-      # NOTHING could schedule on it — which looks like a CPU shortage and is not.
+      # 256 GiB. Two separate demands share this disk.
+      #   1. The containerd image cache alone measured 35 GiB on a worker here; at
+      #      50 the node crossed the kubelet's disk-eviction threshold, took a
+      #      `disk-pressure:NoSchedule` taint, and then NOTHING could schedule on
+      #      it — which looks like a CPU shortage and is not.
+      #   2. The platform's default StorageClass is `adhar-local`, node-local
+      #      volumes, so every PersistentVolume that does not explicitly ask for
+      #      `adhar-block` is a directory on this disk. That is deliberate: a
+      #      block volume occupies one of the VM's data-disk attach slots and a
+      #      Standard_E4bds_v5 has only 8, against the ~90 claims the enabled
+      #      packages make — four workers ran out of slots at 39 of 75 apps with
+      #      the nodes under half their CPU.
       # This key used to be ignored entirely (clusterConfig's diskSizeGb never
       # reached the provider), so the value here is now actually honoured.
-      diskSizeGb: 100
+      diskSizeGb: 256
 
       # Must not overlap the pod CIDR.
       vnetCidr: 10.30.0.0/16
@@ -233,10 +242,11 @@ environments:
     autoscaling:
       enabled: true
       minWorkers: 2
-      # 2, not 6: a third worker would need 14 vCPU against a 10 vCPU quota, and the
-      # preflight would (correctly) refuse the whole create. Raise the quota, then
-      # raise this.
-      maxWorkers: 2
+      # 4 is what the quota allows: control plane 2 + 4 workers × 4 = 18 of 20 vCPU
+      # (both "Total Regional vCPUs" and "Standard EBDSv5 Family vCPUs" are 20).
+      # Starting at 2 and growing to 4 keeps the 1-control-plane + 2-worker default
+      # while using the headroom only when utilisation actually asks for it.
+      maxWorkers: 4
       nodeGroup: workers
       # Add a worker at 90% of allocatable CPU or memory.
       scaleUpUtilizationThreshold: "90%"

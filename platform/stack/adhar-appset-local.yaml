@@ -112,6 +112,9 @@ spec:
             category: "ai"
             plane: "control"
             manifestPath: "ai/vllm/manifests"
+          # llm-d disabled by default: distributed LLM inference. It runs vLLM model
+          # servers, which are the heaviest workload in the catalogue, so it is opt-in
+          # per cluster rather than something every platform pays for.
           - name: "llm-d"
             enabled: "false"
             namespace: "adhar-system"
@@ -467,6 +470,7 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/tekton/manifests"
+          # argo-workflows disabled by default: a workflow engine, opt-in per cluster.
           - name: "argo-workflows"
             enabled: "false"
             namespace: "adhar-system"
@@ -553,6 +557,7 @@ spec:
             namespace: "adhar-system"
             category: "core"
             manifestPath: "core/velero/manifests"
+          # spark-operator disabled by default: batch compute, opt-in per cluster.
           - name: "spark-operator"
             enabled: "false"
             namespace: "adhar-system"
@@ -600,6 +605,7 @@ spec:
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/tempo/manifests"
+          # pyroscope disabled by default: continuous profiling, opt-in per cluster.
           - name: "pyroscope"
             enabled: "false"
             namespace: "adhar-system"
@@ -630,6 +636,10 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/dapr/manifests"
+          # redis disabled by default: valkey is the platform's primary key-value store and
+          # is what every package wires to. redis remains as the drop-in alternative for a
+          # workload that needs it; the only package declaring it is libredb-studio, and
+          # that dependency is optional.
           - name: "redis"
             enabled: "false"
             namespace: "adhar-system"

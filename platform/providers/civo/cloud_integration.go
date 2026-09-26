@@ -6,6 +6,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	provider "adhar-io/adhar/platform/providers"
+
+	"adhar-io/adhar/globals"
 )
 
 // Cloud integration for a self-managed (kubeadm on Civo instances) cluster:
@@ -20,7 +22,7 @@ const (
 )
 
 func (p *Provider) cloudIntegrationSteps(clusterName, clusterID string) []provider.IntegrationStep {
-	return []provider.IntegrationStep{
+	return append([]provider.IntegrationStep{
 		provider.StepEnsureGit(),
 		provider.StepSecret("Civo API access for CCM/CSI", "kube-system", "civo-api-access", map[string]string{
 			"api-key":    p.config.Token,
@@ -33,8 +35,8 @@ func (p *Provider) cloudIntegrationSteps(clusterName, clusterID string) []provid
 		provider.StepApplyKustomize("Civo CSI driver", civoCSIRef),
 		provider.StepWaitDaemonSet("kube-system", "civo-csi-node"),
 		provider.StepTolerateCSIStartupTaint("kube-system", "civo-csi-node"),
-		provider.StepMarkDefaultStorageClass("civo-volume"),
-	}
+		provider.StepClearDefaultStorageClass("civo-volume"),
+	}, provider.StepNodeLocalStorageClass(globals.DefaultStorageClass)...)
 }
 
 func (p *Provider) installCloudIntegration(signer ssh.Signer, masterIP, clusterName, clusterID string) error {
