@@ -350,6 +350,11 @@ type Provider struct {
 	// read them is not a reason to refuse a create — see checkQuota.
 	usageClient   *armcompute.UsageClient
 	vmSizesClient *armcompute.VirtualMachineSizesClient
+
+	// Resource-provider registration (preflight.go). A fresh subscription has
+	// Microsoft.Compute unregistered, and the resulting failure names
+	// MissingSubscriptionRegistration rather than the VM it refused to create.
+	providersClient *armresources.ProvidersClient
 }
 
 // Config holds Azure provider configuration for manual clusters
@@ -490,6 +495,11 @@ func NewProvider(config *Config) (*Provider, error) {
 		return nil, fmt.Errorf("failed to create disk client: %w", err)
 	}
 
+	providersClient, err := armresources.NewProvidersClient(config.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Azure providers client: %w", err)
+	}
+
 	usageClient, err := armcompute.NewUsageClient(config.SubscriptionID, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create usage client: %w", err)
@@ -517,6 +527,7 @@ func NewProvider(config *Config) (*Provider, error) {
 		loadBalancerClient:         loadBalancerClient,
 		availabilitySetClient:      availabilitySetClient,
 		diskClient:                 diskClient,
+		providersClient:            providersClient,
 		usageClient:                usageClient,
 		vmSizesClient:              vmSizesClient,
 	}

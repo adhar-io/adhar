@@ -1,0 +1,166 @@
+# Adhar on Azure for test.adhar.io — kubeadm on Virtual Machines, autoscaled.
+#
+# examples/azure-config.yaml keeps the generic version; this file holds the live
+# values for subscription b8e6d308-0e08-4287-885f-a4766f295f13. No credentials
+# are in here: it authenticates through your existing `az login`.
+#
+#   adhar up   -f config.azure.yaml --env dev --dry-run   # validate, no spend
+#   adhar up   -f config.azure.yaml --env dev             # deploy
+#   adhar down -f config.azure.yaml --env dev             # tear down
+#   adhar down -f config.azure.yaml --env dev --purge-orphaned-volumes
+#
+# STATUS: first live bring-up. Azure is built and render-verified; the kubeadm path
+# is shared with DigitalOcean (the one cloud proven live) but has never run on
+# Azure VMs. Treat the first `adhar up` as a bring-up exercise — GCP took eleven
+# provider defects and three quota traps to reach a working platform.
+#
+# PREREQUISITES — checked on this subscription 2026-09-26:
+#   ✓ Resource providers registered. Microsoft.Compute and Microsoft.Storage were
+#     BOTH `NotRegistered` on this subscription and had to be registered before any
+#     VM could be created; Microsoft.Network was already done. A fresh subscription
+#     usually needs this, it takes a few minutes, and the failure it causes
+#     otherwise names a "MissingSubscriptionRegistration" rather than the VM you
+#     were trying to create:
+#       az provider register --namespace Microsoft.Compute
+#       az provider register --namespace Microsoft.Storage
+#   ✓ DNS. The `test.adhar.io` zone exists in resource group `adhar-rg` and its four
+#     Azure nameservers match what public DNS returns, so delegation is live.
+#     Nothing in the platform creates the zone.
+#   ✗ QUOTA — THE CURRENT BLOCKER. "Total Regional vCPUs" is **4** in every region
+#     checked (malaysiawest, southeastasia, eastasia, centralindia, southindia,
+#     eastus, westus2, westeurope, uksouth, australiaeast, japaneast). That is the
+#     default on a new subscription and it cannot host this platform: measured on
+#     GCP, 2 workers (16 vCPU) left 58 pods unschedulable and stability needed
+#     ~48 vCPU. Request an increase for BOTH "Total Regional vCPUs" and the
+#     "Standard DSv3 Family vCPUs" quota in this region before running `adhar up`:
+#       az vm list-usage --location malaysiawest -o table
+#     Ask for at least 48, ideally 64, to leave the autoscaler room.
+
+apiVersion: v1alpha1
+kind: Config
+
+globalSettings:
+  adharContext: adhar-mgmt
+
+  # Drives every URL, the zone external-dns manages, and the wildcard certificate.
+  # Apps are published at <app>.test.adhar.io.
+  defaultHost: test.adhar.io
+
+  # 443, not 8443. A real load balancer fronts the cloud path, so the local Kind
+  # convention of a high port does not apply.
+  defaultHttpPort: 80
+  defaultHttpsPort: 443
+
+  # Single control plane: HA triples control-plane spend and this is verification.
+  enableHAMode: false
+
+  # Required. Let's Encrypt sends expiry notices here.
+  email: tapas.friends@gmail.com
+
+  # Selects Azure DNS for external-dns and the cert-manager DNS-01 solver.
+  # Set to `none` to stay on self-signed certificates with no DNS automation.
+  dnsProvider: azure
+
+providers:
+  azure:
+    type: azure
+    region: malaysiawest
+    primary: true
+
+    # Uses the signed-in `az login` session. No secret in this file, and nothing to
+    # rotate later.
+    #
+    # NOTE for the in-cluster half: external-dns and the cert-manager DNS-01 solver
+    # run inside the cluster and cannot use your CLI session. They need a service
+    # principal with "DNS Zone Contributor" on the test.adhar.io zone. Create one
+    # when you want trusted certificates:
+    #   az ad sp create-for-rbac --name adhar-dns --role "DNS Zone Contributor" \
+    #     --scopes /subscriptions/<sub>/resourceGroups/adhar-rg/providers/Microsoft.Network/dnszones/test.adhar.io
+    useAzureCLI: true
+
+    # Managed AKS instead of kubeadm on VMs. Everything else — packages, GitOps,
+    # SSO, autoscaling, teardown — behaves the same either way. Left off because
+    # the kubeadm path is what the platform is designed around.
+    # useManagedK8s: true
+
+    config:
+      subscriptionId: b8e6d308-0e08-4287-885f-a4766f295f13
+
+      # The existing group that already holds the DNS zone, so the cluster and its
+      # zone stay together and one delete removes both.
+      resourceGroup: adhar-rg
+      location: malaysiawest
+
+      # Standard_D8s_v3 = 8 vCPU / 32 GiB, the closest equivalent to the
+      # e2-standard-8 the GCP run was sized on. Deliberately NOT smaller: 4 workers
+      # (32 vCPU) drove a kubelet NotReady there under load, so a smaller VM does
+      # not save money, it just makes the autoscaler buy more of them.
+      #
+      # This size needs the "Standard DSv3 Family vCPUs" quota, which is separate
+      # from the regional total — a create can fail on either.
+      vmSize: Standard_D8s_v3
+
+      # Premium SSD. StandardSSD_LRS is cheaper but its IOPS ceiling shows up as
+      # etcd latency on a control plane.
+      diskType: Premium_LRS
+
+      # Must not overlap the pod CIDR.
+      vnetCidr: 10.30.0.0/16
+      subnetCidr: 10.30.1.0/24
+
+# At least one template must exist; environments inherit from one by name.
+environmentTemplates:
+  dev-defaults:
+    clusterConfig:
+      - key: autoScale
+        value: "true"
+    # coreServices may not be empty (the schema rejects `{}`). Cilium is pinned for
+    # the same reason as on GCP: it is the CNI AND the Gateway data path, so an
+    # unpinned chart can change kube-proxy replacement behaviour mid-bootstrap.
+    coreServices:
+      cilium:
+        chart:
+          repoURL: https://helm.cilium.io/
+          name: cilium
+          version: 1.15.7
+
+environments:
+  dev:
+    # The schema allows only `production` or `non-production`.
+    type: non-production
+    provider: azure
+    region: malaysiawest
+    template: dev-defaults
+
+    clusterConfig:
+      - key: name
+        value: adhar-mgmt
+      # Keys match ignoring case and separators.
+      - key: machineType
+        value: Standard_D8s_v3
+      # The floor the cluster boots with; the autoscaler buys the rest on demand.
+      # 2 workers will NOT hold the full catalogue alone — expect nodes to be added
+      # during the first sync.
+      - key: nodeCount
+        value: "2"
+      - key: diskSizeGb
+        value: "100"
+      # - key: kubeVersion
+      #   value: v1.37.0
+      # - key: podCIDR
+      #   value: 10.244.0.0/16      # must not overlap vnetCidr
+
+    # On-demand autoscaling: hold a small floor, buy capacity when pods are
+    # actually Pending, give it back when utilisation drops.
+    #
+    # maxWorkers is a quota ceiling as much as a spend ceiling: 1 control plane +
+    # 6 workers at 8 vCPU each is 56 vCPU, which must fit inside BOTH the regional
+    # total and the DSv3 family quota.
+    autoscaling:
+      enabled: true
+      minWorkers: 2
+      maxWorkers: 6
+      nodeGroup: workers
+      scaleDownUtilizationThreshold: "50%"
+      scaleDownDelay: 10m
+      scaleUpCooldown: 3m

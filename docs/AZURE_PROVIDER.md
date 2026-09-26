@@ -11,13 +11,82 @@ that is live-verified on DigitalOcean.
 > for the matrix, and the [DigitalOcean provider guide](DIGITALOCEAN_PROVIDER.md)
 > for everything that is not cloud-specific.
 
+> Preparing the first live run (2026-09-26) on subscription `b8e6d308` got as far
+> as the quota wall, and produced three changes worth knowing about:
+>
+> - **`adhar up` now runs a preflight** for every cloud provider (Kind is exempt)
+>   and refuses to create anything when it fails. On Azure it checks the resource
+>   providers, the VM size's availability in the region, and both of the vCPU
+>   limits that apply. It caught this subscription's 4-vCPU ceiling in under a second, with
+>   nothing created.
+> - **The autoscaling range now reaches the cluster spec.** It was dropped when the
+>   spec was built, so quota checks sized against the starting worker count. The
+>   Azure check reported "needs 24 vCPU" for a cluster configured to reach 56.
+> - `Microsoft.Compute` and `Microsoft.Storage` needed registering first; see
+>   [0.1](#01-register-the-resource-providers).
+
 | | |
 |---|---|
 | Provisioning model | kubeadm on Azure VMs (default); AKS via `useManagedK8s: true` |
 | Kubernetes | `globals.DefaultKubernetesVersion` (v1.37.0) unless pinned |
 | DNS | Azure DNS, or any zone you point at the load balancer |
 
-## 0. DNS: delegate the platform host (do this first)
+## 0. Before you start: three prerequisites, in this order
+
+`adhar up` now checks all three itself and refuses to create anything if one
+fails, naming the remedy. They are listed in the order in which a failure bites.
+
+| # | Prerequisite | Fails as |
+|---|---|---|
+| 0.1 | Resource providers registered | `MissingSubscriptionRegistration`, naming a namespace rather than the VM |
+| 0.2 | vCPU quota for the cluster at FULL size | A create that stops partway, or a cluster that boots and then cannot autoscale |
+| 0.3 | A delegated DNS zone for `defaultHost` | Self-signed certificates; the platform still runs |
+
+### 0.1 Register the resource providers
+
+A fresh subscription has these **unregistered**, and nothing can be created until
+they are. Measured on a real subscription (2026-09-26): `Microsoft.Compute` and
+`Microsoft.Storage` were both `NotRegistered` while `Microsoft.Network` was fine.
+
+```bash
+for ns in Microsoft.Compute Microsoft.Network Microsoft.Storage; do
+  az provider show -n $ns --query registrationState -o tsv
+done
+
+# Registering is idempotent and takes a few minutes.
+az provider register --namespace Microsoft.Compute
+az provider register --namespace Microsoft.Storage
+```
+
+This is worth checking rather than discovering, because the error Azure returns
+names the namespace and not the VM you asked for — and it arrives only after the
+resource group and network already exist.
+
+### 0.2 Raise the vCPU quota for the cluster at FULL size
+
+Azure enforces **two** limits and a create can fail on either:
+
+- **Total Regional vCPUs** — the region-wide ceiling.
+- **The VM family quota**, e.g. `standardDSv3Family` for `Standard_D8s_v3`.
+
+```bash
+az vm list-usage --location <region> -o table
+```
+
+**A new subscription defaults to 4 total regional vCPUs, in every region.** That
+was the live finding on subscription `b8e6d308`: 4 in malaysiawest,
+southeastasia, eastasia, centralindia, southindia, eastus, westus2, westeurope,
+uksouth, australiaeast and japaneast alike. Four vCPUs cannot host this platform.
+
+Size the request against the cluster's **maximum**, not its starting node count.
+For the shipped `config.azure.yaml` — one control plane plus up to 6 workers of
+`Standard_D8s_v3` at 8 vCPU each — that is **56 vCPU**. Ask for 64 to leave room.
+
+Sizing to the floor is the subtle version of this mistake: the cluster boots on 2
+workers, the catalogue needs more, the autoscaler asks, and a limit nobody checked
+refuses. The preflight deliberately reports the full-size figure for that reason.
+
+### 0.3 DNS: delegate the platform host
 
 `globalSettings.defaultHost` drives every URL and the wildcard certificate, so it
 must be a subdomain you delegate to an Azure DNS zone. The platform never creates

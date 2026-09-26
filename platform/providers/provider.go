@@ -511,6 +511,35 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 		},
 	}
 
+	// Carry the environment's autoscaling range onto the node group.
+	//
+	// It was dropped here, so the spec described only the STARTING worker count
+	// and anything reasoning about the cluster's eventual size had nothing to read.
+	// That made the providers' quota preflight understate the requirement — it
+	// approved a cluster against its floor, the cluster booted, and the autoscaler
+	// then asked for capacity a limit refused. Measured on Azure: the check
+	// reported "needs 24 vCPU" for a cluster whose configured maximum was 56.
+	if as := envConfig.Autoscaling; as != nil && as.Enabled {
+		name := as.NodeGroup
+		if name == "" {
+			name = "workers"
+		}
+		for i := range spec.NodeGroups {
+			if spec.NodeGroups[i].Name != name {
+				continue
+			}
+			spec.NodeGroups[i].AutoScaling = types.AutoScalingSpec{
+				MinReplicas: int(as.MinWorkers),
+				MaxReplicas: int(as.MaxWorkers),
+			}
+			// Start at the floor when it is higher than the built-in default, so a
+			// cluster does not boot smaller than its own configuration asks for.
+			if int(as.MinWorkers) > spec.NodeGroups[i].Replicas {
+				spec.NodeGroups[i].Replicas = int(as.MinWorkers)
+			}
+		}
+	}
+
 	// Configure networking
 	spec.Networking = types.NetworkingSpec{
 		CNI:         "cilium",
