@@ -128,14 +128,94 @@ func (p *Provider) preflightVMSize(ctx context.Context, spec *types.ClusterSpec)
 			Status: provider.CheckFail,
 			Detail: fmt.Sprintf("%s is not offered in %s", size, p.config.Location),
 			Fix: fmt.Sprintf("Pick one this region has: "+
-				"az vm list-sizes --location %s -o table", p.config.Location),
+				"az vm list-skus --location %s --resource-type virtualMachines -o table",
+				p.config.Location),
 		}
 	}
+
+	// Supported is not the same as AVAILABLE.
+	//
+	// VirtualMachineSizes.List (above) reports what the region supports, and it
+	// said Standard_D4s_v3 was fine in malaysiawest. The create then failed at the
+	// first VM with
+	//   RESPONSE 409 SkuNotAvailable: Following SKUs have failed for Capacity
+	//   Restrictions: Standard_D4s_v3
+	// after the network, security group, public IP and NIC already existed
+	// (2026-09-26). Only ResourceSKUs carries the per-subscription restrictions
+	// that cause that, so it is the list worth checking.
+	if restriction := p.skuRestriction(ctx, size); restriction != "" {
+		return provider.Check{
+			Name:   "VM size " + size,
+			Status: provider.CheckFail,
+			Detail: fmt.Sprintf("%s is supported in %s but NOT available to this "+
+				"subscription: %s", size, p.config.Location, restriction),
+			Fix: fmt.Sprintf("Choose a size with no restrictions: "+
+				"az vm list-skus --location %s --resource-type virtualMachines "+
+				"--query \"[?!restrictions && capabilities[?name=='vCPUs' && value=='%d']].name\" -o tsv",
+				p.config.Location, cores),
+		}
+	}
+
 	return provider.Check{
 		Name:   "VM size " + size,
 		Status: provider.CheckPass,
-		Detail: fmt.Sprintf("available in %s, %d vCPU each", p.config.Location, cores),
+		Detail: fmt.Sprintf("available to this subscription in %s, %d vCPU each",
+			p.config.Location, cores),
 	}
+}
+
+// skuRestriction returns a human description of why this subscription cannot
+// launch a size in this location, or "" when it can.
+//
+// Restrictions are the difference between "the region offers this" and "you may
+// use it", and they are the reason a create can fail on a size the sizes list
+// happily reported.
+func (p *Provider) skuRestriction(ctx context.Context, size string) string {
+	if p.resourceSKUsClient == nil {
+		return ""
+	}
+	filter := fmt.Sprintf("location eq '%s'", p.config.Location)
+	pager := p.resourceSKUsClient.NewListPager(&armcompute.ResourceSKUsClientListOptions{
+		Filter: &filter,
+	})
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			// Unreadable is not a reason to block: the check below would then be
+			// stricter than the create itself.
+			return ""
+		}
+		for _, sku := range page.Value {
+			if sku == nil || sku.Name == nil || !strings.EqualFold(*sku.Name, size) {
+				continue
+			}
+			if sku.ResourceType == nil || !strings.EqualFold(*sku.ResourceType, "virtualMachines") {
+				continue
+			}
+			var reasons []string
+			for _, r := range sku.Restrictions {
+				if r == nil {
+					continue
+				}
+				reason := ""
+				if r.ReasonCode != nil {
+					reason = string(*r.ReasonCode)
+				}
+				scope := ""
+				if r.Type != nil {
+					scope = string(*r.Type)
+				}
+				if reason != "" || scope != "" {
+					reasons = append(reasons, strings.TrimSpace(reason+" "+scope))
+				}
+			}
+			if len(reasons) > 0 {
+				return strings.Join(reasons, "; ")
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 // preflightQuota compares the subscription's vCPU limits against the cluster at

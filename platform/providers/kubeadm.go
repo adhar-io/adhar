@@ -112,6 +112,21 @@ set -euxo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
+# Make the machine's own hostname resolvable.
+#
+# Without this every single sudo prints
+#   sudo: unable to resolve host <name>: Name or service not known
+# on STDERR, and that line then contaminates anything that captures a command's
+# output. It corrupted the fetched kubeconfig — the warning landed above
+# "apiVersion: v1" and the platform bootstrap died on
+# "yaml: mapping values are not allowed in this context" — after a cluster had
+# been built successfully (Azure, 2026-09-26). Cloud images that do not seed
+# /etc/hosts from the instance name hit this; it costs one line to prevent.
+HOSTNAME_SELF="$(hostname)"
+if ! grep -qE "[[:space:]]${HOSTNAME_SELF}([[:space:]]|$)" /etc/hosts; then
+  echo "127.0.1.1 ${HOSTNAME_SELF}" >>/etc/hosts
+fi
+
 # Kernel prerequisites
 cat >/etc/modules-load.d/k8s.conf <<'EOF'
 overlay
@@ -604,7 +619,21 @@ func FetchAdminKubeconfig(signer ssh.Signer, user, masterIP string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch admin kubeconfig: %w", err)
 	}
+	out = trimToKubeconfig(out)
 	return strings.ReplaceAll(out, "https://127.0.0.1:6443", fmt.Sprintf("https://%s:6443", masterIP)), nil
+}
+
+// trimToKubeconfig drops anything a remote shell printed before the YAML starts.
+//
+// Belt as well as braces: node prep now makes the hostname resolvable so sudo
+// stops warning, but ANY future warning on a captured command would corrupt the
+// kubeconfig exactly the same way, and the resulting error names YAML rather than
+// the shell noise that caused it. A kubeconfig always begins with apiVersion.
+func trimToKubeconfig(out string) string {
+	if i := strings.Index(out, "apiVersion:"); i > 0 {
+		return out[i:]
+	}
+	return out
 }
 
 // LastLines returns the trailing n lines of s for error context.

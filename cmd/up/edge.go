@@ -132,12 +132,36 @@ func edgeDNSSecretData(dnsProvider string, pc *config.ConfigProviderConfig) (map
 	if pc != nil {
 		pcv = *pc
 	}
+	// Keys in the provider's `config:` map arrive LOWER-CASED, so an exact-case
+	// lookup for "subscriptionId" or "dnsResourceGroup" never matched and the edge
+	// DNS step reported all five values missing while the file plainly set them
+	// (Azure, 2026-09-26). Matched ignoring case and separators, like every other
+	// config key on this platform.
+	normalise := func(k string) string {
+		var b strings.Builder
+		for _, r := range strings.ToLower(k) {
+			if r == '_' || r == '-' || r == ' ' || r == '.' {
+				continue
+			}
+			b.WriteRune(r)
+		}
+		return b.String()
+	}
 	extra := func(key string) string {
 		if pcv.Config == nil {
 			return ""
 		}
 		if v, ok := pcv.Config[key].(string); ok {
 			return strings.TrimSpace(v)
+		}
+		want := normalise(key)
+		for k, v := range pcv.Config {
+			if normalise(k) != want {
+				continue
+			}
+			if sv, ok := v.(string); ok {
+				return strings.TrimSpace(sv)
+			}
 		}
 		return ""
 	}

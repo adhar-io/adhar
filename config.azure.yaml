@@ -26,7 +26,10 @@
 #   ✓ DNS. The `test.adhar.io` zone exists in resource group `adhar-rg` and its four
 #     Azure nameservers match what public DNS returns, so delegation is live.
 #     Nothing in the platform creates the zone.
-#   ✗ QUOTA — THE CURRENT BLOCKER. "Total Regional vCPUs" is **4** in every region
+#   ~ QUOTA — RAISED TO 10, still below what the platform needs. Originally 4 in
+#     every region checked. At 10 this file runs a control plane + 1 worker on
+#     Standard_E4bds_v5 (8 vCPU) to verify the PROVIDER path; the full catalogue needs
+#     ~56. Historic note: "Total Regional vCPUs" was **4** in every region
 #     checked (malaysiawest, southeastasia, eastasia, centralindia, southindia,
 #     eastus, westus2, westeurope, uksouth, australiaeast, japaneast). That is the
 #     default on a new subscription and it cannot host this platform: measured on
@@ -78,6 +81,19 @@ providers:
     #     --scopes /subscriptions/<sub>/resourceGroups/adhar-rg/providers/Microsoft.Network/dnszones/test.adhar.io
     useAzureCLI: true
 
+    # The in-cluster DNS components cannot use a CLI session, so they need a service
+    # principal. Its id and tenant are safe to record; the SECRET is read from the
+    # environment and never written here:
+    #
+    #   export AZURE_CLIENT_SECRET='...'
+    #   adhar up -f config.azure.yaml --env dev
+    #
+    # Created with DNS Zone Contributor on the zone ALONE, not on the subscription:
+    #   az ad sp create-for-rbac --name adhar-dns-test --role "DNS Zone Contributor" \
+    #     --scopes /subscriptions/<sub>/resourceGroups/adhar-rg/providers/Microsoft.Network/dnszones/test.adhar.io
+    clientId: 66483720-42ae-4f05-82a6-e3d75db21412
+    tenantId: c95747c3-18ed-485f-9889-34c2ffd38528
+
     # Managed AKS instead of kubeadm on VMs. Everything else — packages, GitOps,
     # SSO, autoscaling, teardown — behaves the same either way. Left off because
     # the kubeadm path is what the platform is designed around.
@@ -86,19 +102,43 @@ providers:
     config:
       subscriptionId: b8e6d308-0e08-4287-885f-a4766f295f13
 
+      # The resource group holding the test.adhar.io DNS ZONE. external-dns and the
+      # cert-manager DNS-01 solver need it, and it is not necessarily the group the
+      # cluster lives in.
+      dnsResourceGroup: adhar-rg
+
       # The existing group that already holds the DNS zone, so the cluster and its
       # zone stay together and one delete removes both.
       resourceGroup: adhar-rg
       location: malaysiawest
 
-      # Standard_D8s_v3 = 8 vCPU / 32 GiB, the closest equivalent to the
-      # e2-standard-8 the GCP run was sized on. Deliberately NOT smaller: 4 workers
-      # (32 vCPU) drove a kubelet NotReady there under load, so a smaller VM does
-      # not save money, it just makes the autoscaler buy more of them.
+      # Standard_D4s_v3 = 4 vCPU / 16 GiB, chosen to FIT THE QUOTA, not because it
+      # is the right size for the platform.
+      #
+      # The subscription allows 10 total regional vCPUs, so a control plane plus one
+      # worker at 4 vCPU each (8 total) is what fits. Standard_D8s_v3 — the
+      # equivalent of the e2-standard-8 the GCP run was sized on — would need 56 for
+      # the configured maximum and is what to return to once quota allows.
+      #
+      # Consequence, stated plainly: 8 vCPU / 32 GiB cannot host the full production
+      # catalogue. On GCP, 16 vCPU left 58 pods unschedulable. This shape verifies
+      # the PROVIDER path — virtual network, subnet, security group, VMs, kubeadm,
+      # Cilium, Gateway, Argo CD, Gitea — and not package convergence.
       #
       # This size needs the "Standard DSv3 Family vCPUs" quota, which is separate
       # from the regional total — a create can fail on either.
-      vmSize: Standard_D8s_v3
+      # Standard_E4bds_v5, not Standard_D4s_v3.
+      #
+      # D4s_v3 is SUPPORTED in malaysiawest and has no capacity for this
+      # subscription — the create failed at the first VM with
+      #   RESPONSE 409 SkuNotAvailable: Following SKUs have failed for Capacity
+      #   Restrictions: Standard_D4s_v3
+      # after the network, security group, public IP and NIC already existed.
+      # Chosen from `az vm list-skus --location malaysiawest` filtered to entries
+      # with NO restrictions, which is the only list that reflects what this
+      # subscription can actually launch. It also has more memory (32 GiB against
+      # 16) at the same 4 vCPU, and its family quota is present at 10.
+      vmSize: Standard_E4bds_v5
 
       # Premium SSD. StandardSSD_LRS is cheaper but its IOPS ceiling shows up as
       # etcd latency on a control plane.
@@ -137,12 +177,11 @@ environments:
         value: adhar-mgmt
       # Keys match ignoring case and separators.
       - key: machineType
-        value: Standard_D8s_v3
-      # The floor the cluster boots with; the autoscaler buys the rest on demand.
-      # 2 workers will NOT hold the full catalogue alone — expect nodes to be added
-      # during the first sync.
+        value: Standard_E4bds_v5
+      # One worker: the 10 vCPU ceiling leaves room for exactly one alongside the
+      # control plane.
       - key: nodeCount
-        value: "2"
+        value: "1"
       - key: diskSizeGb
         value: "100"
       # - key: kubeVersion
@@ -156,10 +195,13 @@ environments:
     # maxWorkers is a quota ceiling as much as a spend ceiling: 1 control plane +
     # 6 workers at 8 vCPU each is 56 vCPU, which must fit inside BOTH the regional
     # total and the DSv3 family quota.
+    # Autoscaling is configured but cannot grow: 1 control plane + 1 worker at
+    # 4 vCPU each is 8 of the 10 vCPU available, and a second worker would need 12.
+    # Raise the quota and this becomes minWorkers 2 / maxWorkers 6 on D8s_v3.
     autoscaling:
       enabled: true
-      minWorkers: 2
-      maxWorkers: 6
+      minWorkers: 1
+      maxWorkers: 1
       nodeGroup: workers
       scaleDownUtilizationThreshold: "50%"
       scaleDownDelay: 10m

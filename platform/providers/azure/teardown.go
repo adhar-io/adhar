@@ -58,7 +58,23 @@ func (p *Provider) trackerFor(ctx context.Context, clusterID string) (*ResourceT
 		return nil, err
 	}
 	if len(t.VirtualMachines) == 0 {
-		return nil, fmt.Errorf("cluster %s not found: no VM tagged managedBy=adhar-platform matches it in subscription %s", clusterID, p.config.SubscriptionID)
+		// No VMs is NOT nothing to do. A teardown that deleted the VMs and stopped,
+		// or a create that failed before any VM existed, leaves the network, the
+		// security group, the NICs, the public IPs and the OS disks behind — all
+		// billing. Refusing here is how those became unreachable: `adhar down`
+		// answered "not found" about a resource group it had itself filled
+		// (2026-09-26).
+		//
+		// The resource group comes from configuration in this case rather than from
+		// a VM's id, and mergeDiscoveredResources finds the rest by name prefix.
+		if p.config.ResourceGroup == "" {
+			return nil, fmt.Errorf("cluster %s not found: no VM matches it and no "+
+				"resourceGroup is configured to search for leftovers", clusterID)
+		}
+		t.ResourceGroup = p.config.ResourceGroup
+		log.Printf("No VMs remain for %s; searching resource group %s for leftover resources",
+			name, t.ResourceGroup)
+		return t, nil
 	}
 	log.Printf("Rediscovered cluster %s: %d VM(s) in resource group %s", name, len(t.VirtualMachines), t.ResourceGroup)
 	return t, nil
@@ -157,6 +173,18 @@ func (p *Provider) deleteClusterResources(ctx context.Context, t *ResourceTracke
 	var problems []string
 	rg := t.ResourceGroup
 
+	// The tracker is a CACHE, not the source of truth — so ask the resource group
+	// what is actually there and merge anything it missed.
+	//
+	// Every loop below iterates a tracker list. A create that failed before saving
+	// its state therefore left them all empty, and the teardown deleted only the
+	// VMs it could find by name while reporting success. Measured on a real run
+	// (2026-09-26): after "Teardown complete — removed: dev", the resource group
+	// still held a virtual network, a security group, two NICs, two public IPs and
+	// two unattached OS disks, all billing. GCP had the identical problem and the
+	// identical fix (discoverUntrackedClusters).
+	p.mergeDiscoveredResources(ctx, rg, clusterName, t)
+
 	for _, vm := range t.VirtualMachines {
 		poller, err := p.virtualMachineClient.BeginDelete(ctx, rg, vm, nil)
 		if err != nil {
@@ -199,6 +227,100 @@ func (p *Provider) deleteClusterResources(ctx context.Context, t *ResourceTracke
 		}
 	}
 	return problems
+}
+
+// mergeDiscoveredResources adds anything in the resource group that belongs to
+// this cluster but is absent from the tracker.
+//
+// Matching is by NAME PREFIX (`<cluster>-`), which is how every resource this
+// provider creates is named, and it deliberately does not require the
+// `managedBy` tag: a resource created just before a failure may never have been
+// tagged, and those are exactly the ones that leak.
+func (p *Provider) mergeDiscoveredResources(ctx context.Context, rg, clusterName string, t *ResourceTracker) {
+	prefix := clusterName + "-"
+	add := func(have []string, name string) []string {
+		for _, h := range have {
+			if strings.EqualFold(h, name) {
+				return have
+			}
+		}
+		log.Printf("Teardown discovered untracked resource %s", name)
+		return append(have, name)
+	}
+
+	if p.virtualMachineClient != nil {
+		pager := p.virtualMachineClient.NewListPager(rg, nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				break
+			}
+			for _, v := range page.Value {
+				if v != nil && v.Name != nil && strings.HasPrefix(*v.Name, prefix) {
+					t.VirtualMachines = add(t.VirtualMachines, *v.Name)
+				}
+			}
+		}
+	}
+	if p.networkInterfaceClient != nil {
+		pager := p.networkInterfaceClient.NewListPager(rg, nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				break
+			}
+			for _, n := range page.Value {
+				if n != nil && n.Name != nil && strings.HasPrefix(*n.Name, prefix) {
+					t.NetworkInterfaces = add(t.NetworkInterfaces, *n.Name)
+				}
+			}
+		}
+	}
+	if p.networkSecurityGroupClient != nil {
+		pager := p.networkSecurityGroupClient.NewListPager(rg, nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				break
+			}
+			for _, g := range page.Value {
+				if g != nil && g.Name != nil && strings.HasPrefix(*g.Name, prefix) {
+					t.NetworkSecurityGroups = add(t.NetworkSecurityGroups, *g.Name)
+				}
+			}
+		}
+	}
+	if p.virtualNetworkClient != nil {
+		pager := p.virtualNetworkClient.NewListPager(rg, nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				break
+			}
+			for _, v := range page.Value {
+				if v != nil && v.Name != nil && strings.HasPrefix(*v.Name, prefix) {
+					t.VirtualNetworks = add(t.VirtualNetworks, *v.Name)
+				}
+			}
+		}
+	}
+	// Public IPs last but far from least: sweepPublicIPs only walks the tracker, so
+	// two of these survived an otherwise-complete teardown. A public address that is
+	// never released keeps billing and, on a static SKU, stays reserved.
+	if p.publicIPClient != nil {
+		pager := p.publicIPClient.NewListPager(rg, nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				break
+			}
+			for _, ip := range page.Value {
+				if ip != nil && ip.Name != nil && strings.HasPrefix(*ip.Name, prefix) {
+					t.PublicIPs = add(t.PublicIPs, *ip.Name)
+				}
+			}
+		}
+	}
 }
 
 // sweepLoadBalancers deletes the load balancers the in-cluster CCM created for
@@ -299,6 +421,19 @@ func diskIsOrphan(d *armcompute.Disk, clusterName string, purge bool) (bool, str
 	// belonged to is the one being deleted.
 	if v, ok := d.Tags["kubernetes.io-created-for-pvc-namespace"]; ok && v != nil && clusterName != "" {
 		return true, "CSI disk of this cluster"
+	}
+	// A node's OS disk. Azure does NOT delete these with the VM unless the VM was
+	// created asking it to, so they outlive the cluster and bill indefinitely.
+	// After one real teardown two of them remained `Unattached` in the resource
+	// group, and nothing would ever have removed them: they are not CSI disks, so
+	// the pvc- test below skipped them, and they carry no PVC tag (2026-09-26).
+	//
+	// They hold a destroyed node's root filesystem — no user data — so they go with
+	// the cluster and do NOT need --purge-orphaned-volumes. VMs are created with
+	// DeleteOption=Delete now, which stops new ones being orphaned; this covers
+	// clusters built before that.
+	if clusterName != "" && strings.HasPrefix(name, clusterName+"-") && strings.Contains(name, "_OsDisk_") {
+		return true, "OS disk of this cluster's node"
 	}
 	if !strings.HasPrefix(name, "pvc-") {
 		return false, "not a CSI-provisioned disk"

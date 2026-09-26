@@ -432,6 +432,22 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 		}
 	}
 
+	// Reuse an existing cluster of this name instead of trying to build a second one.
+	//
+	// `adhar up` is the command people re-run after a failure, and the platform
+	// bootstrap that follows cluster creation has plenty of ways to fail — a missing
+	// DNS credential, say. Every re-run then asked the cloud for a WHOLE NEW cluster
+	// while the previous one was still running, which on a quota-limited subscription
+	// fails immediately and confusingly: "cannot hold this cluster, 8 of 10 vCPU
+	// already in use" — the 8 being its own previous attempt (Azure, 2026-09-26).
+	//
+	// --recreate is the way to ask for a fresh one, and it has already run above.
+	if existing := findExistingCluster(ctx, prov, envConfig.Name); existing != nil {
+		logger.Infof("Cluster '%s' already exists (%s, status %s) — reusing it; "+
+			"pass --recreate to build a fresh one", envConfig.Name, existing.ID, existing.Status)
+		return &ProvisionResult{Provider: prov, Cluster: existing}, nil
+	}
+
 	// Create the cluster
 	logger.Infof("Creating cluster '%s' using %s provider in region %s", envConfig.Name, providerType, envConfig.ResolvedRegion)
 
@@ -468,6 +484,30 @@ func buildProviderConfig(envConfig *config.ResolvedEnvironmentConfig) map[string
 	}
 
 	return providerConfig
+}
+
+// findExistingCluster returns the provider's cluster of this name, or nil.
+//
+// Deliberately forgiving: a provider that cannot list clusters returns nothing and
+// the caller proceeds to create, which is the behaviour that existed before. The
+// point is only to avoid building a second cluster next to a healthy first one.
+func findExistingCluster(ctx context.Context, prov Provider, name string) *types.Cluster {
+	clusters, err := prov.ListClusters(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, c := range clusters {
+		if c == nil || c.Name != name {
+			continue
+		}
+		// A cluster the provider itself reports as failed is not something to
+		// reuse — it is something to tear down.
+		if c.Status == types.ClusterStatusError {
+			return nil
+		}
+		return c
+	}
+	return nil
 }
 
 // buildClusterSpec creates a cluster specification based on environment configuration

@@ -106,52 +106,74 @@ func init() {
 func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	azureConfig := &Config{}
 
-	// Parse Azure-specific configuration from config section
+	// Parse the provider's `config:` section.
+	//
+	// Keys are matched IGNORING CASE AND SEPARATORS, the same rule the
+	// environment's clusterConfig uses. This is not a convenience: the map arrives
+	// with its keys already lower-cased, so the previous lookups for `resourceGroup`
+	// and `resource_group` could never match the `resourcegroup` that actually
+	// arrived. Five of seven settings were silently dropped on a real config
+	// (2026-09-26) — resourceGroup, vmSize, diskType, vnetCidr and subnetCidr —
+	// and only `subscriptionid` and `location` survived because they happen to be
+	// single lower-case words. The cluster was then built in a resource group the
+	// operator never asked for, with a default VM size and default CIDRs, and
+	// nothing reported that the file had been ignored.
 	if configSection, ok := config["config"].(map[string]interface{}); ok {
-		log.Printf("Azure config section found, keys: %+v", configSection)
-		if subscriptionID, ok := configSection["subscriptionId"].(string); ok {
-			azureConfig.SubscriptionID = subscriptionID
-			log.Printf("Azure config: subscriptionId = %s", subscriptionID)
-		} else if subscriptionID, ok := configSection["subscriptionid"].(string); ok {
-			azureConfig.SubscriptionID = subscriptionID
-			log.Printf("Azure config: subscriptionid = %s", subscriptionID)
-		} else {
-			log.Printf("Azure config: subscriptionId not found or not a string")
+		norm := normaliseKeys(configSection)
+		get := func(aliases ...string) string {
+			for _, a := range aliases {
+				if v, ok := norm[normaliseKey(a)].(string); ok && v != "" {
+					return v
+				}
+			}
+			return ""
 		}
-		if resourceGroup, ok := configSection["resource_group"].(string); ok {
-			azureConfig.ResourceGroup = resourceGroup
-			log.Printf("Azure config: resource_group = %s", resourceGroup)
+		azureConfig.SubscriptionID = get("subscriptionId", "subscription")
+		azureConfig.ResourceGroup = get("resourceGroup", "rg")
+		azureConfig.Location = get("location", "region")
+		azureConfig.VMSize = get("vmSize", "machineType")
+		azureConfig.VNetCIDR = get("vnetCidr", "vnetCIDR")
+		azureConfig.SubnetCIDR = get("subnetCidr", "subnetCIDR")
+		azureConfig.DiskType = get("diskType")
+
+		// Report what was UNDERSTOOD, and name anything that was not. A key that
+		// goes nowhere has to say so: the whole failure above was silent.
+		log.Printf("Azure config: subscriptionId=%q resourceGroup=%q location=%q vmSize=%q "+
+			"vnetCidr=%q subnetCidr=%q diskType=%q",
+			azureConfig.SubscriptionID, azureConfig.ResourceGroup, azureConfig.Location,
+			azureConfig.VMSize, azureConfig.VNetCIDR, azureConfig.SubnetCIDR, azureConfig.DiskType)
+		known := map[string]bool{}
+		for _, k := range []string{"subscriptionId", "subscription", "resourceGroup", "rg",
+			"location", "region", "vmSize", "machineType", "vnetCidr", "vnetCIDR",
+			"subnetCidr", "subnetCIDR", "diskType"} {
+			known[normaliseKey(k)] = true
 		}
-		// Also try the camelCase variant
-		if resourceGroup, ok := configSection["resourceGroup"].(string); ok && azureConfig.ResourceGroup == "" {
-			azureConfig.ResourceGroup = resourceGroup
-			log.Printf("Azure config: resourceGroup = %s", resourceGroup)
+		for k := range norm {
+			if !known[k] {
+				log.Printf("Azure config: WARNING key %q is not recognised and was ignored", k)
+			}
 		}
-		if location, ok := configSection["location"].(string); ok {
-			azureConfig.Location = location
-			log.Printf("Azure config: location = %s", location)
-		}
-		if vmSize, ok := configSection["vm_size"].(string); ok {
-			azureConfig.VMSize = vmSize
-			log.Printf("Azure config: vm_size = %s", vmSize)
-		}
-		// Also try the camelCase variant
-		if vmSize, ok := configSection["vmSize"].(string); ok && azureConfig.VMSize == "" {
-			azureConfig.VMSize = vmSize
-			log.Printf("Azure config: vmSize = %s", vmSize)
-		}
-		if vnetCIDR, ok := configSection["vnet_cidr"].(string); ok {
-			azureConfig.VNetCIDR = vnetCIDR
-			log.Printf("Azure config: vnet_cidr = %s", vnetCIDR)
-		}
-		if subnetCIDR, ok := configSection["subnet_cidr"].(string); ok {
-			azureConfig.SubnetCIDR = subnetCIDR
-			log.Printf("Azure config: subnet_cidr = %s", subnetCIDR)
-		}
-		if diskType, ok := configSection["disk_type"].(string); ok {
-			azureConfig.DiskType = diskType
-			log.Printf("Azure config: disk_type = %s", diskType)
-		}
+	}
+
+	// Fall back to the standard AZURE_* environment variables for the service
+	// principal.
+	//
+	// These are needed even when PROVISIONING uses `useAzureCLI: true`, because the
+	// in-cluster components cannot use a CLI session: azure.json is what the
+	// cloud-controller-manager and the disk CSI driver authenticate with, and with
+	// empty credentials the controller-manager crash-loops. Reading them from the
+	// environment keeps the secret out of the committed config file.
+	if azureConfig.ClientID == "" {
+		azureConfig.ClientID = os.Getenv("AZURE_CLIENT_ID")
+	}
+	if azureConfig.ClientSecret == "" {
+		azureConfig.ClientSecret = os.Getenv("AZURE_CLIENT_SECRET")
+	}
+	if azureConfig.TenantID == "" {
+		azureConfig.TenantID = os.Getenv("AZURE_TENANT_ID")
+	}
+	if azureConfig.SubscriptionID == "" {
+		azureConfig.SubscriptionID = os.Getenv("AZURE_SUBSCRIPTION_ID")
 	}
 
 	// Parse top-level region as location if not set in config section
@@ -191,6 +213,28 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	}
 
 	return azureConfig, nil
+}
+
+// normaliseKey strips case and separators so machineType, machine_type,
+// MACHINE-TYPE and machinetype are one key.
+func normaliseKey(k string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(k) {
+		if r == '_' || r == '-' || r == ' ' || r == '.' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// normaliseKeys re-keys a config map through normaliseKey.
+func normaliseKeys(in map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(in))
+	for k, v := range in {
+		out[normaliseKey(k)] = v
+	}
+	return out
 }
 
 // createAzureCredentials creates Azure credentials based on the available authentication methods
@@ -350,6 +394,9 @@ type Provider struct {
 	// read them is not a reason to refuse a create — see checkQuota.
 	usageClient   *armcompute.UsageClient
 	vmSizesClient *armcompute.VirtualMachineSizesClient
+	// resourceSKUsClient reports per-subscription capacity restrictions, which
+	// the sizes list does not — see preflightVMSize.
+	resourceSKUsClient *armcompute.ResourceSKUsClient
 
 	// Resource-provider registration (preflight.go). A fresh subscription has
 	// Microsoft.Compute unregistered, and the resulting failure names
@@ -505,6 +552,14 @@ func NewProvider(config *Config) (*Provider, error) {
 		return nil, fmt.Errorf("failed to create usage client: %w", err)
 	}
 
+	// ResourceSKUs, not just VirtualMachineSizes. See preflightVMSize: the sizes
+	// list says what a region SUPPORTS, this says what this SUBSCRIPTION can
+	// actually launch, because only this one carries the capacity restrictions.
+	resourceSKUsClient, err := armcompute.NewResourceSKUsClient(config.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Azure resource SKUs client: %w", err)
+	}
+
 	vmSizesClient, err := armcompute.NewVirtualMachineSizesClient(config.SubscriptionID, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM sizes client: %w", err)
@@ -528,6 +583,7 @@ func NewProvider(config *Config) (*Provider, error) {
 		availabilitySetClient:      availabilitySetClient,
 		diskClient:                 diskClient,
 		providersClient:            providersClient,
+		resourceSKUsClient:         resourceSKUsClient,
 		usageClient:                usageClient,
 		vmSizesClient:              vmSizesClient,
 	}
@@ -925,6 +981,40 @@ func (p *Provider) createResourceGroup(ctx context.Context, resourceGroupName st
 
 // createVirtualNetwork creates a virtual network using Azure SDK
 func (p *Provider) createVirtualNetwork(ctx context.Context, resourceGroupName, vnetName string) error {
+	// Reuse an existing network rather than replacing it.
+	//
+	// On Azure a PUT to a virtual network REPLACES it, and the body built below
+	// carries no subnets — so submitting it against an existing network means
+	// "remove every subnet". Once a NIC is attached, Azure refuses:
+	//
+	//   RESPONSE 400: InUseSubnetCannotBeDeleted
+	//   Subnet dev-subnet is in use by .../networkInterfaces/dev-master-0-nic
+	//
+	// That made an interrupted `adhar up` impossible to retry: the first attempt
+	// created the network, subnet, security group, public IP and NIC, and every
+	// later attempt died on this call before reaching the VM. Hit for real on
+	// 2026-09-26, with the retry failing against the first attempt's own work.
+	//
+	// Creating the network is also the one step that must be idempotent for the
+	// others to be reachable at all, since createSubnet Gets it first.
+	if existing, err := p.virtualNetworkClient.Get(ctx, resourceGroupName, vnetName, nil); err == nil {
+		have := ""
+		if existing.Properties != nil && existing.Properties.AddressSpace != nil &&
+			len(existing.Properties.AddressSpace.AddressPrefixes) > 0 &&
+			existing.Properties.AddressSpace.AddressPrefixes[0] != nil {
+			have = *existing.Properties.AddressSpace.AddressPrefixes[0]
+		}
+		if have != "" && have != p.config.VNetCIDR {
+			// Refuse rather than silently building on a network with a different
+			// address space: the subnet and pod CIDRs are derived from this.
+			return fmt.Errorf("virtual network %s already exists with address space %s, "+
+				"but this configuration asks for %s — delete it or set vnetCidr to match",
+				vnetName, have, p.config.VNetCIDR)
+		}
+		log.Printf("Virtual network %s already exists (%s); reusing it", vnetName, have)
+		return nil
+	}
+
 	log.Printf("Creating virtual network: %s with CIDR: %s", vnetName, p.config.VNetCIDR)
 
 	vnet := armnetwork.VirtualNetwork{
@@ -1208,6 +1298,14 @@ func (p *Provider) createVirtualMachine(ctx context.Context, resourceGroupName, 
 				OSDisk: &armcompute.OSDisk{
 					CreateOption: toPtr(armcompute.DiskCreateOptionTypesFromImage),
 					DiskSizeGB:   &p.config.DiskSizeGB,
+					// Delete the OS disk WITH the VM. Azure's default is to keep it,
+					// so every deleted node used to leave an Unattached managed disk
+					// behind that nothing would ever remove — not the teardown's CSI
+					// sweep (these are not pvc-* disks) and not the autoscaler when it
+					// retires a node. Two of them survived a real teardown and kept
+					// billing (2026-09-26). A node's root filesystem holds nothing
+					// worth keeping once the node is gone.
+					DeleteOption: toPtr(armcompute.DiskDeleteOptionTypesDelete),
 					ManagedDisk: &armcompute.ManagedDiskParameters{
 						StorageAccountType: toPtr(armcompute.StorageAccountTypes(p.config.DiskType)),
 					},
@@ -1539,7 +1637,140 @@ func (p *Provider) ListClusters(ctx context.Context) ([]*types.Cluster, error) {
 		clusters = append(clusters, discoveredClusters...)
 	}
 
+	// …and clusters whose VMs are already gone but whose NETWORK survives.
+	//
+	// discoverExistingClusters scans virtual machines only, so a cluster that lost
+	// its VMs — a teardown that got that far and no further, or a failed create —
+	// became invisible, and with it every leftover: the virtual network, the
+	// security group, the NICs, the public IPs and the OS disks. `adhar down` then
+	// answered "Nothing was deleted" about a resource group that was still billing,
+	// with no remaining way to clean it up (2026-09-26). GCP needed the same second
+	// pass for the same reason.
+	clusters = append(clusters, p.discoverClustersByNetwork(ctx, clusters)...)
+
 	return clusters, nil
+}
+
+// discoverClustersByNetwork finds clusters from the resources this provider names
+// after them — `<cluster>-vnet` and `<cluster>-nsg` — so a cluster with no VMs
+// left is still deletable. `known` is what has already been found, so the same
+// cluster is not reported twice.
+func (p *Provider) discoverClustersByNetwork(ctx context.Context, known []*types.Cluster) []*types.Cluster {
+	rg := p.config.ResourceGroup
+	if rg == "" || p.virtualNetworkClient == nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(known))
+	for _, c := range known {
+		if c != nil {
+			seen[c.Name] = true
+		}
+	}
+
+	found := map[string]bool{}
+	collect := func(name, suffix string) {
+		if !strings.HasSuffix(name, suffix) {
+			return
+		}
+		cluster := strings.TrimSuffix(name, suffix)
+		if cluster == "" || seen[cluster] {
+			return
+		}
+		found[cluster] = true
+	}
+
+	pager := p.virtualNetworkClient.NewListPager(rg, nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			break
+		}
+		for _, v := range page.Value {
+			if v != nil && v.Name != nil {
+				collect(*v.Name, "-vnet")
+			}
+		}
+	}
+	if p.networkSecurityGroupClient != nil {
+		nsgPager := p.networkSecurityGroupClient.NewListPager(rg, nil)
+		for nsgPager.More() {
+			page, err := nsgPager.NextPage(ctx)
+			if err != nil {
+				break
+			}
+			for _, g := range page.Value {
+				if g != nil && g.Name != nil {
+					collect(*g.Name, "-nsg")
+				}
+			}
+		}
+	}
+	// Public IPs and NICs are named after the NODE (`<cluster>-master-0-pip`), not
+	// after the cluster, so the suffix test above cannot see them. They are worth
+	// their own pass: a teardown that removed the network but not these left two
+	// addresses billing, and with the vnet gone nothing could find the cluster to
+	// try again (2026-09-26).
+	nodePart := func(name string) string {
+		for _, marker := range []string{"-master-", "-worker-"} {
+			if i := strings.Index(name, marker); i > 0 {
+				return name[:i]
+			}
+		}
+		return ""
+	}
+	if p.publicIPClient != nil {
+		ipPager := p.publicIPClient.NewListPager(rg, nil)
+		for ipPager.More() {
+			page, err := ipPager.NextPage(ctx)
+			if err != nil {
+				break
+			}
+			for _, ip := range page.Value {
+				if ip == nil || ip.Name == nil {
+					continue
+				}
+				if c := nodePart(*ip.Name); c != "" && !seen[c] {
+					found[c] = true
+				}
+			}
+		}
+	}
+	if p.networkInterfaceClient != nil {
+		nicPager := p.networkInterfaceClient.NewListPager(rg, nil)
+		for nicPager.More() {
+			page, err := nicPager.NextPage(ctx)
+			if err != nil {
+				break
+			}
+			for _, n := range page.Value {
+				if n == nil || n.Name == nil {
+					continue
+				}
+				if c := nodePart(*n.Name); c != "" && !seen[c] {
+					found[c] = true
+				}
+			}
+		}
+	}
+
+	out := make([]*types.Cluster, 0, len(found))
+	for name := range found {
+		log.Printf("Discovered cluster %q from leftover network resources in %s (no VMs remain)", name, rg)
+		out = append(out, &types.Cluster{
+			ID:       fmt.Sprintf("azure-%s", name),
+			Name:     name,
+			Provider: "azure",
+			Region:   p.config.Location,
+			// Error, not Running: there are no nodes. It exists only to be deleted.
+			Status: types.ClusterStatusError,
+			Tags:   map[string]string{"adhar.io/managed-by": "adhar"},
+			Metadata: map[string]interface{}{
+				"resourceGroup": rg,
+				"discoveredBy":  "leftover network resources",
+			},
+		})
+	}
+	return out
 }
 
 // discoverExistingClusters scans Azure VMs to find clusters that aren't in our state

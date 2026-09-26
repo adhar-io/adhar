@@ -16,6 +16,20 @@ import (
 const (
 	azureCCMChartVersion = "1.32.0"  // chart cloud-provider-azure
 	azureCSIChartVersion = "v1.32.0" // chart azuredisk-csi-driver
+
+	// azureCCMImageTag must be set EXPLICITLY. The chart leaves `imageTag`
+	// commented out in its defaults, so an install that does not supply one
+	// renders `mcr.microsoft.com/oss/kubernetes/azure-cloud-controller-manager:`
+	// with an empty tag, and the API server rejects every object:
+	//
+	//   DaemonSet.apps "cloud-node-manager" is invalid:
+	//     spec.template.spec.containers[0].image: Required value
+	//   Deployment.apps "cloud-controller-manager" is invalid: … Required value
+	//
+	// That failed a live bring-up AFTER kubeadm had succeeded and both VMs were
+	// running (2026-09-26), which is the most expensive place to discover it.
+	// Kept in step with the chart's own 1.32 line (newest patch there).
+	azureCCMImageTag = "v1.32.9"
 )
 
 // azureCloudConfig is the `azure.json` both cloud-provider-azure and the disk
@@ -51,7 +65,13 @@ func (p *Provider) cloudIntegrationSteps(clusterName, resourceGroup, vnet, subne
 	}
 	return []provider.IntegrationStep{
 		provider.StepEnsureHelm(),
-		provider.StepSecret("azure.json for CCM/CSI", "kube-system", "azure-cloud-provider", map[string]string{"cloud-config": cloudConfig}),
+		// BOTH, because the two consumers read it differently: the CSI driver takes
+		// the Secret, while the cloud-provider chart mounts /etc/kubernetes by
+		// hostPath and passes --cloud-config=/etc/kubernetes/azure.json, so the
+		// controller-manager needs the FILE and died without it.
+		provider.StepSecret("azure.json Secret for the CSI driver", "kube-system", "azure-cloud-provider", map[string]string{"cloud-config": cloudConfig}),
+		provider.StepWriteNodeFile("azure.json on the control plane for the CCM",
+			"/etc/kubernetes/azure.json", cloudConfig, "0600"),
 		provider.StepHelmInstall("cloud-provider-azure", "cloud-provider-azure", "cloud-provider-azure",
 			"https://raw.githubusercontent.com/kubernetes-sigs/cloud-provider-azure/master/helm/repo", "cloud-provider-azure", azureCCMChartVersion, "kube-system", map[string]string{
 				"infra.clusterName": clusterName,
@@ -59,6 +79,12 @@ func (p *Provider) cloudIntegrationSteps(clusterName, resourceGroup, vnet, subne
 				"cloudControllerManager.configureCloudRoutes":  "false",
 				"cloudControllerManager.cloudConfigSecretName": "azure-cloud-provider",
 				"cloudControllerManager.replicas":              "1",
+				// REQUIRED: the chart ships no default tag — see azureCCMImageTag.
+				"cloudControllerManager.imageTag": azureCCMImageTag,
+				"cloudNodeManager.imageTag":       azureCCMImageTag,
+				// No Windows nodes on this platform, and the Windows DaemonSet is
+				// the third object that fails for a missing image when enabled.
+				"cloudNodeManager.enableWindows": "false",
 			}),
 		provider.StepHelmInstall("Azure Disk CSI driver", "azuredisk-csi-driver", "azuredisk-csi-driver",
 			"https://raw.githubusercontent.com/kubernetes-sigs/azuredisk-csi-driver/master/charts", "azuredisk-csi-driver", azureCSIChartVersion, "kube-system", map[string]string{

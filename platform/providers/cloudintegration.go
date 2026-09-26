@@ -12,6 +12,7 @@ package provider
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -107,6 +108,32 @@ func StepSecret(desc, namespace, name string, literals map[string]string) Integr
 	cmd := fmt.Sprintf("%s -n %s get secret %s >/dev/null 2>&1 || %s -n %s create secret generic %s %s",
 		KubectlAdmin, namespace, name, KubectlAdmin, namespace, name, strings.Join(args, " "))
 	return IntegrationStep{Desc: desc, Cmd: KubectlAdmin + " get namespace " + namespace + " >/dev/null 2>&1 || " + KubectlAdmin + " create namespace " + namespace + "; " + cmd}
+}
+
+// StepWriteNodeFile writes a file on the control-plane node itself, not into the
+// cluster.
+//
+// Some cloud charts read their configuration from a HOST path rather than from a
+// Secret, whatever a `cloudConfigSecretName` value may suggest. Azure's
+// cloud-provider chart mounts `/etc/kubernetes` by hostPath and passes
+// `--cloud-config=/etc/kubernetes/azure.json`, so the controller died on
+//
+//	Couldn't open cloud provider configuration /etc/kubernetes/azure.json
+//
+// while the Secret it was also told about sat unused (2026-09-26). The file has to
+// be where the chart looks.
+//
+// A quoted heredoc carries the content, so nothing inside it can break out, and
+// the mode is applied before the content lands for anything holding credentials.
+func StepWriteNodeFile(desc, path, content, mode string) IntegrationStep {
+	if mode == "" {
+		mode = "0600"
+	}
+	cmd := fmt.Sprintf("sudo mkdir -p %s && sudo install -m %s /dev/null %s && "+
+		"sudo tee %s >/dev/null <<'ADHAR_NODE_FILE'\n%s\nADHAR_NODE_FILE",
+		ShellQuote(filepath.Dir(path)), mode, ShellQuote(path), ShellQuote(path),
+		strings.TrimSpace(content))
+	return IntegrationStep{Desc: desc, Cmd: cmd}
 }
 
 // StepManifest applies an inline manifest (a StorageClass, a small patch
