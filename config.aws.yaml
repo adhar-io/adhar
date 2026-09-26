@@ -1,0 +1,186 @@
+# Adhar on AWS for dev.adhar.io — kubeadm on EC2, autoscaled from a small floor.
+#
+# examples/aws-config.yaml keeps the generic version; this file holds the live
+# values for account 821346388607. Credentials are NOT in here (see `providers`).
+#
+#   adhar up   -f config.aws.yaml --env dev --dry-run   # validate, no spend
+#   adhar up   -f config.aws.yaml --env dev             # deploy
+#   adhar down -f config.aws.yaml --env dev             # tear down
+#   adhar down -f config.aws.yaml --env dev --purge-orphaned-volumes
+#
+# STATUS: first live bring-up. AWS is built and render-verified; the kubeadm path
+# is shared with DigitalOcean (the one cloud proven live) but has never been run
+# on EC2. Treat the first `adhar up` as a bring-up exercise — GCP took eleven
+# provider defects and three quota traps to reach a working platform.
+#
+# BEFORE THE FIRST RUN — four prerequisites, in this order. The full runbook and a
+# preflight script that checks all four are in docs/AWS_PROVIDER.md §0.
+#
+#   1. SERVICE CONTROL POLICIES. If the account is in an AWS Organization, an SCP
+#      can deny EC2 even when `AdministratorAccess` is attached, and nothing in the
+#      member account can grant it back. This is FIRST because it looks like an IAM
+#      problem and is not: the error says "explicit deny in a service control
+#      policy" only at the very end of a long line. Fixable only from the
+#      management account. Re-test with a repeated sample — while an SCP is being
+#      edited, calls pass briefly and then go back to denied.
+#   2. IAM. EC2 (VPC, subnets, gateways, route tables, security groups, key pairs,
+#      instances, volumes), ELB read + delete for the load balancer the in-cluster
+#      CCM creates, servicequotas:GetServiceQuota, sts:GetCallerIdentity.
+#      docs/AWS_PROVIDER.md §1 has a ready-to-paste policy.
+#   3. QUOTA. The region's Running On-Demand Standard vCPU limit (L-1216C47A) must
+#      cover the WHOLE cluster at maxWorkers, not just the start: 1 control plane +
+#      6 workers of m6i.2xlarge = 56 vCPU. New accounts often start at 5. Raising
+#      it is a support case, not instant.
+#   4. DNS. Verified for this file on 2026-09-26: the public hosted zone
+#      dev.adhar.io exists (Z1026352IPZ05ZEOYFJ7) and its four Route 53
+#      nameservers match what public DNS returns, so delegation is live. Nothing in
+#      the platform creates the zone, and the AWS PROVIDER ITSELF never calls
+#      Route53 — external-dns and the cert-manager DNS-01 solver do, from inside
+#      the cluster.
+
+apiVersion: v1alpha1
+kind: Config
+
+globalSettings:
+  adharContext: adhar-mgmt
+
+  # Drives every URL, the zone external-dns manages, and the wildcard
+  # certificate. Apps are published at <app>.dev.adhar.io.
+  defaultHost: dev.adhar.io
+
+  # 443, not 8443. A real load balancer fronts the cloud path, so the local Kind
+  # convention of a high port does not apply.
+  defaultHttpPort: 80
+  defaultHttpsPort: 443
+
+  # A single control plane. HA triples the control-plane spend and this is a
+  # verification run.
+  enableHAMode: false
+
+  # Required. Let's Encrypt sends expiry notices here.
+  email: tapas.friends@gmail.com
+
+  # Selects Route53 for external-dns and the cert-manager DNS-01 solver. Set to
+  # `none` to stay on self-signed certificates with no DNS automation.
+  dnsProvider: aws
+
+providers:
+  aws:
+    type: aws
+    region: ap-south-1
+    primary: true
+
+    # Credentials come from the ENVIRONMENT, never from this file — it is
+    # committed, and a key in git is a key that has to be rotated.
+    #
+    #   export AWS_ACCESS_KEY_ID=...
+    #   export AWS_SECRET_ACCESS_KEY=...
+    #   adhar up -f config.aws.yaml --env dev
+    #
+    # `profile: <name>` or `credentialsFile: ~/.aws/credentials` work too.
+    useEnvironment: true
+
+    # Managed EKS instead of kubeadm on EC2. Everything else — packages, GitOps,
+    # SSO, autoscaling, teardown — behaves the same either way. Left off because
+    # the kubeadm path is what the platform is designed around, and because EKS
+    # adds a control-plane charge plus its own IAM surface.
+    # useManagedK8s: true
+
+    # Node image. Defaults to the newest Ubuntu 24.04 LTS (noble) from Canonical
+    # for x86_64 — the same LTS the GCP provider boots, which it did not used to
+    # be. Override any part of it:
+    #
+    #   ami: ami-0123456789abcdef0        # pin exactly; skips the lookup
+    #   imageNameFilter: "my/hardened-*"  # a private or hardened base image
+    #   imageOwner: "111122223333"        # whose images to search
+    #   imageArchitecture: arm64          # with a Graviton machineType
+    #
+    # Pin `ami` for a reproducible or air-gapped build: without it every run takes
+    # whatever Canonical published most recently.
+
+    vpcConfig:
+      # The provider creates one VPC with a public subnet (10.0.1.0/24, nodes)
+      # and a private subnet (10.0.2.0/24, tagged for internal load balancers but
+      # currently unused by nodes). Must not overlap the pod CIDR below.
+      cidr: 10.0.0.0/16
+      subnetCidrs:
+        - 10.0.1.0/24
+        - 10.0.2.0/24
+
+# At least one template must exist; environments inherit from one by name.
+environmentTemplates:
+  dev-defaults:
+    clusterConfig:
+      - key: autoScale
+        value: "true"
+    # coreServices may not be empty (the schema rejects `{}`). Cilium is pinned
+    # here for the same reason as on GCP: it is the CNI AND the Gateway data
+    # path, so an unpinned chart can change kube-proxy replacement behaviour
+    # under a cluster mid-bootstrap.
+    coreServices:
+      cilium:
+        chart:
+          repoURL: https://helm.cilium.io/
+          name: cilium
+          version: 1.15.7
+
+environments:
+  dev:
+    # The schema allows only `production` or `non-production`. This is a
+    # verification environment, so non-production — it drives the environment
+    # template defaults, not the size of anything.
+    type: non-production
+    provider: aws
+    region: ap-south-1
+    template: dev-defaults
+
+    clusterConfig:
+      - key: name
+        value: adhar-mgmt
+      # Keys match ignoring case and separators, so machineType, machine_type and
+      # MACHINE_TYPE are the same key.
+      #
+      # m6i.2xlarge = 8 vCPU / 32 GiB, the closest equivalent to the
+      # e2-standard-8 that the GCP run was sized on. Smaller was measured there
+      # and does not hold the platform: 2 workers (16 vCPU) left 58 pods
+      # unschedulable and 4 workers (32 vCPU) drove a kubelet NotReady under
+      # load. Choosing a smaller instance here would not save money, it would
+      # just make the autoscaler buy more of them.
+      - key: machineType
+        value: m6i.2xlarge
+      # START SMALL. This is the floor the cluster boots with; the autoscaler
+      # below buys capacity when pods actually go Pending, which is what
+      # "on-demand" means in practice. 2 workers will NOT hold the full
+      # production catalogue on their own — expect the autoscaler to add nodes
+      # during the first sync, and expect the platform to be unusable until it
+      # has.
+      - key: nodeCount
+        value: "2"
+      # 100 GiB gp3 root volumes. gp3 is the default StorageClass (`adhar-block`)
+      # the CSI driver installs, and gp2 costs more for less throughput.
+      - key: diskSizeGb
+        value: "100"
+      - key: diskType
+        value: gp3
+      # - key: kubeVersion
+      #   value: v1.37.0
+      # - key: podCIDR
+      #   value: 10.244.0.0/16      # must not overlap the VPC CIDR above
+
+    # On-demand autoscaling: hold a small floor, buy capacity only when pods are
+    # actually Pending for it, and give it back when utilisation drops.
+    #
+    # The ceiling is a SPEND ceiling and a quota ceiling at once: 6 workers plus
+    # the control plane is 56 vCPU, which must fit inside the region's
+    # Running On-Demand Standard vCPU limit. Raising maxWorkers without raising
+    # that quota buys nothing — the create simply fails.
+    autoscaling:
+      enabled: true
+      minWorkers: 2
+      maxWorkers: 6
+      nodeGroup: workers
+      scaleDownUtilizationThreshold: "50%"
+      # A node takes minutes to join. Removals are deliberately slower than
+      # additions: losing one to a gap between sync waves costs more than it saves.
+      scaleDownDelay: 10m
+      scaleUpCooldown: 3m

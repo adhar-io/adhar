@@ -577,6 +577,43 @@ func (p *Provider) cleanupVPCInternetGateways(ctx context.Context, vpcId string)
 	return nil
 }
 
+// routeVPCEgressToGateway adds a default route through the internet gateway to
+// the VPC's main route table, idempotently.
+//
+// Idempotent because CreateVPC can be re-entered on a retried `adhar up`: an
+// existing identical route makes EC2 answer RouteAlreadyExists, which is success
+// for our purposes, not a reason to fail the create.
+func (p *Provider) routeVPCEgressToGateway(ctx context.Context, vpcID, igwID string) error {
+	rtResult, err := p.ec2Client.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{
+		Filters: []ec2types.Filter{
+			{Name: aws.String("vpc-id"), Values: []string{vpcID}},
+			{Name: aws.String("association.main"), Values: []string{"true"}},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to find the main route table for VPC %s: %w", vpcID, err)
+	}
+	if len(rtResult.RouteTables) == 0 || rtResult.RouteTables[0].RouteTableId == nil {
+		return fmt.Errorf("VPC %s has no main route table, so egress cannot be routed", vpcID)
+	}
+	rtID := *rtResult.RouteTables[0].RouteTableId
+
+	_, err = p.ec2Client.CreateRoute(ctx, &ec2.CreateRouteInput{
+		RouteTableId:         aws.String(rtID),
+		DestinationCidrBlock: aws.String("0.0.0.0/0"),
+		GatewayId:            aws.String(igwID),
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "RouteAlreadyExists") {
+			log.Printf("Default route already present on %s", rtID)
+			return nil
+		}
+		return fmt.Errorf("failed to route 0.0.0.0/0 to %s on %s: %w", igwID, rtID, err)
+	}
+	log.Printf("Routed 0.0.0.0/0 via %s on main route table %s", igwID, rtID)
+	return nil
+}
+
 // cleanupVPCRouteTables deletes non-main route tables for a VPC
 func (p *Provider) cleanupVPCRouteTables(ctx context.Context, vpcId string) error {
 	result, err := p.ec2Client.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{
@@ -767,6 +804,23 @@ func (p *Provider) CreateVPC(ctx context.Context, spec *types.VPCSpec) (*types.V
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to attach internet gateway: %w", err)
+	}
+
+	// Route 0.0.0.0/0 to that gateway. WITHOUT THIS NOTHING WORKS.
+	//
+	// A fresh VPC's main route table carries only the local route, so attaching
+	// an internet gateway does not by itself give anything egress. The nodes do
+	// get public IPs (createSubnets sets MapPublicIpOnLaunch), which makes the
+	// omission look harmless right up to the point where it is fatal: kubeadm
+	// node prep has to reach the distro package mirrors and the container
+	// registries, so every node would sit there failing to resolve or connect
+	// while the instances themselves looked perfectly healthy.
+	//
+	// The main route table is used rather than a new one so teardown stays
+	// simple: a main table is deleted with its VPC and cannot be orphaned, and
+	// cleanupVPCRouteTables already skips main tables for exactly that reason.
+	if err := p.routeVPCEgressToGateway(ctx, vpcID, *igwResult.InternetGateway.InternetGatewayId); err != nil {
+		return nil, err
 	}
 
 	return &types.VPC{

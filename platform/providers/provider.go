@@ -373,13 +373,56 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 		return nil, fmt.Errorf("failed to build cluster specification: %w", err)
 	}
 
-	// Authenticate with the provider
+	// Authenticate with the provider.
+	//
+	// The remedy is attached HERE as well as in the preflight below, because
+	// Authenticate runs first and an access failure therefore never reaches the
+	// preflight's explanation. On the AWS account this was built against the raw
+	// error was a 403 on `ec2:DescribeRegions` whose real cause — an Organizations
+	// SCP — was named only at the very end of the line, and it was printed three
+	// times without a word about what to do.
 	if err := prov.Authenticate(ctx, buildCredentials(envConfig)); err != nil {
+		if fix := ExplainAccessError(err); fix != "" {
+			return nil, fmt.Errorf("authentication failed for %s provider: %w\n\n  → %s",
+				providerType, err, fix)
+		}
 		return nil, fmt.Errorf("authentication failed for %s provider: %w", providerType, err)
 	}
 
-	// Validate permissions
-	if err := prov.ValidatePermissions(ctx); err != nil {
+	// ── Preflight: prove this cloud can build the cluster BEFORE creating anything ──
+	//
+	// ValidatePermissions alone was not enough. Each provider implemented it as one
+	// shallow call, and AWS's asked only for `ec2:DescribeRegions` — which on a real
+	// account was the single EC2 action an Organizations SCP happened to allow. The
+	// check passed, and the create would then have failed partway with a VPC and
+	// instances already billing.
+	//
+	// Kind is exempt: no account, no quota, no permission model to check.
+	if providerType != globals.CloudProviderKind {
+		checks := RunPreflight(ctx, prov, spec)
+		for _, c := range checks {
+			switch c.Status {
+			case CheckFail:
+				logger.Errorf("preflight ✗ %s: %s", c.Name, c.Detail)
+				if c.Fix != "" {
+					logger.Errorf("           → %s", c.Fix)
+				}
+			case CheckWarn:
+				logger.Warnf("preflight ! %s: %s", c.Name, c.Detail)
+				if c.Fix != "" {
+					logger.Warnf("           → %s", c.Fix)
+				}
+			default:
+				logger.Infof("preflight ✓ %s: %s", c.Name, c.Detail)
+			}
+		}
+		if AnyFailed(checks) {
+			// Deliberately before any create call. Stopping here costs nothing;
+			// stopping halfway leaves infrastructure to find and delete by hand.
+			return nil, fmt.Errorf("preflight failed for the %s provider — nothing was created; "+
+				"fix the items marked ✗ above and re-run", providerType)
+		}
+	} else if err := prov.ValidatePermissions(ctx); err != nil {
 		return nil, fmt.Errorf("permission validation failed for %s provider: %w", providerType, err)
 	}
 

@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"time"
 
@@ -58,6 +59,91 @@ type ResourceTracker struct {
 	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
+// parseProviderConfig turns the generic provider map into an AWS Config.
+//
+// Extracted from the registration closure so the mapping can be TESTED. It was
+// inline, which meant the only way to check that a key was honoured — an AMI
+// override, say — was to construct a live provider. Azure already had this shape.
+func parseProviderConfig(config map[string]interface{}) (*Config, error) {
+	awsConfig := &Config{}
+
+	// Default: kubeadm on EC2. `useManagedK8s: true` (or clusterMode: eks)
+	// opts into Amazon EKS; everything else behaves the same.
+	if managed, ok := config["useManagedK8s"].(bool); ok && managed {
+		awsConfig.ClusterMode = clusterModeEKS
+	}
+	if mode, ok := config["clusterMode"].(string); ok && mode != "" {
+		awsConfig.ClusterMode = mode
+	} else if mode, ok := config["cluster_mode"].(string); ok && mode != "" {
+		awsConfig.ClusterMode = mode
+	}
+
+	// Parse AWS-specific configuration with multiple auth methods
+	if region, ok := config["region"].(string); ok {
+		awsConfig.Region = region
+	}
+	// Set by `adhar down --purge-orphaned-volumes` / `adhar cluster delete
+	// --purge-orphaned-volumes`; see sweepOrphanedVolumes.
+	if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
+		awsConfig.PurgeOrphanedVolumes = true
+	}
+
+	// Node image overrides. Both camelCase and snake_case are accepted
+	// because the environment's clusterConfig matches keys ignoring case and
+	// separators, and an operator will reasonably write either here too.
+	firstString := func(keys ...string) string {
+		for _, k := range keys {
+			if v, ok := config[k].(string); ok && v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+	awsConfig.AMI = firstString("ami", "amiId", "ami_id", "imageId", "image_id")
+	awsConfig.ImageNameFilter = firstString("imageNameFilter", "image_name_filter", "imageFilter", "image_filter")
+	awsConfig.ImageOwner = firstString("imageOwner", "image_owner")
+	awsConfig.ImageArchitecture = firstString("imageArchitecture", "image_architecture", "arch")
+
+	// Authentication Method 1: Access Key + Secret Key
+	if accessKey, ok := config["accessKeyId"].(string); ok {
+		awsConfig.AccessKeyID = accessKey
+	}
+	if secretKey, ok := config["secretAccessKey"].(string); ok {
+		awsConfig.SecretAccessKey = secretKey
+	}
+	if sessionToken, ok := config["sessionToken"].(string); ok {
+		awsConfig.SessionToken = sessionToken
+	}
+
+	// Authentication Method 2: Credentials file
+	if credFile, ok := config["credentialsFile"].(string); ok {
+		awsConfig.CredentialsFile = credFile
+	}
+	if profile, ok := config["profile"].(string); ok {
+		awsConfig.Profile = profile
+	}
+
+	// Authentication Method 3: IAM Role
+	if roleArn, ok := config["roleArn"].(string); ok {
+		awsConfig.RoleArn = roleArn
+	}
+	if externalId, ok := config["externalId"].(string); ok {
+		awsConfig.ExternalId = externalId
+	}
+
+	// Authentication Method 4: Environment variables
+	if useEnv, ok := config["useEnvironment"].(bool); ok {
+		awsConfig.UseEnvironment = useEnv
+	}
+
+	// Authentication Method 5: Instance profile
+	if useInstance, ok := config["useInstanceProfile"].(bool); ok {
+		awsConfig.UseInstanceProfile = useInstance
+	}
+
+	return awsConfig, nil
+}
+
 // NodeInfo represents information about a cluster node
 type NodeInfo struct {
 	InstanceId   string
@@ -70,66 +156,10 @@ type NodeInfo struct {
 // Register the AWS provider on package import
 func init() {
 	provider.DefaultFactory.RegisterProvider("aws", func(config map[string]interface{}) (provider.Provider, error) {
-		awsConfig := &Config{}
-
-		// Default: kubeadm on EC2. `useManagedK8s: true` (or clusterMode: eks)
-		// opts into Amazon EKS; everything else behaves the same.
-		if managed, ok := config["useManagedK8s"].(bool); ok && managed {
-			awsConfig.ClusterMode = clusterModeEKS
+		awsConfig, err := parseProviderConfig(config)
+		if err != nil {
+			return nil, err
 		}
-		if mode, ok := config["clusterMode"].(string); ok && mode != "" {
-			awsConfig.ClusterMode = mode
-		} else if mode, ok := config["cluster_mode"].(string); ok && mode != "" {
-			awsConfig.ClusterMode = mode
-		}
-
-		// Parse AWS-specific configuration with multiple auth methods
-		if region, ok := config["region"].(string); ok {
-			awsConfig.Region = region
-		}
-		// Set by `adhar down --purge-orphaned-volumes` / `adhar cluster delete
-		// --purge-orphaned-volumes`; see sweepOrphanedVolumes.
-		if purge, ok := config["purgeOrphanedVolumes"].(bool); ok && purge {
-			awsConfig.PurgeOrphanedVolumes = true
-		}
-
-		// Authentication Method 1: Access Key + Secret Key
-		if accessKey, ok := config["accessKeyId"].(string); ok {
-			awsConfig.AccessKeyID = accessKey
-		}
-		if secretKey, ok := config["secretAccessKey"].(string); ok {
-			awsConfig.SecretAccessKey = secretKey
-		}
-		if sessionToken, ok := config["sessionToken"].(string); ok {
-			awsConfig.SessionToken = sessionToken
-		}
-
-		// Authentication Method 2: Credentials file
-		if credFile, ok := config["credentialsFile"].(string); ok {
-			awsConfig.CredentialsFile = credFile
-		}
-		if profile, ok := config["profile"].(string); ok {
-			awsConfig.Profile = profile
-		}
-
-		// Authentication Method 3: IAM Role
-		if roleArn, ok := config["roleArn"].(string); ok {
-			awsConfig.RoleArn = roleArn
-		}
-		if externalId, ok := config["externalId"].(string); ok {
-			awsConfig.ExternalId = externalId
-		}
-
-		// Authentication Method 4: Environment variables
-		if useEnv, ok := config["useEnvironment"].(bool); ok {
-			awsConfig.UseEnvironment = useEnv
-		}
-
-		// Authentication Method 5: Instance profile
-		if useInstance, ok := config["useInstanceProfile"].(bool); ok {
-			awsConfig.UseInstanceProfile = useInstance
-		}
-
 		return NewProvider(awsConfig)
 	})
 }
@@ -184,6 +214,20 @@ type Config struct {
 
 	VPCConfig    VPCConfig           `json:"vpcConfig"`
 	DomainConfig *types.DomainConfig `json:"domainConfig,omitempty"`
+
+	// Node image. All four are optional; together they replace what used to be a
+	// hardcoded Ubuntu 22.04 lookup that no configuration could reach — so a
+	// cluster could not be pinned to a known-good image, could not follow the
+	// distro the rest of the platform uses (GCP boots 24.04), and could not use a
+	// hardened or private base image at all.
+	//
+	// AMI short-circuits the lookup entirely: set it to pin an exact image, which
+	// is what a reproducible or air-gapped build needs. The other three steer the
+	// search when AMI is empty.
+	AMI               string `json:"ami,omitempty"`
+	ImageNameFilter   string `json:"imageNameFilter,omitempty"`
+	ImageOwner        string `json:"imageOwner,omitempty"`
+	ImageArchitecture string `json:"imageArchitecture,omitempty"`
 
 	// PurgeOrphanedVolumes extends teardown to unattached EBS volumes the CSI
 	// driver provisioned that carry no cluster tag at all. Off by default and
@@ -325,62 +369,98 @@ func extractClusterName(clusterID string) string {
 	return clusterID
 }
 
-// getUbuntuAMI dynamically finds the latest Ubuntu 22.04 LTS AMI for the current region
+// Default node image: the latest Ubuntu LTS, from Canonical, x86_64.
+//
+// 24.04 (noble), not 22.04 (jammy). This used to be hardcoded to jammy while the
+// GCP provider booted `ubuntu-2404-lts-amd64`, so the same platform ran on two
+// different distro releases depending on the cloud — different kernels, different
+// containerd, and a class of "works on GCP, not on AWS" that points nowhere near
+// its cause.
+//
+// The name is matched with a wildcard across the storage-type segment
+// (`hvm-ssd` and `hvm-ssd-gp3` both exist for noble) so the lookup does not break
+// the next time Canonical changes that part of the path.
+const (
+	defaultImageNameFilter   = "ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-amd64-server-*"
+	canonicalOwnerID         = "099720109477"
+	defaultImageArchitecture = "x86_64"
+)
+
+// getUbuntuAMI resolves the node image for this region.
+//
+// Order: an explicitly pinned AMI wins; otherwise the newest image matching the
+// configured (or default) name filter, owner and architecture. Every part is
+// configurable so a cluster can be pinned for reproducibility, follow a different
+// LTS, or boot a hardened private image — none of which was possible while this
+// was a hardcoded jammy lookup.
 func (p *Provider) getUbuntuAMI(ctx context.Context) (string, error) {
-	// Search for the latest Ubuntu 22.04 LTS AMI
+	// Pinned: skip the search entirely. An air-gapped or reproducible build needs
+	// the image to be an input, not a discovery.
+	if p.config.AMI != "" {
+		log.Printf("Using pinned AMI %s", p.config.AMI)
+		return p.config.AMI, nil
+	}
+
+	nameFilter := p.config.ImageNameFilter
+	if nameFilter == "" {
+		nameFilter = defaultImageNameFilter
+	}
+	owner := p.config.ImageOwner
+	if owner == "" {
+		owner = canonicalOwnerID
+	}
+	arch := p.config.ImageArchitecture
+	if arch == "" {
+		arch = defaultImageArchitecture
+	}
+
 	result, err := p.ec2Client.DescribeImages(ctx, &ec2.DescribeImagesInput{
 		Filters: []ec2types.Filter{
-			{
-				Name:   aws.String("name"),
-				Values: []string{"ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"},
-			},
-			{
-				Name:   aws.String("owner-id"),
-				Values: []string{"099720109477"}, // Canonical's AWS account ID
-			},
-			{
-				Name:   aws.String("state"),
-				Values: []string{"available"},
-			},
-			{
-				Name:   aws.String("architecture"),
-				Values: []string{"x86_64"},
-			},
+			{Name: aws.String("name"), Values: []string{nameFilter}},
+			{Name: aws.String("state"), Values: []string{"available"}},
+			{Name: aws.String("architecture"), Values: []string{arch}},
 		},
-		Owners: []string{"099720109477"}, // Canonical
+		// Owners is the API's own scoping; an owner-id filter as well was
+		// redundant.
+		Owners: []string{owner},
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to describe Ubuntu AMIs: %w", err)
+		return "", fmt.Errorf("failed to describe images (name %q, owner %s, arch %s): %w",
+			nameFilter, owner, arch, err)
 	}
-
 	if len(result.Images) == 0 {
-		return "", fmt.Errorf("no Ubuntu 22.04 LTS AMI found in region %s", p.config.Region)
+		// Name the filter: "no AMI found" with nothing else is unactionable, and
+		// the usual cause is a pattern that no longer matches Canonical's naming.
+		return "", fmt.Errorf("no AMI in region %s matches name %q owned by %s for %s "+
+			"— override with `ami`, or `imageNameFilter`/`imageOwner`/`imageArchitecture`",
+			p.config.Region, nameFilter, owner, arch)
 	}
 
-	// Find the most recent AMI by creation date
+	// Newest by creation date.
 	var latestAMI ec2types.Image
 	var latestDate time.Time
-
 	for _, image := range result.Images {
 		if image.CreationDate == nil {
 			continue
 		}
-
 		creationDate, err := time.Parse(time.RFC3339, *image.CreationDate)
 		if err != nil {
 			continue
 		}
-
 		if creationDate.After(latestDate) {
 			latestDate = creationDate
 			latestAMI = image
 		}
 	}
-
 	if latestAMI.ImageId == nil {
-		return "", fmt.Errorf("failed to find valid Ubuntu AMI")
+		return "", fmt.Errorf("no AMI with a parseable creation date matched %q in %s",
+			nameFilter, p.config.Region)
 	}
-
+	name := ""
+	if latestAMI.Name != nil {
+		name = *latestAMI.Name
+	}
+	log.Printf("Selected AMI %s (%s)", *latestAMI.ImageId, name)
 	return *latestAMI.ImageId, nil
 }
 
