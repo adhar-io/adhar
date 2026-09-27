@@ -44,6 +44,46 @@ data:
       "webOrigins": ["https://plane.adhar.localtest.me:8443"]
     }
 ---
+# A SECOND client, for Plane's OWN Keycloak login rather than the edge proxy.
+#
+# The Adhar fork of Plane ships a generic OIDC provider
+# (plane/authentication/provider/oauth/keycloak.py), so "Continue with Keycloak"
+# inside Plane is a real OIDC login and the old Gitea-federation detour is no
+# longer needed. It gets its own client on purpose: the two consumers need
+# different redirect URIs, and sharing one client means sharing an audience —
+# the platform already learned that the hard way when Argo CD rejected a token
+# minted for another app's client (see CLAUDE.md, per-app SSO cookies). With a
+# separate client each side receives a token minted for itself.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plane-app-keycloak-client
+  namespace: adhar-system
+  labels:
+    adhar.io/keycloak-client: "true"
+    app.kubernetes.io/name: plane-app-keycloak-client
+    app.kubernetes.io/part-of: plane
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  # The reconciler publishes this as PLANE_APP_CLIENT_ID / PLANE_APP_CLIENT_SECRET
+  # in the keycloak-clients Secret (clientId upper-cased, '-' -> '_').
+  client.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "plane-app",
+      "name": "Plane Application Login",
+      "description": "Plane's own Keycloak login (OIDC provider in the Adhar fork)",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "redirectUris": ["https://plane.adhar.localtest.me:8443/auth/keycloak/callback/"],
+      "webOrigins": ["https://plane.adhar.localtest.me:8443"]
+    }
+---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
