@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -65,7 +67,17 @@ func (p *Provider) createMasterNodes(ctx context.Context, subnetID, sgID, cluste
 
 	instanceType := spec.ControlPlane.InstanceType
 	if instanceType == "" {
-		instanceType = "t3.medium" // Default for master nodes
+		// r6i.large (2 vCPU, 16 GiB), not the previous t3.medium. t3 is BURSTABLE:
+		// once the control plane exhausts its CPU credits the node is throttled, and
+		// a throttled etcd degrades the whole cluster in ways that look like a
+		// network problem rather than a CPU one. t3.medium's 4 GiB is also thin for
+		// etcd plus the API server on a cluster with ~75 applications' worth of
+		// objects — measured: with 8 GiB the API server started failing TLS
+		// handshakes during the first sync of 75 applications, and SSH to the node
+		// timed out with it. 16 GiB is the shape verified on Azure, and memory does
+		// not count against the region's vCPU quota. Override with clusterConfig
+		// `controlPlaneMachineType`.
+		instanceType = "r6i.large"
 	}
 
 	var masterNodes []NodeInfo
@@ -84,13 +96,14 @@ func (p *Provider) createMasterNodes(ctx context.Context, subnetID, sgID, cluste
 
 		// Create EC2 instance
 		runResult, err := p.ec2Client.RunInstances(ctx, &ec2.RunInstancesInput{
-			ImageId:          aws.String(amiID),
-			InstanceType:     ec2types.InstanceType(instanceType),
-			MinCount:         aws.Int32(1),
-			MaxCount:         aws.Int32(1),
-			KeyName:          aws.String(sshKeyName),
-			SubnetId:         aws.String(subnetID),
-			SecurityGroupIds: []string{sgID},
+			ImageId:             aws.String(amiID),
+			InstanceType:        ec2types.InstanceType(instanceType),
+			MinCount:            aws.Int32(1),
+			MaxCount:            aws.Int32(1),
+			KeyName:             aws.String(sshKeyName),
+			SubnetId:            aws.String(subnetID),
+			SecurityGroupIds:    []string{sgID},
+			BlockDeviceMappings: p.rootBlockDevice(ctx, amiID),
 			TagSpecifications: []ec2types.TagSpecification{
 				{
 					ResourceType: ec2types.ResourceTypeInstance,
@@ -115,11 +128,12 @@ func (p *Provider) createMasterNodes(ctx context.Context, subnetID, sgID, cluste
 		}
 
 		masterNodes = append(masterNodes, NodeInfo{
-			InstanceId:   *inst.InstanceId,
-			PrivateIP:    aws.ToString(inst.PrivateIpAddress),
-			PublicIP:     aws.ToString(inst.PublicIpAddress),
-			InstanceType: instanceType,
-			Role:         "master",
+			InstanceId:     *inst.InstanceId,
+			PrivateIP:      aws.ToString(inst.PrivateIpAddress),
+			PublicIP:       aws.ToString(inst.PublicIpAddress),
+			PrivateDNSName: aws.ToString(inst.PrivateDnsName),
+			InstanceType:   instanceType,
+			Role:           "master",
 		})
 	}
 
@@ -153,7 +167,11 @@ func (p *Provider) createWorkerNodes(ctx context.Context, subnetID, sgID, cluste
 		}
 		instanceType := nodeGroup.InstanceType
 		if instanceType == "" {
-			instanceType = "t3.medium" // Default for worker nodes
+			// A worker with 4 GiB cannot hold this platform's share of ~75 apps, and
+			// burstable CPU makes the autoscaler's utilisation readings meaningless.
+			// r6i.xlarge (4 vCPU, 32 GiB) is the shape verified on Azure, where 4 of
+			// them carried the full catalogue.
+			instanceType = "r6i.xlarge"
 		}
 
 		for i := 0; i < nodeGroup.Replicas; i++ {
@@ -181,16 +199,64 @@ type workerInstanceSpec struct {
 	UserData                                   string
 }
 
+// rootBlockDevice describes the node's root EBS volume.
+//
+// This provider used to send no block device mapping at all, so every node
+// inherited the AMI's default root volume — 8 GB on the Ubuntu images it
+// selects — and `diskSizeGb` in the configuration file reached nothing. On a
+// live Singapore cluster that filled to 89% within minutes of boot and the
+// kubelet set node.kubernetes.io/disk-pressure, which taints the node and stops
+// scheduling: a capacity failure that looks nothing like a disk one.
+//
+// Two things share this disk: the containerd image cache (~35 GiB for this
+// platform's images) and, since the default StorageClass became node-local,
+// every PersistentVolume.
+//
+// deviceName must be the AMI's own root device (/dev/sda1 on these images) —
+// naming any other device adds a second, unused volume and leaves the root at
+// its default size.
+func (p *Provider) rootBlockDevice(ctx context.Context, amiID string) []ec2types.BlockDeviceMapping {
+	size := p.config.DiskSizeGB
+	if size <= 0 {
+		size = defaultRootVolumeSizeGB
+	}
+	volType := ec2types.VolumeTypeGp3
+	if t := strings.TrimSpace(p.config.DiskType); t != "" {
+		volType = ec2types.VolumeType(t)
+	}
+
+	deviceName := "/dev/sda1"
+	if out, err := p.ec2Client.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{amiID}}); err == nil &&
+		len(out.Images) > 0 && aws.ToString(out.Images[0].RootDeviceName) != "" {
+		deviceName = aws.ToString(out.Images[0].RootDeviceName)
+	} else if err != nil {
+		log.Printf("WARNING: could not read the root device name for %s (%v); assuming %s", amiID, err, deviceName)
+	}
+
+	return []ec2types.BlockDeviceMapping{{
+		DeviceName: aws.String(deviceName),
+		Ebs: &ec2types.EbsBlockDevice{
+			VolumeSize: aws.Int32(size),
+			VolumeType: volType,
+			// The volume must go when the instance does, or teardown leaves a paid
+			// orphan behind for every node the cluster ever had.
+			DeleteOnTermination: aws.Bool(true),
+			Encrypted:           aws.Bool(true),
+		},
+	}}
+}
+
 // runWorkerInstance launches one tagged worker instance and waits for its IPs.
 func (p *Provider) runWorkerInstance(ctx context.Context, w workerInstanceSpec) (*NodeInfo, error) {
 	runResult, err := p.ec2Client.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId:          aws.String(w.AMI),
-		InstanceType:     ec2types.InstanceType(w.InstanceType),
-		MinCount:         aws.Int32(1),
-		MaxCount:         aws.Int32(1),
-		KeyName:          aws.String(w.KeyName),
-		SubnetId:         aws.String(w.SubnetID),
-		SecurityGroupIds: []string{w.SecurityGroupID},
+		ImageId:             aws.String(w.AMI),
+		InstanceType:        ec2types.InstanceType(w.InstanceType),
+		MinCount:            aws.Int32(1),
+		MaxCount:            aws.Int32(1),
+		KeyName:             aws.String(w.KeyName),
+		SubnetId:            aws.String(w.SubnetID),
+		SecurityGroupIds:    []string{w.SecurityGroupID},
+		BlockDeviceMappings: p.rootBlockDevice(ctx, w.AMI),
 		TagSpecifications: []ec2types.TagSpecification{
 			{
 				ResourceType: ec2types.ResourceTypeInstance,
@@ -213,16 +279,27 @@ func (p *Provider) runWorkerInstance(ctx context.Context, w workerInstanceSpec) 
 		return nil, fmt.Errorf("worker node %s: %w", w.Name, err)
 	}
 	return &NodeInfo{
-		InstanceId:   *inst.InstanceId,
-		PrivateIP:    aws.ToString(inst.PrivateIpAddress),
-		PublicIP:     aws.ToString(inst.PublicIpAddress),
-		InstanceType: w.InstanceType,
-		Role:         "worker",
+		InstanceId:     *inst.InstanceId,
+		PrivateIP:      aws.ToString(inst.PrivateIpAddress),
+		PublicIP:       aws.ToString(inst.PublicIpAddress),
+		PrivateDNSName: aws.ToString(inst.PrivateDnsName),
+		InstanceType:   w.InstanceType,
+		Role:           "worker",
 	}, nil
 }
 
 // getClusterInfrastructure retrieves the infrastructure details for a cluster
 func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName string) (*ClusterInfrastructure, error) {
+	// Accept either spelling of the name. Instances are tagged with the BARE
+	// cluster name ("dev"), but this provider's own cluster IDs carry an "aws-"
+	// prefix ("aws-dev") and callers pass whichever they happen to hold —
+	// ScaleNodeGroup passed the prefixed ID, so the tag filter matched nothing,
+	// MasterNodes came back empty, and the node autoscaler failed every tick with
+	// "cannot scale cluster aws-dev: control-plane public IP unknown" while 31
+	// pods sat Pending for capacity. Normalising here fixes all ten call sites at
+	// once, and makes it impossible for a new caller to get it wrong.
+	clusterName = extractClusterName(clusterName)
+
 	// Query EC2 instances by cluster tag
 	result, err := p.ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		Filters: []ec2types.Filter{
@@ -243,6 +320,7 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 	var masterNodes, workerNodes []NodeInfo
 	var vpcId string
 	subnetIdMap := make(map[string]bool)
+	securityGroupMap := make(map[string]bool)
 
 	for _, reservation := range result.Reservations {
 		for _, instance := range reservation.Instances {
@@ -256,11 +334,12 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 			}
 
 			nodeInfo := NodeInfo{
-				InstanceId:   *instance.InstanceId,
-				PrivateIP:    aws.ToString(instance.PrivateIpAddress),
-				PublicIP:     aws.ToString(instance.PublicIpAddress),
-				InstanceType: string(instance.InstanceType),
-				Role:         role,
+				InstanceId:     *instance.InstanceId,
+				PrivateIP:      aws.ToString(instance.PrivateIpAddress),
+				PublicIP:       aws.ToString(instance.PublicIpAddress),
+				PrivateDNSName: aws.ToString(instance.PrivateDnsName),
+				InstanceType:   string(instance.InstanceType),
+				Role:           role,
 			}
 
 			if role == "master" {
@@ -275,6 +354,16 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 			}
 			if instance.SubnetId != nil {
 				subnetIdMap[*instance.SubnetId] = true
+			}
+			// Security groups were never collected here at all, so
+			// ClusterInfrastructure.SecurityGroups came back empty on every call
+			// and any scale-up refused with "has no subnet/security group to place
+			// workers in". Taking them from the running instances means a new
+			// worker lands in exactly the same groups as its peers.
+			for _, sg := range instance.SecurityGroups {
+				if sg.GroupId != nil {
+					securityGroupMap[*sg.GroupId] = true
+				}
 			}
 		}
 	}
@@ -321,11 +410,38 @@ func (p *Provider) getClusterInfrastructure(ctx context.Context, clusterName str
 		subnetIds = append(subnetIds, subnetId)
 	}
 
+	// Fall back to the cluster's tagged security group when no instance is
+	// running to copy from — a node group scaled to zero and back has none.
+	if len(securityGroupMap) == 0 && vpcId != "" {
+		sgResult, sgErr := p.ec2Client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+			Filters: []ec2types.Filter{
+				{Name: aws.String("vpc-id"), Values: []string{vpcId}},
+				{Name: aws.String("tag:Cluster"), Values: []string{clusterName}},
+			},
+		})
+		if sgErr == nil {
+			for _, sg := range sgResult.SecurityGroups {
+				if sg.GroupId != nil {
+					securityGroupMap[*sg.GroupId] = true
+				}
+			}
+		}
+	}
+	var securityGroups []string
+	for id := range securityGroupMap {
+		securityGroups = append(securityGroups, id)
+	}
+	// Deterministic, so a scale-up does not pick a different group each time the
+	// map is ranged over.
+	sort.Strings(subnetIds)
+	sort.Strings(securityGroups)
+
 	return &ClusterInfrastructure{
-		VPCId:       vpcId,
-		SubnetIds:   subnetIds,
-		MasterNodes: masterNodes,
-		WorkerNodes: workerNodes,
+		VPCId:          vpcId,
+		SubnetIds:      subnetIds,
+		SecurityGroups: securityGroups,
+		MasterNodes:    masterNodes,
+		WorkerNodes:    workerNodes,
 	}, nil
 }
 
@@ -581,19 +697,30 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 	if p.isManagedCluster(ctx, clusterID) {
 		return p.managedScaleNodeGroup(ctx, extractClusterName(clusterID), nodeGroupName, replicas)
 	}
-	log.Printf("Scaling node group %s in cluster %s to %d replicas", nodeGroupName, clusterID, replicas)
-	infra, err := p.getClusterInfrastructure(ctx, clusterID)
+	// Everything below addresses AWS by the BARE cluster name, because that is
+	// what the instances carry: their Cluster tag is "dev", their Name tags are
+	// "dev-workers-N", and their SSH key lives in ~/.adhar/clusters/dev/. The
+	// incoming clusterID is this provider's own id and is prefixed ("aws-dev"),
+	// which the autoscaler passes verbatim — and using it unnormalised failed
+	// three ways in a row on a live cluster: the tag filter matched nothing
+	// ("control-plane public IP unknown"), then the key path was wrong
+	// ("open ~/.adhar/clusters/aws-dev/id_ed25519: no such file"), and the
+	// instance-name prefix would have produced "aws-dev-workers-3". Normalise
+	// once, here.
+	clusterName := extractClusterName(clusterID)
+	log.Printf("Scaling node group %s in cluster %s to %d replicas", nodeGroupName, clusterName, replicas)
+	infra, err := p.getClusterInfrastructure(ctx, clusterName)
 	if err != nil {
 		return err
 	}
 	if len(infra.MasterNodes) == 0 || infra.MasterNodes[0].PublicIP == "" {
-		return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterID)
+		return fmt.Errorf("cannot scale cluster %s: control-plane public IP unknown", clusterName)
 	}
-	members, err := p.nodeGroupInstances(ctx, clusterID, nodeGroupName)
+	members, err := p.nodeGroupInstances(ctx, clusterName, nodeGroupName)
 	if err != nil {
 		return err
 	}
-	prefix := fmt.Sprintf("%s-%s-", clusterID, nodeGroupName)
+	prefix := fmt.Sprintf("%s-%s-", clusterName, nodeGroupName)
 	current := make([]string, 0, len(members))
 	for name := range members {
 		current = append(current, name)
@@ -603,7 +730,9 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		log.Printf("Node group %s already at %d workers", nodeGroupName, replicas)
 		return nil
 	}
-	signer, err := provider.LoadClusterSSHKey(clusterID)
+	// Bare name: the key is written to ~/.adhar/clusters/<name>/id_ed25519 at
+	// create time, so "aws-dev" here looked for a directory that never exists.
+	signer, err := provider.LoadClusterSSHKey(clusterName)
 	if err != nil {
 		return fmt.Errorf("failed to load cluster SSH key: %w", err)
 	}
@@ -621,7 +750,7 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		if err != nil {
 			return fmt.Errorf("failed to find Ubuntu AMI: %w", err)
 		}
-		sshKeyName, err := p.ensureSSHKeyPair(ctx, clusterID)
+		sshKeyName, err := p.ensureSSHKeyPair(ctx, clusterName)
 		if err != nil {
 			return fmt.Errorf("failed to resolve the cluster SSH key pair: %w", err)
 		}
@@ -640,7 +769,7 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 		}
 		for _, name := range add {
 			node, err := p.runWorkerInstance(ctx, workerInstanceSpec{
-				Name: name, ClusterName: clusterID, NodeGroup: nodeGroupName, InstanceType: instanceType,
+				Name: name, ClusterName: clusterName, NodeGroup: nodeGroupName, InstanceType: instanceType,
 				AMI: amiID, KeyName: sshKeyName, SubnetID: infra.SubnetIds[0], SecurityGroupID: infra.SecurityGroups[0], UserData: nodeUserData(spec),
 			})
 			if err != nil {
@@ -652,10 +781,10 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 			// The EBS CSI driver is a platform addon on AWS, so a worker carries
 			// the CSI startup taint until its CSINode registers; no
 			// cloud-controller-manager is installed yet (docs/PROVIDERS.md).
-			if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, node.PublicIP, node.PrivateIP, false, true); err != nil {
+			if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, node.PublicIP, node.PrivateIP, false, true, node.PrivateDNSName); err != nil {
 				return fmt.Errorf("new worker %s: %w", name, err)
 			}
-			if err := provider.KubeadmJoinWorker(signer, awsSSHUser, node.PublicIP, joinCmd); err != nil {
+			if err := provider.KubeadmJoinWorker(signer, awsSSHUser, node.PublicIP, joinCmd, node.PrivateDNSName); err != nil {
 				return fmt.Errorf("new worker %s: %w", name, err)
 			}
 			log.Printf("Added worker %s (%s) to cluster %s", name, node.InstanceId, clusterID)
@@ -699,11 +828,12 @@ func (p *Provider) nodeGroupInstances(ctx context.Context, clusterName, nodeGrou
 				continue
 			}
 			members[name] = NodeInfo{
-				InstanceId:   aws.ToString(inst.InstanceId),
-				PrivateIP:    aws.ToString(inst.PrivateIpAddress),
-				PublicIP:     aws.ToString(inst.PublicIpAddress),
-				InstanceType: string(inst.InstanceType),
-				Role:         "worker",
+				InstanceId:     aws.ToString(inst.InstanceId),
+				PrivateIP:      aws.ToString(inst.PrivateIpAddress),
+				PublicIP:       aws.ToString(inst.PublicIpAddress),
+				PrivateDNSName: aws.ToString(inst.PrivateDnsName),
+				InstanceType:   string(inst.InstanceType),
+				Role:           "worker",
 			}
 		}
 	}
@@ -801,6 +931,7 @@ func (p *Provider) getClusterMasterNodes(ctx context.Context, clusterName string
 			if instance.PrivateIpAddress != nil {
 				node.PrivateIP = *instance.PrivateIpAddress
 			}
+			node.PrivateDNSName = aws.ToString(instance.PrivateDnsName)
 			if instance.PublicIpAddress != nil {
 				node.PublicIP = *instance.PublicIpAddress
 			}

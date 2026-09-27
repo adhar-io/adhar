@@ -17,6 +17,7 @@ limitations under the License.
 package get
 
 import (
+	"adhar-io/adhar/globals"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -70,8 +71,13 @@ This command retrieves and displays:
 • Database credentials
 • API tokens and keys
 
+By default only the credentials needed to sign in to the platform are shown
+(ArgoCD, Gitea and the Keycloak admin + seed users). Pass --all for every
+credential in the cluster, including each package's databases and API tokens.
+
 Examples:
-  adhar get secrets                    # Get all platform secrets
+  adhar get secrets                    # The credentials needed to sign in
+  adhar get secrets --all             # Every credential in the cluster
   adhar get secrets -p argocd         # Get ArgoCD specific secrets
   adhar get secrets -p gitea          # Get Gitea specific secrets
   adhar get secrets -p keycloak       # Get Keycloak specific secrets`,
@@ -85,7 +91,7 @@ var (
 )
 
 func init() {
-	secretsCmd.Flags().StringVarP(&provider, "provider", "p", "", "Filter secrets by provider (argocd, gitea, keycloak, adhar-console, vault, postgres, redis)")
+	secretsCmd.Flags().StringVarP(&provider, "provider", "p", "", "Filter secrets by provider (argocd, gitea, keycloak, adhar-console, openbao, vault, postgres, redis, harbor, rustfs)")
 	secretsCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all secrets including system ones")
 	secretsCmd.Flags().BoolVarP(&debug, "debug", "d", false, "Show debug information about secret keys")
 }
@@ -123,10 +129,14 @@ var knownProviders = map[string]providerConfig{
 	// operators can see the console is wired and grab the client secret.
 	"adhar-console": {namespaces: []string{"adhar-system"}, patterns: []string{"keycloak-clients"}},
 	"vault":         {namespaces: []string{"adhar-system"}, patterns: []string{"vault-keys", "vault-unseal-keys", "vault-root-token"}},
-	"postgres":      {namespaces: []string{"adhar-system"}, patterns: []string{"postgres", "postgresql"}},
-	"redis":         {namespaces: []string{"adhar-system"}, patterns: []string{"redis"}},
-	"harbor":        {namespaces: []string{"adhar-system"}, patterns: []string{"harbor-admin", "harbor-core"}},
-	"rustfs":        {namespaces: []string{"adhar-system"}, patterns: []string{"root-creds"}},
+	// OpenBao is the platform's production secrets backend (the `vault` package is
+	// disabled), so its unseal keys and root token are the ones an operator
+	// actually needs — and they were not listed at all.
+	"openbao":  {namespaces: []string{"adhar-system"}, patterns: []string{"openbao-keys", "openbao-unseal-keys", "openbao-root-token", "openbao-init"}},
+	"postgres": {namespaces: []string{"adhar-system"}, patterns: []string{"postgres", "postgresql"}},
+	"redis":    {namespaces: []string{"adhar-system"}, patterns: []string{"redis"}},
+	"harbor":   {namespaces: []string{"adhar-system"}, patterns: []string{"harbor-admin", "harbor-core"}},
+	"rustfs":   {namespaces: []string{"adhar-system"}, patterns: []string{"root-creds"}},
 }
 
 func runGetSecrets(cmd *cobra.Command, args []string) error {
@@ -163,7 +173,7 @@ func getProviderSecrets(clientset *kubernetes.Clientset, providerName string) er
 		if entries := labelledPackageEntries(clientset, providerName); len(entries) > 0 {
 			return displaySecretEntries(entries, providerName)
 		}
-		available := []string{"argocd", "gitea", "keycloak", "adhar-console", "vault", "postgres", "redis", "harbor", "rustfs"}
+		available := []string{"argocd", "gitea", "keycloak", "adhar-console", "openbao", "vault", "postgres", "redis", "harbor", "rustfs"}
 		available = append(available, labelledPackageNames(clientset)...)
 		return fmt.Errorf("unknown provider %q (available: %s)", providerName, strings.Join(available, ", "))
 	}
@@ -197,6 +207,13 @@ func getAllPlatformSecrets(clientset *kubernetes.Clientset) error {
 	entries := resolveSecrets(clientset, providers)
 	if showAll {
 		entries = append(entries, labelledPackageEntries(clientset, "")...)
+		// …and everything neither the registry nor the label covers, so `--all`
+		// means all. Without this the flag reported a small, arbitrary subset.
+		seen := map[string]bool{}
+		for _, e := range entries {
+			seen[e.Service] = true
+		}
+		entries = append(entries, discoveredCredentialEntries(clientset, seen)...)
 	}
 
 	if len(entries) == 0 {
@@ -618,4 +635,67 @@ func firstKey(s corev1.Secret, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// nonCredentialSecretTypes never hold an operator-facing credential, whatever
+// keys they carry.
+var nonCredentialSecretTypes = map[corev1.SecretType]bool{
+	corev1.SecretTypeServiceAccountToken: true,
+	corev1.SecretTypeTLS:                 true,
+	corev1.SecretTypeDockerConfigJson:    true,
+	corev1.SecretTypeDockercfg:           true,
+	corev1.SecretTypeSSHAuth:             true,
+	"helm.sh/release.v1":                 true,
+}
+
+// discoveredCredentialEntries finds credential-bearing Secrets that neither the
+// hand-written registry nor the `adhar.io/cli-secret` label covers.
+//
+// Both of those mechanisms under-report badly. The registry lists thirteen
+// providers; the label is applied by fourteen files across seventy-five enabled
+// packages. So `adhar get secrets --all` silently omitted the credentials for
+// most of the platform — Grafana, Nexus, OpenSearch, Kafka, RabbitMQ, Trino,
+// Headlamp, MongoDB and the rest — while the command's own help said it returned
+// "all platform secrets". Maintaining a registry entry per package would drift
+// the moment a package was added; reading the cluster cannot.
+//
+// `skip` carries the Secret names already reported, so a credential is never
+// listed twice.
+func discoveredCredentialEntries(clientset *kubernetes.Clientset, skip map[string]bool) []SecretEntry {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	list, err := clientset.CoreV1().Secrets(globals.AdharSystemNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		logger.Debugf("Failed to list secrets for credential discovery: %v", err)
+		return nil
+	}
+
+	var entries []SecretEntry
+	for i := range list.Items {
+		s := list.Items[i]
+		if nonCredentialSecretTypes[s.Type] || skip[s.Name] {
+			continue
+		}
+		// An ExternalSecret's own bookkeeping, and Kubernetes' bound-token
+		// secrets, are not credentials anyone signs in with.
+		if strings.HasPrefix(s.Name, "sh.helm.release.") || strings.HasSuffix(s.Name, "-token") && s.Type == corev1.SecretTypeOpaque && len(s.Data) == 1 {
+			continue
+		}
+		user := firstKey(s, "username", "user", "email", "instance-admin-email", "rootUser", "admin-user", "adminUser")
+		pass := firstKey(s, "password", "admin-password", "adminPassword", "instance-admin-password",
+			"rootPassword", "root-password", "postgres-password", "mysql-root-password",
+			"admin-token", "api-token", "access-token", "token")
+		if pass == "" {
+			continue
+		}
+		entries = append(entries, SecretEntry{
+			Icon:     helpers.IconSecurity,
+			Service:  s.Name,
+			Username: user,
+			Password: pass,
+		})
+	}
+	sort.Slice(entries, func(a, b int) bool { return entries[a].Service < entries[b].Service })
+	return entries
 }

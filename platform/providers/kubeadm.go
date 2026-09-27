@@ -454,11 +454,29 @@ func ApplyAPIServerExtraArgs(signer ssh.Signer, user, publicIP string, args map[
 	return nil
 }
 
+// nodeNameArg returns a trimmed node name from a variadic override, or "".
+func nodeNameArg(nodeName ...string) string {
+	if len(nodeName) > 0 {
+		return strings.TrimSpace(nodeName[0])
+	}
+	return ""
+}
+
 // KubeadmInitMaster runs kubeadm init on the control-plane node (idempotent —
 // skipped when the node is already initialized) and returns the worker join
 // command. kube-proxy is skipped: the platform bootstrap installs Cilium with
 // kubeProxyReplacement.
-func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR string, apiServerExtraArgs map[string]string) (string, error) {
+// nodeName is variadic so the providers that do not override the kubelet's
+// hostname stay untouched. When one IS given it must be passed to kubeadm as
+// well: kubeadm derives the node name from the machine's hostname, so with the
+// kubelet registering as an AWS private DNS FQDN and kubeadm still marking the
+// short name, `kubeadm init` died at
+//
+//	error execution phase mark-control-plane: nodes "ip-10-0-1-164" not found
+//
+// The kubelet had registered ip-10-0-1-164.ap-southeast-1.compute.internal;
+// kubeadm was looking for ip-10-0-1-164. Both sides have to agree.
+func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR string, apiServerExtraArgs map[string]string, nodeName ...string) (string, error) {
 	if podCIDR == "" {
 		podCIDR = KubeadmPodCIDR
 	}
@@ -469,6 +487,9 @@ func KubeadmInitMaster(signer ssh.Signer, user, publicIP, privateIP, podCIDR str
 			"--control-plane-endpoint=%s "+
 			"--apiserver-cert-extra-sans=%s,%s",
 		podCIDR, publicIP, publicIP, privateIP)
+	if name := nodeNameArg(nodeName...); name != "" {
+		initCmd += " --node-name=" + name
+	}
 	if out, err := SSHRun(signer, user, publicIP, initCmd, 15*time.Minute); err != nil {
 		return "", fmt.Errorf("kubeadm init failed: %w (output: %s)", err, LastLines(out, 15))
 	}
@@ -633,7 +654,14 @@ func imagePullTuningCommand() string {
 	return b.String()
 }
 
-func KubeadmJoinWorker(signer ssh.Signer, user, ip, joinCmd string) error {
+// nodeName, when supplied, is appended to the join command for the same reason
+// KubeadmInitMaster takes one: kubeadm names the node from the machine hostname,
+// and that must match the name the kubelet registers under (an AWS private DNS
+// FQDN when --hostname-override is in use).
+func KubeadmJoinWorker(signer ssh.Signer, user, ip, joinCmd string, nodeName ...string) error {
+	if name := nodeNameArg(nodeName...); name != "" && !strings.Contains(joinCmd, "--node-name") {
+		joinCmd += " --node-name=" + name
+	}
 	if out, err := SSHRun(signer, user, ip, "test -f /etc/kubernetes/kubelet.conf || "+joinCmd, 10*time.Minute); err != nil {
 		return fmt.Errorf("kubeadm join failed on %s: %w (output: %s)", ip, err, LastLines(out, 15))
 	}
@@ -733,6 +761,25 @@ func KubeadmUpgradeCluster(ctx context.Context, signer ssh.Signer, user, masterI
 // initialisation to a cloud-controller-manager.
 const ExternalCloudProviderFlag = "--cloud-provider=external"
 
+// kubeletExtraArgs builds the KUBELET_EXTRA_ARGS value, separated from the SSH
+// plumbing so the flag set can be asserted without a cluster.
+func kubeletExtraArgs(externalCCM, csiStartupTaint bool, privateIP string, hostnameOverride ...string) string {
+	var parts []string
+	if externalCCM {
+		parts = append(parts, ExternalCloudProviderFlag)
+	}
+	if privateIP != "" {
+		parts = append(parts, "--node-ip="+privateIP)
+	}
+	if len(hostnameOverride) > 0 && strings.TrimSpace(hostnameOverride[0]) != "" {
+		parts = append(parts, "--hostname-override="+strings.TrimSpace(hostnameOverride[0]))
+	}
+	if csiStartupTaint {
+		parts = append(parts, "--register-with-taints="+globals.NodeCSIStartupTaint+"=:NoSchedule")
+	}
+	return strings.Join(parts, " ")
+}
+
 // EnableExternalCloudProvider writes the kubelet extra args a raw-compute
 // node needs BEFORE it joins, then restarts the kubelet:
 //
@@ -742,6 +789,16 @@ const ExternalCloudProviderFlag = "--cloud-provider=external"
 //     until the CCM initialises the node, which deadlocks scheduling (Cilium
 //     cannot start without a node IP, the CCM cannot schedule until Cilium
 //     clears its taint) and breaks kubectl logs/exec through the API server;
+//   - --hostname-override=<name>, when the caller supplies one: the AWS CCM
+//     resolves a Node to an EC2 instance by matching the node's name against the
+//     instance's PRIVATE DNS NAME, which is a FQDN
+//     (ip-10-0-1-80.ap-southeast-1.compute.internal). A node that registers under
+//     the short hostname Ubuntu picks by default (ip-10-0-1-80) is invisible to
+//     it: the CCM logs "failed to get instance metadata for node …: instance not
+//     found", never clears
+//     node.cloudprovider.kubernetes.io/uninitialized:NoSchedule, and NOTHING in
+//     the cluster can schedule. It has to be set before the node joins, because
+//     the name a node registers under is fixed at join time;
 //   - --register-with-taints=<globals.NodeCSIStartupTaint>=:NoSchedule on a
 //     WORKER whose provider installs a CSI driver: the scheduler enforces the
 //     per-node volume attach limit only once the CSI node plugin has published
@@ -751,23 +808,15 @@ const ExternalCloudProviderFlag = "--cloud-provider=external"
 //
 // Idempotent: a node whose /etc/default/kubelet already carries the flags is
 // left alone, so a re-run of `adhar up` never restarts a healthy kubelet.
-func EnableExternalCloudProvider(signer ssh.Signer, user, ip, privateIP string, externalCCM, csiStartupTaint bool) error {
-	flags := "KUBELET_EXTRA_ARGS="
-	var parts []string
-	if externalCCM {
-		parts = append(parts, ExternalCloudProviderFlag)
-	}
-	if privateIP != "" {
-		parts = append(parts, "--node-ip="+privateIP)
-	}
-	if csiStartupTaint {
-		parts = append(parts, "--register-with-taints="+globals.NodeCSIStartupTaint+"=:NoSchedule")
-	}
-	if len(parts) == 0 {
+// hostnameOverride is variadic so the fifteen existing call sites that do not
+// need it stay untouched; only AWS passes one.
+func EnableExternalCloudProvider(signer ssh.Signer, user, ip, privateIP string, externalCCM, csiStartupTaint bool, hostnameOverride ...string) error {
+	args := kubeletExtraArgs(externalCCM, csiStartupTaint, privateIP, hostnameOverride...)
+	if args == "" {
 		return nil
 	}
-	flags += strings.Join(parts, " ")
-	marker := parts[0]
+	flags := "KUBELET_EXTRA_ARGS=" + args
+	marker := strings.Fields(args)[0]
 	_, err := SSHRun(signer, user, ip,
 		"grep -q -- '"+marker+"' /etc/default/kubelet 2>/dev/null || { echo '"+flags+"' >> /etc/default/kubelet && systemctl restart kubelet; }", 2*time.Minute)
 	return err

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -14,6 +15,7 @@ import (
 	"adhar-io/adhar/api/v1alpha1"
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
 )
 
 // Platform edge DNS/TLS wiring.
@@ -197,7 +199,7 @@ func resolveDNSProvider(cfg *config.Config, cloudProvider string) string {
 // (access-token, secret-access-key, client-secret, …), external-dns reads its
 // providers' environment variables (DO_TOKEN, AWS_*, CF_API_TOKEN, …) which the
 // external-dns Deployment template sources from this Secret.
-func edgeDNSSecretData(dnsProvider string, pc *config.ConfigProviderConfig) (map[string][]byte, error) {
+func edgeDNSSecretData(ctx context.Context, dnsProvider string, pc *config.ConfigProviderConfig) (map[string][]byte, error) {
 	get := func(cfgVal string, envs ...string) string {
 		if v := strings.TrimSpace(cfgVal); v != "" {
 			return v
@@ -234,8 +236,34 @@ func edgeDNSSecretData(dnsProvider string, pc *config.ConfigProviderConfig) (map
 	case dnsAWS:
 		id := get(pcv.AccessKeyID, "AWS_ACCESS_KEY_ID")
 		secret := get(pcv.SecretAccessKey, "AWS_SECRET_ACCESS_KEY")
+		sessionToken := get("", "AWS_SESSION_TOKEN")
 		if id == "" || secret == "" {
-			return nil, fmt.Errorf("Route53 DNS: static credentials required (providers.aws.accessKeyId/secretAccessKey or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)")
+			// Fall back to the AWS default credential chain — the shared
+			// credentials file, a named profile, SSO, or an instance role.
+			//
+			// This has to resolve to a static key pair because the consumers are
+			// IN-CLUSTER: external-dns and cert-manager's route53 solver read a
+			// Kubernetes Secret and cannot see ~/.aws/credentials. But requiring
+			// the operator to ALSO export the keys as environment variables was
+			// needless friction and an easy trap: the AWS provider itself
+			// authenticates through the default chain, so `adhar up` would create
+			// the whole cluster from ~/.aws/credentials and then fail at the edge
+			// DNS step complaining that credentials were missing (measured on a
+			// real bring-up, 2026-09-27). Resolve the same chain here instead.
+			resolvedID, resolvedSecret, resolvedToken, err := awsStaticCredentials(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("Route53 DNS: no usable AWS credentials — set providers.aws.accessKeyId/secretAccessKey, "+
+					"or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or configure the AWS CLI (~/.aws/credentials): %w", err)
+			}
+			id, secret, sessionToken = resolvedID, resolvedSecret, resolvedToken
+		}
+		if sessionToken != "" {
+			// Temporary credentials (SSO, assumed role) DO work, but only until
+			// they expire — after which external-dns stops publishing records and
+			// certificate renewal fails, quietly, weeks later. Say so now.
+			logger.Warn("Route53 DNS is using TEMPORARY AWS credentials; external-dns and certificate renewal " +
+				"will fail when they expire. Use a long-lived key for the platform's own DNS identity.")
+			data["AWS_SESSION_TOKEN"] = []byte(sessionToken)
 		}
 		data["access-key-id"] = []byte(id)
 		data["secret-access-key"] = []byte(secret) // cert-manager route53 solver
@@ -305,7 +333,7 @@ func edgeDNSSecretData(dnsProvider string, pc *config.ConfigProviderConfig) (map
 // platform's DNS provider. It is idempotent and never writes credentials
 // anywhere but the cluster.
 func ensureEdgeDNSSecret(ctx context.Context, c client.Client, dnsProvider string, pc *config.ConfigProviderConfig) error {
-	data, err := edgeDNSSecretData(dnsProvider, pc)
+	data, err := edgeDNSSecretData(ctx, dnsProvider, pc)
 	if err != nil {
 		return err
 	}
@@ -327,4 +355,82 @@ func ensureEdgeDNSSecret(ctx context.Context, c client.Client, dnsProvider strin
 		return fmt.Errorf("ensuring %s secret: %w", v1alpha1.DNSProviderSecretName, err)
 	}
 	return nil
+}
+
+// awsStaticCredentials is the indirection tests replace. Without it, asserting
+// what happens when no credentials exist would depend on whether the machine
+// running the test happens to have ~/.aws/credentials — which is exactly the
+// kind of environment-dependent test that passes locally and fails in CI.
+var awsStaticCredentials = resolveAWSStaticCredentials
+
+// resolveAWSStaticCredentials retrieves a concrete key pair from the AWS default
+// credential chain (shared credentials file, named profile, SSO cache, instance
+// role) so the platform can hand it to its in-cluster DNS consumers.
+//
+// external-dns and cert-manager's route53 solver read a Kubernetes Secret, so
+// they need real key material; they cannot resolve a profile themselves. Reading
+// the chain here means an operator who has already configured the AWS CLI does
+// not have to restate the same keys as environment variables just to satisfy
+// this one step.
+//
+// The returned session token is empty for long-lived keys and set for temporary
+// ones; the caller warns about the latter, because expiry shows up much later as
+// DNS records that stop updating and certificates that stop renewing.
+func resolveAWSStaticCredentials(ctx context.Context) (id, secret, sessionToken string, err error) {
+	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return "", "", "", fmt.Errorf("loading AWS configuration: %w", err)
+	}
+	if cfg.Credentials == nil {
+		return "", "", "", fmt.Errorf("no credential provider was configured")
+	}
+	creds, err := cfg.Credentials.Retrieve(ctx)
+	if err != nil {
+		return "", "", "", fmt.Errorf("retrieving credentials: %w", err)
+	}
+	if creds.AccessKeyID == "" || creds.SecretAccessKey == "" {
+		return "", "", "", fmt.Errorf("the credential chain returned an empty key pair")
+	}
+	return creds.AccessKeyID, creds.SecretAccessKey, creds.SessionToken, nil
+}
+
+// resolveDNSRegion returns the AWS region cert-manager's route53 solver needs.
+//
+// Only AWS uses it, and it is REQUIRED there: without a region the solver cannot
+// resolve the Route 53 endpoint at all, so the ACME Challenge sits `pending`
+// indefinitely on "Invalid Configuration: Missing Region", no _acme-challenge
+// TXT record is written, and the platform's wildcard certificate never issues.
+// The visible symptom is every URL failing TLS while DNS, the load balancer and
+// the Gateway are all healthy — the reason appears only in the cert-manager pod's
+// log (AWS, 2026-09-27).
+//
+// Resolution order matches resolveDNSProject: the provider's own configuration
+// first, then the conventional environment variables the DNS secret also reads.
+func resolveDNSRegion(cfg *config.Config, dnsProvider string) string {
+	if dnsProvider != dnsAWS || cfg == nil {
+		return ""
+	}
+	for name, pc := range cfg.Providers {
+		if !strings.EqualFold(name, "aws") {
+			continue
+		}
+		if r := strings.TrimSpace(pc.Region); r != "" {
+			return r
+		}
+		m := pc.ToProviderMap()
+		if r, ok := m["region"].(string); ok && strings.TrimSpace(r) != "" {
+			return strings.TrimSpace(r)
+		}
+		if section, ok := m["config"].(map[string]interface{}); ok {
+			if r := providerConfigString(section, "region"); r != "" {
+				return r
+			}
+		}
+	}
+	for _, env := range []string{"AWS_REGION", "AWS_DEFAULT_REGION"} {
+		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+			return v
+		}
+	}
+	return ""
 }

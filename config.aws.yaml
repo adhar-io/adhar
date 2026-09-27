@@ -67,7 +67,7 @@ globalSettings:
 providers:
   aws:
     type: aws
-    region: ap-south-1
+    region: ap-southeast-1
     primary: true
 
     # Credentials come from the ENVIRONMENT, never from this file — it is
@@ -131,7 +131,7 @@ environments:
     # template defaults, not the size of anything.
     type: non-production
     provider: aws
-    region: ap-south-1
+    region: ap-southeast-1
     template: dev-defaults
 
     clusterConfig:
@@ -140,14 +140,34 @@ environments:
       # Keys match ignoring case and separators, so machineType, machine_type and
       # MACHINE_TYPE are the same key.
       #
-      # m6i.2xlarge = 8 vCPU / 32 GiB, the closest equivalent to the
-      # e2-standard-8 that the GCP run was sized on. Smaller was measured there
-      # and does not hold the platform: 2 workers (16 vCPU) left 58 pods
-      # unschedulable and 4 workers (32 vCPU) drove a kubelet NotReady under
-      # load. Choosing a smaller instance here would not save money, it would
-      # just make the autoscaler buy more of them.
+      # r6i.xlarge = 4 vCPU / 32 GiB — the same shape as the Azure
+      # Standard_E4bds_v5 on which four workers carried the full catalogue
+      # (67 of 75 apps healthy, with the nodes under half their CPU).
+      #
+      # It was m6i.2xlarge (8 vCPU / 32 GiB) on the reasoning that "2 workers
+      # left 58 pods unschedulable". That measurement predates the node-local
+      # StorageClass: what actually blocked those pods was the per-VM
+      # block-volume ATTACH LIMIT, not CPU — the unschedulable pods wanted 1.6
+      # cores between them. With `adhar-local` as the default class it is memory
+      # per worker that matters, so this keeps the 32 GiB and halves the vCPU —
+      # and vCPU is the unit the region's quota counts.
       - key: machineType
-        value: m6i.2xlarge
+        value: r6i.xlarge
+      # The control plane, sized separately and explicitly.
+      #
+      # r6i.large is 2 vCPU / 16 GiB — the same shape as the Azure
+      # Standard_E2bds_v5 this platform was verified on. The vCPU count is what
+      # the region's quota counts, so the memory costs nothing against it.
+      #
+      # Two earlier choices were both measured as wrong. The provider's old
+      # default was a BURSTABLE t3.medium (2 vCPU, 4 GiB): exhausted CPU credits
+      # throttle etcd in ways that present as a network fault. m6i.large (2 vCPU,
+      # 8 GiB) then had the CPU but not the memory — during the first GitOps sync
+      # of 75 applications the API server began failing TLS handshakes and even
+      # SSH to the node timed out, so the cluster appeared to flap between 3 nodes
+      # and 0. etcd plus the API server for this many objects needs the 16 GiB.
+      - key: controlPlaneMachineType
+        value: r6i.large
       # START SMALL. This is the floor the cluster boots with; the autoscaler
       # below buys capacity when pods actually go Pending, which is what
       # "on-demand" means in practice. 2 workers will NOT hold the full
@@ -156,10 +176,14 @@ environments:
       # has.
       - key: nodeCount
         value: "2"
-      # 100 GiB gp3 root volumes. gp3 is the default StorageClass (`adhar-block`)
-      # the CSI driver installs, and gp2 costs more for less throughput.
+      # 256 GiB gp3 root volumes. Two things share this disk: the containerd
+      # image cache (~35 GiB of platform images) and every node-local
+      # PersistentVolume, because `adhar-local` is the default StorageClass. At
+      # the AMI's own 8 GB default the kubelet declared disk-pressure minutes
+      # after boot and tainted the node; 100 was measured as too small on Azure
+      # for the same reason.
       - key: diskSizeGb
-        value: "100"
+        value: "256"
       - key: diskType
         value: gp3
       # - key: kubeVersion
@@ -170,14 +194,15 @@ environments:
     # On-demand autoscaling: hold a small floor, buy capacity only when pods are
     # actually Pending for it, and give it back when utilisation drops.
     #
-    # The ceiling is a SPEND ceiling and a quota ceiling at once: 6 workers plus
-    # the control plane is 56 vCPU, which must fit inside the region's
-    # Running On-Demand Standard vCPU limit. Raising maxWorkers without raising
-    # that quota buys nothing — the create simply fails.
+    # The ceiling is a SPEND ceiling and a quota ceiling at once: 4 workers plus
+    # the control plane is 2 + 4x4 = 18 vCPU, which must fit inside the region's
+    # Running On-Demand Standard vCPU limit (L-1216C47A). Raising maxWorkers
+    # without raising that quota buys nothing — the create simply fails, which is
+    # why `adhar up` checks it before creating anything.
     autoscaling:
       enabled: true
       minWorkers: 2
-      maxWorkers: 6
+      maxWorkers: 4
       nodeGroup: workers
       scaleDownUtilizationThreshold: "50%"
       # A node takes minutes to join. Removals are deliberately slower than

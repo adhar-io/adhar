@@ -137,3 +137,18 @@ kubectl -n adhar-system rollout restart deploy -l app.kubernetes.io/instance=pla
   secret) — the setup Job re-creates those, but sessions are lost.
 - MinIO ships with `admin`/`password` from the chart. It is only reachable
   in-cluster and via `/uploads/` behind the proxy.
+
+## Fork images (not yet in use)
+
+The platform runs UPSTREAM `artifacts.plane.so/makeplane/plane-*:v1.4.2`.
+
+The Adhar fork (`adhar-io/plane`) adds Keycloak / generic-OIDC login — a real
+`keycloak.py` provider plus the admin, web and space surfaces around it — which
+replaces the Gitea-federation detour described above. Its images publish to
+`ghcr.io/adhar-io/plane-{backend,frontend,admin,space,live}` from
+`.github/workflows/adhar-ghcr-release.yml`, triggered by an `adhar-v*` tag.
+
+**Switch the references here only once those tags exist.** They were pointed at
+`ghcr.io/adhar-io/plane-*:1.4.2-1` before the workflow had ever run, which put
+every Plane pod into `ImagePullBackOff` (the registry answers 401 for an
+unpublished repository, so it does not even read as "not found").

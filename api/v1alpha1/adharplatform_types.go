@@ -419,6 +419,25 @@ type BuildCustomizationSpec struct {
 	DNSAzureTenantID       string `json:"dnsAzureTenantId,omitempty"`
 	DNSAzureClientID       string `json:"dnsAzureClientId,omitempty"`
 	DNSAzureResourceGroup  string `json:"dnsAzureResourceGroup,omitempty"`
+
+	// DNSRegion is the AWS region cert-manager's route53 solver resolves its
+	// endpoint from. It is the same omission as DNSProject and DNSAzure*, a third
+	// cloud over, and it fails later and more confusingly than either: the
+	// ClusterIssuer applies, an Order and a Challenge are created, and then the
+	// Challenge sits `pending` forever with
+	//
+	//   failed to determine Route 53 hosted zone ID: operation error Route 53:
+	//   ListHostedZonesByName, failed to resolve service endpoint, endpoint rule
+	//   error, Invalid Configuration: Missing Region
+	//
+	// cert-manager says it plainly — "The AWS_REGION or AWS_DEFAULT_REGION
+	// environment variables were not set and the Issuer region field was empty" —
+	// but only in the cert-manager pod's own log. What an operator sees is a
+	// wildcard certificate stuck at Ready=False, no _acme-challenge TXT record in
+	// the zone, and every platform URL failing TLS with SSL_ERROR_SYSCALL while
+	// DNS, the load balancer and the Gateway are all demonstrably fine
+	// (AWS, 2026-09-27).
+	DNSRegion string `json:"dnsRegion,omitempty"`
 }
 
 // Normalize derives computed fields (PortSuffix) from Port/Protocol so that

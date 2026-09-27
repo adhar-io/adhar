@@ -92,11 +92,13 @@ func createProductionCluster(ctx context.Context, cmd *cobra.Command, args []str
 
 	result, err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts)
 	if err != nil {
-		logger.Error("Environment provisioning failed", err, map[string]interface{}{
-			"environment": environment,
-			"provider":    envConfig.ResolvedProvider,
-		})
-		return fmt.Errorf("failed to provision environment %s: %w", environment, err)
+		// Deliberately NOT logged as well as returned. The returned error already
+		// names the environment and the provider, and — for an access failure — it
+		// carries the remedy ExplainAccessError attached. Logging it here too
+		// printed the whole thing a second time, pushing the "→ what to do next"
+		// line out of sight.
+		return fmt.Errorf("failed to provision environment %s (provider %s): %w",
+			environment, envConfig.ResolvedProvider, err)
 	}
 
 	// Bootstrap the platform (foundation + GitOps stack + in-cluster controller

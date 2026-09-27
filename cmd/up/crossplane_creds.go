@@ -14,6 +14,7 @@ import (
 
 	"adhar-io/adhar/globals"
 	"adhar-io/adhar/platform/config"
+	"adhar-io/adhar/platform/logger"
 )
 
 // Crossplane cloud-provider credentials.
@@ -41,7 +42,7 @@ func crossplaneCredentialSecretName(provider string) string {
 
 // crossplaneCredentialData assembles the Secret contents each provider's
 // ProviderConfig expects (key names are fixed by those manifests).
-func crossplaneCredentialData(provider string, pc *config.ConfigProviderConfig) (map[string][]byte, error) {
+func crossplaneCredentialData(ctx context.Context, provider string, pc *config.ConfigProviderConfig) (map[string][]byte, error) {
 	get := func(cfgVal string, envs ...string) string {
 		if v := strings.TrimSpace(cfgVal); v != "" {
 			return v
@@ -91,10 +92,30 @@ func crossplaneCredentialData(provider string, pc *config.ConfigProviderConfig) 
 	case dnsAWS:
 		id := get(pcv.AccessKeyID, "AWS_ACCESS_KEY_ID")
 		secret := get(pcv.SecretAccessKey, "AWS_SECRET_ACCESS_KEY")
+		sessionToken := get("", "AWS_SESSION_TOKEN")
 		if id == "" || secret == "" {
-			return nil, fmt.Errorf("AWS: static credentials required (providers.aws.accessKeyId/secretAccessKey or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)")
+			// Same fallback as the edge DNS secret: resolve the AWS default
+			// credential chain rather than insisting the keys be restated as
+			// environment variables. Crossplane's AWS provider reads this Secret
+			// in-cluster, so it needs real key material — but the operator has
+			// usually already configured the AWS CLI, and the platform's own
+			// provider authenticates from that same chain.
+			resolvedID, resolvedSecret, resolvedToken, err := awsStaticCredentials(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("AWS: no usable credentials — set providers.aws.accessKeyId/secretAccessKey, "+
+					"or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or configure the AWS CLI (~/.aws/credentials): %w", err)
+			}
+			id, secret, sessionToken = resolvedID, resolvedSecret, resolvedToken
 		}
+		// A shared-credentials INI, which is the format provider-aws expects.
 		ini := fmt.Sprintf("[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n", id, secret)
+		if sessionToken != "" {
+			// Temporary credentials work until they expire, after which every
+			// composed AWS resource fails to reconcile. Carried so it works now,
+			// warned about so the expiry is not a mystery later.
+			ini += fmt.Sprintf("aws_session_token = %s\n", sessionToken)
+			logger.Warn("Crossplane's AWS credentials are TEMPORARY; composed AWS resources will stop reconciling when they expire.")
+		}
 		return map[string][]byte{"credentials": []byte(ini)}, nil
 	case dnsGCP:
 		key := strings.TrimSpace(pcv.ServiceAccountKey)
@@ -140,7 +161,7 @@ func ensureCrossplaneCredentialSecret(ctx context.Context, c client.Client, prov
 	if name == "" {
 		return nil
 	}
-	data, err := crossplaneCredentialData(provider, pc)
+	data, err := crossplaneCredentialData(ctx, provider, pc)
 	if err != nil {
 		return err
 	}

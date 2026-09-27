@@ -537,6 +537,14 @@ func buildClusterSpec(envConfig *config.ResolvedEnvironmentConfig) (*types.Clust
 	// (ArgoCD/Gitea replicas, CNPG) is driven separately by enableHAMode.
 	spec.ControlPlane = types.ControlPlaneSpec{
 		Replicas: 1,
+		// The control plane's machine size was never set here, so every provider
+		// fell through to its own hardcoded default — on AWS a `t3.medium`: 2 vCPU,
+		// 4 GiB and BURSTABLE. That is the node running etcd and the API server for
+		// a cluster with ~75 applications' worth of objects, and when its CPU
+		// credits run out etcd slows down rather than failing cleanly, which is a
+		// miserable thing to debug. It is also the one node whose size an operator
+		// could not influence from configuration at all.
+		InstanceType: clusterConfigString(envConfig, "controlPlaneMachineType", "controlPlaneInstanceType", "masterMachineType"),
 	}
 
 	// Configure node groups: one control plane and TWO workers to start with.

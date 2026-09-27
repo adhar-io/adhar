@@ -101,6 +101,14 @@ spec:
               key: access-token
 {{- else if eq .DNSProvider "aws" }}
           route53:
+            # region is REQUIRED. Without it the solver cannot even resolve the
+            # Route 53 endpoint: the Challenge stays `pending` forever on
+            # "Invalid Configuration: Missing Region", no _acme-challenge TXT
+            # record is ever written, and the wildcard certificate never issues —
+            # so every platform URL fails TLS while DNS, the load balancer and the
+            # Gateway all look healthy. cert-manager only says why in its own pod
+            # log (AWS, 2026-09-27).
+            region: {{ .DNSRegion }}
             accessKeyIDSecretRef:
               name: adhar-dns-provider
               key: access-key-id

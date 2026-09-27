@@ -87,6 +87,15 @@ Built for developer productivity with enterprise-grade security and governance.`
 
   # Tear the local platform down
   adhar down`,
+	// Errors are rendered ONCE, by Execute below. Cobra checks the root's flag as
+	// well as the command's, so setting it here covers every subcommand — and it
+	// has to be here, because sixteen commands set SilenceUsage without
+	// SilenceErrors and each of them printed the same failure twice (Cobra's copy
+	// plus Execute's). On a real `adhar up` against an AWS account whose SCP denies
+	// EC2, the failure and its remedy appeared THREE times: the structured log
+	// line, Cobra's copy, and Execute's — which buries the one line that says what
+	// to do next.
+	SilenceErrors: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Print header before any command runs
 		// Skip header for help command itself to avoid duplication with Cobra's default help flag behavior

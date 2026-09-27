@@ -228,10 +228,10 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 	fmt.Printf("🎯 Running kubeadm init on primary master %s...\n", primaryMaster.InstanceId)
 	// External cloud provider: the kubelet defers node initialisation to the
 	// AWS cloud-controller-manager installed right after the joins.
-	if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, primaryMaster.PublicIP, primaryMaster.PrivateIP, true, false); err != nil {
+	if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, primaryMaster.PublicIP, primaryMaster.PrivateIP, true, false, primaryMaster.PrivateDNSName); err != nil {
 		return fmt.Errorf("control plane %s: %w", primaryMaster.InstanceId, err)
 	}
-	joinCmd, err := provider.KubeadmInitMaster(signer, awsSSHUser, primaryMaster.PublicIP, primaryMaster.PrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs)
+	joinCmd, err := provider.KubeadmInitMaster(signer, awsSSHUser, primaryMaster.PublicIP, primaryMaster.PrivateIP, provider.PodCIDROrDefault(spec), spec.ControlPlane.APIServer.ExtraArgs, primaryMaster.PrivateDNSName)
 	if err != nil {
 		return fmt.Errorf("failed to initialize primary master: %w", err)
 	}
@@ -249,10 +249,10 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 		if err := provider.WaitForNodePrep(ctx, signer, awsSSHUser, worker.PublicIP, 15*time.Minute); err != nil {
 			return fmt.Errorf("worker node %s not ready: %w", worker.InstanceId, err)
 		}
-		if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, worker.PublicIP, worker.PrivateIP, true, true); err != nil {
+		if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, worker.PublicIP, worker.PrivateIP, true, true, worker.PrivateDNSName); err != nil {
 			return fmt.Errorf("worker node %s: %w", worker.InstanceId, err)
 		}
-		if err := provider.KubeadmJoinWorker(signer, awsSSHUser, worker.PublicIP, joinCmd); err != nil {
+		if err := provider.KubeadmJoinWorker(signer, awsSSHUser, worker.PublicIP, joinCmd, worker.PrivateDNSName); err != nil {
 			return fmt.Errorf("failed to join worker node %s: %w", worker.InstanceId, err)
 		}
 	}

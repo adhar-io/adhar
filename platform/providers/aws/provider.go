@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -64,6 +66,46 @@ type ResourceTracker struct {
 // Extracted from the registration closure so the mapping can be TESTED. It was
 // inline, which meant the only way to check that a key was honoured — an AMI
 // override, say — was to construct a live provider. Azure already had this shape.
+// defaultRootVolumeSizeGB is used when configuration names no size. 256 GiB
+// matches what the Azure provider settled on for the same reason: the image
+// cache plus node-local PersistentVolumes share this disk.
+const defaultRootVolumeSizeGB int32 = 256
+
+// firstInt32 reads the first present key as an int32, accepting every scalar a
+// YAML decoder produces. A string-only assertion silently dropped
+// `diskSizeGb: 256`, because it arrives as an int.
+func firstInt32(config map[string]interface{}, fallback int32, keys ...string) int32 {
+	for _, k := range keys {
+		v, ok := config[k]
+		if !ok {
+			continue
+		}
+		switch t := v.(type) {
+		case int:
+			if t > 0 {
+				return int32(t)
+			}
+		case int32:
+			if t > 0 {
+				return t
+			}
+		case int64:
+			if t > 0 {
+				return int32(t)
+			}
+		case float64:
+			if t > 0 {
+				return int32(t)
+			}
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(t)); err == nil && n > 0 {
+				return int32(n)
+			}
+		}
+	}
+	return fallback
+}
+
 func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	awsConfig := &Config{}
 
@@ -103,6 +145,10 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 	awsConfig.ImageNameFilter = firstString("imageNameFilter", "image_name_filter", "imageFilter", "image_filter")
 	awsConfig.ImageOwner = firstString("imageOwner", "image_owner")
 	awsConfig.ImageArchitecture = firstString("imageArchitecture", "image_architecture", "arch")
+	// Read as scalars: YAML gives `diskSizeGb: 256` as an int, and a string-only
+	// assertion silently dropped it while the log looked as though it applied.
+	awsConfig.DiskSizeGB = firstInt32(config, 0, "diskSizeGb", "diskSizeGB", "diskSize", "disk_size_gb", "rootVolumeSize")
+	awsConfig.DiskType = firstString("diskType", "disk_type", "volumeType", "rootVolumeType")
 
 	// Authentication Method 1: Access Key + Secret Key
 	if accessKey, ok := config["accessKeyId"].(string); ok {
@@ -146,11 +192,18 @@ func parseProviderConfig(config map[string]interface{}) (*Config, error) {
 
 // NodeInfo represents information about a cluster node
 type NodeInfo struct {
-	InstanceId   string
-	PrivateIP    string
-	PublicIP     string
-	InstanceType string
-	Role         string // "master" or "worker"
+	InstanceId string
+	PrivateIP  string
+	PublicIP   string
+	// PrivateDNSName is the instance's AWS-assigned FQDN, e.g.
+	// ip-10-0-1-80.ap-southeast-1.compute.internal. The kubelet must register
+	// under exactly this name: the AWS cloud-controller-manager looks a Node up
+	// by matching it to an instance's private DNS name, and a node registered
+	// under the short hostname is simply "instance not found" — which leaves
+	// every node tainted uninitialized and the whole cluster unschedulable.
+	PrivateDNSName string
+	InstanceType   string
+	Role           string // "master" or "worker"
 }
 
 // Register the AWS provider on package import
@@ -228,6 +281,17 @@ type Config struct {
 	ImageNameFilter   string `json:"imageNameFilter,omitempty"`
 	ImageOwner        string `json:"imageOwner,omitempty"`
 	ImageArchitecture string `json:"imageArchitecture,omitempty"`
+
+	// Root EBS volume for every node. This provider used to set no block device
+	// mapping at all, so the AMI's own default applied — 8 GB on these Ubuntu
+	// images — and `diskSizeGb` in the configuration file went nowhere. That is
+	// not survivable here: the containerd image cache alone measures ~35 GiB, and
+	// since the platform's default StorageClass became node-local, every
+	// PersistentVolume lives on this disk too. A live Singapore cluster hit
+	// node.kubernetes.io/disk-pressure at 89% full minutes after booting, which
+	// taints the node and halts scheduling.
+	DiskSizeGB int32  `json:"diskSizeGb,omitempty"`
+	DiskType   string `json:"diskType,omitempty"`
 
 	// PurgeOrphanedVolumes extends teardown to unattached EBS volumes the CSI
 	// driver provisioned that carry no cluster tag at all. Off by default and
