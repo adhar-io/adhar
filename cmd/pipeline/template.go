@@ -44,7 +44,7 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 
 func runTemplateList(cmd *cobra.Command, args []string) error {
 	ns := defaultNamespace()
-	logger.Info(fmt.Sprintf("📋 Listing pipeline templates in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Listing pipeline templates in namespace %s...", ns))
 
 	client, err := getDynamicClient()
 	if err != nil {

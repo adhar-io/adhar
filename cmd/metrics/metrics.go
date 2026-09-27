@@ -89,7 +89,7 @@ func init() {
 }
 
 func runMetrics(cmd *cobra.Command, args []string) error {
-	logger.Info("📊 Metrics management - use subcommands for specific metrics tasks")
+	logger.Info("▸ Metrics management - use subcommands for specific metrics tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  list      - List all metrics")
 	logger.Info("  create    - Create custom metrics")

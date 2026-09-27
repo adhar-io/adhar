@@ -38,7 +38,7 @@ func runRestore(cmd *cobra.Command, args []string) error {
 	envName := args[0]
 	backupName := args[1]
 	restoreName := fmt.Sprintf("%s-restore-%s", envName, time.Now().UTC().Format("20060102-150405"))
-	logger.Info(fmt.Sprintf("🔄 Restoring environment %s from backup %s", envName, backupName))
+	logger.Info(fmt.Sprintf("◌ Restoring environment %s from backup %s", envName, backupName))
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -80,7 +80,7 @@ func runRestore(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create restore: %w", err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Restore %s created for environment %q (from %s)", restoreName, envName, backupName)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Restore %s created for environment %q (from %s)", restoreName, envName, backupName)))
 	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Track it: kubectl -n %s get restore %s -o wide", restoreVeleroNS, restoreName)))
 	return nil
 }

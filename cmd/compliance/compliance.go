@@ -42,7 +42,7 @@ var ComplianceCmd = &cobra.Command{
 	Use:     "compliance",
 	Aliases: []string{"posture", "audit"},
 	Short:   "Control posture from the platform's policy reports",
-	Long: `📋 **Adhar Compliance**
+	Long: `▸ **Adhar Compliance**
 
 Reduces the cluster's PolicyReports (Kyverno, Kubescape, any wgpolicyk8s.io
 producer) to a control posture: what is enforced, what passes, what fails.
@@ -165,7 +165,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Println(helpers.SectionHeading("📋", fmt.Sprintf("Compliance posture · %s", p.Cluster)))
+	fmt.Println(helpers.SectionHeading("▸", fmt.Sprintf("Compliance posture · %s", p.Cluster)))
 	fmt.Printf("  %s overall · %d control(s), %d with failures · %d pass / %d fail",
 		pct(p.OverallCompliance()), len(p.Controls), p.FailingControls(), p.Totals.Pass, p.Totals.Fail)
 	if p.Totals.Skip > 0 {
@@ -230,7 +230,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 	if err := os.WriteFile(outputPath, data, 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", outputPath, err)
 	}
-	fmt.Println(helpers.SectionHeading("📋", "Compliance evidence"))
+	fmt.Println(helpers.SectionHeading("▸", "Compliance evidence"))
 	fmt.Printf("  %s %s\n", helpers.StateReady("written"), outputPath)
 	fmt.Printf("  %s\n\n", helpers.SubtitleStyle.Render(fmt.Sprintf(
 		"%s overall · %d control(s), %d failing · generated %s",

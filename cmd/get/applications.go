@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"adhar-io/adhar/cmd/helpers"
 	"adhar-io/adhar/platform/logger"
@@ -175,7 +176,7 @@ type EventInfo struct {
 }
 
 func runGetApplications(cmd *cobra.Command, args []string) error {
-	logger.Info("🚀 Retrieving application information...")
+	logger.Info("▣ Retrieving application information...")
 
 	// Get Kubernetes client
 	clientset, err := getKubernetesClient()
@@ -395,31 +396,31 @@ func getApplications(clientset *kubernetes.Clientset, namespace string, appNames
 
 func getDeploymentStatus(deployment appsv1.Deployment) (string, string) {
 	if deployment.Status.ReadyReplicas == deployment.Status.Replicas && deployment.Status.Replicas > 0 {
-		return "✅ Ready", "#10b981"
+		return "● Ready", "#10b981"
 	} else if deployment.Status.ReadyReplicas > 0 {
-		return "⚠️ Degraded", "#f59e0b"
+		return "▲ Degraded", "#f59e0b"
 	} else {
-		return "❌ Not Ready", "#ef4444"
+		return "✖ Not Ready", "#ef4444"
 	}
 }
 
 func getStatefulSetStatus(sts appsv1.StatefulSet) (string, string) {
 	if sts.Status.ReadyReplicas == sts.Status.Replicas && sts.Status.Replicas > 0 {
-		return "✅ Ready", "#10b981"
+		return "● Ready", "#10b981"
 	} else if sts.Status.ReadyReplicas > 0 {
-		return "⚠️ Degraded", "#f59e0b"
+		return "▲ Degraded", "#f59e0b"
 	} else {
-		return "❌ Not Ready", "#ef4444"
+		return "✖ Not Ready", "#ef4444"
 	}
 }
 
 func getDaemonSetStatus(ds appsv1.DaemonSet) (string, string) {
 	if ds.Status.NumberReady == ds.Status.DesiredNumberScheduled && ds.Status.DesiredNumberScheduled > 0 {
-		return "✅ Ready", "#10b981"
+		return "● Ready", "#10b981"
 	} else if ds.Status.NumberReady > 0 {
-		return "⚠️ Degraded", "#f59e0b"
+		return "▲ Degraded", "#f59e0b"
 	} else {
-		return "❌ Not Ready", "#ef4444"
+		return "✖ Not Ready", "#ef4444"
 	}
 }
 
@@ -599,10 +600,18 @@ func displayApplicationsTable(applications []ApplicationInfo) error {
 // appState renders a workload's status through the shared state vocabulary, so
 // health reads the same in every command.
 func appState(status string) string {
-	// The collector already decorates some statuses ("✅ Ready"), which would
-	// render as two icons once the shared vocabulary adds its own. Strip any
-	// leading symbol run and keep just the word.
-	label := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(status), "✅❌⚠️⏳🔄🟢🔴🟡●◌▲✖◍○ "))
+	// The collector already decorates some statuses ("✅ Ready", "● Ready"), which
+	// would render as two icons once the shared vocabulary adds its own. Strip the
+	// leading decoration and keep just the word.
+	//
+	// Done by CHARACTER CLASS, not by a list of glyphs. The list it replaced had
+	// to name every symbol any upstream source might send, so it silently rotted
+	// whenever one changed — and a bulk edit of the CLI's icons mangled it into
+	// duplicates, leaving appState unable to strip the very emoji it exists to
+	// strip. Anything before the first letter is decoration, whatever it is.
+	label := strings.TrimSpace(strings.TrimLeftFunc(strings.TrimSpace(status), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}))
 	if label == "" {
 		label = strings.TrimSpace(status)
 	}

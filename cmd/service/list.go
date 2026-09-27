@@ -27,7 +27,7 @@ Examples:
 
 func runList(cmd *cobra.Command, args []string) error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("📋 Listing services in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Listing services in namespace %s...", ns))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -49,7 +49,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(services.Items)
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🌐 Services"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⇄ Services"))
 	var t strings.Builder
 	t.WriteString(fmt.Sprintf("%-32s %-14s %-18s %-25s\n", "NAME", "TYPE", "CLUSTER-IP", "PORTS"))
 	t.WriteString(strings.Repeat("─", 92) + "\n")

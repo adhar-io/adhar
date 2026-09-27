@@ -41,7 +41,7 @@ func init() {
 }
 
 func runConnectivity(cmd *cobra.Command, args []string) error {
-	logger.Info("🔗 Summarizing network connectivity...")
+	logger.Info("⇄ Summarizing network connectivity...")
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -70,15 +70,15 @@ func reportServicePair(clientset *kubernetes.Clientset, from, to string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🔗 Namespace: %s\n", ns))
-	b.WriteString(fmt.Sprintf("📤 %-20s %s\n", from, readyLabel(fromReady)))
-	b.WriteString(fmt.Sprintf("📥 %-20s %s", to, readyLabel(toReady)))
+	b.WriteString(fmt.Sprintf("⇄ Namespace: %s\n", ns))
+	b.WriteString(fmt.Sprintf("▸ %-20s %s\n", from, readyLabel(fromReady)))
+	b.WriteString(fmt.Sprintf("▸ %-20s %s", to, readyLabel(toReady)))
 	fmt.Println(helpers.BorderStyle.Width(60).Render(b.String()))
 
 	if fromReady && toReady {
-		fmt.Println(helpers.CreateSuccess("✅ Both services have ready endpoints."))
+		fmt.Println(helpers.CreateSuccess("● Both services have ready endpoints."))
 	} else {
-		fmt.Println(helpers.CreateWarning("⚠️  One or both services have no ready endpoints."))
+		fmt.Println(helpers.CreateWarning("▲  One or both services have no ready endpoints."))
 	}
 	return nil
 }
@@ -107,9 +107,9 @@ func serviceReady(ctx context.Context, clientset *kubernetes.Clientset, ns, name
 
 func readyLabel(ready bool) string {
 	if ready {
-		return "✅ ready endpoints"
+		return "● ready endpoints"
 	}
-	return "⚠️  no ready endpoints"
+	return "▲  no ready endpoints"
 }
 
 // connectivitySummary reports node readiness, Cilium status, and per-service
@@ -169,11 +169,11 @@ func connectivitySummary(clientset *kubernetes.Clientset) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🖥️  Nodes Ready:           %d/%d\n", nodesReady, len(nodes.Items)))
-	b.WriteString(fmt.Sprintf("🕸️  CNI:                   %s\n", cilium))
-	b.WriteString(fmt.Sprintf("🌐 Namespace:             %s\n", ns))
-	b.WriteString(fmt.Sprintf("✅ Services w/ endpoints: %d\n", withEndpoints))
-	b.WriteString(fmt.Sprintf("⚠️  Services w/o endpoints: %d", withoutEndpoints))
+	b.WriteString(fmt.Sprintf("⎔  Nodes Ready:           %d/%d\n", nodesReady, len(nodes.Items)))
+	b.WriteString(fmt.Sprintf("⇄  CNI:                   %s\n", cilium))
+	b.WriteString(fmt.Sprintf("⇄ Namespace:             %s\n", ns))
+	b.WriteString(fmt.Sprintf("● Services w/ endpoints: %d\n", withEndpoints))
+	b.WriteString(fmt.Sprintf("▲  Services w/o endpoints: %d", withoutEndpoints))
 	fmt.Println(helpers.BorderStyle.Width(60).Render(b.String()))
 	return nil
 }

@@ -28,7 +28,7 @@ Examples:
 
 func runOptimize(cmd *cobra.Command, args []string) error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("⚡ Reviewing scaling in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Reviewing scaling in namespace %s...", ns))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -61,10 +61,10 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 			desired = *d.Spec.Replicas
 		}
 		if desired > 0 && d.Status.ReadyReplicas < desired {
-			observations = append(observations, fmt.Sprintf("⚠️  %s has %d/%d ready replicas", d.Name, d.Status.ReadyReplicas, desired))
+			observations = append(observations, fmt.Sprintf("▲  %s has %d/%d ready replicas", d.Name, d.Status.ReadyReplicas, desired))
 		}
 		if !hpaTargets[d.Name] {
-			observations = append(observations, fmt.Sprintf("💡 %s has no HorizontalPodAutoscaler (consider `adhar scale auto --deployment=%s`)", d.Name, d.Name))
+			observations = append(observations, fmt.Sprintf("▸ %s has no HorizontalPodAutoscaler (consider `adhar scale auto --deployment=%s`)", d.Name, d.Name))
 		}
 	}
 
@@ -75,7 +75,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(map[string]interface{}{"namespace": ns, "observations": observations})
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⚡ Scaling Observations"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▸ Scaling Observations"))
 	var b strings.Builder
 	if len(observations) == 0 {
 		b.WriteString("No scaling concerns found.\n")

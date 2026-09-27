@@ -39,7 +39,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		return listFromPromQL(ctx)
 	}
 
-	logger.Info("📋 Listing metric collection targets (ServiceMonitors)...")
+	logger.Info("▸ Listing metric collection targets (ServiceMonitors)...")
 	return listServiceMonitors(ctx)
 }
 
@@ -86,7 +86,7 @@ func listServiceMonitors(ctx context.Context) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-30s %-18s %-6s %s\n", "📡 NAME", "📦 NAMESPACE", "🎯 EPS", "🏷️  SELECTOR"))
+	b.WriteString(fmt.Sprintf("%-30s %-18s %-6s %s\n", "⇄ NAME", "▣ NAMESPACE", "▸ EPS", "▸  SELECTOR"))
 	b.WriteString(strings.Repeat("─", 90) + "\n")
 	for _, m := range rows {
 		b.WriteString(fmt.Sprintf("%-30s %-18s %-6d %s\n", trunc(m.Name, 30), trunc(m.Namespace, 18), m.Endpoints, m.Selector))
@@ -118,7 +118,7 @@ func toServiceMonitorRow(u *unstructured.Unstructured) serviceMonitorRow {
 // listFromPromQL runs the --query expression against Prometheus and prints the
 // returned series.
 func listFromPromQL(ctx context.Context) error {
-	logger.Info(fmt.Sprintf("📋 Querying Prometheus: %s", promQueryExpr))
+	logger.Info(fmt.Sprintf("▸ Querying Prometheus: %s", promQueryExpr))
 	data, err := promQuery(ctx, prometheusURL, promQueryExpr)
 	if err != nil {
 		return err
@@ -141,7 +141,7 @@ func listFromPromQL(ctx context.Context) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-55s %s\n", "📈 SERIES", "📊 VALUE"))
+	b.WriteString(fmt.Sprintf("%-55s %s\n", "▸ SERIES", "▸ VALUE"))
 	b.WriteString(strings.Repeat("─", 75) + "\n")
 	for _, s := range result.Result {
 		val := ""

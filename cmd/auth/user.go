@@ -47,7 +47,7 @@ func init() {
 }
 
 func runUser(cmd *cobra.Command, args []string) error {
-	fmt.Println("👥 Adhar Platform User Management")
+	fmt.Println("▸ Adhar Platform User Management")
 	fmt.Println("")
 	fmt.Println("Available commands:")
 	fmt.Println("  create    - Create a new user")
@@ -89,7 +89,7 @@ func runCreateUser(cmd *cobra.Command, args []string) error {
 	kc := settings()
 	ctx := context.Background()
 
-	fmt.Printf("👤 Creating user %q in realm %s\n", username, kc.Realm)
+	fmt.Printf("▸ Creating user %q in realm %s\n", username, kc.Realm)
 
 	body := map[string]interface{}{
 		"username": username,
@@ -127,7 +127,7 @@ func runCreateUser(cmd *cobra.Command, args []string) error {
 		if _, gerr := kc.adminWrite(ctx, http.MethodPut, fmt.Sprintf("/users/%s/groups/%s", userID, groupID), nil); gerr != nil {
 			return fmt.Errorf("user created, but joining group %q failed: %w", newUserGroup, gerr)
 		}
-		fmt.Printf("👥 Added to group: %s\n", newUserGroup)
+		fmt.Printf("▸ Added to group: %s\n", newUserGroup)
 	}
 
 	// Optionally assign a realm role by name.
@@ -140,10 +140,10 @@ func runCreateUser(cmd *cobra.Command, args []string) error {
 		if rerr := kc.assignRealmRole(ctx, userID, newUserRole); rerr != nil {
 			return fmt.Errorf("user created, but assigning role %q failed: %w", newUserRole, rerr)
 		}
-		fmt.Printf("🔑 Assigned realm role: %s\n", newUserRole)
+		fmt.Printf("⛨ Assigned realm role: %s\n", newUserRole)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Created user %s", username)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Created user %s", username)))
 	if newUserPassword == "" {
 		fmt.Println(helpers.CreateMuted("   No password set — use `adhar auth user reset-pwd " + username + "` to set one."))
 	}
@@ -179,7 +179,7 @@ type kcUser struct {
 }
 
 func runListUsers(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 Platform Users (Keycloak)")
+	fmt.Println("▸ Platform Users (Keycloak)")
 	kc := settings()
 
 	path := "/users"
@@ -205,7 +205,7 @@ func runListUsers(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-24s %-30s %-9s %s\n", "👤 USERNAME", "📧 EMAIL", "✅ ENABLED", "🆔 ID"))
+	b.WriteString(fmt.Sprintf("%-24s %-30s %-9s %s\n", "▸ USERNAME", "▸ EMAIL", "● ENABLED", "▸ ID"))
 	b.WriteString(strings.Repeat("─", 100) + "\n")
 	for _, u := range users {
 		enabled := "yes"
@@ -263,15 +263,15 @@ func runGetUser(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(u)
 	}
 
-	fmt.Printf("👤 Username:  %s\n", u.Username)
+	fmt.Printf("▸ Username:  %s\n", u.Username)
 	if u.Email != "" {
-		fmt.Printf("📧 Email:     %s\n", u.Email)
+		fmt.Printf("▸ Email:     %s\n", u.Email)
 	}
 	if name := strings.TrimSpace(u.FirstName + " " + u.LastName); name != "" {
-		fmt.Printf("🪪 Name:      %s\n", name)
+		fmt.Printf("⛨ Name:      %s\n", name)
 	}
-	fmt.Printf("✅ Enabled:   %t\n", u.Enabled)
-	fmt.Printf("🆔 ID:        %s\n", u.ID)
+	fmt.Printf("● Enabled:   %t\n", u.Enabled)
+	fmt.Printf("▸ ID:        %s\n", u.ID)
 	return nil
 }
 
@@ -314,7 +314,7 @@ func runUpdateUser(cmd *cobra.Command, args []string) error {
 	if err := kc.adminGetOne(ctx, "/users/"+id, &current); err != nil {
 		return err
 	}
-	fmt.Printf("✏️  Updating user %q\n", username)
+	fmt.Printf("▸  Updating user %q\n", username)
 	if updateEmail != "" {
 		current["email"] = updateEmail
 	}
@@ -337,7 +337,7 @@ func runUpdateUser(cmd *cobra.Command, args []string) error {
 		if err := kc.assignRealmRole(ctx, id, updateRole); err != nil {
 			return fmt.Errorf("user updated, but assigning role %q failed: %w", updateRole, err)
 		}
-		fmt.Printf("🔑 Assigned realm role: %s\n", updateRole)
+		fmt.Printf("⛨ Assigned realm role: %s\n", updateRole)
 	}
 	if updateGroup != "" {
 		groupID, gerr := kc.groupIDByName(ctx, updateGroup)
@@ -347,10 +347,10 @@ func runUpdateUser(cmd *cobra.Command, args []string) error {
 		if _, gerr := kc.adminWrite(ctx, http.MethodPut, fmt.Sprintf("/users/%s/groups/%s", id, groupID), nil); gerr != nil {
 			return fmt.Errorf("user updated, but joining group %q failed: %w", updateGroup, gerr)
 		}
-		fmt.Printf("👥 Added to group: %s\n", updateGroup)
+		fmt.Printf("▸ Added to group: %s\n", updateGroup)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Updated user %s", username)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Updated user %s", username)))
 	return nil
 }
 
@@ -383,7 +383,7 @@ func runDeleteUser(cmd *cobra.Command, args []string) error {
 	if _, err := kc.adminWrite(ctx, http.MethodDelete, "/users/"+id, nil); err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Deleted user %s", username)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Deleted user %s", username)))
 	return nil
 }
 
@@ -437,7 +437,7 @@ func runResetPassword(cmd *cobra.Command, args []string) error {
 		if _, err := kc.adminWrite(ctx, http.MethodPut, "/users/"+id+"/reset-password", body); err != nil {
 			return fmt.Errorf("reset password: %w", err)
 		}
-		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Password reset for user %s", username)))
+		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Password reset for user %s", username)))
 		if resetTemporary {
 			fmt.Println(helpers.CreateMuted("   Marked temporary — the user must change it at next login."))
 		}
@@ -448,10 +448,10 @@ func runResetPassword(cmd *cobra.Command, args []string) error {
 	if !sendEmail {
 		return fmt.Errorf("provide --set-password / --prompt to set a password, or --send-email to email a reset link")
 	}
-	fmt.Println("📧 Requesting Keycloak to email a password-reset link...")
+	fmt.Println("▸ Requesting Keycloak to email a password-reset link...")
 	if _, err := kc.adminWrite(ctx, http.MethodPut, "/users/"+id+"/execute-actions-email", []string{"UPDATE_PASSWORD"}); err != nil {
 		return fmt.Errorf("send reset email (is SMTP configured in the realm?): %w", err)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Reset email sent for user %s", username)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Reset email sent for user %s", username)))
 	return nil
 }

@@ -45,7 +45,7 @@ func runSwitch(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if _, err := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{}); err != nil {
-			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("⚠️  Namespace %q not found; switching anyway", ns)))
+			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲  Namespace %q not found; switching anyway", ns)))
 		}
 	}
 
@@ -74,6 +74,6 @@ func runSwitch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write kubeconfig: %w", err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Switched to environment %q (context %q, namespace %q)", envName, curName, ns)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Switched to environment %q (context %q, namespace %q)", envName, curName, ns)))
 	return nil
 }

@@ -46,7 +46,7 @@ func setupClusterKubeconfig(cmd *cobra.Command, cluster *ptypes.Cluster, provide
 	// Create backup if existing config exists
 	backupPath, err := manager.BackupKubeconfig()
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStderr(), "  ⚠️  Warning: Failed to backup existing kubeconfig: %v\n", err)
+		fmt.Fprintf(cmd.OutOrStderr(), "  ▲  Warning: Failed to backup existing kubeconfig: %v\n", err)
 	} else if backupPath != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "  • Existing kubeconfig backed up to: %s\n", backupPath)
 	}
@@ -62,7 +62,7 @@ func setupClusterKubeconfig(cmd *cobra.Command, cluster *ptypes.Cluster, provide
 	// Always set current context for the new cluster
 	err = manager.SetCurrentContext(cluster.Name)
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStderr(), "  ⚠️  Warning: Failed to set current context: %v\n", err)
+		fmt.Fprintf(cmd.OutOrStderr(), "  ▲  Warning: Failed to set current context: %v\n", err)
 	} else {
 		fmt.Fprintf(cmd.OutOrStdout(), "  • Current context set to: %s\n", cluster.Name)
 	}
@@ -70,7 +70,7 @@ func setupClusterKubeconfig(cmd *cobra.Command, cluster *ptypes.Cluster, provide
 	// Validate the kubeconfig
 	err = manager.ValidateKubeconfig()
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStderr(), "  ⚠️  Warning: Kubeconfig validation failed: %v\n", err)
+		fmt.Fprintf(cmd.OutOrStderr(), "  ▲  Warning: Kubeconfig validation failed: %v\n", err)
 	} else {
 		fmt.Fprintf(cmd.OutOrStdout(), "  • Kubeconfig validation passed\n")
 	}

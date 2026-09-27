@@ -49,7 +49,7 @@ type backupRow struct {
 }
 
 func runListBackups(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("📋 Velero Backups"))
+	fmt.Println(helpers.TitleStyle.Render("▸ Velero Backups"))
 
 	rows, err := fetchBackups(context.Background())
 	if err != nil {

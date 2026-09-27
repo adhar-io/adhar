@@ -48,7 +48,7 @@ type vulnRow struct {
 }
 
 func runVulnerabilities(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("🐞 Vulnerabilities (trivy-operator)"))
+	fmt.Println(helpers.TitleStyle.Render("▲ Vulnerabilities (trivy-operator)"))
 
 	dyn, err := getDynamicClient()
 	if err != nil {

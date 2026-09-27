@@ -59,7 +59,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to list namespaces: %w", err)
 	}
 
-	fmt.Println(helpers.TitleStyle.Render("🌍 Environments"))
+	fmt.Println(helpers.TitleStyle.Render("⇄ Environments"))
 	if len(nss.Items) == 0 {
 		fmt.Println(helpers.CreateMuted("   No environments found (try --all to list every namespace)"))
 		return nil

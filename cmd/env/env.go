@@ -76,7 +76,7 @@ func init() {
 }
 
 func runEnv(cmd *cobra.Command, args []string) error {
-	logger.Info("🌍 Environment management - use subcommands to manage environments")
+	logger.Info("⇄ Environment management - use subcommands to manage environments")
 	logger.Info("Available subcommands:")
 	logger.Info("  create  - Create new environment")
 	logger.Info("  list    - List all environments")

@@ -78,7 +78,7 @@ func init() {
 }
 
 func runGitOps(cmd *cobra.Command, args []string) error {
-	logger.Info("🔄 GitOps management - use subcommands for specific GitOps tasks")
+	logger.Info("◌ GitOps management - use subcommands for specific GitOps tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  sync     - Sync applications")
 	logger.Info("  status   - Show GitOps status")

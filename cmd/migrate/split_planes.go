@@ -33,7 +33,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const statusPending = "⏳ pending"
+const statusPending = "◌ pending"
 
 var (
 	execute       bool
@@ -81,7 +81,7 @@ func init() {
 type step struct {
 	n      int
 	title  string
-	status string // ✅ done | ⏳ pending | ⛔ blocked
+	status string // ● done | ◌ pending | ✖ blocked
 	detail string
 }
 
@@ -115,7 +115,7 @@ func runSplitPlanes(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if !crdInstalled {
-		steps[0].status = "⛔ blocked"
+		steps[0].status = "✖ blocked"
 		steps[0].detail = "DataPlane CRD not installed — run `adhar up`/`adhar upgrade` on a build that ships ADR-0023"
 	}
 
@@ -143,7 +143,7 @@ func runSplitPlanes(cmd *cobra.Command, args []string) error {
 		}
 		return fmt.Errorf("creating DataPlane %q: %w", dataPlaneName, err)
 	}
-	logger.Info(fmt.Sprintf("✅ Created DataPlane %q (mode=vcluster, profile=standard).", dataPlaneName))
+	logger.Info(fmt.Sprintf("● Created DataPlane %q (mode=vcluster, profile=standard).", dataPlaneName))
 	logger.Info("The DataPlane controller now drives steps 2 (register + agents). Watch it with `adhar get dataplanes`.")
 	logger.Info("Next (Git, yours to push):")
 	logger.Info("  • step 3 — add placement bindings under environments/<env>/placement.yaml " +
@@ -199,7 +199,7 @@ func printPlan(steps []step) {
 
 func pendingOrDone(done bool) string {
 	if done {
-		return "✅ done"
+		return "● done"
 	}
 	return statusPending
 }

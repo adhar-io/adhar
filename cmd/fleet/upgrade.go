@@ -115,7 +115,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if len(waves) == 0 {
-		fmt.Println(helpers.SectionHeading("🌍", "Fleet upgrade"))
+		fmt.Println(helpers.SectionHeading("⇄", "Fleet upgrade"))
 		fmt.Println("  Nothing to upgrade — no plane matched, or none is Ready.")
 		if len(skipped) > 0 {
 			fmt.Print(Describe(nil, skipped))
@@ -123,7 +123,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Println(helpers.SectionHeading("🌍", fmt.Sprintf("Fleet upgrade → %s", targetVersion)))
+	fmt.Println(helpers.SectionHeading("⇄", fmt.Sprintf("Fleet upgrade → %s", targetVersion)))
 	fmt.Print(Describe(waves, skipped))
 	fmt.Println()
 

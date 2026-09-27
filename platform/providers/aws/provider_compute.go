@@ -781,7 +781,22 @@ func (p *Provider) ScaleNodeGroup(ctx context.Context, clusterID string, nodeGro
 			// The EBS CSI driver is a platform addon on AWS, so a worker carries
 			// the CSI startup taint until its CSINode registers; no
 			// cloud-controller-manager is installed yet (docs/PROVIDERS.md).
-			if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, node.PublicIP, node.PrivateIP, false, true, node.PrivateDNSName); err != nil {
+			// externalCCM MUST be true, exactly as it is for a worker created by
+			// `adhar up` (provider_cluster.go). It was false, and the whole chain
+			// downstream of it failed silently:
+			//
+			//   no --cloud-provider=external  ->  kubelet registers with no
+			//   uninitialized taint, so the CCM never touches the node  ->
+			//   .spec.providerID stays empty  ->  the EBS CSI node plugin cannot
+			//   identify its instance ("node providerID empty, cannot parse", after
+			//   IMDS also times out on the pod network) and crash-loops  ->  no
+			//   CSINode object is published  ->  the autoscaler never lifts
+			//   node.adhar.io/csi-not-ready:NoSchedule.
+			//
+			// The visible result is an autoscaled node that is Ready and completely
+			// EMPTY while pods stay Pending: measured at 5 nodes with two sitting at
+			// 3% CPU and 27 pods unschedulable.
+			if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, node.PublicIP, node.PrivateIP, true, true, node.PrivateDNSName); err != nil {
 				return fmt.Errorf("new worker %s: %w", name, err)
 			}
 			if err := provider.KubeadmJoinWorker(signer, awsSSHUser, node.PublicIP, joinCmd, node.PrivateDNSName); err != nil {

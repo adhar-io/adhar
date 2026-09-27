@@ -80,7 +80,7 @@ func init() {
 }
 
 func runTraces(cmd *cobra.Command, args []string) error {
-	logger.Info("🔍 Traces management - use subcommands for specific tracing tasks")
+	logger.Info("▸ Traces management - use subcommands for specific tracing tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  list     - List recent traces")
 	logger.Info("  search   - Search traces")

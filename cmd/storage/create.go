@@ -37,7 +37,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("💾 Creating PersistentVolumeClaim %s/%s (size: %s)", ns, volumeName, size))
+	logger.Info(fmt.Sprintf("▥ Creating PersistentVolumeClaim %s/%s (size: %s)", ns, volumeName, size))
 
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -72,6 +72,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating PVC %s/%s: %w", ns, volumeName, err)
 	}
 
-	logger.Info(fmt.Sprintf("✅ PVC %s/%s created (phase: %s)", ns, created.Name, created.Status.Phase))
+	logger.Info(fmt.Sprintf("● PVC %s/%s created (phase: %s)", ns, created.Name, created.Status.Phase))
 	return nil
 }

@@ -60,7 +60,7 @@ var (
 var AICmd = &cobra.Command{
 	Use:     "ai",
 	Aliases: []string{"agent"},
-	Short:   "🤖 Ask, investigate and act through the platform's own AI data plane",
+	Short:   "⎔ Ask, investigate and act through the platform's own AI data plane",
 	Long: `Adhar AI turns the platform into something you can ask questions of. Completions run through the cluster's AI data plane (agentgateway), which holds the single provider key server-side, routes to Anthropic, OpenAI or the in-cluster vLLM by model name, and meters every request against the platform budget — so your laptop never holds a credential and every call is audited.
 
 Beyond chat, ` + "`adhar ai agent`" + ` runs a tool-calling loop over read-only

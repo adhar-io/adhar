@@ -41,7 +41,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		ns = globals.AdharSystemNamespace
 	}
 
-	logger.Info(fmt.Sprintf("📊 Creating recording rule: %s (record %q)", metricName, promQueryExpr))
+	logger.Info(fmt.Sprintf("▸ Creating recording rule: %s (record %q)", metricName, promQueryExpr))
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -81,6 +81,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return friendlyCRDError("PrometheusRule", err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Created PrometheusRule %s/%s", created.GetNamespace(), created.GetName())))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Created PrometheusRule %s/%s", created.GetNamespace(), created.GetName())))
 	return nil
 }

@@ -41,7 +41,7 @@ func init() {
 }
 
 func runPolicy(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 Adhar Platform Policy Management")
+	fmt.Println("▸ Adhar Platform Policy Management")
 	fmt.Println("")
 	fmt.Println("Available commands:")
 	fmt.Println("  apply     - Apply policies to the platform")

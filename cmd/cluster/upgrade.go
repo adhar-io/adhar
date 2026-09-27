@@ -49,6 +49,6 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to upgrade cluster %s: %w", clusterName, err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Cluster %s upgraded to %s\n", clusterName, upgradeVersion)
+	fmt.Fprintf(cmd.OutOrStdout(), "● Cluster %s upgraded to %s\n", clusterName, upgradeVersion)
 	return nil
 }

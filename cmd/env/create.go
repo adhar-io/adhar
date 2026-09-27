@@ -59,12 +59,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if _, err := clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{}); err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("⚠️  Namespace %q already exists; ensuring labels only", envName)))
+			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲  Namespace %q already exists; ensuring labels only", envName)))
 		} else {
 			return fmt.Errorf("failed to create namespace %q: %w", envName, err)
 		}
 	} else {
-		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Namespace %q created (tier %q)", envName, createTier)))
+		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Namespace %q created (tier %q)", envName, createTier)))
 	}
 
 	// Best-effort CompositeEnvironment XR for Crossplane-managed quotas/policies.
@@ -75,7 +75,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			fmt.Println(helpers.CreateMuted("   CompositeEnvironment XR not created: " + err.Error()))
 		}
 	} else {
-		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ CompositeEnvironment %q created", envName)))
+		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● CompositeEnvironment %q created", envName)))
 	}
 
 	return nil

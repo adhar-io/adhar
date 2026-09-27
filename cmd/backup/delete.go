@@ -62,8 +62,8 @@ func deleteSingleBackup(backupName string) error {
 		return fmt.Errorf("backup not found: %s", backupName)
 	}
 
-	if !forceDelete && !confirm(fmt.Sprintf("🗑️  Are you sure you want to delete backup: %s? (y/N): ", backupName)) {
-		fmt.Println("❌ Deletion cancelled")
+	if !forceDelete && !confirm(fmt.Sprintf("✖  Are you sure you want to delete backup: %s? (y/N): ", backupName)) {
+		fmt.Println("✖ Deletion cancelled")
 		return nil
 	}
 
@@ -71,7 +71,7 @@ func deleteSingleBackup(backupName string) error {
 		return fmt.Errorf("failed to delete backup %q: %w", backupName, err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Successfully deleted backup: %s", backupName)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Successfully deleted backup: %s", backupName)))
 	return nil
 }
 
@@ -99,30 +99,30 @@ func deleteBackupsByPattern(pat string) error {
 	}
 
 	if len(matching) == 0 {
-		fmt.Printf("📭 No backups found matching pattern: %s\n", pat)
+		fmt.Printf("○ No backups found matching pattern: %s\n", pat)
 		return nil
 	}
 
-	fmt.Printf("🔍 Found %d backups matching pattern '%s':\n", len(matching), pat)
+	fmt.Printf("▸ Found %d backups matching pattern '%s':\n", len(matching), pat)
 	for _, name := range matching {
 		fmt.Printf("  - %s\n", name)
 	}
 
-	if !forceDelete && !confirm(fmt.Sprintf("\n🗑️  Are you sure you want to delete these %d backups? (y/N): ", len(matching))) {
-		fmt.Println("❌ Deletion cancelled")
+	if !forceDelete && !confirm(fmt.Sprintf("\n✖  Are you sure you want to delete these %d backups? (y/N): ", len(matching))) {
+		fmt.Println("✖ Deletion cancelled")
 		return nil
 	}
 
 	deleted := 0
 	for _, name := range matching {
 		if err := dyn.Resource(backupGVR).Namespace(veleroNamespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-			fmt.Printf("⚠️  Failed to delete %s: %v\n", name, err)
+			fmt.Printf("▲  Failed to delete %s: %v\n", name, err)
 			continue
 		}
 		deleted++
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Successfully deleted %d backups", deleted)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Successfully deleted %d backups", deleted)))
 	return nil
 }
 

@@ -74,6 +74,6 @@ func runExport(cmd *cobra.Command, args []string) error {
 	if err := os.WriteFile(exportOutput, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", exportOutput, err)
 	}
-	logger.Info("📤 Exported configuration from " + path + " to " + exportOutput)
+	logger.Info("▸ Exported configuration from " + path + " to " + exportOutput)
 	return nil
 }

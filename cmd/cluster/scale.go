@@ -71,7 +71,7 @@ func scaleCluster(cmd *cobra.Command, name string) error {
 		return fmt.Errorf("failed to scale cluster %s: %w", name, err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Cluster %s scaled to %d workers\n", name, workers)
+	fmt.Fprintf(cmd.OutOrStdout(), "● Cluster %s scaled to %d workers\n", name, workers)
 	return nil
 }
 

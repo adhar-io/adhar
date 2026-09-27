@@ -37,14 +37,14 @@ func runLogout(cmd *cobra.Command, args []string) error {
 		if err := kc.endSession(context.Background(), s.RefreshToken); err != nil {
 			fmt.Println(helpers.CreateMuted("   (server-side session invalidation failed: " + err.Error() + ")"))
 		} else {
-			fmt.Println("🔓 Server-side session invalidated")
+			fmt.Println("⛨ Server-side session invalidated")
 		}
 	}
 
 	if err := deleteSession(); err != nil {
 		return fmt.Errorf("removing local session: %w", err)
 	}
-	fmt.Println(helpers.CreateSuccess("✅ Logged out"))
-	fmt.Printf("👤 %s — session removed from %s\n", s.Username, credentialsPath())
+	fmt.Println(helpers.CreateSuccess("● Logged out"))
+	fmt.Printf("▸ %s — session removed from %s\n", s.Username, credentialsPath())
 	return nil
 }

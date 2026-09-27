@@ -137,13 +137,13 @@ func collectPackageHealth(ctx context.Context) *PackageHealthSummary {
 func healthIcon(health string) string {
 	switch health {
 	case healthHealthy:
-		return "✅"
+		return "●"
 	case healthProgressing:
-		return "🔄"
+		return "◌"
 	case "Degraded", "Missing":
-		return "❌"
+		return "✖"
 	default:
-		return "⚪"
+		return "○"
 	}
 }
 
@@ -151,15 +151,15 @@ func healthIcon(health string) string {
 // readiness dashboard sections of `adhar get status`.
 func displayPlatformHealth(conditions []PlatformConditionInfo, packages *PackageHealthSummary) {
 	if len(conditions) > 0 {
-		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🧩 Platform Conditions"))
+		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▣ Platform Conditions"))
 
 		var b strings.Builder
 		fmt.Fprintf(&b, "%-20s %-8s %-28s %s\n", "CONDITION", "STATUS", "REASON", "MESSAGE")
 		b.WriteString(strings.Repeat("─", 75) + "\n")
 		for _, c := range conditions {
-			icon := "✅"
+			icon := "●"
 			if c.Status != "True" {
-				icon = "❌"
+				icon = "✖"
 			}
 			msg := c.Message
 			if len(msg) > 40 {
@@ -174,7 +174,7 @@ func displayPlatformHealth(conditions []PlatformConditionInfo, packages *Package
 		fmt.Printf("\n%s\n", helpers.TitleStyle.Render(helpers.IconApp+" "+"Platform Packages"))
 
 		var b strings.Builder
-		fmt.Fprintf(&b, "✅ Healthy: %d   🔄 Progressing: %d   ❌ Degraded: %d   (total: %d)\n",
+		fmt.Fprintf(&b, "● Healthy: %d   ◌ Progressing: %d   ✖ Degraded: %d   (total: %d)\n",
 			packages.Healthy, packages.Syncing, packages.Degraded, packages.Total)
 		b.WriteString(strings.Repeat("─", 75) + "\n")
 		fmt.Fprintf(&b, "%-35s %-18s %-12s\n", "PACKAGE", "HEALTH", "SYNC")
@@ -239,7 +239,7 @@ func displayAccessURLs(urls []AccessURL) {
 	if len(urls) == 0 {
 		return
 	}
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🔗 Access URLs"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⇄ Access URLs"))
 
 	var b strings.Builder
 	for _, u := range urls {
@@ -284,13 +284,13 @@ func displayFleet(fleet *v1alpha1.FleetStatus) {
 	if fleet == nil || fleet.DataPlanes == 0 {
 		return
 	}
-	fmt.Printf("\n%s\n", helpers.CreateHighlight(fmt.Sprintf("🛰️  Data Planes (%d/%d ready)", fleet.Ready, fleet.DataPlanes)))
+	fmt.Printf("\n%s\n", helpers.CreateHighlight(fmt.Sprintf("⇄  Data Planes (%d/%d ready)", fleet.Ready, fleet.DataPlanes)))
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("  %-24s %-10s %-8s %-6s %s\n", "NAME", "MODE", "READY", "APPS", "KUBERNETES"))
 	for _, p := range fleet.Planes {
-		ready := "✅"
+		ready := "●"
 		if !p.Ready {
-			ready = "⏳"
+			ready = "◌"
 		}
 		b.WriteString(fmt.Sprintf("  %-24s %-10s %-8s %-6d %s\n", p.Name, p.Mode, ready, p.Apps, orDash(p.KubernetesVersion)))
 	}

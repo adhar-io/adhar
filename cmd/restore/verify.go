@@ -26,7 +26,7 @@ Examples:
 
 func runVerifyRestore(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	fmt.Printf("🔍 Verifying restore: %s\n", name)
+	fmt.Printf("▸ Verifying restore: %s\n", name)
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -50,22 +50,22 @@ func runVerifyRestore(cmd *cobra.Command, args []string) error {
 	completed := nestedString(obj.Object, "status", "completionTimestamp")
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🔄 Name:      %s\n", name))
-	b.WriteString(fmt.Sprintf("📦 Backup:    %s\n", nestedString(obj.Object, "spec", "backupName")))
-	b.WriteString(fmt.Sprintf("📊 Phase:     %s\n", phaseIcon(phase)))
-	b.WriteString(fmt.Sprintf("⚠️  Warnings:  %d\n", warnCount))
-	b.WriteString(fmt.Sprintf("❌ Errors:    %d\n", errCount))
+	b.WriteString(fmt.Sprintf("◌ Name:      %s\n", name))
+	b.WriteString(fmt.Sprintf("▣ Backup:    %s\n", nestedString(obj.Object, "spec", "backupName")))
+	b.WriteString(fmt.Sprintf("▸ Phase:     %s\n", phaseIcon(phase)))
+	b.WriteString(fmt.Sprintf("▲  Warnings:  %d\n", warnCount))
+	b.WriteString(fmt.Sprintf("✖ Errors:    %d\n", errCount))
 	if started != "" {
-		b.WriteString(fmt.Sprintf("🕐 Started:   %s\n", started))
+		b.WriteString(fmt.Sprintf("▸ Started:   %s\n", started))
 	}
 	if completed != "" {
-		b.WriteString(fmt.Sprintf("🏁 Completed: %s", completed))
+		b.WriteString(fmt.Sprintf("● Completed: %s", completed))
 	}
 	fmt.Println(helpers.BorderStyle.Width(70).Render(strings.TrimRight(b.String(), "\n")))
 
 	if phase != "Completed" {
 		return fmt.Errorf("restore %q is not Completed (phase: %s)", name, phase)
 	}
-	fmt.Println(helpers.CreateSuccess("✅ Restore verified: phase Completed"))
+	fmt.Println(helpers.CreateSuccess("● Restore verified: phase Completed"))
 	return nil
 }

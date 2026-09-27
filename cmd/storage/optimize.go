@@ -28,7 +28,7 @@ Examples:
 
 func runOptimize(cmd *cobra.Command, args []string) error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("⚡ Reviewing storage in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Reviewing storage in namespace %s...", ns))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -51,16 +51,16 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	for _, pv := range pvs.Items {
 		switch pv.Status.Phase {
 		case corev1.VolumeReleased:
-			observations = append(observations, fmt.Sprintf("♻️  PV %s is Released (reclaim policy: %s) — may be reclaimable", pv.Name, pv.Spec.PersistentVolumeReclaimPolicy))
+			observations = append(observations, fmt.Sprintf("◌  PV %s is Released (reclaim policy: %s) — may be reclaimable", pv.Name, pv.Spec.PersistentVolumeReclaimPolicy))
 		case corev1.VolumeAvailable:
-			observations = append(observations, fmt.Sprintf("💤 PV %s is Available and unbound", pv.Name))
+			observations = append(observations, fmt.Sprintf("○ PV %s is Available and unbound", pv.Name))
 		case corev1.VolumeFailed:
-			observations = append(observations, fmt.Sprintf("❌ PV %s is in Failed phase", pv.Name))
+			observations = append(observations, fmt.Sprintf("✖ PV %s is in Failed phase", pv.Name))
 		}
 	}
 	for _, pvc := range pvcs.Items {
 		if pvc.Status.Phase != corev1.ClaimBound {
-			observations = append(observations, fmt.Sprintf("⚠️  PVC %s is %s (not Bound)", pvc.Name, pvc.Status.Phase))
+			observations = append(observations, fmt.Sprintf("▲  PVC %s is %s (not Bound)", pvc.Name, pvc.Status.Phase))
 		}
 	}
 
@@ -71,7 +71,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(map[string]interface{}{"namespace": ns, "observations": observations})
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⚡ Storage Observations"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▸ Storage Observations"))
 	var b strings.Builder
 	if len(observations) == 0 {
 		b.WriteString("No storage concerns found.\n")

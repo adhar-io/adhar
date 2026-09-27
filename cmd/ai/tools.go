@@ -829,7 +829,7 @@ Console chat and any external agent (an IDE, Claude Code) drive Adhar through.`,
 		}
 
 		fmt.Println()
-		fmt.Println(helpers.SectionHeading("🧰", "Agent tools"))
+		fmt.Println(helpers.SectionHeading("▸", "Agent tools"))
 		fmt.Println()
 		t := helpers.NewTable("TOOL", "KIND", "WHAT IT DOES")
 		for _, tl := range ts {

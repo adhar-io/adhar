@@ -94,7 +94,7 @@ func init() {
 }
 
 func runService(cmd *cobra.Command, args []string) error {
-	logger.Info("🌐 Service management - use subcommands for specific service tasks")
+	logger.Info("⇄ Service management - use subcommands for specific service tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  list    - List all services")
 	logger.Info("  create  - Create new services")

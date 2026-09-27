@@ -81,7 +81,7 @@ func init() {
 }
 
 func runHealth(cmd *cobra.Command, args []string) error {
-	logger.Info("🏥 Checking Adhar platform health...")
+	logger.Info("⎔ Checking Adhar platform health...")
 
 	if component != "" {
 		return checkComponentHealth(component)
@@ -95,21 +95,21 @@ func runHealth(cmd *cobra.Command, args []string) error {
 }
 
 func checkOverallHealth() error {
-	logger.Info("🔍 Performing overall platform health check...")
+	logger.Info("▸ Performing overall platform health check...")
 
 	_, err := runHealthSweep("", parseTimeout(timeout))
 	return err
 }
 
 func checkComponentHealth(componentName string) error {
-	logger.Info("🔍 Checking component health: " + componentName)
+	logger.Info("▸ Checking component health: " + componentName)
 
 	_, err := runHealthSweep(componentName, parseTimeout(timeout))
 	return err
 }
 
 func checkNamespaceHealth(namespaceName string) error {
-	logger.Info("🔍 Checking namespace health: " + namespaceName)
+	logger.Info("▸ Checking namespace health: " + namespaceName)
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -152,13 +152,13 @@ func reportNamespaceHealth(clientset *kubernetes.Clientset, ns string, to time.D
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("📦 Namespace: %s\n", ns))
-	b.WriteString(fmt.Sprintf("🟢 Running: %d   🟡 Pending: %d   🔴 Failed: %d   ✅ Succeeded: %d\n", running, pending, failed, succeeded))
-	b.WriteString(fmt.Sprintf("📊 Total Pods: %d", len(pods.Items)))
+	b.WriteString(fmt.Sprintf("▣ Namespace: %s\n", ns))
+	b.WriteString(fmt.Sprintf("● Running: %d   ▲ Pending: %d   ✖ Failed: %d   ● Succeeded: %d\n", running, pending, failed, succeeded))
+	b.WriteString(fmt.Sprintf("▸ Total Pods: %d", len(pods.Items)))
 	fmt.Println(helpers.BorderStyle.Width(70).Render(b.String()))
 
 	if len(problems) > 0 {
-		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("⚠️  Issues"))
+		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("▲  Issues"))
 		for _, p := range problems {
 			fmt.Println("  • " + p)
 		}

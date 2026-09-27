@@ -32,7 +32,7 @@ func init() {
 }
 
 func runHistory(cmd *cobra.Command, args []string) error {
-	logger.Info("📈 Viewing health history...")
+	logger.Info("▸ Viewing health history...")
 
 	// Adhar does not persist historical health snapshots locally; trend data is
 	// surfaced by the observability stack (kube-prometheus / Grafana) deployed
@@ -42,7 +42,7 @@ func runHistory(cmd *cobra.Command, args []string) error {
 		"Historical health trends are not stored by the CLI. " +
 			"View time-series metrics in Grafana (kube-prometheus) at " +
 			"https://adhar.localtest.me:8443/grafana."))
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📸 Current Snapshot"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▸ Current Snapshot"))
 
 	_, err := runHealthSweep(historyComponent, parseTimeout(timeout))
 	return err

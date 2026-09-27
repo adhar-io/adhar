@@ -84,7 +84,7 @@ func init() {
 
 func runDeploy(cmd *cobra.Command, args []string) error {
 	appName := args[0]
-	logger.Info(fmt.Sprintf("🚀 Deploying application: %s", appName))
+	logger.Info(fmt.Sprintf("▣ Deploying application: %s", appName))
 
 	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
 	if err != nil {
@@ -123,7 +123,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	fmt.Println(helpers.CreateSuccess(note))
 
 	if waitForReady {
-		logger.Info("⏱️  Waiting for application to become healthy...")
+		logger.Info("◌  Waiting for application to become healthy...")
 		status, err := waitForApplicationReady(ctx, kubeconfigPath, appliedNamespace, appliedName, deployTimeout)
 		if err != nil {
 			return err
@@ -162,12 +162,12 @@ func deployFromTemplate(ctx context.Context, kubeconfigPath, appName, namespace,
 		return "", "", err
 	}
 
-	logger.Info(fmt.Sprintf("📐 Rendering template %s into %s/%s", template, globals.GiteaPlatformOrg, appName))
+	logger.Info(fmt.Sprintf("▸ Rendering template %s into %s/%s", template, globals.GiteaPlatformOrg, appName))
 	scaffolded, err := scaffoldTemplate(ctx, gc, giteaURL, template, appName, namespace, overrides)
 	if err != nil {
 		return "", "", err
 	}
-	logger.Info(fmt.Sprintf("📦 Committed %d files to %s", scaffolded.Files, scaffolded.CloneURL))
+	logger.Info(fmt.Sprintf("▣ Committed %d files to %s", scaffolded.Files, scaffolded.CloneURL))
 
 	// Point the deploy at the repo just created. An explicit --path still wins:
 	// the template states where its manifests are, but the caller may be

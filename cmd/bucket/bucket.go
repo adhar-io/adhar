@@ -133,7 +133,7 @@ if the data matters.`,
 			map[string]string{"type": objectType},
 			map[string]interface{}{"parameters": parameters})
 
-		logger.Info(fmt.Sprintf("🪣 Requesting bucket %s in %s (provider: %s)",
+		logger.Info(fmt.Sprintf("▥ Requesting bucket %s in %s (provider: %s)",
 			bucketName, ns(), helpers.ActiveProvider()))
 
 		if err := helpers.ApplyXR(ctx(cmd), xrPlural, obj); err != nil {

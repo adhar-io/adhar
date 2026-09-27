@@ -18,8 +18,8 @@ package helpers
 
 // spinner.go is a small, dependency-light activity spinner for `adhar up`. It
 // animates a single status line with the brand-gradient braille frames and a
-// live elapsed timer, then resolves to a ✓/✗ line. On a non-interactive writer
-// (pipes, CI, NO_COLOR) it degrades to plain "• …" / "✓ …" lines with no
+// live elapsed timer, then resolves to a ●/✖ line. On a non-interactive writer
+// (pipes, CI, NO_COLOR) it degrades to plain "• …" / "● …" lines with no
 // escape codes, so logs stay clean.
 
 import (
@@ -119,11 +119,11 @@ func (s *Spinner) render() {
 	fmt.Fprintf(s.w, "\r\x1b[2K   %s %s  %s", frame, spinLabelStyle.Render(s.label), el)
 }
 
-// Success stops the animation and resolves the line to a green ✓ with elapsed time.
-func (s *Spinner) Success(msg string) { s.finish(spinOKStyle.Render("✓"), msg) }
+// Success stops the animation and resolves the line to a green ● with elapsed time.
+func (s *Spinner) Success(msg string) { s.finish(spinOKStyle.Render("●"), msg) }
 
-// Fail stops the animation and resolves the line to a red ✗.
-func (s *Spinner) Fail(msg string) { s.finish(spinFailStyle.Render("✗"), msg) }
+// Fail stops the animation and resolves the line to a red ✖.
+func (s *Spinner) Fail(msg string) { s.finish(spinFailStyle.Render("✖"), msg) }
 
 func (s *Spinner) finish(icon, msg string) {
 	s.mu.Lock()

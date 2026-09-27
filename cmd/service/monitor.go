@@ -26,7 +26,7 @@ Examples:
 
 func runMonitor(cmd *cobra.Command, args []string) error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("📊 Monitoring services in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Monitoring services in namespace %s...", ns))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -64,7 +64,7 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(rows)
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📊 Service Endpoint Health"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▸ Service Endpoint Health"))
 	var t strings.Builder
 	t.WriteString(fmt.Sprintf("%-32s %-14s %-9s %-9s\n", "NAME", "TYPE", "READY", "NOTREADY"))
 	t.WriteString(strings.Repeat("─", 70) + "\n")

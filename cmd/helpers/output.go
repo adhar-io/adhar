@@ -26,7 +26,7 @@ package helpers
 //	curl -H "Authorization: Bearer $(adhar auth token)" ...
 //
 // and the design docs use `kubectl --token "$(adhar auth token)"` — both of which
-// captured the banner line and the "Built with ❤️" footer along with the token,
+// captured the banner line and the "Built with ●" footer along with the token,
 // producing an unusable credential. `-o json` was worse: no `adhar ... -o json`
 // output anywhere in the CLI could be piped into `jq`, because the JSON document
 // was never the whole of stdout.

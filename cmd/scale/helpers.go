@@ -57,7 +57,7 @@ func parseTimeout() time.Duration {
 func getClientset() (*kubernetes.Clientset, error) {
 	clientset, err := k8s.GetClientset()
 	if err != nil {
-		fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
+		fmt.Println(helpers.ErrorStyle.Render("✖ Could not connect to the cluster"))
 		fmt.Println(helpers.CreateMuted("   " + err.Error()))
 		fmt.Println(helpers.CreateMuted("   Is the cluster running? Try `adhar up` or check your kubeconfig context."))
 		return nil, fmt.Errorf("failed to get Kubernetes client: %w", err)

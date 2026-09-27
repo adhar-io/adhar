@@ -48,7 +48,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		ns = "default"
 	}
 
-	logger.Info(fmt.Sprintf("🔧 Creating pipeline: %s (type: %s, provider: %s)",
+	logger.Info(fmt.Sprintf("⎔ Creating pipeline: %s (type: %s, provider: %s)",
 		pipelineName, pipelineType, helpers.ActiveProvider()))
 
 	// Flat CompositePipeline spec (matches xrd/pipeline.xrd.yaml — spec.name and

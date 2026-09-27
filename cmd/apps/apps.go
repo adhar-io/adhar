@@ -76,7 +76,7 @@ func init() {
 }
 
 func runApps(cmd *cobra.Command, args []string) error {
-	logger.Info("📱 Apps command - use subcommands to manage applications")
+	logger.Info("⎔ Apps command - use subcommands to manage applications")
 	logger.Info("Available subcommands:")
 	logger.Info("  templates - List the platform's golden-path templates")
 	logger.Info("  deploy  - Deploy applications from templates or Git")

@@ -45,7 +45,7 @@ func runBackup(cmd *cobra.Command, args []string) error {
 
 	ns := dbNamespace()
 	backupName := fmt.Sprintf("%s-%s", dbName, time.Now().UTC().Format("20060102-150405"))
-	logger.Info(fmt.Sprintf("💾 Creating backup %s for database: %s (method: %s)", backupName, dbName, backupMethod))
+	logger.Info(fmt.Sprintf("▥ Creating backup %s for database: %s (method: %s)", backupName, dbName, backupMethod))
 
 	client, err := getDynamicClient()
 	if err != nil {

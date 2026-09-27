@@ -99,14 +99,14 @@ func checkDependencies() {
 	}
 
 	for _, dep := range dependencies {
-		status := "✓ Available"
+		status := "● Available"
 		info := ""
 
 		cmd := exec.Command(dep.command, dep.args...)
 		output, err := cmd.CombinedOutput()
 
 		if err != nil {
-			status = "✗ Not found"
+			status = "✖ Not found"
 			info = "Required for platform functionality"
 		} else {
 			// Special handling for kubectl YAML output

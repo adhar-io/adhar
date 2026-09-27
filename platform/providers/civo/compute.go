@@ -688,9 +688,17 @@ func (p *Provider) scaleComputeWorkers(ctx context.Context, clusterID, nodeGroup
 			if err := provider.WaitForNodePrep(ctx, signer, computeSSHUser, inst.PublicIP, 15*time.Minute); err != nil {
 				return fmt.Errorf("new worker %s not ready: %w", host, err)
 			}
-			// No cloud-controller-manager / CSI driver is installed on Civo
-			// compute clusters yet (docs/PROVIDERS.md); only --node-ip applies.
-			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, false, false); err != nil {
+			// Both flags true, matching the create path above. The comment this
+			// replaces said no cloud-controller-manager or CSI driver was installed
+			// on Civo compute clusters — but cloud_integration.go installs the Civo
+			// CCM (civoCCMManifestURL) and the Civo CSI driver (civoCSIRef), and the
+			// create path has always passed true. The stale comment left scaled
+			// workers without --cloud-provider=external, which is the same silent
+			// chain that stranded autoscaled AWS nodes: no CCM initialisation, so no
+			// .spec.providerID, so the CSI node plugin cannot identify its instance
+			// and publishes no CSINode, so node.adhar.io/csi-not-ready is never
+			// lifted and the node stays Ready and completely empty.
+			if err := provider.EnableExternalCloudProvider(signer, computeSSHUser, inst.PublicIP, inst.PrivateIP, true, true); err != nil {
 				return fmt.Errorf("new worker %s: %w", host, err)
 			}
 			if err := provider.KubeadmJoinWorker(signer, computeSSHUser, inst.PublicIP, joinCmd); err != nil {

@@ -32,7 +32,7 @@ var (
 	stepDetailStyle = lipgloss.NewStyle().Foreground(taglineGray)
 )
 
-// RenderReadyPanel is the end-of-run success block: a ✓ header, a bordered
+// RenderReadyPanel is the end-of-run success block: a ● header, a bordered
 // access table (service → URL), then labelled command hints. access and hints
 // are [label, value] pairs.
 func RenderReadyPanel(access, hints [][2]string) string {
@@ -59,7 +59,7 @@ func RenderReadyPanel(access, hints [][2]string) string {
 		Render(strings.Join(rows, "\n"))
 
 	var b strings.Builder
-	b.WriteString("  " + okStyle.Render("✔") + "  " + stepTitleStyle.Render("Platform ready") + "\n\n")
+	b.WriteString("  " + okStyle.Render("●") + "  " + stepTitleStyle.Render("Platform ready") + "\n\n")
 	b.WriteString(box + "\n")
 	hintW := 0
 	for _, h := range hints {

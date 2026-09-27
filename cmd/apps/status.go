@@ -32,7 +32,7 @@ func init() {
 
 func runStatus(cmd *cobra.Command, args []string) error {
 	appName := args[0]
-	logger.Info(fmt.Sprintf("📊 Checking status for application: %s", appName))
+	logger.Info(fmt.Sprintf("▸ Checking status for application: %s", appName))
 
 	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
 	if err != nil {

@@ -34,11 +34,11 @@ func init() {
 }
 
 func runReport(cmd *cobra.Command, args []string) error {
-	logger.Info("📊 Generating health report...")
+	logger.Info("▸ Generating health report...")
 
 	clientset, err := getClientset()
 	if err != nil {
-		fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
+		fmt.Println(helpers.ErrorStyle.Render("✖ Could not connect to the cluster"))
 		fmt.Println(helpers.CreateMuted("   " + err.Error()))
 		return fmt.Errorf("failed to get Kubernetes client: %w", err)
 	}
@@ -68,7 +68,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 			return writeReportFile(reportOutput, []byte(strings.Join(h.summaryLines(), "\n")+"\n"))
 		}
 		renderHealth(h)
-		logger.Info("✅ Health report generated")
+		logger.Info("● Health report generated")
 		return nil
 	}
 }
@@ -77,6 +77,6 @@ func writeReportFile(path string, data []byte) error {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write report to %s: %w", path, err)
 	}
-	logger.Info("✅ Health report written to " + path)
+	logger.Info("● Health report written to " + path)
 	return nil
 }

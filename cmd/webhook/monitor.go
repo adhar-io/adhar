@@ -31,7 +31,7 @@ Examples:
 }
 
 func runMonitor(cmd *cobra.Command, args []string) error {
-	logger.Info("📊 Checking admission webhook backend health...")
+	logger.Info("▸ Checking admission webhook backend health...")
 	ctx := context.Background()
 
 	cs, err := getClientset()
@@ -52,11 +52,11 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 		row := healthRow{Config: config, Kind: kind, Webhook: name, Backend: clientService(cc)}
 		switch {
 		case cc.URL != nil:
-			row.Health = "🌐 external URL"
+			row.Health = "⇄ external URL"
 		case cc.Service != nil:
 			row.Health = serviceHealth(ctx, cs, cc.Service.Namespace, cc.Service.Name)
 		default:
-			row.Health = "❓ unknown"
+			row.Health = "◍ unknown"
 		}
 		rows = append(rows, row)
 	}
@@ -100,7 +100,7 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %s\n", "⚙️  CONFIG", "🔖 KIND", "🪝 WEBHOOK", "❤️  HEALTH"))
+	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %s\n", "⎔  CONFIG", "▸ KIND", "⇄ WEBHOOK", "●  HEALTH"))
 	b.WriteString(strings.Repeat("─", 95) + "\n")
 	for _, r := range rows {
 		b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %s\n", trunc(r.Config, 26), r.Kind, trunc(r.Webhook, 30), r.Health))
@@ -121,16 +121,16 @@ func serviceHealth(ctx context.Context, cs *kubernetes.Clientset, ns, name strin
 	ep, err := cs.CoreV1().Endpoints(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return "❌ service missing"
+			return "✖ service missing"
 		}
-		return "⚠️ " + err.Error()
+		return "▲ " + err.Error()
 	}
 	ready := 0
 	for _, subset := range ep.Subsets {
 		ready += len(subset.Addresses)
 	}
 	if ready == 0 {
-		return "⚠️ no ready endpoints"
+		return "▲ no ready endpoints"
 	}
-	return fmt.Sprintf("✅ %d endpoint(s)", ready)
+	return fmt.Sprintf("● %d endpoint(s)", ready)
 }

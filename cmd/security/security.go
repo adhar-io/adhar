@@ -66,7 +66,7 @@ func init() {
 }
 
 func runSecurity(cmd *cobra.Command, args []string) error {
-	logger.Info("🛡️ Security operations - use subcommands for specific security tasks")
+	logger.Info("⛨ Security operations - use subcommands for specific security tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  scan            - Run security scans")
 	logger.Info("  vulnerabilities - Manage vulnerabilities")

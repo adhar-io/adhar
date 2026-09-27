@@ -76,7 +76,7 @@ func init() {
 }
 
 func runWebhook(cmd *cobra.Command, args []string) error {
-	logger.Info("🔗 Webhook management - use subcommands for specific webhook tasks")
+	logger.Info("⇄ Webhook management - use subcommands for specific webhook tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  list     - List all webhooks")
 	logger.Info("  create   - Create new webhooks")

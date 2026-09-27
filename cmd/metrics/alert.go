@@ -28,7 +28,7 @@ Examples:
 }
 
 func runAlert(cmd *cobra.Command, args []string) error {
-	logger.Info("🚨 Querying active alerts from Prometheus...")
+	logger.Info("▲ Querying active alerts from Prometheus...")
 	ctx := context.Background()
 
 	endpoint, err := joinURL(prometheusURL, "/api/v1/alerts")
@@ -55,7 +55,7 @@ func runAlert(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(payload.Alerts) == 0 {
-		fmt.Println(helpers.CreateSuccess("✅ No active alerts."))
+		fmt.Println(helpers.CreateSuccess("● No active alerts."))
 		return nil
 	}
 
@@ -68,15 +68,15 @@ func runAlert(cmd *cobra.Command, args []string) error {
 	})
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-30s %-12s %-10s %s\n", "🏷️  ALERT", "📊 STATE", "⚠️  SEV", "📦 INSTANCE"))
+	b.WriteString(fmt.Sprintf("%-30s %-12s %-10s %s\n", "▸  ALERT", "▸ STATE", "▲  SEV", "▣ INSTANCE"))
 	b.WriteString(strings.Repeat("─", 90) + "\n")
 	for _, a := range payload.Alerts {
 		state := a.State
 		switch a.State {
 		case "firing":
-			state = "🔴 firing"
+			state = "✖ firing"
 		case "pending":
-			state = "🟡 pending"
+			state = "▲ pending"
 		}
 		b.WriteString(fmt.Sprintf("%-30s %-12s %-10s %s\n",
 			trunc(a.name(), 30), state, trunc(a.Labels["severity"], 10), trunc(a.instance(), 30)))

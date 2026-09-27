@@ -56,7 +56,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	logger.Info(fmt.Sprintf("🗑️  Deleting database: %s", name))
+	logger.Info(fmt.Sprintf("✖  Deleting database: %s", name))
 
 	client, err := getDynamicClient()
 	if err != nil {

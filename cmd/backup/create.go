@@ -58,16 +58,16 @@ func runCreateBackup(cmd *cobra.Command, args []string) error {
 		backupName = fmt.Sprintf("adhar-backup-%s", time.Now().Format("2006-01-02-150405"))
 	}
 
-	fmt.Printf("🔒 Creating Velero backup: %s\n", backupName)
+	fmt.Printf("⛨ Creating Velero backup: %s\n", backupName)
 	if len(includeNamespaces) > 0 {
-		fmt.Printf("📦 Include namespaces: %v\n", includeNamespaces)
+		fmt.Printf("▣ Include namespaces: %v\n", includeNamespaces)
 	} else {
-		fmt.Println("📦 Include namespaces: all")
+		fmt.Println("▣ Include namespaces: all")
 	}
 	if len(excludeNamespaces) > 0 {
-		fmt.Printf("🚫 Exclude namespaces: %v\n", excludeNamespaces)
+		fmt.Printf("✖ Exclude namespaces: %v\n", excludeNamespaces)
 	}
-	fmt.Printf("⏳ TTL: %s\n", backupTTL)
+	fmt.Printf("◌ TTL: %s\n", backupTTL)
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -117,7 +117,7 @@ func runCreateBackup(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create backup %q: %w", backupName, err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Backup %q created", backupName)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Backup %q created", backupName)))
 	fmt.Println(helpers.CreateMuted("   Track progress with: adhar backup status " + backupName))
 	return nil
 }

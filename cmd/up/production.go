@@ -184,10 +184,10 @@ func printProductionSuccessMsg(envName, host, clusterName string) {
 	fmt.Printf("\n\n########################### Successfully Provisioned Production Cluster! ############################\n\n\n")
 	fmt.Printf("Environment: %s\n", envName)
 	fmt.Printf("Cluster has been provisioned with:\n")
-	fmt.Printf("  ✓ Cilium CNI with production-ready configuration\n")
-	fmt.Printf("  ✓ Core platform services (ArgoCD, Gitea, Cilium Gateway)\n")
-	fmt.Printf("  ✓ Security policies and monitoring\n")
-	fmt.Printf("  ✓ Auto-scaling and high availability\n\n")
+	fmt.Printf("  ● Cilium CNI with production-ready configuration\n")
+	fmt.Printf("  ● Core platform services (ArgoCD, Gitea, Cilium Gateway)\n")
+	fmt.Printf("  ● Security policies and monitoring\n")
+	fmt.Printf("  ● Auto-scaling and high availability\n\n")
 	fmt.Printf("Next steps:\n")
 	fmt.Printf("  1. kubectl is ready — context %q is current\n", "adhar-"+clusterName)
 	fmt.Printf("     (standalone copy: ~/.adhar/clusters/%s/kubeconfig)\n", clusterName)
@@ -199,7 +199,7 @@ func printProductionSuccessMsg(envName, host, clusterName string) {
 	// its own block, because a self-signed certificate does not look like a DNS
 	// problem from a browser — it looks like the platform is broken.
 	if tlsBlocker != nil {
-		fmt.Printf("%s\n", helpers.WarningStyle.Render("⚠  TLS is SELF-SIGNED — browsers will warn on every platform URL"))
+		fmt.Printf("%s\n", helpers.WarningStyle.Render("▲  TLS is SELF-SIGNED — browsers will warn on every platform URL"))
 		fmt.Printf("   why: %s\n", tlsBlocker.Reason)
 		fmt.Printf("   fix: %s\n", tlsBlocker.Fix)
 		fmt.Printf("   Let's Encrypt is already configured; cert-manager issues a trusted\n")
@@ -213,7 +213,7 @@ var tlsBlocker *acmeDNS01Blocker
 
 // provisionCompletePlatformNew provisions the complete Adhar platform using the new provider system
 func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory.ProviderManager, cfg *config.Config, dryRun bool, force bool) error {
-	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("🚀 Starting Complete Adhar Platform Provisioning"))
+	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("▣ Starting Complete Adhar Platform Provisioning"))
 	fmt.Println()
 
 	// Determine environments to provision
@@ -234,7 +234,7 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 
 		envConfig, err := resolveEnvironmentConfig(cfg, envName)
 		if err != nil {
-			fmt.Printf("  ❌ Failed to resolve configuration for %s: %v\n", envName, err)
+			fmt.Printf("  ✖ Failed to resolve configuration for %s: %v\n", envName, err)
 			continue
 		}
 		applyKubeVersionOverride(envConfig)
@@ -247,21 +247,21 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 
 		result, err := providerManager.ProvisionEnvironment(ctx, envConfig, provisionOpts)
 		if err != nil {
-			fmt.Printf("  ❌ Failed to provision %s: %v\n", envName, err)
+			fmt.Printf("  ✖ Failed to provision %s: %v\n", envName, err)
 			continue
 		}
 		if result != nil {
 			if err := bootstrapPlatformOnCluster(ctx, result, envConfig, cfg); err != nil {
-				fmt.Printf("  ❌ Failed to bootstrap platform on %s: %v\n", envName, err)
+				fmt.Printf("  ✖ Failed to bootstrap platform on %s: %v\n", envName, err)
 				continue
 			}
 		}
-		fmt.Printf("  ✅ Environment %s provisioned successfully\n", envName)
+		fmt.Printf("  ● Environment %s provisioned successfully\n", envName)
 		successCount++
 	}
 
 	// Print summary
-	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("🎉 Platform Provisioning Complete!"))
+	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("● Platform Provisioning Complete!"))
 	fmt.Printf("┌─────────────────────────────────────────────┐\n")
 	fmt.Printf("│ Environments Provisioned: %d/%d              │\n", successCount, len(environmentsToProvision))
 	fmt.Printf("└─────────────────────────────────────────────┘\n")
@@ -275,7 +275,7 @@ func provisionCompletePlatformNew(ctx context.Context, providerManager *pfactory
 
 // showDryRunInfo displays what would be provisioned in dry-run mode
 func showDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
-	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("🔍 Dry Run - Configuration Preview"))
+	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("▸ Dry Run - Configuration Preview"))
 	fmt.Printf("┌─────────────────────────────────────────────┐\n")
 	fmt.Printf("│ Environment: %-30s │\n", envConfig.Name)
 	fmt.Printf("│ Provider:    %-30s │\n", envConfig.ResolvedProvider)

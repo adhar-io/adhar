@@ -42,7 +42,7 @@ type reportSummary struct {
 func (r reportSummary) total() int { return r.Pass + r.Fail + r.Warn + r.Error + r.Skip }
 
 func runPolicyStatus(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("🛡️  Policy Compliance (PolicyReports)"))
+	fmt.Println(helpers.TitleStyle.Render("⛨  Policy Compliance (PolicyReports)"))
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -114,11 +114,11 @@ func runPolicyStatus(cmd *cobra.Command, args []string) error {
 		fmt.Print(b.String())
 	}
 
-	overall := "✅ Compliant"
+	overall := "● Compliant"
 	if total.Fail > 0 || total.Error > 0 {
-		overall = "❌ Violations present"
+		overall = "✖ Violations present"
 	} else if total.Warn > 0 {
-		overall = "⚠️  Warnings present"
+		overall = "▲  Warnings present"
 	}
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Overall: %s\n", overall))

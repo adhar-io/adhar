@@ -36,7 +36,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--trace <id> is required to export a trace")
 	}
 
-	logger.Info(fmt.Sprintf("📤 Exporting trace %s from Tempo...", traceID))
+	logger.Info(fmt.Sprintf("▸ Exporting trace %s from Tempo...", traceID))
 	ctx := context.Background()
 
 	body, err := getTrace(ctx, tempoURL, traceID)
@@ -48,7 +48,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 		if err := os.WriteFile(exportFile, body, 0o644); err != nil {
 			return fmt.Errorf("writing trace to file: %w", err)
 		}
-		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Exported trace %s to %s", traceID, exportFile)))
+		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Exported trace %s to %s", traceID, exportFile)))
 		return nil
 	}
 

@@ -26,7 +26,7 @@ Examples:
 
 func runList(cmd *cobra.Command, args []string) error {
 	ns := defaultNamespace()
-	logger.Info(fmt.Sprintf("📋 Listing pipelines in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Listing pipelines in namespace %s...", ns))
 
 	client, err := getDynamicClient()
 	if err != nil {

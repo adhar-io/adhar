@@ -27,7 +27,7 @@ func init() {
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
-	logger.Info("🔍 Running health checks...")
+	logger.Info("▸ Running health checks...")
 
 	if checkAll || component == "" {
 		return runAllHealthChecks()
@@ -38,7 +38,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 }
 
 func runAllHealthChecks() error {
-	logger.Info("🔍 Running all health checks...")
+	logger.Info("▸ Running all health checks...")
 
 	_, err := runHealthSweep("", parseTimeout(timeout))
 	return err

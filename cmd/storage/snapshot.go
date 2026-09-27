@@ -37,12 +37,12 @@ var volumeSnapshotGVR = schema.GroupVersionResource{
 
 func runSnapshot(cmd *cobra.Command, args []string) error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("📸 Listing volume snapshots in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Listing volume snapshots in namespace %s...", ns))
 
 	// Snapshots are CRD-backed; use the dynamic client.
 	dyn, err := k8s.GetDynamicClient()
 	if err != nil {
-		fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
+		fmt.Println(helpers.ErrorStyle.Render("✖ Could not connect to the cluster"))
 		fmt.Println(helpers.CreateMuted("   " + err.Error()))
 		return fmt.Errorf("failed to get dynamic client: %w", err)
 	}
@@ -53,7 +53,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	list, err := dyn.Resource(volumeSnapshotGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) || strings.Contains(err.Error(), "could not find the requested resource") {
-			fmt.Println(helpers.CreateMuted("ℹ️  VolumeSnapshot CRDs are not installed on this cluster."))
+			fmt.Println(helpers.CreateMuted("▸  VolumeSnapshot CRDs are not installed on this cluster."))
 			return nil
 		}
 		return fmt.Errorf("listing volume snapshots in %s: %w", ns, err)
@@ -66,7 +66,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(list.Items)
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📸 Volume Snapshots"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▸ Volume Snapshots"))
 	var t strings.Builder
 	t.WriteString(fmt.Sprintf("%-32s %-28s %-12s\n", "NAME", "SOURCE PVC", "READY"))
 	t.WriteString(strings.Repeat("─", 75) + "\n")

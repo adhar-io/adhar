@@ -76,19 +76,19 @@ func init() {
 
 func runGet(cmd *cobra.Command, args []string) error {
 	// Enhanced display for the get command
-	fmt.Println("🔍 Get command - use subcommands to get specific information")
+	fmt.Println("▸ Get command - use subcommands to get specific information")
 	fmt.Println()
 
 	// Create a bordered box for available resource types
 	resourceTypes := []string{
 		helpers.IconSecurity + " " + "secrets      - Platform secrets and credentials",
-		"🚀 applications - Application lifecycle management",
+		"▣ applications - Application lifecycle management",
 		helpers.IconApp + " " + "status       - Platform health and status",
-		"🏗️  clusters     - Cluster information and status",
-		"🌍 environments - Environment configurations",
+		"⎔  clusters     - Cluster information and status",
+		"⇄ environments - Environment configurations",
 		helpers.IconStorage + " " + "databases    - Database instances and status",
-		"🛠️  managedtools - Platform tools and services",
-		"🛣️  routes       - Network routes and ingress",
+		"⎔  managedtools - Platform tools and services",
+		"⇄  routes       - Network routes and ingress",
 	}
 
 	var resourcesBuilder strings.Builder
@@ -123,7 +123,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	var examplesBuilder strings.Builder
-	examplesBuilder.WriteString("🚀 USAGE EXAMPLES:\n")
+	examplesBuilder.WriteString("▣ USAGE EXAMPLES:\n")
 	examplesBuilder.WriteString("                 \n")
 
 	for _, example := range examples {
@@ -141,7 +141,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	fmt.Println(examplesBox)
 
 	fmt.Println()
-	fmt.Println("💡 Tip: Use 'adhar get <resource> --help' for detailed information about each resource type")
+	fmt.Println("▸ Tip: Use 'adhar get <resource> --help' for detailed information about each resource type")
 
 	return nil
 }

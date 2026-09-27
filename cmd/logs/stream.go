@@ -22,7 +22,7 @@ Examples:
 }
 
 func runStream(cmd *cobra.Command, args []string) error {
-	logger.Info("📡 Streaming logs in real-time...")
+	logger.Info("⇄ Streaming logs in real-time...")
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -45,6 +45,6 @@ func runStream(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logger.Info("✅ Log streaming stopped")
+	logger.Info("● Log streaming stopped")
 	return nil
 }

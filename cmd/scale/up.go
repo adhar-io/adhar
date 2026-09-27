@@ -30,7 +30,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("⬆️ Scaling up %s/%s to %d replicas", ns, deploymentName, replicas))
+	logger.Info(fmt.Sprintf("→ Scaling up %s/%s to %d replicas", ns, deploymentName, replicas))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -45,6 +45,6 @@ func runUp(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logger.Info(fmt.Sprintf("✅ %s %s/%s scaled to %d replicas", kind, ns, deploymentName, replicas))
+	logger.Info(fmt.Sprintf("● %s %s/%s scaled to %d replicas", kind, ns, deploymentName, replicas))
 	return nil
 }

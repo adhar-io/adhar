@@ -36,7 +36,7 @@ func init() {
 }
 
 func runExport(cmd *cobra.Command, args []string) error {
-	logger.Info(fmt.Sprintf("📤 Exporting Prometheus query: %s", promQueryExpr))
+	logger.Info(fmt.Sprintf("▸ Exporting Prometheus query: %s", promQueryExpr))
 	ctx := context.Background()
 
 	data, err := promQuery(ctx, prometheusURL, promQueryExpr)
@@ -84,7 +84,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 	}
 
 	if exportFile != "" {
-		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Exported %d series to %s", len(result.Result), exportFile)))
+		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Exported %d series to %s", len(result.Result), exportFile)))
 	}
 	return nil
 }

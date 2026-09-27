@@ -68,7 +68,7 @@ func init() {
 }
 
 func runGetAll(cmd *cobra.Command, args []string) error {
-	logger.Info("🔍 Retrieving comprehensive platform overview...")
+	logger.Info("▸ Retrieving comprehensive platform overview...")
 
 	// Get Kubernetes client
 	clientset, err := getKubernetesClient()
@@ -265,14 +265,14 @@ func getProviderFromContext(context string) string {
 }
 
 func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
-	logger.Info("🔍 Adhar Platform Comprehensive Overview")
+	logger.Info("▸ Adhar Platform Comprehensive Overview")
 
 	// Platform Summary
 	platformContent := fmt.Sprintf(
-		"🏥 Platform Status: %s\n"+
-			"💯 Health Score: %d/100\n"+
+		"⎔ Platform Status: %s\n"+
+			"● Health Score: %d/100\n"+
 			helpers.IconApp+" "+"Version: %s\n"+
-			"⏱️  Uptime: %s",
+			"◌  Uptime: %s",
 		overview.Platform.Status,
 		overview.Platform.HealthScore,
 		overview.Platform.Version,
@@ -282,12 +282,12 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 	fmt.Println(platformBox)
 
 	// Cluster Summary
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🏗️  Cluster Overview"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⎔  Cluster Overview"))
 
 	clusterContent := fmt.Sprintf(
 		helpers.IconNetwork+" "+"Context: %s\n"+
-			"☁️  Provider: %s\n"+
-			"⚡ Version: %s\n"+
+			"⎔  Provider: %s\n"+
+			"▸ Version: %s\n"+
 			helpers.IconCluster+" "+"Nodes: %d ready / %d total\n"+
 			helpers.IconNamespace+" "+"Namespaces: %d",
 		overview.Cluster.Name,
@@ -305,7 +305,7 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 
 	var resourcesTable strings.Builder
 	resourcesTable.WriteString(fmt.Sprintf("%-20s %-15s %-15s\n",
-		helpers.IconNamespace+" "+"RESOURCE TYPE", helpers.IconApp+" "+"COUNT", "🔄 STATUS"))
+		helpers.IconNamespace+" "+"RESOURCE TYPE", helpers.IconApp+" "+"COUNT", "◌ STATUS"))
 	resourcesTable.WriteString(strings.Repeat("─", 50) + "\n")
 
 	resourceData := []struct {
@@ -313,12 +313,12 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 		count  int
 		status string
 	}{
-		{"🚀 Applications", len(overview.Applications), "Running"},
-		{"🌍 Environments", len(overview.Environments), "Active"},
-		{"🏃 Pods", overview.Resources.TotalPods, fmt.Sprintf("%d running", overview.Resources.RunningPods)},
+		{"▣ Applications", len(overview.Applications), "Running"},
+		{"⇄ Environments", len(overview.Environments), "Active"},
+		{"◌ Pods", overview.Resources.TotalPods, fmt.Sprintf("%d running", overview.Resources.RunningPods)},
 		{helpers.IconNetwork + " " + "Services", overview.Resources.TotalServices, "Available"},
 		{helpers.IconSecurity + " " + "Secrets", overview.Resources.TotalSecrets, "Managed"},
-		{"⚙️ ConfigMaps", overview.Resources.TotalConfigMaps, "Available"},
+		{"⎔ ConfigMaps", overview.Resources.TotalConfigMaps, "Available"},
 	}
 
 	for _, resource := range resourceData {
@@ -332,7 +332,7 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 
 	// Applications Summary (if any)
 	if len(overview.Applications) > 0 {
-		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🚀 Applications Summary"))
+		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▣ Applications Summary"))
 
 		var appsTable strings.Builder
 		appsTable.WriteString(fmt.Sprintf("%-25s %-15s %-12s %-15s\n",

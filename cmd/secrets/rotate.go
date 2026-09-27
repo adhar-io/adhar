@@ -52,7 +52,7 @@ func runRotate(cmd *cobra.Command, args []string) error {
 
 	ns := resolveNamespace()
 	rotationName := secretName + "-rotation"
-	logger.Info(fmt.Sprintf("🔄 Requesting rotation for secret: %s/%s (provider: %s)", ns, secretName, helpers.ActiveProvider()))
+	logger.Info(fmt.Sprintf("◌ Requesting rotation for secret: %s/%s (provider: %s)", ns, secretName, helpers.ActiveProvider()))
 
 	parameters := map[string]interface{}{
 		"provider":    rotateProvider,
@@ -90,13 +90,13 @@ func runRotate(cmd *cobra.Command, args []string) error {
 
 	if _, err := dyn.Resource(compositeSecretRotationGVR).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("⚠️  Rotation policy %q already exists; re-run rotation by deleting and recreating it", rotationName)))
+			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲  Rotation policy %q already exists; re-run rotation by deleting and recreating it", rotationName)))
 			return nil
 		}
 		return fmt.Errorf("create secret rotation: %w", err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Rotation requested for secret %q (XR %s in namespace %s)", secretName, rotationName, ns)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Rotation requested for secret %q (XR %s in namespace %s)", secretName, rotationName, ns)))
 	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Track it: kubectl -n %s get compositesecretrotation %s", ns, rotationName)))
 	return nil
 }

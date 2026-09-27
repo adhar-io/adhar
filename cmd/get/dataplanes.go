@@ -38,7 +38,7 @@ import (
 const (
 	dpFormatJSON = "json"
 	dpFormatYAML = "yaml"
-	dpReadyLabel = "✅ Ready"
+	dpReadyLabel = "● Ready"
 )
 
 // dataPlaneGVR is the DataPlane custom resource (platform.adhar.io/v1alpha1).
@@ -84,7 +84,7 @@ type DataPlaneInfo struct {
 }
 
 func runGetDataPlanes(cmd *cobra.Command, args []string) error {
-	logger.Info("🚀 Retrieving data planes...")
+	logger.Info("▣ Retrieving data planes...")
 
 	client, err := getDynamicClient()
 	if err != nil {
@@ -172,13 +172,13 @@ func readyFromConditions(obj map[string]interface{}) string {
 			case "True":
 				return dpReadyLabel
 			case "False":
-				return "❌ NotReady"
+				return "✖ NotReady"
 			default:
-				return "⏳ Pending"
+				return "◌ Pending"
 			}
 		}
 	}
-	return "⏳ Pending"
+	return "◌ Pending"
 }
 
 func displayDataPlanesTable(planes []DataPlaneInfo) {
@@ -186,7 +186,7 @@ func displayDataPlanesTable(planes []DataPlaneInfo) {
 
 	var table strings.Builder
 	fmt.Fprintf(&table, "%-24s %-11s %-12s %-10s %-6s %-12s %-8s\n",
-		helpers.IconNamespace+" "+"NAME", "🧩 MODE", "☁️  PROVIDER", helpers.IconApp+" "+"PROFILE", helpers.IconApp+" "+"APPS", "📶 READY", "📅 AGE")
+		helpers.IconNamespace+" "+"NAME", "▣ MODE", "⎔  PROVIDER", helpers.IconApp+" "+"PROFILE", helpers.IconApp+" "+"APPS", "⇄ READY", "▸ AGE")
 	table.WriteString(strings.Repeat("─", 92) + "\n")
 	for _, p := range planes {
 		fmt.Fprintf(&table, "%-24s %-11s %-12s %-10s %-6d %-12s %-8s\n",

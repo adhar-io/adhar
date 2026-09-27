@@ -194,7 +194,7 @@ ArgoCD), so raising it is a reviewed Git change, not a CLI flag. --autonomy on
 		}
 		ac := p.readAgentConfig(ctx)
 		fmt.Println()
-		fmt.Println(helpers.SectionHeading("🪜", "Agent autonomy"))
+		fmt.Println(helpers.SectionHeading("▸", "Agent autonomy"))
 		fmt.Println()
 		t := helpers.NewTable("RUNG", "GRANTED", "WHAT IT MEANS")
 		for _, l := range autonomyLadder {

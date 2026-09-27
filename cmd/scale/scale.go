@@ -74,7 +74,7 @@ func init() {
 }
 
 func runScale(cmd *cobra.Command, args []string) error {
-	logger.Info("⚖️ Scale management - use subcommands for specific scaling tasks")
+	logger.Info("▸ Scale management - use subcommands for specific scaling tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  up       - Scale up resources")
 	logger.Info("  down     - Scale down resources")

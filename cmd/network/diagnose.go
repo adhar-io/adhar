@@ -29,7 +29,7 @@ Examples:
 
 func runDiagnose(cmd *cobra.Command, args []string) error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("🔍 Inspecting network resources in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Inspecting network resources in namespace %s...", ns))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -64,9 +64,9 @@ func runDiagnose(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	fmt.Println(helpers.BorderStyle.Width(70).Render("🕸️  CNI: " + cilium))
+	fmt.Println(helpers.BorderStyle.Width(70).Render("⇄  CNI: " + cilium))
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🌐 Services"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⇄ Services"))
 	var st strings.Builder
 	st.WriteString(fmt.Sprintf("%-32s %-14s %-25s\n", "NAME", "TYPE", "PORTS"))
 	st.WriteString(strings.Repeat("─", 72) + "\n")
@@ -78,7 +78,7 @@ func runDiagnose(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println(helpers.BorderStyle.Width(75).Render(st.String()))
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🛡️  Network Policies"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⛨  Network Policies"))
 	var pt strings.Builder
 	pt.WriteString(fmt.Sprintf("%-32s %-30s\n", "NAME", "POD SELECTOR"))
 	pt.WriteString(strings.Repeat("─", 65) + "\n")

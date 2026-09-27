@@ -44,7 +44,7 @@ func init() {
 }
 
 func runRole(cmd *cobra.Command, args []string) error {
-	fmt.Println("🔑 Adhar Platform Role Management")
+	fmt.Println("⛨ Adhar Platform Role Management")
 	fmt.Println("")
 	fmt.Println("Available commands:")
 	fmt.Println("  create      - Create a new role")
@@ -85,7 +85,7 @@ func runCreateRole(cmd *cobra.Command, args []string) error {
 	kc := settings()
 	ctx := context.Background()
 
-	fmt.Printf("🔑 Creating realm role %q in realm %s\n", roleName, kc.Realm)
+	fmt.Printf("⛨ Creating realm role %q in realm %s\n", roleName, kc.Realm)
 
 	body := map[string]interface{}{"name": roleName}
 	if newRoleDesc != "" {
@@ -104,13 +104,13 @@ func runCreateRole(cmd *cobra.Command, args []string) error {
 		if _, perr := kc.adminWrite(ctx, http.MethodPost, "/roles/"+url.PathEscape(roleName)+"/composites", []kcRole{parent}); perr != nil {
 			return fmt.Errorf("role created, but adding parent %q failed: %w", newRoleInherits, perr)
 		}
-		fmt.Printf("⬆️  Inherits from: %s\n", newRoleInherits)
+		fmt.Printf("→  Inherits from: %s\n", newRoleInherits)
 	}
 	if len(newRolePerms) > 0 {
 		fmt.Println(helpers.CreateMuted("   Note: --permissions are not modeled as Keycloak realm-role attributes; ignored."))
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Created realm role %s", roleName)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Created realm role %s", roleName)))
 	return nil
 }
 
@@ -133,7 +133,7 @@ type kcRole struct {
 }
 
 func runListRoles(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 Platform Roles (Keycloak realm roles)")
+	fmt.Println("▸ Platform Roles (Keycloak realm roles)")
 	kc := settings()
 
 	var roles []kcRole
@@ -154,7 +154,7 @@ func runListRoles(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-30s %-11s %s\n", "🔑 ROLE", "🧩 COMPOSITE", "📝 DESCRIPTION"))
+	b.WriteString(fmt.Sprintf("%-30s %-11s %s\n", "⛨ ROLE", "▣ COMPOSITE", "▸ DESCRIPTION"))
 	b.WriteString(strings.Repeat("─", 90) + "\n")
 	for _, r := range roles {
 		comp := "no"
@@ -195,12 +195,12 @@ func runGetRole(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(role)
 	}
 
-	fmt.Printf("🔑 Role:        %s\n", role.Name)
+	fmt.Printf("⛨ Role:        %s\n", role.Name)
 	if role.Description != "" {
-		fmt.Printf("📝 Description:  %s\n", role.Description)
+		fmt.Printf("▸ Description:  %s\n", role.Description)
 	}
-	fmt.Printf("🧩 Composite:   %t\n", role.Composite)
-	fmt.Printf("🆔 ID:          %s\n", role.ID)
+	fmt.Printf("▣ Composite:   %t\n", role.Composite)
+	fmt.Printf("▸ ID:          %s\n", role.ID)
 
 	// Show inherited (composite) roles when present.
 	if role.Composite {
@@ -210,7 +210,7 @@ func runGetRole(cmd *cobra.Command, args []string) error {
 			for _, c := range composites {
 				names = append(names, c.Name)
 			}
-			fmt.Printf("⬆️  Inherits:    %s\n", strings.Join(names, ", "))
+			fmt.Printf("→  Inherits:    %s\n", strings.Join(names, ", "))
 		}
 	}
 	return nil
@@ -245,7 +245,7 @@ func runUpdateRole(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	fmt.Printf("✏️  Updating realm role %q in realm %s\n", roleName, kc.Realm)
+	fmt.Printf("▸  Updating realm role %q in realm %s\n", roleName, kc.Realm)
 
 	// Fetch the current role so we PUT a complete representation (Keycloak
 	// replaces the role on PUT).
@@ -307,7 +307,7 @@ func runDeleteRole(cmd *cobra.Command, args []string) error {
 	if _, err := kc.adminWrite(ctx, http.MethodDelete, "/roles/"+url.PathEscape(roleName), nil); err != nil {
 		return fmt.Errorf("delete role: %w", err)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Deleted realm role %s", roleName)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Deleted realm role %s", roleName)))
 	return nil
 }
 
@@ -360,7 +360,7 @@ func runAssignRole(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("entity type must be 'user' or 'group', got %q", args[1])
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Assigned role %s to %s %s", roleName, entityType, entityName)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Assigned role %s to %s %s", roleName, entityType, entityName)))
 	return nil
 }
 
@@ -406,6 +406,6 @@ func runRevokeRole(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("entity type must be 'user' or 'group', got %q", args[1])
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Revoked role %s from %s %s", roleName, entityType, entityName)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Revoked role %s from %s %s", roleName, entityType, entityName)))
 	return nil
 }

@@ -121,7 +121,7 @@ func runCreateSchedule(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create schedule %q: %w", scheduleName, err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Schedule %q created (cron %q, paused=%t)", scheduleName, cron, !scheduleEnabled)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Schedule %q created (cron %q, paused=%t)", scheduleName, cron, !scheduleEnabled)))
 	return nil
 }
 
@@ -153,7 +153,7 @@ var listScheduleCmd = &cobra.Command{
 }
 
 func runListSchedules(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("📋 Velero Backup Schedules"))
+	fmt.Println(helpers.TitleStyle.Render("▸ Velero Backup Schedules"))
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -208,7 +208,7 @@ var deleteScheduleCmd = &cobra.Command{
 
 func runDeleteSchedule(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	fmt.Printf("🗑️  Deleting schedule: %s\n", name)
+	fmt.Printf("✖  Deleting schedule: %s\n", name)
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -223,7 +223,7 @@ func runDeleteSchedule(cmd *cobra.Command, args []string) error {
 		}
 		return fmt.Errorf("failed to delete schedule %q: %w", name, err)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Schedule %q deleted", name)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Schedule %q deleted", name)))
 	return nil
 }
 
@@ -247,7 +247,7 @@ func setSchedulePaused(name string, paused bool) error {
 	if paused {
 		verb = "Disabling"
 	}
-	fmt.Printf("⏯️  %s schedule: %s\n", verb, name)
+	fmt.Printf("⏯  %s schedule: %s\n", verb, name)
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -269,6 +269,6 @@ func setSchedulePaused(name string, paused bool) error {
 	if _, err := dyn.Resource(scheduleGVR).Namespace(veleroNamespace).Update(ctx, obj, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to update schedule %q: %w", name, err)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Schedule %q paused=%t", name, paused)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Schedule %q paused=%t", name, paused)))
 	return nil
 }

@@ -35,7 +35,7 @@ func runBackupStatus(cmd *cobra.Command, args []string) error {
 		return showSingleBackupStatus(args[0])
 	}
 
-	fmt.Println(helpers.TitleStyle.Render("📊 Velero Backup Status Summary"))
+	fmt.Println(helpers.TitleStyle.Render("▸ Velero Backup Status Summary"))
 
 	rows, err := fetchBackups(context.Background())
 	if err != nil {
@@ -87,13 +87,13 @@ func showSingleBackupStatus(name string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("📦 Name:      %s\n", name))
-	b.WriteString(fmt.Sprintf("📊 Phase:     %s\n", phaseIcon(nestedString(obj.Object, "status", "phase"))))
-	b.WriteString(fmt.Sprintf("⚠️  Warnings:  %d\n", countNested(obj.Object, "status", "warnings")))
-	b.WriteString(fmt.Sprintf("❌ Errors:    %d\n", countNested(obj.Object, "status", "errors")))
-	b.WriteString(fmt.Sprintf("🕐 Created:   %s\n", backupAge(obj.GetCreationTimestamp().Time)))
+	b.WriteString(fmt.Sprintf("▣ Name:      %s\n", name))
+	b.WriteString(fmt.Sprintf("▸ Phase:     %s\n", phaseIcon(nestedString(obj.Object, "status", "phase"))))
+	b.WriteString(fmt.Sprintf("▲  Warnings:  %d\n", countNested(obj.Object, "status", "warnings")))
+	b.WriteString(fmt.Sprintf("✖ Errors:    %d\n", countNested(obj.Object, "status", "errors")))
+	b.WriteString(fmt.Sprintf("▸ Created:   %s\n", backupAge(obj.GetCreationTimestamp().Time)))
 	if exp := nestedString(obj.Object, "status", "expiration"); exp != "" {
-		b.WriteString(fmt.Sprintf("⏳ Expires:   %s", exp))
+		b.WriteString(fmt.Sprintf("◌ Expires:   %s", exp))
 	}
 	fmt.Println(helpers.BorderStyle.Width(70).Render(strings.TrimRight(b.String(), "\n")))
 	return nil

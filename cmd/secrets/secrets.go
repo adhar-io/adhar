@@ -77,7 +77,7 @@ func init() {
 }
 
 func runSecrets(cmd *cobra.Command, args []string) error {
-	logger.Info("🔐 Secrets management - use subcommands for specific secret tasks")
+	logger.Info("⛨ Secrets management - use subcommands for specific secret tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  list    - List all secrets")
 	logger.Info("  get     - Get a secret's keys/metadata (use --reveal for values)")

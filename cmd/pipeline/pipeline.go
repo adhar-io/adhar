@@ -74,7 +74,7 @@ func init() {
 }
 
 func runPipeline(cmd *cobra.Command, args []string) error {
-	logger.Info("🔧 Pipeline management - use subcommands for specific pipeline tasks")
+	logger.Info("⎔ Pipeline management - use subcommands for specific pipeline tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  list     - List all pipelines")
 	logger.Info("  create   - Create new pipelines")

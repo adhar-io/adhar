@@ -40,23 +40,23 @@ import (
 )
 
 const (
-	recreateClusterUsage           = "🗑️ Delete existing cluster before creating new one"
-	devPasswordUsage               = "🔑 Set password 'developer' for admin users (ArgoCD & Gitea)"
-	kubeVersionUsage               = "🐳 Kubernetes version to provision (any provider, e.g. v1.37.0); defaults to the platform version"
-	extraPortsMappingUsage         = "🔌 Extra ports to expose (e.g., '22:32222,9090:39090')"
-	registryConfigUsage            = "📦 Container registry config paths (uses first existing one)"
-	kindConfigPathUsage            = "⚙️ Custom Kind configuration file path or URL"
-	hostUsage                      = "🌐 Host name for cluster resources (default: adhar.localtest.me)"
-	ingressHostUsage               = "🚪 Custom ingress host name for proxy setups"
-	protocolUsage                  = "🔒 Protocol for web UIs (http or https)"
-	portUsage                      = "🚪 Port for web UIs (default: 8443)"
-	pathRoutingUsage               = "🛣️ Use single domain with path routing"
-	extraPackagesUsage             = "📦 Paths to custom package locations"
-	packageCustomizationFilesUsage = "⚙️ Package customization files (e.g., argocd:/tmp/argocd.yaml)"
-	noExitUsage                    = "🔄 Keep running to continuously sync directories"
-	inClusterUsage                 = "🎛️ Install the controller manager in-cluster for continuous reconciliation after the CLI exits"
-	haModeUsage                    = "🏗️ Render foundation components in HA mode (replicas, PDBs); default for production configs with enableHAMode"
-	controllerImageUsage           = "📦 Container image for the in-cluster controller manager (default: ghcr.io/adhar-io/adhar:<version>)"
+	recreateClusterUsage           = "✖ Delete existing cluster before creating new one"
+	devPasswordUsage               = "⛨ Set password 'developer' for admin users (ArgoCD & Gitea)"
+	kubeVersionUsage               = "⎔ Kubernetes version to provision (any provider, e.g. v1.37.0); defaults to the platform version"
+	extraPortsMappingUsage         = "⇄ Extra ports to expose (e.g., '22:32222,9090:39090')"
+	registryConfigUsage            = "▣ Container registry config paths (uses first existing one)"
+	kindConfigPathUsage            = "⎔ Custom Kind configuration file path or URL"
+	hostUsage                      = "⇄ Host name for cluster resources (default: adhar.localtest.me)"
+	ingressHostUsage               = "⇄ Custom ingress host name for proxy setups"
+	protocolUsage                  = "⛨ Protocol for web UIs (http or https)"
+	portUsage                      = "⇄ Port for web UIs (default: 8443)"
+	pathRoutingUsage               = "⇄ Use single domain with path routing"
+	extraPackagesUsage             = "▣ Paths to custom package locations"
+	packageCustomizationFilesUsage = "⎔ Package customization files (e.g., argocd:/tmp/argocd.yaml)"
+	noExitUsage                    = "◌ Keep running to continuously sync directories"
+	inClusterUsage                 = "⎔ Install the controller manager in-cluster for continuous reconciliation after the CLI exits"
+	haModeUsage                    = "⎔ Render foundation components in HA mode (replicas, PDBs); default for production configs with enableHAMode"
+	controllerImageUsage           = "▣ Container image for the in-cluster controller manager (default: ghcr.io/adhar-io/adhar:<version>)"
 )
 
 var (
@@ -93,8 +93,8 @@ var (
 var UpCmd = &cobra.Command{
 	Use:     "up",
 	Aliases: []string{"create"},
-	Short:   "🚀 Launch Adhar Internal Developer Platform",
-	Long: `🚀 **Adhar Internal Developer Platform Launcher**
+	Short:   "▣ Launch Adhar Internal Developer Platform",
+	Long: `▣ **Adhar Internal Developer Platform Launcher**
 
 The "adhar up" command spins up a complete internal developer platform using industry 
 standard technologies like Kubernetes, ArgoCD, Gitea, and Crossplane with only Docker 
@@ -118,27 +118,27 @@ This can be useful in several ways:
   # Creates production cluster with complete platform stack on your preferred Cloud provider
 
 **Key Features:**
-• 🐳 Docker-only dependency (no external tools required)
-• 🚀 Single command to spin up complete platform
-• 🔧 Industry standard stack (Kubernetes, ArgoCD, Gitea, Crossplane)
-• 📦 60+ integrated platform tools and services
-• 🌐 Multi-cloud provider support (Kind, DigitalOcean, GCP, AWS, Azure, Civo)
-• 🔒 Security by default with zero-trust networking
-• 📊 GitOps-driven operations with ArgoCD
-• 🎯 Perfect for platform engineers and DevOps teams
+• ⎔ Docker-only dependency (no external tools required)
+• ▣ Single command to spin up complete platform
+• ⎔ Industry standard stack (Kubernetes, ArgoCD, Gitea, Crossplane)
+• ▣ 60+ integrated platform tools and services
+• ⇄ Multi-cloud provider support (Kind, DigitalOcean, GCP, AWS, Azure, Civo)
+• ⛨ Security by default with zero-trust networking
+• ▸ GitOps-driven operations with ArgoCD
+• ▸ Perfect for platform engineers and DevOps teams
 
 For more information, visit: https://github.com/adhar-io/adhar`,
-	Example: `  # 🚀 Quick Start - Local Development
+	Example: `  # ▣ Quick Start - Local Development
   adhar up
   # Spins up complete platform with Kind cluster
 
-  # 🏭 Production Deployment
+  # ⎔ Production Deployment
   adhar up -f config.yaml
 
-  # 👀 Preview Mode
+  # ▸ Preview Mode
   adhar up --dry-run
 
-  # 🔄 Development Mode
+  # ◌ Development Mode
   adhar up --watch --verbose`,
 	RunE:         create,
 	PreRunE:      preCreateE,
@@ -164,7 +164,7 @@ func init() {
 	UpCmd.Flags().StringSliceVarP(&extraPackages, "package", "p", []string{"platform/stack"}, extraPackagesUsage)
 	UpCmd.Flags().StringSliceVarP(&packageCustomizationFiles, "package-custom-file", "e", []string{}, packageCustomizationFilesUsage)
 	UpCmd.Flags().Bool("no-exit", false, "Keep running after initial sync (don't exit)")
-	UpCmd.Flags().DurationVar(&appsTimeout, "apps-timeout", 15*time.Minute, "⏳ How long to keep driving the platform apps to Synced + Healthy before exiting (0 exits as soon as the foundation is ready)")
+	UpCmd.Flags().DurationVar(&appsTimeout, "apps-timeout", 15*time.Minute, "◌ How long to keep driving the platform apps to Synced + Healthy before exiting (0 exits as soon as the foundation is ready)")
 	UpCmd.Flags().BoolVar(&inClusterController, "in-cluster", false, inClusterUsage)
 	UpCmd.Flags().StringVar(&controllerImage, "controller-image", "", controllerImageUsage)
 	UpCmd.Flags().BoolVar(&haMode, "ha", false, haModeUsage)

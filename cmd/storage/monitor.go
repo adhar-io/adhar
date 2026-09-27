@@ -29,7 +29,7 @@ Examples:
 
 func runMonitor(cmd *cobra.Command, args []string) error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("📊 Summarizing storage capacity (PVCs in namespace %s)...", ns))
+	logger.Info(fmt.Sprintf("▸ Summarizing storage capacity (PVCs in namespace %s)...", ns))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -90,13 +90,13 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("📦 PersistentVolumes:     %d\n", len(pvs.Items)))
-	b.WriteString(fmt.Sprintf("💽 Total PV Capacity:     %s\n", totalPV.String()))
+	b.WriteString(fmt.Sprintf("▣ PersistentVolumes:     %d\n", len(pvs.Items)))
+	b.WriteString(fmt.Sprintf("▥ Total PV Capacity:     %s\n", totalPV.String()))
 	for phase, count := range pvPhases {
 		b.WriteString(fmt.Sprintf("   • %-12s %d\n", string(phase), count))
 	}
-	b.WriteString(fmt.Sprintf("📑 PVCs (%s): %d\n", ns, len(pvcs.Items)))
-	b.WriteString(fmt.Sprintf("💾 Bound PVC Capacity:    %s", totalPVC.String()))
+	b.WriteString(fmt.Sprintf("▸ PVCs (%s): %d\n", ns, len(pvcs.Items)))
+	b.WriteString(fmt.Sprintf("▥ Bound PVC Capacity:    %s", totalPVC.String()))
 	for phase, count := range pvcPhases {
 		b.WriteString(fmt.Sprintf("\n   • %-12s %d", string(phase), count))
 	}

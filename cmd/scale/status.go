@@ -38,7 +38,7 @@ type scaleRow struct {
 
 func runStatus(cmd *cobra.Command, args []string) error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("📊 Checking scaling status in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Checking scaling status in namespace %s...", ns))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -92,7 +92,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(map[string]interface{}{"workloads": rows, "hpaCount": len(hpas.Items)})
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🔄 Workload Replicas"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("◌ Workload Replicas"))
 	var t strings.Builder
 	t.WriteString(fmt.Sprintf("%-13s %-32s %-9s %-9s %-9s\n", "KIND", "NAME", "DESIRED", "CURRENT", "READY"))
 	t.WriteString(strings.Repeat("─", 75) + "\n")
@@ -104,7 +104,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println(helpers.BorderStyle.Width(80).Render(t.String()))
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🤖 HorizontalPodAutoscalers"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⎔ HorizontalPodAutoscalers"))
 	var h strings.Builder
 	h.WriteString(fmt.Sprintf("%-28s %-18s %-9s %-9s %-9s\n", "NAME", "TARGET", "MIN", "MAX", "CURRENT"))
 	h.WriteString(strings.Repeat("─", 75) + "\n")

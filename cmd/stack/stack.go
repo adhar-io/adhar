@@ -40,7 +40,7 @@ var (
 var StackCmd = &cobra.Command{
 	Use:     "stack",
 	Aliases: []string{"platform", "packages"},
-	Short:   "📦 Manage the platform's own packages — list, enable, disable, sync",
+	Short:   "▣ Manage the platform's own packages — list, enable, disable, sync",
 	Long: `Manage the packages the platform itself is made of.
 
 Adhar ships a curated catalogue of ~90 CNCF and open-source packages, delivered by

@@ -60,8 +60,8 @@ var (
 // ControllerCmd represents the controller command
 var ControllerCmd = &cobra.Command{
 	Use:   "controller",
-	Short: "🎛️ Run the platform controller manager (in-cluster mode)",
-	Long: `🎛️ **Adhar Platform Controller Manager**
+	Short: "⎔ Run the platform controller manager (in-cluster mode)",
+	Long: `⎔ **Adhar Platform Controller Manager**
 
 Runs the AdharPlatform, GitRepository and CustomPackage controllers as a
 long-lived manager process. This is the entrypoint used by the in-cluster

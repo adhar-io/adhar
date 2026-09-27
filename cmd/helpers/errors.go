@@ -25,11 +25,11 @@ import (
 
 // Shared status icons for consistent visual feedback across commands.
 const (
-	IconSuccess = "✅"
-	IconError   = "❌"
-	IconWarning = "⚠️"
-	IconInfo    = "ℹ️"
-	IconHint    = "💡"
+	IconSuccess = "●"
+	IconError   = "✖"
+	IconWarning = "▲"
+	IconInfo    = "▸"
+	IconHint    = "▸"
 )
 
 // friendlyError wraps an underlying error that has already been rendered to the

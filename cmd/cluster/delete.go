@@ -79,13 +79,13 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", found.Cluster.Status)
 
 	if !found.IsAdharManaged() {
-		fmt.Fprintf(cmd.OutOrStdout(), "⚠️  Warning: This cluster was not created by Adhar (missing adhar.io/managed-by tag)\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "▲  Warning: This cluster was not created by Adhar (missing adhar.io/managed-by tag)\n")
 		fmt.Fprintf(cmd.OutOrStdout(), "Proceeding with deletion anyway...\n")
 	}
 
 	force, _ := cmd.Flags().GetBool("force")
 	if !force {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n🗑️  This action will permanently delete the cluster and all associated resources.\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "\n✖  This action will permanently delete the cluster and all associated resources.\n")
 		fmt.Fprintf(cmd.OutOrStdout(), "Type 'yes' to confirm deletion: ")
 
 		var confirmation string
@@ -96,16 +96,16 @@ func deleteCluster(cmd *cobra.Command, name string) error {
 			return nil
 		}
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n🗑️  Force deletion enabled - proceeding without confirmation.\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "\n✖  Force deletion enabled - proceeding without confirmation.\n")
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "\n🚀 Starting cluster deletion...\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "\n▣ Starting cluster deletion...\n")
 
 	if err := found.Provider.DeleteCluster(ctx, found.Cluster.ID); err != nil {
 		return fmt.Errorf("failed to delete cluster: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✅ Cluster '%s' deletion initiated successfully!\n", name)
+	fmt.Fprintf(cmd.OutOrStdout(), "● Cluster '%s' deletion initiated successfully!\n", name)
 	fmt.Fprintf(cmd.OutOrStdout(), "\nNote: It may take several minutes for all resources to be fully deleted.\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "You can check the status with: adhar cluster list --file %s\n", configFile)
 

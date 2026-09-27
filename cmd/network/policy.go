@@ -84,7 +84,7 @@ func applyPolicy(filePath string) error {
 		ns = resolveNamespace()
 		np.Namespace = ns
 	}
-	logger.Info(fmt.Sprintf("🛡️ Applying network policy %s/%s from %s", ns, np.Name, filePath))
+	logger.Info(fmt.Sprintf("⛨ Applying network policy %s/%s from %s", ns, np.Name, filePath))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -100,7 +100,7 @@ func applyPolicy(filePath string) error {
 			if _, err := client.Create(ctx, np, metav1.CreateOptions{}); err != nil {
 				return fmt.Errorf("creating network policy %s/%s: %w", ns, np.Name, err)
 			}
-			logger.Info(fmt.Sprintf("✅ Network policy %s/%s created", ns, np.Name))
+			logger.Info(fmt.Sprintf("● Network policy %s/%s created", ns, np.Name))
 			return nil
 		}
 		return fmt.Errorf("getting network policy %s/%s: %w", ns, np.Name, getErr)
@@ -110,7 +110,7 @@ func applyPolicy(filePath string) error {
 	if _, err := client.Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("updating network policy %s/%s: %w", ns, np.Name, err)
 	}
-	logger.Info(fmt.Sprintf("✅ Network policy %s/%s updated", ns, np.Name))
+	logger.Info(fmt.Sprintf("● Network policy %s/%s updated", ns, np.Name))
 	return nil
 }
 
@@ -119,7 +119,7 @@ func validatePolicy(filePath string) error {
 	if err != nil {
 		return err
 	}
-	logger.Info(fmt.Sprintf("✅ Valid NetworkPolicy %q (%d ingress, %d egress rule(s), %d policy type(s))",
+	logger.Info(fmt.Sprintf("● Valid NetworkPolicy %q (%d ingress, %d egress rule(s), %d policy type(s))",
 		np.Name, len(np.Spec.Ingress), len(np.Spec.Egress), len(np.Spec.PolicyTypes)))
 	return nil
 }
@@ -129,7 +129,7 @@ func deletePolicy(policyName string) error {
 		return fmt.Errorf("--policy is required for deletion")
 	}
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("🗑️ Deleting network policy %s/%s", ns, policyName))
+	logger.Info(fmt.Sprintf("✖ Deleting network policy %s/%s", ns, policyName))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -144,13 +144,13 @@ func deletePolicy(policyName string) error {
 		}
 		return fmt.Errorf("deleting network policy %s/%s: %w", ns, policyName, err)
 	}
-	logger.Info(fmt.Sprintf("✅ Network policy %s/%s deleted", ns, policyName))
+	logger.Info(fmt.Sprintf("● Network policy %s/%s deleted", ns, policyName))
 	return nil
 }
 
 func listPolicies() error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("📋 Listing network policies in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Listing network policies in namespace %s...", ns))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -171,7 +171,7 @@ func listPolicies() error {
 		return helpers.PrintYAML(policies.Items)
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🛡️  Network Policies"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⛨  Network Policies"))
 	var t strings.Builder
 	t.WriteString(fmt.Sprintf("%-32s %-28s %-18s\n", "NAME", "POD SELECTOR", "POLICY TYPES"))
 	t.WriteString(strings.Repeat("─", 80) + "\n")

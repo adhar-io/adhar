@@ -29,14 +29,14 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	if len(args) == 1 {
 		path = args[0]
 	}
-	fmt.Printf("🔍 Validating configuration: %s\n", path)
+	fmt.Printf("▸ Validating configuration: %s\n", path)
 
 	// LoadConfig runs the SchemaValidator + provider validation and returns a
 	// descriptive error listing every problem when the config is invalid.
 	if _, err := platformconfig.LoadConfig(path); err != nil {
-		return fmt.Errorf("❌ invalid configuration: %w", err)
+		return fmt.Errorf("✖ invalid configuration: %w", err)
 	}
 
-	fmt.Println("✅ Configuration is valid")
+	fmt.Println("● Configuration is valid")
 	return nil
 }

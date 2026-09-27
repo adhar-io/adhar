@@ -108,7 +108,7 @@ func runExportPolicy(cmd *cobra.Command, args []string) error {
 		if err := os.WriteFile(path, out, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", path, err)
 		}
-		fmt.Printf("   ✅ exported %s -> %s\n", items[i].GetName(), path)
+		fmt.Printf("   ● exported %s -> %s\n", items[i].GetName(), path)
 	}
 
 	if !toStdout {

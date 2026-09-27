@@ -24,7 +24,7 @@ Examples:
 
 func runSearch(cmd *cobra.Command, args []string) error {
 	query := args[0]
-	logger.Info("🔍 Searching logs for: " + query)
+	logger.Info("▸ Searching logs for: " + query)
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -39,7 +39,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	if component != "" {
 		// Search a single component/app.
 		t := resolveTarget(component, namespace)
-		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📦 "+component))
+		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▣ "+component))
 		n, err := streamPodLogs(ctx, clientset, t, int64(lines), false, query)
 		if err != nil {
 			return err
@@ -70,6 +70,6 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println(helpers.CreateMuted(fmt.Sprintf("\n%d matching line(s) found.", total)))
-	logger.Info("✅ Log search completed")
+	logger.Info("● Log search completed")
 	return nil
 }

@@ -79,7 +79,7 @@ func init() {
 }
 
 func runLogs(cmd *cobra.Command, args []string) error {
-	logger.Info("📋 Viewing platform logs...")
+	logger.Info("▸ Viewing platform logs...")
 
 	if component != "" {
 		return viewComponentLogs(component)
@@ -94,7 +94,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 
 // viewAllLogs streams logs for every core platform component.
 func viewAllLogs() error {
-	logger.Info("🔍 Viewing all platform logs...")
+	logger.Info("▸ Viewing all platform logs...")
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -112,19 +112,19 @@ func viewAllLogs() error {
 			continue
 		}
 		t := resolveTarget(name, namespace)
-		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📦 "+name))
+		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▣ "+name))
 		if _, err := streamPodLogs(ctx, clientset, t, int64(lines), false, search); err != nil {
 			fmt.Println(helpers.CreateMuted("  " + err.Error()))
 		}
 	}
 
-	logger.Info("✅ All logs displayed")
+	logger.Info("● All logs displayed")
 	return nil
 }
 
 // viewComponentLogs streams logs for a single named component or app.
 func viewComponentLogs(componentName string) error {
-	logger.Info("🔍 Viewing component logs: " + componentName)
+	logger.Info("▸ Viewing component logs: " + componentName)
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -143,13 +143,13 @@ func viewComponentLogs(componentName string) error {
 		return err
 	}
 
-	logger.Info("✅ Component logs displayed")
+	logger.Info("● Component logs displayed")
 	return nil
 }
 
 // viewNamespaceLogs streams logs for every pod in a namespace.
 func viewNamespaceLogs(namespaceName string) error {
-	logger.Info("🔍 Viewing namespace logs: " + namespaceName)
+	logger.Info("▸ Viewing namespace logs: " + namespaceName)
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -165,14 +165,14 @@ func viewNamespaceLogs(namespaceName string) error {
 		return err
 	}
 
-	logger.Info("✅ Namespace logs displayed")
+	logger.Info("● Namespace logs displayed")
 	return nil
 }
 
 // clusterError prints a friendly message and returns a wrapped error when the
 // cluster cannot be reached.
 func clusterError(err error) error {
-	fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
+	fmt.Println(helpers.ErrorStyle.Render("✖ Could not connect to the cluster"))
 	fmt.Println(helpers.CreateMuted("   " + err.Error()))
 	fmt.Println(helpers.CreateMuted("   Is the cluster running? Try `adhar up` or check your kubeconfig context."))
 	return fmt.Errorf("failed to get Kubernetes client: %w", err)

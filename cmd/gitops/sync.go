@@ -93,7 +93,7 @@ func syncOperationPatch() ([]byte, error) {
 }
 
 func syncApplication(ctx context.Context, client dynamic.Interface, appName string) error {
-	logger.Info(fmt.Sprintf("🔄 Syncing application: %s", appName))
+	logger.Info(fmt.Sprintf("◌ Syncing application: %s", appName))
 
 	patch, err := syncOperationPatch()
 	if err != nil {
@@ -111,7 +111,7 @@ func syncApplication(ctx context.Context, client dynamic.Interface, appName stri
 }
 
 func syncAllApplications(ctx context.Context, client dynamic.Interface) error {
-	logger.Info("🔄 Syncing all applications...")
+	logger.Info("◌ Syncing all applications...")
 
 	list, err := client.Resource(applicationsGVR).Namespace(syncNamespace).List(ctx, metav1.ListOptions{})
 	if err != nil {

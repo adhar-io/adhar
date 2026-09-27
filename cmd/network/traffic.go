@@ -35,10 +35,10 @@ func init() {
 }
 
 func runTraffic(cmd *cobra.Command, args []string) error {
-	logger.Info("📊 Inspecting traffic-path components...")
+	logger.Info("▸ Inspecting traffic-path components...")
 
 	if monitor {
-		fmt.Println(helpers.CreateMuted("ℹ️  Live flow monitoring requires Hubble; showing component status instead."))
+		fmt.Println(helpers.CreateMuted("▸  Live flow monitoring requires Hubble; showing component status instead."))
 	}
 
 	clientset, err := getClientset()
@@ -80,7 +80,7 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(comps)
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📊 Traffic-Path Components"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▸ Traffic-Path Components"))
 	var t strings.Builder
 	t.WriteString(fmt.Sprintf("%-28s %-20s\n", "COMPONENT", "STATUS"))
 	t.WriteString(strings.Repeat("─", 50) + "\n")

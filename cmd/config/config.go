@@ -64,7 +64,7 @@ func init() {
 }
 
 func runConfig(cmd *cobra.Command, args []string) error {
-	logger.Info("⚙️ Config command - use subcommands to manage configuration")
+	logger.Info("⎔ Config command - use subcommands to manage configuration")
 	logger.Info("Available subcommands:")
 	logger.Info("  create        - Create new configuration files")
 	logger.Info("  validate      - Validate configuration files")

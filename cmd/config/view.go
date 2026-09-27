@@ -48,7 +48,7 @@ func init() {
 
 func runView(cmd *cobra.Command, args []string) error {
 	path := resolveConfigPath()
-	logger.Info("⚙️ Loading configuration from " + path)
+	logger.Info("⎔ Loading configuration from " + path)
 
 	cfg, err := platformconfig.LoadConfig(path)
 	if err != nil {

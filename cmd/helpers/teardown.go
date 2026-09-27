@@ -98,7 +98,7 @@ type LookupFailure struct {
 // identical from the outside and must not be treated the same way.
 //
 // This type exists because of a real incident (2026-09-25): `adhar down -f
-// config.yaml --env production` printed "✓ Successfully tore down Adhar
+// config.yaml --env production` printed "● Successfully tore down Adhar
 // platform! Cloud resources for production have been removed" while five GCE
 // instances, 79 disks, a VPC, 11 firewall rules and a load balancer kept running
 // and billing. That config file defines only the `kind` provider, so the GCP

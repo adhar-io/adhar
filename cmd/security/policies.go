@@ -37,7 +37,7 @@ type securityPolicyRow struct {
 }
 
 func runPolicies(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("🛡️  Security Policies (Kyverno)"))
+	fmt.Println(helpers.TitleStyle.Render("⛨  Security Policies (Kyverno)"))
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -64,13 +64,13 @@ func runPolicies(cmd *cobra.Command, args []string) error {
 			action = "-"
 		}
 		background, _, _ := nestedBool(obj, "spec", "background")
-		ready := "❓"
+		ready := "◍"
 		for _, c := range nestedSlice(obj, "status", "conditions") {
 			if cm, ok := c.(map[string]interface{}); ok && fmt.Sprintf("%v", cm["type"]) == "Ready" {
 				if fmt.Sprintf("%v", cm["status"]) == "True" {
-					ready = "✅"
+					ready = "●"
 				} else {
-					ready = "❌"
+					ready = "✖"
 				}
 			}
 		}

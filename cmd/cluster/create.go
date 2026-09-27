@@ -226,7 +226,7 @@ func createCluster(cmd *cobra.Command, name string) error {
 		return fmt.Errorf("failed to create cluster: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Cluster '%s' created successfully!\n", cluster.Name)
+	fmt.Fprintf(cmd.OutOrStdout(), "● Cluster '%s' created successfully!\n", cluster.Name)
 	fmt.Fprintf(cmd.OutOrStdout(), "  ID: %s\n", cluster.ID)
 	fmt.Fprintf(cmd.OutOrStdout(), "  Provider: %s\n", cluster.Provider)
 	fmt.Fprintf(cmd.OutOrStdout(), "  Region: %s\n", cluster.Region)
@@ -239,16 +239,16 @@ func createCluster(cmd *cobra.Command, name string) error {
 	// Automatically setup kubeconfig if requested
 	setupKubeconfig, _ := cmd.Flags().GetBool("setup-kubeconfig")
 	if setupKubeconfig {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n🔧 Setting up kubeconfig...\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "\n⎔ Setting up kubeconfig...\n")
 		err = setupClusterKubeconfig(cmd, cluster, p)
 		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "⚠️  Warning: Failed to setup kubeconfig: %v\n", err)
+			fmt.Fprintf(cmd.OutOrStderr(), "▲  Warning: Failed to setup kubeconfig: %v\n", err)
 			fmt.Fprintf(cmd.OutOrStderr(), "You can manually setup kubeconfig later with: adhar cluster kubeconfig %s\n", cluster.Name)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "✓ Kubeconfig configured successfully!\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "● Kubeconfig configured successfully!\n")
 
 			// Show next steps
-			fmt.Fprintf(cmd.OutOrStdout(), "\n🎉 Cluster is ready! Next steps:\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "\n● Cluster is ready! Next steps:\n")
 			fmt.Fprintf(cmd.OutOrStdout(), "  • Check cluster status: kubectl get nodes\n")
 			fmt.Fprintf(cmd.OutOrStdout(), "  • Deploy applications: kubectl apply -f your-app.yaml\n")
 			fmt.Fprintf(cmd.OutOrStdout(), "  • View cluster info: kubectl cluster-info\n")

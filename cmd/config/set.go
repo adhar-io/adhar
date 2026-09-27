@@ -75,7 +75,7 @@ func runSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	logger.Info("⚙️ Updated configuration at " + path)
+	logger.Info("⎔ Updated configuration at " + path)
 	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("Set %s = %s", key, value)))
 	return nil
 }

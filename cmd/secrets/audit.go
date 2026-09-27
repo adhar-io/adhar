@@ -28,7 +28,7 @@ Examples:
 }
 
 func runAudit(cmd *cobra.Command, args []string) error {
-	logger.Info("🔍 Auditing secret metadata...")
+	logger.Info("▸ Auditing secret metadata...")
 
 	ns := resolveNamespace()
 	clientset, err := getClientset()
@@ -52,7 +52,7 @@ func runAudit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to list secrets in namespace %q: %w", ns, err)
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(fmt.Sprintf("🔍 Secret audit — namespace %q (%d)", ns, len(list.Items))))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(fmt.Sprintf("▸ Secret audit — namespace %q (%d)", ns, len(list.Items))))
 	if len(list.Items) == 0 {
 		fmt.Println(helpers.CreateMuted("   No secrets found"))
 		return nil
@@ -74,7 +74,7 @@ func runAudit(cmd *cobra.Command, args []string) error {
 			truncate(who, 20), when, rotated))
 	}
 	fmt.Print(b.String())
-	logger.Info("✅ Secret audit completed")
+	logger.Info("● Secret audit completed")
 	return nil
 }
 
@@ -87,14 +87,14 @@ func auditOne(s corev1.Secret) error {
 	sort.Strings(keys)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🔐 Name:            %s\n", s.Name))
-	b.WriteString(fmt.Sprintf("📦 Namespace:       %s\n", s.Namespace))
-	b.WriteString(fmt.Sprintf("🏷️  Type:            %s\n", s.Type))
-	b.WriteString(fmt.Sprintf("🔑 Keys:            %s\n", strings.Join(keys, ", ")))
-	b.WriteString(fmt.Sprintf("👤 Managed-by:      %s\n", valueOrDash(s.Labels["adhar.io/managed-by"])))
-	b.WriteString(fmt.Sprintf("✍️  Last-modified:   %s by %s\n", when, who))
-	b.WriteString(fmt.Sprintf("🕐 Created:         %s\n", formatAge(s.CreationTimestamp.Time)))
-	b.WriteString(fmt.Sprintf("🔄 Last-rotated:    %s", valueOrDash(s.Annotations["adhar.io/rotated-at"])))
+	b.WriteString(fmt.Sprintf("⛨ Name:            %s\n", s.Name))
+	b.WriteString(fmt.Sprintf("▣ Namespace:       %s\n", s.Namespace))
+	b.WriteString(fmt.Sprintf("▸  Type:            %s\n", s.Type))
+	b.WriteString(fmt.Sprintf("⛨ Keys:            %s\n", strings.Join(keys, ", ")))
+	b.WriteString(fmt.Sprintf("▸ Managed-by:      %s\n", valueOrDash(s.Labels["adhar.io/managed-by"])))
+	b.WriteString(fmt.Sprintf("▸  Last-modified:   %s by %s\n", when, who))
+	b.WriteString(fmt.Sprintf("▸ Created:         %s\n", formatAge(s.CreationTimestamp.Time)))
+	b.WriteString(fmt.Sprintf("◌ Last-rotated:    %s", valueOrDash(s.Annotations["adhar.io/rotated-at"])))
 	fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))
 
 	fmt.Printf("\n%s\n", helpers.CreateMuted("managedFields history:"))

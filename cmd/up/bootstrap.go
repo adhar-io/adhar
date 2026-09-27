@@ -436,7 +436,7 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 		return fmt.Errorf("installing in-cluster controller manager: %w", err)
 	}
 
-	logger.Infof("✅ Platform bootstrapped on cluster %s (HA mode: %t)", result.Cluster.ID, enableHA)
+	logger.Infof("● Platform bootstrapped on cluster %s (HA mode: %t)", result.Cluster.ID, enableHA)
 	return nil
 }
 
@@ -469,7 +469,7 @@ func logAppConvergence(ctx context.Context, c client.Client, name string, stop <
 				continue
 			}
 			last = msg
-			logger.Infof("⏳ GitOps sync: %s", msg)
+			logger.Infof("◌ GitOps sync: %s", msg)
 		}
 	}
 }

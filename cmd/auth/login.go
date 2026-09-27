@@ -70,7 +70,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	kc := settings()
-	fmt.Printf("🔐 Authenticating %q against %s\n", username, kc.Issuer)
+	fmt.Printf("⛨ Authenticating %q against %s\n", username, kc.Issuer)
 
 	tr, err := kc.passwordGrant(context.Background(), username, password)
 	if err != nil {
@@ -87,11 +87,11 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return helpers.PrintJSON(tr)
 	}
 
-	fmt.Println(helpers.CreateSuccess("✅ Successfully authenticated"))
-	fmt.Printf("👤 User:    %s\n", username)
+	fmt.Println(helpers.CreateSuccess("● Successfully authenticated"))
+	fmt.Printf("▸ User:    %s\n", username)
 	fmt.Printf("⏰ Expires: %ds (auto-refreshes while the session is valid)\n", tr.ExpiresIn)
 	if claims, err := parseClaims(tr.AccessToken); err == nil && len(claims.Groups) > 0 {
-		fmt.Printf("👥 Groups:  %s\n", strings.Join(claims.Groups, ", "))
+		fmt.Printf("▸ Groups:  %s\n", strings.Join(claims.Groups, ", "))
 	}
 	fmt.Println(helpers.CreateMuted("   Session saved to " + credentialsPath()))
 	fmt.Println(helpers.CreateMuted("   Print a valid token anytime: adhar auth token"))

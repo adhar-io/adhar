@@ -51,7 +51,7 @@ func init() {
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	logger.Info("📋 Listing applications...")
+	logger.Info("▸ Listing applications...")
 
 	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
 	if err != nil {

@@ -51,7 +51,7 @@ func init() {
 }
 
 func runProvider(cmd *cobra.Command, args []string) error {
-	fmt.Println("🔌 Adhar Platform Authentication Provider Management")
+	fmt.Println("⇄ Adhar Platform Authentication Provider Management")
 	fmt.Println("")
 	fmt.Println("Available commands:")
 	fmt.Println("  list       - List all providers")
@@ -75,7 +75,7 @@ var (
 )
 
 func runListProviders(cmd *cobra.Command, args []string) error {
-	fmt.Println("📋 Identity Providers (Keycloak)")
+	fmt.Println("▸ Identity Providers (Keycloak)")
 	kc := settings()
 
 	var providers []kcIdentityProvider
@@ -96,7 +96,7 @@ func runListProviders(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-24s %-16s %-9s %s\n", "🔌 ALIAS", "🧩 TYPE", "✅ ENABLED", "🏷️  DISPLAY NAME"))
+	b.WriteString(fmt.Sprintf("%-24s %-16s %-9s %s\n", "⇄ ALIAS", "▣ TYPE", "● ENABLED", "▸  DISPLAY NAME"))
 	b.WriteString(strings.Repeat("─", 90) + "\n")
 	for _, p := range providers {
 		enabled := "yes"
@@ -137,11 +137,11 @@ func runGetProvider(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(p)
 	}
 
-	fmt.Printf("🔌 Alias:        %v\n", p["alias"])
-	fmt.Printf("🧩 Type:         %v\n", p["providerId"])
-	fmt.Printf("✅ Enabled:      %v\n", p["enabled"])
+	fmt.Printf("⇄ Alias:        %v\n", p["alias"])
+	fmt.Printf("▣ Type:         %v\n", p["providerId"])
+	fmt.Printf("● Enabled:      %v\n", p["enabled"])
 	if dn, ok := p["displayName"].(string); ok && dn != "" {
-		fmt.Printf("🏷️  Display name: %s\n", dn)
+		fmt.Printf("▸  Display name: %s\n", dn)
 	}
 	return nil
 }
@@ -180,7 +180,7 @@ func runConfigureProvider(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	fmt.Printf("🔧 Configuring %s identity provider %q in realm %s\n", providerType, providerName, kc.Realm)
+	fmt.Printf("⎔ Configuring %s identity provider %q in realm %s\n", providerType, providerName, kc.Realm)
 
 	config := map[string]string{}
 	if clientID != "" {
@@ -235,7 +235,7 @@ func runTestProvider(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	fmt.Printf("🧪 Testing identity provider %q in realm %s\n", providerID, kc.Realm)
+	fmt.Printf("▸ Testing identity provider %q in realm %s\n", providerID, kc.Realm)
 
 	// Keycloak has no synchronous "test connection" API for identity providers,
 	// so we validate what we can: the instance exists, is enabled, and carries
@@ -249,7 +249,7 @@ func runTestProvider(cmd *cobra.Command, args []string) error {
 	if p.Enabled {
 		fmt.Println(helpers.CreateSuccess("Provider exists and is ENABLED"))
 	} else {
-		fmt.Println(helpers.WarningStyle.Render("⚠  Provider exists but is DISABLED — run `adhar auth provider enable " + providerID + "`"))
+		fmt.Println(helpers.WarningStyle.Render("▲  Provider exists but is DISABLED — run `adhar auth provider enable " + providerID + "`"))
 	}
 	fmt.Println(helpers.CreateMuted("   Note: Keycloak exposes no live connection test; verify a real login through the broker."))
 	return nil
@@ -287,7 +287,7 @@ func setProviderEnabled(alias string, enabled bool) error {
 	if !enabled {
 		verb = "Disabled"
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ %s identity provider %s", verb, alias)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● %s identity provider %s", verb, alias)))
 	return nil
 }
 

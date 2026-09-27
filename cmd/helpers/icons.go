@@ -26,7 +26,7 @@ import "github.com/charmbracelet/lipgloss"
 //
 //   - Consistency: a defined set reads as one product. A different emoji per
 //     call site reads as decoration.
-//   - Alignment: emoji are double-width, and many (✅, ⚙️, 🏷️) carry a
+//   - Alignment: emoji are double-width, and many (●, ⎔, ▸) carry a
 //     variation selector that terminals measure inconsistently — which is what
 //     pushed table columns out of true. Every glyph here is exactly one cell in
 //     every terminal, so a table built with Table stays aligned.

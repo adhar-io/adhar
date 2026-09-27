@@ -716,7 +716,7 @@ func createLocalDevelopmentCluster(ctx context.Context, cmd *cobra.Command, args
 }
 
 func showLocalDryRunInfo(envConfig *config.ResolvedEnvironmentConfig) error {
-	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("🔍 Dry Run - Local Development Preview"))
+	fmt.Printf("\n%s\n", helpers.BoldStyle.Render("▸ Dry Run - Local Development Preview"))
 	fmt.Printf("┌─────────────────────────────────────────────┐\n")
 	fmt.Printf("│ Environment: %-30s │\n", envConfig.Name)
 	fmt.Printf("│ Provider:    %-30s │\n", envConfig.ResolvedProvider)

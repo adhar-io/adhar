@@ -386,7 +386,7 @@ func runKeyStatus(cmd *cobra.Command, _ []string) error {
 		return enc.Encode(cfg)
 	}
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("🔑", "AI provider key"))
+	fmt.Println(helpers.SectionHeading("⛨", "AI provider key"))
 	fmt.Println()
 	t := helpers.NewTable("FIELD", "VALUE")
 	t.Row("Secret", fmt.Sprintf("%s/%s %s", p.ns, llmSecret, presence(cfg.SecretPresent)))

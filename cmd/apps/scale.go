@@ -68,7 +68,7 @@ func runScale(cmd *cobra.Command, args []string) error {
 		scaleNamespace = "default"
 	}
 
-	logger.Info(fmt.Sprintf("📈 Scaling application %s to %d replicas", appName, replicas))
+	logger.Info(fmt.Sprintf("▸ Scaling application %s to %d replicas", appName, replicas))
 
 	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
 	if err != nil {

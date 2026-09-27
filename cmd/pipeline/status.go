@@ -45,7 +45,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 func checkPipelineStatus(ctx context.Context, client dynamic.Interface, name string) error {
 	ns := defaultNamespace()
-	logger.Info(fmt.Sprintf("📊 Checking status for pipeline: %s", name))
+	logger.Info(fmt.Sprintf("▸ Checking status for pipeline: %s", name))
 
 	wf, err := client.Resource(workflowsGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -72,7 +72,7 @@ func checkPipelineStatus(ctx context.Context, client dynamic.Interface, name str
 
 func checkAllPipelinesStatus(ctx context.Context, client dynamic.Interface) error {
 	ns := defaultNamespace()
-	logger.Info(fmt.Sprintf("📊 Checking status for all pipelines in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Checking status for all pipelines in namespace %s...", ns))
 
 	wfList, err := client.Resource(workflowsGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {

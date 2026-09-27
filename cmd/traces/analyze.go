@@ -38,7 +38,7 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("provide --trace <id> or --service <name> to analyze")
 		}
 		// Resolve the most recent trace for the service.
-		logger.Info(fmt.Sprintf("🔍 Finding most recent trace for service %q...", service))
+		logger.Info(fmt.Sprintf("▸ Finding most recent trace for service %q...", service))
 		res, err := searchTraces(ctx, tempoURL, service, operation, tags, 1)
 		if err != nil {
 			return err
@@ -49,7 +49,7 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 		id = res.Traces[0].TraceID
 	}
 
-	logger.Info(fmt.Sprintf("🔍 Analyzing trace %s...", id))
+	logger.Info(fmt.Sprintf("▸ Analyzing trace %s...", id))
 	body, err := getTrace(ctx, tempoURL, id)
 	if err != nil {
 		return err
@@ -76,14 +76,14 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🆔 Trace:       %s\n", id))
-	b.WriteString(fmt.Sprintf("🔢 Spans:       %d\n", len(spans)))
-	b.WriteString(fmt.Sprintf("⏱️  Total dur:   %.2fms", float64(total)/1e6))
+	b.WriteString(fmt.Sprintf("▸ Trace:       %s\n", id))
+	b.WriteString(fmt.Sprintf("▸ Spans:       %d\n", len(spans)))
+	b.WriteString(fmt.Sprintf("◌  Total dur:   %.2fms", float64(total)/1e6))
 	fmt.Println(helpers.BorderStyle.Render(b.String()))
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🐢 Slowest spans"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("◌ Slowest spans"))
 	var t strings.Builder
-	t.WriteString(fmt.Sprintf("%-30s %-22s %s\n", "🔧 SPAN", "📦 SERVICE", "⏱️  DUR"))
+	t.WriteString(fmt.Sprintf("%-30s %-22s %s\n", "⎔ SPAN", "▣ SERVICE", "◌  DUR"))
 	t.WriteString(strings.Repeat("─", 70) + "\n")
 	max := 10
 	if len(spans) < max {

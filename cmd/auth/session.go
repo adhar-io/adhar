@@ -70,7 +70,7 @@ func init() {
 }
 
 func runSession(cmd *cobra.Command, args []string) error {
-	fmt.Println("🖥️  Adhar Platform Session Management")
+	fmt.Println("⎔  Adhar Platform Session Management")
 	fmt.Println("")
 	fmt.Println("Available commands:")
 	fmt.Println("  list           - List active sessions")
@@ -122,13 +122,13 @@ func runListSessions(cmd *cobra.Command, args []string) error {
 		if output == "yaml" {
 			return helpers.PrintYAML(sessions)
 		}
-		fmt.Printf("📋 Active sessions for %s\n", sessionUser)
+		fmt.Printf("▸ Active sessions for %s\n", sessionUser)
 		if len(sessions) == 0 {
 			fmt.Println(helpers.CreateMuted("No active sessions"))
 			return nil
 		}
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%-36s %-15s %-19s %s\n", "🆔 SESSION", "🌐 IP", "🕒 STARTED", "⏱️  LAST ACCESS"))
+		b.WriteString(fmt.Sprintf("%-36s %-15s %-19s %s\n", "▸ SESSION", "⇄ IP", "◌ STARTED", "◌  LAST ACCESS"))
 		b.WriteString(strings.Repeat("─", 100) + "\n")
 		for _, s := range sessions {
 			b.WriteString(fmt.Sprintf("%-36s %-15s %-19s %s\n", s.ID, s.IPAddress, epochMillis(s.Start), epochMillis(s.LastAccess)))
@@ -148,13 +148,13 @@ func runListSessions(cmd *cobra.Command, args []string) error {
 	if output == "yaml" {
 		return helpers.PrintYAML(stats)
 	}
-	fmt.Println("📋 Active sessions by client (realm " + kc.Realm + ")")
+	fmt.Println("▸ Active sessions by client (realm " + kc.Realm + ")")
 	if len(stats) == 0 {
 		fmt.Println(helpers.CreateMuted("No active sessions in the realm"))
 		return nil
 	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-30s %-10s %s\n", "🔌 CLIENT", "✅ ACTIVE", "💤 OFFLINE"))
+	b.WriteString(fmt.Sprintf("%-30s %-10s %s\n", "⇄ CLIENT", "● ACTIVE", "○ OFFLINE"))
 	b.WriteString(strings.Repeat("─", 60) + "\n")
 	total := 0
 	for _, s := range stats {
@@ -204,17 +204,17 @@ func runGetSession(cmd *cobra.Command, args []string) error {
 			if output == "yaml" {
 				return helpers.PrintYAML(s)
 			}
-			fmt.Printf("🆔 Session:     %s\n", s.ID)
-			fmt.Printf("👤 User:        %s\n", s.Username)
-			fmt.Printf("🌐 IP:          %s\n", s.IPAddress)
-			fmt.Printf("🕒 Started:     %s\n", epochMillis(s.Start))
-			fmt.Printf("⏱️  Last access: %s\n", epochMillis(s.LastAccess))
+			fmt.Printf("▸ Session:     %s\n", s.ID)
+			fmt.Printf("▸ User:        %s\n", s.Username)
+			fmt.Printf("⇄ IP:          %s\n", s.IPAddress)
+			fmt.Printf("◌ Started:     %s\n", epochMillis(s.Start))
+			fmt.Printf("◌  Last access: %s\n", epochMillis(s.LastAccess))
 			if len(s.Clients) > 0 {
 				clients := make([]string, 0, len(s.Clients))
 				for _, c := range s.Clients {
 					clients = append(clients, c)
 				}
-				fmt.Printf("🔌 Clients:     %s\n", strings.Join(clients, ", "))
+				fmt.Printf("⇄ Clients:     %s\n", strings.Join(clients, ", "))
 			}
 			return nil
 		}
@@ -248,9 +248,9 @@ func runTerminateSession(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("terminate session: %w", err)
 	}
 	if terminateReason != "" {
-		fmt.Printf("📝 Reason: %s\n", terminateReason)
+		fmt.Printf("▸ Reason: %s\n", terminateReason)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Terminated session %s", sessionID)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Terminated session %s", sessionID)))
 	return nil
 }
 
@@ -284,9 +284,9 @@ func runTerminateAllSessions(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("terminate sessions: %w", err)
 	}
 	if terminateAllReason != "" {
-		fmt.Printf("📝 Reason: %s\n", terminateAllReason)
+		fmt.Printf("▸ Reason: %s\n", terminateAllReason)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Terminated all sessions for user %s", username)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Terminated all sessions for user %s", username)))
 	return nil
 }
 
@@ -323,9 +323,9 @@ func runSessionStats(cmd *cobra.Command, args []string) error {
 			offlineTotal += n
 		}
 	}
-	fmt.Println("📊 Session Statistics (realm " + kc.Realm + ")")
-	fmt.Printf("📈 Active sessions:  %d\n", activeTotal)
-	fmt.Printf("💤 Offline sessions: %d\n", offlineTotal)
-	fmt.Printf("🔌 Clients with sessions: %d\n", len(stats))
+	fmt.Println("▸ Session Statistics (realm " + kc.Realm + ")")
+	fmt.Printf("▸ Active sessions:  %d\n", activeTotal)
+	fmt.Printf("○ Offline sessions: %d\n", offlineTotal)
+	fmt.Printf("⇄ Clients with sessions: %d\n", len(stats))
 	return nil
 }

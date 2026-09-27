@@ -30,7 +30,7 @@ Examples:
 }
 
 func runDashboard(cmd *cobra.Command, args []string) error {
-	logger.Info("📊 Listing Grafana dashboards (ConfigMaps labeled grafana_dashboard)...")
+	logger.Info("▸ Listing Grafana dashboards (ConfigMaps labeled grafana_dashboard)...")
 	ctx := context.Background()
 
 	clientset, err := getClientset()
@@ -64,7 +64,7 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(rows)
 	}
 
-	fmt.Println(helpers.CreateInfo("🌐 Grafana: " + grafanaURL))
+	fmt.Println(helpers.CreateInfo("⇄ Grafana: " + grafanaURL))
 	fmt.Println()
 
 	if len(rows) == 0 {
@@ -73,7 +73,7 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-45s %-18s %s\n", "📊 CONFIGMAP", "📦 NAMESPACE", "📁 FILES"))
+	b.WriteString(fmt.Sprintf("%-45s %-18s %s\n", "▸ CONFIGMAP", "▣ NAMESPACE", "▸ FILES"))
 	b.WriteString(strings.Repeat("─", 80) + "\n")
 	for _, r := range rows {
 		b.WriteString(fmt.Sprintf("%-45s %-18s %d\n", trunc(r.Name, 45), trunc(r.Namespace, 18), r.Panels))

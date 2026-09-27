@@ -48,7 +48,7 @@ func printHeader() {
 func printFooter() {
 	fmt.Println()
 	fmt.Println(lipgloss.NewStyle().Align(lipgloss.Center).Render(
-		helpers.SubtitleStyle.Render("Adhar • Built with ❤️ for developers!"),
+		helpers.SubtitleStyle.Render("Adhar • Built with ● for developers!"),
 	))
 	fmt.Println()
 }
@@ -118,7 +118,7 @@ Built for developer productivity with enterprise-grade security and governance.`
 				// part of the token / JSON document the caller is capturing.
 				//
 				// The logger has to move too. It defaults to STDOUT, so an
-				// informational line like "📊 Retrieving platform status..." was
+				// informational line like "▸ Retrieving platform status..." was
 				// emitted ahead of the JSON document and no `adhar ... -o json`
 				// output anywhere in the CLI could be piped into `jq`. Diagnostics
 				// belong on stderr; only the payload belongs on stdout. SetOutput

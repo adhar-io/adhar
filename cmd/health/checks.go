@@ -46,13 +46,13 @@ type componentCheck struct {
 // coreComponents is the canonical list of platform components inspected by the
 // health command. Selectors mirror those used by `adhar get status`.
 var coreComponents = []componentCheck{
-	{"Cilium", "🕸️", globals.AdharSystemNamespace, "app.kubernetes.io/name=cilium-agent"},
+	{"Cilium", "⇄", globals.AdharSystemNamespace, "app.kubernetes.io/name=cilium-agent"},
 	// The Gateway data path is served by Cilium's Envoy DaemonSet, so we report
 	// the cilium-envoy DaemonSet health for the "Cilium Gateway" row.
-	{"Cilium Gateway", "🌐", globals.AdharSystemNamespace, "app.kubernetes.io/name=cilium-envoy"},
-	{"ArgoCD", "🚀", globals.AdharSystemNamespace, "app.kubernetes.io/name=argocd-server"},
-	{"Gitea", "🦊", globals.AdharSystemNamespace, "app=gitea"},
-	{"Crossplane", "🔧", globals.AdharSystemNamespace, "app=crossplane"},
+	{"Cilium Gateway", "⇄", globals.AdharSystemNamespace, "app.kubernetes.io/name=cilium-envoy"},
+	{"ArgoCD", "▣", globals.AdharSystemNamespace, "app.kubernetes.io/name=argocd-server"},
+	{"Gitea", "▣", globals.AdharSystemNamespace, "app=gitea"},
+	{"Crossplane", "⎔", globals.AdharSystemNamespace, "app=crossplane"},
 }
 
 // componentResult holds the outcome of a single component health check.
@@ -104,9 +104,9 @@ func checkComponent(ctx context.Context, clientset *kubernetes.Clientset, c comp
 		dep := deployments.Items[0]
 		res.Replicas = fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, dep.Status.Replicas)
 		if dep.Status.Replicas > 0 && dep.Status.ReadyReplicas == dep.Status.Replicas {
-			res.Status, res.Healthy = "✅ Healthy", true
+			res.Status, res.Healthy = "● Healthy", true
 		} else {
-			res.Status = "⚠️ Degraded"
+			res.Status = "▲ Degraded"
 		}
 		return res
 	}
@@ -118,14 +118,14 @@ func checkComponent(ctx context.Context, clientset *kubernetes.Clientset, c comp
 		ds := daemonSets.Items[0]
 		res.Replicas = fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
 		if ds.Status.DesiredNumberScheduled > 0 && ds.Status.NumberReady == ds.Status.DesiredNumberScheduled {
-			res.Status, res.Healthy = "✅ Healthy", true
+			res.Status, res.Healthy = "● Healthy", true
 		} else {
-			res.Status = "⚠️ Degraded"
+			res.Status = "▲ Degraded"
 		}
 		return res
 	}
 
-	res.Status = "❌ Not Found"
+	res.Status = "✖ Not Found"
 	res.Replicas = "0/0"
 	return res
 }
@@ -142,7 +142,7 @@ func collectPlatformHealth(clientset *kubernetes.Clientset, components []compone
 	if err != nil {
 		h.APIReachable = false
 		h.APIError = err.Error()
-		h.Overall = "❌ Unreachable"
+		h.Overall = "✖ Unreachable"
 		return h
 	}
 	h.APIReachable = true
@@ -167,21 +167,21 @@ func collectPlatformHealth(clientset *kubernetes.Clientset, components []compone
 // scoreHealth derives an overall status string and 0-100 score.
 func scoreHealth(h *platformHealth) (int, string) {
 	score := 100
-	overall := "✅ Healthy"
+	overall := "● Healthy"
 
 	if h.NodesTotal == 0 || h.NodesReady < h.NodesTotal {
 		score -= 20
-		overall = "⚠️ Degraded"
+		overall = "▲ Degraded"
 	}
 
 	for _, c := range h.Components {
-		if strings.Contains(c.Status, "❌") {
+		if strings.Contains(c.Status, "✖") {
 			score -= 25
-			overall = "❌ Critical"
-		} else if strings.Contains(c.Status, "⚠️") {
+			overall = "✖ Critical"
+		} else if strings.Contains(c.Status, "▲") {
 			score -= 10
-			if overall == "✅ Healthy" {
-				overall = "⚠️ Degraded"
+			if overall == "● Healthy" {
+				overall = "▲ Degraded"
 			}
 		}
 	}
@@ -220,7 +220,7 @@ func resolveComponents(name string) ([]componentCheck, error) {
 // renderHealth prints a clean summary table for the given health snapshot.
 func renderHealth(h *platformHealth) {
 	if !h.APIReachable {
-		fmt.Println(helpers.ErrorStyle.Render("❌ Kubernetes API unreachable"))
+		fmt.Println(helpers.ErrorStyle.Render("✖ Kubernetes API unreachable"))
 		if h.APIError != "" {
 			fmt.Println(helpers.CreateMuted("   " + h.APIError))
 		}
@@ -229,16 +229,16 @@ func renderHealth(h *platformHealth) {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🏥 Overall Health: %s\n", h.Overall))
-	b.WriteString(fmt.Sprintf("💯 Health Score:   %d/100\n", h.HealthScore))
-	b.WriteString("☸️  Kubernetes API: ✅ Reachable\n")
-	b.WriteString(fmt.Sprintf("🖥️  Nodes Ready:    %d/%d", h.NodesReady, h.NodesTotal))
+	b.WriteString(fmt.Sprintf("⎔ Overall Health: %s\n", h.Overall))
+	b.WriteString(fmt.Sprintf("● Health Score:   %d/100\n", h.HealthScore))
+	b.WriteString("⎔  Kubernetes API: ● Reachable\n")
+	b.WriteString(fmt.Sprintf("⎔  Nodes Ready:    %d/%d", h.NodesReady, h.NodesTotal))
 	fmt.Println(helpers.BorderStyle.Width(70).Render(b.String()))
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🔧 Component Health"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⎔ Component Health"))
 
 	var t strings.Builder
-	t.WriteString(fmt.Sprintf("%-22s %-15s %-10s\n", "🏷️  COMPONENT", "📊 STATUS", "🔄 READY"))
+	t.WriteString(fmt.Sprintf("%-22s %-15s %-10s\n", "▸  COMPONENT", "▸ STATUS", "◌ READY"))
 	t.WriteString(strings.Repeat("─", 55) + "\n")
 	for _, c := range h.Components {
 		t.WriteString(fmt.Sprintf("%-22s %-15s %-10s\n", c.Icon+" "+c.Name, c.Status, c.Replicas))

@@ -42,7 +42,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--url is required (URL-backed webhook endpoint, https://...)")
 	}
 
-	logger.Info(fmt.Sprintf("🔗 Creating ValidatingWebhookConfiguration %q -> %s", webhookName, webhookURL))
+	logger.Info(fmt.Sprintf("⇄ Creating ValidatingWebhookConfiguration %q -> %s", webhookName, webhookURL))
 	ctx := context.Background()
 
 	cs, err := getClientset()
@@ -92,7 +92,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating ValidatingWebhookConfiguration: %w", err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Created ValidatingWebhookConfiguration %q (failurePolicy=Ignore)", created.Name)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Created ValidatingWebhookConfiguration %q (failurePolicy=Ignore)", created.Name)))
 	fmt.Println(helpers.CreateMuted("   Remove with: kubectl delete validatingwebhookconfiguration " + created.Name))
 	return nil
 }

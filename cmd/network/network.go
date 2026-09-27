@@ -71,7 +71,7 @@ func init() {
 }
 
 func runNetwork(cmd *cobra.Command, args []string) error {
-	logger.Info("🌐 Network management - use subcommands for specific network tasks")
+	logger.Info("⇄ Network management - use subcommands for specific network tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  diagnose    - Run network diagnostics")
 	logger.Info("  policy      - Manage network policies")

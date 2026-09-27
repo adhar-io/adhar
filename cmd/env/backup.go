@@ -43,7 +43,7 @@ func init() {
 func runBackup(cmd *cobra.Command, args []string) error {
 	envName := args[0]
 	backupName := fmt.Sprintf("%s-%s", envName, time.Now().UTC().Format("20060102-150405"))
-	logger.Info(fmt.Sprintf("💾 Creating Velero backup %s for environment: %s", backupName, envName))
+	logger.Info(fmt.Sprintf("▥ Creating Velero backup %s for environment: %s", backupName, envName))
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -78,7 +78,7 @@ func runBackup(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create backup: %w", err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Backup %s created for environment %q", backupName, envName)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Backup %s created for environment %q", backupName, envName)))
 	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Track it: kubectl -n %s get backup %s -o wide", backupVeleroNS, backupName)))
 	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Restore:  adhar environment restore %s %s", envName, backupName)))
 	return nil

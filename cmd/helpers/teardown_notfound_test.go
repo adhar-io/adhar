@@ -8,7 +8,7 @@ import (
 
 // A teardown may only treat "not found" as "already gone" when every configured
 // provider actually answered. This is the guard for a real incident: `adhar down
-// -f config.yaml --env production` reported "✓ Successfully tore down Adhar
+// -f config.yaml --env production` reported "● Successfully tore down Adhar
 // platform! Cloud resources for production have been removed" while five GCE
 // instances, 79 disks, a VPC, 11 firewall rules and a load balancer kept running,
 // because that file configures only `kind` and the GCP project was never queried.

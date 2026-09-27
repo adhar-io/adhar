@@ -35,7 +35,7 @@ func init() {
 }
 
 func runExport(cmd *cobra.Command, args []string) error {
-	logger.Info("📤 Exporting logs...")
+	logger.Info("▸ Exporting logs...")
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -112,9 +112,9 @@ func runExport(cmd *cobra.Command, args []string) error {
 	}
 
 	if exportOutput != "" {
-		logger.Info(fmt.Sprintf("✅ Exported logs from %d pod(s) to %s", exported, exportOutput))
+		logger.Info(fmt.Sprintf("● Exported logs from %d pod(s) to %s", exported, exportOutput))
 	} else {
-		logger.Info(fmt.Sprintf("✅ Exported logs from %d pod(s)", exported))
+		logger.Info(fmt.Sprintf("● Exported logs from %d pod(s)", exported))
 	}
 	return nil
 }

@@ -33,7 +33,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := defaultNamespace()
-	logger.Info(fmt.Sprintf("🚀 Running pipeline from template: %s", pipelineName))
+	logger.Info(fmt.Sprintf("▣ Running pipeline from template: %s", pipelineName))
 
 	client, err := getDynamicClient()
 	if err != nil {

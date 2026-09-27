@@ -187,7 +187,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("📦", fmt.Sprintf("Platform stack · %s profile", p.name)))
+	fmt.Println(helpers.SectionHeading("▣", fmt.Sprintf("Platform stack · %s profile", p.name)))
 	fmt.Println()
 	t := helpers.NewTable("PACKAGE", "CATEGORY", "DECLARED", "LIVE STATE")
 	for _, r := range shown {
@@ -292,7 +292,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("📦", fmt.Sprintf("Platform stack · %s profile", p.name)))
+	fmt.Println(helpers.SectionHeading("▣", fmt.Sprintf("Platform stack · %s profile", p.name)))
 	fmt.Println()
 	t := helpers.NewTable("STATE", "COUNT")
 	t.Row("Wired in this profile", fmt.Sprintf("%d", len(rows)))
@@ -369,7 +369,7 @@ func runDescribe(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("📦", name))
+	fmt.Println(helpers.SectionHeading("▣", name))
 	fmt.Println()
 	t := helpers.NewTable("FIELD", "VALUE")
 	t.Row("Category", r.Category)

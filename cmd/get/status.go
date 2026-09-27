@@ -366,14 +366,14 @@ func collectCoreServicesStatus(clientset *kubernetes.Clientset, ctx context.Cont
 		namespace string
 		selector  string
 	}{
-		{"ArgoCD", "🚀", "adhar-system", "app.kubernetes.io/name=argocd-server"},
-		{"Gitea", "🦊", "adhar-system", "app=gitea"},
+		{"ArgoCD", "▣", "adhar-system", "app.kubernetes.io/name=argocd-server"},
+		{"Gitea", "▣", "adhar-system", "app=gitea"},
 		// The Gateway data path is served by Cilium's Envoy DaemonSet (the
 		// adhar-gateway Gateway has no Deployment of its own), so we report the
 		// cilium-envoy DaemonSet health for the "Cilium Gateway" row.
-		{"Cilium Gateway", "🌐", "adhar-system", "app.kubernetes.io/name=cilium-envoy"},
-		{"Cilium", "🕸️", "adhar-system", "app.kubernetes.io/name=cilium-agent"},
-		{"Crossplane", "🔧", "adhar-system", "app=crossplane"},
+		{"Cilium Gateway", "⇄", "adhar-system", "app.kubernetes.io/name=cilium-envoy"},
+		{"Cilium", "⇄", "adhar-system", "app.kubernetes.io/name=cilium-agent"},
+		{"Crossplane", "⎔", "adhar-system", "app=crossplane"},
 	}
 
 	for _, config := range serviceConfigs {
@@ -392,9 +392,9 @@ func collectCoreServicesStatus(clientset *kubernetes.Clientset, ctx context.Cont
 			dep := deployments.Items[0]
 			svcStatus.Replicas = fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, dep.Status.Replicas)
 			if dep.Status.ReadyReplicas == dep.Status.Replicas && dep.Status.Replicas > 0 {
-				svcStatus.Status = "✅ Healthy"
+				svcStatus.Status = "● Healthy"
 			} else {
-				svcStatus.Status = "⚠️ Degraded"
+				svcStatus.Status = "▲ Degraded"
 			}
 			if len(dep.Spec.Template.Spec.Containers) > 0 {
 				svcStatus.Version = extractVersion(dep.Spec.Template.Spec.Containers[0].Image)
@@ -408,15 +408,15 @@ func collectCoreServicesStatus(clientset *kubernetes.Clientset, ctx context.Cont
 				ds := daemonSets.Items[0]
 				svcStatus.Replicas = fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
 				if ds.Status.NumberReady == ds.Status.DesiredNumberScheduled && ds.Status.DesiredNumberScheduled > 0 {
-					svcStatus.Status = "✅ Healthy"
+					svcStatus.Status = "● Healthy"
 				} else {
-					svcStatus.Status = "⚠️ Degraded"
+					svcStatus.Status = "▲ Degraded"
 				}
 				if len(ds.Spec.Template.Spec.Containers) > 0 {
 					svcStatus.Version = extractVersion(ds.Spec.Template.Spec.Containers[0].Image)
 				}
 			} else {
-				svcStatus.Status = "❌ Not Found"
+				svcStatus.Status = "✖ Not Found"
 				svcStatus.Replicas = "0/0"
 			}
 		}
@@ -429,23 +429,23 @@ func collectCoreServicesStatus(clientset *kubernetes.Clientset, ctx context.Cont
 
 func calculateOverallStatus(status *PlatformStatus) (string, int) {
 	healthScore := 100
-	overallStatus := "✅ Healthy"
+	overallStatus := "● Healthy"
 
 	// Check node health
 	if status.Nodes.NotReady > 0 {
 		healthScore -= 20
-		overallStatus = "⚠️ Degraded"
+		overallStatus = "▲ Degraded"
 	}
 
 	// Check core services
 	for _, service := range status.CoreServices {
-		if strings.Contains(service.Status, "❌") {
+		if strings.Contains(service.Status, "✖") {
 			healthScore -= 25
-			overallStatus = "❌ Critical"
-		} else if strings.Contains(service.Status, "⚠️") {
+			overallStatus = "✖ Critical"
+		} else if strings.Contains(service.Status, "▲") {
 			healthScore -= 10
-			if overallStatus == "✅ Healthy" {
-				overallStatus = "⚠️ Degraded"
+			if overallStatus == "● Healthy" {
+				overallStatus = "▲ Degraded"
 			}
 		}
 	}
@@ -453,8 +453,8 @@ func calculateOverallStatus(status *PlatformStatus) (string, int) {
 	// Check workload health
 	if status.Workloads.FailedPods > 0 {
 		healthScore -= 5
-		if overallStatus == "✅ Healthy" {
-			overallStatus = "⚠️ Degraded"
+		if overallStatus == "● Healthy" {
+			overallStatus = "▲ Degraded"
 		}
 	}
 
@@ -488,10 +488,10 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	// Display overall status in a header box
 	overallStatusContent := fmt.Sprintf(
-		"🏥 Overall Status: %s\n"+
-			"💯 Health Score: %d/100\n"+
-			"⏱️  Platform Uptime: %s\n"+
-			"🕐 Last Updated: %s",
+		"⎔ Overall Status: %s\n"+
+			"● Health Score: %d/100\n"+
+			"◌  Platform Uptime: %s\n"+
+			"▸ Last Updated: %s",
 		status.OverallStatus,
 		status.HealthScore,
 		formatDuration(status.PlatformUptime),
@@ -505,7 +505,7 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	var servicesTable strings.Builder
 	servicesTable.WriteString(fmt.Sprintf("%-25s %-15s %-20s %-15s\n",
-		helpers.IconNamespace+" "+"SERVICE", helpers.IconApp+" "+"STATUS", "🔄 REPLICAS", helpers.IconApp+" "+"VERSION"))
+		helpers.IconNamespace+" "+"SERVICE", helpers.IconApp+" "+"STATUS", "◌ REPLICAS", helpers.IconApp+" "+"VERSION"))
 	servicesTable.WriteString(strings.Repeat("─", 75) + "\n")
 
 	for _, service := range status.CoreServices {
@@ -531,7 +531,7 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	resourcesContent := fmt.Sprintf(
 		helpers.IconCluster+" "+"Nodes: %d ready, %d total\n"+
-			"🏗️  Workloads: %d deployments, %d pods (%d running)\n"+
+			"⎔  Workloads: %d deployments, %d pods (%d running)\n"+
 			helpers.IconApp+" "+"Resources: %d namespaces, %d services, %d secrets\n"+
 			helpers.IconStorage+" "+"Storage: %d persistent volumes\n"+
 			helpers.IconNetwork+" "+"Network: %d service endpoints, %d load balancers",
@@ -553,12 +553,12 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	// Display any warnings or issues
 	if len(status.Warnings) > 0 || len(status.CriticalIssues) > 0 {
-		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("⚠️  Issues & Warnings"))
+		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("▲  Issues & Warnings"))
 
 		var issuesContent strings.Builder
 
 		if len(status.CriticalIssues) > 0 {
-			issuesContent.WriteString("🚨 Critical Issues:\n")
+			issuesContent.WriteString("▲ Critical Issues:\n")
 			for _, issue := range status.CriticalIssues {
 				issuesContent.WriteString(fmt.Sprintf("  • %s\n", issue))
 			}
@@ -566,7 +566,7 @@ func displayStatusTable(status *PlatformStatus) error {
 		}
 
 		if len(status.Warnings) > 0 {
-			issuesContent.WriteString("⚠️  Warnings:\n")
+			issuesContent.WriteString("▲  Warnings:\n")
 			for _, warning := range status.Warnings {
 				issuesContent.WriteString(fmt.Sprintf("  • %s\n", warning))
 			}

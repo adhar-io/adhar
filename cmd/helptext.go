@@ -58,11 +58,11 @@ type personaGroup struct {
 // rootPersonaGroups is the display order + presentation of the root help groups.
 // The ids match the cobra group ids assigned in main.go's init().
 var rootPersonaGroups = []personaGroup{
-	{GroupDevelop, "🧑‍💻", "Develop", "build, ship & self-serve resources"},
-	{GroupObserve, "🔭", "Observe", "health, logs, metrics & traces"},
-	{GroupOperate, "⚙️", "Operate", "day-2 operations"},
-	{GroupAdminister, "🛡️", "Administer", "platform lifecycle & governance"},
-	{GroupUtilities, "🧰", "Utilities", "tooling"},
+	{GroupDevelop, "▸‍⎔", "Develop", "build, ship & self-serve resources"},
+	{GroupObserve, "▸", "Observe", "health, logs, metrics & traces"},
+	{GroupOperate, "⎔", "Operate", "day-2 operations"},
+	{GroupAdminister, "⛨", "Administer", "platform lifecycle & governance"},
+	{GroupUtilities, "▸", "Utilities", "tooling"},
 }
 
 // colorDisabled reports whether help should render without ANSI styling.
@@ -215,7 +215,7 @@ func renderHelp(cmd *cobra.Command, _ []string, withBanner bool) {
 	// --help path where PersistentPostRun is skipped) the brand sign-off.
 	b.WriteString(footerHint(off, cmd))
 	if withBanner {
-		fmt.Fprintf(&b, "\n  %s\n\n", paint(off, hTag, "Adhar • Built with ❤️  for developers!"))
+		fmt.Fprintf(&b, "\n  %s\n\n", paint(off, hTag, "Adhar • Built with ●  for developers!"))
 	}
 
 	fmt.Fprint(cmd.OutOrStdout(), b.String())

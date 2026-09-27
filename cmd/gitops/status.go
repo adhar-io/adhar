@@ -51,7 +51,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 // showApplicationStatus renders the detailed status of a single Application via
 // the shared apps helper (same view the `adhar apps` commands use).
 func showApplicationStatus(cmd *cobra.Command, appName string) error {
-	logger.Info(fmt.Sprintf("📊 Showing status for application: %s", appName))
+	logger.Info(fmt.Sprintf("▸ Showing status for application: %s", appName))
 
 	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
 	if err != nil {
@@ -68,7 +68,7 @@ func showApplicationStatus(cmd *cobra.Command, appName string) error {
 
 // listApplicationStatus lists all ArgoCD Applications with sync + health status.
 func listApplicationStatus(cmd *cobra.Command) error {
-	logger.Info(fmt.Sprintf("📊 Listing ArgoCD applications in namespace %s...", statusNamespace))
+	logger.Info(fmt.Sprintf("▸ Listing ArgoCD applications in namespace %s...", statusNamespace))
 
 	client, err := helpers.DynamicClient()
 	if err != nil {

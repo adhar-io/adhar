@@ -59,7 +59,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("🔒 Storing secret %q via the control plane (provider: %s)", secretName, helpers.ActiveProvider()))
+	logger.Info(fmt.Sprintf("⛨ Storing secret %q via the control plane (provider: %s)", secretName, helpers.ActiveProvider()))
 
 	spec := map[string]interface{}{
 		"name":       secretName,
@@ -98,7 +98,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	for k := range stringData {
 		keys = append(keys, k)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ CompositeSecret %q created with keys: %s", secretName, strings.Join(keys, ", "))))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● CompositeSecret %q created with keys: %s", secretName, strings.Join(keys, ", "))))
 	fmt.Println(helpers.CreateMuted(fmt.Sprintf("   Backing secret materializes as: %s (namespace %s)", secretName, ns)))
 	return nil
 }

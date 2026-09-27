@@ -27,7 +27,7 @@ Examples:
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	logger.Info("📋 Listing recent traces from Tempo...")
+	logger.Info("▸ Listing recent traces from Tempo...")
 	ctx := context.Background()
 
 	res, err := searchTraces(ctx, tempoURL, service, operation, tags, traceLimit)

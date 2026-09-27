@@ -54,7 +54,7 @@ var CostCmd = &cobra.Command{
 	Use:     "cost",
 	Aliases: []string{"spend", "showback"},
 	Short:   "What the platform is spending, per namespace and team",
-	Long: `💰 **Adhar Cost**
+	Long: `▸ **Adhar Cost**
 
 Reads the platform's recorded cost series (published by the
 observability/adhar-cost-governance package) and reports spend per namespace,
@@ -160,7 +160,7 @@ func runCost(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if len(hourly) == 0 {
-		fmt.Println(helpers.SectionHeading("💰", "Platform cost"))
+		fmt.Println(helpers.SectionHeading("▸", "Platform cost"))
 		fmt.Println("  No cost series yet.")
 		fmt.Printf("  %s\n\n", helpers.SubtitleStyle.Render(
 			"enable the observability/adhar-cost-governance package (and opencost); the rules take a minute to record"))
@@ -169,7 +169,7 @@ func runCost(cmd *cobra.Command, args []string) error {
 	monthly := byNamespace(mustQuery(ctx, cs, seriesMonthly))
 	budgets := byNamespace(mustQuery(ctx, cs, seriesBudget))
 
-	fmt.Println(helpers.SectionHeading("💰", "Platform cost · by namespace"))
+	fmt.Println(helpers.SectionHeading("▸", "Platform cost · by namespace"))
 	t := helpers.NewTable("NAMESPACE", "$/HOUR", "$/MONTH (PROJ.)", "BUDGET", "USED")
 
 	sort.SliceStable(hourly, func(i, j int) bool { return hourly[i].Value > hourly[j].Value })
@@ -231,7 +231,7 @@ func runBreakdown(cmd *cobra.Command, args []string) error {
 		return a.cpu+a.ram > b.cpu+b.ram
 	})
 
-	fmt.Println(helpers.SectionHeading("💰", "Platform cost · CPU vs memory"))
+	fmt.Println(helpers.SectionHeading("▸", "Platform cost · CPU vs memory"))
 	t := helpers.NewTable("NAMESPACE", "CPU $/HR", "MEM $/HR", "TOTAL $/HR", "SPLIT")
 	for _, n := range names {
 		s := per[n]

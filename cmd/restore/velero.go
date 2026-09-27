@@ -108,7 +108,7 @@ func fetchRestores(ctx context.Context) ([]restoreRow, error) {
 }
 
 func runListRestores(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("📋 Velero Restores"))
+	fmt.Println(helpers.TitleStyle.Render("▸ Velero Restores"))
 
 	rows, err := fetchRestores(context.Background())
 	if err != nil {
@@ -149,7 +149,7 @@ func runCreateRestore(cmd *cobra.Command, args []string) error {
 		name = fmt.Sprintf("%s-restore-%s", src, time.Now().Format("20060102-150405"))
 	}
 
-	fmt.Printf("🔄 Creating Velero restore %q from backup %q\n", name, src)
+	fmt.Printf("◌ Creating Velero restore %q from backup %q\n", name, src)
 
 	if dryRun {
 		fmt.Println(helpers.CreateMuted("   DRY RUN - no Restore object created"))
@@ -182,7 +182,7 @@ func runCreateRestore(cmd *cobra.Command, args []string) error {
 		}
 		return fmt.Errorf("failed to create restore %q: %w", name, err)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Restore %q created from backup %q", name, src)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Restore %q created from backup %q", name, src)))
 	fmt.Println(helpers.CreateMuted("   Track progress with: adhar restore status " + name))
 	return nil
 }
@@ -192,7 +192,7 @@ func runRestoreStatus(cmd *cobra.Command, args []string) error {
 		return showSingleRestoreStatus(args[0])
 	}
 
-	fmt.Println(helpers.TitleStyle.Render("📊 Velero Restore Status Summary"))
+	fmt.Println(helpers.TitleStyle.Render("▸ Velero Restore Status Summary"))
 	rows, err := fetchRestores(context.Background())
 	if err != nil {
 		return err
@@ -236,12 +236,12 @@ func showSingleRestoreStatus(name string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🔄 Name:      %s\n", name))
-	b.WriteString(fmt.Sprintf("📦 Backup:    %s\n", nestedString(obj.Object, "spec", "backupName")))
-	b.WriteString(fmt.Sprintf("📊 Phase:     %s\n", phaseIcon(nestedString(obj.Object, "status", "phase"))))
-	b.WriteString(fmt.Sprintf("⚠️  Warnings:  %d\n", countNested(obj.Object, "status", "warnings")))
-	b.WriteString(fmt.Sprintf("❌ Errors:    %d\n", countNested(obj.Object, "status", "errors")))
-	b.WriteString(fmt.Sprintf("🕐 Created:   %s", restoreAge(obj.GetCreationTimestamp().Time)))
+	b.WriteString(fmt.Sprintf("◌ Name:      %s\n", name))
+	b.WriteString(fmt.Sprintf("▣ Backup:    %s\n", nestedString(obj.Object, "spec", "backupName")))
+	b.WriteString(fmt.Sprintf("▸ Phase:     %s\n", phaseIcon(nestedString(obj.Object, "status", "phase"))))
+	b.WriteString(fmt.Sprintf("▲  Warnings:  %d\n", countNested(obj.Object, "status", "warnings")))
+	b.WriteString(fmt.Sprintf("✖ Errors:    %d\n", countNested(obj.Object, "status", "errors")))
+	b.WriteString(fmt.Sprintf("▸ Created:   %s", restoreAge(obj.GetCreationTimestamp().Time)))
 	fmt.Println(helpers.BorderStyle.Width(70).Render(b.String()))
 	return nil
 }

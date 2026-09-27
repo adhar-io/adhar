@@ -57,7 +57,7 @@ func runRestore(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := dbNamespace()
-	logger.Info(fmt.Sprintf("🔄 Restoring database %s into new cluster %s from backup: %s", dbName, target, restoreBackup))
+	logger.Info(fmt.Sprintf("◌ Restoring database %s into new cluster %s from backup: %s", dbName, target, restoreBackup))
 
 	client, err := getDynamicClient()
 	if err != nil {

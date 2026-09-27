@@ -31,7 +31,7 @@ func runRoute(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("🛣️ Inspecting ingress routes for service %s/%s...", ns, serviceName))
+	logger.Info(fmt.Sprintf("⇄ Inspecting ingress routes for service %s/%s...", ns, serviceName))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -72,7 +72,7 @@ func runRoute(cmd *cobra.Command, args []string) error {
 		return helpers.PrintYAML(routes)
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("🛣️  Ingress Routes"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⇄  Ingress Routes"))
 	var t strings.Builder
 	t.WriteString(fmt.Sprintf("%-28s %-30s %-20s\n", "INGRESS", "HOST", "PATH"))
 	t.WriteString(strings.Repeat("─", 80) + "\n")

@@ -165,7 +165,7 @@ func getTrace(ctx context.Context, base, id string) ([]byte, error) {
 // renderTraceTable prints a table of trace summaries.
 func renderTraceTable(traces []tempoTraceSummary) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-34s %-22s %-22s %s\n", "🆔 TRACE ID", "📦 SERVICE", "🔧 OPERATION", "⏱️  DUR"))
+	b.WriteString(fmt.Sprintf("%-34s %-22s %-22s %s\n", "▸ TRACE ID", "▣ SERVICE", "⎔ OPERATION", "◌  DUR"))
 	b.WriteString(strings.Repeat("─", 95) + "\n")
 	for _, t := range traces {
 		b.WriteString(fmt.Sprintf("%-34s %-22s %-22s %dms\n",

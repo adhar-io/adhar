@@ -35,7 +35,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 		ns = globals.AdharSystemNamespace
 	}
 
-	logger.Info(fmt.Sprintf("🧪 Issuing dry-run admission test in namespace %q...", ns))
+	logger.Info(fmt.Sprintf("▸ Issuing dry-run admission test in namespace %q...", ns))
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -58,10 +58,10 @@ func runTest(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		// A webhook rejection is a real, useful result — surface it as an error.
-		fmt.Println(helpers.CreateWarning("⚠️  Admission request was rejected or a webhook failed:"))
+		fmt.Println(helpers.CreateWarning("▲  Admission request was rejected or a webhook failed:"))
 		return fmt.Errorf("dry-run admission failed: %w", err)
 	}
 
-	fmt.Println(helpers.CreateSuccess("✅ Dry-run admission succeeded — the admission webhook chain responded without rejecting the request."))
+	fmt.Println(helpers.CreateSuccess("● Dry-run admission succeeded — the admission webhook chain responded without rejecting the request."))
 	return nil
 }

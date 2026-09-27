@@ -66,7 +66,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("🌐 Creating %s service %s/%s on port %d", svcType, ns, serviceName, portNum))
+	logger.Info(fmt.Sprintf("⇄ Creating %s service %s/%s on port %d", svcType, ns, serviceName, portNum))
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -101,7 +101,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating service %s/%s: %w", ns, serviceName, err)
 	}
 
-	logger.Info(fmt.Sprintf("✅ Service %s/%s created (ClusterIP: %s)", ns, created.Name, clusterIP(*created)))
+	logger.Info(fmt.Sprintf("● Service %s/%s created (ClusterIP: %s)", ns, created.Name, clusterIP(*created)))
 	return nil
 }
 

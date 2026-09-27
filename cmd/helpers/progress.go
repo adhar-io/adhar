@@ -48,17 +48,17 @@ const (
 func (s ProgressStatus) String() string {
 	switch s {
 	case StatusPending:
-		return "⏳"
+		return "◌"
 	case StatusInProgress:
-		return "🔄"
+		return "◌"
 	case StatusCompleted:
-		return "✅"
+		return "●"
 	case StatusFailed:
-		return "❌"
+		return "✖"
 	case StatusSkipped:
-		return "⏭️"
+		return "○"
 	default:
-		return "❓"
+		return "◍"
 	}
 }
 
@@ -465,7 +465,7 @@ func (p *ProgressTracker) renderSingleLine() {
 
 	// Only render header once to prevent duplicates
 	if !p.headerRendered {
-		fmt.Printf("🚀 %s\n", HeaderStyle.Render(p.Title))
+		fmt.Printf("▣ %s\n", HeaderStyle.Render(p.Title))
 		p.headerRendered = true
 	}
 
@@ -506,7 +506,7 @@ func (p *ProgressTracker) renderSingleLine() {
 
 		switch step.Status {
 		case StatusPending:
-			statusIcon = InfoStyle.Render("⏳")
+			statusIcon = InfoStyle.Render("◌")
 			stepText = InfoStyle.Render(step.Name)
 		case StatusInProgress:
 			statusIcon = HighlightStyle.Render(p.getCurrentSpinnerFrame())
@@ -515,20 +515,20 @@ func (p *ProgressTracker) renderSingleLine() {
 				stepText += " " + SubtitleStyle.Render("- "+step.Description)
 			}
 		case StatusCompleted:
-			statusIcon = SuccessStyle.Render("✓")
+			statusIcon = SuccessStyle.Render("●")
 			stepText = SuccessStyle.Render(step.Name)
 			if !step.EndTime.IsZero() && !step.StartTime.IsZero() {
 				duration := step.EndTime.Sub(step.StartTime).Round(time.Millisecond)
 				stepText += " " + InfoStyle.Render(fmt.Sprintf("(%s)", formatDuration(duration)))
 			}
 		case StatusFailed:
-			statusIcon = ErrorStyle.Render("✗")
+			statusIcon = ErrorStyle.Render("✖")
 			stepText = ErrorStyle.Render(step.Name)
 			if step.Error != nil {
 				stepText += " " + ErrorStyle.Render("- "+step.Error.Error())
 			}
 		case StatusSkipped:
-			statusIcon = WarningStyle.Render("⏭")
+			statusIcon = WarningStyle.Render("○")
 			stepText = WarningStyle.Render(step.Name)
 			if step.Description != "" {
 				stepText += " " + WarningStyle.Render("- "+step.Description)
@@ -571,7 +571,7 @@ func (p *ProgressTracker) renderExpandedView() {
 
 	// Header line - only render once
 	if !p.headerRendered {
-		fmt.Printf("🚀 %s\n", HeaderStyle.Render(p.Title))
+		fmt.Printf("▣ %s\n", HeaderStyle.Render(p.Title))
 		p.headerRendered = true
 		lines++
 	}
@@ -603,7 +603,7 @@ func (p *ProgressTracker) renderExpandedView() {
 
 		switch step.Status {
 		case StatusPending:
-			statusIcon = InfoStyle.Render("⏳")
+			statusIcon = InfoStyle.Render("◌")
 			stepText = InfoStyle.Render(step.Name)
 		case StatusInProgress:
 			statusIcon = HighlightStyle.Render(p.getCurrentSpinnerFrame())
@@ -612,20 +612,20 @@ func (p *ProgressTracker) renderExpandedView() {
 				stepText += " " + SubtitleStyle.Render("- "+step.Description)
 			}
 		case StatusCompleted:
-			statusIcon = SuccessStyle.Render("✓")
+			statusIcon = SuccessStyle.Render("●")
 			stepText = SuccessStyle.Render(step.Name)
 			if !step.EndTime.IsZero() {
 				duration := step.EndTime.Sub(step.StartTime).Round(time.Millisecond)
 				stepText += " " + InfoStyle.Render(fmt.Sprintf("(%s)", formatDuration(duration)))
 			}
 		case StatusFailed:
-			statusIcon = ErrorStyle.Render("✗")
+			statusIcon = ErrorStyle.Render("✖")
 			stepText = ErrorStyle.Render(step.Name)
 			if step.Error != nil {
 				stepText += " " + ErrorStyle.Render("- "+step.Error.Error())
 			}
 		case StatusSkipped:
-			statusIcon = WarningStyle.Render("⏭")
+			statusIcon = WarningStyle.Render("○")
 			stepText = WarningStyle.Render(step.Name)
 			if step.Description != "" {
 				stepText += " " + WarningStyle.Render("- "+step.Description)
@@ -685,7 +685,7 @@ func (p *ProgressTracker) Complete() {
 		// Show final completion line
 		fmt.Printf("  %s %s | %s %s\n",
 			finalBar,
-			SuccessStyle.Render("✓ All tasks completed"),
+			SuccessStyle.Render("● All tasks completed"),
 			SuccessStyle.Render(fmt.Sprintf("(%d/%d)", len(p.Steps), len(p.Steps))),
 			InfoStyle.Render("Elapsed: "+elapsedStr))
 
@@ -698,13 +698,13 @@ func (p *ProgressTracker) Complete() {
 				duration = fmt.Sprintf(" (%s)", formatDuration(d))
 			}
 			fmt.Printf("  %s %s%s\n",
-				SuccessStyle.Render("✓"),
+				SuccessStyle.Render("●"),
 				SuccessStyle.Render(step.Name),
 				InfoStyle.Render(duration))
 		}
 
 		// Show detailed completion summary
-		fmt.Printf("\n%s\n", SuccessStyle.Render("✅ Cluster Provisioning Complete!"))
+		fmt.Printf("\n%s\n", SuccessStyle.Render("● Cluster Provisioning Complete!"))
 
 		// Count completed, failed, and skipped steps
 		completed, failed, skipped := 0, 0, 0
@@ -722,14 +722,14 @@ func (p *ProgressTracker) Complete() {
 		// Show summary
 		if failed == 0 && skipped == 0 {
 			fmt.Printf("   %s All %d steps completed successfully\n",
-				SuccessStyle.Render("✓"), completed)
+				SuccessStyle.Render("●"), completed)
 		} else {
-			fmt.Printf("   %s %d completed", SuccessStyle.Render("✓"), completed)
+			fmt.Printf("   %s %d completed", SuccessStyle.Render("●"), completed)
 			if skipped > 0 {
-				fmt.Printf(", %s %d skipped", WarningStyle.Render("⏭"), skipped)
+				fmt.Printf(", %s %d skipped", WarningStyle.Render("○"), skipped)
 			}
 			if failed > 0 {
-				fmt.Printf(", %s %d failed", ErrorStyle.Render("✗"), failed)
+				fmt.Printf(", %s %d failed", ErrorStyle.Render("✖"), failed)
 			}
 			fmt.Println()
 		}
@@ -737,7 +737,7 @@ func (p *ProgressTracker) Complete() {
 		totalElapsed := time.Since(p.StartTime).Round(time.Second)
 		totalElapsedStr := formatDuration(totalElapsed)
 		fmt.Printf("   %s Total time: %s\n\n",
-			InfoStyle.Render("⏱"),
+			InfoStyle.Render("◌"),
 			HighlightStyle.Render(totalElapsedStr))
 	}
 }
@@ -758,19 +758,19 @@ func (p *ProgressTracker) Fail(err error) {
 		elapsedStr := formatDuration(elapsed)
 
 		// Show failure line
-		fmt.Printf("🚀 Setting up Adhar Platform %s %s | %s %s\n",
+		fmt.Printf("▣ Setting up Adhar Platform %s %s | %s %s\n",
 			failedBar,
-			ErrorStyle.Render("✗ Operation failed"),
+			ErrorStyle.Render("✖ Operation failed"),
 			ErrorStyle.Render(fmt.Sprintf("(%d/%d)", p.CurrentStep+1, len(p.Steps))),
 			InfoStyle.Render("Elapsed: "+elapsedStr))
 
 		// Show detailed failure message
-		fmt.Printf("\n%s\n", ErrorStyle.Render("❌ Platform Setup Failed"))
+		fmt.Printf("\n%s\n", ErrorStyle.Render("✖ Platform Setup Failed"))
 		fmt.Printf("   %s Step: %s\n",
-			ErrorStyle.Render("✗"),
+			ErrorStyle.Render("✖"),
 			ErrorStyle.Render(p.Steps[p.CurrentStep].Name))
 		fmt.Printf("   %s Error: %s\n",
-			ErrorStyle.Render("⚠"),
+			ErrorStyle.Render("▲"),
 			ErrorStyle.Render(err.Error()))
 
 		// Show progress summary
@@ -783,11 +783,11 @@ func (p *ProgressTracker) Fail(err error) {
 
 		if completed > 0 {
 			fmt.Printf("   %s %d of %d steps completed before failure\n",
-				InfoStyle.Render("ℹ"), completed, len(p.Steps))
+				InfoStyle.Render("▸"), completed, len(p.Steps))
 		}
 
 		fmt.Printf("   %s Total time: %s\n\n",
-			InfoStyle.Render("⏱"),
+			InfoStyle.Render("◌"),
 			InfoStyle.Render(elapsedStr))
 	}
 }
@@ -806,12 +806,12 @@ func RunWithProgress(message string, fn func() error) error {
 	fmt.Printf("%s...", message)
 	err := fn()
 	if err != nil {
-		fmt.Printf("\r%s %s ❌\n",
+		fmt.Printf("\r%s %s ✖\n",
 			renderProgressBar(0.0, 30, false),
 			ErrorStyle.Render(message))
 		return err
 	}
-	fmt.Printf("\r%s %s ✅\n",
+	fmt.Printf("\r%s %s ●\n",
 		renderProgressBar(1.0, 30, false),
 		SuccessStyle.Render(message))
 	return nil
@@ -905,17 +905,17 @@ func (pt *ProgressTracker) getStyledCurrentStatus() string {
 func (pt *ProgressTracker) getStyledStatusIcon(status ProgressStatus) string {
 	switch status {
 	case StatusPending:
-		return "⏳"
+		return "◌"
 	case StatusInProgress:
-		return "🔄"
+		return "◌"
 	case StatusCompleted:
-		return "✅"
+		return "●"
 	case StatusFailed:
-		return "❌"
+		return "✖"
 	case StatusSkipped:
-		return "⚠️"
+		return "▲"
 	default:
-		return "⏳"
+		return "◌"
 	}
 }
 
@@ -934,7 +934,7 @@ func (pt *ProgressTracker) CompleteStyled() {
 
 	successBox := HighlightStyle.Width(60).Render(
 		fmt.Sprintf("%s %s\n\n%s\n",
-			SuccessStyle.Render("✓"),
+			SuccessStyle.Render("●"),
 			SuccessStyle.Render("Successfully set up Adhar platform!"),
 			SubtitleStyle.Render("Your development environment is ready")))
 

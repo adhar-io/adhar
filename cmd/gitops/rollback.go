@@ -52,7 +52,7 @@ func runRollback(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--revision is required for rollback")
 	}
 
-	logger.Info(fmt.Sprintf("🔄 Rolling back application %s to revision %s", name, rollbackRevision))
+	logger.Info(fmt.Sprintf("◌ Rolling back application %s to revision %s", name, rollbackRevision))
 
 	client, err := helpers.DynamicClient()
 	if err != nil {

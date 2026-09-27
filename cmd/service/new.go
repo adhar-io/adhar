@@ -74,7 +74,7 @@ func runNewService(cmd *cobra.Command, args []string) error {
 func TriggerNewService(ctx context.Context, name, gitURL, subpath string, wait bool) error {
 	dc, err := helpers.DynamicClient()
 	if err != nil {
-		fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
+		fmt.Println(helpers.ErrorStyle.Render("✖ Could not connect to the cluster"))
 		fmt.Println(helpers.CreateMuted("   Is the platform up? Try `adhar up`."))
 		return err
 	}
@@ -101,7 +101,7 @@ func TriggerNewService(ctx context.Context, name, gitURL, subpath string, wait b
 
 	created, err := dc.Resource(pipelineRunGVR).Namespace(globals.AdharSystemNamespace).Create(ctx, pr, metav1.CreateOptions{})
 	if err != nil {
-		fmt.Println(helpers.ErrorStyle.Render("❌ Failed to start the new-service pipeline"))
+		fmt.Println(helpers.ErrorStyle.Render("✖ Failed to start the new-service pipeline"))
 		fmt.Println(helpers.CreateMuted("   Is the supply-chain package enabled? (Tekton + kpack + Harbor)"))
 		return fmt.Errorf("creating new-service PipelineRun: %w", err)
 	}

@@ -45,7 +45,7 @@ func init() {
 }
 
 func runMFA(cmd *cobra.Command, args []string) error {
-	fmt.Println("🔐 Adhar Platform Multi-Factor Authentication")
+	fmt.Println("⛨ Adhar Platform Multi-Factor Authentication")
 	fmt.Println("")
 	fmt.Println("Available commands:")
 	fmt.Println("  setup           - Setup MFA for a user")
@@ -107,7 +107,7 @@ func runSetupMFA(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("setup MFA: %w", err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Flagged %s to configure TOTP at next login", username)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Flagged %s to configure TOTP at next login", username)))
 	fmt.Println(helpers.CreateMuted("   Keycloak will present the QR code / secret when the user next signs in."))
 	return nil
 }
@@ -207,7 +207,7 @@ func runDisableMFA(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Disabled MFA for %s (removed %d OTP credential(s))", username, removed)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Disabled MFA for %s (removed %d OTP credential(s))", username, removed)))
 	return nil
 }
 

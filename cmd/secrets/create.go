@@ -58,7 +58,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("🔐 Creating secret: %s/%s (type: %s)", ns, secretName, stype))
+	logger.Info(fmt.Sprintf("⛨ Creating secret: %s/%s (type: %s)", ns, secretName, stype))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -87,6 +87,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	for k := range data {
 		keys = append(keys, k)
 	}
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Secret %q created with keys: %s", secretName, strings.Join(keys, ", "))))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Secret %q created with keys: %s", secretName, strings.Join(keys, ", "))))
 	return nil
 }

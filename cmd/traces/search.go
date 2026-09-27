@@ -31,7 +31,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("provide at least one filter: --service, --operation, or --tags")
 	}
 
-	logger.Info("🔍 Searching traces in Tempo...")
+	logger.Info("▸ Searching traces in Tempo...")
 	ctx := context.Background()
 
 	res, err := searchTraces(ctx, tempoURL, service, operation, tags, traceLimit)

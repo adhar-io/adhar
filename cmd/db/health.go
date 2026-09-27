@@ -28,7 +28,7 @@ Examples:
 }
 
 func runHealth(cmd *cobra.Command, args []string) error {
-	logger.Info("🏥 Checking database health...")
+	logger.Info("⎔ Checking database health...")
 
 	client, err := getDynamicClient()
 	if err != nil {
@@ -95,9 +95,9 @@ func checkDatabaseHealth(ctx context.Context, client dynamic.Interface, ns, name
 	}
 
 	if healthy {
-		add("Health:", "✅ Healthy")
+		add("Health:", "● Healthy")
 	} else {
-		add("Health:", "⚠️  Degraded / not ready")
+		add("Health:", "▲  Degraded / not ready")
 	}
 	fmt.Println(helpers.CreateBox(builder, 90))
 	return nil

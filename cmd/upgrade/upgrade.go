@@ -57,8 +57,8 @@ var (
 // UpgradeCmd represents the upgrade command
 var UpgradeCmd = &cobra.Command{
 	Use:   "upgrade",
-	Short: "⬆️ Upgrade the platform: converge foundation, review stack diff, sync",
-	Long: `⬆️ **Adhar Platform Upgrade**
+	Short: "→ Upgrade the platform: converge foundation, review stack diff, sync",
+	Long: `→ **Adhar Platform Upgrade**
 
 Upgrades the platform on the current kubeconfig context in two phases:
 
@@ -131,7 +131,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("reading AdharPlatform %s/%s (is a platform running on the current context? pass --name for non-default platforms): %w", globals.AdharSystemNamespace, platformName, err)
 		}
 		platform = list.Items[0]
-		fmt.Printf("ℹ️  Using AdharPlatform %q (the only platform on this cluster)\n", platform.Name)
+		fmt.Printf("▸  Using AdharPlatform %q (the only platform on this cluster)\n", platform.Name)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "adhar-upgrade-")
@@ -153,7 +153,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// Phase 1: converge foundation (embedded manifests, SSA-idempotent).
 	// ------------------------------------------------------------------
 	if !skipFoundation && !diffOnly {
-		fmt.Println("⬆️  Converging foundation to this release's embedded manifests…")
+		fmt.Println("→  Converging foundation to this release's embedded manifests…")
 		if err := controllers.EnsureCRDs(ctx, scheme, kubeClient, platform.Spec.BuildCustomization); err != nil {
 			return fmt.Errorf("updating platform CRDs: %w", err)
 		}
@@ -206,13 +206,13 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		}); err != nil {
 			return fmt.Errorf("converging controller-manager: %w", err)
 		}
-		fmt.Println("✅ Foundation converged")
+		fmt.Println("● Foundation converged")
 	}
 
 	// ------------------------------------------------------------------
 	// Phase 2: stack diff.
 	// ------------------------------------------------------------------
-	fmt.Println("🔍 Comparing local stack against in-cluster GitOps repositories…")
+	fmt.Println("▸ Comparing local stack against in-cluster GitOps repositories…")
 	summary, hasDiff, err := diffStack(ctx, kubeClient, platform.Spec.BuildCustomization, stackDir, tmpDir)
 	if err != nil {
 		return fmt.Errorf("computing stack diff: %w", err)
@@ -223,7 +223,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	if !hasDiff {
-		fmt.Println("✅ Stack already in sync; re-applying ApplicationSet for completeness")
+		fmt.Println("● Stack already in sync; re-applying ApplicationSet for completeness")
 	} else if !assumeYes {
 		fmt.Print("Push these changes and sync? [y/N]: ")
 		reader := bufio.NewReader(os.Stdin)
@@ -237,11 +237,11 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// ------------------------------------------------------------------
 	// Phase 3: push stack + re-apply ApplicationSet + refresh.
 	// ------------------------------------------------------------------
-	fmt.Println("🔄 Pushing stack and re-applying the platform ApplicationSet…")
+	fmt.Println("◌ Pushing stack and re-applying the platform ApplicationSet…")
 	if err := reconciler.ApplyPlatformStack(ctx, &platform); err != nil {
 		return fmt.Errorf("applying platform stack: %w", err)
 	}
-	fmt.Println("✅ Upgrade applied — ArgoCD is syncing the stack. Track progress with `adhar get status`.")
+	fmt.Println("● Upgrade applied — ArgoCD is syncing the stack. Track progress with `adhar get status`.")
 	return nil
 }
 

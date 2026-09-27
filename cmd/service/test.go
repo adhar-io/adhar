@@ -33,7 +33,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("🧪 Inspecting service %s/%s...", ns, serviceName))
+	logger.Info(fmt.Sprintf("▸ Inspecting service %s/%s...", ns, serviceName))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -74,19 +74,19 @@ func runTest(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🏷️  Service:    %s/%s\n", ns, svc.Name))
-	b.WriteString(fmt.Sprintf("📦 Type:       %s\n", svc.Spec.Type))
-	b.WriteString(fmt.Sprintf("🔌 ClusterIP:  %s\n", clusterIP(*svc)))
-	b.WriteString(fmt.Sprintf("🚪 Ports:      %s\n", formatPorts(svc.Spec.Ports)))
-	b.WriteString(fmt.Sprintf("🎯 Selector:   %s\n", formatSelector(svc.Spec.Selector)))
-	b.WriteString(fmt.Sprintf("✅ Ready:      %d address(es)\n", ready))
-	b.WriteString(fmt.Sprintf("⚠️  Not Ready:  %d address(es)", notReady))
+	b.WriteString(fmt.Sprintf("▸  Service:    %s/%s\n", ns, svc.Name))
+	b.WriteString(fmt.Sprintf("▣ Type:       %s\n", svc.Spec.Type))
+	b.WriteString(fmt.Sprintf("⇄ ClusterIP:  %s\n", clusterIP(*svc)))
+	b.WriteString(fmt.Sprintf("⇄ Ports:      %s\n", formatPorts(svc.Spec.Ports)))
+	b.WriteString(fmt.Sprintf("▸ Selector:   %s\n", formatSelector(svc.Spec.Selector)))
+	b.WriteString(fmt.Sprintf("● Ready:      %d address(es)\n", ready))
+	b.WriteString(fmt.Sprintf("▲  Not Ready:  %d address(es)", notReady))
 	fmt.Println(helpers.BorderStyle.Width(70).Render(b.String()))
 
 	if ready == 0 {
-		fmt.Println(helpers.CreateWarning("⚠️  No ready endpoints — this service will not serve traffic."))
+		fmt.Println(helpers.CreateWarning("▲  No ready endpoints — this service will not serve traffic."))
 	} else {
-		fmt.Println(helpers.CreateSuccess("✅ Service has ready endpoints."))
+		fmt.Println(helpers.CreateSuccess("● Service has ready endpoints."))
 	}
 	return nil
 }

@@ -36,7 +36,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := dbNamespace()
-	logger.Info(fmt.Sprintf("📊 Checking status for database: %s", name))
+	logger.Info(fmt.Sprintf("▸ Checking status for database: %s", name))
 
 	client, err := getDynamicClient()
 	if err != nil {

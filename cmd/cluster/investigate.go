@@ -42,7 +42,7 @@ func init() {
 }
 
 func investigateCluster(cmd *cobra.Command, clusterName string) error {
-	fmt.Printf("🔍 Investigating cluster: %s\n", clusterName)
+	fmt.Printf("▸ Investigating cluster: %s\n", clusterName)
 
 	// Load configuration
 	configFile, _ := cmd.Flags().GetString("file")
@@ -59,14 +59,14 @@ func investigateCluster(cmd *cobra.Command, clusterName string) error {
 	for providerName, providerConfig := range cfg.Providers {
 		prov, err := pfactory.DefaultFactory.CreateProvider(providerName, providerConfig.ToProviderMap())
 		if err != nil {
-			fmt.Printf("⚠️  Warning: failed to create provider %s: %v\n", providerName, err)
+			fmt.Printf("▲  Warning: failed to create provider %s: %v\n", providerName, err)
 			continue
 		}
 
 		// List clusters in this provider
 		clusters, err := prov.ListClusters(context.Background())
 		if err != nil {
-			fmt.Printf("⚠️  Warning: failed to list clusters in provider %s: %v\n", providerName, err)
+			fmt.Printf("▲  Warning: failed to list clusters in provider %s: %v\n", providerName, err)
 			continue
 		}
 
@@ -88,19 +88,19 @@ func investigateCluster(cmd *cobra.Command, clusterName string) error {
 		return fmt.Errorf("cluster '%s' not found in any configured provider", clusterName)
 	}
 
-	fmt.Printf("📍 Found cluster '%s' in provider '%s'\n", foundCluster.Name, foundCluster.Provider)
+	fmt.Printf("▸ Found cluster '%s' in provider '%s'\n", foundCluster.Name, foundCluster.Provider)
 	fmt.Printf("   ID: %s\n", foundCluster.ID)
 	fmt.Printf("   Status: %s\n", foundCluster.Status)
 	fmt.Printf("   Region: %s\n", foundCluster.Region)
 
 	// Perform investigation
-	fmt.Printf("\n🔍 Starting comprehensive investigation...\n")
+	fmt.Printf("\n▸ Starting comprehensive investigation...\n")
 	err = foundProvider.InvestigateCluster(context.Background(), foundCluster.ID)
 	if err != nil {
-		fmt.Printf("❌ Investigation failed: %v\n", err)
+		fmt.Printf("✖ Investigation failed: %v\n", err)
 		return err
 	}
-	fmt.Printf("✅ Investigation completed\n")
+	fmt.Printf("● Investigation completed\n")
 
 	return nil
 }

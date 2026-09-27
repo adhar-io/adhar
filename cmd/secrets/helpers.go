@@ -59,7 +59,7 @@ func parseTimeout(s string) time.Duration {
 
 // unreachable wraps a client-construction error with a friendly message.
 func unreachable(err error) error {
-	fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
+	fmt.Println(helpers.ErrorStyle.Render("✖ Could not connect to the cluster"))
 	fmt.Println(helpers.CreateMuted("   " + err.Error()))
 	fmt.Println(helpers.CreateMuted("   Is the cluster running? Try `adhar up` or check your kubeconfig context."))
 	return fmt.Errorf("failed to get Kubernetes client: %w", err)

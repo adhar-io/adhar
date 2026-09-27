@@ -43,7 +43,7 @@ func runValidatePolicy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("policy file is required. Use --file flag or provide as argument")
 	}
 
-	fmt.Println(helpers.TitleStyle.Render("🔍 Validating policy file: " + policyFile))
+	fmt.Println(helpers.TitleStyle.Render("▸ Validating policy file: " + policyFile))
 
 	data, err := os.ReadFile(policyFile)
 	if err != nil {
@@ -56,7 +56,7 @@ func runValidatePolicy(cmd *cobra.Command, args []string) error {
 		fmt.Println(helpers.CreateError("Parse failed: " + err.Error()))
 		return err
 	}
-	fmt.Printf("   ✅ Parsed %d manifest document(s)\n", len(objs))
+	fmt.Printf("   ● Parsed %d manifest document(s)\n", len(objs))
 	for _, o := range objs {
 		fmt.Printf("      • %s/%s\n", o.GetKind(), o.GetName())
 	}
@@ -84,10 +84,10 @@ func runValidatePolicy(cmd *cobra.Command, args []string) error {
 	for _, obj := range objs {
 		if err := applyManifest(ctx, dyn, mapper, obj, namespace, true); err != nil {
 			failed = true
-			fmt.Println(helpers.CreateError(fmt.Sprintf("   ✗ %s/%s: %v", obj.GetKind(), obj.GetName(), err)))
+			fmt.Println(helpers.CreateError(fmt.Sprintf("   ✖ %s/%s: %v", obj.GetKind(), obj.GetName(), err)))
 			continue
 		}
-		fmt.Printf("   ✅ %s/%s valid (server dry-run)\n", obj.GetKind(), obj.GetName())
+		fmt.Printf("   ● %s/%s valid (server dry-run)\n", obj.GetKind(), obj.GetName())
 	}
 	if failed {
 		return fmt.Errorf("policy validation failed")

@@ -30,7 +30,7 @@ Examples:
 
 func runList(cmd *cobra.Command, args []string) error {
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("📋 Listing storage resources (PVCs in namespace %s)...", ns))
+	logger.Info(fmt.Sprintf("▸ Listing storage resources (PVCs in namespace %s)...", ns))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -68,7 +68,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("💾 StorageClasses"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▥ StorageClasses"))
 	var sct strings.Builder
 	sct.WriteString(fmt.Sprintf("%-28s %-30s %-10s\n", "NAME", "PROVISIONER", "DEFAULT"))
 	sct.WriteString(strings.Repeat("─", 70) + "\n")
@@ -84,7 +84,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println(helpers.BorderStyle.Width(75).Render(sct.String()))
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📦 PersistentVolumes"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▣ PersistentVolumes"))
 	var pvt strings.Builder
 	pvt.WriteString(fmt.Sprintf("%-28s %-10s %-12s %-12s %-20s\n", "NAME", "CAPACITY", "STATUS", "CLASS", "CLAIM"))
 	pvt.WriteString(strings.Repeat("─", 85) + "\n")
@@ -101,7 +101,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println(helpers.BorderStyle.Width(90).Render(pvt.String()))
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("📑 PersistentVolumeClaims ("+ns+")"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▸ PersistentVolumeClaims ("+ns+")"))
 	var pvct strings.Builder
 	pvct.WriteString(fmt.Sprintf("%-28s %-12s %-10s %-12s\n", "NAME", "STATUS", "CAPACITY", "CLASS"))
 	pvct.WriteString(strings.Repeat("─", 70) + "\n")

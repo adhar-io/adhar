@@ -90,7 +90,7 @@ func runModels(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("🧠", "Models"))
+	fmt.Println(helpers.SectionHeading("⎔", "Models"))
 	fmt.Println()
 	t := helpers.NewTable("MODEL NAME", "ROUTES TO", "NEEDS A KEY IN")
 	for _, r := range routingTable {

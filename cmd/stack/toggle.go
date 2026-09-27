@@ -186,7 +186,7 @@ func runToggle(cmd *cobra.Command, names []string, on bool) error {
 		fmt.Printf("  already %sd — no file changed\n\n", verb)
 		return nil
 	}
-	fmt.Println(helpers.SectionHeading("✏️", fmt.Sprintf("%d edit(s)", len(edited))))
+	fmt.Println(helpers.SectionHeading("▸", fmt.Sprintf("%d edit(s)", len(edited))))
 	for _, e := range edited {
 		fmt.Printf("    %s\n", e)
 	}
@@ -323,7 +323,7 @@ func runConflicts(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("⚠️", fmt.Sprintf("Exclusion rules · %s profile", p.name)))
+	fmt.Println(helpers.SectionHeading("▲", fmt.Sprintf("Exclusion rules · %s profile", p.name)))
 	fmt.Println()
 	t := helpers.NewTable("GROUP", "STATE", "WHY THEY COLLIDE")
 	violations := 0
@@ -363,7 +363,7 @@ func runConflicts(cmd *cobra.Command, _ []string) error {
 	fmt.Println(a.Render())
 
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("🔗", "Dependencies"))
+	fmt.Println(helpers.SectionHeading("⇄", "Dependencies"))
 	fmt.Println()
 	d := helpers.NewTable("PACKAGE", "NEEDS", "STATE")
 	for pkg, deps := range dependencies {

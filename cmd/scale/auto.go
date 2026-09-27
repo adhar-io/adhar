@@ -50,7 +50,7 @@ func runAuto(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := resolveNamespace()
-	logger.Info(fmt.Sprintf("🤖 Configuring auto-scaling for %s/%s (min=%d max=%d cpu=%d%%)", ns, deploymentName, hpaMin, hpaMax, hpaCPU))
+	logger.Info(fmt.Sprintf("⎔ Configuring auto-scaling for %s/%s (min=%d max=%d cpu=%d%%)", ns, deploymentName, hpaMin, hpaMax, hpaCPU))
 
 	clientset, err := getClientset()
 	if err != nil {
@@ -70,6 +70,6 @@ func runAuto(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logger.Info(fmt.Sprintf("✅ HPA %s for %s %s/%s", action, kind, ns, deploymentName))
+	logger.Info(fmt.Sprintf("● HPA %s for %s %s/%s", action, kind, ns, deploymentName))
 	return nil
 }

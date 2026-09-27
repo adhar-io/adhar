@@ -39,7 +39,7 @@ type incident struct {
 }
 
 func runIncidents(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("🚨 Security Incidents"))
+	fmt.Println(helpers.TitleStyle.Render("▲ Security Incidents"))
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -127,7 +127,7 @@ func runIncidents(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(incidents) == 0 {
-		fmt.Println(helpers.CreateSuccess("No active security incidents. ✅"))
+		fmt.Println(helpers.CreateSuccess("No active security incidents. ●"))
 	} else {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "TYPE\tSEVERITY\tNAMESPACE\tPOLICY/RULE\tRESOURCE\tMESSAGE")

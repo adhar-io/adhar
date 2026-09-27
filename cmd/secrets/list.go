@@ -42,7 +42,7 @@ var externalSecretsGVR = schema.GroupVersionResource{
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	logger.Info("📋 Listing secrets...")
+	logger.Info("▸ Listing secrets...")
 
 	ns := resolveNamespace()
 	clientset, err := getClientset()
@@ -80,7 +80,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(fmt.Sprintf("🔐 Secrets in namespace %q (%d)", ns, len(rows))))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(fmt.Sprintf("⛨ Secrets in namespace %q (%d)", ns, len(rows))))
 	if len(rows) == 0 {
 		fmt.Println(helpers.CreateMuted("   No secrets found"))
 	} else {
@@ -100,7 +100,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	logger.Info("✅ Secrets listed")
+	logger.Info("● Secrets listed")
 	return nil
 }
 
@@ -120,7 +120,7 @@ func listExternalSecrets(ctx context.Context, ns string) error {
 		return fmt.Errorf("failed to list ExternalSecrets: %w", err)
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(fmt.Sprintf("🔁 ExternalSecrets in namespace %q (%d)", ns, len(list.Items))))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(fmt.Sprintf("◌ ExternalSecrets in namespace %q (%d)", ns, len(list.Items))))
 	if len(list.Items) == 0 {
 		fmt.Println(helpers.CreateMuted("   No ExternalSecrets found"))
 		return nil
@@ -144,7 +144,7 @@ func listExternalSecrets(ctx context.Context, ns string) error {
 func externalSecretReady(obj map[string]interface{}) (string, string) {
 	conds, found, _ := nestedSlice(obj, "status", "conditions")
 	if !found {
-		return "❓ Unknown", "no status yet"
+		return "◍ Unknown", "no status yet"
 	}
 	for _, c := range conds {
 		cm, ok := c.(map[string]interface{})
@@ -158,10 +158,10 @@ func externalSecretReady(obj map[string]interface{}) (string, string) {
 				detail = msg
 			}
 			if st == "True" {
-				return "✅ True", detail
+				return "● True", detail
 			}
-			return "❌ False", detail
+			return "✖ False", detail
 		}
 	}
-	return "❓ Unknown", "no Ready condition"
+	return "◍ Unknown", "no Ready condition"
 }

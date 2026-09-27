@@ -41,7 +41,7 @@ type scanRow struct {
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("🔍 Image Vulnerability Scan (trivy-operator)"))
+	fmt.Println(helpers.TitleStyle.Render("▸ Image Vulnerability Scan (trivy-operator)"))
 
 	dyn, err := getDynamicClient()
 	if err != nil {

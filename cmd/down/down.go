@@ -323,7 +323,7 @@ func (m downModel) View() string {
 		// here is drawn over the previous bordered frame instead of replacing
 		// it, which is what produced the torn box mid-sentence.
 		body := fmt.Sprintf("%s %s\n\n%s %s",
-			helpers.ErrorStyle.Render("✗"),
+			helpers.ErrorStyle.Render("✖"),
 			helpers.ErrorStyle.Render("Failed to tear down the environment"),
 			helpers.InfoStyle.Render("Reason:"),
 			wrapText(m.err.Error(), boxTextWidth))
@@ -352,7 +352,7 @@ func (m downModel) View() string {
 			// "nothing happened".
 			successBox = helpers.BorderStyle.Width(boxWidth).Render(
 				fmt.Sprintf("%s %s\n\n%s\n",
-					helpers.SuccessStyle.Render("✓"),
+					helpers.SuccessStyle.Render("●"),
 					helpers.SuccessStyle.Render("Orphaned storage removed"),
 					helpers.SubtitleStyle.Render(wrapText(fmt.Sprintf(
 						"%d orphaned volume(s) deleted. No cluster for %s remained to delete.",
@@ -385,7 +385,7 @@ func (m downModel) View() string {
 			}
 			successBox = helpers.BorderStyle.Width(boxWidth).Render(
 				fmt.Sprintf("%s %s\n\n%s\n",
-					helpers.SuccessStyle.Render("✓"),
+					helpers.SuccessStyle.Render("●"),
 					helpers.SuccessStyle.Render("Successfully tore down Adhar platform!"),
 					helpers.SubtitleStyle.Render(wrapText(removed, boxTextWidth))))
 
@@ -394,7 +394,7 @@ func (m downModel) View() string {
 			// kind of wrong detail that sends someone to re-check their account.
 			successBox = helpers.BorderStyle.Width(boxWidth).Render(
 				fmt.Sprintf("%s %s\n\n%s\n",
-					helpers.SuccessStyle.Render("✓"),
+					helpers.SuccessStyle.Render("●"),
 					helpers.SuccessStyle.Render("Successfully tore down Adhar platform!"),
 					helpers.SubtitleStyle.Render(wrapText("Kind cluster and resources have been removed", boxTextWidth))))
 		}
@@ -518,19 +518,19 @@ func teardown(sub chan tea.Msg) {
 	detail("→ Checking Docker daemon and Kind availability")
 	exists, err := kindClusterExists()
 	if err != nil {
-		detail("✗ %v", err)
+		detail("✖ %v", err)
 		emit(logger.ErrorMsg{Err: fmt.Errorf("failed to check if cluster exists: %w", err)})
 		return
 	}
 	if !exists {
-		detail("✗ No Kind cluster named '%s' found", globals.DefaultClusterName)
+		detail("✖ No Kind cluster named '%s' found", globals.DefaultClusterName)
 		// Keep this to ONE line: the View renders it inside a fixed-width box,
 		// and embedded newlines paint over the frame beneath. The guidance for
 		// cloud environments is added by the View, styled, on its own lines.
 		emit(logger.ErrorMsg{Err: fmt.Errorf("no local Kind cluster named %q exists", globals.DefaultClusterName)})
 		return
 	}
-	detail("✓ Found a cluster to tear down")
+	detail("● Found a cluster to tear down")
 
 	// Step 2: Delete the Kind cluster (with timeout)
 	emit(logger.StepMsg("Deleting cluster"))
@@ -549,7 +549,7 @@ func teardown(sub chan tea.Msg) {
 
 		if err == nil {
 			deleted = true
-			detail("✓ Deleted cluster '%s'", clusterName)
+			detail("● Deleted cluster '%s'", clusterName)
 			break
 		}
 		// Fallback: force-remove the node containers for this cluster.
@@ -586,7 +586,7 @@ func teardown(sub chan tea.Msg) {
 		out, _ := exec.Command(eng.Binary, "ps", "-a", "--filter", "name=adhar", "--format", "{{.Names}}").CombinedOutput()
 		if strings.TrimSpace(string(out)) == "" {
 			deleted = true // Containers gone via fallback cleanup
-			detail("✓ No adhar containers remain")
+			detail("● No adhar containers remain")
 		}
 	}
 
@@ -607,7 +607,7 @@ func teardown(sub chan tea.Msg) {
 	}
 
 	emit(logger.StatusMsg("Teardown complete"))
-	detail("✓ Teardown complete")
+	detail("● Teardown complete")
 	emit(logger.DoneMsg{})
 }
 
@@ -698,7 +698,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 
 	cfg, err := config.LoadConfig(downConfigFile)
 	if err != nil {
-		detail("✗ %v", err)
+		detail("✖ %v", err)
 		emit(logger.ErrorMsg{Err: fmt.Errorf("loading %s: %w", downConfigFile, err)})
 		return
 	}
@@ -706,7 +706,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 	// ResolvedEnvironments. Skipping this made every environment look absent
 	// ("environment \"dev\" is not defined") on a file that plainly defines it.
 	if err := cfg.ResolveEnvironments(); err != nil {
-		detail("✗ %v", err)
+		detail("✖ %v", err)
 		emit(logger.ErrorMsg{Err: fmt.Errorf("resolving environments in %s: %w", downConfigFile, err)})
 		return
 	}
@@ -755,7 +755,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		// resolves to `kind`, the cloud is never queried, and the teardown finds
 		// nothing. Say so instead of searching for a cloud cluster locally.
 		if _, ok := cfg.Providers[env.ResolvedProvider]; !ok {
-			detail("  ✗ provider %q is not configured in %s", env.ResolvedProvider, downConfigFile)
+			detail("  ✖ provider %q is not configured in %s", env.ResolvedProvider, downConfigFile)
 			failures = append(failures, fmt.Sprintf(
 				"%s: environment resolves to provider %q, which %s does not configure",
 				envName, env.ResolvedProvider, downConfigFile))
@@ -791,10 +791,10 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 				// A provider could not be consulted, so "not found" proves nothing.
 				// Treating this as success is exactly how live infrastructure
 				// survives a teardown that prints a green tick.
-				detail("  ✗ %v", err)
+				detail("  ✖ %v", err)
 				failures = append(failures, fmt.Sprintf("%s: %v", envName, err))
 			default:
-				detail("  ✗ %v", err)
+				detail("  ✖ %v", err)
 				failures = append(failures, fmt.Sprintf("%s: %v", envName, err))
 			}
 			continue
@@ -811,11 +811,11 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 
 		emit(logger.StatusMsg(fmt.Sprintf("Deleting cluster '%s' (%s)...", clusterName, found.ProviderName)))
 		if err := found.Provider.DeleteCluster(ctx, found.Cluster.ID); err != nil {
-			detail("  ✗ %v", err)
+			detail("  ✖ %v", err)
 			failures = append(failures, fmt.Sprintf("%s: %v", envName, err))
 			continue
 		}
-		detail("  ✓ deleted %s", clusterName)
+		detail("  ● deleted %s", clusterName)
 		outcome.Deleted = append(outcome.Deleted, envName)
 	}
 	// Reaches the UI before DoneMsg, so the final screen knows whether anything
@@ -839,7 +839,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 	}
 
 	emit(logger.StatusMsg("Teardown complete"))
-	detail("✓ Teardown complete")
+	detail("● Teardown complete")
 	detail("  Verify with: adhar cluster list --file %s", downConfigFile)
 	emit(logger.DoneMsg{})
 }
@@ -879,7 +879,7 @@ func purgeOrphanedVolumesFor(
 	case 0:
 		detail("  → no orphaned volumes to remove in %s", providerName)
 	default:
-		detail("  ✓ removed %d orphaned volume(s) in %s", deleted, providerName)
+		detail("  ● removed %d orphaned volume(s) in %s", deleted, providerName)
 	}
 	return deleted
 }

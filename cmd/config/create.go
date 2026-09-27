@@ -73,7 +73,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("write %s: %w", outPath, err)
 	}
 
-	fmt.Printf("📝 Created starter configuration: %s\n", outPath)
+	fmt.Printf("▸ Created starter configuration: %s\n", outPath)
 	fmt.Printf("   provider=%s  region=%s  template=%s\n", createProvider, region, createTemplate)
 	fmt.Println("   Validate it any time with: adhar config validate " + outPath)
 	return nil

@@ -161,7 +161,7 @@ type WorkloadSummary struct {
 }
 
 func runGetEnvironments(cmd *cobra.Command, args []string) error {
-	logger.Info("🌍 Retrieving environment information...")
+	logger.Info("⇄ Retrieving environment information...")
 
 	// Get Kubernetes client
 	clientset, err := getKubernetesClient()
@@ -288,11 +288,11 @@ func getEnvironments(clientset *kubernetes.Clientset, envNames []string) ([]Envi
 func getNamespaceStatus(ns corev1.Namespace) (string, string) {
 	switch ns.Status.Phase {
 	case corev1.NamespaceActive:
-		return "✅ Active", "#10b981"
+		return "● Active", "#10b981"
 	case corev1.NamespaceTerminating:
-		return "⚠️ Terminating", "#f59e0b"
+		return "▲ Terminating", "#f59e0b"
 	default:
-		return "❓ Unknown", "#64748b"
+		return "◍ Unknown", "#64748b"
 	}
 }
 
@@ -550,7 +550,7 @@ func displayEnvironmentsTable(environments []EnvironmentInfo) error {
 	// Create table header
 	var table strings.Builder
 	table.WriteString(fmt.Sprintf("%-25s %-12s %-8s %-10s %-10s %-8s\n",
-		helpers.IconNamespace+" "+"NAME", helpers.IconApp+" "+"STATUS", "📅 AGE", "🚀 WORKLOADS", helpers.IconStorage+" "+"RESOURCES", helpers.IconSecurity+" "+"SECRETS"))
+		helpers.IconNamespace+" "+"NAME", helpers.IconApp+" "+"STATUS", "▸ AGE", "▣ WORKLOADS", helpers.IconStorage+" "+"RESOURCES", helpers.IconSecurity+" "+"SECRETS"))
 	table.WriteString(strings.Repeat("─", 75) + "\n")
 
 	// Display environments

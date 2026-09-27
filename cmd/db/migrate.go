@@ -101,7 +101,7 @@ func runMigrationJob(ctx context.Context, clientset *kubernetes.Clientset, actio
 	}
 
 	jobName := fmt.Sprintf("%s-migrate-%s-%d", dbName, action, time.Now().Unix())
-	logger.Info(fmt.Sprintf("🔄 Running %s migration for database %s (job: %s)", action, dbName, jobName))
+	logger.Info(fmt.Sprintf("◌ Running %s migration for database %s (job: %s)", action, dbName, jobName))
 
 	backoff := int32(2)
 	ttl := int32(600)
@@ -151,7 +151,7 @@ func runMigrationJob(ctx context.Context, clientset *kubernetes.Clientset, actio
 // migrationStatus lists the migration Jobs run for this database and their state.
 func migrationStatus(ctx context.Context, clientset *kubernetes.Clientset) error {
 	ns := dbNamespace()
-	logger.Info(fmt.Sprintf("📊 Migration history for database: %s", dbName))
+	logger.Info(fmt.Sprintf("▸ Migration history for database: %s", dbName))
 
 	jobs, err := clientset.BatchV1().Jobs(ns).List(ctx, metav1.ListOptions{
 		LabelSelector: "adhar.io/migration=" + dbName,

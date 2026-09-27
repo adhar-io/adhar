@@ -64,7 +64,7 @@ func createVeleroRestore(name string, spec map[string]interface{}) error {
 		return fmt.Errorf("failed to create restore %q: %w", name, err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Restore %q created from backup %q", name, spec["backupName"])))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Restore %q created from backup %q", name, spec["backupName"])))
 	fmt.Println(helpers.CreateMuted("   Track progress with: adhar restore status " + name))
 	return nil
 }
@@ -105,7 +105,7 @@ func getDynamicClient() (dynamic.Interface, error) {
 
 // unreachable wraps a client-construction error with a friendly message.
 func unreachable(err error) error {
-	fmt.Println(helpers.ErrorStyle.Render("❌ Could not connect to the cluster"))
+	fmt.Println(helpers.ErrorStyle.Render("✖ Could not connect to the cluster"))
 	fmt.Println(helpers.CreateMuted("   " + err.Error()))
 	fmt.Println(helpers.CreateMuted("   Is the cluster running? Try `adhar up` or check your kubeconfig context."))
 	return fmt.Errorf("failed to get Kubernetes client: %w", err)
@@ -162,14 +162,14 @@ func restoreAge(t time.Time) string {
 func phaseIcon(phase string) string {
 	switch phase {
 	case "Completed":
-		return "✅ Completed"
+		return "● Completed"
 	case "InProgress", "New":
-		return "⏳ " + phase
+		return "◌ " + phase
 	case "Failed", "PartiallyFailed", "FailedValidation":
-		return "❌ " + phase
+		return "✖ " + phase
 	case "":
-		return "❓ Unknown"
+		return "◍ Unknown"
 	default:
-		return "⚠️  " + phase
+		return "▲  " + phase
 	}
 }

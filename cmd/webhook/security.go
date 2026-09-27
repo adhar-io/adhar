@@ -29,7 +29,7 @@ Examples:
 }
 
 func runSecurity(cmd *cobra.Command, args []string) error {
-	logger.Info("🔐 Reporting admission webhook security posture...")
+	logger.Info("⛨ Reporting admission webhook security posture...")
 	ctx := context.Background()
 
 	cs, err := getClientset()
@@ -48,12 +48,12 @@ func runSecurity(cmd *cobra.Command, args []string) error {
 
 	caState := func(cc admissionv1.WebhookClientConfig) string {
 		if len(cc.CABundle) > 0 {
-			return "✅ present"
+			return "● present"
 		}
 		if cc.URL != nil {
-			return "🌐 url-tls"
+			return "⇄ url-tls"
 		}
-		return "❌ missing"
+		return "✖ missing"
 	}
 	sideEffects := func(se *admissionv1.SideEffectClass) string {
 		if se == nil {
@@ -103,7 +103,7 @@ func runSecurity(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %-12s %-10s %s\n", "⚙️  CONFIG", "🔖 KIND", "🪝 WEBHOOK", "🔐 CA", "🛡️  FAIL", "♻️  SIDE-FX"))
+	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %-12s %-10s %s\n", "⎔  CONFIG", "▸ KIND", "⇄ WEBHOOK", "⛨ CA", "⛨  FAIL", "◌  SIDE-FX"))
 	b.WriteString(strings.Repeat("─", 110) + "\n")
 	for _, r := range rows {
 		b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %-12s %-10s %s\n",

@@ -208,7 +208,7 @@ func runLoop(cmd *cobra.Command, task string, extraSystem []string) error {
 
 	if !agentQuiet {
 		fmt.Println()
-		fmt.Println(helpers.SectionHeading("🛠", "Adhar AI agent"))
+		fmt.Println(helpers.SectionHeading("⎔", "Adhar AI agent"))
 		fmt.Printf("\n  model %s · autonomy %s · %d tools · up to %d steps\n\n", c.model, level, len(tools), steps)
 	}
 
@@ -238,7 +238,7 @@ func runLoop(cmd *cobra.Command, task string, extraSystem []string) error {
 				// read, rather than let the summary line carry it quietly.
 				if tb.calls == 0 && len(byName) > 0 {
 					fmt.Printf("%s\n", helpers.WarningStyle.Render(
-						"⚠ no tools were called: this answer was not checked against the cluster. "+
+						"▲ no tools were called: this answer was not checked against the cluster. "+
 							"Treat it as a suggestion — a larger model (`adhar ai key set`, or the vllm GPU profile) is what makes the agent read before it answers."))
 				}
 				fmt.Println()
@@ -394,7 +394,7 @@ func printProposals(tb *toolbox) {
 		return
 	}
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("📝", fmt.Sprintf("%d proposal(s) — nothing has been applied", len(tb.proposals))))
+	fmt.Println(helpers.SectionHeading("▸", fmt.Sprintf("%d proposal(s) — nothing has been applied", len(tb.proposals))))
 	for i, pr := range tb.proposals {
 		fmt.Printf("\n  %d. %s\n     repo %s · path %s\n     why: %s\n\n",
 			i+1, helpers.HighlightStyle.Render(pr.Title), pr.Repo, pr.Path, pr.Rationale)

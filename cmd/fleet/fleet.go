@@ -45,7 +45,7 @@ var FleetCmd = &cobra.Command{
 	Use:     "fleet",
 	Aliases: []string{"planes"},
 	Short:   "Operate every registered workload cluster as one fleet",
-	Long: `🌍 **Adhar Fleet**
+	Long: `⇄ **Adhar Fleet**
 
 Acts across every workload cluster registered with this control plane
 (DataPlane resources — see ADR-0023), rather than one cluster at a time.
@@ -175,14 +175,14 @@ var listCmd = &cobra.Command{
 			return err
 		}
 		if len(planes) == 0 {
-			fmt.Println(helpers.SectionHeading("🌍", "Fleet"))
+			fmt.Println(helpers.SectionHeading("⇄", "Fleet"))
 			fmt.Println("  No workload clusters are registered.")
 			fmt.Printf("  %s\n", helpers.SubtitleStyle.Render("register one with a DataPlane resource (mode: vcluster | adopt | composite)"))
 			return nil
 		}
 
 		hub := hubVersion(cmd.Context())
-		fmt.Println(helpers.SectionHeading("🌍", fmt.Sprintf("Fleet · %d plane(s)", len(planes))))
+		fmt.Println(helpers.SectionHeading("⇄", fmt.Sprintf("Fleet · %d plane(s)", len(planes))))
 		t := helpers.NewTable("PLANE", "MODE", "STATE", "KUBERNETES", "APPS", "LABELS")
 		shown, ready := 0, 0
 		for _, p := range planes {
@@ -269,7 +269,7 @@ exactly like one nobody has upgraded yet.`,
 			return fmt.Errorf("cannot determine the control plane's Kubernetes version; is there an AdharPlatform in %s?", namespaceFlag)
 		}
 		skewed := SkewedPlanes(planes, hub)
-		fmt.Println(helpers.SectionHeading("🧭", fmt.Sprintf("Fleet drift · hub %s", hub)))
+		fmt.Println(helpers.SectionHeading("▸", fmt.Sprintf("Fleet drift · hub %s", hub)))
 		if len(skewed) == 0 {
 			fmt.Printf("  %s\n\n", helpers.StateReady(fmt.Sprintf("all %d plane(s) match the hub's minor version", len(planes))))
 			return nil

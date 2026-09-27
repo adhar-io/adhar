@@ -58,7 +58,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	ns := dbNamespace()
-	logger.Info(fmt.Sprintf("🗄️ Creating database: %s (engine: %s, provider: %s)", dbName, engine, helpers.ActiveProvider()))
+	logger.Info(fmt.Sprintf("▥ Creating database: %s (engine: %s, provider: %s)", dbName, engine, helpers.ActiveProvider()))
 
 	parameters := map[string]interface{}{
 		"engine":        engine,

@@ -165,7 +165,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("🤖", "Adhar AI"))
+	fmt.Println(helpers.SectionHeading("⎔", "Adhar AI"))
 	fmt.Println()
 	t := helpers.NewTable("COMPONENT", "STATE", "DETAIL")
 	for _, c := range comps {
@@ -255,7 +255,7 @@ you to rather than sampling one scrape here and calling it a total.`,
 			})
 		}
 		fmt.Println()
-		fmt.Println(helpers.SectionHeading("💳", "AI budgets"))
+		fmt.Println(helpers.SectionHeading("▸", "AI budgets"))
 		fmt.Println()
 		t := helpers.NewTable("BUDGET", "CEILING", "ENFORCED BY")
 		t.Row("Tokens per user per day", orDash(cfg.DailyTokens), "agentgateway (429 when exhausted)")

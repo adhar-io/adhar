@@ -52,7 +52,7 @@ func runChat(cmd *cobra.Command, _ []string) error {
 	msgs := []message{{Role: "system", Content: systemPrompt(ctx, p, true, nil)}}
 
 	fmt.Println()
-	fmt.Println(helpers.SectionHeading("💬", "Adhar AI chat"))
+	fmt.Println(helpers.SectionHeading("▸", "Adhar AI chat"))
 	fmt.Printf("\n  model %s · cluster context attached · /exit to leave\n\n", c.model)
 
 	in := bufio.NewScanner(os.Stdin)

@@ -35,7 +35,7 @@ func init() {
 }
 
 func runRepo(cmd *cobra.Command, args []string) error {
-	logger.Info(fmt.Sprintf("📚 Listing Git repositories in namespace %s...", repoNamespace))
+	logger.Info(fmt.Sprintf("▸ Listing Git repositories in namespace %s...", repoNamespace))
 
 	client, err := helpers.DynamicClient()
 	if err != nil {

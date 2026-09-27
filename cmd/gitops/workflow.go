@@ -31,7 +31,7 @@ func init() {
 }
 
 func runWorkflow(cmd *cobra.Command, args []string) error {
-	logger.Info(fmt.Sprintf("⚡ Listing Argo Workflows in namespace %s...", workflowNamespace))
+	logger.Info(fmt.Sprintf("▸ Listing Argo Workflows in namespace %s...", workflowNamespace))
 
 	client, err := helpers.DynamicClient()
 	if err != nil {

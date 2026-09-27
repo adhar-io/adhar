@@ -273,7 +273,7 @@ var mcpListCmd = &cobra.Command{
 			return nil
 		}
 		fmt.Println()
-		fmt.Println(helpers.SectionHeading("🔌", fmt.Sprintf("Federated MCP tools (%d)", len(tools))))
+		fmt.Println(helpers.SectionHeading("⇄", fmt.Sprintf("Federated MCP tools (%d)", len(tools))))
 		fmt.Println()
 		t := helpers.NewTable("TOOL", "KIND", "DESCRIPTION")
 		for _, tl := range tools {

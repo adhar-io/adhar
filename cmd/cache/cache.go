@@ -192,7 +192,7 @@ with a NetworkPolicy.`,
 			return err
 		}
 
-		logger.Info(fmt.Sprintf("⚡ Requesting %s cache %s in %s (provider: %s)", engine, name, ns(), cacheProvider))
+		logger.Info(fmt.Sprintf("▸ Requesting %s cache %s in %s (provider: %s)", engine, name, ns(), cacheProvider))
 
 		if err := helpers.ApplyXR(ctx(cmd), xrPlural, obj); err != nil {
 			return fmt.Errorf("requesting cache %s: %w", name, err)
@@ -222,7 +222,7 @@ var listCmd = &cobra.Command{
 		case "yaml":
 			return helpers.PrintYAML(items)
 		}
-		t := helpers.NewTable("⚡ NAME", "ENGINE", "READY", "REPLICAS", "ENDPOINT", "AGE")
+		t := helpers.NewTable("▸ NAME", "ENGINE", "READY", "REPLICAS", "ENDPOINT", "AGE")
 		for _, c := range items {
 			t.Row(c.Name, c.Engine, readyLabel(c.Ready), fmt.Sprintf("%d", c.Replicas), dash(c.Endpoint), c.Age)
 		}
@@ -246,7 +246,7 @@ var statusCmd = &cobra.Command{
 		if outputFormat == "yaml" {
 			return helpers.PrintYAML(c)
 		}
-		fmt.Printf("⚡ %s\n", c.Name)
+		fmt.Printf("▸ %s\n", c.Name)
 		fmt.Printf("  namespace   %s\n", ns())
 		fmt.Printf("  engine      %s\n", c.Engine)
 		fmt.Printf("  ready       %s\n", readyLabel(c.Ready))

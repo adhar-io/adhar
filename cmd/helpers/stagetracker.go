@@ -19,7 +19,7 @@ package helpers
 // stagetracker.go renders `adhar up` provisioning as a single, live checklist of
 // the real stages (Kind → CRDs → Networking → Cilium/Gateway → ArgoCD → Gitea →
 // Crossplane → GitOps). The whole block redraws in place: each stage moves from
-// ○ pending → ⠋ active (animated) → ✓ done (with elapsed). On a non-interactive
+// ○ pending → ⠋ active (animated) → ● done (with elapsed). On a non-interactive
 // writer it degrades to one plain line per stage transition so logs stay clean.
 
 import (
@@ -155,9 +155,9 @@ func (t *StageTracker) setFinal(i int, s stageState) {
 		t.stages[i].state = s
 		t.stages[i].end = time.Now()
 		if !t.isTTY {
-			icon := stDoneStyle.Render("✓")
+			icon := stDoneStyle.Render("●")
 			if s == stageFailed {
-				icon = stFailStyle.Render("✗")
+				icon = stFailStyle.Render("✖")
 			}
 			fmt.Fprintf(t.w, "  %s %s  %s\n", icon, t.stages[i].label,
 				stDetailStyle.Render(fmtElapsed(t.stages[i].end.Sub(t.stages[i].start))))
@@ -227,11 +227,11 @@ func (t *StageTracker) render(first bool) {
 		var glyph, label, extra string
 		switch s.state {
 		case stageDone:
-			glyph = stDoneStyle.Render("✓")
+			glyph = stDoneStyle.Render("●")
 			label = stLabelDone.Render(s.label)
 			extra = stDetailStyle.Render(fmtElapsed(s.end.Sub(s.start)))
 		case stageFailed:
-			glyph = stFailStyle.Render("✗")
+			glyph = stFailStyle.Render("✖")
 			label = stLabelActive.Render(s.label)
 		case stageActive:
 			glyph = stActiveStyle.Render(spinnerFrames[t.frame%len(spinnerFrames)])

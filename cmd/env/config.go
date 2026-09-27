@@ -85,7 +85,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("build patch: %w", err)
 		}
-		logger.Info(fmt.Sprintf("⚙️  Updating configuration for environment: %s", envName))
+		logger.Info(fmt.Sprintf("⎔  Updating configuration for environment: %s", envName))
 		if _, err := dyn.Resource(compositeEnvironmentGVR).Namespace(envName).
 			Patch(ctx, envName, types.MergePatchType, data, metav1.PatchOptions{}); err != nil {
 			if crdMissing(err) {
@@ -96,7 +96,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 			}
 			return fmt.Errorf("patch environment config: %w", err)
 		}
-		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Environment %q configuration updated", envName)))
+		fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Environment %q configuration updated", envName)))
 		return nil
 	}
 
@@ -104,7 +104,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 }
 
 func showEnvironmentConfig(ctx context.Context, envName string) error {
-	logger.Info(fmt.Sprintf("📋 Configuration for environment: %s", envName))
+	logger.Info(fmt.Sprintf("▸ Configuration for environment: %s", envName))
 
 	dyn, err := getDynamicClient()
 	if err != nil {

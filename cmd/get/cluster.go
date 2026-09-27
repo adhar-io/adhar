@@ -69,7 +69,7 @@ func init() {
 }
 
 func runGetCluster(cmd *cobra.Command, args []string) error {
-	logger.Info("🏗️ Retrieving cluster information...")
+	logger.Info("⎔ Retrieving cluster information...")
 
 	// Get Kubernetes client
 	clientset, err := getKubernetesClient()
@@ -276,20 +276,20 @@ func getProviderInfo(currentContext string) string {
 	} else {
 		// Try to detect other providers
 		if strings.Contains(strings.ToLower(currentContext), "gke") {
-			providerInfo.WriteString("☁️  Provider: Google Kubernetes Engine (GKE)\n")
+			providerInfo.WriteString("⎔  Provider: Google Kubernetes Engine (GKE)\n")
 			providerInfo.WriteString("  • Managed Kubernetes service by Google Cloud\n")
 			providerInfo.WriteString("  • Auto-scaling and auto-upgrades\n")
 			providerInfo.WriteString("  • Integrated with Google Cloud services")
 		} else if strings.Contains(strings.ToLower(currentContext), "eks") {
-			providerInfo.WriteString("☁️  Provider: Amazon Elastic Kubernetes Service (EKS)\n")
+			providerInfo.WriteString("⎔  Provider: Amazon Elastic Kubernetes Service (EKS)\n")
 			providerInfo.WriteString("  • High availability and security\n")
 			providerInfo.WriteString("  • Integrated with AWS services")
 		} else if strings.Contains(strings.ToLower(currentContext), "aks") {
-			providerInfo.WriteString("☁️  Provider: Azure Kubernetes Service (AKS)\n")
+			providerInfo.WriteString("⎔  Provider: Azure Kubernetes Service (AKS)\n")
 			providerInfo.WriteString("  • Enterprise-grade security and compliance\n")
 			providerInfo.WriteString("  • Integrated with Azure services")
 		} else {
-			providerInfo.WriteString("❓ Provider: Unknown\n")
+			providerInfo.WriteString("◍ Provider: Unknown\n")
 			providerInfo.WriteString("  • Custom or self-managed Kubernetes cluster\n")
 			providerInfo.WriteString("  • May be on-premises or other cloud provider")
 		}
@@ -334,7 +334,7 @@ func getDetailedClusterInfo(clientset *kubernetes.Clientset, ctx context.Context
 		detailedInfo.WriteString(fmt.Sprintf("  • Persistent Volumes: %d\n", len(pvs.Items)))
 	}
 
-	detailedInfo.WriteString("\n🔗 Access Information:\n")
+	detailedInfo.WriteString("\n⇄ Access Information:\n")
 	detailedInfo.WriteString("  • Dashboard: kubectl proxy\n")
 	detailedInfo.WriteString("  • Cluster Info: kubectl cluster-info\n")
 	detailedInfo.WriteString("  • Node Details: kubectl describe nodes\n")

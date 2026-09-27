@@ -40,17 +40,45 @@ func TestUniqueNamespacesPreservesFirstAppearance(t *testing.T) {
 }
 
 func TestAppStateStripsAnAlreadyDecoratedStatus(t *testing.T) {
-	// The collector emits "✅ Ready" for some workloads; rendering it through the
-	// vocabulary produced "● ✅ Ready", two icons in one cell.
-	got := appState("✅ Ready")
-	if strings.Count(got, "✅") != 0 {
-		t.Errorf("the source emoji must be stripped, got %q", got)
+	// Upstream collectors decorate some statuses themselves, with whatever symbol
+	// they happen to use. Rendering one through the shared vocabulary then produced
+	// two icons in one cell ("● ✅ Ready").
+	//
+	// Stripping is by character class rather than a list of known glyphs: the list
+	// this replaced had to enumerate every symbol any source might send, and a bulk
+	// edit of the CLI's icons mangled it into duplicates — after which appState
+	// could no longer strip the emoji it exists to strip, and no test noticed
+	// because the fixtures had been rewritten by the same edit.
+	for _, decorated := range []string{
+		"✅ Ready", "● Ready", "✔ Ready", "🟢 Ready", "  ✅  Ready", "[✅] Ready",
+	} {
+		got := appState(decorated)
+		if strings.Count(got, "●") != 1 {
+			t.Errorf("appState(%q) = %q, want exactly one vocabulary icon", decorated, got)
+		}
+		if !strings.Contains(got, "Ready") {
+			t.Errorf("appState(%q) = %q, lost the label", decorated, got)
+		}
+		for _, stray := range []string{"✅", "✔", "🟢"} {
+			if strings.Contains(got, stray) {
+				t.Errorf("appState(%q) = %q, still carries %q", decorated, got, stray)
+			}
+		}
 	}
-	if !strings.Contains(got, "● Ready") {
-		t.Errorf("expected a single platform icon plus the label, got %q", got)
+
+	// A failure state keeps its own icon and must not be read as ready —
+	// "NotReady" contains "ready".
+	got := appState("❌ NotReady")
+	if !strings.Contains(got, "NotReady") || strings.Contains(got, "❌") {
+		t.Errorf("appState(\"❌ NotReady\") = %q", got)
 	}
-	if got := appState("❌ NotReady"); !strings.Contains(got, "✖ NotReady") || strings.Contains(got, "❌") {
-		t.Errorf("unexpected %q", got)
+	if strings.Count(got, "✖") != 1 {
+		t.Errorf("a failed state should render one failure icon, got %q", got)
+	}
+
+	// A digit-leading label must survive: "2/3 Ready" is a real status.
+	if got := appState("2/3 Ready"); !strings.Contains(got, "2/3 Ready") {
+		t.Errorf("a numeric label must not be eaten as decoration, got %q", got)
 	}
 }
 

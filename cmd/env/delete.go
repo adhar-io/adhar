@@ -35,7 +35,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	envName := args[0]
 
 	if !deleteForce {
-		fmt.Printf("🗑️  Delete environment %q and its namespace (all resources)? (y/N): ", envName)
+		fmt.Printf("✖  Delete environment %q and its namespace (all resources)? (y/N): ", envName)
 		var resp string
 		fmt.Scanln(&resp)
 		if resp != "y" && resp != "Y" {
@@ -66,6 +66,6 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to delete namespace %q: %w", envName, err)
 	}
 
-	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("✅ Environment %q deletion initiated (namespace terminating)", envName)))
+	fmt.Println(helpers.CreateSuccess(fmt.Sprintf("● Environment %q deletion initiated (namespace terminating)", envName)))
 	return nil
 }

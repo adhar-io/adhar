@@ -74,7 +74,7 @@ func init() {
 }
 
 func runStorage(cmd *cobra.Command, args []string) error {
-	logger.Info("💾 Storage management - use subcommands for specific storage tasks")
+	logger.Info("▥ Storage management - use subcommands for specific storage tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  list     - List all volumes")
 	logger.Info("  create   - Create new volumes")

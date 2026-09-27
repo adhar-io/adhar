@@ -40,7 +40,7 @@ var debugCmd = &cobra.Command{
 }
 
 func debugCluster(cmd *cobra.Command, clusterName string) error {
-	fmt.Printf("🔍 Attempting to debug cluster: %s\n", clusterName)
+	fmt.Printf("▸ Attempting to debug cluster: %s\n", clusterName)
 
 	// This is a Civo-specific debug implementation for now.
 	homeDir, err := os.UserHomeDir()
@@ -56,7 +56,7 @@ func debugCluster(cmd *cobra.Command, clusterName string) error {
 		return fmt.Errorf("private key for cluster '%s' not found at '%s'. Please run the cluster creation again to generate the key.", clusterName, keyPath)
 	}
 
-	fmt.Printf("🔑 Private key found: %s\n", keyPath)
+	fmt.Printf("⛨ Private key found: %s\n", keyPath)
 
 	// Now, we need to find the public IP of the master node.
 	cfg, err := config.LoadConfig("")
@@ -91,7 +91,7 @@ func debugCluster(cmd *cobra.Command, clusterName string) error {
 		return fmt.Errorf("could not find a public IP for the master node of cluster '%s'. Is the cluster still running?", clusterName)
 	}
 
-	fmt.Printf("🖥️ Master node IP found: %s\n", masterIP)
+	fmt.Printf("⎔ Master node IP found: %s\n", masterIP)
 	fmt.Printf("\nTo connect to the master node, run the following command in your terminal:\n\n")
 	fmt.Printf("ssh -i %s root@%s\n\n", keyPath, masterIP)
 	fmt.Printf("Once connected, you can check the setup log with:\n\n")

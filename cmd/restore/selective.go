@@ -54,7 +54,7 @@ func runSelectiveRestore(cmd *cobra.Command, args []string) error {
 		name = defaultRestoreName(src)
 	}
 
-	fmt.Printf("🔄 Selective restore %q from backup %q\n", name, src)
+	fmt.Printf("◌ Selective restore %q from backup %q\n", name, src)
 
 	spec := map[string]interface{}{
 		"backupName": src,
@@ -62,17 +62,17 @@ func runSelectiveRestore(cmd *cobra.Command, args []string) error {
 	}
 	if len(selNamespaces) > 0 {
 		spec["includedNamespaces"] = toIfaceSlice(selNamespaces)
-		fmt.Printf("📦 Namespaces: %v\n", selNamespaces)
+		fmt.Printf("▣ Namespaces: %v\n", selNamespaces)
 	}
 	if len(selResources) > 0 {
 		spec["includedResources"] = toIfaceSlice(selResources)
-		fmt.Printf("🔧 Resources: %v\n", selResources)
+		fmt.Printf("⎔ Resources: %v\n", selResources)
 	}
 	if sel, err := parseSelector(selSelector); err != nil {
 		return err
 	} else if len(sel) > 0 {
 		spec["labelSelector"] = map[string]interface{}{"matchLabels": sel}
-		fmt.Printf("🏷️  Selector: %s\n", selSelector)
+		fmt.Printf("▸  Selector: %s\n", selSelector)
 	}
 
 	if dryRun {

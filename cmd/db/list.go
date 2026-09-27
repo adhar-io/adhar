@@ -27,7 +27,7 @@ Examples:
 
 func runList(cmd *cobra.Command, args []string) error {
 	ns := dbNamespace()
-	logger.Info(fmt.Sprintf("📋 Listing databases in namespace %s...", ns))
+	logger.Info(fmt.Sprintf("▸ Listing databases in namespace %s...", ns))
 
 	client, err := getDynamicClient()
 	if err != nil {

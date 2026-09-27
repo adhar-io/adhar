@@ -72,7 +72,7 @@ func init() {
 }
 
 func runAuth(cmd *cobra.Command, args []string) error {
-	fmt.Println("🔐 Adhar Platform Authentication & Authorization")
+	fmt.Println("⛨ Adhar Platform Authentication & Authorization")
 	fmt.Println("")
 	fmt.Println("Available commands:")
 	fmt.Println("  login     - Authenticate with the platform (session is persisted)")

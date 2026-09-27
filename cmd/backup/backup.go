@@ -35,7 +35,7 @@ func init() {
 }
 
 func runBackup(cmd *cobra.Command, args []string) error {
-	fmt.Println("🔒 Adhar Platform Backup Management")
+	fmt.Println("⛨ Adhar Platform Backup Management")
 	fmt.Println("")
 	fmt.Println("Available commands:")
 	fmt.Println("  create    - Create a new backup")

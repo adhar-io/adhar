@@ -104,23 +104,23 @@ func runDecodeToken(cmd *cobra.Command, args []string) error {
 		return helpers.PrintJSON(claims)
 	}
 
-	fmt.Printf("🔐 Token:    %s\n", maskToken(raw))
+	fmt.Printf("⛨ Token:    %s\n", maskToken(raw))
 	if claims.PreferredUsername != "" {
-		fmt.Printf("👤 User:     %s\n", claims.PreferredUsername)
+		fmt.Printf("▸ User:     %s\n", claims.PreferredUsername)
 	}
 	if claims.Email != "" {
-		fmt.Printf("📧 Email:    %s\n", claims.Email)
+		fmt.Printf("▸ Email:    %s\n", claims.Email)
 	}
 	if claims.Subject != "" {
-		fmt.Printf("🆔 Subject:  %s\n", claims.Subject)
+		fmt.Printf("▸ Subject:  %s\n", claims.Subject)
 	}
 	if len(claims.Groups) > 0 {
-		fmt.Printf("👥 Groups:   %s\n", strings.Join(claims.Groups, ", "))
+		fmt.Printf("▸ Groups:   %s\n", strings.Join(claims.Groups, ", "))
 	}
 	if len(claims.RealmAccess.Roles) > 0 {
-		fmt.Printf("🎭 Roles:    %s\n", strings.Join(claims.RealmAccess.Roles, ", "))
+		fmt.Printf("▸ Roles:    %s\n", strings.Join(claims.RealmAccess.Roles, ", "))
 	}
-	fmt.Printf("🏛️ Issuer:   %s\n", claims.Issuer)
+	fmt.Printf("⎔ Issuer:   %s\n", claims.Issuer)
 	if claims.Expiry > 0 {
 		exp := time.Unix(claims.Expiry, 0)
 		fmt.Printf("⏰ Expires:  %s (%s)\n", exp.Format(time.RFC3339), time.Until(exp).Round(time.Second))
@@ -159,10 +159,10 @@ func runToken(cmd *cobra.Command, args []string) error {
 		if perr != nil {
 			return perr
 		}
-		fmt.Printf("🔑 Requesting token for %q via password grant...\n", tokenUser)
+		fmt.Printf("⛨ Requesting token for %q via password grant...\n", tokenUser)
 		tr, err = kc.passwordGrant(ctx, tokenUser, pw)
 	} else {
-		fmt.Printf("🔑 Requesting token for client %q via client_credentials grant...\n", kc.ClientID)
+		fmt.Printf("⛨ Requesting token for client %q via client_credentials grant...\n", kc.ClientID)
 		tr, err = kc.clientCredentialsGrant(ctx)
 	}
 	if err != nil {
@@ -172,9 +172,9 @@ func runToken(cmd *cobra.Command, args []string) error {
 	if output == "json" {
 		return helpers.PrintJSON(tr)
 	}
-	fmt.Println(helpers.CreateSuccess("✅ Token obtained"))
+	fmt.Println(helpers.CreateSuccess("● Token obtained"))
 	fmt.Printf("⏰ Expires: %ds\n", tr.ExpiresIn)
-	fmt.Printf("🔑 Access token:\n%s\n", tr.AccessToken)
+	fmt.Printf("⛨ Access token:\n%s\n", tr.AccessToken)
 	return nil
 }
 
@@ -235,7 +235,7 @@ func runListTokens(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if s == nil {
-		fmt.Println(helpers.CreateMuted("📭 Not logged in — run `adhar auth login <username>` to obtain a token."))
+		fmt.Println(helpers.CreateMuted("○ Not logged in — run `adhar auth login <username>` to obtain a token."))
 		return nil
 	}
 
@@ -251,10 +251,10 @@ func runListTokens(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	fmt.Println("📋 Session token (Keycloak OIDC)")
-	fmt.Printf("👤 User:    %s\n", s.Username)
-	fmt.Printf("🔌 Client:  %s\n", s.ClientID)
-	fmt.Printf("🔐 Access:  %s\n", maskToken(s.AccessToken))
+	fmt.Println("▸ Session token (Keycloak OIDC)")
+	fmt.Printf("▸ User:    %s\n", s.Username)
+	fmt.Printf("⇄ Client:  %s\n", s.ClientID)
+	fmt.Printf("⛨ Access:  %s\n", maskToken(s.AccessToken))
 	status := "valid for " + time.Until(s.AccessExpiry).Round(time.Second).String()
 	if time.Now().After(s.AccessExpiry) {
 		status = "expired (auto-refreshes on next `adhar auth token`)"
@@ -277,7 +277,7 @@ var (
 func runGetToken(cmd *cobra.Command, args []string) error {
 	tokenID := args[0]
 
-	fmt.Printf("🔑 Token: %s\n\n", tokenID)
+	fmt.Printf("⛨ Token: %s\n\n", tokenID)
 	// Keycloak access tokens are stateless bearer tokens — they are not stored and
 	// cannot be fetched by id after issuance. Be honest rather than fake a lookup.
 	fmt.Println(helpers.CreateMuted("Keycloak access tokens are stateless bearer tokens; they are not retrievable by id after issuance."))
@@ -312,9 +312,9 @@ func runRevokeToken(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	fmt.Printf("🚫 Revoking session %q in realm %s\n", tokenID, kc.Realm)
+	fmt.Printf("✖ Revoking session %q in realm %s\n", tokenID, kc.Realm)
 	if revokeReason != "" {
-		fmt.Printf("📝 Reason: %s\n", revokeReason)
+		fmt.Printf("▸ Reason: %s\n", revokeReason)
 	}
 
 	// The revocable unit in Keycloak is the SESSION (access tokens are short-lived
@@ -348,7 +348,7 @@ func init() {
 func runRenewToken(cmd *cobra.Command, args []string) error {
 	tokenID := args[0]
 
-	fmt.Printf("🔄 Renew token: %s\n\n", tokenID)
+	fmt.Printf("◌ Renew token: %s\n\n", tokenID)
 	// Access tokens are renewed by re-authenticating (OIDC refresh flow), not by
 	// id. Be honest and point at the real path rather than fake a renewal.
 	fmt.Println(helpers.CreateMuted("Keycloak access tokens are renewed by re-authenticating, not by id."))

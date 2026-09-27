@@ -57,11 +57,11 @@ func runGet(cmd *cobra.Command, args []string) error {
 	sort.Strings(keys)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🔐 Name:      %s\n", sec.Name))
-	b.WriteString(fmt.Sprintf("📦 Namespace: %s\n", sec.Namespace))
-	b.WriteString(fmt.Sprintf("🏷️  Type:      %s\n", sec.Type))
-	b.WriteString(fmt.Sprintf("🕐 Age:       %s\n", formatAge(sec.CreationTimestamp.Time)))
-	b.WriteString(fmt.Sprintf("🔑 Keys:      %s", strings.Join(keys, ", ")))
+	b.WriteString(fmt.Sprintf("⛨ Name:      %s\n", sec.Name))
+	b.WriteString(fmt.Sprintf("▣ Namespace: %s\n", sec.Namespace))
+	b.WriteString(fmt.Sprintf("▸  Type:      %s\n", sec.Type))
+	b.WriteString(fmt.Sprintf("▸ Age:       %s\n", formatAge(sec.CreationTimestamp.Time)))
+	b.WriteString(fmt.Sprintf("⛨ Keys:      %s", strings.Join(keys, ", ")))
 	fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))
 
 	if !revealValues {
@@ -69,7 +69,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Println(helpers.WarningStyle.Render("⚠️  Revealing decoded secret values:"))
+	fmt.Println(helpers.WarningStyle.Render("▲  Revealing decoded secret values:"))
 	for _, k := range keys {
 		fmt.Printf("   %s = %s\n", k, string(sec.Data[k]))
 	}

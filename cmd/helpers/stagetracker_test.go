@@ -20,7 +20,7 @@ func TestStageTrackerSetDetailPrintsProgressOnceOnPlainOutput(t *testing.T) {
 	if strings.Count(out, "3/28 apps") != 1 || strings.Count(out, "28/28 apps") != 1 {
 		t.Errorf("each distinct detail is printed exactly once:\n%s", out)
 	}
-	if !strings.Contains(out, "GitOps sync") || !strings.Contains(out, "✓") {
+	if !strings.Contains(out, "GitOps sync") || !strings.Contains(out, "●") {
 		t.Errorf("stage completion still rendered:\n%s", out)
 	}
 	tr.SetDetail(5, "out of range must not panic")

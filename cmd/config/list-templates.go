@@ -30,7 +30,7 @@ func runListTemplates(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(cfg.EnvironmentTemplates) == 0 {
-		fmt.Println("📭 No environment templates defined in the configuration")
+		fmt.Println("○ No environment templates defined in the configuration")
 		return nil
 	}
 
@@ -48,7 +48,7 @@ func runListTemplates(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(names)
 
-	fmt.Printf("📋 Environment templates (%d):\n\n", len(names))
+	fmt.Printf("▸ Environment templates (%d):\n\n", len(names))
 	for _, name := range names {
 		tpl := cfg.EnvironmentTemplates[name]
 		fmt.Printf("• %s\n", name)

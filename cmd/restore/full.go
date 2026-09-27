@@ -46,7 +46,7 @@ func runFullRestore(cmd *cobra.Command, args []string) error {
 		name = defaultRestoreName(src)
 	}
 
-	fmt.Printf("🔄 Full platform restore %q from backup %q\n", name, src)
+	fmt.Printf("◌ Full platform restore %q from backup %q\n", name, src)
 
 	spec := map[string]interface{}{
 		"backupName":         src,

@@ -27,7 +27,7 @@ Examples:
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	logger.Info("📋 Listing admission webhooks...")
+	logger.Info("▸ Listing admission webhooks...")
 	ctx := context.Background()
 
 	cs, err := getClientset()
@@ -54,7 +54,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %-26s %s\n", "⚙️  CONFIG", "🔖 KIND", "🪝 WEBHOOK", "📡 TARGET", "🛡️  FAIL"))
+	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %-26s %s\n", "⎔  CONFIG", "▸ KIND", "⇄ WEBHOOK", "⇄ TARGET", "⛨  FAIL"))
 	b.WriteString(strings.Repeat("─", 110) + "\n")
 	for _, r := range rows {
 		b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %-26s %s\n",

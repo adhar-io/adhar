@@ -42,7 +42,7 @@ func init() {
 }
 
 func runRestore(cmd *cobra.Command, args []string) error {
-	fmt.Println("🔄 Adhar Platform Restore Management")
+	fmt.Println("◌ Adhar Platform Restore Management")
 	fmt.Println("")
 	fmt.Println("Available commands:")
 	fmt.Println("  list      - List Velero restores")

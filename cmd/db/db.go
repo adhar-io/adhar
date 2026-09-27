@@ -94,7 +94,7 @@ func init() {
 }
 
 func runDB(cmd *cobra.Command, args []string) error {
-	logger.Info("🗄️ Database management - use subcommands for specific database tasks")
+	logger.Info("▥ Database management - use subcommands for specific database tasks")
 	logger.Info("Available subcommands:")
 	logger.Info("  create  - Create new databases")
 	logger.Info("  list    - List all databases")

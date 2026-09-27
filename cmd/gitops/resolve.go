@@ -66,7 +66,7 @@ func init() {
 }
 
 func runResolve(cmd *cobra.Command, args []string) error {
-	logger.Info("🔍 Resolving adhar:// references in GitOps manifests")
+	logger.Info("▸ Resolving adhar:// references in GitOps manifests")
 
 	// Create GitOps resolver
 	resolver := stack.NewGitOpsResolver()
@@ -76,7 +76,7 @@ func runResolve(cmd *cobra.Command, args []string) error {
 		if err := resolver.ValidateAdharReferences(); err != nil {
 			return fmt.Errorf("validation failed: %w", err)
 		}
-		logger.Info("✅ All adhar:// references are valid")
+		logger.Info("● All adhar:// references are valid")
 		return nil
 	}
 
@@ -85,7 +85,7 @@ func runResolve(cmd *cobra.Command, args []string) error {
 		if err := resolver.GenerateGitOpsManifests(); err != nil {
 			return fmt.Errorf("failed to generate GitOps manifests: %w", err)
 		}
-		logger.Info("✅ Successfully generated all GitOps manifests")
+		logger.Info("● Successfully generated all GitOps manifests")
 		return nil
 	}
 
@@ -112,7 +112,7 @@ func runResolve(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to process file: %w", err)
 	}
 
-	logger.Infof("✅ Successfully resolved adhar:// references: %s -> %s", inputFile, outputFile)
+	logger.Infof("● Successfully resolved adhar:// references: %s -> %s", inputFile, outputFile)
 	return nil
 }
 

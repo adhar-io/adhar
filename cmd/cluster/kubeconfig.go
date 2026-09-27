@@ -90,7 +90,7 @@ func getAndSetupKubeconfig(cmd *cobra.Command, clusterName string) error {
 		return fmt.Errorf("cluster '%s' not found in any configured provider", clusterName)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "📍 Found cluster '%s' in provider '%s'\n", clusterName, targetProviderName)
+	fmt.Fprintf(cmd.OutOrStdout(), "▸ Found cluster '%s' in provider '%s'\n", clusterName, targetProviderName)
 	fmt.Fprintf(cmd.OutOrStdout(), "   ID: %s\n", targetCluster.ID)
 	fmt.Fprintf(cmd.OutOrStdout(), "   Status: %s\n", targetCluster.Status)
 
@@ -114,12 +114,12 @@ func getAndSetupKubeconfig(cmd *cobra.Command, clusterName string) error {
 	manager := helpers.NewKubeconfigManager(outputPath)
 
 	// Create backup if existing config exists
-	fmt.Fprintf(cmd.OutOrStdout(), "\n🔧 Setting up kubeconfig...\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "\n⎔ Setting up kubeconfig...\n")
 	backupPath, err := manager.BackupKubeconfig()
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStderr(), "⚠️  Warning: Failed to backup existing kubeconfig: %v\n", err)
+		fmt.Fprintf(cmd.OutOrStderr(), "▲  Warning: Failed to backup existing kubeconfig: %v\n", err)
 	} else if backupPath != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "✓ Existing kubeconfig backed up to: %s\n", backupPath)
+		fmt.Fprintf(cmd.OutOrStdout(), "● Existing kubeconfig backed up to: %s\n", backupPath)
 	}
 
 	// Merge the new kubeconfig
@@ -128,31 +128,31 @@ func getAndSetupKubeconfig(cmd *cobra.Command, clusterName string) error {
 		return fmt.Errorf("failed to merge kubeconfig: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Kubeconfig updated successfully\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "● Kubeconfig updated successfully\n")
 
 	// Set current context if requested
 	setCurrentContext, _ := cmd.Flags().GetBool("set-current-context")
 	if setCurrentContext {
 		err = manager.SetCurrentContext(clusterName)
 		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "⚠️  Warning: Failed to set current context: %v\n", err)
+			fmt.Fprintf(cmd.OutOrStderr(), "▲  Warning: Failed to set current context: %v\n", err)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "✓ Current context set to: %s\n", clusterName)
+			fmt.Fprintf(cmd.OutOrStdout(), "● Current context set to: %s\n", clusterName)
 		}
 	}
 
 	// Validate the kubeconfig
 	err = manager.ValidateKubeconfig()
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStderr(), "⚠️  Warning: Kubeconfig validation failed: %v\n", err)
+		fmt.Fprintf(cmd.OutOrStderr(), "▲  Warning: Kubeconfig validation failed: %v\n", err)
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "✓ Kubeconfig validation passed\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "● Kubeconfig validation passed\n")
 	}
 
 	// Show available contexts
 	contexts, err := manager.ListContexts()
 	if err == nil && len(contexts) > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n📋 Available contexts:\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "\n▸ Available contexts:\n")
 		currentContext, _ := manager.GetCurrentContext()
 		for _, ctx := range contexts {
 			if ctx == currentContext {
@@ -163,7 +163,7 @@ func getAndSetupKubeconfig(cmd *cobra.Command, clusterName string) error {
 		}
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "\n🎉 Kubeconfig setup complete! You can now use:\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "\n● Kubeconfig setup complete! You can now use:\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "  • kubectl get nodes\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "  • kubectl cluster-info\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "  • kubectl get pods --all-namespaces\n")

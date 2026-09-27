@@ -49,7 +49,7 @@ type policyRow struct {
 }
 
 func runListPolicies(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("📋 Kyverno Policies"))
+	fmt.Println(helpers.TitleStyle.Render("▸ Kyverno Policies"))
 
 	dyn, err := getDynamicClient()
 	if err != nil {
@@ -132,15 +132,15 @@ func policyRowFrom(kind string, obj map[string]interface{}, name, ns string, cre
 	if action == "" {
 		action = "-"
 	}
-	ready := "❓"
+	ready := "◍"
 	conds := nestedSlice(obj, "status", "conditions")
 	for _, c := range conds {
 		if cm, ok := c.(map[string]interface{}); ok {
 			if fmt.Sprintf("%v", cm["type"]) == "Ready" {
 				if fmt.Sprintf("%v", cm["status"]) == "True" {
-					ready = "✅"
+					ready = "●"
 				} else {
-					ready = "❌"
+					ready = "✖"
 				}
 			}
 		}

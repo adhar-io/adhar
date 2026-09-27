@@ -66,7 +66,7 @@ func runApplyPolicy(cmd *cobra.Command, args []string) error {
 
 // applyPolicyFile server-side-applies each document in a Kyverno policy file.
 func applyPolicyFile(ctx context.Context, file string) error {
-	fmt.Println(helpers.TitleStyle.Render("📋 Applying policy manifest: " + file))
+	fmt.Println(helpers.TitleStyle.Render("▸ Applying policy manifest: " + file))
 
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -93,7 +93,7 @@ func applyPolicyFile(ctx context.Context, file string) error {
 		if dryRun {
 			verb = "validated (dry-run)"
 		}
-		fmt.Printf("   ✅ %s %s/%s\n", verb, obj.GetKind(), obj.GetName())
+		fmt.Printf("   ● %s %s/%s\n", verb, obj.GetKind(), obj.GetName())
 	}
 	fmt.Println(helpers.CreateSuccess("Policy manifest applied successfully."))
 	return nil
@@ -113,7 +113,7 @@ func applyPolicyXR(ctx context.Context) error {
 		ns = "default"
 	}
 
-	fmt.Println(helpers.TitleStyle.Render(fmt.Sprintf("📋 Creating compliance policy %q (mode: %s, provider: %s)",
+	fmt.Println(helpers.TitleStyle.Render(fmt.Sprintf("▸ Creating compliance policy %q (mode: %s, provider: %s)",
 		applyName, applyMode, helpers.ActiveProvider())))
 
 	spec := map[string]interface{}{

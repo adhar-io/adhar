@@ -68,7 +68,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--org, --team and --name are required")
 	}
 
-	logger.Info(fmt.Sprintf("📦 Creating project %s (org: %s, team: %s, provider: %s)",
+	logger.Info(fmt.Sprintf("▣ Creating project %s (org: %s, team: %s, provider: %s)",
 		projName, projOrg, projTeam, helpers.ActiveProvider()))
 
 	parameters := map[string]interface{}{
