@@ -97,7 +97,7 @@ func checkDatabaseHealth(ctx context.Context, client dynamic.Interface, ns, name
 	if healthy {
 		add("Health:", "● Healthy")
 	} else {
-		add("Health:", "▲  Degraded / not ready")
+		add("Health:", "▲ Degraded / not ready")
 	}
 	fmt.Println(helpers.CreateBox(builder, 90))
 	return nil

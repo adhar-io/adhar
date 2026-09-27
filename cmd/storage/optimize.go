@@ -51,7 +51,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	for _, pv := range pvs.Items {
 		switch pv.Status.Phase {
 		case corev1.VolumeReleased:
-			observations = append(observations, fmt.Sprintf("◌  PV %s is Released (reclaim policy: %s) — may be reclaimable", pv.Name, pv.Spec.PersistentVolumeReclaimPolicy))
+			observations = append(observations, fmt.Sprintf("◌ PV %s is Released (reclaim policy: %s) — may be reclaimable", pv.Name, pv.Spec.PersistentVolumeReclaimPolicy))
 		case corev1.VolumeAvailable:
 			observations = append(observations, fmt.Sprintf("○ PV %s is Available and unbound", pv.Name))
 		case corev1.VolumeFailed:
@@ -60,7 +60,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	}
 	for _, pvc := range pvcs.Items {
 		if pvc.Status.Phase != corev1.ClaimBound {
-			observations = append(observations, fmt.Sprintf("▲  PVC %s is %s (not Bound)", pvc.Name, pvc.Status.Phase))
+			observations = append(observations, fmt.Sprintf("▲ PVC %s is %s (not Bound)", pvc.Name, pvc.Status.Phase))
 		}
 	}
 

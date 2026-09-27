@@ -222,7 +222,7 @@ var listCmd = &cobra.Command{
 		case "yaml":
 			return helpers.PrintYAML(items)
 		}
-		t := helpers.NewTable("▸ NAME", "ENGINE", "READY", "REPLICAS", "ENDPOINT", "AGE")
+		t := helpers.NewTable("NAME", "ENGINE", "READY", "REPLICAS", "ENDPOINT", "AGE")
 		for _, c := range items {
 			t.Row(c.Name, c.Engine, readyLabel(c.Ready), fmt.Sprintf("%d", c.Replicas), dash(c.Endpoint), c.Age)
 		}

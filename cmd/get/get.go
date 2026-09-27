@@ -84,11 +84,11 @@ func runGet(cmd *cobra.Command, args []string) error {
 		helpers.IconSecurity + " " + "secrets      - Platform secrets and credentials",
 		"▣ applications - Application lifecycle management",
 		helpers.IconApp + " " + "status       - Platform health and status",
-		"⎔  clusters     - Cluster information and status",
+		"⎔ clusters     - Cluster information and status",
 		"⇄ environments - Environment configurations",
 		helpers.IconStorage + " " + "databases    - Database instances and status",
-		"⎔  managedtools - Platform tools and services",
-		"⇄  routes       - Network routes and ingress",
+		"⎔ managedtools - Platform tools and services",
+		"⇄ routes       - Network routes and ingress",
 	}
 
 	var resourcesBuilder strings.Builder

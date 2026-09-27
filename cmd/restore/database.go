@@ -56,7 +56,7 @@ func runDatabaseRestore(cmd *cobra.Command, args []string) error {
 		name = defaultRestoreName(src)
 	}
 
-	fmt.Printf("▥  Database restore %q from backup %q (namespace %q)\n", name, src, dbNamespace)
+	fmt.Printf("▥ Database restore %q from backup %q (namespace %q)\n", name, src, dbNamespace)
 
 	spec := map[string]interface{}{
 		"backupName":         src,

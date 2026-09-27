@@ -110,7 +110,7 @@ func phaseIcon(phase string) string {
 	case "":
 		return "◍ Unknown"
 	default:
-		return "▲  " + phase
+		return "▲ " + phase
 	}
 }
 

@@ -270,7 +270,7 @@ func runUpdateGroup(cmd *cobra.Command, args []string) error {
 	if err := kc.adminGetOne(ctx, "/groups/"+id, &current); err != nil {
 		return err
 	}
-	fmt.Printf("▸  Updating group %q\n", groupName)
+	fmt.Printf("▸ Updating group %q\n", groupName)
 
 	if updateDesc != "" {
 		current["attributes"] = map[string][]string{"description": {updateDesc}}

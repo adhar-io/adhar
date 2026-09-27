@@ -45,7 +45,7 @@ func runSwitch(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if _, err := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{}); err != nil {
-			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲  Namespace %q not found; switching anyway", ns)))
+			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲ Namespace %q not found; switching anyway", ns)))
 		}
 	}
 

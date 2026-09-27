@@ -242,7 +242,7 @@ func createCluster(cmd *cobra.Command, name string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "\n⎔ Setting up kubeconfig...\n")
 		err = setupClusterKubeconfig(cmd, cluster, p)
 		if err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "▲  Warning: Failed to setup kubeconfig: %v\n", err)
+			fmt.Fprintf(cmd.OutOrStderr(), "▲ Warning: Failed to setup kubeconfig: %v\n", err)
 			fmt.Fprintf(cmd.OutOrStderr(), "You can manually setup kubeconfig later with: adhar cluster kubeconfig %s\n", cluster.Name)
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(), "● Kubeconfig configured successfully!\n")

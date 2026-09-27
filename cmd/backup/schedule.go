@@ -208,7 +208,7 @@ var deleteScheduleCmd = &cobra.Command{
 
 func runDeleteSchedule(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	fmt.Printf("✖  Deleting schedule: %s\n", name)
+	fmt.Printf("✖ Deleting schedule: %s\n", name)
 
 	dyn, err := getDynamicClient()
 	if err != nil {

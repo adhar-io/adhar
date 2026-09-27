@@ -96,7 +96,7 @@ func runListProviders(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-24s %-16s %-9s %s\n", "⇄ ALIAS", "▣ TYPE", "● ENABLED", "▸  DISPLAY NAME"))
+	b.WriteString(fmt.Sprintf("%-24s %-16s %-9s %s\n", "⇄ ALIAS", "▣ TYPE", "● ENABLED", "▸ DISPLAY NAME"))
 	b.WriteString(strings.Repeat("─", 90) + "\n")
 	for _, p := range providers {
 		enabled := "yes"
@@ -141,7 +141,7 @@ func runGetProvider(cmd *cobra.Command, args []string) error {
 	fmt.Printf("▣ Type:         %v\n", p["providerId"])
 	fmt.Printf("● Enabled:      %v\n", p["enabled"])
 	if dn, ok := p["displayName"].(string); ok && dn != "" {
-		fmt.Printf("▸  Display name: %s\n", dn)
+		fmt.Printf("▸ Display name: %s\n", dn)
 	}
 	return nil
 }
@@ -249,7 +249,7 @@ func runTestProvider(cmd *cobra.Command, args []string) error {
 	if p.Enabled {
 		fmt.Println(helpers.CreateSuccess("Provider exists and is ENABLED"))
 	} else {
-		fmt.Println(helpers.WarningStyle.Render("▲  Provider exists but is DISABLED — run `adhar auth provider enable " + providerID + "`"))
+		fmt.Println(helpers.WarningStyle.Render("▲ Provider exists but is DISABLED — run `adhar auth provider enable " + providerID + "`"))
 	}
 	fmt.Println(helpers.CreateMuted("   Note: Keycloak exposes no live connection test; verify a real login through the broker."))
 	return nil

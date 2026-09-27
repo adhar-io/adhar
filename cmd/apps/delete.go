@@ -79,7 +79,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	logger.Info(fmt.Sprintf("✖  Deleting application: %s", appName))
+	logger.Info(fmt.Sprintf("✖ Deleting application: %s", appName))
 
 	kubeconfigPath, err := cmd.Root().PersistentFlags().GetString("kubeconfig")
 	if err != nil {

@@ -78,7 +78,7 @@ func reportServicePair(clientset *kubernetes.Clientset, from, to string) error {
 	if fromReady && toReady {
 		fmt.Println(helpers.CreateSuccess("● Both services have ready endpoints."))
 	} else {
-		fmt.Println(helpers.CreateWarning("▲  One or both services have no ready endpoints."))
+		fmt.Println(helpers.CreateWarning("▲ One or both services have no ready endpoints."))
 	}
 	return nil
 }
@@ -109,7 +109,7 @@ func readyLabel(ready bool) string {
 	if ready {
 		return "● ready endpoints"
 	}
-	return "▲  no ready endpoints"
+	return "▲ no ready endpoints"
 }
 
 // connectivitySummary reports node readiness, Cilium status, and per-service
@@ -169,11 +169,11 @@ func connectivitySummary(clientset *kubernetes.Clientset) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("⎔  Nodes Ready:           %d/%d\n", nodesReady, len(nodes.Items)))
-	b.WriteString(fmt.Sprintf("⇄  CNI:                   %s\n", cilium))
+	b.WriteString(fmt.Sprintf("⎔ Nodes Ready:           %d/%d\n", nodesReady, len(nodes.Items)))
+	b.WriteString(fmt.Sprintf("⇄ CNI:                   %s\n", cilium))
 	b.WriteString(fmt.Sprintf("⇄ Namespace:             %s\n", ns))
 	b.WriteString(fmt.Sprintf("● Services w/ endpoints: %d\n", withEndpoints))
-	b.WriteString(fmt.Sprintf("▲  Services w/o endpoints: %d", withoutEndpoints))
+	b.WriteString(fmt.Sprintf("▲ Services w/o endpoints: %d", withoutEndpoints))
 	fmt.Println(helpers.BorderStyle.Width(60).Render(b.String()))
 	return nil
 }

@@ -272,7 +272,7 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 		"⎔ Platform Status: %s\n"+
 			"● Health Score: %d/100\n"+
 			helpers.IconApp+" "+"Version: %s\n"+
-			"◌  Uptime: %s",
+			"◌ Uptime: %s",
 		overview.Platform.Status,
 		overview.Platform.HealthScore,
 		overview.Platform.Version,
@@ -282,11 +282,11 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 	fmt.Println(platformBox)
 
 	// Cluster Summary
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⎔  Cluster Overview"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⎔ Cluster Overview"))
 
 	clusterContent := fmt.Sprintf(
 		helpers.IconNetwork+" "+"Context: %s\n"+
-			"⎔  Provider: %s\n"+
+			"⎔ Provider: %s\n"+
 			"▸ Version: %s\n"+
 			helpers.IconCluster+" "+"Nodes: %d ready / %d total\n"+
 			helpers.IconNamespace+" "+"Namespaces: %d",
@@ -303,53 +303,40 @@ func displayComprehensiveOverview(overview *ComprehensiveOverview) error {
 	// Resources Summary
 	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(helpers.IconApp+" "+"Resource Summary"))
 
-	var resourcesTable strings.Builder
-	resourcesTable.WriteString(fmt.Sprintf("%-20s %-15s %-15s\n",
-		helpers.IconNamespace+" "+"RESOURCE TYPE", helpers.IconApp+" "+"COUNT", "◌ STATUS"))
-	resourcesTable.WriteString(strings.Repeat("─", 50) + "\n")
-
+	// COUNT is numeric, so Table right-aligns it; the icon stays on the row label
+	// where it means something, not in the header.
+	resourcesTable := helpers.NewTable("RESOURCE TYPE", "COUNT", "STATUS").WithBudget(51)
 	resourceData := []struct {
 		name   string
 		count  int
 		status string
 	}{
-		{"▣ Applications", len(overview.Applications), "Running"},
-		{"⇄ Environments", len(overview.Environments), "Active"},
-		{"◌ Pods", overview.Resources.TotalPods, fmt.Sprintf("%d running", overview.Resources.RunningPods)},
-		{helpers.IconNetwork + " " + "Services", overview.Resources.TotalServices, "Available"},
-		{helpers.IconSecurity + " " + "Secrets", overview.Resources.TotalSecrets, "Managed"},
-		{"⎔ ConfigMaps", overview.Resources.TotalConfigMaps, "Available"},
+		{helpers.IconApp + " Applications", len(overview.Applications), "Running"},
+		{helpers.IconNetwork + " Environments", len(overview.Environments), "Active"},
+		{helpers.IconApp + " Pods", overview.Resources.TotalPods, fmt.Sprintf("%d running", overview.Resources.RunningPods)},
+		{helpers.IconNetwork + " Services", overview.Resources.TotalServices, "Available"},
+		{helpers.IconSecurity + " Secrets", overview.Resources.TotalSecrets, "Managed"},
+		{helpers.IconCluster + " ConfigMaps", overview.Resources.TotalConfigMaps, "Available"},
 	}
-
 	for _, resource := range resourceData {
-		row := fmt.Sprintf("%-20s %-15d %-15s\n",
-			resource.name, resource.count, resource.status)
-		resourcesTable.WriteString(row)
+		resourcesTable.Row(resource.name, fmt.Sprintf("%d", resource.count), resource.status)
 	}
-
-	resourcesBox := helpers.BorderStyle.Width(55).Render(resourcesTable.String())
-	fmt.Println(resourcesBox)
+	fmt.Println(helpers.BorderStyle.Width(55).Render(resourcesTable.Render()))
 
 	// Applications Summary (if any)
 	if len(overview.Applications) > 0 {
 		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▣ Applications Summary"))
 
-		var appsTable strings.Builder
-		appsTable.WriteString(fmt.Sprintf("%-25s %-15s %-12s %-15s\n",
-			helpers.IconNamespace+" "+"NAME", helpers.IconNamespace+" "+"NAMESPACE", helpers.IconApp+" "+"TYPE", helpers.IconApp+" "+"STATUS"))
-		appsTable.WriteString(strings.Repeat("─", 65) + "\n")
-
+		// No manual TruncateDisplay: Table sizes every column from its content and
+		// trims by display width, so pre-truncating only guessed narrower.
+		at := helpers.NewTable("NAME", "NAMESPACE", "TYPE", "STATUS").WithBudget(66)
 		for _, app := range overview.Applications[:min(5, len(overview.Applications))] {
-			row := fmt.Sprintf("%-25s %-15s %-12s %-15s\n",
-				helpers.TruncateDisplay(app.Name, 23),
-				helpers.TruncateDisplay(app.Namespace, 13),
-				app.Type,
-				app.Status)
-			appsTable.WriteString(row)
+			at.Row(app.Name, app.Namespace, app.Type, app.Status)
 		}
-
+		appsTable := strings.Builder{}
+		appsTable.WriteString(at.Render())
 		if len(overview.Applications) > 5 {
-			appsTable.WriteString(fmt.Sprintf("... and %d more applications\n", len(overview.Applications)-5))
+			appsTable.WriteString(fmt.Sprintf("\n... and %d more applications", len(overview.Applications)-5))
 		}
 
 		appsBox := helpers.BorderStyle.Width(70).Render(appsTable.String())

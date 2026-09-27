@@ -104,7 +104,7 @@ func runCreateRole(cmd *cobra.Command, args []string) error {
 		if _, perr := kc.adminWrite(ctx, http.MethodPost, "/roles/"+url.PathEscape(roleName)+"/composites", []kcRole{parent}); perr != nil {
 			return fmt.Errorf("role created, but adding parent %q failed: %w", newRoleInherits, perr)
 		}
-		fmt.Printf("→  Inherits from: %s\n", newRoleInherits)
+		fmt.Printf("→ Inherits from: %s\n", newRoleInherits)
 	}
 	if len(newRolePerms) > 0 {
 		fmt.Println(helpers.CreateMuted("   Note: --permissions are not modeled as Keycloak realm-role attributes; ignored."))
@@ -210,7 +210,7 @@ func runGetRole(cmd *cobra.Command, args []string) error {
 			for _, c := range composites {
 				names = append(names, c.Name)
 			}
-			fmt.Printf("→  Inherits:    %s\n", strings.Join(names, ", "))
+			fmt.Printf("→ Inherits:    %s\n", strings.Join(names, ", "))
 		}
 	}
 	return nil
@@ -245,7 +245,7 @@ func runUpdateRole(cmd *cobra.Command, args []string) error {
 		ctx = context.Background()
 	}
 
-	fmt.Printf("▸  Updating realm role %q in realm %s\n", roleName, kc.Realm)
+	fmt.Printf("▸ Updating realm role %q in realm %s\n", roleName, kc.Realm)
 
 	// Fetch the current role so we PUT a complete representation (Keycloak
 	// replaces the role on PUT).

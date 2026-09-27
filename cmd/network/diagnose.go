@@ -64,7 +64,7 @@ func runDiagnose(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	fmt.Println(helpers.BorderStyle.Width(70).Render("⇄  CNI: " + cilium))
+	fmt.Println(helpers.BorderStyle.Width(70).Render("⇄ CNI: " + cilium))
 
 	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⇄ Services"))
 	var st strings.Builder
@@ -78,7 +78,7 @@ func runDiagnose(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println(helpers.BorderStyle.Width(75).Render(st.String()))
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⛨  Network Policies"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⛨ Network Policies"))
 	var pt strings.Builder
 	pt.WriteString(fmt.Sprintf("%-32s %-30s\n", "NAME", "POD SELECTOR"))
 	pt.WriteString(strings.Repeat("─", 65) + "\n")

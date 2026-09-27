@@ -58,7 +58,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		// A webhook rejection is a real, useful result — surface it as an error.
-		fmt.Println(helpers.CreateWarning("▲  Admission request was rejected or a webhook failed:"))
+		fmt.Println(helpers.CreateWarning("▲ Admission request was rejected or a webhook failed:"))
 		return fmt.Errorf("dry-run admission failed: %w", err)
 	}
 

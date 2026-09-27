@@ -89,7 +89,7 @@ func showSingleBackupStatus(name string) error {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("▣ Name:      %s\n", name))
 	b.WriteString(fmt.Sprintf("▸ Phase:     %s\n", phaseIcon(nestedString(obj.Object, "status", "phase"))))
-	b.WriteString(fmt.Sprintf("▲  Warnings:  %d\n", countNested(obj.Object, "status", "warnings")))
+	b.WriteString(fmt.Sprintf("▲ Warnings:  %d\n", countNested(obj.Object, "status", "warnings")))
 	b.WriteString(fmt.Sprintf("✖ Errors:    %d\n", countNested(obj.Object, "status", "errors")))
 	b.WriteString(fmt.Sprintf("▸ Created:   %s\n", backupAge(obj.GetCreationTimestamp().Time)))
 	if exp := nestedString(obj.Object, "status", "expiration"); exp != "" {

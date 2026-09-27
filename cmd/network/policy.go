@@ -171,7 +171,7 @@ func listPolicies() error {
 		return helpers.PrintYAML(policies.Items)
 	}
 
-	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⛨  Network Policies"))
+	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⛨ Network Policies"))
 	var t strings.Builder
 	t.WriteString(fmt.Sprintf("%-32s %-28s %-18s\n", "NAME", "POD SELECTOR", "POLICY TYPES"))
 	t.WriteString(strings.Repeat("─", 80) + "\n")

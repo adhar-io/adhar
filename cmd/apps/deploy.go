@@ -123,7 +123,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	fmt.Println(helpers.CreateSuccess(note))
 
 	if waitForReady {
-		logger.Info("◌  Waiting for application to become healthy...")
+		logger.Info("◌ Waiting for application to become healthy...")
 		status, err := waitForApplicationReady(ctx, kubeconfigPath, appliedNamespace, appliedName, deployTimeout)
 		if err != nil {
 			return err

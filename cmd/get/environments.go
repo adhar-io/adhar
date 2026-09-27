@@ -548,24 +548,18 @@ func displayEnvironmentsTable(environments []EnvironmentInfo) error {
 	logger.Info(fmt.Sprintf(helpers.IconApp+" "+"Found %d environments", len(environments)))
 
 	// Create table header
+	t := helpers.NewTable("NAME", "STATUS", "AGE", "WORKLOADS", "RESOURCES", "SECRETS").WithBudget(76)
 	var table strings.Builder
-	table.WriteString(fmt.Sprintf("%-25s %-12s %-8s %-10s %-10s %-8s\n",
-		helpers.IconNamespace+" "+"NAME", helpers.IconApp+" "+"STATUS", "▸ AGE", "▣ WORKLOADS", helpers.IconStorage+" "+"RESOURCES", helpers.IconSecurity+" "+"SECRETS"))
-	table.WriteString(strings.Repeat("─", 75) + "\n")
 
 	// Display environments
 	for _, env := range environments {
 		workloadCount := env.Workloads.Deployments + env.Workloads.StatefulSets + env.Workloads.DaemonSets + env.Workloads.Jobs
 		resourceCount := env.ResourceUsage.Services + env.ResourceUsage.ConfigMaps + env.ResourceUsage.PVCs
 
-		row := fmt.Sprintf("%-25s %-12s %-8s %-10d %-10d %-8d\n",
-			helpers.TruncateDisplay(env.Name, 23),
-			env.Status,
-			env.Age,
-			workloadCount,
-			resourceCount,
-			env.ResourceUsage.Secrets)
-		table.WriteString(row)
+		t.Row(env.Name, env.Status, env.Age,
+			fmt.Sprintf("%d", workloadCount),
+			fmt.Sprintf("%d", resourceCount),
+			fmt.Sprintf("%d", env.ResourceUsage.Secrets))
 
 		// Show additional details if requested
 		if showQuotas && len(env.ResourceQuotas) > 0 {
@@ -582,9 +576,16 @@ func displayEnvironmentsTable(environments []EnvironmentInfo) error {
 		}
 	}
 
-	// Display the table in a bordered box
-	tableBox := helpers.BorderStyle.Width(80).Render(table.String())
-	fmt.Println(tableBox)
+	// Grid first, then any per-environment detail lines the flags asked for. The
+	// detail lines are prose, not columns, so they sit below the grid rather than
+	// interleaved with it — interleaving them into the same builder is what made
+	// the old fixed-width rows appear to lose their alignment.
+	var out strings.Builder
+	out.WriteString(t.Render())
+	if extra := strings.TrimRight(table.String(), "\n"); extra != "" {
+		out.WriteString("\n\n" + extra)
+	}
+	fmt.Println(helpers.BorderStyle.Width(80).Render(out.String()))
 
 	return nil
 }

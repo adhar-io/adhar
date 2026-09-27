@@ -59,14 +59,14 @@ func investigateCluster(cmd *cobra.Command, clusterName string) error {
 	for providerName, providerConfig := range cfg.Providers {
 		prov, err := pfactory.DefaultFactory.CreateProvider(providerName, providerConfig.ToProviderMap())
 		if err != nil {
-			fmt.Printf("▲  Warning: failed to create provider %s: %v\n", providerName, err)
+			fmt.Printf("▲ Warning: failed to create provider %s: %v\n", providerName, err)
 			continue
 		}
 
 		// List clusters in this provider
 		clusters, err := prov.ListClusters(context.Background())
 		if err != nil {
-			fmt.Printf("▲  Warning: failed to list clusters in provider %s: %v\n", providerName, err)
+			fmt.Printf("▲ Warning: failed to list clusters in provider %s: %v\n", providerName, err)
 			continue
 		}
 

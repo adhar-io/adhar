@@ -86,7 +86,7 @@ func listServiceMonitors(ctx context.Context) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-30s %-18s %-6s %s\n", "⇄ NAME", "▣ NAMESPACE", "▸ EPS", "▸  SELECTOR"))
+	b.WriteString(fmt.Sprintf("%-30s %-18s %-6s %s\n", "⇄ NAME", "▣ NAMESPACE", "▸ EPS", "▸ SELECTOR"))
 	b.WriteString(strings.Repeat("─", 90) + "\n")
 	for _, m := range rows {
 		b.WriteString(fmt.Sprintf("%-30s %-18s %-6d %s\n", trunc(m.Name, 30), trunc(m.Namespace, 18), m.Endpoints, m.Selector))

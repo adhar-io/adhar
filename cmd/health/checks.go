@@ -231,14 +231,14 @@ func renderHealth(h *platformHealth) {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("⎔ Overall Health: %s\n", h.Overall))
 	b.WriteString(fmt.Sprintf("● Health Score:   %d/100\n", h.HealthScore))
-	b.WriteString("⎔  Kubernetes API: ● Reachable\n")
-	b.WriteString(fmt.Sprintf("⎔  Nodes Ready:    %d/%d", h.NodesReady, h.NodesTotal))
+	b.WriteString("⎔ Kubernetes API: ● Reachable\n")
+	b.WriteString(fmt.Sprintf("⎔ Nodes Ready:    %d/%d", h.NodesReady, h.NodesTotal))
 	fmt.Println(helpers.BorderStyle.Width(70).Render(b.String()))
 
 	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("⎔ Component Health"))
 
 	var t strings.Builder
-	t.WriteString(fmt.Sprintf("%-22s %-15s %-10s\n", "▸  COMPONENT", "▸ STATUS", "◌ READY"))
+	t.WriteString(fmt.Sprintf("%-22s %-15s %-10s\n", "▸ COMPONENT", "▸ STATUS", "◌ READY"))
 	t.WriteString(strings.Repeat("─", 55) + "\n")
 	for _, c := range h.Components {
 		t.WriteString(fmt.Sprintf("%-22s %-15s %-10s\n", c.Icon+" "+c.Name, c.Status, c.Replicas))

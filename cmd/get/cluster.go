@@ -276,16 +276,16 @@ func getProviderInfo(currentContext string) string {
 	} else {
 		// Try to detect other providers
 		if strings.Contains(strings.ToLower(currentContext), "gke") {
-			providerInfo.WriteString("⎔  Provider: Google Kubernetes Engine (GKE)\n")
+			providerInfo.WriteString("⎔ Provider: Google Kubernetes Engine (GKE)\n")
 			providerInfo.WriteString("  • Managed Kubernetes service by Google Cloud\n")
 			providerInfo.WriteString("  • Auto-scaling and auto-upgrades\n")
 			providerInfo.WriteString("  • Integrated with Google Cloud services")
 		} else if strings.Contains(strings.ToLower(currentContext), "eks") {
-			providerInfo.WriteString("⎔  Provider: Amazon Elastic Kubernetes Service (EKS)\n")
+			providerInfo.WriteString("⎔ Provider: Amazon Elastic Kubernetes Service (EKS)\n")
 			providerInfo.WriteString("  • High availability and security\n")
 			providerInfo.WriteString("  • Integrated with AWS services")
 		} else if strings.Contains(strings.ToLower(currentContext), "aks") {
-			providerInfo.WriteString("⎔  Provider: Azure Kubernetes Service (AKS)\n")
+			providerInfo.WriteString("⎔ Provider: Azure Kubernetes Service (AKS)\n")
 			providerInfo.WriteString("  • Enterprise-grade security and compliance\n")
 			providerInfo.WriteString("  • Integrated with Azure services")
 		} else {

@@ -490,7 +490,7 @@ func displayStatusTable(status *PlatformStatus) error {
 	overallStatusContent := fmt.Sprintf(
 		"⎔ Overall Status: %s\n"+
 			"● Health Score: %d/100\n"+
-			"◌  Platform Uptime: %s\n"+
+			"◌ Platform Uptime: %s\n"+
 			"▸ Last Updated: %s",
 		status.OverallStatus,
 		status.HealthScore,
@@ -503,27 +503,25 @@ func displayStatusTable(status *PlatformStatus) error {
 	// Display core services status
 	fmt.Printf("\n%s\n", helpers.TitleStyle.Render(helpers.IconBullet+" "+"Core Services"))
 
-	var servicesTable strings.Builder
-	servicesTable.WriteString(fmt.Sprintf("%-25s %-15s %-20s %-15s\n",
-		helpers.IconNamespace+" "+"SERVICE", helpers.IconApp+" "+"STATUS", "◌ REPLICAS", helpers.IconApp+" "+"VERSION"))
-	servicesTable.WriteString(strings.Repeat("─", 75) + "\n")
-
+	// Built with the shared Table, not fmt's fixed widths.
+	//
+	// The hand-rolled version used "%-25s %-15s %-20s %-15s" inside an 80-cell
+	// box: the four columns plus separators came to 78 before any content, and
+	// "%-25s" counts BYTES, so a name carrying a glyph (3 bytes, 1 cell) or a
+	// coloured status (escape sequences, 0 cells) pushed the row past the border
+	// and wrapped it. Table measures display width, right-aligns the numeric
+	// REPLICAS column, and shrinks to the terminal.
+	servicesTable := helpers.NewTable("SERVICE", "STATUS", "REPLICAS", "VERSION").
+		WithBudget(76) // inside an 80-cell bordered box
 	for _, service := range status.CoreServices {
-		serviceName := service.Icon + " " + service.Name
 		version := service.Version
 		if version == "" {
 			version = "unknown"
 		}
-
-		row := fmt.Sprintf("%-25s %-15s %-20s %-15s\n",
-			serviceName,
-			service.Status,
-			service.Replicas,
-			version)
-		servicesTable.WriteString(row)
+		servicesTable.Row(service.Icon+" "+service.Name, service.Status, service.Replicas, version)
 	}
 
-	servicesBox := helpers.BorderStyle.Width(80).Render(servicesTable.String())
+	servicesBox := helpers.BorderStyle.Width(80).Render(servicesTable.Render())
 	fmt.Println(servicesBox)
 
 	// Display cluster resources
@@ -531,7 +529,7 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	resourcesContent := fmt.Sprintf(
 		helpers.IconCluster+" "+"Nodes: %d ready, %d total\n"+
-			"⎔  Workloads: %d deployments, %d pods (%d running)\n"+
+			"⎔ Workloads: %d deployments, %d pods (%d running)\n"+
 			helpers.IconApp+" "+"Resources: %d namespaces, %d services, %d secrets\n"+
 			helpers.IconStorage+" "+"Storage: %d persistent volumes\n"+
 			helpers.IconNetwork+" "+"Network: %d service endpoints, %d load balancers",
@@ -553,7 +551,7 @@ func displayStatusTable(status *PlatformStatus) error {
 
 	// Display any warnings or issues
 	if len(status.Warnings) > 0 || len(status.CriticalIssues) > 0 {
-		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("▲  Issues & Warnings"))
+		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("▲ Issues & Warnings"))
 
 		var issuesContent strings.Builder
 
@@ -566,7 +564,7 @@ func displayStatusTable(status *PlatformStatus) error {
 		}
 
 		if len(status.Warnings) > 0 {
-			issuesContent.WriteString("▲  Warnings:\n")
+			issuesContent.WriteString("▲ Warnings:\n")
 			for _, warning := range status.Warnings {
 				issuesContent.WriteString(fmt.Sprintf("  • %s\n", warning))
 			}

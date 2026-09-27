@@ -72,7 +72,7 @@ func runSelectiveRestore(cmd *cobra.Command, args []string) error {
 		return err
 	} else if len(sel) > 0 {
 		spec["labelSelector"] = map[string]interface{}{"matchLabels": sel}
-		fmt.Printf("▸  Selector: %s\n", selSelector)
+		fmt.Printf("▸ Selector: %s\n", selSelector)
 	}
 
 	if dryRun {

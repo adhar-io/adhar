@@ -158,7 +158,7 @@ func reportNamespaceHealth(clientset *kubernetes.Clientset, ns string, to time.D
 	fmt.Println(helpers.BorderStyle.Width(70).Render(b.String()))
 
 	if len(problems) > 0 {
-		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("▲  Issues"))
+		fmt.Printf("\n%s\n", helpers.WarningStyle.Render("▲ Issues"))
 		for _, p := range problems {
 			fmt.Println("  • " + p)
 		}

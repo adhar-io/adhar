@@ -62,7 +62,7 @@ func deleteSingleBackup(backupName string) error {
 		return fmt.Errorf("backup not found: %s", backupName)
 	}
 
-	if !forceDelete && !confirm(fmt.Sprintf("✖  Are you sure you want to delete backup: %s? (y/N): ", backupName)) {
+	if !forceDelete && !confirm(fmt.Sprintf("✖ Are you sure you want to delete backup: %s? (y/N): ", backupName)) {
 		fmt.Println("✖ Deletion cancelled")
 		return nil
 	}
@@ -108,7 +108,7 @@ func deleteBackupsByPattern(pat string) error {
 		fmt.Printf("  - %s\n", name)
 	}
 
-	if !forceDelete && !confirm(fmt.Sprintf("\n✖  Are you sure you want to delete these %d backups? (y/N): ", len(matching))) {
+	if !forceDelete && !confirm(fmt.Sprintf("\n✖ Are you sure you want to delete these %d backups? (y/N): ", len(matching))) {
 		fmt.Println("✖ Deletion cancelled")
 		return nil
 	}
@@ -116,7 +116,7 @@ func deleteBackupsByPattern(pat string) error {
 	deleted := 0
 	for _, name := range matching {
 		if err := dyn.Resource(backupGVR).Namespace(veleroNamespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-			fmt.Printf("▲  Failed to delete %s: %v\n", name, err)
+			fmt.Printf("▲ Failed to delete %s: %v\n", name, err)
 			continue
 		}
 		deleted++

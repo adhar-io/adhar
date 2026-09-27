@@ -38,7 +38,7 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 	logger.Info("▸ Inspecting traffic-path components...")
 
 	if monitor {
-		fmt.Println(helpers.CreateMuted("▸  Live flow monitoring requires Hubble; showing component status instead."))
+		fmt.Println(helpers.CreateMuted("▸ Live flow monitoring requires Hubble; showing component status instead."))
 	}
 
 	clientset, err := getClientset()

@@ -239,7 +239,7 @@ func showSingleRestoreStatus(name string) error {
 	b.WriteString(fmt.Sprintf("◌ Name:      %s\n", name))
 	b.WriteString(fmt.Sprintf("▣ Backup:    %s\n", nestedString(obj.Object, "spec", "backupName")))
 	b.WriteString(fmt.Sprintf("▸ Phase:     %s\n", phaseIcon(nestedString(obj.Object, "status", "phase"))))
-	b.WriteString(fmt.Sprintf("▲  Warnings:  %d\n", countNested(obj.Object, "status", "warnings")))
+	b.WriteString(fmt.Sprintf("▲ Warnings:  %d\n", countNested(obj.Object, "status", "warnings")))
 	b.WriteString(fmt.Sprintf("✖ Errors:    %d\n", countNested(obj.Object, "status", "errors")))
 	b.WriteString(fmt.Sprintf("▸ Created:   %s", restoreAge(obj.GetCreationTimestamp().Time)))
 	fmt.Println(helpers.BorderStyle.Width(70).Render(b.String()))

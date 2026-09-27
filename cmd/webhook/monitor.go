@@ -100,7 +100,7 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %s\n", "⎔  CONFIG", "▸ KIND", "⇄ WEBHOOK", "●  HEALTH"))
+	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %s\n", "⎔ CONFIG", "▸ KIND", "⇄ WEBHOOK", "● HEALTH"))
 	b.WriteString(strings.Repeat("─", 95) + "\n")
 	for _, r := range rows {
 		b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %s\n", trunc(r.Config, 26), r.Kind, trunc(r.Webhook, 30), r.Health))

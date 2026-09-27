@@ -314,7 +314,7 @@ func runUpdateUser(cmd *cobra.Command, args []string) error {
 	if err := kc.adminGetOne(ctx, "/users/"+id, &current); err != nil {
 		return err
 	}
-	fmt.Printf("▸  Updating user %q\n", username)
+	fmt.Printf("▸ Updating user %q\n", username)
 	if updateEmail != "" {
 		current["email"] = updateEmail
 	}

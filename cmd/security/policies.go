@@ -37,7 +37,7 @@ type securityPolicyRow struct {
 }
 
 func runPolicies(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("⛨  Security Policies (Kyverno)"))
+	fmt.Println(helpers.TitleStyle.Render("⛨ Security Policies (Kyverno)"))
 
 	dyn, err := getDynamicClient()
 	if err != nil {

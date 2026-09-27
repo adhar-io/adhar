@@ -199,7 +199,7 @@ func printProductionSuccessMsg(envName, host, clusterName string) {
 	// its own block, because a self-signed certificate does not look like a DNS
 	// problem from a browser — it looks like the platform is broken.
 	if tlsBlocker != nil {
-		fmt.Printf("%s\n", helpers.WarningStyle.Render("▲  TLS is SELF-SIGNED — browsers will warn on every platform URL"))
+		fmt.Printf("%s\n", helpers.WarningStyle.Render("▲ TLS is SELF-SIGNED — browsers will warn on every platform URL"))
 		fmt.Printf("   why: %s\n", tlsBlocker.Reason)
 		fmt.Printf("   fix: %s\n", tlsBlocker.Fix)
 		fmt.Printf("   Let's Encrypt is already configured; cert-manager issues a trusted\n")

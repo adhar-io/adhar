@@ -53,7 +53,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	list, err := dyn.Resource(volumeSnapshotGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) || strings.Contains(err.Error(), "could not find the requested resource") {
-			fmt.Println(helpers.CreateMuted("▸  VolumeSnapshot CRDs are not installed on this cluster."))
+			fmt.Println(helpers.CreateMuted("▸ VolumeSnapshot CRDs are not installed on this cluster."))
 			return nil
 		}
 		return fmt.Errorf("listing volume snapshots in %s: %w", ns, err)

@@ -153,34 +153,36 @@ func displayPlatformHealth(conditions []PlatformConditionInfo, packages *Package
 	if len(conditions) > 0 {
 		fmt.Printf("\n%s\n", helpers.TitleStyle.Render("▣ Platform Conditions"))
 
-		var b strings.Builder
-		fmt.Fprintf(&b, "%-20s %-8s %-28s %s\n", "CONDITION", "STATUS", "REASON", "MESSAGE")
-		b.WriteString(strings.Repeat("─", 75) + "\n")
+		// Shared Table rather than fixed widths: "%-20s" counts BYTES, so the
+		// status cell ("● True" — a 3-byte glyph rendering as one cell) pushed
+		// every row two cells past its column and the message column drifted.
+		// Table measures display width and fits the box.
+		t := helpers.NewTable("CONDITION", "STATUS", "REASON", "MESSAGE").WithBudget(96)
 		for _, c := range conditions {
-			icon := "●"
+			state := helpers.StateReady(c.Status)
 			if c.Status != "True" {
-				icon = "✖"
+				state = helpers.StateFailed(c.Status)
 			}
-			msg := c.Message
-			if len(msg) > 40 {
-				msg = msg[:37] + "..."
-			}
-			fmt.Fprintf(&b, "%-20s %-8s %-28s %s\n", c.Type, icon+" "+c.Status, c.Reason, msg)
+			// Truncation is Table's job, and it counts cells — the byte slice this
+			// replaces could cut a multi-byte rune in half.
+			t.Row(c.Type, state, c.Reason, c.Message)
 		}
-		fmt.Println(helpers.BorderStyle.Width(100).Render(b.String()))
+		fmt.Println(helpers.BorderStyle.Width(100).Render(t.Render()))
 	}
 
 	if packages != nil && packages.Total > 0 {
 		fmt.Printf("\n%s\n", helpers.TitleStyle.Render(helpers.IconApp+" "+"Platform Packages"))
 
 		var b strings.Builder
-		fmt.Fprintf(&b, "● Healthy: %d   ◌ Progressing: %d   ✖ Degraded: %d   (total: %d)\n",
-			packages.Healthy, packages.Syncing, packages.Degraded, packages.Total)
-		b.WriteString(strings.Repeat("─", 75) + "\n")
-		fmt.Fprintf(&b, "%-35s %-18s %-12s\n", "PACKAGE", "HEALTH", "SYNC")
+		fmt.Fprintf(&b, "%s Healthy: %d   %s Progressing: %d   %s Degraded: %d   (total: %d)\n\n",
+			helpers.IconReady, packages.Healthy,
+			helpers.IconPending, packages.Syncing,
+			helpers.IconFailed, packages.Degraded, packages.Total)
+		t := helpers.NewTable("PACKAGE", "HEALTH", "SYNC").WithBudget(76)
 		for _, p := range packages.Packages {
-			fmt.Fprintf(&b, "%-35s %-18s %-12s\n", p.Name, healthIcon(p.Health)+" "+p.Health, p.Sync)
+			t.Row(p.Name, healthIcon(p.Health)+" "+p.Health, p.Sync)
 		}
+		b.WriteString(t.Render())
 		fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))
 	}
 }
@@ -284,17 +286,18 @@ func displayFleet(fleet *v1alpha1.FleetStatus) {
 	if fleet == nil || fleet.DataPlanes == 0 {
 		return
 	}
-	fmt.Printf("\n%s\n", helpers.CreateHighlight(fmt.Sprintf("⇄  Data Planes (%d/%d ready)", fleet.Ready, fleet.DataPlanes)))
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("  %-24s %-10s %-8s %-6s %s\n", "NAME", "MODE", "READY", "APPS", "KUBERNETES"))
+	fmt.Printf("\n%s\n", helpers.CreateHighlight(fmt.Sprintf("⇄ Data Planes (%d/%d ready)", fleet.Ready, fleet.DataPlanes)))
+	// APPS is a count, so Table right-aligns it; READY carries the state
+	// vocabulary so its glyph and colour cannot disagree.
+	t := helpers.NewTable("NAME", "MODE", "READY", "APPS", "KUBERNETES").WithBudget(76)
 	for _, p := range fleet.Planes {
-		ready := "●"
+		ready := helpers.StateReady("Ready")
 		if !p.Ready {
-			ready = "◌"
+			ready = helpers.StatePending("Pending")
 		}
-		b.WriteString(fmt.Sprintf("  %-24s %-10s %-8s %-6d %s\n", p.Name, p.Mode, ready, p.Apps, orDash(p.KubernetesVersion)))
+		t.Row(p.Name, p.Mode, ready, fmt.Sprintf("%d", p.Apps), orDash(p.KubernetesVersion))
 	}
-	fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))
+	fmt.Println(helpers.BorderStyle.Width(80).Render(t.Render()))
 }
 
 // certificateWarning explains an untrusted platform certificate.

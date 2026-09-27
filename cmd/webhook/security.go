@@ -103,7 +103,7 @@ func runSecurity(cmd *cobra.Command, args []string) error {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %-12s %-10s %s\n", "⎔  CONFIG", "▸ KIND", "⇄ WEBHOOK", "⛨ CA", "⛨  FAIL", "◌  SIDE-FX"))
+	b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %-12s %-10s %s\n", "⎔ CONFIG", "▸ KIND", "⇄ WEBHOOK", "⛨ CA", "⛨ FAIL", "◌ SIDE-FX"))
 	b.WriteString(strings.Repeat("─", 110) + "\n")
 	for _, r := range rows {
 		b.WriteString(fmt.Sprintf("%-26s %-11s %-30s %-12s %-10s %s\n",

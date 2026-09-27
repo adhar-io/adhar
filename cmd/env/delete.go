@@ -35,7 +35,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	envName := args[0]
 
 	if !deleteForce {
-		fmt.Printf("✖  Delete environment %q and its namespace (all resources)? (y/N): ", envName)
+		fmt.Printf("✖ Delete environment %q and its namespace (all resources)? (y/N): ", envName)
 		var resp string
 		fmt.Scanln(&resp)
 		if resp != "y" && resp != "Y" {

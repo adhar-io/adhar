@@ -131,7 +131,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("reading AdharPlatform %s/%s (is a platform running on the current context? pass --name for non-default platforms): %w", globals.AdharSystemNamespace, platformName, err)
 		}
 		platform = list.Items[0]
-		fmt.Printf("▸  Using AdharPlatform %q (the only platform on this cluster)\n", platform.Name)
+		fmt.Printf("▸ Using AdharPlatform %q (the only platform on this cluster)\n", platform.Name)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "adhar-upgrade-")
@@ -153,7 +153,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// Phase 1: converge foundation (embedded manifests, SSA-idempotent).
 	// ------------------------------------------------------------------
 	if !skipFoundation && !diffOnly {
-		fmt.Println("→  Converging foundation to this release's embedded manifests…")
+		fmt.Println("→ Converging foundation to this release's embedded manifests…")
 		if err := controllers.EnsureCRDs(ctx, scheme, kubeClient, platform.Spec.BuildCustomization); err != nil {
 			return fmt.Errorf("updating platform CRDs: %w", err)
 		}

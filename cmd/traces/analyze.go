@@ -78,12 +78,12 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("▸ Trace:       %s\n", id))
 	b.WriteString(fmt.Sprintf("▸ Spans:       %d\n", len(spans)))
-	b.WriteString(fmt.Sprintf("◌  Total dur:   %.2fms", float64(total)/1e6))
+	b.WriteString(fmt.Sprintf("◌ Total dur:   %.2fms", float64(total)/1e6))
 	fmt.Println(helpers.BorderStyle.Render(b.String()))
 
 	fmt.Printf("\n%s\n", helpers.TitleStyle.Render("◌ Slowest spans"))
 	var t strings.Builder
-	t.WriteString(fmt.Sprintf("%-30s %-22s %s\n", "⎔ SPAN", "▣ SERVICE", "◌  DUR"))
+	t.WriteString(fmt.Sprintf("%-30s %-22s %s\n", "⎔ SPAN", "▣ SERVICE", "◌ DUR"))
 	t.WriteString(strings.Repeat("─", 70) + "\n")
 	max := 10
 	if len(spans) < max {

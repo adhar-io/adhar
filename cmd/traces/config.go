@@ -26,12 +26,12 @@ Examples:
 }
 
 func runConfig(cmd *cobra.Command, args []string) error {
-	logger.Info("⎔  Effective tracing configuration")
+	logger.Info("⎔ Effective tracing configuration")
 	ctx := context.Background()
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("⇄ Tempo URL:  %s\n", tempoURL))
-	b.WriteString(fmt.Sprintf("◌  Timeout:    %s\n", httpTimeout()))
+	b.WriteString(fmt.Sprintf("◌ Timeout:    %s\n", httpTimeout()))
 	b.WriteString(fmt.Sprintf("▸ Limit:      %d\n", traceLimit))
 
 	// Probe readiness (best-effort).

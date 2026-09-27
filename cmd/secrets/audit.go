@@ -89,10 +89,10 @@ func auditOne(s corev1.Secret) error {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("⛨ Name:            %s\n", s.Name))
 	b.WriteString(fmt.Sprintf("▣ Namespace:       %s\n", s.Namespace))
-	b.WriteString(fmt.Sprintf("▸  Type:            %s\n", s.Type))
+	b.WriteString(fmt.Sprintf("▸ Type:            %s\n", s.Type))
 	b.WriteString(fmt.Sprintf("⛨ Keys:            %s\n", strings.Join(keys, ", ")))
 	b.WriteString(fmt.Sprintf("▸ Managed-by:      %s\n", valueOrDash(s.Labels["adhar.io/managed-by"])))
-	b.WriteString(fmt.Sprintf("▸  Last-modified:   %s by %s\n", when, who))
+	b.WriteString(fmt.Sprintf("▸ Last-modified:   %s by %s\n", when, who))
 	b.WriteString(fmt.Sprintf("▸ Created:         %s\n", formatAge(s.CreationTimestamp.Time)))
 	b.WriteString(fmt.Sprintf("◌ Last-rotated:    %s", valueOrDash(s.Annotations["adhar.io/rotated-at"])))
 	fmt.Println(helpers.BorderStyle.Width(80).Render(b.String()))

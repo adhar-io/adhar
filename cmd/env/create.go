@@ -59,7 +59,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if _, err := clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{}); err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲  Namespace %q already exists; ensuring labels only", envName)))
+			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲ Namespace %q already exists; ensuring labels only", envName)))
 		} else {
 			return fmt.Errorf("failed to create namespace %q: %w", envName, err)
 		}

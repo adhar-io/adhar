@@ -184,16 +184,11 @@ func readyFromConditions(obj map[string]interface{}) string {
 func displayDataPlanesTable(planes []DataPlaneInfo) {
 	logger.Info(fmt.Sprintf(helpers.IconApp+" "+"Found %d data plane(s)", len(planes)))
 
-	var table strings.Builder
-	fmt.Fprintf(&table, "%-24s %-11s %-12s %-10s %-6s %-12s %-8s\n",
-		helpers.IconNamespace+" "+"NAME", "▣ MODE", "⎔  PROVIDER", helpers.IconApp+" "+"PROFILE", helpers.IconApp+" "+"APPS", "⇄ READY", "▸ AGE")
-	table.WriteString(strings.Repeat("─", 92) + "\n")
+	t := helpers.NewTable("NAME", "MODE", "PROVIDER", "PROFILE", "APPS", "READY", "AGE").WithBudget(91)
 	for _, p := range planes {
-		fmt.Fprintf(&table, "%-24s %-11s %-12s %-10s %-6d %-12s %-8s\n",
-			helpers.TruncateDisplay(p.Name, 22), p.Mode, helpers.TruncateDisplay(p.Provider, 10),
-			p.Profile, p.Apps, p.Ready, p.Age)
+		t.Row(p.Name, p.Mode, p.Provider, p.Profile, fmt.Sprintf("%d", p.Apps), p.Ready, p.Age)
 	}
-	fmt.Println(helpers.BorderStyle.Width(95).Render(table.String()))
+	fmt.Println(helpers.BorderStyle.Width(95).Render(t.Render()))
 }
 
 func orDash(s string) string {

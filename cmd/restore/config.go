@@ -25,7 +25,7 @@ Examples:
 }
 
 func runConfigRestore(cmd *cobra.Command, args []string) error {
-	fmt.Println(helpers.TitleStyle.Render("⎔  Velero Backup Storage Locations"))
+	fmt.Println(helpers.TitleStyle.Render("⎔ Velero Backup Storage Locations"))
 
 	dyn, err := getDynamicClient()
 	if err != nil {

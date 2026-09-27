@@ -90,7 +90,7 @@ func runRotate(cmd *cobra.Command, args []string) error {
 
 	if _, err := dyn.Resource(compositeSecretRotationGVR).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲  Rotation policy %q already exists; re-run rotation by deleting and recreating it", rotationName)))
+			fmt.Println(helpers.WarningStyle.Render(fmt.Sprintf("▲ Rotation policy %q already exists; re-run rotation by deleting and recreating it", rotationName)))
 			return nil
 		}
 		return fmt.Errorf("create secret rotation: %w", err)

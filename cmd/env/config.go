@@ -85,7 +85,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("build patch: %w", err)
 		}
-		logger.Info(fmt.Sprintf("⎔  Updating configuration for environment: %s", envName))
+		logger.Info(fmt.Sprintf("⎔ Updating configuration for environment: %s", envName))
 		if _, err := dyn.Resource(compositeEnvironmentGVR).Namespace(envName).
 			Patch(ctx, envName, types.MergePatchType, data, metav1.PatchOptions{}); err != nil {
 			if crdMissing(err) {

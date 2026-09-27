@@ -68,7 +68,7 @@ func runAlert(cmd *cobra.Command, args []string) error {
 	})
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-30s %-12s %-10s %s\n", "▸  ALERT", "▸ STATE", "▲  SEV", "▣ INSTANCE"))
+	b.WriteString(fmt.Sprintf("%-30s %-12s %-10s %s\n", "▸ ALERT", "▸ STATE", "▲ SEV", "▣ INSTANCE"))
 	b.WriteString(strings.Repeat("─", 90) + "\n")
 	for _, a := range payload.Alerts {
 		state := a.State
