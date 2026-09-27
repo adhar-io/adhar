@@ -2,7 +2,9 @@ package down
 
 import (
 	"bytes"
+	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -161,4 +163,102 @@ func TestConfirmationNamesTheTargetCloudsResources(t *testing.T) {
 			t.Errorf("empty config path = %q", got)
 		}
 	})
+}
+
+// Providers report teardown progress with fmt.Printf, not through the log
+// package — provider_cluster.go alone has 93 such calls. Those bypass
+// log.SetOutput and land on the terminal Bubble Tea is redrawing, and the damage
+// is worse than interleaving: because the TUI leaves the cursor mid-line, a bare
+// "\n" moves DOWN but not to column 0, so a bulleted list walks diagonally
+// across the screen:
+//
+//	▸ Discovered cluster resources:
+//	                                • VPCs: 1
+//	                                            • Subnets: 2
+//	                                                          • Security Groups: 1
+//
+// os.Stdout is therefore captured as well. fmt.Printf resolves os.Stdout at call
+// time, so reassigning the variable redirects every call site without touching
+// provider code.
+func TestTeardownCapturesFmtPrintfNotOnlyTheLogPackage(t *testing.T) {
+	realStdout := os.Stdout
+	sub := make(chan tea.Msg, 16)
+	capture := captureTeardownLogs(sub)
+
+	if os.Stdout == realStdout {
+		t.Fatal("os.Stdout was not redirected, so fmt.Printf still reaches the terminal")
+	}
+
+	fmt.Printf("\n▸ Discovered cluster resources:\n")
+	fmt.Printf("   • VPCs: %d\n", 1)
+	fmt.Println("   • Subnets: 2")
+
+	capture.Restore()
+
+	if os.Stdout != realStdout {
+		t.Error("Restore did not put os.Stdout back")
+	}
+	got := capture.Contents()
+	for _, want := range []string{"Discovered cluster resources", "VPCs: 1", "Subnets: 2"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stdout line %q was lost; captured:\n%s", want, got)
+		}
+	}
+
+	// and they were offered to the detail pane
+	var pane []string
+	for {
+		select {
+		case msg := <-sub:
+			if out, ok := msg.(logger.ExtraOutputMsg); ok {
+				pane = append(pane, string(out))
+			}
+			continue
+		default:
+		}
+		break
+	}
+	if len(pane) < 3 {
+		t.Errorf("want at least 3 detail lines, got %d: %v", len(pane), pane)
+	}
+	for _, l := range pane {
+		if strings.Contains(l, "\n") {
+			t.Errorf("a detail line must be a single line, got %q", l)
+		}
+	}
+}
+
+// Restore must drain the reader, or the last line written before the UI exits is
+// lost to the race between closing the pipe and the process moving on.
+func TestTeardownCaptureDoesNotLoseTheFinalLine(t *testing.T) {
+	sub := make(chan tea.Msg, 8)
+	capture := captureTeardownLogs(sub)
+	fmt.Println("Successfully deleted cluster: aws-dev")
+	capture.Restore()
+	if got := capture.Contents(); !strings.Contains(got, "Successfully deleted cluster") {
+		t.Errorf("the final line was lost: %q", got)
+	}
+}
+
+// Capturing stdout must not deadlock when the pane is not being drained: the
+// providers print hundreds of lines and `sub` is unbuffered in the real program.
+func TestTeardownCaptureOfStdoutNeverBlocks(t *testing.T) {
+	capture := captureTeardownLogs(make(chan tea.Msg)) // unbuffered, no reader
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 300; i++ {
+			fmt.Printf("   • resource %d deleted\n", i)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		capture.Restore()
+		t.Fatal("printing to the captured stdout blocked with nobody draining the pane")
+	}
+	capture.Restore()
+	if n := strings.Count(capture.Contents(), "resource"); n != 300 {
+		t.Errorf("retained %d of 300 lines", n)
+	}
 }

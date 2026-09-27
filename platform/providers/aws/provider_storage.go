@@ -15,7 +15,7 @@ import (
 
 // cleanupAllAdharVolumes deletes all EBS volumes created by Adhar platform
 func (p *Provider) cleanupAllAdharVolumes(ctx context.Context) error {
-	log.Printf("🔍 Finding and deleting all Adhar EBS volumes...")
+	log.Printf("▸ Finding and deleting all Adhar EBS volumes...")
 
 	result, err := p.ec2Client.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
 		Filters: []ec2types.Filter{
@@ -32,7 +32,7 @@ func (p *Provider) cleanupAllAdharVolumes(ctx context.Context) error {
 	deletedCount := 0
 	for _, volume := range result.Volumes {
 		if volume.VolumeId != nil && volume.State == ec2types.VolumeStateAvailable {
-			log.Printf("🗑️  Deleting volume %s", *volume.VolumeId)
+			log.Printf("✖ Deleting volume %s", *volume.VolumeId)
 			_, err = p.ec2Client.DeleteVolume(ctx, &ec2.DeleteVolumeInput{
 				VolumeId: volume.VolumeId,
 			})
@@ -44,7 +44,7 @@ func (p *Provider) cleanupAllAdharVolumes(ctx context.Context) error {
 		}
 	}
 
-	log.Printf("✓ Deleted %d volumes", deletedCount)
+	log.Printf("● Deleted %d volumes", deletedCount)
 	return nil
 }
 

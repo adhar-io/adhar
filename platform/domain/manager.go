@@ -80,11 +80,11 @@ func (m *Manager) SetupDomain(ctx context.Context, cluster *types.Cluster) error
 		}
 		if err := m.setupCoreDNSForKind(ctx, domain); err != nil {
 			if !suppressOutput {
-				fmt.Printf("⚠️  Warning: Failed to configure CoreDNS: %v\n", err)
+				fmt.Printf("▲ Warning: Failed to configure CoreDNS: %v\n", err)
 			}
 		} else {
 			if !suppressOutput {
-				fmt.Printf("✓ CoreDNS configured for %s\n", domain)
+				fmt.Printf("● CoreDNS configured for %s\n", domain)
 			}
 		}
 	}
@@ -95,7 +95,7 @@ func (m *Manager) SetupDomain(ctx context.Context, cluster *types.Cluster) error
 	}
 
 	if !suppressOutput {
-		fmt.Printf("✓ Domain management setup completed for %s\n", domain)
+		fmt.Printf("● Domain management setup completed for %s\n", domain)
 	}
 	return nil
 }
@@ -147,7 +147,7 @@ func (m *Manager) installCertManager(ctx context.Context) error {
 
 	output, err = cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("⚠️  Warning: Timeout waiting for cert-manager: %v\n", err)
+		fmt.Printf("▲ Warning: Timeout waiting for cert-manager: %v\n", err)
 	}
 
 	return nil
@@ -201,7 +201,7 @@ spec:
 		return fmt.Errorf("failed to create Let's Encrypt issuer: %w\nOutput: %s", err, string(output))
 	}
 
-	fmt.Printf("✓ Created Let's Encrypt issuer: %s\n", issuerName)
+	fmt.Printf("● Created Let's Encrypt issuer: %s\n", issuerName)
 	return nil
 }
 
@@ -225,7 +225,7 @@ func (m *Manager) installExternalDNS(ctx context.Context) error {
 		return fmt.Errorf("failed to install external-dns: %w\nOutput: %s", err, string(output))
 	}
 
-	fmt.Printf("✓ Installed external-dns for provider: %s\n", m.config.DNS.Provider)
+	fmt.Printf("● Installed external-dns for provider: %s\n", m.config.DNS.Provider)
 	return nil
 }
 
@@ -382,10 +382,10 @@ func (m *Manager) installNginxIngress(ctx context.Context, cluster *types.Cluste
 
 	output, err = cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("⚠️  Warning: Timeout waiting for NGINX ingress: %v\n", err)
+		fmt.Printf("▲ Warning: Timeout waiting for NGINX ingress: %v\n", err)
 	}
 
-	fmt.Printf("✓ NGINX ingress controller installed\n")
+	fmt.Printf("● NGINX ingress controller installed\n")
 	return nil
 }
 
@@ -435,7 +435,7 @@ data:
 		return fmt.Errorf("failed to create domain configuration ConfigMap: %w", err)
 	}
 
-	fmt.Printf("✓ Stored domain configuration in cluster\n")
+	fmt.Printf("● Stored domain configuration in cluster\n")
 	return nil
 }
 
@@ -487,7 +487,7 @@ data:
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		// Don't fail if restart fails, just warn
-		fmt.Printf("⚠️  Warning: Failed to restart CoreDNS: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to restart CoreDNS: %v\n", err)
 	}
 
 	return nil
@@ -500,9 +500,9 @@ func (m *Manager) CleanupDomain(ctx context.Context, cluster *types.Cluster) err
 	// Remove adhar-system namespace (this will clean up ConfigMaps and Secrets)
 	cmd := exec.CommandContext(ctx, "kubectl", "delete", "namespace", "adhar-system", "--ignore-not-found=true")
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to clean up adhar-system namespace: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to clean up adhar-system namespace: %v\n", err)
 	}
 
-	fmt.Printf("✓ Domain management cleanup completed\n")
+	fmt.Printf("● Domain management cleanup completed\n")
 	return nil
 }

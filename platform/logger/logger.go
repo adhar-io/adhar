@@ -103,15 +103,15 @@ var globalLogger *AdharLogger
 
 // Emoji constants for better visual feedback
 const (
-	EmojiInfo     = "ℹ️"
-	EmojiSuccess  = "✅"
-	EmojiWarning  = "⚠️"
-	EmojiError    = "❌"
-	EmojiDebug    = "🔍"
-	EmojiSecurity = "🔒"
-	EmojiNetwork  = "🌐"
-	EmojiCluster  = "🏗️"
-	EmojiProvider = "☁️"
+	EmojiInfo     = "▸"
+	EmojiSuccess  = "●"
+	EmojiWarning  = "▲"
+	EmojiError    = "✖"
+	EmojiDebug    = "▸"
+	EmojiSecurity = "⛨"
+	EmojiNetwork  = "⇄"
+	EmojiCluster  = "⎔"
+	EmojiProvider = "⎔"
 )
 
 // Init initializes the global logger
@@ -581,10 +581,10 @@ func Banner(title, subtitle string) {
 
 // StartOperation logs the start of an operation
 func (l *AdharLogger) StartOperation(operation, details string) {
-	l.Info(fmt.Sprintf("🚀 Starting %s: %s", operation, details))
+	l.Info(fmt.Sprintf("▣ Starting %s: %s", operation, details))
 }
 
 // FinishOperation logs the completion of an operation
 func (l *AdharLogger) FinishOperation(operation, details string) {
-	l.Info(fmt.Sprintf("✅ Completed %s: %s", operation, details))
+	l.Info(fmt.Sprintf("● Completed %s: %s", operation, details))
 }

@@ -215,7 +215,7 @@ func renderHelp(cmd *cobra.Command, _ []string, withBanner bool) {
 	// --help path where PersistentPostRun is skipped) the brand sign-off.
 	b.WriteString(footerHint(off, cmd))
 	if withBanner {
-		fmt.Fprintf(&b, "\n  %s\n\n", paint(off, hTag, "Adhar • Built with ● for developers!"))
+		fmt.Fprintf(&b, "\n  %s\n\n", paint(off, hTag, "Adhar • Built with ❤ for developers!"))
 	}
 
 	fmt.Fprint(cmd.OutOrStdout(), b.String())

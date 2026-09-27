@@ -208,7 +208,7 @@ func (r *AdharPlatformReconciler) driveConvergence(ctx context.Context, resource
 		// check fails, and a bare retry here kept `adhar up` hanging long past
 		// the timeout instead of finishing and reporting what it saw.
 		if expired {
-			logger.Info("⏳ GitOps convergence could not be evaluated before the timeout; ArgoCD continues in the background", "error", err)
+			logger.Info("◌ GitOps convergence could not be evaluated before the timeout; ArgoCD continues in the background", "error", err)
 			r.shouldShutdown = true
 			return ctrl.Result{}, nil
 		}
@@ -218,12 +218,12 @@ func (r *AdharPlatformReconciler) driveConvergence(ctx context.Context, resource
 	r.publishConvergence(ctx, resource, report)
 	switch {
 	case report.Converged():
-		logger.Info("✅ Platform GitOps sync complete: every application is Synced and Healthy", "apps", report.Total)
+		logger.Info("● Platform GitOps sync complete: every application is Synced and Healthy", "apps", report.Total)
 	case expired:
-		logger.Info("⏳ Platform GitOps sync still converging at the timeout; ArgoCD continues in the background",
+		logger.Info("◌ Platform GitOps sync still converging at the timeout; ArgoCD continues in the background",
 			"healthy", report.Healthy, "total", report.Total, "pending", report.Pending)
 	default:
-		logger.Info("⏳ Platform GitOps sync converging", "healthy", report.Healthy, "total", report.Total, "refreshed", report.Refreshed)
+		logger.Info("◌ Platform GitOps sync converging", "healthy", report.Healthy, "total", report.Total, "refreshed", report.Refreshed)
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 	r.shouldShutdown = true

@@ -285,7 +285,7 @@ func (r *AdharPlatformReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return r.driveConvergence(ctx, &localBuild)
 		}
 
-		logger.Info("⏳ Platform is still converging, will check again shortly...")
+		logger.Info("◌ Platform is still converging, will check again shortly...")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
@@ -431,7 +431,7 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 		logger.Error(err, "Failed to setup GitOps repositories - this is REQUIRED for GitOps workflow")
 		return fmt.Errorf("GitOps repositories setup failed: %w", err)
 	}
-	logger.Info("✅ GitOps repositories setup completed successfully")
+	logger.Info("● GitOps repositories setup completed successfully")
 
 	// Repos are seeded — record it so the expensive seeding (clone + force-push)
 	// becomes a one-time operation. RepositoriesCreated now means exactly that:
@@ -451,7 +451,7 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 		logger.Error(err, "Failed to configure ArgoCD repository authentication")
 		return err
 	}
-	logger.Info("✅ ArgoCD repository authentication applied successfully")
+	logger.Info("● ArgoCD repository authentication applied successfully")
 
 	// Only apply the platform stack ApplicationSet after GitOps is ready.
 	// The file is provider-selected: Kind gets the curated local core, cloud
@@ -470,7 +470,7 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 		return err
 	}
 
-	logger.Info("✅ Successfully applied platform stack ApplicationSet")
+	logger.Info("● Successfully applied platform stack ApplicationSet")
 
 	// The workload-cluster ApplicationSet (thin agent profile, roadmap P2.2)
 	// generates nothing until CompositeCluster registrations appear (P2.1),
@@ -481,7 +481,7 @@ func (r *AdharPlatformReconciler) applyPlatformStack(ctx context.Context, req ct
 			logger.Error(err, "Failed to apply workload cluster ApplicationSet")
 			return err
 		}
-		logger.Info("✅ Successfully applied workload cluster ApplicationSet")
+		logger.Info("● Successfully applied workload cluster ApplicationSet")
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("reading workload cluster ApplicationSet %s: %w", workloadAppSetPath, err)
 	}
@@ -512,7 +512,7 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 		return nil
 	}
 
-	logger.Info("🔄 Setting up GitOps repositories in Gitea")
+	logger.Info("◌ Setting up GitOps repositories in Gitea")
 
 	// Wait for Gitea to be ready
 	if err := r.waitForGiteaReady(ctx); err != nil {
@@ -553,7 +553,7 @@ func (r *AdharPlatformReconciler) setupGitOpsRepositories(ctx context.Context, r
 	// after this returns, not here — it guards only the one-time seeding, while
 	// the ApplicationSet apply remains ungated so an existing-repos reconcile
 	// still (re)applies the appset.
-	logger.Info("✅ GitOps repositories setup completed successfully")
+	logger.Info("● GitOps repositories setup completed successfully")
 	return nil
 }
 
@@ -671,7 +671,7 @@ func (r *AdharPlatformReconciler) waitForGiteaReady(ctx context.Context) error {
 		time.Sleep(3 * time.Second)
 	}
 
-	logger.Info("✅ Gitea is fully ready for repository operations")
+	logger.Info("● Gitea is fully ready for repository operations")
 	return nil
 }
 
@@ -1082,7 +1082,7 @@ func (r *AdharPlatformReconciler) populateGiteaRepo(ctx context.Context, podName
 	}
 
 	_, _ = kubectlExecSh(fmt.Sprintf("rm -rf %s %s %s", workDir, stagingDir, bundlePath))
-	logger.Info("✅ Repository populated successfully!", "repo", repoName)
+	logger.Info("● Repository populated successfully!", "repo", repoName)
 	return nil
 }
 
@@ -1187,7 +1187,7 @@ func (r *AdharPlatformReconciler) postProcessReconcile(ctx context.Context, req 
 
 	logger.Info("Checking if we should shutdown")
 	if r.shouldShutdown {
-		logger.Info("🎉 Platform deployment completed successfully! Shutting down...")
+		logger.Info("● Platform deployment completed successfully! Shutting down...")
 
 		// Refresh ArgoCD applications to ensure they're in sync
 		err := r.requestArgoCDAppRefresh(ctx)

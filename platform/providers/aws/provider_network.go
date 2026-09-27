@@ -205,12 +205,12 @@ func (p *Provider) deleteClusterSecurityGroups(ctx context.Context, clusterName 
 
 	if len(result.SecurityGroups) == 0 {
 		log.Printf("No security groups found for cluster %s", clusterName)
-		fmt.Printf("ℹ️  No security groups found for cluster %s\n", clusterName)
+		fmt.Printf("▸ No security groups found for cluster %s\n", clusterName)
 		return nil
 	}
 
 	// First, remove all ingress and egress rules to break dependencies
-	fmt.Printf("🔧 Removing security group rules to break dependencies...\n")
+	fmt.Printf("⎔ Removing security group rules to break dependencies...\n")
 	for _, sg := range result.SecurityGroups {
 		if sg.GroupName != nil && *sg.GroupName == "default" {
 			continue
@@ -275,15 +275,15 @@ func (p *Provider) deleteClusterSecurityGroups(ctx context.Context, clusterName 
 			}
 
 			log.Printf("Warning: Failed to delete security group %s after %d attempts: %v", *sg.GroupId, attempt+1, err)
-			fmt.Printf("⚠️  Warning: Failed to delete security group %s: %v\n", *sg.GroupId, err)
+			fmt.Printf("▲ Warning: Failed to delete security group %s: %v\n", *sg.GroupId, err)
 			break
 		}
 	}
 
 	if deletedCount > 0 {
-		fmt.Printf("✓ Deleted %d security groups\n", deletedCount)
+		fmt.Printf("● Deleted %d security groups\n", deletedCount)
 	}
-	log.Printf("✓ Deleted %d security groups", deletedCount)
+	log.Printf("● Deleted %d security groups", deletedCount)
 	return nil
 }
 
@@ -396,13 +396,13 @@ func (p *Provider) deleteClusterVPC(ctx context.Context, vpcId, clusterName stri
 		return fmt.Errorf("failed to delete VPC: %w", err)
 	}
 
-	log.Printf("✓ Deleted VPC %s", vpcId)
+	log.Printf("● Deleted VPC %s", vpcId)
 	return nil
 }
 
 // cleanupAllAdharSecurityGroups deletes all security groups created by Adhar platform
 func (p *Provider) cleanupAllAdharSecurityGroups(ctx context.Context) error {
-	log.Printf("🔍 Finding and deleting all Adhar security groups...")
+	log.Printf("▸ Finding and deleting all Adhar security groups...")
 
 	result, err := p.ec2Client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
 		Filters: []ec2types.Filter{
@@ -423,7 +423,7 @@ func (p *Provider) cleanupAllAdharSecurityGroups(ctx context.Context) error {
 		}
 
 		if sg.GroupId != nil {
-			log.Printf("🗑️  Deleting security group %s (%s)", *sg.GroupId, *sg.GroupName)
+			log.Printf("✖ Deleting security group %s (%s)", *sg.GroupId, *sg.GroupName)
 			_, err = p.ec2Client.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
 				GroupId: sg.GroupId,
 			})
@@ -435,13 +435,13 @@ func (p *Provider) cleanupAllAdharSecurityGroups(ctx context.Context) error {
 		}
 	}
 
-	log.Printf("✓ Deleted %d security groups", deletedCount)
+	log.Printf("● Deleted %d security groups", deletedCount)
 	return nil
 }
 
 // cleanupAllAdharSubnets deletes all subnets created by Adhar platform
 func (p *Provider) cleanupAllAdharSubnets(ctx context.Context) error {
-	log.Printf("🔍 Finding and deleting all Adhar subnets...")
+	log.Printf("▸ Finding and deleting all Adhar subnets...")
 
 	result, err := p.ec2Client.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
 		Filters: []ec2types.Filter{
@@ -458,7 +458,7 @@ func (p *Provider) cleanupAllAdharSubnets(ctx context.Context) error {
 	deletedCount := 0
 	for _, subnet := range result.Subnets {
 		if subnet.SubnetId != nil {
-			log.Printf("🗑️  Deleting subnet %s", *subnet.SubnetId)
+			log.Printf("✖ Deleting subnet %s", *subnet.SubnetId)
 			_, err = p.ec2Client.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{
 				SubnetId: subnet.SubnetId,
 			})
@@ -470,13 +470,13 @@ func (p *Provider) cleanupAllAdharSubnets(ctx context.Context) error {
 		}
 	}
 
-	log.Printf("✓ Deleted %d subnets", deletedCount)
+	log.Printf("● Deleted %d subnets", deletedCount)
 	return nil
 }
 
 // cleanupAllAdharVPCs deletes all VPCs created by Adhar platform
 func (p *Provider) cleanupAllAdharVPCs(ctx context.Context) error {
-	log.Printf("🔍 Finding and deleting all Adhar VPCs...")
+	log.Printf("▸ Finding and deleting all Adhar VPCs...")
 
 	result, err := p.ec2Client.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
 		Filters: []ec2types.Filter{
@@ -521,7 +521,7 @@ func (p *Provider) cleanupAllAdharVPCs(ctx context.Context) error {
 			}
 
 			// Step 5: Delete the VPC
-			log.Printf("🗑️  Deleting VPC %s", vpcId)
+			log.Printf("✖ Deleting VPC %s", vpcId)
 			_, err = p.ec2Client.DeleteVpc(ctx, &ec2.DeleteVpcInput{
 				VpcId: aws.String(vpcId),
 			})
@@ -533,7 +533,7 @@ func (p *Provider) cleanupAllAdharVPCs(ctx context.Context) error {
 		}
 	}
 
-	log.Printf("✓ Deleted %d VPCs", deletedCount)
+	log.Printf("● Deleted %d VPCs", deletedCount)
 	return nil
 }
 
@@ -565,7 +565,7 @@ func (p *Provider) cleanupVPCInternetGateways(ctx context.Context, vpcId string)
 			}
 
 			// Delete the internet gateway
-			log.Printf("🗑️  Deleting internet gateway %s", *igw.InternetGatewayId)
+			log.Printf("✖ Deleting internet gateway %s", *igw.InternetGatewayId)
 			_, err = p.ec2Client.DeleteInternetGateway(ctx, &ec2.DeleteInternetGatewayInput{
 				InternetGatewayId: igw.InternetGatewayId,
 			})
@@ -642,7 +642,7 @@ func (p *Provider) cleanupVPCRouteTables(ctx context.Context, vpcId string) erro
 				continue
 			}
 
-			log.Printf("🗑️  Deleting route table %s", *rt.RouteTableId)
+			log.Printf("✖ Deleting route table %s", *rt.RouteTableId)
 			_, err = p.ec2Client.DeleteRouteTable(ctx, &ec2.DeleteRouteTableInput{
 				RouteTableId: rt.RouteTableId,
 			})
@@ -670,7 +670,7 @@ func (p *Provider) cleanupVPCSubnets(ctx context.Context, vpcId string) error {
 
 	for _, subnet := range result.Subnets {
 		if subnet.SubnetId != nil {
-			log.Printf("🗑️  Deleting subnet %s", *subnet.SubnetId)
+			log.Printf("✖ Deleting subnet %s", *subnet.SubnetId)
 			_, err = p.ec2Client.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{
 				SubnetId: subnet.SubnetId,
 			})
@@ -698,7 +698,7 @@ func (p *Provider) cleanupVPCSecurityGroups(ctx context.Context, vpcId string) e
 
 	for _, sg := range result.SecurityGroups {
 		if sg.GroupId != nil && sg.GroupName != nil && *sg.GroupName != "default" {
-			log.Printf("🗑️  Deleting security group %s (%s)", *sg.GroupId, *sg.GroupName)
+			log.Printf("✖ Deleting security group %s (%s)", *sg.GroupId, *sg.GroupName)
 			_, err = p.ec2Client.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
 				GroupId: sg.GroupId,
 			})
@@ -1019,7 +1019,7 @@ func (p *Provider) CreateLoadBalancer(ctx context.Context, spec *types.LoadBalan
 
 	lbID := fmt.Sprintf("lb-%s", sgID)
 
-	log.Printf("✓ Load balancer %s created successfully", lbName)
+	log.Printf("● Load balancer %s created successfully", lbName)
 	log.Printf("  Type: %s", spec.Type)
 	log.Printf("  Endpoint: %s", endpoint)
 	log.Printf("  Security Group: %s", sgID)
@@ -1048,11 +1048,11 @@ func (p *Provider) DeleteLoadBalancer(ctx context.Context, lbID string) error {
 		if err != nil {
 			log.Printf("Warning: Failed to delete security group %s: %v", sgID, err)
 		} else {
-			log.Printf("✓ Deleted security group %s", sgID)
+			log.Printf("● Deleted security group %s", sgID)
 		}
 	}
 
-	log.Printf("✓ Load balancer %s deletion completed", lbID)
+	log.Printf("● Load balancer %s deletion completed", lbID)
 	return nil
 }
 
@@ -1121,7 +1121,7 @@ func (p *Provider) cleanupVPCNetworkInterfaces(ctx context.Context, vpcId string
 				continue
 			}
 
-			log.Printf("🗑️  Deleting network interface %s", *eni.NetworkInterfaceId)
+			log.Printf("✖ Deleting network interface %s", *eni.NetworkInterfaceId)
 			_, err = p.ec2Client.DeleteNetworkInterface(ctx, &ec2.DeleteNetworkInterfaceInput{
 				NetworkInterfaceId: eni.NetworkInterfaceId,
 			})
@@ -1147,7 +1147,7 @@ func (p *Provider) cleanupVPCPublicAddresses(ctx context.Context, vpcId string) 
 	if err == nil {
 		for _, natGw := range natResult.NatGateways {
 			if natGw.NatGatewayId != nil && natGw.State != ec2types.NatGatewayStateDeleted && natGw.State != ec2types.NatGatewayStateDeleting {
-				log.Printf("🗑️  Deleting NAT gateway %s", *natGw.NatGatewayId)
+				log.Printf("✖ Deleting NAT gateway %s", *natGw.NatGatewayId)
 				_, err = p.ec2Client.DeleteNatGateway(ctx, &ec2.DeleteNatGatewayInput{
 					NatGatewayId: natGw.NatGatewayId,
 				})
@@ -1178,7 +1178,7 @@ func (p *Provider) cleanupVPCPublicAddresses(ctx context.Context, vpcId string) 
 				if err == nil && len(eniResult.NetworkInterfaces) > 0 {
 					eni := eniResult.NetworkInterfaces[0]
 					if eni.VpcId != nil && *eni.VpcId == vpcId {
-						log.Printf("🔌 Disassociating and releasing EIP %s", *addr.PublicIp)
+						log.Printf("⇄ Disassociating and releasing EIP %s", *addr.PublicIp)
 						if addr.AssociationId != nil {
 							_, err = p.ec2Client.DisassociateAddress(ctx, &ec2.DisassociateAddressInput{
 								AssociationId: addr.AssociationId,
@@ -1680,7 +1680,7 @@ func (p *Provider) deleteClusterSecurityGroupsComprehensive(ctx context.Context,
 	fmt.Printf("   Deleting %d Security Groups...\n", len(sgs))
 
 	// First, remove all rules from security groups to break dependencies
-	fmt.Printf("   🔧 Removing security group rules to break dependencies...\n")
+	fmt.Printf("   ⎔ Removing security group rules to break dependencies...\n")
 	for _, sg := range sgs {
 		// Get security group details
 		result, err := p.ec2Client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
@@ -1857,7 +1857,7 @@ func (p *Provider) deleteVPCAndGateway(ctx context.Context, clusterName string, 
 		if err != nil {
 			log.Printf("Warning: Failed to delete VPC %s: %v", vpc, err)
 		} else {
-			fmt.Printf("   ✓ Successfully deleted VPC %s\n", vpc)
+			fmt.Printf("   ● Successfully deleted VPC %s\n", vpc)
 		}
 	}
 

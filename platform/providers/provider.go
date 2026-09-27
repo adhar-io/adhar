@@ -198,7 +198,7 @@ func testProvider(cmd *cobra.Command, providerName string) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "Region: %s\n", p.Region())
 
 	// TODO: Test actual authentication
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Provider connection successful\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "● Provider connection successful\n")
 
 	return nil
 }
@@ -403,7 +403,7 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 		for _, c := range checks {
 			switch c.Status {
 			case CheckFail:
-				logger.Errorf("preflight ✗ %s: %s", c.Name, c.Detail)
+				logger.Errorf("preflight ✖ %s: %s", c.Name, c.Detail)
 				if c.Fix != "" {
 					logger.Errorf("           → %s", c.Fix)
 				}
@@ -413,14 +413,14 @@ func (pm *ProviderManager) ProvisionEnvironment(ctx context.Context, envConfig *
 					logger.Warnf("           → %s", c.Fix)
 				}
 			default:
-				logger.Infof("preflight ✓ %s: %s", c.Name, c.Detail)
+				logger.Infof("preflight ● %s: %s", c.Name, c.Detail)
 			}
 		}
 		if AnyFailed(checks) {
 			// Deliberately before any create call. Stopping here costs nothing;
 			// stopping halfway leaves infrastructure to find and delete by hand.
 			return nil, fmt.Errorf("preflight failed for the %s provider — nothing was created; "+
-				"fix the items marked ✗ above and re-run", providerType)
+				"fix the items marked ✖ above and re-run", providerType)
 		}
 	} else if err := prov.ValidatePermissions(ctx); err != nil {
 		return nil, fmt.Errorf("permission validation failed for %s provider: %w", providerType, err)

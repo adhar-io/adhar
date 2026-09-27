@@ -23,6 +23,7 @@ import (
 	"adhar-io/adhar/platform/logger"
 	"adhar-io/adhar/platform/providers/kind"
 	"adhar-io/adhar/platform/utils"
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -140,8 +141,11 @@ Examples:
 			showExtraInfo: verboseDown,
 		}
 
-		// Initialize Bubble Tea program
-		p := tea.NewProgram(m)
+		// Bubble Tea is given the REAL stdout explicitly, because captureTeardownLogs
+		// replaces os.Stdout a few lines below. Without this the UI would render into
+		// its own capture pipe and nothing would appear at all.
+		realStdout := os.Stdout
+		p := tea.NewProgram(m, tea.WithOutput(realStdout))
 
 		// Take the standard logger off the terminal before the UI draws a single
 		// frame: provider progress goes into the detail pane instead of on top
@@ -1035,38 +1039,81 @@ type teardownLogCapture struct {
 	sub  chan tea.Msg
 	prev io.Writer
 	flag int
+
+	// os.Stdout is captured too, because the providers report progress with
+	// fmt.Printf, not through the log package — provider_cluster.go alone has 93
+	// such calls ("Step 1/8: Terminating EC2 instances...", the discovered-resource
+	// bullets). Those bypass log.SetOutput entirely and land on the terminal Bubble
+	// Tea is redrawing, with two visible results: the spinner box is torn apart
+	// mid-frame, and because the TUI leaves the cursor mid-line a bare "\n" moves
+	// DOWN but not to column 0 — so each bullet starts where the last ended and the
+	// list walks diagonally off the screen.
+	prevStdout *os.File
+	pipeW      *os.File
+	done       chan struct{}
 }
 
 func captureTeardownLogs(sub chan tea.Msg) *teardownLogCapture {
 	c := &teardownLogCapture{sub: sub, prev: log.Writer(), flag: log.Flags()}
 	log.SetOutput(c)
+
+	// Take os.Stdout as well. fmt.Printf resolves os.Stdout at call time, so
+	// reassigning the variable redirects every existing call site — all 93 of them
+	// — without touching provider code, and catches any added later.
+	//
+	// Bubble Tea must keep the REAL terminal: it is given it explicitly via
+	// tea.WithOutput before this runs, so the UI still draws while provider output
+	// is diverted into its detail pane.
+	if r, w, err := os.Pipe(); err == nil {
+		c.prevStdout, c.pipeW, c.done = os.Stdout, w, make(chan struct{})
+		os.Stdout = w
+		go func() {
+			defer close(c.done)
+			sc := bufio.NewScanner(r)
+			sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			for sc.Scan() {
+				c.publish(sc.Text())
+			}
+		}()
+	}
 	return c
+}
+
+// publish records a line and offers it to the detail pane without blocking.
+func (c *teardownLogCapture) publish(line string) {
+	c.mu.Lock()
+	c.buf.WriteString(line + "\n")
+	c.mu.Unlock()
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	select {
+	case c.sub <- logger.ExtraOutputMsg(line):
+	default:
+		// The Update loop is busy; the line is in buf and Flush will show it.
+	}
 }
 
 // Write keeps the line and offers it to the detail pane without ever blocking.
 func (c *teardownLogCapture) Write(p []byte) (int, error) {
-	c.mu.Lock()
-	c.buf.Write(p)
-	c.mu.Unlock()
-
 	for _, line := range strings.Split(strings.TrimRight(string(p), "\n"), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		select {
-		case c.sub <- logger.ExtraOutputMsg(line):
-		default:
-			// The Update loop is busy; the line is already in buf and will be
-			// shown by Flush if it matters.
-		}
+		c.publish(line)
 	}
 	return len(p), nil
 }
 
-// Restore puts the standard logger back the way it was found.
+// Restore puts the standard logger and os.Stdout back the way they were found,
+// and waits for the reader to drain so a final line is not lost to the race
+// between closing the pipe and the UI exiting.
 func (c *teardownLogCapture) Restore() {
 	log.SetOutput(c.prev)
 	log.SetFlags(c.flag)
+	if c.pipeW != nil {
+		os.Stdout = c.prevStdout
+		_ = c.pipeW.Close()
+		<-c.done
+		c.pipeW = nil
+	}
 }
 
 // Contents returns everything the providers logged.

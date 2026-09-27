@@ -12,7 +12,7 @@ import (
 
 // CleanupAllOrphanedResources removes all orphaned Adhar platform resources in the region
 func (p *Provider) CleanupAllOrphanedResources(ctx context.Context) error {
-	log.Printf("🧹 Starting comprehensive cleanup of all orphaned Adhar platform resources...")
+	log.Printf("✖ Starting comprehensive cleanup of all orphaned Adhar platform resources...")
 
 	// 1. Terminate all Adhar instances first
 	err := p.cleanupAllAdharInstances(ctx)
@@ -44,7 +44,7 @@ func (p *Provider) CleanupAllOrphanedResources(ctx context.Context) error {
 		log.Printf("Warning: Failed to cleanup some volumes: %v", err)
 	}
 
-	log.Printf("✅ Comprehensive cleanup completed!")
+	log.Printf("● Comprehensive cleanup completed!")
 	return nil
 }
 
@@ -115,7 +115,7 @@ func (p *Provider) BackupCluster(ctx context.Context, clusterID string) (*types.
 	// 4. Store backup metadata in S3
 	// 5. Create AMI snapshots of nodes
 
-	log.Printf("  📦 Backup process for %d masters, %d workers:",
+	log.Printf("  ▣ Backup process for %d masters, %d workers:",
 		len(infrastructure.MasterNodes), len(infrastructure.WorkerNodes))
 	log.Printf("    1. Creating EBS snapshots for persistent volumes")
 	log.Printf("    2. Backing up etcd data from master nodes")
@@ -142,14 +142,14 @@ func (p *Provider) RestoreCluster(ctx context.Context, backupID string, targetCl
 	// 4. Apply cluster configuration
 	// 5. Verify cluster health
 
-	log.Printf("  🔄 Restore process:")
+	log.Printf("  ◌ Restore process:")
 	log.Printf("    1. Restoring EBS volumes from backup snapshots")
 	log.Printf("    2. Creating new cluster infrastructure")
 	log.Printf("    3. Restoring etcd data and cluster state")
 	log.Printf("    4. Applying backed up configurations")
 	log.Printf("    5. Verifying restored cluster health")
 
-	log.Printf("✓ Cluster restore from backup %s completed", backupID)
+	log.Printf("● Cluster restore from backup %s completed", backupID)
 	return nil
 }
 
@@ -337,37 +337,37 @@ func (p *Provider) InstallAddon(ctx context.Context, clusterID string, addonName
 
 	switch addonName {
 	case "nginx-ingress":
-		log.Printf("  🔧 Installing NGINX Ingress Controller")
+		log.Printf("  ⎔ Installing NGINX Ingress Controller")
 		log.Printf("    - Creating ingress-nginx namespace")
 		log.Printf("    - Deploying NGINX controller with AWS NLB")
 		log.Printf("    - Configuring SSL termination")
 
 	case "cert-manager":
-		log.Printf("  🔐 Installing Cert-Manager")
+		log.Printf("  ⛨ Installing Cert-Manager")
 		log.Printf("    - Installing cert-manager CRDs")
 		log.Printf("    - Deploying cert-manager controller")
 		log.Printf("    - Configuring Let's Encrypt ClusterIssuer")
 
 	case "external-dns":
-		log.Printf("  🌐 Installing External-DNS")
+		log.Printf("  ⇄ Installing External-DNS")
 		log.Printf("    - Configuring AWS Route53 provider")
 		log.Printf("    - Setting up IAM permissions")
 		log.Printf("    - Deploying external-dns controller")
 
 	case "cilium":
-		log.Printf("  🕸️ Installing Cilium CNI")
+		log.Printf("  ⇄ Installing Cilium CNI")
 		log.Printf("    - Deploying Cilium daemonset")
 		log.Printf("    - Configuring eBPF networking")
 		log.Printf("    - Setting up network policies")
 
 	case "aws-ebs-csi-driver":
-		log.Printf("  💾 Installing AWS EBS CSI Driver")
+		log.Printf("  ▥ Installing AWS EBS CSI Driver")
 		log.Printf("    - Deploying CSI controller")
 		log.Printf("    - Configuring storage classes")
 		log.Printf("    - Setting up volume provisioning")
 
 	default:
-		log.Printf("  📦 Installing custom addon: %s", addonName)
+		log.Printf("  ▣ Installing custom addon: %s", addonName)
 		log.Printf("    - Applying addon manifests")
 		log.Printf("    - Configuring addon settings")
 	}
@@ -377,7 +377,7 @@ func (p *Provider) InstallAddon(ctx context.Context, clusterID string, addonName
 		log.Printf("    - Applying custom configuration: %v", config)
 	}
 
-	log.Printf("✓ Addon %s installed successfully on cluster %s", addonName, clusterName)
+	log.Printf("● Addon %s installed successfully on cluster %s", addonName, clusterName)
 	return nil
 }
 
@@ -398,12 +398,12 @@ func (p *Provider) UninstallAddon(ctx context.Context, clusterID string, addonNa
 	// 3. Clean up associated resources (PVCs, secrets, etc.)
 	// 4. Verify complete removal
 
-	log.Printf("  🗑️ Removing addon components:")
+	log.Printf("  ✖ Removing addon components:")
 	log.Printf("    - Deleting addon deployments and services")
 	log.Printf("    - Cleaning up CRDs and configurations")
 	log.Printf("    - Removing associated storage and secrets")
 
-	log.Printf("✓ Addon %s uninstalled successfully from cluster %s", addonName, clusterName)
+	log.Printf("● Addon %s uninstalled successfully from cluster %s", addonName, clusterName)
 	return nil
 }
 

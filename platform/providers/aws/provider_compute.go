@@ -475,12 +475,12 @@ func (p *Provider) deleteClusterInstances(ctx context.Context, clusterName strin
 
 	if len(instanceIds) == 0 {
 		log.Printf("No instances found for cluster %s", clusterName)
-		fmt.Printf("ℹ️  No instances found for cluster %s\n", clusterName)
+		fmt.Printf("▸ No instances found for cluster %s\n", clusterName)
 		return nil
 	}
 
 	log.Printf("Terminating %d instances for cluster %s: %v", len(instanceIds), clusterName, instanceIds)
-	fmt.Printf("⏳ Terminating %d instances...\n", len(instanceIds))
+	fmt.Printf("◌ Terminating %d instances...\n", len(instanceIds))
 	_, err = p.ec2Client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
 		InstanceIds: instanceIds,
 	})
@@ -489,25 +489,25 @@ func (p *Provider) deleteClusterInstances(ctx context.Context, clusterName strin
 	}
 
 	// Wait for instances to be terminated
-	fmt.Printf("⏳ Waiting for instances to terminate (this may take a few minutes)...\n")
+	fmt.Printf("◌ Waiting for instances to terminate (this may take a few minutes)...\n")
 	waiter := ec2.NewInstanceTerminatedWaiter(p.ec2Client)
 	err = waiter.Wait(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: instanceIds,
 	}, 10*time.Minute)
 	if err != nil {
 		log.Printf("Warning: Timeout waiting for instances to terminate: %v", err)
-		fmt.Printf("⚠️  Warning: Timeout waiting for instances to terminate, but termination was initiated\n")
+		fmt.Printf("▲ Warning: Timeout waiting for instances to terminate, but termination was initiated\n")
 	} else {
-		fmt.Printf("✓ All instances terminated successfully\n")
+		fmt.Printf("● All instances terminated successfully\n")
 	}
 
-	log.Printf("✓ Terminated %d instances", len(instanceIds))
+	log.Printf("● Terminated %d instances", len(instanceIds))
 	return nil
 }
 
 // cleanupAllAdharInstances terminates all EC2 instances created by Adhar platform
 func (p *Provider) cleanupAllAdharInstances(ctx context.Context) error {
-	log.Printf("🔍 Finding and terminating all Adhar EC2 instances...")
+	log.Printf("▸ Finding and terminating all Adhar EC2 instances...")
 
 	result, err := p.ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		Filters: []ec2types.Filter{
@@ -535,11 +535,11 @@ func (p *Provider) cleanupAllAdharInstances(ctx context.Context) error {
 	}
 
 	if len(instanceIds) == 0 {
-		log.Printf("✓ No Adhar instances found to terminate")
+		log.Printf("● No Adhar instances found to terminate")
 		return nil
 	}
 
-	log.Printf("🗑️  Terminating %d Adhar instances: %v", len(instanceIds), instanceIds)
+	log.Printf("✖ Terminating %d Adhar instances: %v", len(instanceIds), instanceIds)
 	_, err = p.ec2Client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
 		InstanceIds: instanceIds,
 	})
@@ -547,7 +547,7 @@ func (p *Provider) cleanupAllAdharInstances(ctx context.Context) error {
 		return fmt.Errorf("failed to terminate instances: %w", err)
 	}
 
-	log.Printf("✓ Terminated %d instances", len(instanceIds))
+	log.Printf("● Terminated %d instances", len(instanceIds))
 	return nil
 }
 
@@ -573,7 +573,7 @@ func (p *Provider) scaleUpMasterNodes(ctx context.Context, infrastructure *Clust
 	// 3. Update load balancer configuration if using one
 	// 4. Ensure etcd cluster is properly expanded
 
-	log.Printf("✓ Added %d master nodes", len(newMasters))
+	log.Printf("● Added %d master nodes", len(newMasters))
 	return nil
 }
 
@@ -606,7 +606,7 @@ func (p *Provider) scaleDownMasterNodes(ctx context.Context, infrastructure *Clu
 		return fmt.Errorf("failed to terminate master instances: %w", err)
 	}
 
-	log.Printf("✓ Removed %d master nodes", count)
+	log.Printf("● Removed %d master nodes", count)
 	return nil
 }
 
@@ -626,7 +626,7 @@ func (p *Provider) scaleUpWorkerNodes(ctx context.Context, infrastructure *Clust
 		return fmt.Errorf("failed to create additional worker nodes: %w", err)
 	}
 
-	log.Printf("✓ Added %d worker nodes", len(newWorkers))
+	log.Printf("● Added %d worker nodes", len(newWorkers))
 	return nil
 }
 
@@ -658,7 +658,7 @@ func (p *Provider) scaleDownWorkerNodes(ctx context.Context, infrastructure *Clu
 		return fmt.Errorf("failed to terminate worker instances: %w", err)
 	}
 
-	log.Printf("✓ Removed %d worker nodes", count)
+	log.Printf("● Removed %d worker nodes", count)
 	return nil
 }
 

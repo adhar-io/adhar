@@ -215,7 +215,7 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 			"Configuring cluster networking and DNS",
 		}
 
-		progress = helpers.NewStyledProgressTracker("🔧 Setting up Management Cluster", stepNames, stepDescriptions)
+		progress = helpers.NewStyledProgressTracker("⎔ Setting up Management Cluster", stepNames, stepDescriptions)
 	}
 
 	// Step 1: Create the actual Kind cluster
@@ -342,12 +342,12 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		if err != nil {
 			// Don't fail cluster creation if domain setup fails, just warn
 			if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {
-				fmt.Printf("⚠️  Warning: Failed to setup domain management: %v\n", err)
+				fmt.Printf("▲ Warning: Failed to setup domain management: %v\n", err)
 				fmt.Printf("You can set up domain management manually later\n")
 			}
 		} else {
 			if os.Getenv("ADHAR_PLATFORM_SETUP") != "true" {
-				fmt.Printf("✓ Domain management configured!\n")
+				fmt.Printf("● Domain management configured!\n")
 			}
 		}
 	}
@@ -385,7 +385,7 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 		}
 	}
 
-	fmt.Printf("✓ Kind cluster '%s' deleted successfully!\n", clusterName)
+	fmt.Printf("● Kind cluster '%s' deleted successfully!\n", clusterName)
 
 	// Remove cluster from persistent storage
 	err = updateClusterStorage(func(clusters map[string]*types.Cluster) error {
@@ -674,7 +674,7 @@ func (p *Provider) installCilium(ctx context.Context, clusterName string) error 
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		// Don't fail if status check fails, just warn
-		fmt.Printf("⚠️  Could not verify Cilium status, but continuing: %v\n", err)
+		fmt.Printf("▲ Could not verify Cilium status, but continuing: %v\n", err)
 	}
 
 	return nil
@@ -839,12 +839,12 @@ func (p *Provider) handlePortConflictError(clusterName, output string) error {
 	existingClusters, _ := cmd.Output()
 	clusterList := strings.TrimSpace(string(existingClusters))
 
-	errorMsg := fmt.Sprintf("🚫 Port Conflict Error: Cannot create cluster '%s'\n\n", clusterName)
-	errorMsg += fmt.Sprintf("❌ Problem: Port(s) %s are already in use by another service\n\n", strings.Join(conflictingPorts, ", "))
+	errorMsg := fmt.Sprintf("✖ Port Conflict Error: Cannot create cluster '%s'\n\n", clusterName)
+	errorMsg += fmt.Sprintf("✖ Problem: Port(s) %s are already in use by another service\n\n", strings.Join(conflictingPorts, ", "))
 
 	if clusterList != "" && clusterList != "No kind clusters found." {
 		clusters := strings.Split(clusterList, "\n")
-		errorMsg += "🔍 Found existing Kind clusters:\n"
+		errorMsg += "▸ Found existing Kind clusters:\n"
 		for _, cluster := range clusters {
 			if strings.TrimSpace(cluster) != "" {
 				errorMsg += fmt.Sprintf("   • %s\n", strings.TrimSpace(cluster))
@@ -853,8 +853,8 @@ func (p *Provider) handlePortConflictError(clusterName, output string) error {
 		errorMsg += "\n"
 	}
 
-	errorMsg += "💡 Solutions (choose one):\n\n"
-	errorMsg += "   1️⃣  Delete existing clusters:\n"
+	errorMsg += "▸ Solutions (choose one):\n\n"
+	errorMsg += "   1⃣  Delete existing clusters:\n"
 	if clusterList != "" && clusterList != "No kind clusters found." {
 		errorMsg += "      kind delete cluster --name <cluster-name>\n"
 		errorMsg += "      # Or delete all: kind delete clusters --all\n"
@@ -863,16 +863,16 @@ func (p *Provider) handlePortConflictError(clusterName, output string) error {
 	}
 	errorMsg += "\n"
 
-	errorMsg += "   2️⃣  Find and stop conflicting services:\n"
+	errorMsg += "   2⃣  Find and stop conflicting services:\n"
 	errorMsg += "      # Check what's using port 80/443:\n"
 	errorMsg += "      lsof -i :80\n"
 	errorMsg += "      lsof -i :443\n"
 	errorMsg += "      # Stop the conflicting service\n\n"
 
-	errorMsg += "   3️⃣  Use different ports (advanced):\n"
+	errorMsg += "   3⃣  Use different ports (advanced):\n"
 	errorMsg += "      adhar up --port 8080 --protocol http\n\n"
 
-	errorMsg += "🔄 Then retry: adhar up"
+	errorMsg += "◌ Then retry: adhar up"
 
 	return fmt.Errorf("%s", errorMsg)
 }

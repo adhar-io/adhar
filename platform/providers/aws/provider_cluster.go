@@ -45,8 +45,8 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		return nil, err
 	}
 
-	fmt.Printf("🚀 Creating self-managed Kubernetes cluster '%s' on EC2 instances...\n", spec.Name)
-	fmt.Printf("⏳ This will take several minutes to provision real AWS infrastructure...\n")
+	fmt.Printf("▣ Creating self-managed Kubernetes cluster '%s' on EC2 instances...\n", spec.Name)
+	fmt.Printf("◌ This will take several minutes to provision real AWS infrastructure...\n")
 
 	cluster := &types.Cluster{
 		ID:        fmt.Sprintf("aws-%s", spec.Name),
@@ -61,14 +61,14 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	}
 
 	// Create cluster infrastructure synchronously so CLI waits for completion
-	fmt.Printf("📋 Step 1/3: Creating AWS infrastructure (VPC, subnets, security groups)...\n")
+	fmt.Printf("▸ Step 1/3: Creating AWS infrastructure (VPC, subnets, security groups)...\n")
 	infrastructure, err := p.createClusterInfrastructure(ctx, spec.Name, spec)
 	if err != nil {
-		fmt.Printf("❌ Failed to create cluster infrastructure: %v\n", err)
+		fmt.Printf("✖ Failed to create cluster infrastructure: %v\n", err)
 
 		// Check if this is an AWS account verification issue
 		if strings.Contains(err.Error(), "PendingVerification") {
-			fmt.Printf("\n🔍 AWS Account Verification Required:\n")
+			fmt.Printf("\n▸ AWS Account Verification Required:\n")
 			fmt.Printf("   • Your AWS account is being validated for this region\n")
 			fmt.Printf("   • This is a normal process that usually completes within minutes\n")
 			fmt.Printf("   • You will receive an email notification when complete\n")
@@ -76,28 +76,28 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 		}
 
 		// Attempt to clean up any partially created resources
-		fmt.Printf("🧹 Cleaning up partially created resources...\n")
+		fmt.Printf("✖ Cleaning up partially created resources...\n")
 		cleanupErr := p.cleanupPartialInfrastructure(ctx, spec.Name)
 		if cleanupErr != nil {
-			fmt.Printf("⚠️  Warning: Failed to cleanup some resources: %v\n", cleanupErr)
-			fmt.Printf("💡 You may need to manually delete orphaned resources in AWS console\n")
+			fmt.Printf("▲ Warning: Failed to cleanup some resources: %v\n", cleanupErr)
+			fmt.Printf("▸ You may need to manually delete orphaned resources in AWS console\n")
 		} else {
-			fmt.Printf("✓ Cleanup completed successfully\n")
+			fmt.Printf("● Cleanup completed successfully\n")
 		}
 
 		cluster.Status = types.ClusterStatusError
 		return cluster, fmt.Errorf("failed to create cluster infrastructure: %w", err)
 	}
 
-	fmt.Printf("🔧 Step 2/3: Setting up Kubernetes cluster...\n")
+	fmt.Printf("⎔ Step 2/3: Setting up Kubernetes cluster...\n")
 	err = p.setupKubernetesCluster(ctx, spec, cluster, infrastructure)
 	if err != nil {
-		fmt.Printf("❌ Failed to setup Kubernetes cluster: %v\n", err)
+		fmt.Printf("✖ Failed to setup Kubernetes cluster: %v\n", err)
 		cluster.Status = types.ClusterStatusError
 		return cluster, fmt.Errorf("failed to setup Kubernetes cluster: %w", err)
 	}
 
-	fmt.Printf("🌐 Step 3/3: Configuring cluster endpoint and domain management...\n")
+	fmt.Printf("⇄ Step 3/3: Configuring cluster endpoint and domain management...\n")
 	// Update cluster endpoint with actual infrastructure details
 	if len(infrastructure.MasterNodes) > 0 {
 		masterIP := infrastructure.MasterNodes[0].PublicIP
@@ -111,19 +111,19 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 	cluster.Status = types.ClusterStatusRunning
 	cluster.UpdatedAt = time.Now()
 
-	fmt.Printf("✅ Cluster '%s' is ready!\n", spec.Name)
-	fmt.Printf("📍 Cluster endpoint: %s\n", cluster.Endpoint)
-	fmt.Printf("🏷️  Cluster ID: %s\n", cluster.ID)
-	fmt.Printf("ℹ️  Nodes stay NotReady until the platform bootstrap installs Cilium.\n")
+	fmt.Printf("● Cluster '%s' is ready!\n", spec.Name)
+	fmt.Printf("▸ Cluster endpoint: %s\n", cluster.Endpoint)
+	fmt.Printf("▸ Cluster ID: %s\n", cluster.ID)
+	fmt.Printf("▸ Nodes stay NotReady until the platform bootstrap installs Cilium.\n")
 
 	// Generate and save kubeconfig
-	fmt.Printf("📄 Generating kubeconfig...\n")
+	fmt.Printf("▸ Generating kubeconfig...\n")
 	_, err = p.generateKubeconfig(ctx, cluster)
 	if err != nil {
-		fmt.Printf("⚠️  Warning: Failed to generate kubeconfig: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to generate kubeconfig: %v\n", err)
 	} else {
-		fmt.Printf("✓ Kubeconfig generated and saved\n")
-		fmt.Printf("💡 Use: export KUBECONFIG=~/.kube/config-%s\n", cluster.Name)
+		fmt.Printf("● Kubeconfig generated and saved\n")
+		fmt.Printf("▸ Use: export KUBECONFIG=~/.kube/config-%s\n", cluster.Name)
 	}
 
 	return cluster, nil
@@ -132,59 +132,59 @@ func (p *Provider) CreateCluster(ctx context.Context, spec *types.ClusterSpec) (
 // createClusterInfrastructure creates the AWS infrastructure for a manual Kubernetes cluster
 func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName string, spec *types.ClusterSpec) (*ClusterInfrastructure, error) {
 	log.Printf("Creating infrastructure for cluster %s", clusterName)
-	fmt.Printf("🔍 Starting AWS infrastructure provisioning...\n")
+	fmt.Printf("▸ Starting AWS infrastructure provisioning...\n")
 
 	// Validate AWS credentials and connection
-	fmt.Printf("🔐 Validating AWS credentials and connection...\n")
+	fmt.Printf("⛨ Validating AWS credentials and connection...\n")
 	_, err := p.ec2Client.DescribeRegions(ctx, &ec2.DescribeRegionsInput{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate AWS credentials: %w", err)
 	}
-	fmt.Printf("✓ AWS credentials validated for region %s\n", p.config.Region)
+	fmt.Printf("● AWS credentials validated for region %s\n", p.config.Region)
 
 	// Create VPC
-	fmt.Printf("🌐 Creating VPC for cluster...\n")
+	fmt.Printf("⇄ Creating VPC for cluster...\n")
 	vpcID, err := p.createVPCForCluster(ctx, spec)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VPC: %w", err)
 	}
-	fmt.Printf("✓ VPC created: %s\n", vpcID)
+	fmt.Printf("● VPC created: %s\n", vpcID)
 
 	// Create subnets
-	fmt.Printf("📡 Creating subnets (public and private)...\n")
+	fmt.Printf("⇄ Creating subnets (public and private)...\n")
 	publicSubnetID, privateSubnetID, err := p.createSubnets(ctx, vpcID, clusterName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create subnets: %w", err)
 	}
-	fmt.Printf("✓ Public subnet created: %s\n", publicSubnetID)
-	fmt.Printf("✓ Private subnet created: %s\n", privateSubnetID)
+	fmt.Printf("● Public subnet created: %s\n", publicSubnetID)
+	fmt.Printf("● Private subnet created: %s\n", privateSubnetID)
 
 	// Create security groups
-	fmt.Printf("🔒 Creating security groups for Kubernetes cluster...\n")
+	fmt.Printf("⛨ Creating security groups for Kubernetes cluster...\n")
 	sgID, err := p.createSecurityGroups(ctx, vpcID, clusterName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security groups: %w", err)
 	}
-	fmt.Printf("✓ Security group created: %s\n", sgID)
+	fmt.Printf("● Security group created: %s\n", sgID)
 
 	// Create master nodes
-	fmt.Printf("🎛️ Creating master nodes (%d instances)...\n", spec.ControlPlane.Replicas)
+	fmt.Printf("⎔ Creating master nodes (%d instances)...\n", spec.ControlPlane.Replicas)
 	masterNodes, err := p.createMasterNodes(ctx, publicSubnetID, sgID, clusterName, spec)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create master nodes: %w", err)
 	}
-	fmt.Printf("✓ Master nodes created: %d instances\n", len(masterNodes))
+	fmt.Printf("● Master nodes created: %d instances\n", len(masterNodes))
 
 	// Create worker nodes. Workers go into the public subnet too: kubeadm is
 	// driven over SSH, which requires every node to have a public IP.
 	var workerNodes []NodeInfo
 	if len(spec.NodeGroups) > 0 {
-		fmt.Printf("👷 Creating worker nodes (%d instances)...\n", spec.NodeGroups[0].Replicas)
+		fmt.Printf("▸ Creating worker nodes (%d instances)...\n", spec.NodeGroups[0].Replicas)
 		workerNodes, err = p.createWorkerNodes(ctx, publicSubnetID, sgID, clusterName, spec)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create worker nodes: %w", err)
 		}
-		fmt.Printf("✓ Worker nodes created: %d instances\n", len(workerNodes))
+		fmt.Printf("● Worker nodes created: %d instances\n", len(workerNodes))
 	}
 
 	return &ClusterInfrastructure{
@@ -201,7 +201,7 @@ func (p *Provider) createClusterInfrastructure(ctx context.Context, clusterName 
 // here — the platform bootstrap installs Cilium with kubeProxyReplacement, so
 // nodes stay NotReady until then.
 func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.ClusterSpec, cluster *types.Cluster, infrastructure *ClusterInfrastructure) error {
-	fmt.Printf("⚙️  Setting up Kubernetes cluster with kubeadm...\n")
+	fmt.Printf("⎔ Setting up Kubernetes cluster with kubeadm...\n")
 
 	if len(infrastructure.MasterNodes) == 0 {
 		return fmt.Errorf("no master nodes found")
@@ -220,12 +220,12 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 		return fmt.Errorf("master node %s has no public IP", primaryMaster.InstanceId)
 	}
 
-	fmt.Printf("⏳ Waiting for node preparation on master %s (%s)...\n", primaryMaster.InstanceId, primaryMaster.PublicIP)
+	fmt.Printf("◌ Waiting for node preparation on master %s (%s)...\n", primaryMaster.InstanceId, primaryMaster.PublicIP)
 	if err := provider.WaitForNodePrep(ctx, signer, awsSSHUser, primaryMaster.PublicIP, 15*time.Minute); err != nil {
 		return fmt.Errorf("control-plane node not ready: %w", err)
 	}
 
-	fmt.Printf("🎯 Running kubeadm init on primary master %s...\n", primaryMaster.InstanceId)
+	fmt.Printf("▸ Running kubeadm init on primary master %s...\n", primaryMaster.InstanceId)
 	// External cloud provider: the kubelet defers node initialisation to the
 	// AWS cloud-controller-manager installed right after the joins.
 	if err := provider.EnableExternalCloudProvider(signer, awsSSHUser, primaryMaster.PublicIP, primaryMaster.PrivateIP, true, false, primaryMaster.PrivateDNSName); err != nil {
@@ -239,10 +239,10 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 	joined := provider.KubeadmJoinedNodes(signer, awsSSHUser, primaryMaster.PublicIP)
 	for i, worker := range infrastructure.WorkerNodes {
 		if joined.Has(worker.InstanceId, worker.PublicIP, worker.PrivateIP) {
-			fmt.Printf("👷 Worker node %s is already part of the cluster; skipping prep/join\n", worker.InstanceId)
+			fmt.Printf("▸ Worker node %s is already part of the cluster; skipping prep/join\n", worker.InstanceId)
 			continue
 		}
-		fmt.Printf("👷 Joining worker node %d: %s\n", i+1, worker.InstanceId)
+		fmt.Printf("▸ Joining worker node %d: %s\n", i+1, worker.InstanceId)
 		if worker.PublicIP == "" {
 			return fmt.Errorf("worker node %s has no public IP", worker.InstanceId)
 		}
@@ -260,7 +260,7 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 	if err := p.installCloudIntegration(signer, primaryMaster.PublicIP, spec.Name); err != nil {
 		return err
 	}
-	fmt.Printf("✅ Kubernetes cluster setup complete!\n")
+	fmt.Printf("● Kubernetes cluster setup complete!\n")
 
 	cluster.Endpoint = fmt.Sprintf("https://%s:6443", primaryMaster.PublicIP)
 
@@ -268,9 +268,9 @@ func (p *Provider) setupKubernetesCluster(ctx context.Context, spec *types.Clust
 	if spec.Domain != nil {
 		err := p.setupDomainManagementBasic(ctx, spec, cluster)
 		if err != nil {
-			fmt.Printf("⚠️  Warning: Failed to setup domain management: %v\n", err)
+			fmt.Printf("▲ Warning: Failed to setup domain management: %v\n", err)
 		} else {
-			fmt.Printf("✅ Domain management configured\n")
+			fmt.Printf("● Domain management configured\n")
 		}
 	}
 
@@ -284,7 +284,7 @@ func (p *Provider) setupDomainManagementBasic(ctx context.Context, spec *types.C
 		return nil
 	}
 
-	log.Printf("🌐 Setting up domain management for %s", spec.Domain.BaseDomain)
+	log.Printf("⇄ Setting up domain management for %s", spec.Domain.BaseDomain)
 
 	// Real domain management setup for production Kubernetes cluster
 	// This sets up the foundation for hosting the Adhar platform
@@ -295,7 +295,7 @@ func (p *Provider) setupDomainManagementBasic(ctx context.Context, spec *types.C
 	}
 
 	// 2. Log domain management components that would be installed
-	log.Printf("  📋 Domain management components to install:")
+	log.Printf("  ▸ Domain management components to install:")
 	log.Printf("    - cert-manager for automatic TLS certificate management")
 	log.Printf("    - external-dns for automatic DNS record management")
 	log.Printf("    - nginx-ingress-controller for ingress traffic management")
@@ -320,7 +320,7 @@ func (p *Provider) setupDomainManagementBasic(ctx context.Context, spec *types.C
 	cluster.Metadata["ingressEndpoint"] = ingressEndpoint
 
 	// 5. Log next steps for domain setup
-	log.Printf("  🔧 Next steps for complete domain setup:")
+	log.Printf("  ⎔ Next steps for complete domain setup:")
 	log.Printf("    1. Apply cert-manager CRDs and deployment")
 	log.Printf("    2. Configure AWS IAM permissions for Route53")
 	log.Printf("    3. Install external-dns with AWS provider")
@@ -328,15 +328,15 @@ func (p *Provider) setupDomainManagementBasic(ctx context.Context, spec *types.C
 	log.Printf("    5. Create ClusterIssuer for Let's Encrypt")
 	log.Printf("    6. Configure ingress resources for Adhar services")
 
-	log.Printf("✓ Domain management foundation configured for %s", spec.Domain.BaseDomain)
+	log.Printf("● Domain management foundation configured for %s", spec.Domain.BaseDomain)
 	return nil
 }
 
 // DeleteCluster deletes an EKS cluster and ALL associated AWS resources
 func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	clusterName := extractClusterName(clusterID)
-	log.Printf("🗑️  Starting comprehensive deletion of cluster %s and ALL associated AWS resources...", clusterName)
-	fmt.Printf("🗑️  Deleting cluster '%s' and ALL associated AWS resources...\n", clusterName)
+	log.Printf("✖ Starting comprehensive deletion of cluster %s and ALL associated AWS resources...", clusterName)
+	fmt.Printf("✖ Deleting cluster '%s' and ALL associated AWS resources...\n", clusterName)
 
 	// A managed (EKS) cluster: remove node groups, control plane and IAM roles
 	// first; the tag-based network cleanup below is shared with compute mode.
@@ -350,7 +350,7 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	tracker, err := p.discoverClusterResources(ctx, clusterName)
 	if err != nil {
 		log.Printf("Warning: Could not discover all cluster resources: %v", err)
-		fmt.Printf("⚠️  Warning: Could not discover all resources, proceeding with tag-based cleanup\n")
+		fmt.Printf("▲ Warning: Could not discover all resources, proceeding with tag-based cleanup\n")
 	}
 
 	// Print what resources were found
@@ -359,33 +359,33 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	}
 
 	// Step 1: Terminate all EC2 instances first (this releases ENIs and other attached resources)
-	fmt.Printf("\n🖥️  Step 1/8: Terminating EC2 instances...\n")
+	fmt.Printf("\n⎔ Step 1/8: Terminating EC2 instances...\n")
 	err = p.deleteClusterInstancesComprehensive(ctx, clusterName, tracker)
 	if err != nil {
 		log.Printf("Warning: Failed to delete some cluster instances: %v", err)
-		fmt.Printf("⚠️  Warning: Failed to delete some instances: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to delete some instances: %v\n", err)
 	} else {
-		fmt.Printf("✓ All cluster instances terminated\n")
+		fmt.Printf("● All cluster instances terminated\n")
 	}
 
 	// Step 2: Release Elastic IPs
-	fmt.Printf("\n💰 Step 2/8: Releasing Elastic IPs...\n")
+	fmt.Printf("\n▸ Step 2/8: Releasing Elastic IPs...\n")
 	err = p.deleteElasticIPs(ctx, clusterName, tracker)
 	if err != nil {
 		log.Printf("Warning: Failed to release some Elastic IPs: %v", err)
-		fmt.Printf("⚠️  Warning: Failed to release some Elastic IPs: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to release some Elastic IPs: %v\n", err)
 	} else {
-		fmt.Printf("✓ Elastic IPs released\n")
+		fmt.Printf("● Elastic IPs released\n")
 	}
 
 	// Step 3: Delete NAT Gateways (must be done before deleting subnets)
-	fmt.Printf("\n🌐 Step 3/8: Deleting NAT Gateways...\n")
+	fmt.Printf("\n⇄ Step 3/8: Deleting NAT Gateways...\n")
 	err = p.deleteNATGateways(ctx, clusterName, tracker)
 	if err != nil {
 		log.Printf("Warning: Failed to delete some NAT Gateways: %v", err)
-		fmt.Printf("⚠️  Warning: Failed to delete some NAT Gateways: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to delete some NAT Gateways: %v\n", err)
 	} else {
-		fmt.Printf("✓ NAT Gateways deleted\n")
+		fmt.Printf("● NAT Gateways deleted\n")
 	}
 
 	// Step 4: Delete Network Interfaces (should be auto-deleted with instances, but clean up any orphans)
@@ -393,9 +393,9 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	err = p.deleteNetworkInterfaces(ctx, clusterName, tracker)
 	if err != nil {
 		log.Printf("Warning: Failed to delete some Network Interfaces: %v", err)
-		fmt.Printf("⚠️  Warning: Failed to delete some Network Interfaces: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to delete some Network Interfaces: %v\n", err)
 	} else {
-		fmt.Printf("✓ Network Interfaces cleaned up\n")
+		fmt.Printf("● Network Interfaces cleaned up\n")
 	}
 
 	// The in-cluster controllers created resources no tracker knows about: a load
@@ -405,54 +405,54 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	// ELB and its security group each hold a reference to the VPC, so leaving one
 	// behind made step 8 fail with DependencyViolation and the whole network
 	// survive the teardown.
-	fmt.Printf("\n🧹 Sweeping resources created from inside the cluster (load balancers, CSI volumes)...\n")
+	fmt.Printf("\n✖ Sweeping resources created from inside the cluster (load balancers, CSI volumes)...\n")
 	for _, problem := range p.sweepInClusterResources(ctx, clusterName, tracker) {
 		log.Printf("Warning: %s", problem)
-		fmt.Printf("⚠️  %s\n", problem)
+		fmt.Printf("▲ %s\n", problem)
 	}
 
 	// Step 5: Delete Security Groups (except default VPC security group)
-	fmt.Printf("\n🔒 Step 5/8: Deleting security groups...\n")
+	fmt.Printf("\n⛨ Step 5/8: Deleting security groups...\n")
 	err = p.deleteClusterSecurityGroupsComprehensive(ctx, clusterName, tracker)
 	if err != nil {
 		log.Printf("Warning: Failed to delete security groups: %v", err)
-		fmt.Printf("⚠️  Warning: Failed to delete some security groups: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to delete some security groups: %v\n", err)
 	} else {
-		fmt.Printf("✓ Security groups deleted\n")
+		fmt.Printf("● Security groups deleted\n")
 	}
 
 	// Step 6: Delete Route Tables (except main route table)
-	fmt.Printf("\n🛣️  Step 6/8: Deleting route tables...\n")
+	fmt.Printf("\n⇄ Step 6/8: Deleting route tables...\n")
 	err = p.deleteRouteTables(ctx, clusterName, tracker)
 	if err != nil {
 		log.Printf("Warning: Failed to delete some route tables: %v", err)
-		fmt.Printf("⚠️  Warning: Failed to delete some route tables: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to delete some route tables: %v\n", err)
 	} else {
-		fmt.Printf("✓ Route tables deleted\n")
+		fmt.Printf("● Route tables deleted\n")
 	}
 
 	// Step 7: Delete Subnets
-	fmt.Printf("\n📡 Step 7/8: Deleting subnets...\n")
+	fmt.Printf("\n⇄ Step 7/8: Deleting subnets...\n")
 	err = p.deleteClusterSubnetsComprehensive(ctx, clusterName, tracker)
 	if err != nil {
 		log.Printf("Warning: Failed to delete subnets: %v", err)
-		fmt.Printf("⚠️  Warning: Failed to delete some subnets: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to delete some subnets: %v\n", err)
 	} else {
-		fmt.Printf("✓ Subnets deleted\n")
+		fmt.Printf("● Subnets deleted\n")
 	}
 
 	// Step 8: Delete Internet Gateways and VPC
-	fmt.Printf("\n🌍 Step 8/8: Deleting Internet Gateway and VPC...\n")
+	fmt.Printf("\n⇄ Step 8/8: Deleting Internet Gateway and VPC...\n")
 	err = p.deleteVPCAndGateway(ctx, clusterName, tracker)
 	if err != nil {
 		log.Printf("Warning: Failed to delete VPC/Gateway: %v", err)
-		fmt.Printf("⚠️  Warning: Failed to delete VPC/Gateway: %v\n", err)
+		fmt.Printf("▲ Warning: Failed to delete VPC/Gateway: %v\n", err)
 	} else {
-		fmt.Printf("✓ Internet Gateway and VPC deleted\n")
+		fmt.Printf("● Internet Gateway and VPC deleted\n")
 	}
 
 	// Delete the imported SSH key pair and the local cluster state
-	fmt.Printf("\n🔑 Deleting SSH key pair and local cluster state...\n")
+	fmt.Printf("\n⛨ Deleting SSH key pair and local cluster state...\n")
 	if _, err := p.ec2Client.DeleteKeyPair(ctx, &ec2.DeleteKeyPairInput{
 		KeyName: aws.String("adhar-" + clusterName),
 	}); err != nil {
@@ -460,9 +460,9 @@ func (p *Provider) DeleteCluster(ctx context.Context, clusterID string) error {
 	}
 	provider.RemoveClusterState(clusterName)
 
-	fmt.Printf("\n✅ Cluster '%s' comprehensive deletion completed!\n", clusterName)
-	fmt.Printf("🧹 All AWS resources associated with the cluster have been cleaned up.\n")
-	log.Printf("✓ Cluster %s comprehensive deletion completed", clusterName)
+	fmt.Printf("\n● Cluster '%s' comprehensive deletion completed!\n", clusterName)
+	fmt.Printf("✖ All AWS resources associated with the cluster have been cleaned up.\n")
+	log.Printf("● Cluster %s comprehensive deletion completed", clusterName)
 	return nil
 }
 
@@ -593,7 +593,7 @@ func (p *Provider) UpdateCluster(ctx context.Context, clusterID string, spec *ty
 		}
 	}
 
-	log.Printf("✓ Cluster %s update completed", clusterName)
+	log.Printf("● Cluster %s update completed", clusterName)
 	return nil
 }
 
@@ -761,13 +761,13 @@ func (p *Provider) generateKubeconfig(ctx context.Context, cluster *types.Cluste
 	}
 
 	// Merge with main kubeconfig and fix authentication if needed
-	fmt.Printf("🔧 Merging kubeconfig and setting up authentication...\n")
+	fmt.Printf("⎔ Merging kubeconfig and setting up authentication...\n")
 	err = p.setupKubeconfigAuthentication(cluster, kubeconfigPath)
 	if err != nil {
-		fmt.Printf("⚠️  Warning: Failed to setup authentication: %v\n", err)
-		fmt.Printf("💡 You may need to manually configure authentication\n")
+		fmt.Printf("▲ Warning: Failed to setup authentication: %v\n", err)
+		fmt.Printf("▸ You may need to manually configure authentication\n")
 	} else {
-		fmt.Printf("✅ Authentication configured successfully\n")
+		fmt.Printf("● Authentication configured successfully\n")
 	}
 
 	return kubeconfig, nil
@@ -815,7 +815,7 @@ func (p *Provider) discoverClusterResources(ctx context.Context, clusterName str
 
 // printResourceSummary prints a summary of discovered resources
 func (p *Provider) printResourceSummary(tracker *ResourceTracker) {
-	fmt.Printf("\n📋 Discovered cluster resources:\n")
+	fmt.Printf("\n▸ Discovered cluster resources:\n")
 	fmt.Printf("   • VPCs: %d\n", len(tracker.VPCs))
 	fmt.Printf("   • Subnets: %d\n", len(tracker.Subnets))
 	fmt.Printf("   • Security Groups: %d\n", len(tracker.SecurityGroups))
@@ -844,11 +844,11 @@ func (p *Provider) ensureSSHKeyPair(ctx context.Context, clusterName string) (st
 	if _, err := p.ec2Client.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{
 		KeyNames: []string{keyName},
 	}); err == nil {
-		fmt.Printf("✓ Using existing SSH key pair: %s\n", keyName)
+		fmt.Printf("● Using existing SSH key pair: %s\n", keyName)
 		return keyName, nil
 	}
 
-	fmt.Printf("🔑 Importing SSH key pair: %s\n", keyName)
+	fmt.Printf("⛨ Importing SSH key pair: %s\n", keyName)
 	_, err = p.ec2Client.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{
 		KeyName:           aws.String(keyName),
 		PublicKeyMaterial: []byte(pubKey),
