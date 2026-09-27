@@ -23,14 +23,18 @@ import (
 	"adhar-io/adhar/platform/logger"
 	"adhar-io/adhar/platform/providers/kind"
 	"adhar-io/adhar/platform/utils"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -87,8 +91,13 @@ Examples:
 			if target == "" {
 				target = "EVERY environment in " + downConfigFile
 			}
+			// Name the resources in the vocabulary of the cloud being torn
+			// down. The list used to be DigitalOcean's ("droplets… firewall,
+			// VPC") whatever the provider was, so an Azure teardown warned
+			// about objects Azure does not have and stayed silent about the
+			// ones it does.
 			fmt.Printf("\nThis permanently deletes the cloud resources for %s:\n", target)
-			fmt.Printf("  instances, block volumes, load balancers, firewall, VPC and SSH key.\n")
+			fmt.Printf("  %s\n", teardownResourceSummary(downConfigFile, downEnv))
 			fmt.Printf("Type 'yes' to confirm: ")
 			var confirmation string
 			fmt.Scanln(&confirmation)
@@ -134,10 +143,31 @@ Examples:
 		// Initialize Bubble Tea program
 		p := tea.NewProgram(m)
 
+		// Take the standard logger off the terminal before the UI draws a single
+		// frame: provider progress goes into the detail pane instead of on top
+		// of the spinner box. See teardownLogCapture.
+		capture := captureTeardownLogs(m.sub)
+
 		// Run the UI
-		if _, err := p.Run(); err != nil {
-			fmt.Println("Error running program:", err)
+		_, runErr := p.Run()
+		capture.Restore()
+
+		if runErr != nil {
+			fmt.Println("Error running program:", runErr)
+			// The providers may have logged why; without this the reason dies
+			// with the UI.
+			if out := capture.Contents(); out != "" {
+				fmt.Fprint(os.Stderr, out)
+			}
 			os.Exit(1)
+		}
+
+		// With --verbose the full provider log follows the summary, so a
+		// teardown can be audited after the fact rather than only watched.
+		if verboseDown {
+			if out := capture.Contents(); out != "" {
+				fmt.Fprintf(os.Stderr, "\nProvider log:\n%s", out)
+			}
 		}
 	},
 }
@@ -980,4 +1010,135 @@ func runTeardownPlain() {
 			return
 		}
 	}
+}
+
+// teardownLogCapture redirects the standard `log` package away from the
+// terminal for as long as the Bubble Tea program owns it, and re-publishes each
+// line into the UI's detail pane instead.
+//
+// Without this the screen is unreadable. Providers log their progress through
+// `log.Printf` (the Azure provider alone prints its parsed config, every
+// discovered resource and every deleted VM), which writes straight to stderr
+// while Bubble Tea is redrawing a bordered spinner box on stdout. The two
+// interleave mid-frame, so the box is torn in half, "Elapsed time" lines pile
+// up, and half-written log lines appear inside the border — which is exactly
+// what a real `adhar down` on Azure looked like.
+//
+// Nothing is dropped. Every line is kept in `buf` for `--verbose` and for the
+// failure path, and delivered to the live pane on a best-effort basis: the send
+// is non-blocking because `sub` is unbuffered and consumed by the Update loop,
+// so a blocking write from the teardown goroutine could deadlock the very UI it
+// is trying to inform.
+type teardownLogCapture struct {
+	mu   sync.Mutex
+	buf  bytes.Buffer
+	sub  chan tea.Msg
+	prev io.Writer
+	flag int
+}
+
+func captureTeardownLogs(sub chan tea.Msg) *teardownLogCapture {
+	c := &teardownLogCapture{sub: sub, prev: log.Writer(), flag: log.Flags()}
+	log.SetOutput(c)
+	return c
+}
+
+// Write keeps the line and offers it to the detail pane without ever blocking.
+func (c *teardownLogCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	c.buf.Write(p)
+	c.mu.Unlock()
+
+	for _, line := range strings.Split(strings.TrimRight(string(p), "\n"), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		select {
+		case c.sub <- logger.ExtraOutputMsg(line):
+		default:
+			// The Update loop is busy; the line is already in buf and will be
+			// shown by Flush if it matters.
+		}
+	}
+	return len(p), nil
+}
+
+// Restore puts the standard logger back the way it was found.
+func (c *teardownLogCapture) Restore() {
+	log.SetOutput(c.prev)
+	log.SetFlags(c.flag)
+}
+
+// Contents returns everything the providers logged.
+func (c *teardownLogCapture) Contents() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.String()
+}
+
+// teardownResourceSummary lists, in the target cloud's own vocabulary, what the
+// confirmation is about to destroy.
+//
+// The prompt used to print one hardcoded list — "instances, block volumes, load
+// balancers, firewall, VPC and SSH key" — for every provider. That is
+// DigitalOcean's model. On Azure it warned about a firewall and a VPC that do
+// not exist while saying nothing about the resource group, the NICs or the
+// public IPs that teardown actually removes, so the one screen whose entire job
+// is informed consent was describing a different cloud.
+//
+// Best effort by design: this runs before the teardown and must never be the
+// reason a teardown cannot start, so an unreadable or ambiguous config falls
+// back to generic wording rather than failing.
+func teardownResourceSummary(configFile, envName string) string {
+	const generic = "compute instances, disks, load balancers, networking and the cluster SSH key."
+
+	if configFile == "" {
+		return generic
+	}
+	cfg, err := config.LoadConfig(configFile)
+	if err != nil {
+		return generic
+	}
+	if err := cfg.ResolveEnvironments(); err != nil {
+		return generic
+	}
+
+	// Collect the distinct providers in scope: one named environment, or every
+	// environment in the file.
+	providers := map[string]bool{}
+	if envName != "" {
+		if env, ok := cfg.ResolvedEnvironments[envName]; ok {
+			providers[env.ResolvedProvider] = true
+		}
+	} else {
+		for _, env := range cfg.ResolvedEnvironments {
+			providers[env.ResolvedProvider] = true
+		}
+	}
+	if len(providers) != 1 {
+		// Nothing to be gained from guessing across a mixed set.
+		return generic
+	}
+
+	for name := range providers {
+		if summary, ok := providerResourceSummaries[name]; ok {
+			return summary
+		}
+	}
+	return generic
+}
+
+// providerResourceSummaries names what each provider's teardown deletes, using
+// the terms that provider's console and docs use — so the line can be checked
+// against what the reader sees in their cloud portal.
+var providerResourceSummaries = map[string]string{
+	globals.CloudProviderAzure: "virtual machines, managed disks, load balancer, NICs, public IPs, " +
+		"network security group and virtual network (the resource group itself is kept unless Adhar created it).",
+	globals.CloudProviderAWS: "EC2 instances, EBS volumes, load balancers, security groups, subnets, " +
+		"internet gateway, VPC and the cluster key pair.",
+	globals.CloudProviderGKE: "compute instances, persistent disks, forwarding rules, firewall rules, " +
+		"subnetwork and VPC network.",
+	globals.CloudProviderDO:   "droplets, block volumes, load balancers, firewall, VPC and SSH key.",
+	globals.CloudProviderCivo: "instances, volumes, load balancers, firewall, network and SSH key.",
+	globals.CloudProviderKind: "the local Kind cluster and its containers (no cloud resources).",
 }
