@@ -33,7 +33,11 @@ import "github.com/charmbracelet/lipgloss"
 //
 // Use the State* helpers for state so colour and glyph never disagree.
 const (
-	IconReady    = "●" // healthy, running, ready
+	// A CHECK MARK for success, not a filled dot. U+2713 is a single display cell
+	// in every terminal — unlike ✅ (U+2705), which has emoji presentation, is
+	// double-width, and is what pushed table columns out of true in the first
+	// place. So this reads as "done" without costing alignment.
+	IconReady    = "✓" // healthy, running, ready, succeeded
 	IconPending  = "◌" // starting, progressing, not yet ready
 	IconDegraded = "▲" // degraded but serving
 	IconFailed   = "✖" // failed, unavailable

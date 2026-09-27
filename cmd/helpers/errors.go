@@ -25,7 +25,7 @@ import (
 
 // Shared status icons for consistent visual feedback across commands.
 const (
-	IconSuccess = "●"
+	IconSuccess = "✓"
 	IconError   = "✖"
 	IconWarning = "▲"
 	IconInfo    = "▸"

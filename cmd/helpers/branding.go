@@ -194,3 +194,24 @@ func RenderBannerLine(version string) string {
 		Render(" — Open Cloud-Native Foundation · v" + strings.TrimPrefix(version, "v"))
 	return name + rest
 }
+
+// HeartColor is the red used for the brand sign-off's heart. It is deliberately
+// its own colour rather than ErrorColor: the two happen to be red today, but a
+// heart is not an error and must not follow error styling if that ever changes.
+var HeartColor = lipgloss.AdaptiveColor{Light: "#d1344b", Dark: "#ff5c73"}
+
+// SignOffText is the sign-off with no styling, for --no-color and for anywhere
+// escape sequences would be captured rather than rendered.
+const SignOffText = "Adhar • Built with ❤ for developers!"
+
+// SignOff renders "Adhar • Built with ❤ for developers!" with the heart in red
+// and the rest in `text`.
+//
+// Defined once because the line was spelled out at two call sites, which is how
+// they drift — a bulk edit of the CLI's icons replaced the heart with the
+// success glyph in one of them, so the footer briefly read "Built with ✓ for
+// developers!".
+func SignOff(text lipgloss.Style) string {
+	heart := lipgloss.NewStyle().Foreground(HeartColor).Render("❤")
+	return text.Render("Adhar • Built with ") + heart + text.Render(" for developers!")
+}

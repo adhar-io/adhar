@@ -262,3 +262,41 @@ func TestTeardownCaptureOfStdoutNeverBlocks(t *testing.T) {
 		t.Errorf("retained %d of 300 lines", n)
 	}
 }
+
+// "Are you sure?" is worth little if it does not say sure about WHAT, WHERE. The
+// same configuration file points at different accounts depending on which
+// credentials are in the environment, and this has already gone wrong in
+// practice — a teardown aimed at one AWS account while the operator was thinking
+// of another. So the prompt names the provider and region too.
+func TestConfirmationNamesWhereItWillAct(t *testing.T) {
+	got := teardownTargetDescription("../../config.aws.yaml", "dev")
+	for _, want := range []string{"aws", "ap-southeast-1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("target description should name %q, got %q", want, got)
+		}
+	}
+}
+
+// Best effort by design: it runs before any deletion and must never be the reason
+// a teardown cannot start, so an unreadable config omits the line rather than
+// failing.
+func TestConfirmationTargetIsBestEffort(t *testing.T) {
+	if got := teardownTargetDescription(filepath.Join(t.TempDir(), "nope.yaml"), "dev"); got != "" {
+		t.Errorf("a missing config should yield no target line, got %q", got)
+	}
+	if got := teardownTargetDescription("", ""); got != "" {
+		t.Errorf("an empty path should yield no target line, got %q", got)
+	}
+}
+
+// Every environment in the file, when none is named — the scope line says
+// "EVERY environment", so the target must match that breadth.
+func TestConfirmationTargetCoversEveryEnvironmentWhenUnscoped(t *testing.T) {
+	got := teardownTargetDescription("../../config.aws.yaml", "")
+	if got == "" {
+		t.Fatal("an unscoped teardown should still name its providers")
+	}
+	if !strings.Contains(got, "aws") {
+		t.Errorf("got %q", got)
+	}
+}

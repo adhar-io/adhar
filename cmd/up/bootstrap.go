@@ -419,8 +419,6 @@ func bootstrapPlatformOnCluster(ctx context.Context, result *pfactory.ProvisionR
 			return mgrErr
 		}
 	}
-	reportPendingApplications(context.Background(), kubeClient, platformName)
-
 	// Production posture: continuous reconciliation via the in-cluster manager.
 	installCtx, installCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer installCancel()

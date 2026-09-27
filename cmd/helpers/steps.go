@@ -59,7 +59,7 @@ func RenderReadyPanel(access, hints [][2]string) string {
 		Render(strings.Join(rows, "\n"))
 
 	var b strings.Builder
-	b.WriteString("  " + okStyle.Render("●") + "  " + stepTitleStyle.Render("Platform ready") + "\n\n")
+	b.WriteString("  " + okStyle.Render("✓") + "  " + stepTitleStyle.Render("Platform ready") + "\n\n")
 	b.WriteString(box + "\n")
 	hintW := 0
 	for _, h := range hints {

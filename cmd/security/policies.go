@@ -68,7 +68,7 @@ func runPolicies(cmd *cobra.Command, args []string) error {
 		for _, c := range nestedSlice(obj, "status", "conditions") {
 			if cm, ok := c.(map[string]interface{}); ok && fmt.Sprintf("%v", cm["type"]) == "Ready" {
 				if fmt.Sprintf("%v", cm["status"]) == "True" {
-					ready = "●"
+					ready = "✓"
 				} else {
 					ready = "✖"
 				}

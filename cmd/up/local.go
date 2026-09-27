@@ -139,6 +139,31 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	tracker := helpers.NewStageTracker(os.Stderr, "Provisioning Adhar platform", stages, !lp.options.Verbose)
 	tracker.Start()
 
+	// Show the provisioning log again, ABOVE the checklist.
+	//
+	// It used to be suppressed because writing it straight to the terminal tore
+	// the animated block apart: render() repositions by counting the lines it last
+	// drew, so any other output desynchronised that count and left an orphaned
+	// copy of the block behind — the duplicated
+	// "Provisioning Adhar platform 0s / 2m56s" pair. Routing the logger through
+	// the tracker keeps both: messages scroll up and stay, the checklist stays
+	// coherent at the bottom.
+	//
+	// Only in the animated case. With --verbose the tracker already degrades to
+	// plain lines, so the logger can write directly and stay in file order.
+	if !lp.options.Verbose {
+		tw := helpers.NewTrackerWriter(tracker)
+		prevLogOut := logger.Output()
+		logger.SetOutput(tw)
+		prevStd := stdlog.Writer()
+		stdlog.SetOutput(tw)
+		defer func() {
+			tw.Flush()
+			logger.SetOutput(prevLogOut)
+			stdlog.SetOutput(prevStd)
+		}()
+	}
+
 	// Stage 1: Create Kind cluster
 	tracker.Activate(0)
 	if err := lp.ReconcileKindCluster(ctx, recreateCluster); err != nil {
@@ -147,6 +172,7 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		return err
 	}
 	tracker.Done(0)
+	logger.Info(fmt.Sprintf("Kind cluster %q ready — Cilium will provide the CNI", lp.options.Name))
 
 	kubeConfig, err := lp.GetKubeConfig()
 	if err != nil {
@@ -165,6 +191,7 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		return err
 	}
 	tracker.Done(1)
+	logger.Info("Platform CRDs installed: AdharPlatform, GitRepository, CustomPackage")
 
 	mgr, err := manager.New(kubeConfig, manager.Options{
 		Scheme: lp.options.Scheme,
@@ -309,7 +336,6 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	}
 
 	finish(false)
-	reportPendingApplications(context.Background(), kubeClient, lp.options.Name)
 	return nil
 }
 
@@ -408,25 +434,6 @@ func watchAppsBudget(ctx context.Context, c client.Client, name string, budget, 
 	}
 }
 
-// reportPendingApplications names the platform Applications that were not yet
-// Synced + Healthy when `adhar up` stopped waiting (ArgoCD keeps converging
-// them), so the user knows what to watch instead of assuming everything is up.
-func reportPendingApplications(ctx context.Context, c client.Client, name string) {
-	var lb v1alpha1.AdharPlatform
-	if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &lb); err != nil || lb.Status.GitOps == nil {
-		return
-	}
-	g := lb.Status.GitOps
-	if g.ApplicationsTotal == 0 || g.ApplicationsHealthy == g.ApplicationsTotal {
-		return
-	}
-	// Printed, not logged: this is a closing summary for a person, so it gets no
-	// timestamp or INFO prefix.
-	fmt.Fprintf(os.Stderr, "  %s  %s\n",
-		helpers.SubtitleStyle.Render(fmt.Sprintf("%d/%d apps ready", g.ApplicationsHealthy, g.ApplicationsTotal)),
-		helpers.MutedStyle.Render("still converging: "+strings.Join(g.Pending, ", ")))
-}
-
 // verifyPlatformProvisioned confirms the bootstrap reached the GitOps handoff.
 // The controller sets Status.Gitea.RepositoriesCreated only after it has seeded
 // the Gitea repos and (immediately after) applied the platform ApplicationSet —
@@ -453,6 +460,17 @@ func verifyPlatformProvisioned(ctx context.Context, c client.Client, name string
 	}
 }
 
+// logOnce logs a message the first time its key is seen. Used from the status
+// poll, which ticks every two seconds and would otherwise repeat every line
+// dozens of times.
+func logOnce(seen map[string]bool, key, message string) {
+	if seen == nil || seen[key] {
+		return
+	}
+	seen[key] = true
+	logger.Info(message)
+}
+
 // pollPlatformStages advances the controller-owned stages of the tracker as each
 // core component reports Available in the AdharPlatform status. It runs until the
 // stop channel closes or the context is cancelled. Marks are idempotent, so it is
@@ -461,6 +479,11 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 	defer func() { _ = recover() }()
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
+	// The poll runs every two seconds, so anything logged from inside it must be
+	// logged once. The tracker is a LIVE view and leaves nothing behind; these
+	// lines are the durable record of what came up, which is all a piped or CI run
+	// has to go on.
+	logged := map[string]bool{}
 	for {
 		select {
 		case <-stop:
@@ -484,14 +507,17 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 			// the Deployment readiness times the stage).
 			if st.Gateway.Available {
 				tracker.Done(3)
+				logOnce(logged, "gateway", "Cilium and the Cilium Gateway are programmed — the eBPF data path is up")
 				tracker.Activate(4)
 			}
 			if st.ArgoCD.Available && deployReady(ctx, c, "argo-cd-argocd-server") {
 				tracker.Done(4)
+				logOnce(logged, "argocd", "ArgoCD is serving — the GitOps engine is ready")
 				tracker.Activate(5)
 			}
 			if st.Gitea.Available && deployReady(ctx, c, "gitea") {
 				tracker.Done(5)
+				logOnce(logged, "gitea", "Gitea is serving — the in-cluster Git server is ready")
 				tracker.Activate(6)
 			}
 			// Stage 6 GitOps repos: the ~1 min seeding of the packages /
@@ -499,14 +525,21 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 			// "Crossplane", which merely followed it.
 			if st.Gitea.RepositoriesCreated {
 				tracker.Done(6)
+				logOnce(logged, "repos", "GitOps repositories seeded into Gitea: packages, environments, templates")
 				tracker.Activate(7)
 			}
 			if st.Crossplane.Available {
 				tracker.Done(7)
+				logOnce(logged, "crossplane", "Crossplane control plane is ready — XRDs, compositions and functions applied")
 				tracker.Activate(8)
 			}
 			if st.GitOps != nil && st.GitOps.ApplicationsTotal > 0 {
-				tracker.SetDetail(8, fmt.Sprintf("%d/%d apps Synced + Healthy", st.GitOps.ApplicationsHealthy, st.GitOps.ApplicationsTotal))
+				progress := fmt.Sprintf("%d/%d apps Synced + Healthy", st.GitOps.ApplicationsHealthy, st.GitOps.ApplicationsTotal)
+				tracker.SetDetail(8, progress)
+				// Keyed on the message so a repeated count logs once: the poll runs
+				// every few seconds and would otherwise emit the same line dozens of
+				// times.
+				logOnce(logged, "gitops:"+progress, "GitOps sync: "+progress)
 			}
 		}
 	}

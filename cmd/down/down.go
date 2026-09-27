@@ -97,9 +97,21 @@ Examples:
 			// VPC") whatever the provider was, so an Azure teardown warned
 			// about objects Azure does not have and stayed silent about the
 			// ones it does.
-			fmt.Printf("\nThis permanently deletes the cloud resources for %s:\n", target)
-			fmt.Printf("  %s\n", teardownResourceSummary(downConfigFile, downEnv))
-			fmt.Printf("Type 'yes' to confirm: ")
+			//
+			// Where it is running matters as much as what is deleted: the same
+			// config can point at different accounts, and "are you sure?" is
+			// worth nothing if it does not say sure about WHAT, WHERE. So the
+			// provider and region are named too when the file gives them.
+			fmt.Printf("\n%s  This deletes cloud infrastructure and cannot be undone.\n",
+				helpers.WarningStyle.Render(helpers.IconDegraded))
+			fmt.Printf("\n  Scope     %s\n", target)
+			if where := teardownTargetDescription(downConfigFile, downEnv); where != "" {
+				fmt.Printf("  Target    %s\n", where)
+			}
+			fmt.Printf("  Deletes   %s\n", teardownResourceSummary(downConfigFile, downEnv))
+			fmt.Printf("\n  Data on those volumes is destroyed with them. Anything not backed up\n")
+			fmt.Printf("  elsewhere is gone.\n")
+			fmt.Printf("\nType 'yes' to proceed, anything else to cancel: ")
 			var confirmation string
 			fmt.Scanln(&confirmation)
 			if confirmation != "yes" {
@@ -356,7 +368,7 @@ func (m downModel) View() string {
 			// "nothing happened".
 			successBox = helpers.BorderStyle.Width(boxWidth).Render(
 				fmt.Sprintf("%s %s\n\n%s\n",
-					helpers.SuccessStyle.Render("●"),
+					helpers.SuccessStyle.Render("✓"),
 					helpers.SuccessStyle.Render("Orphaned storage removed"),
 					helpers.SubtitleStyle.Render(wrapText(fmt.Sprintf(
 						"%d orphaned volume(s) deleted. No cluster for %s remained to delete.",
@@ -389,7 +401,7 @@ func (m downModel) View() string {
 			}
 			successBox = helpers.BorderStyle.Width(boxWidth).Render(
 				fmt.Sprintf("%s %s\n\n%s\n",
-					helpers.SuccessStyle.Render("●"),
+					helpers.SuccessStyle.Render("✓"),
 					helpers.SuccessStyle.Render("Successfully tore down Adhar platform!"),
 					helpers.SubtitleStyle.Render(wrapText(removed, boxTextWidth))))
 
@@ -398,7 +410,7 @@ func (m downModel) View() string {
 			// kind of wrong detail that sends someone to re-check their account.
 			successBox = helpers.BorderStyle.Width(boxWidth).Render(
 				fmt.Sprintf("%s %s\n\n%s\n",
-					helpers.SuccessStyle.Render("●"),
+					helpers.SuccessStyle.Render("✓"),
 					helpers.SuccessStyle.Render("Successfully tore down Adhar platform!"),
 					helpers.SubtitleStyle.Render(wrapText("Kind cluster and resources have been removed", boxTextWidth))))
 		}
@@ -436,11 +448,16 @@ func (m downModel) View() string {
 		step = "Working"
 	}
 
-	// Show the current spinner, step, and status
-	view := fmt.Sprintf("\n%s %s %s",
+	// Separated by a middot rather than run together. Concatenating them read as
+	// one broken sentence that said the environment twice —
+	// "Tearing down dev Locating cluster 'dev'..." — because the step already
+	// carries the name the status then repeats.
+	view := fmt.Sprintf("\n%s %s",
 		m.spinner.View(),
-		helpers.TitleStyle.Render(step),
-		status)
+		helpers.TitleStyle.Render(step))
+	if status != "" {
+		view += helpers.SubtitleStyle.Render("  ·  " + status)
+	}
 
 	// Show elapsed time
 	timeInfo := fmt.Sprintf("\n\n%s %s",
@@ -468,7 +485,7 @@ func (m downModel) View() string {
 
 	// Add a progress indicator
 	mainContent := helpers.BorderStyle.Width(boxWidth).Render(
-		helpers.TitleStyle.Render("Please wait while Adhar is tearing down your environment") +
+		helpers.TitleStyle.Render("Deleting cloud resources — this can take several minutes") +
 			"\n\n" + view + timeInfo + toggleHint + extraInfo)
 
 	return fmt.Sprintf("\n%s\n", mainContent)
@@ -1188,4 +1205,62 @@ var providerResourceSummaries = map[string]string{
 	globals.CloudProviderDO:   "droplets, block volumes, load balancers, firewall, VPC and SSH key.",
 	globals.CloudProviderCivo: "instances, volumes, load balancers, firewall, network and SSH key.",
 	globals.CloudProviderKind: "the local Kind cluster and its containers (no cloud resources).",
+}
+
+// teardownTargetDescription names WHERE the teardown will act — the provider and
+// its region — so the confirmation identifies the blast radius, not just its
+// shape.
+//
+// "Are you sure?" is worth little if it does not say sure about what, where. The
+// same configuration file can point at different accounts depending on which
+// credentials happen to be in the environment, and this session has already seen
+// that go wrong: a teardown was aimed at one AWS account while the operator was
+// thinking of another.
+//
+// Best effort, like teardownResourceSummary: it runs before any deletion and must
+// never be the reason a teardown cannot start, so an unreadable config yields ""
+// and the prompt simply omits the line.
+func teardownTargetDescription(configFile, envName string) string {
+	if configFile == "" {
+		return ""
+	}
+	cfg, err := config.LoadConfig(configFile)
+	if err != nil {
+		return ""
+	}
+	if err := cfg.ResolveEnvironments(); err != nil {
+		return ""
+	}
+
+	type target struct{ provider, region string }
+	seen := map[target]bool{}
+	add := func(env *config.ResolvedEnvironmentConfig) {
+		seen[target{provider: env.ResolvedProvider, region: env.ResolvedRegion}] = true
+	}
+	if envName != "" {
+		if env, ok := cfg.ResolvedEnvironments[envName]; ok {
+			add(env)
+		}
+	} else {
+		for _, env := range cfg.ResolvedEnvironments {
+			add(env)
+		}
+	}
+	if len(seen) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(seen))
+	for t := range seen {
+		switch {
+		case t.provider == "":
+			continue
+		case t.region == "":
+			parts = append(parts, t.provider)
+		default:
+			parts = append(parts, t.provider+" · "+t.region)
+		}
+	}
+	sort.Strings(parts) // stable, so the prompt reads the same way every run
+	return strings.Join(parts, ", ")
 }

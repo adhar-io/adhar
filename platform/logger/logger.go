@@ -104,7 +104,7 @@ var globalLogger *AdharLogger
 // Emoji constants for better visual feedback
 const (
 	EmojiInfo     = "▸"
-	EmojiSuccess  = "●"
+	EmojiSuccess  = "✓"
 	EmojiWarning  = "▲"
 	EmojiError    = "✖"
 	EmojiDebug    = "▸"
@@ -474,6 +474,14 @@ func InfoWithFields(message string, fields map[string]interface{}) {
 // SetOutput sets the output for the global logger
 func SetOutput(output io.Writer) {
 	GetLogger().SetOutput(output)
+}
+
+// Output returns the global logger's current writer, so a caller that redirects
+// it temporarily can put back exactly what was there rather than assuming
+// os.Stderr. `adhar up` does this to route provisioning logs through its live
+// checklist and restore them afterwards.
+func Output() io.Writer {
+	return GetLogger().Output
 }
 
 // SetLevel sets the log level for the global logger

@@ -120,7 +120,7 @@ func (s *Spinner) render() {
 }
 
 // Success stops the animation and resolves the line to a green ● with elapsed time.
-func (s *Spinner) Success(msg string) { s.finish(spinOKStyle.Render("●"), msg) }
+func (s *Spinner) Success(msg string) { s.finish(spinOKStyle.Render("✓"), msg) }
 
 // Fail stops the animation and resolves the line to a red ✖.
 func (s *Spinner) Fail(msg string) { s.finish(spinFailStyle.Render("✖"), msg) }

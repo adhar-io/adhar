@@ -137,7 +137,7 @@ func collectPackageHealth(ctx context.Context) *PackageHealthSummary {
 func healthIcon(health string) string {
 	switch health {
 	case healthHealthy:
-		return "●"
+		return "✓"
 	case healthProgressing:
 		return "◌"
 	case "Degraded", "Missing":

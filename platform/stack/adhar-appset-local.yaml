@@ -400,8 +400,12 @@ spec:
           # Hierarchical tenant quotas: a per-team ceiling above the
           # per-namespace ResourceQuota. Certificates + a webhook config only —
           # the validator runs inside the controller manager already present.
+          # Disabled locally: hierarchical per-team quotas sitting above the
+          # per-namespace ResourceQuota. A single-node local cluster has one team and
+          # no contention to arbitrate, so the admission webhook only adds a hop to
+          # every create.
           - name: "adhar-tenant-quotas"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "security"
             manifestPath: "security/adhar-tenant-quotas/manifests"
@@ -580,8 +584,11 @@ spec:
             manifestPath: "observability/loki-stack/manifests"
           # Recording rules + budget alerts over OpenCost's metrics, and the
           # series `adhar cost` reads. Rules only — no workload.
+          # Disabled locally: recording rules and budget alerts over OpenCost's
+          # metrics — and `opencost` is disabled here too, so the rules would evaluate
+          # against series that never exist and `adhar cost` has nothing to read.
           - name: "adhar-cost-governance"
-            enabled: "true"
+            enabled: "false"
             namespace: "adhar-system"
             category: "observability"
             manifestPath: "observability/adhar-cost-governance/manifests"

@@ -52,7 +52,7 @@ func (s ProgressStatus) String() string {
 	case StatusInProgress:
 		return "◌"
 	case StatusCompleted:
-		return "●"
+		return "✓"
 	case StatusFailed:
 		return "✖"
 	case StatusSkipped:
@@ -515,7 +515,7 @@ func (p *ProgressTracker) renderSingleLine() {
 				stepText += " " + SubtitleStyle.Render("- "+step.Description)
 			}
 		case StatusCompleted:
-			statusIcon = SuccessStyle.Render("●")
+			statusIcon = SuccessStyle.Render("✓")
 			stepText = SuccessStyle.Render(step.Name)
 			if !step.EndTime.IsZero() && !step.StartTime.IsZero() {
 				duration := step.EndTime.Sub(step.StartTime).Round(time.Millisecond)
@@ -612,7 +612,7 @@ func (p *ProgressTracker) renderExpandedView() {
 				stepText += " " + SubtitleStyle.Render("- "+step.Description)
 			}
 		case StatusCompleted:
-			statusIcon = SuccessStyle.Render("●")
+			statusIcon = SuccessStyle.Render("✓")
 			stepText = SuccessStyle.Render(step.Name)
 			if !step.EndTime.IsZero() {
 				duration := step.EndTime.Sub(step.StartTime).Round(time.Millisecond)
@@ -698,7 +698,7 @@ func (p *ProgressTracker) Complete() {
 				duration = fmt.Sprintf(" (%s)", formatDuration(d))
 			}
 			fmt.Printf("  %s %s%s\n",
-				SuccessStyle.Render("●"),
+				SuccessStyle.Render("✓"),
 				SuccessStyle.Render(step.Name),
 				InfoStyle.Render(duration))
 		}
@@ -722,9 +722,9 @@ func (p *ProgressTracker) Complete() {
 		// Show summary
 		if failed == 0 && skipped == 0 {
 			fmt.Printf("   %s All %d steps completed successfully\n",
-				SuccessStyle.Render("●"), completed)
+				SuccessStyle.Render("✓"), completed)
 		} else {
-			fmt.Printf("   %s %d completed", SuccessStyle.Render("●"), completed)
+			fmt.Printf("   %s %d completed", SuccessStyle.Render("✓"), completed)
 			if skipped > 0 {
 				fmt.Printf(", %s %d skipped", WarningStyle.Render("○"), skipped)
 			}
@@ -909,7 +909,7 @@ func (pt *ProgressTracker) getStyledStatusIcon(status ProgressStatus) string {
 	case StatusInProgress:
 		return "◌"
 	case StatusCompleted:
-		return "●"
+		return "✓"
 	case StatusFailed:
 		return "✖"
 	case StatusSkipped:
@@ -934,7 +934,7 @@ func (pt *ProgressTracker) CompleteStyled() {
 
 	successBox := HighlightStyle.Width(60).Render(
 		fmt.Sprintf("%s %s\n\n%s\n",
-			SuccessStyle.Render("●"),
+			SuccessStyle.Render("✓"),
 			SuccessStyle.Render("Successfully set up Adhar platform!"),
 			SubtitleStyle.Render("Your development environment is ready")))
 

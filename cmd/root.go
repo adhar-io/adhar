@@ -48,7 +48,7 @@ func printHeader() {
 func printFooter() {
 	fmt.Println()
 	fmt.Println(lipgloss.NewStyle().Align(lipgloss.Center).Render(
-		helpers.SubtitleStyle.Render("Adhar • Built with ❤ for developers!"),
+		helpers.SignOff(helpers.SubtitleStyle),
 	))
 	fmt.Println()
 }

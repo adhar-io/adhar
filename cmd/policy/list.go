@@ -138,7 +138,7 @@ func policyRowFrom(kind string, obj map[string]interface{}, name, ns string, cre
 		if cm, ok := c.(map[string]interface{}); ok {
 			if fmt.Sprintf("%v", cm["type"]) == "Ready" {
 				if fmt.Sprintf("%v", cm["status"]) == "True" {
-					ready = "●"
+					ready = "✓"
 				} else {
 					ready = "✖"
 				}

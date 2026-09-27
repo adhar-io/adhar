@@ -19,10 +19,11 @@ package helpers
 // stagetracker.go renders `adhar up` provisioning as a single, live checklist of
 // the real stages (Kind → CRDs → Networking → Cilium/Gateway → ArgoCD → Gitea →
 // Crossplane → GitOps). The whole block redraws in place: each stage moves from
-// ○ pending → ⠋ active (animated) → ● done (with elapsed). On a non-interactive
+// ○ pending → ⠋ active (animated) → ✓ done (with elapsed). On a non-interactive
 // writer it degrades to one plain line per stage transition so logs stay clean.
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -155,7 +156,7 @@ func (t *StageTracker) setFinal(i int, s stageState) {
 		t.stages[i].state = s
 		t.stages[i].end = time.Now()
 		if !t.isTTY {
-			icon := stDoneStyle.Render("●")
+			icon := stDoneStyle.Render("✓")
 			if s == stageFailed {
 				icon = stFailStyle.Render("✖")
 			}
@@ -182,6 +183,45 @@ func (t *StageTracker) Stop() {
 	// separation.
 	if t.anyFailed() {
 		fmt.Fprintln(t.w)
+	}
+}
+
+// Log prints a line ABOVE the checklist and redraws the checklist beneath it, so
+// progress logs and the animated block can coexist.
+//
+// This is what the duplicate title was. render() repositions with
+// "\x1b[<lastLines>A\r\x1b[J" — move up by however many lines it last drew, then
+// clear. Anything that writes to the terminal in between makes that count wrong,
+// so the next redraw starts too low and the previous block is orphaned on screen:
+//
+//	Provisioning Adhar platform  0s      <- orphaned, never overwritten
+//	Provisioning Adhar platform  2m56s   <- the live block
+//
+// Routing output through here keeps the arithmetic honest: the block is cleared
+// first, the line is written where it will scroll up and stay, and the block is
+// redrawn below it. Lines arriving before Start or after Stop just print.
+func (t *StageTracker) Log(line string) {
+	if line == "" {
+		return
+	}
+	if !t.isTTY {
+		fmt.Fprintln(t.w, line)
+		return
+	}
+	t.mu.Lock()
+	running, lastLines := t.running, t.lastLines
+	if running && lastLines > 0 {
+		// Erase the live block so the log line lands at its top-left.
+		fmt.Fprintf(t.w, "\x1b[%dA\r\x1b[J", lastLines)
+		t.lastLines = 0
+	}
+	fmt.Fprintln(t.w, line)
+	t.mu.Unlock()
+
+	if running {
+		// Redraw as a FIRST render: the block is gone, so there is nothing to
+		// move up over.
+		t.render(true)
 	}
 }
 
@@ -227,7 +267,7 @@ func (t *StageTracker) render(first bool) {
 		var glyph, label, extra string
 		switch s.state {
 		case stageDone:
-			glyph = stDoneStyle.Render("●")
+			glyph = stDoneStyle.Render("✓")
 			label = stLabelDone.Render(s.label)
 			extra = stDetailStyle.Render(fmtElapsed(s.end.Sub(s.start)))
 		case stageFailed:
@@ -257,4 +297,64 @@ func (t *StageTracker) render(first bool) {
 	}
 	fmt.Fprint(t.w, out)
 	t.lastLines = n
+}
+
+// TrackerWriter adapts a StageTracker to io.Writer so log output can be shown
+// ABOVE a live checklist instead of tearing through it.
+//
+// Progress logs and an animated block are not naturally compatible: the block
+// repositions the cursor by counting the lines it last drew, so anything else
+// writing to the terminal desynchronises it and leaves an orphaned copy behind.
+// Routing the logger here keeps both — the messages scroll up and stay, the
+// checklist stays coherent at the bottom.
+//
+// Writes are split on newlines because a logger may emit several lines in one
+// call, and each has to be placed individually.
+type TrackerWriter struct {
+	t   *StageTracker
+	mu  sync.Mutex
+	buf []byte
+}
+
+// NewTrackerWriter returns a writer that funnels output through t.Log.
+func NewTrackerWriter(t *StageTracker) *TrackerWriter { return &TrackerWriter{t: t} }
+
+func (w *TrackerWriter) Write(p []byte) (int, error) {
+	if w == nil || w.t == nil {
+		return len(p), nil
+	}
+	w.mu.Lock()
+	w.buf = append(w.buf, p...)
+	// Emit only complete lines; a partial write is held until its newline
+	// arrives, so a message is never split across two repositionings.
+	var lines []string
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		lines = append(lines, string(w.buf[:i]))
+		w.buf = w.buf[i+1:]
+	}
+	w.mu.Unlock()
+
+	for _, l := range lines {
+		w.t.Log(strings.TrimRight(l, "\r"))
+	}
+	return len(p), nil
+}
+
+// Flush emits any trailing partial line, so a message without a final newline is
+// not swallowed when the tracker stops.
+func (w *TrackerWriter) Flush() {
+	if w == nil || w.t == nil {
+		return
+	}
+	w.mu.Lock()
+	rest := string(w.buf)
+	w.buf = nil
+	w.mu.Unlock()
+	if strings.TrimSpace(rest) != "" {
+		w.t.Log(rest)
+	}
 }

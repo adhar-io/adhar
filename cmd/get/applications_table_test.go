@@ -1,6 +1,7 @@
 package get
 
 import (
+	"adhar-io/adhar/cmd/helpers"
 	"strings"
 	"testing"
 
@@ -9,12 +10,12 @@ import (
 
 func TestAppStateMapsToTheSharedStateVocabulary(t *testing.T) {
 	cases := map[string]string{
-		"Ready": "●", "Running": "●", "Healthy": "●",
-		"Progressing": "◌", "Pending": "◌",
-		"Degraded": "▲",
-		"Failed":   "✖", "CrashLoopBackOff": "✖", "NotReady": "✖",
-		"Suspended": "○",
-		"Weird":     "◍",
+		"Ready": helpers.IconReady, "Running": helpers.IconReady, "Healthy": helpers.IconReady,
+		"Progressing": helpers.IconPending, "Pending": helpers.IconPending,
+		"Degraded": helpers.IconDegraded,
+		"Failed":   helpers.IconFailed, "CrashLoopBackOff": helpers.IconFailed, "NotReady": helpers.IconFailed,
+		"Suspended": helpers.IconDisabled,
+		"Weird":     helpers.IconUnknown,
 	}
 	for status, glyph := range cases {
 		got := appState(status)
@@ -53,7 +54,7 @@ func TestAppStateStripsAnAlreadyDecoratedStatus(t *testing.T) {
 		"✅ Ready", "● Ready", "✔ Ready", "🟢 Ready", "  ✅  Ready", "[✅] Ready",
 	} {
 		got := appState(decorated)
-		if strings.Count(got, "●") != 1 {
+		if strings.Count(got, helpers.IconReady) != 1 {
 			t.Errorf("appState(%q) = %q, want exactly one vocabulary icon", decorated, got)
 		}
 		if !strings.Contains(got, "Ready") {
@@ -72,7 +73,7 @@ func TestAppStateStripsAnAlreadyDecoratedStatus(t *testing.T) {
 	if !strings.Contains(got, "NotReady") || strings.Contains(got, "❌") {
 		t.Errorf("appState(\"❌ NotReady\") = %q", got)
 	}
-	if strings.Count(got, "✖") != 1 {
+	if strings.Count(got, helpers.IconFailed) != 1 {
 		t.Errorf("a failed state should render one failure icon, got %q", got)
 	}
 
