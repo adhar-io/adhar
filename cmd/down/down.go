@@ -450,13 +450,20 @@ func (m downModel) View() string {
 
 	// Separated by a middot rather than run together. Concatenating them read as
 	// one broken sentence that said the environment twice —
-	// "Tearing down dev Locating cluster 'dev'..." — because the step already
+	// "Tearing down dev Locating cluster 'dev'" — because the step already
 	// carries the name the status then repeats.
+	//
+	// Exactly one space each side of the dot. SubtitleStyle carries MarginLeft(2),
+	// which it applies to whatever it renders, so padding the separator here as
+	// well produced four cells before the dot and two after:
+	// "Deleting cluster    ·  Deleting Kind cluster 'adhar'...". The margin is
+	// dropped for this fragment and the spacing written out literally, so what is
+	// in the string is what lands on the screen.
 	view := fmt.Sprintf("\n%s %s",
 		m.spinner.View(),
 		helpers.TitleStyle.Render(step))
 	if status != "" {
-		view += helpers.SubtitleStyle.Render("  ·  " + status)
+		view += helpers.SubtitleStyle.MarginLeft(0).Render(" · " + status)
 	}
 
 	// Show elapsed time
@@ -535,7 +542,7 @@ func teardown(sub chan tea.Msg) {
 
 	// Step 1: Check if the Kind cluster exists
 	emit(logger.StepMsg("Checking cluster"))
-	emit(logger.StatusMsg("Verifying Docker and Kind..."))
+	emit(logger.StatusMsg("Docker and Kind"))
 	detail("→ Checking Docker daemon and Kind availability")
 	exists, err := kindClusterExists()
 	if err != nil {
@@ -559,7 +566,7 @@ func teardown(sub chan tea.Msg) {
 	deleted := false
 
 	for _, clusterName := range clusterNames {
-		emit(logger.StatusMsg(fmt.Sprintf("Deleting Kind cluster '%s'...", clusterName)))
+		emit(logger.StatusMsg(fmt.Sprintf("Kind '%s'", clusterName)))
 		detail("→ kind delete cluster --name %s", clusterName)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -591,14 +598,14 @@ func teardown(sub chan tea.Msg) {
 	eng := utils.DetectContainerEngine()
 	emit(logger.StepMsg("Cleaning up"))
 	if purgeImageCache {
-		emit(logger.StatusMsg("Removing the local image cache containers and volume..."))
+		emit(logger.StatusMsg("image cache containers and volume"))
 		detail("→ %s rm -f adhar-registry-cache-* && %s volume rm %s", eng.Binary, eng.Binary, kind.RegistryCacheVolume)
 	} else {
-		emit(logger.StatusMsg("Stopping the local image cache (kept for the next `adhar up`; --purge-image-cache removes it)..."))
+		emit(logger.StatusMsg("image cache stopped, kept for the next `adhar up` (--purge-image-cache removes it)"))
 		detail("→ %s stop adhar-registry-cache-*", eng.Binary)
 	}
 	kind.StopRegistryCache(context.Background(), purgeImageCache)
-	emit(logger.StatusMsg(fmt.Sprintf("Removing the 'kind' %s network...", eng.Name)))
+	emit(logger.StatusMsg(fmt.Sprintf("the 'kind' %s network", eng.Name)))
 	detail("→ %s network rm kind", eng.Binary)
 	_ = exec.Command(eng.Binary, "network", "rm", "kind").Run()
 
@@ -715,7 +722,7 @@ func updateElapsedTime() tea.Cmd {
 // firewall and VPC running and billing.
 func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{})) {
 	emit(logger.StepMsg("Reading configuration"))
-	emit(logger.StatusMsg(fmt.Sprintf("Loading %s...", downConfigFile)))
+	emit(logger.StatusMsg(downConfigFile))
 
 	cfg, err := config.LoadConfig(downConfigFile)
 	if err != nil {
@@ -767,7 +774,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 		clusterName := helpers.EnvironmentClusterName(env)
 
 		emit(logger.StepMsg(fmt.Sprintf("Tearing down %s", envName)))
-		emit(logger.StatusMsg(fmt.Sprintf("Locating cluster '%s'...", clusterName)))
+		emit(logger.StatusMsg(fmt.Sprintf("locating '%s'", clusterName)))
 		detail("→ environment %s: provider=%s cluster=%s", envName, env.ResolvedProvider, clusterName)
 
 		// The environment's provider must actually be configured in this file.
@@ -830,7 +837,7 @@ func teardownFromConfig(emit func(tea.Msg), detail func(string, ...interface{}))
 			detail("  ! cluster is not tagged adhar.io/managed-by=adhar; deleting anyway")
 		}
 
-		emit(logger.StatusMsg(fmt.Sprintf("Deleting cluster '%s' (%s)...", clusterName, found.ProviderName)))
+		emit(logger.StatusMsg(fmt.Sprintf("deleting '%s' on %s", clusterName, found.ProviderName)))
 		if err := found.Provider.DeleteCluster(ctx, found.Cluster.ID); err != nil {
 			detail("  ✖ %v", err)
 			failures = append(failures, fmt.Sprintf("%s: %v", envName, err))
@@ -880,7 +887,7 @@ func purgeOrphanedVolumesFor(
 	emit func(tea.Msg),
 	detail func(string, ...interface{}),
 ) int {
-	emit(logger.StatusMsg(fmt.Sprintf("Sweeping orphaned volumes in %s...", providerName)))
+	emit(logger.StatusMsg(fmt.Sprintf("sweeping orphaned volumes on %s", providerName)))
 
 	p, err := helpers.BuildProvider(cfg, providerName, providerOpts)
 	if err != nil {

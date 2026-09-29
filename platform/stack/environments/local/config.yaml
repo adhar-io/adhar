@@ -433,8 +433,11 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/adhar-preview-environments/kyverno"
+  # Enabled 2026-09-29: it is the only thing that mirrors adhar/adhar-templates
+  # into Gitea, which the Console's Create New page reads. See the longer note in
+  # adhar-appset-local.yaml for the CPU cost this accepts.
   - name: "adhar-libraries"
-    enabled: "false"
+    enabled: "true"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/adhar-libraries/manifests"

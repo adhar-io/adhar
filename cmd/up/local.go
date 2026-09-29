@@ -172,7 +172,6 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		return err
 	}
 	tracker.Done(0)
-	logger.Info(fmt.Sprintf("Kind cluster %q ready — Cilium will provide the CNI", lp.options.Name))
 
 	kubeConfig, err := lp.GetKubeConfig()
 	if err != nil {
@@ -191,7 +190,6 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 		return err
 	}
 	tracker.Done(1)
-	logger.Info("Platform CRDs installed: AdharPlatform, GitRepository, CustomPackage")
 
 	mgr, err := manager.New(kubeConfig, manager.Options{
 		Scheme: lp.options.Scheme,
@@ -460,17 +458,6 @@ func verifyPlatformProvisioned(ctx context.Context, c client.Client, name string
 	}
 }
 
-// logOnce logs a message the first time its key is seen. Used from the status
-// poll, which ticks every two seconds and would otherwise repeat every line
-// dozens of times.
-func logOnce(seen map[string]bool, key, message string) {
-	if seen == nil || seen[key] {
-		return
-	}
-	seen[key] = true
-	logger.Info(message)
-}
-
 // pollPlatformStages advances the controller-owned stages of the tracker as each
 // core component reports Available in the AdharPlatform status. It runs until the
 // stop channel closes or the context is cancelled. Marks are idempotent, so it is
@@ -479,11 +466,10 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 	defer func() { _ = recover() }()
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
-	// The poll runs every two seconds, so anything logged from inside it must be
-	// logged once. The tracker is a LIVE view and leaves nothing behind; these
-	// lines are the durable record of what came up, which is all a piped or CI run
-	// has to go on.
-	logged := map[string]bool{}
+	// Nothing is logged from this poll. Every stage it advances is already named on
+	// the checklist, one line each, updated in place — a log line beside every
+	// tracker.Done said the same thing twice, once as a tick and once as a
+	// timestamped INFO. `adhar up --verbose` is the way to get a narrated run.
 	for {
 		select {
 		case <-stop:
@@ -507,17 +493,14 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 			// the Deployment readiness times the stage).
 			if st.Gateway.Available {
 				tracker.Done(3)
-				logOnce(logged, "gateway", "Cilium and the Cilium Gateway are programmed — the eBPF data path is up")
 				tracker.Activate(4)
 			}
 			if st.ArgoCD.Available && deployReady(ctx, c, "argo-cd-argocd-server") {
 				tracker.Done(4)
-				logOnce(logged, "argocd", "ArgoCD is serving — the GitOps engine is ready")
 				tracker.Activate(5)
 			}
 			if st.Gitea.Available && deployReady(ctx, c, "gitea") {
 				tracker.Done(5)
-				logOnce(logged, "gitea", "Gitea is serving — the in-cluster Git server is ready")
 				tracker.Activate(6)
 			}
 			// Stage 6 GitOps repos: the ~1 min seeding of the packages /
@@ -525,21 +508,16 @@ func pollPlatformStages(ctx context.Context, c client.Client, name string, track
 			// "Crossplane", which merely followed it.
 			if st.Gitea.RepositoriesCreated {
 				tracker.Done(6)
-				logOnce(logged, "repos", "GitOps repositories seeded into Gitea: packages, environments, templates")
 				tracker.Activate(7)
 			}
 			if st.Crossplane.Available {
 				tracker.Done(7)
-				logOnce(logged, "crossplane", "Crossplane control plane is ready — XRDs, compositions and functions applied")
 				tracker.Activate(8)
 			}
 			if st.GitOps != nil && st.GitOps.ApplicationsTotal > 0 {
-				progress := fmt.Sprintf("%d/%d apps Synced + Healthy", st.GitOps.ApplicationsHealthy, st.GitOps.ApplicationsTotal)
-				tracker.SetDetail(8, progress)
-				// Keyed on the message so a repeated count logs once: the poll runs
-				// every few seconds and would otherwise emit the same line dozens of
-				// times.
-				logOnce(logged, "gitops:"+progress, "GitOps sync: "+progress)
+				// The live count goes to the checklist, which rewrites it in place.
+				tracker.SetDetail(8, fmt.Sprintf("%d/%d apps Synced + Healthy",
+					st.GitOps.ApplicationsHealthy, st.GitOps.ApplicationsTotal))
 			}
 		}
 	}

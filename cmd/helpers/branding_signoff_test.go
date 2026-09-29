@@ -26,7 +26,7 @@ func TestSignOffPaintsTheHeartRed(t *testing.T) {
 		t.Fatalf("the heart is missing: %q", got)
 	}
 	// The red must be emitted as its own sequence around the heart, not inherited.
-	red := lipgloss.NewStyle().Foreground(HeartColor).Render("❤")
+	red := lipgloss.NewStyle().Foreground(HeartColor).Render(heartGlyph)
 	if !strings.Contains(got, red) {
 		t.Errorf("the heart is not painted with HeartColor.\n got: %q\nwant substring: %q", got, red)
 	}
@@ -53,5 +53,44 @@ func TestSignOffTextCarriesNoStyling(t *testing.T) {
 	}
 	if !strings.Contains(SignOffText, "❤") {
 		t.Errorf("SignOffText lost the heart: %q", SignOffText)
+	}
+}
+
+// The sign-off is ONE space either side of the heart.
+//
+// The heart has to be painted separately from the surrounding text (a nested
+// colour resets to the default, not to the outer colour), which means `text` is
+// rendered in two fragments — and a lipgloss style applies its margins to every
+// fragment it renders. With SubtitleStyle's MarginLeft(2) that turned the single
+// space before "for" into three: "Built with ❤   for developers!".
+func TestSignOffSpacesTheHeartOnce(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii) // no escapes, so spacing is what is left
+	defer lipgloss.SetColorProfile(prev)
+
+	for _, style := range []struct {
+		name string
+		s    lipgloss.Style
+	}{
+		{"SubtitleStyle (MarginLeft 2)", SubtitleStyle},
+		{"no margin", lipgloss.NewStyle()},
+		{"MarginLeft 6", lipgloss.NewStyle().MarginLeft(6)},
+	} {
+		got := SignOff(style.s)
+		if want := "Built with " + heartGlyph + " for developers!"; !strings.Contains(got, want) {
+			t.Errorf("%s: spacing around the heart is wrong.\n got: %q\nwant substring: %q", style.name, got, want)
+		}
+		// The caller's margin is applied once, to the whole line — not per fragment.
+		if want := spaces(style.s.GetMarginLeft()) + "Adhar"; !strings.HasPrefix(got, want) {
+			t.Errorf("%s: margin is not applied exactly once.\n got: %q\nwant prefix: %q", style.name, got, want)
+		}
+	}
+}
+
+// The heart is the emoji presentation, which is the larger glyph. Bare U+2764
+// renders small and monochrome on most terminals.
+func TestHeartUsesEmojiPresentation(t *testing.T) {
+	if !strings.Contains(heartGlyph, "\ufe0f") {
+		t.Errorf("heartGlyph should carry the U+FE0F variation selector for the emoji form: %q", heartGlyph)
 	}
 }

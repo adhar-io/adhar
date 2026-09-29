@@ -200,18 +200,48 @@ func RenderBannerLine(version string) string {
 // heart is not an error and must not follow error styling if that ever changes.
 var HeartColor = lipgloss.AdaptiveColor{Light: "#d1344b", Dark: "#ff5c73"}
 
+// heartGlyph is the heart in EMOJI presentation: U+2764 followed by the U+FE0F
+// variation selector. Bare U+2764 is a TEXT glyph — small, and monochrome on most
+// terminals; the selector asks for the larger, fuller emoji form.
+//
+// A variation selector also makes the glyph double-width, and terminals disagree
+// on how to measure it — which is the single biggest cause of column misalignment
+// in this CLI. That is tolerable HERE and only here: the sign-off is a standalone
+// line with nothing after it on the row, so nothing has to line up with it. Keep
+// it out of tables, grids and progress lines.
+const heartGlyph = "❤️"
+
 // SignOffText is the sign-off with no styling, for --no-color and for anywhere
 // escape sequences would be captured rather than rendered.
-const SignOffText = "Adhar • Built with ❤ for developers!"
+const SignOffText = "Adhar • Built with " + heartGlyph + " for developers!"
 
-// SignOff renders "Adhar • Built with ❤ for developers!" with the heart in red
-// and the rest in `text`.
+// spaces returns n blanks, and nothing for a non-positive n (strings.Repeat
+// panics on a negative count).
+func spaces(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.Repeat(" ", n)
+}
+
+// SignOff renders "Adhar • Built with <heart> for developers!" with the heart in
+// red and the rest in `text`.
 //
 // Defined once because the line was spelled out at two call sites, which is how
 // they drift — a bulk edit of the CLI's icons replaced the heart with the
 // success glyph in one of them, so the footer briefly read "Built with ✓ for
 // developers!".
+//
+// The heart must be painted on its own, because a colour nested inside another
+// style resets to the DEFAULT rather than back to the outer colour. That means
+// `text` renders in two fragments — and a lipgloss style applies its margins to
+// every fragment it renders. SubtitleStyle carries MarginLeft(2), so the single
+// space before "for" came out as three and the footer read
+// "Built with ❤   for developers!". The fragments therefore render margin-free
+// and the caller's horizontal margin is applied once, to the finished line.
 func SignOff(text lipgloss.Style) string {
-	heart := lipgloss.NewStyle().Foreground(HeartColor).Render("❤")
-	return text.Render("Adhar • Built with ") + heart + text.Render(" for developers!")
+	seg := text.MarginLeft(0).MarginRight(0)
+	heart := lipgloss.NewStyle().Foreground(HeartColor).Render(heartGlyph)
+	line := seg.Render("Adhar • Built with ") + heart + seg.Render(" for developers!")
+	return spaces(text.GetMarginLeft()) + line + spaces(text.GetMarginRight())
 }

@@ -30,6 +30,12 @@ rules:
     resources: [secrets]
     resourceNames: [nexus-credentials]
     verbs: [get]
+  # Service/nexus tells the gate whether Nexus is in this profile at all, so it
+  # can skip the wait instead of timing out and failing the mirror.
+  - apiGroups: [""]
+    resources: [services]
+    resourceNames: [nexus]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -62,6 +68,25 @@ spec:
           args:
             - |
               # See the Role above: the release this push triggers needs Nexus.
+              #
+              # But Nexus is not in every profile, and waiting for a credential that
+              # is never coming can only end in failure — which is what happened on
+              # every local cluster: 20 minutes of nothing, exit 1, the Job retried to
+              # its backoffLimit and the whole app sat Degraded well past `adhar up`'s
+              # apps-timeout. So establish FIRST whether Nexus exists at all. Its
+              # Service appears as soon as the package syncs; the credential takes far
+              # longer (a config Job that runs once Nexus has booted), so a short look
+              # for the Service distinguishes "not in this profile" from "not ready
+              # yet" without reintroducing the race this gate exists to prevent.
+              for i in $(seq 1 12); do
+                kubectl get service nexus -n adhar-system >/dev/null 2>&1 && { found=1; break; }
+                sleep 5
+              done
+              if [ -z "$found" ]; then
+                echo "nexus is not deployed in this profile — mirroring without waiting"
+                echo "(the release this push triggers cannot publish until nexus-credentials exists)"
+                exit 0
+              fi
               for i in $(seq 1 120); do
                 kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
                 sleep 10
@@ -109,18 +134,13 @@ spec:
     spec:
       serviceAccountName: adhar-libraries
       restartPolicy: Never
-      initContainers:
-        - name: wait-for-nexus
-          image: docker.io/bitnamisecure/kubectl:latest
-          command: [sh, -c]
-          args:
-            - |
-              # See the Role above: the release this push triggers needs Nexus.
-              for i in $(seq 1 120); do
-                kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
-                sleep 10
-              done
-              echo "nexus-credentials not published within 20 minutes"; exit 1
+      # NO wait-for-nexus here, unlike the adhar-ui and adhar-kit Jobs beside it.
+      # That gate exists because pushing a LIBRARY fires the Gitea → Tekton webhook
+      # and the release publishes to Nexus with nexus-credentials. Nothing releases
+      # adhar-templates: the CEL interceptors in triggers.yaml match only
+      # `adhar-ui` and `adhar-kit`. So the wait was copied onto a Job with nothing
+      # to wait for, costing up to 20 minutes before the templates the Console needs
+      # appear — and where `nexus` is disabled it never finished at all, it failed.
       containers:
         - name: mirror
           image: alpine/git:2.45.2
@@ -170,6 +190,25 @@ spec:
           args:
             - |
               # See the Role above: the release this push triggers needs Nexus.
+              #
+              # But Nexus is not in every profile, and waiting for a credential that
+              # is never coming can only end in failure — which is what happened on
+              # every local cluster: 20 minutes of nothing, exit 1, the Job retried to
+              # its backoffLimit and the whole app sat Degraded well past `adhar up`'s
+              # apps-timeout. So establish FIRST whether Nexus exists at all. Its
+              # Service appears as soon as the package syncs; the credential takes far
+              # longer (a config Job that runs once Nexus has booted), so a short look
+              # for the Service distinguishes "not in this profile" from "not ready
+              # yet" without reintroducing the race this gate exists to prevent.
+              for i in $(seq 1 12); do
+                kubectl get service nexus -n adhar-system >/dev/null 2>&1 && { found=1; break; }
+                sleep 5
+              done
+              if [ -z "$found" ]; then
+                echo "nexus is not deployed in this profile — mirroring without waiting"
+                echo "(the release this push triggers cannot publish until nexus-credentials exists)"
+                exit 0
+              fi
               for i in $(seq 1 120); do
                 kubectl get secret nexus-credentials -n adhar-system >/dev/null 2>&1 && { echo "nexus-credentials present"; exit 0; }
                 sleep 10

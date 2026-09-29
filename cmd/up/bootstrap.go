@@ -446,7 +446,13 @@ func logAppConvergence(ctx context.Context, c client.Client, name string, stop <
 	defer func() { _ = recover() }()
 	t := time.NewTicker(20 * time.Second)
 	defer t.Stop()
-	last := ""
+	// Suppressing only IDENTICAL counts still prints a line per increment, so a
+	// 75-app production sync emitted up to 76 of them. There is no checklist on
+	// this path to carry a live count, and a silent quarter-hour on a non-TTY
+	// reads as a hang, so this keeps a heartbeat — but at most one line per
+	// heartbeatEvery, plus one when the apps are first seen and one at the end.
+	const heartbeatEvery = 2 * time.Minute
+	started, lastAt := false, time.Time{}
 	for {
 		select {
 		case <-stop:
@@ -462,12 +468,21 @@ func logAppConvergence(ctx context.Context, c client.Client, name string, stop <
 			if g.ApplicationsTotal == 0 {
 				continue
 			}
-			msg := fmt.Sprintf("%d/%d platform apps Synced + Healthy", g.ApplicationsHealthy, g.ApplicationsTotal)
-			if msg == last {
+			if !started {
+				started = true
+				lastAt = time.Now()
+				logger.Infof("◌ GitOps sync: driving %d platform apps to Synced + Healthy", g.ApplicationsTotal)
 				continue
 			}
-			last = msg
-			logger.Infof("◌ GitOps sync: %s", msg)
+			msg := fmt.Sprintf("%d/%d platform apps Synced + Healthy", g.ApplicationsHealthy, g.ApplicationsTotal)
+			if g.ApplicationsHealthy == g.ApplicationsTotal {
+				logger.Infof("● GitOps sync complete: %s", msg)
+				return
+			}
+			if time.Since(lastAt) >= heartbeatEvery {
+				lastAt = time.Now()
+				logger.Infof("◌ GitOps sync: %s", msg)
+			}
 		}
 	}
 }

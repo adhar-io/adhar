@@ -530,14 +530,23 @@ spec:
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/adhar-preview-environments/kyverno"
-          # Off in the local core (2026-09-19): its PostSync hook starts Tekton
-          # PipelineRuns that build adhar-kit and adhar-ui from source — each measured
-          # at ~1 full CPU core on an 11-core box — and the app only reports Healthy
-          # once those releases finish, so it cannot converge quickly and it steals the
-          # CPU every other app is waiting for. Publishing the libraries is CI work;
-          # enable it when you actually want a local release.
+          # ON in the local core since 2026-09-29, reversing the 2026-09-19 decision
+          # to disable it. It is the only thing that creates adhar/adhar-templates in
+          # Gitea, and the Console's Create New page plus `adhar apps templates` read
+          # that repo — with the package off, a local cluster had no templates at all
+          # and the page showed "No templates available".
+          #
+          # The original reason for disabling it was measured and real: its PostSync
+          # hook pushes adhar-ui and adhar-kit, each push fires the Gitea → Tekton
+          # webhook, and each resulting release build cost ~1 full CPU core on an
+          # 11-core box while the app stayed unhealthy until they finished. That cost
+          # is accepted here as the price of having templates. It is also smaller than
+          # it was: `nexus` is off in this profile, so the release PipelineRuns cannot
+          # publish and fail early rather than building to completion, and the mirror
+          # Jobs no longer burn 20 minutes waiting for a nexus-credentials Secret that
+          # this profile never produces (see manifests/mirror.yaml).
           - name: "adhar-libraries"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/adhar-libraries/manifests"
