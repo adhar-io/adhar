@@ -492,8 +492,16 @@ spec:
             manifestPath: "application/harbor/manifests"
           # Nexus Repository OSS — artefact repository for language packages
           # (Maven/npm/PyPI). Harbor stays OCI-images-only; Nexus owns the rest.
+          #
+          # ON locally since 2026-09-29, because adhar-libraries is: the library
+          # pipelines do not merely PUBLISH to Nexus, they RESOLVE through it. The
+          # `maven` Task carries the nexus-credentials env on its one step and that
+          # step runs build, test AND publish, so with no Secret every Maven pod
+          # died at CreateContainerConfigError and adhar-kit did not build at all
+          # (adhar-ui got further — deno build/test need no credential — and then
+          # failed at publish). Costs 500m CPU / 2Gi memory / 8Gi disk.
           - name: "nexus"
-            enabled: "false"
+            enabled: "true"
             namespace: "adhar-system"
             category: "application"
             manifestPath: "application/nexus/manifests"

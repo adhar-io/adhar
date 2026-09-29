@@ -403,8 +403,10 @@ packages:
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/harbor/manifests"
+  # Enabled 2026-09-29: adhar-libraries resolves Maven and npm THROUGH Nexus, so
+  # without it adhar-kit could not build at all. See adhar-appset-local.yaml.
   - name: "nexus"
-    enabled: "false"
+    enabled: "true"
     namespace: "adhar-system"
     category: "application"
     manifestPath: "application/nexus/manifests"
