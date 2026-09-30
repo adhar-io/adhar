@@ -1,12 +1,13 @@
-# Adhar on AWS for dev.adhar.io — kubeadm on EC2, autoscaled from a small floor.
+# Adhar on AWS — kubeadm on EC2, autoscaled from a small floor.
 #
-# examples/aws-config.yaml keeps the generic version; this file holds the live
-# values for account 821346388607. Credentials are NOT in here (see `providers`).
+# This is the GENERIC version: every value is a placeholder, so change
+# `defaultHost`, `email` and the region before the first run. Credentials are
+# never read from this file (see `providers`).
 #
-#   adhar up   -f config.aws.yaml --env dev --dry-run   # validate, no spend
-#   adhar up   -f config.aws.yaml --env dev             # deploy
-#   adhar down -f config.aws.yaml --env dev             # tear down
-#   adhar down -f config.aws.yaml --env dev --purge-orphaned-volumes
+#   adhar up   -f examples/aws-config.yaml --env dev --dry-run   # validate, no spend
+#   adhar up   -f examples/aws-config.yaml --env dev             # deploy
+#   adhar down -f examples/aws-config.yaml --env dev             # tear down
+#   adhar down -f examples/aws-config.yaml --env dev --purge-orphaned-volumes
 #
 # STATUS: first live bring-up. AWS is built and render-verified; the kubeadm path
 # is shared with DigitalOcean (the one cloud proven live) but has never been run
@@ -31,12 +32,14 @@
 #      cover the WHOLE cluster at maxWorkers, not just the start: 1 control plane +
 #      6 workers of m6i.2xlarge = 56 vCPU. New accounts often start at 5. Raising
 #      it is a support case, not instant.
-#   4. DNS. Verified for this file on 2026-09-26: the public hosted zone
-#      dev.adhar.io exists (Z1026352IPZ05ZEOYFJ7) and its four Route 53
-#      nameservers match what public DNS returns, so delegation is live. Nothing in
-#      the platform creates the zone, and the AWS PROVIDER ITSELF never calls
-#      Route53 — external-dns and the cert-manager DNS-01 solver do, from inside
-#      the cluster.
+#   4. DNS. A public hosted zone for `defaultHost` must already exist, and its
+#      four Route 53 nameservers must match what public DNS returns for that name
+#      — delegation has to be live BEFORE the run, or the ACME DNS-01 challenge
+#      cannot be answered and you get self-signed certificates. Confirm with
+#      `aws route53 list-hosted-zones` and `dig NS <your-host>`. Nothing in the
+#      platform creates the zone, and the AWS PROVIDER ITSELF never calls Route53
+#      — external-dns and the cert-manager DNS-01 solver do, from inside the
+#      cluster.
 
 apiVersion: v1alpha1
 kind: Config
@@ -45,8 +48,8 @@ globalSettings:
   adharContext: adhar-mgmt
 
   # Drives every URL, the zone external-dns manages, and the wildcard
-  # certificate. Apps are published at <app>.dev.adhar.io.
-  defaultHost: dev.adhar.io
+  # certificate. Apps are published at <app>.platform.example.com.
+  defaultHost: platform.example.com
 
   # 443, not 8443. A real load balancer fronts the cloud path, so the local Kind
   # convention of a high port does not apply.
@@ -58,7 +61,7 @@ globalSettings:
   enableHAMode: false
 
   # Required. Let's Encrypt sends expiry notices here.
-  email: tapas.friends@gmail.com
+  email: admin@example.com
 
   # Selects Route53 for external-dns and the cert-manager DNS-01 solver. Set to
   # `none` to stay on self-signed certificates with no DNS automation.
@@ -75,7 +78,7 @@ providers:
     #
     #   export AWS_ACCESS_KEY_ID=...
     #   export AWS_SECRET_ACCESS_KEY=...
-    #   adhar up -f config.aws.yaml --env dev
+    #   adhar up -f examples/aws-config.yaml --env dev
     #
     # `profile: <name>` or `credentialsFile: ~/.aws/credentials` work too.
     useEnvironment: true

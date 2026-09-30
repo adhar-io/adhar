@@ -168,8 +168,16 @@ func (t *StageTracker) setFinal(i int, s stageState) {
 }
 
 // Stop finalises the render and stops the redraw loop.
+// Stop is idempotent: callers may Stop explicitly on a failure path AND hold a
+// `defer tracker.Stop()` for the paths that do not, which is the only way to
+// guarantee the animated block is finalised on EVERY return. Without the guard the
+// second call closed an already-closed channel and panicked.
 func (t *StageTracker) Stop() {
 	t.mu.Lock()
+	if !t.running {
+		t.mu.Unlock()
+		return
+	}
 	t.running = false
 	t.mu.Unlock()
 	if t.isTTY && t.stopCh != nil {

@@ -43,3 +43,21 @@ platform.log
 /adhar
 adhar_debug.log
 .devbox/
+
+# Live provider configs — one per cloud, at the repo root.
+#
+# These hold REAL values: hostnames, account and subscription ids, DNS zone ids,
+# a service-principal client id, an operator's email, and paths to local
+# credential files. This repository is public, so they are deliberately not
+# tracked — publishing them maps an operator's cloud estate for no benefit, and
+# they are personal working files rather than anything the platform needs.
+#
+# The generic, placeholder-only versions ARE tracked, in examples/:
+#   examples/{aws,azure,gcp,digitalocean,civo}-config.yaml
+# plus examples/config.yaml, the annotated master template. Docs and tests point
+# at those, never at the files below.
+config.aws.yaml
+config.azure.yaml
+config.gcp.yaml
+config.digitalocean.yaml
+config.civo.yaml

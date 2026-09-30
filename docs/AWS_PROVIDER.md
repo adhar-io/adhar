@@ -121,7 +121,7 @@ aws service-quotas get-service-quota --service-code ec2 --quota-code L-1216C47A 
   --query 'Quota.Value' --output text
 ```
 
-For the shipped `config.aws.yaml` — one control plane plus up to 6 workers of
+For the shipped `examples/aws-config.yaml` — one control plane plus up to 6 workers of
 `m6i.2xlarge` (8 vCPU each) — that is **56 vCPU**. New accounts often start at 5.
 Request the increase before the first run; it is not instant.
 
@@ -503,8 +503,8 @@ account that cannot create anything.
 ```bash
 export AWS_ACCESS_KEY_ID="…" AWS_SECRET_ACCESS_KEY="…"
 
-./adhar up -f config.aws.yaml --env dev --dry-run   # config only, no spend
-./adhar up -f config.aws.yaml --env dev             # ~25-40 min on a first run
+./adhar up -f examples/aws-config.yaml --env dev --dry-run   # config only, no spend
+./adhar up -f examples/aws-config.yaml --env dev             # ~25-40 min on a first run
 
 export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
 ./adhar get status
@@ -513,11 +513,11 @@ export KUBECONFIG=~/.adhar/clusters/dev/kubeconfig
 Teardown:
 
 ```bash
-./adhar down -f config.aws.yaml --env dev
+./adhar down -f examples/aws-config.yaml --env dev
 
 # Also delete unattached CSI volumes that carry no cluster tag at all.
 # Works whether or not the cluster still exists.
-./adhar down -f config.aws.yaml --env dev --purge-orphaned-volumes
+./adhar down -f examples/aws-config.yaml --env dev --purge-orphaned-volumes
 ```
 
 **Point `down` at the same file you brought it up with.** A teardown can only see

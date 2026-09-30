@@ -138,6 +138,17 @@ func (lp *LocalProvisioner) Provision(ctx context.Context, args []string) error 
 	}
 	tracker := helpers.NewStageTracker(os.Stderr, "Provisioning Adhar platform", stages, !lp.options.Verbose)
 	tracker.Start()
+	// Finalise the animated block on EVERY return, not just the ones that remember.
+	//
+	// Several error paths returned without stopping it — including the bootstrap
+	// wait timing out, the one a user actually hit. The block was left live, the
+	// caller's ERROR line was then written straight to stderr, and because render()
+	// repositions by counting the lines it last drew, that write desynchronised the
+	// count and orphaned a copy of the whole checklist: two "Provisioning Adhar
+	// platform" headers, 18s apart, one of them truncated. Stop is idempotent, so
+	// the explicit Fail+Stop calls below still report the failing stage and this
+	// only catches what they miss.
+	defer tracker.Stop()
 
 	// Show the provisioning log again, ABOVE the checklist.
 	//
@@ -438,20 +449,35 @@ func watchAppsBudget(ctx context.Context, c client.Client, name string, budget, 
 // so its presence is a reliable "ArgoCD has been seeded" signal, and its absence
 // means the run was interrupted or the manager died before that point.
 func verifyPlatformProvisioned(ctx context.Context, c client.Client, name string) error {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	// 60s, not 15s. This runs immediately after a full GitOps sync on what may be a
+	// single-node cluster sharing one machine with every platform pod, and a busy
+	// API server can take a while to answer even a single GET. At 15s a loaded
+	// laptop failed the whole run — "bootstrap did not complete … context deadline
+	// exceeded" — on a cluster whose repos had been seeded twelve minutes earlier.
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	var last error
+	unreachable := false
 	for {
 		var lb v1alpha1.AdharPlatform
 		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: globals.AdharSystemNamespace}, &lb); err != nil {
-			last = err
+			last, unreachable = err, true
 		} else if lb.Status.Gitea.RepositoriesCreated {
 			return nil
 		} else {
-			last = fmt.Errorf("GitOps repositories were not seeded before the controller stopped")
+			last, unreachable = fmt.Errorf("GitOps repositories were not seeded before the controller stopped"), false
 		}
 		select {
 		case <-ctx.Done():
+			// Two different outcomes, and conflating them told the user their
+			// bootstrap had failed when what actually happened was that a loaded
+			// API server stopped answering. Never seeing the resource is NOT
+			// evidence the handoff did not happen; being able to read it and
+			// finding the flag unset is.
+			if unreachable {
+				return fmt.Errorf("could not reach the cluster to confirm the GitOps handoff (%v) — "+
+					"the platform is most likely fine and ArgoCD keeps converging; check with `adhar get status`", last)
+			}
 			return fmt.Errorf("bootstrap did not complete (%v) — re-run `adhar up` to resume", last)
 		case <-time.After(2 * time.Second):
 		}

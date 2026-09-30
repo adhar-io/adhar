@@ -93,7 +93,7 @@ southeastasia, eastasia, centralindia, southindia, eastus, westus2, westeurope,
 uksouth, australiaeast and japaneast alike. Four vCPUs cannot host this platform.
 
 Size the request against the cluster's **maximum**, not its starting node count.
-For the shipped `config.azure.yaml` — one control plane plus up to 6 workers of
+For the shipped `examples/azure-config.yaml` — one control plane plus up to 6 workers of
 `Standard_D8s_v3` at 8 vCPU each — that is **56 vCPU**. Ask for 64 to leave room.
 
 Sizing to the floor is the subtle version of this mistake: the cluster boots on 2

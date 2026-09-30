@@ -118,8 +118,13 @@ func TestConfirmationNamesTheTargetCloudsResources(t *testing.T) {
 	// synthetic one: the value comes from ResolvedEnvironments, so a fixture that
 	// omits whatever ResolveEnvironments needs silently falls back to the generic
 	// wording and the test would pass while proving nothing.
+	//
+	// The fixture is the SHIPPED example, not an operator's live config. These
+	// read ../../config.aws.yaml and ../../config.azure.yaml until 2026-09-30 —
+	// files that hold one person's real account, and which the test suite then
+	// depended on nobody editing or deleting.
 	t.Run("azure names Azure resources", func(t *testing.T) {
-		got := teardownResourceSummary("../../config.azure.yaml", "dev")
+		got := teardownResourceSummary("../../examples/azure-config.yaml", "dev")
 		for _, want := range []string{"virtual machines", "managed disks", "network security group", "resource group"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("Azure summary is missing %q: %s", want, got)
@@ -134,9 +139,9 @@ func TestConfirmationNamesTheTargetCloudsResources(t *testing.T) {
 	})
 
 	t.Run("kind says no cloud resources", func(t *testing.T) {
-		// config.yaml is the local Kind default; promising to delete load
+		// examples/config.yaml defaults to local Kind; promising to delete load
 		// balancers and a VPC there is simply untrue.
-		got := teardownResourceSummary("../../config.yaml", "")
+		got := teardownResourceSummary("../../examples/config.yaml", "")
 		if !strings.Contains(got, "no cloud resources") {
 			t.Errorf("Kind summary = %s", got)
 		}
@@ -269,7 +274,7 @@ func TestTeardownCaptureOfStdoutNeverBlocks(t *testing.T) {
 // practice — a teardown aimed at one AWS account while the operator was thinking
 // of another. So the prompt names the provider and region too.
 func TestConfirmationNamesWhereItWillAct(t *testing.T) {
-	got := teardownTargetDescription("../../config.aws.yaml", "dev")
+	got := teardownTargetDescription("../../examples/aws-config.yaml", "dev")
 	for _, want := range []string{"aws", "ap-southeast-1"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("target description should name %q, got %q", want, got)
@@ -292,7 +297,7 @@ func TestConfirmationTargetIsBestEffort(t *testing.T) {
 // Every environment in the file, when none is named — the scope line says
 // "EVERY environment", so the target must match that breadth.
 func TestConfirmationTargetCoversEveryEnvironmentWhenUnscoped(t *testing.T) {
-	got := teardownTargetDescription("../../config.aws.yaml", "")
+	got := teardownTargetDescription("../../examples/aws-config.yaml", "")
 	if got == "" {
 		t.Fatal("an unscoped teardown should still name its providers")
 	}

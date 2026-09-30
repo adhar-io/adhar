@@ -330,8 +330,18 @@ data:
   server.rbac.log.enforce.enable: "false"
   statusbadge.enabled: "false"
   timeout.hard.reconciliation: 0s
-  timeout.reconciliation: 120s
-  timeout.reconciliation.jitter: 15s
+  # 30s + 10s jitter, matching install-ha.yaml. This is how long an Application
+  # that needs ANOTHER comparison pass idles before ArgoCD looks again, and the
+  # platform is full of two-pass apps: CRDs then the CRs that need them, an
+  # ExternalSecret then the Secret it projects, Keycloak's client Job then the
+  # ~12 consumers waiting on `keycloak-clients`. At 120s+15s each of those waits
+  # cost up to 135s of pure idle, so the sync tail was dominated by waiting
+  # rather than work — and the HA rendering had already been tuned to 30s, which
+  # left the DEFAULT (non-HA) path more than three times slower than the heavier
+  # one it is derived from. 30s is proven at the larger scale: HA runs it against
+  # the 76-app production profile.
+  timeout.reconciliation: 30s
+  timeout.reconciliation.jitter: 10s
   url: https://argocd.{{ .Host }}{{ .PortSuffix }}
 ---
 # Source: argo-cd/templates/argocd-configs/argocd-cmd-params-cm.yaml
@@ -363,6 +373,22 @@ data:
   commitserver.log.format: text
   commitserver.log.level: info
   controller.ignore.normalizer.jq.timeout: 1s
+  # 4, and do NOT raise it without measuring on the smallest target.
+  #
+  # Upstream defaults to 20 and install-ha.yaml leaves it unset, so this looks like
+  # an oversight. It is not. This same file installs ArgoCD on a single-node Kind
+  # cluster, where the application-controller, every platform pod and the API server
+  # share one machine — raising it to 16 (2026-09-30) made the local bring-up FAIL
+  # rather than speed up: the sync reached 6 of 17 apps and then the API server
+  # stopped answering, `context deadline exceeded` on a plain GET, and the whole
+  # provisioning aborted after 13 minutes. Serialised applies are slow; a
+  # non-responsive API server is a dead cluster.
+  #
+  # The GitOps phase here is dominated by waiting on dependencies (see
+  # timeout.reconciliation below), not by apply concurrency, so this is the wrong
+  # knob for that problem anyway. If it is ever raised, it has to become
+  # provider-aware — a cloud control plane can take 16, a laptop cannot — which
+  # needs a field on BuildCustomizationSpec, not a bigger constant here.
   controller.kubectl.parallelism.limit: "4"
   controller.log.format: text
   controller.log.level: info

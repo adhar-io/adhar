@@ -1,0 +1,160 @@
+# Adhar on Civo — a complete, working configuration.
+#
+# This is the whole file. Copy it, change `defaultHost`, `email` and `region`,
+# and run:
+#
+#   export CIVO_TOKEN="…"
+#   adhar up -f examples/civo-config.yaml --env dev --dry-run   # validate, no spend
+#   adhar up -f examples/civo-config.yaml --env dev             # deploy
+#   adhar down -f examples/civo-config.yaml --env dev           # tear down
+#
+# Everything the platform installs (Cilium, the Gateway, ArgoCD, Gitea,
+# Crossplane and the stack packages) comes from the repository, not from here.
+# This file only describes the CLUSTER: where it runs, how big it starts, and
+# how far it may grow.
+#
+# Instance sizes and image names differ per region. Confirm them with
+# `civo instance size` and `civo diskimage ls` before the first run rather than
+# trusting the values below — a size that does not exist in your region fails at
+# create time, after the network and firewall already exist.
+#
+# See docs/CIVO_PROVIDER.md for the field reference and day-2 guide.
+
+globalSettings:
+  adharContext: adhar-mgmt              # kube-context name prefix and Cilium cluster name
+  defaultHost: platform.example.com     # every platform URL derives from this
+  defaultHttpPort: 80
+  defaultHttpsPort: 443                 # 443 behind a cloud LB, so URLs carry no port
+  enableHAMode: true                    # ArgoCD x2 + redis-ha x3, CNPG 2 instances, PDBs
+  email: admin@example.com              # Let's Encrypt (ACME) account
+
+providers:
+  civo:
+    type: civo
+    region: LON1                        # LON1 / NYC1 / FRA1 / PHX1 — see `civo region ls`
+    primary: true                       # only the primary cloud's Crossplane providers are installed
+    useEnvironment: true                # read the token from CIVO_TOKEN
+    # token: "…"                        # or inline — avoid in a committed file
+    # tokenFile: /path/to/token         # or from disk
+    config:
+      cluster_mode: compute             # kubeadm on plain Civo instances (the default and the
+                                        # path the platform is designed around). "k3s" opts into
+                                        # Civo's managed Kubernetes instead; everything above the
+                                        # cluster is unchanged.
+      network_label: adhar-network
+      reuse_existing_network: true      # reuse a network with a matching CIDR instead of creating one
+      cidr: 10.7.0.0/16                 # must not overlap a cluster you intend to mesh with
+      size: g3.xlarge                   # default size for nodes this provider creates
+      disk_image: ubuntu-24.04
+      default_node_count: 3
+      tags:                             # applied to every instance, on top of the per-cluster tag
+        - adhar
+        - adhar-mgmt
+      # purge_orphaned_volumes: true    # let teardown also remove unattached pvc-* volumes that no
+                                        # other cluster claims. Off by default and never inferred:
+                                        # an unattached CSI volume looks identical whether its
+                                        # cluster is gone or is being rebuilt, so it is your call.
+                                        # Prefer the flag: `adhar down --purge-orphaned-volumes`.
+
+# Templates exist to share defaults between environments. Both keys below are
+# REQUIRED by config validation even though neither installs anything on this
+# path: the foundation ships as embedded manifests, so the chart coordinates
+# here are recorded, printed by --dry-run, and otherwise inert. Do not spend
+# time tuning them.
+environmentTemplates:
+  nonprod-defaults:
+    clusterConfig:
+      - key: autoScale
+        value: "true"
+    coreServices:
+      cilium:
+        chart:
+          repoURL: https://helm.cilium.io/
+          name: cilium
+          version: 1.15.7
+
+# `adhar up -f <file>` with no --env provisions EVERY environment listed here,
+# so keep this list to environments you actually want. A leftover sample block
+# sized for another cloud will create an orphan instance and then fail.
+environments:
+  dev:
+    type: non-production
+    provider: civo
+    template: nonprod-defaults
+    clusterConfig:
+      - key: name
+        value: adhar-mgmt               # platform/tag name; the CLUSTER is named after the environment ("dev")
+      - key: nodeSize
+        value: g3.xlarge                # overrides the provider's `size` for this environment
+      - key: nodeCount
+        value: "3"                      # workers at creation; the autoscaler grows from here
+      # - key: kubeVersion
+      #   value: v1.37.0                # pin Kubernetes for this environment
+      # - key: podCIDR
+      #   value: 10.244.0.0/16          # must differ per cluster if you mesh them
+      # - key: clusterMeshId
+      #   value: "1"                    # Cilium cluster ID (1-255), unique per meshed cluster
+      # NOTE: there is deliberately no `oidcAuth` key here. Letting
+      # `adhar auth login` produce a token kubectl accepts requires --oidc-* flags
+      # on the kube-apiserver, and those CANNOT be set while `kubeadm init` runs:
+      # the issuer (this platform's own Keycloak) does not exist yet, so the
+      # apiserver fails to start and provisioning aborts. Setting the key is
+      # rejected with that explanation. Enable it as a day-2 step —
+      # docs/CIVO_PROVIDER.md, "kubectl with your platform identity".
+
+    autoscaling:
+      enabled: true
+      minWorkers: 3
+      maxWorkers: 6
+      # Everything below is optional; these are the defaults.
+      nodeGroup: workers
+      scaleDownUtilizationThreshold: "50%"
+      scaleDownDelay: 10m
+      scaleUpCooldown: 3m
+
+# ---------------------------------------------------------------------------
+# A note on storage, because it decides how many workers you need
+#
+# The default StorageClass on every self-managed cloud is `adhar-local`
+# (local-path-provisioner), NOT the cloud's block class. A block volume occupies
+# one of the instance's data-disk attach slots and that budget is small, while
+# the enabled packages ask for far more PersistentVolumeClaims than a handful of
+# nodes can attach. Sizing for block storage meant buying CPU nobody needed just
+# to get attach slots.
+#
+# So platform volumes live on the node filesystem, `adhar-block` stays installed
+# but demoted, and anything that genuinely needs a block device (or a volume
+# larger than a node's filesystem) names `adhar-block` explicitly. A node-local
+# volume does not survive its node — durability is CNPG replication plus backups
+# into the object store.
+#
+# If you see `exceed max volume count` on Pending pods, something is still asking
+# for `adhar-block`; that message is an attach-slot shortage, never a CPU one.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Agentic capabilities (Adhar AI)
+#
+# Two steps, and NEITHER puts the LLM key in this file — git carries pointers,
+# the secrets backend carries values (ADR-0009):
+#
+#   1. Enable the two AI packages for the environment. They go together:
+#      `adhar-ai` is the agent layer, `agentgateway` serves its LLM + MCP
+#      endpoints, and adhar-ai has no LLM path of its own.
+#
+#        platform/stack/adhar-appset-production.yaml   (and the mirrored
+#        platform/stack/environments/production/config.yaml)
+#          - name: "adhar-ai"      -> enabled: "true"
+#          - name: "agentgateway"  -> enabled: "true"
+#
+#   2. After `adhar up`, seed the key. ESO projects it with no redeploy:
+#
+#        export ADHAR_AI_LLM_API_KEY='sk-ant-...'
+#        hack/seed-adhar-ai-llm.sh                       # Anthropic (default)
+#        ADHAR_AI_LLM_PROVIDER=openrouter \
+#          hack/seed-adhar-ai-llm.sh                     # OpenRouter / OpenAI-compatible
+#
+# Enabling the packages WITHOUT a key is a supported state: the seven MCP tool
+# servers and the agent runtime come up and report themselves unkeyed, and
+# nothing else on the platform is affected.
+# ---------------------------------------------------------------------------

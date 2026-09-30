@@ -1,13 +1,13 @@
-# Adhar on Azure for test.adhar.io — kubeadm on Virtual Machines, autoscaled.
+# Adhar on Azure — kubeadm on Virtual Machines, autoscaled.
 #
-# examples/azure-config.yaml keeps the generic version; this file holds the live
-# values for subscription b8e6d308-0e08-4287-885f-a4766f295f13. No credentials
-# are in here: it authenticates through your existing `az login`.
+# This is the GENERIC version: every value is a placeholder, so change
+# `defaultHost`, `email` and the region before the first run. Credentials are
+# never read from this file (see `providers`).
 #
-#   adhar up   -f config.azure.yaml --env dev --dry-run   # validate, no spend
-#   adhar up   -f config.azure.yaml --env dev             # deploy
-#   adhar down -f config.azure.yaml --env dev             # tear down
-#   adhar down -f config.azure.yaml --env dev --purge-orphaned-volumes
+#   adhar up   -f examples/azure-config.yaml --env dev --dry-run   # validate, no spend
+#   adhar up   -f examples/azure-config.yaml --env dev             # deploy
+#   adhar down -f examples/azure-config.yaml --env dev             # tear down
+#   adhar down -f examples/azure-config.yaml --env dev --purge-orphaned-volumes
 #
 # STATUS: first live bring-up. Azure is built and render-verified; the kubeadm path
 # is shared with DigitalOcean (the one cloud proven live) but has never run on
@@ -23,7 +23,7 @@
 #     were trying to create:
 #       az provider register --namespace Microsoft.Compute
 #       az provider register --namespace Microsoft.Storage
-#   ✓ DNS. The `test.adhar.io` zone exists in resource group `adhar-rg` and its four
+#   ✓ DNS. The `platform.example.com` zone exists in resource group `adhar-rg` and its four
 #     Azure nameservers match what public DNS returns, so delegation is live.
 #     Nothing in the platform creates the zone.
 #   ~ QUOTA — 20 vCPU in centralindia, still below what the platform needs.
@@ -52,8 +52,8 @@ globalSettings:
   adharContext: adhar-mgmt
 
   # Drives every URL, the zone external-dns manages, and the wildcard certificate.
-  # Apps are published at <app>.test.adhar.io.
-  defaultHost: test.adhar.io
+  # Apps are published at <app>.platform.example.com.
+  defaultHost: platform.example.com
 
   # 443, not 8443. A real load balancer fronts the cloud path, so the local Kind
   # convention of a high port does not apply.
@@ -64,7 +64,7 @@ globalSettings:
   enableHAMode: false
 
   # Required. Let's Encrypt sends expiry notices here.
-  email: tapas.friends@gmail.com
+  email: admin@example.com
 
   # Selects Azure DNS for external-dns and the cert-manager DNS-01 solver.
   # Set to `none` to stay on self-signed certificates with no DNS automation.
@@ -81,10 +81,10 @@ providers:
     #
     # NOTE for the in-cluster half: external-dns and the cert-manager DNS-01 solver
     # run inside the cluster and cannot use your CLI session. They need a service
-    # principal with "DNS Zone Contributor" on the test.adhar.io zone. Create one
+    # principal with "DNS Zone Contributor" on the platform.example.com zone. Create one
     # when you want trusted certificates:
     #   az ad sp create-for-rbac --name adhar-dns --role "DNS Zone Contributor" \
-    #     --scopes /subscriptions/<sub>/resourceGroups/adhar-rg/providers/Microsoft.Network/dnszones/test.adhar.io
+    #     --scopes /subscriptions/<sub>/resourceGroups/adhar-rg/providers/Microsoft.Network/dnszones/platform.example.com
     useAzureCLI: true
 
     # The in-cluster DNS components cannot use a CLI session, so they need a service
@@ -92,13 +92,13 @@ providers:
     # environment and never written here:
     #
     #   export AZURE_CLIENT_SECRET='...'
-    #   adhar up -f config.azure.yaml --env dev
+    #   adhar up -f examples/azure-config.yaml --env dev
     #
     # Created with DNS Zone Contributor on the zone ALONE, not on the subscription:
     #   az ad sp create-for-rbac --name adhar-dns-test --role "DNS Zone Contributor" \
-    #     --scopes /subscriptions/<sub>/resourceGroups/adhar-rg/providers/Microsoft.Network/dnszones/test.adhar.io
-    clientId: 66483720-42ae-4f05-82a6-e3d75db21412
-    tenantId: c95747c3-18ed-485f-9889-34c2ffd38528
+    #     --scopes /subscriptions/<sub>/resourceGroups/adhar-rg/providers/Microsoft.Network/dnszones/platform.example.com
+    clientId: 00000000-0000-0000-0000-000000000000
+    tenantId: 11111111-1111-1111-1111-111111111111
 
     # Managed AKS instead of kubeadm on VMs. Everything else — packages, GitOps,
     # SSO, autoscaling, teardown — behaves the same either way. Left off because
@@ -106,9 +106,9 @@ providers:
     # useManagedK8s: true
 
     config:
-      subscriptionId: b8e6d308-0e08-4287-885f-a4766f295f13
+      subscriptionId: 22222222-2222-2222-2222-222222222222
 
-      # The resource group holding the test.adhar.io DNS ZONE. external-dns and the
+      # The resource group holding the platform.example.com DNS ZONE. external-dns and the
       # cert-manager DNS-01 solver need it, and it is not necessarily the group the
       # cluster lives in.
       dnsResourceGroup: adhar-rg

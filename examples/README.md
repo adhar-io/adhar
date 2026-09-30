@@ -29,7 +29,8 @@ Two things are true of all of them:
 | `vcluster.yaml` | CompositeCluster | A virtual workload cluster registered as a DataPlane of this hub |
 | `preview-environments-appset.yaml` | ApplicationSet | Per-PR preview environments (superseded by the `adhar-preview-environments` package — see the file header) |
 | `auth-config.yaml` | — | `adhar auth configure` input (Keycloak realm/roles) |
-| `gcp-config.yaml`, `digitalocean-config.yaml` | — | `adhar up -f` cluster configurations for those clouds |
+| `config.yaml` | — | the annotated master template: every provider, commented out, plus the four config layers |
+| `aws-config.yaml`, `azure-config.yaml`, `gcp-config.yaml`, `digitalocean-config.yaml`, `civo-config.yaml` | — | `adhar up -f` cluster configuration, one per cloud. Every value is a placeholder — change `defaultHost`, `email` and the region before the first run. Credentials are never read from these files. |
 
 ## Walk-through: a team's first service
 
